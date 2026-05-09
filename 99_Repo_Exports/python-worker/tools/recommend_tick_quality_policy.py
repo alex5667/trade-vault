@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Recommend tick-quality policy & alert thresholds from Step13 smoke JSON.
 
 Step 14 goal
@@ -40,7 +41,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -53,14 +54,14 @@ def _safe_div(num: float, den: float) -> float:
     return float(num) / float(den)
 
 
-def _load_json(path: str) -> Dict[str, Any]:
+def _load_json(path: str) -> dict[str, Any]:
     if path == "-":
         return json.loads(sys.stdin.read())
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
-def _get_ticks(smoke: Dict[str, Any]) -> Dict[str, Any]:
+def _get_ticks(smoke: dict[str, Any]) -> dict[str, Any]:
     t = smoke.get("ticks")
     if isinstance(t, dict) and "n" in t:
         return t
@@ -73,7 +74,7 @@ def _get_ticks(smoke: Dict[str, Any]) -> Dict[str, Any]:
     raise ValueError("Invalid smoke JSON: missing top-level 'ticks' summary")
 
 
-def _extract_shares(ticks: Dict[str, Any]) -> Dict[str, float]:
+def _extract_shares(ticks: dict[str, Any]) -> dict[str, float]:
     n = float(ticks.get("n") or 0)
     by_sc = ticks.get("by_side_conf") or {}
     by_ts = ticks.get("by_ts_source") or {}
@@ -103,7 +104,7 @@ def _extract_shares(ticks: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
-def _extract_p99_skew_ms(ticks: Dict[str, Any]) -> float:
+def _extract_p99_skew_ms(ticks: dict[str, Any]) -> float:
     skew = ticks.get("abs_event_stream_skew") or {}
     try:
         return float(skew.get("p99_ms") or 0.0)
@@ -111,7 +112,7 @@ def _extract_p99_skew_ms(ticks: Dict[str, Any]) -> float:
         return 0.0
 
 
-def _recommend_unknown_side_policy(n: int, unknown_share: float) -> Tuple[str, Optional[float], str]:
+def _recommend_unknown_side_policy(n: int, unknown_share: float) -> tuple[str, float | None, str]:
     """Return (policy, quarantine_sample, rationale)."""
     if n < 1000:
         return ("ignore_delta", None, "low_sample_n<1000")
@@ -133,7 +134,7 @@ def _recommend_max_ts_skew_ms(p99_skew_ms: float) -> int:
     return int(_clamp(p99_skew_ms * 2.0, 2000.0, 60000.0))
 
 
-def _recommend_alert_thresholds(unknown_share: float, wall_ts_share: float, max_ts_skew_ms: int) -> Dict[str, float]:
+def _recommend_alert_thresholds(unknown_share: float, wall_ts_share: float, max_ts_skew_ms: int) -> dict[str, float]:
     # Unknown-side: tighten around observed levels, but with safe floors.
     warn_unknown = float(_clamp(max(0.03, unknown_share * 1.5), 0.03, 0.30))
     crit_unknown = float(_clamp(max(0.07, unknown_share * 2.0), 0.07, 0.40))
@@ -165,7 +166,7 @@ def _recommend_alert_thresholds(unknown_share: float, wall_ts_share: float, max_
     }
 
 
-def _render_prometheus_rules(th: Dict[str, float]) -> str:
+def _render_prometheus_rules(th: dict[str, float]) -> str:
     # Render as plain YAML string (no external YAML dependency).
     # PromQL uses clamp_min to avoid division by zero.
     u_warn = th["unknown_warn"]
@@ -258,7 +259,7 @@ def _render_prometheus_rules(th: Dict[str, float]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def compute_recommendation(smoke: Dict[str, Any]) -> Dict[str, Any]:
+def compute_recommendation(smoke: dict[str, Any]) -> dict[str, Any]:
     ticks = _get_ticks(smoke)
     n = int(ticks.get("n") or 0)
     shares = _extract_shares(ticks)
@@ -270,7 +271,7 @@ def compute_recommendation(smoke: Dict[str, Any]) -> Dict[str, Any]:
     max_ts_skew_ms = _recommend_max_ts_skew_ms(p99_skew_ms)
     th = _recommend_alert_thresholds(unknown_share, wall_ts_share, max_ts_skew_ms)
 
-    env: Dict[str, Any] = {
+    env: dict[str, Any] = {
         "CRYPTO_OF_UNKNOWN_SIDE_POLICY": policy,
         "CRYPTO_OF_MAX_TS_SKEW_MS": int(max_ts_skew_ms),
     }
@@ -295,7 +296,7 @@ def compute_recommendation(smoke: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _print_env(env: Dict[str, Any]) -> None:
+def _print_env(env: dict[str, Any]) -> None:
     for k in sorted(env.keys()):
         v = env[k]
         if isinstance(v, float):
@@ -304,7 +305,7 @@ def _print_env(env: Dict[str, Any]) -> None:
             sys.stdout.write(f"{k}={v}\n")
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Recommend tick-quality policy & Prometheus alerts from smoke JSON")
     ap.add_argument("--smoke", required=True, help="Path to Step13 smoke JSON (or '-' for stdin)")
     ap.add_argument("--format", choices=["pretty", "json", "env", "yaml"], default="pretty", help="Output format")
@@ -318,7 +319,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         sys.stderr.write(f"ERROR: {e}\n")
         return 2
 
-    yaml_rules = str(rec.get("prometheus_rules_yaml") or "")
+    yaml_rules = (rec.get("prometheus_rules_yaml") or "")
 
     if args.out:
         try:

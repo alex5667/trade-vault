@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Tuple
+from typing import Any
 
 
 def _crypto_conf_factor(
-    ctx: "SignalContext",
+    ctx: SignalContext,
     signal_kind: str,
     *,
     side: str | None = None,
-) -> Tuple[float, Dict[str, float] | None]:
+) -> tuple[float, dict[str, float] | None]:
     """
     Returns confidence in [0..1] + parts dict.
 
@@ -34,10 +34,10 @@ def _crypto_conf_factor(
         try:
             v = getattr(ctx, name, default)
             if v is None:
-                return float(default)
+                return default
             return float(v)
         except Exception:
-            return float(default)
+            return default
 
     def _sat(raw: float, cap: float) -> float:
         # smooth saturation (diminishing returns)
@@ -45,7 +45,7 @@ def _crypto_conf_factor(
         raw = max(float(raw), 0.0)
         return cap * (1.0 - math.exp(-raw / cap))
 
-    parts: Dict[str, float] = {}
+    parts: dict[str, float] = {}
 
     # -----------------------------
     # 0) signal kind / market mode
@@ -305,7 +305,7 @@ def _crypto_conf_factor(
         "sweep_eql",
     }
 
-    flags: Dict[str, str] = {}
+    flags: dict[str, str] = {}
 
     def _put(k: str, v: str = "1") -> None:
         k = (k or "").strip()
@@ -357,7 +357,7 @@ def _crypto_conf_factor(
     if side is None:
         side = str(getattr(ctx, "side", "") or getattr(ctx, "direction", "") or "").upper()
     else:
-        side = str(side or "").upper()
+        side = (side or "").upper()
     if side not in {"LONG", "SHORT"}:
         side = "UNKNOWN"
     parts["side_long"] = 1.0 if side == "LONG" else 0.0
@@ -456,7 +456,7 @@ def _crypto_conf_factor(
                     maybe = tuning.get("anti_corr")
                     if isinstance(maybe, dict):
                         t_ac_map = {k: v for k, v in maybe.items() if not isinstance(v, dict)}
-                
+
                 if key in t_ac_map:
                     m2 = float(t_ac_map[key])
                     return default_mult * max(0.0, min(m2, 1.0))
@@ -687,7 +687,7 @@ class ConfidenceScorer:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def score(self, kind: str, side: str, ctx: Any) -> Tuple[float, Dict[str, float] | None]:
+    def score(self, kind: str, side: str, ctx: Any) -> tuple[float, dict[str, float] | None]:
         # P1-4 fix: pass side as explicit kwarg — no monkey-patch dependency.
         # Still inject into ctx/evidence for downstream consumers (gates, diagnostics)
         # that may read ctx.side or evidence["side"] directly.

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import contextlib
 
 
 @pytest.fixture(autouse=True)
@@ -98,10 +99,8 @@ async def test_process_tick_of_build_timeout_fail_open_and_veto(caplog):
     tp._emit_early_veto_decision_record = AsyncMock()
 
     def _close_task(coro, name=None):
-        try:
+        with contextlib.suppress(Exception):
             coro.close()
-        except Exception:
-            pass
         return None
 
     raw_timeout_metric = MagicMock()

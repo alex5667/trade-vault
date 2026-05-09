@@ -1,5 +1,5 @@
-import pytest
 from services.orderflow.decision_record_v1 import extract_fields_best_effort
+
 
 def test_extract_ml_fields():
     stub = {

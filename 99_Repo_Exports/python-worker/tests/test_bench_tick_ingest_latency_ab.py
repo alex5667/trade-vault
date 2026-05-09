@@ -1,7 +1,6 @@
 import unittest
 
-from tools.bench_tick_ingest_latency_ab import parse_histogram, hist_delta, quantile_from_buckets
-
+from tools.bench_tick_ingest_latency_ab import hist_delta, parse_histogram, quantile_from_buckets
 
 SAMPLE1 = """
 # TYPE tick_ingest_process_ms histogram

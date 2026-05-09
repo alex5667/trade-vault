@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Regression: PositionLeg policy — pure-math invariants (merge-blocker).
 
@@ -14,8 +14,8 @@ Run:
     cd python-worker && python -m pytest tests/test_position_leg_policy_math.py -v
 """
 
-import math
 import pytest
+
 from services.position_leg_policy import (
     PositionLeg,
     blended_entry_price,
@@ -23,7 +23,6 @@ from services.position_leg_policy import (
     max_add_qty_for_budget,
     worst_case_loss_usdt,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

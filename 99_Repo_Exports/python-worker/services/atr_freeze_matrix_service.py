@@ -1,7 +1,7 @@
-import time
-from typing import Dict, Any, List, Optional
 import hashlib
-from datetime import datetime, timezone, timedelta
+import time
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 FREEZE_PRECEDENCE = {
     "clip": 10,
@@ -26,7 +26,7 @@ class ATRFreezeMatrixService:
         return FREEZE_PRECEDENCE.get(freeze_state, 0)
 
     def resolve_freeze_state(self, trigger_kind: str, scope_kind: str, severity: str,
-                             available_policies: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+                             available_policies: list[dict[str, Any]]) -> dict[str, Any] | None:
         """
         Find the matching policy from the catalog.
         """
@@ -39,9 +39,9 @@ class ATRFreezeMatrixService:
                     return p
         return None
 
-    def evaluate_trigger(self, trigger: Dict[str, Any],
-                         active_freezes: List[Dict[str, Any]],
-                         available_policies: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def evaluate_trigger(self, trigger: dict[str, Any],
+                         active_freezes: list[dict[str, Any]],
+                         available_policies: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Takes a trigger and the current list of active freezes, evaluates precedence,
         and either creates a new freeze or escalates an existing one.
@@ -58,7 +58,7 @@ class ATRFreezeMatrixService:
 
         target_freeze_state = policy["freeze_state"]
         ttl_sec = policy.get("ttl_sec", 3600)
-        
+
         target_precedence = self._get_precedence(target_freeze_state)
 
         # Check existing freezes for the same scope
@@ -78,7 +78,7 @@ class ATRFreezeMatrixService:
         # We assign recovery dwell time: standard hysteresis delay is half of TTL, but capped at 1 hour
         hysteresis_seconds = min(ttl_sec // 2, 3600)
 
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         expires_at_dt = now_utc + timedelta(seconds=ttl_sec)
         recovery_dt = now_utc + timedelta(seconds=hysteresis_seconds)
 
@@ -99,7 +99,7 @@ class ATRFreezeMatrixService:
         else:
             # Ascend to harder freeze state
             new_id = existing_freeze_id or hashlib.sha1(f"{trigger_kind}|{scope_kind}|{scope_value}|{now_ts}".encode()).hexdigest()[:20]
-            
+
             return {
                 "status": "escalated" if existing_freeze_id else "created",
                 "freeze_id": new_id,
@@ -122,7 +122,7 @@ class ATRFreezeMatrixService:
                 }
             }
 
-    def generate_redis_keys(self, active_freezes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def generate_redis_keys(self, active_freezes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Translate active freezes into Redis keys for runtime consumption
         """
@@ -130,7 +130,7 @@ class ATRFreezeMatrixService:
         for freeze in active_freezes:
             if freeze["status"] == "released":
                 continue
-            
+
             scope = f"{freeze['scope_kind']}:{freeze['scope_value']}"
             state = freeze["freeze_state"]
 
@@ -140,7 +140,7 @@ class ATRFreezeMatrixService:
                     "key": f"cfg:atr_degrade:{scope}",
                     "value": {"state": state, "freeze_id": freeze["freeze_id"], "advisory": self.advisory_only}
                 })
-            
+
             if state in ["promotions_frozen", "release_frozen"]:
                 redis_updates.append({
                     "key": f"cfg:atr_promotion_freeze:{scope}",

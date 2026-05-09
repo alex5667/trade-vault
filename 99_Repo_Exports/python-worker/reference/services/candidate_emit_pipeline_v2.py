@@ -1,34 +1,32 @@
-from utils.time_utils import get_ny_time_millis
-import os
-import time
-import uuid
-import json
 import hashlib
-from dataclasses import dataclass
-from dataclasses import field
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
+import json
+import os
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any, TypeVar
+
+from utils.time_utils import get_ny_time_millis
 
 T = TypeVar("T")
 
-from common.decision_trace import Span, trace_gate, trace_enabled, ensure_trace, should_sample
-from common.payload_fingerprint import fingerprint_tradeable_payload
-from common.metrics_stage import candidates_total, veto_total, emit_ok_total, stage_ms_hist, dist
+from common.contracts.tradeable_contracts import assert_outbox_sidecar_meta, assert_tradeable_dict
+from common.decision_trace import Span, ensure_trace, should_sample, trace_enabled, trace_gate
+from common.json_contract import enforce_payload_budgets, maybe_assert_json_safe
 from common.json_fast import dumps1
 from common.json_safe import to_json_safe
-from common.runtime_snapshot import RuntimeSnapshot, RuntimeRefresher
+from common.metrics_stage import candidates_total, dist, emit_ok_total, stage_ms_hist, veto_total
 from common.outbox_contract import contract_check_best_effort
+from common.payload_fingerprint import fingerprint_tradeable_payload
 from common.payload_policy import enforce_and_validate_payload
-from common.json_contract import enforce_payload_budgets, maybe_assert_json_safe
-from common.contracts.tradeable_contracts import assert_tradeable_dict, assert_outbox_sidecar_meta
+from common.runtime_snapshot import RuntimeRefresher, RuntimeSnapshot
+from handlers.base_orderflow_handler import ensure_levels
 from services.outbox.envelope_builder import (
-    build_trace_sidecar_meta,
     build_entry_policy_diag_event,
+    build_trace_sidecar_meta,
     emit_entry_policy_diag_best_effort,
 )
-from handlers.base_orderflow_handler import ensure_levels
 from signals.level_enricher import attach_trade_levels_to_ctx
-
-from common.json_safe import to_json_safe
 
 # ------------------------------------------------------------
 # JSON-safe helpers (3.2): payload must be json-safe by construction.
@@ -36,12 +34,10 @@ from common.json_safe import to_json_safe
 # ------------------------------------------------------------
 _JSON_SCALARS = (str, int, float, bool, type(None))
 
-import json
-import hashlib
-from datetime import datetime, timezone
-from common.json_safe import to_json_safe
+from datetime import UTC, datetime
 
-def _cfg_hash(cfg: Dict[str, Any]) -> str:
+
+def _cfg_hash(cfg: dict[str, Any]) -> str:
     """
     Быстрый детерминированный хэш конфига.
     Важно: cfg уже должен быть json-safe (dict из скаляров/листов/…).
@@ -53,7 +49,7 @@ def _cfg_hash(cfg: Dict[str, Any]) -> str:
         return "cfg:err"
 
 def ensure_trade_levels_once(
-    *, ctx: Any, symbol: str, side: str, kind: str, cfg: Optional[Dict[str, Any]],
+    *, ctx: Any, symbol: str, side: str, kind: str, cfg: dict[str, Any] | None,
     regime: Any = None, empirical: Any = None, logger: Any = None,
 ) -> None:
     """
@@ -85,7 +81,7 @@ def ensure_trade_levels_once(
         cfgd_eff = maybe_apply_slq_to_risk_cfg(
             redis=redis_client,
             ctx=ctx,
-            symbol=str(symbol),
+            symbol=symbol,
             side=side,
             cfg=cfgd,
         )
@@ -93,7 +89,7 @@ def ensure_trade_levels_once(
             cfgd = cfgd_eff
             # pin effective cfg on ctx so subsequent callers reuse the same config
             try:
-                setattr(ctx, "risk_cfg", dict(cfgd))
+                ctx.risk_cfg = dict(cfgd)
                 if cfgd.get("slq_used"):
                     from common.dq_flags import append_dq_flag
                     append_dq_flag(ctx, "slq_applied")
@@ -102,15 +98,15 @@ def ensure_trade_levels_once(
     except Exception:
         pass
 
-    key = ("trade_levels", str(symbol), str(side), str(kind), _cfg_hash(cfgd))
+    key = ("trade_levels", symbol, side, str(kind), _cfg_hash(cfgd))
 
     try:
         attach_trade_levels_to_ctx(
             ctx,
-            side=str(side),
-            symbol=str(symbol),
+            side=side,
+            symbol=symbol,
             cfg=cfgd,
-            kind=str(kind or ""),
+            kind=(kind or ""),
             regime=regime,
             empirical=empirical,
             overwrite=False,
@@ -123,12 +119,12 @@ def ensure_trade_levels_once(
     # 3.4) Sizing (RR-mode fixed risk)
     try:
         from services.position_sizing import apply_position_sizing_to_ctx
-        apply_position_sizing_to_ctx(ctx, cfg=cfgd, symbol=str(symbol), logger=logger)
+        apply_position_sizing_to_ctx(ctx, cfg=cfgd, symbol=symbol, logger=logger)
     except Exception:
         pass
 
     try:
-        setattr(ctx, "_trade_levels_key", key)
+        ctx._trade_levels_key = key
     except Exception:
         pass
 
@@ -145,7 +141,7 @@ def _replay_stable_signal_id_enabled() -> bool:
 
     Enabled via ENV: REPLAY_STABLE_SIGNAL_ID=1
     """
-    v = str(os.getenv('REPLAY_STABLE_SIGNAL_ID', '0') or '0').strip().lower()
+    v = (os.getenv('REPLAY_STABLE_SIGNAL_ID', '0') or '0').strip().lower()
     return v in {'1','true','yes','on'}
 
 
@@ -203,12 +199,12 @@ def _finite_or(x: Any, default: float) -> float:
         f = float(x)
         if f == f and f not in (float("inf"), float("-inf")):
             return f
-        return float(default)
+        return default
     except Exception:
-        return float(default)
+        return default
 
 
-def _cfg_hash(cfg: Dict[str, Any]) -> str:
+def _cfg_hash(cfg: dict[str, Any]) -> str:
     """
     Stable cfg hash for cache keys.
     IMPORTANT: do NOT use dumps1() here because it doesn't sort keys.
@@ -248,7 +244,7 @@ class CandidateFrame:
     # Keys examples:
     #   "risk_cfg", "levels_attached", ("consistency", kind, side)
     # ------------------------------------------------------------
-    memo: Dict[Any, Any] = field(default_factory=dict, compare=False, repr=False)
+    memo: dict[Any, Any] = field(default_factory=dict, compare=False, repr=False)
 
     def memo_get(self, key: Any, compute: Callable[[], T]) -> T:
         """
@@ -291,12 +287,12 @@ def _side_payload_from_frame(f: CandidateFrame) -> str:
 class CandidateExtractor:
     """Stage 1: obtain candidates and create CandidateFrame objects."""
 
-    def extract(self, handler: Any, ctx: Any) -> List[CandidateFrame]:
+    def extract(self, handler: Any, ctx: Any) -> list[CandidateFrame]:
         det = getattr(handler, "_detect_candidates", None)
         if not callable(det):
             return []
         cands = det(ctx) or []
-        out: List[CandidateFrame] = []
+        out: list[CandidateFrame] = []
         ctx_symbol = getattr(ctx, "symbol", None)
         ctx_ts = getattr(ctx, "ts", None)
         ctx_price = getattr(ctx, "price", None)
@@ -345,7 +341,7 @@ class ContextEnricher:
     # Реальная функция: handlers/base_orderflow_handler.ensure_levels(ctx, side=?)
     # ensure_levels FAIL-OPEN и НЕ возвращает veto/rc.
     # ------------------------------------------------------------
-    def ensure_levels_once(self, f: CandidateFrame) -> Tuple[bool, str]:
+    def ensure_levels_once(self, f: CandidateFrame) -> tuple[bool, str]:
         if f.memo.get("levels_done") is True:
             return True, ""
         ok = True
@@ -379,7 +375,7 @@ class ContextEnricher:
                 )
         except Exception:
             pass
-        return bool(ok), str(rc or "")
+        return bool(ok), (rc or "")
 
 
 class GateRunner:
@@ -411,8 +407,8 @@ class GateRunner:
         stage: str,
         name: str,
         reason_code: str,
-        metrics: Optional[Dict[str, Any]] = None,
-        extra: Optional[Dict[str, Any]] = None,
+        metrics: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         """
         Diagnostics-only outbox (4.2).
@@ -423,7 +419,7 @@ class GateRunner:
           - FAIL-OPEN: any error here must not affect signal generation.
         """
         try:
-            stream = str(os.getenv("ENTRY_POLICY_DIAG_STREAM", "") or "").strip()
+            stream = (os.getenv("ENTRY_POLICY_DIAG_STREAM", "") or "").strip()
             if not stream:
                 return
             r = getattr(self.h, "redis", None) or getattr(self.h, "simple_redis", None) or getattr(self.h, "_redis", None)
@@ -439,9 +435,9 @@ class GateRunner:
                 trace_id=trace_id or (sid or ""),
                 kind=str(getattr(f, "kind_key", "") or getattr(f, "kind_str", "") or ""),
                 symbol=str(getattr(f, "ctx_symbol", "") or ""),
-                stage=str(stage or ""),
-                name=str(name or ""),
-                reason_code=str(reason_code or ""),
+                stage=(stage or ""),
+                name=(name or ""),
+                reason_code=(reason_code or ""),
                 metrics=metrics or {},
                 extra=extra or {},
             )
@@ -458,12 +454,12 @@ class GateRunner:
             pass
         self._memo_set(f, "ensure_levels_done", True)
 
-    def _resolve_risk_cfg_once(self, f: CandidateFrame) -> Dict[str, Any]:
+    def _resolve_risk_cfg_once(self, f: CandidateFrame) -> dict[str, Any]:
         cached = self._memo_get(f, "risk_cfg")
         if isinstance(cached, dict):
             return cached
 
-        cfg: Dict[str, Any] = {}
+        cfg: dict[str, Any] = {}
         # Варианты источника cfg (в порядке предпочтения):
         # 1) handler.resolve_risk_cfg(symbol, ctx, cand)
         # 2) handler._resolve_risk_cfg_for_levels()
@@ -493,7 +489,7 @@ class GateRunner:
 
         return cfg
 
-    def _ensure_trade_levels_once(self, f: CandidateFrame, *, cfg: Dict[str, Any]) -> None:
+    def _ensure_trade_levels_once(self, f: CandidateFrame, *, cfg: dict[str, Any]) -> None:
         """
         Тяжёлая часть: attach_trade_levels_to_ctx(...)
         Делаем 1 раз на кандидата и фиксируем key на ctx, чтобы другие ветки не пересчитали.
@@ -539,13 +535,13 @@ class GateRunner:
                 pass
 
         try:
-            setattr(f.ctx, "_trade_levels_key", key)
+            f.ctx._trade_levels_key = key
         except Exception:
             pass
 
         self._memo_set(f, "trade_levels_done", True)
 
-    def regime(self, f: CandidateFrame) -> Tuple[bool, str]:
+    def regime(self, f: CandidateFrame) -> tuple[bool, str]:
         fn = getattr(f.handler, "_apply_regime_gate", None)
         if not callable(fn):
             return True, ""
@@ -561,7 +557,7 @@ class GateRunner:
         except Exception:
             return True, ""
 
-    def edge_cost(self, f: CandidateFrame) -> Tuple[bool, str]:
+    def edge_cost(self, f: CandidateFrame) -> tuple[bool, str]:
         """
         Реальный gate: handler._legacy_gate_cost_edge(frame=f, pre={...}) -> (ok, rc)
         Требует инвариантов ctx: entry/tp1/sl/price/side.
@@ -577,7 +573,7 @@ class GateRunner:
         pre = {"ctx_symbol": str(f.ctx_symbol or "")}
         try:
             ok, rc = fn(frame=f, pre=pre)
-            return bool(ok), str(rc or "")
+            return bool(ok), (rc or "")
         except Exception:
             return True, ""  # fail-open
 
@@ -610,8 +606,8 @@ class GateRunner:
     # Реальный класс: SignalConsistencyGate.evaluate(ctx, symbol, kind, side) -> QualityGateDecision
     # Decision fields: apply(bool), veto(bool), reason_code(str)
     # ------------------------------------------------------------
-    def consistency_once(self, f: CandidateFrame) -> Tuple[bool, str]:
-        def _compute() -> Tuple[bool, str]:
+    def consistency_once(self, f: CandidateFrame) -> tuple[bool, str]:
+        def _compute() -> tuple[bool, str]:
             ok = True
             rc = ""
             apply = False
@@ -675,7 +671,7 @@ class GateRunner:
             except Exception:
                 pass
 
-            return bool(ok), str(rc or "")
+            return bool(ok), (rc or "")
 
         return f.memo_get(("consistency", str(f.kind_key or f.kind_str), _side_payload_from_frame(f)), _compute)
 
@@ -683,8 +679,8 @@ class GateRunner:
     # 3.3: edge/cost gate ровно 1 раз на кандидата.
     # Реальная функция: handler._legacy_gate_cost_edge(frame=f, pre={...}) -> (ok, rc)
     # ------------------------------------------------------------
-    def edge_cost_once(self, f: CandidateFrame) -> Tuple[bool, str]:
-        def _compute() -> Tuple[bool, str]:
+    def edge_cost_once(self, f: CandidateFrame) -> tuple[bool, str]:
+        def _compute() -> tuple[bool, str]:
             ok, rc = True, ""
             with Span() as sp:
                 try:
@@ -704,7 +700,7 @@ class GateRunner:
                         )
                 except Exception:
                     pass
-            return bool(ok), str(rc or "")
+            return bool(ok), (rc or "")
 
         return f.memo_get(("edge_cost_once", str(f.kind_key or f.kind_str)), _compute)
 
@@ -712,7 +708,7 @@ class GateRunner:
 class ScoringRunner:
     """Stage 4: raw_score + conf_factor -> final_score, then confidence_pct."""
 
-    def compute(self, f: CandidateFrame, res: Any) -> Tuple[float, float, float, float, Dict[str, Any]]:
+    def compute(self, f: CandidateFrame, res: Any) -> tuple[float, float, float, float, dict[str, Any]]:
         sp = Span()
         raw_score = _finite_or(getattr(f.cand, "raw_score", None), 0.0)
         conf_factor01 = _clamp01(_finite_or(getattr(res, "conf_factor01", None), 1.0))
@@ -755,9 +751,9 @@ class ConfidenceGateRunner:
 
             return float(os.getenv(name, str(default)) or default)
         except Exception:
-            return float(default)
+            return default
 
-    def check(self, f: CandidateFrame, *, confidence_pct: float, conf_factor01: float) -> Tuple[bool, str]:
+    def check(self, f: CandidateFrame, *, confidence_pct: float, conf_factor01: float) -> tuple[bool, str]:
         sym_u = _safe_str(f.ctx_symbol).strip().upper()
 
         min_conf = self._env_float(f"MIN_CONF_{sym_u}", self._env_float("MIN_CONF_DEFAULT", 70.0))
@@ -799,9 +795,9 @@ class PayloadBuilder:
         conf_factor01: float,
         final_score: float,
         confidence_pct: float,
-        parts: Dict[str, Any],
+        parts: dict[str, Any],
         res: Any,
-    ) -> Tuple[Dict[str, Any], Dict[str, Any], Optional[Dict[str, Any]]]:
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
         """
         JSON-SAFE BY CONSTRUCTION:
           - payload: только str/int/float/bool/None/list/dict
@@ -831,7 +827,7 @@ class PayloadBuilder:
         # ------------------------------------------------------------------
         sid = str(getattr(f.cand, "signal_id", "") or "").strip()
 
-        payload_base: Dict[str, Any] = {
+        payload_base: dict[str, Any] = {
             "kind": str(getattr(f.cand, "kind", "") or ""),
             "side": side_payload,
             "symbol": str(f.ctx_symbol or ""),
@@ -854,7 +850,7 @@ class PayloadBuilder:
             else:
                 sid = f"s_{uuid.uuid4().hex}"
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "sid": sid,              # back-compat
             "signal_id": sid,        # canonical
             **payload_base,
@@ -921,8 +917,8 @@ class PayloadBuilder:
         parts_in = parts if isinstance(parts, dict) else {}
         parts_safe = to_json_safe(parts_in)  # гарантирует json-safe структуру
 
-        parts_small: Dict[str, Any] = {}
-        parts_full: Dict[str, Any] = {}
+        parts_small: dict[str, Any] = {}
+        parts_full: dict[str, Any] = {}
         if isinstance(parts_safe, dict):
             for k, v in parts_safe.items():
                 if _is_small_json_value(v):
@@ -935,13 +931,13 @@ class PayloadBuilder:
         # ------------------------------------------------------------
         # MT5 Execution Plan (new)
         # ------------------------------------------------------------
-        mt5_payload: Optional[Dict[str, Any]] = None
+        mt5_payload: dict[str, Any] | None = None
         try:
             # Check if MT5 execution is enabled for this candidate
             # We look into risk_cfg (attached to memo) or ctx
             risk_cfg = f.memo.get("risk_cfg") or {}
             mt5_enabled = bool(risk_cfg.get("mt5_enabled") or False)
-            
+
             # fallback: check environ or ctx if not in risk_cfg
             if not mt5_enabled:
                 mt5_enabled = bool(getattr(f.ctx, "mt5_enabled", False))
@@ -951,7 +947,7 @@ class PayloadBuilder:
                 # Must match mt5_bridge.models.Mt5ExecutionPlan fields
                 entry_low = float(getattr(f.ctx, "entry_zone_low", 0.0) or payload_base["price"])
                 entry_high = float(getattr(f.ctx, "entry_zone_high", 0.0) or payload_base["price"])
-                
+
                 # Expand entry zone slightly if single price
                 if abs(entry_high - entry_low) < 1e-9:
                     entry_low = entry_low * 0.9995
@@ -960,10 +956,10 @@ class PayloadBuilder:
                 stop_price = float(getattr(f.ctx, "stop_loss", 0.0) or 0.0)
                 tp_levels = getattr(f.ctx, "tp_levels", []) or []
                 tp_levels = [float(x) for x in tp_levels]
-                
+
                 # Partials
                 partials = getattr(f.ctx, "partials", []) or [1.0]
-                
+
                 # Risk & Size
                 risk_usd = float(risk_cfg.get("risk_usd", 10.0))
                 # rough estimation if not provided
@@ -975,7 +971,7 @@ class PayloadBuilder:
                     "signal_id": sid,
                     "symbol": str(f.ctx_symbol),
                     "side": side_payload,
-                    "ts_signal": datetime.now(timezone.utc).isoformat(),
+                    "ts_signal": datetime.now(UTC).isoformat(),
                     "price_at_signal": payload_base["price"],
                     "entry_zone_low": entry_low,
                     "entry_zone_high": entry_high,
@@ -985,7 +981,7 @@ class PayloadBuilder:
                     "risk_usd": risk_usd,
                     "position_size": pos_size,
                     "expiry_bars": expiry_bars,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
                     "meta": {
                         "kind": payload_base["kind"],
                         "confidence": payload_base["confidence"],
@@ -994,10 +990,10 @@ class PayloadBuilder:
                 }
         except Exception:
             pass
-            
+
         return payload, payload_meta, mt5_payload
 
-        payload_meta: Dict[str, Any] = {}
+        payload_meta: dict[str, Any] = {}
         if parts_full:
             payload_meta["parts_full"] = parts_full
 
@@ -1098,10 +1094,10 @@ class OutboxWriter:
     def emit(
         self,
         f: CandidateFrame,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         *,
-        meta_extra: Optional[Dict[str, Any]] = None,
-        mt5_payload: Optional[Dict[str, Any]] = None,
+        meta_extra: dict[str, Any] | None = None,
+        mt5_payload: dict[str, Any] | None = None,
     ) -> bool:
         em = getattr(f.handler, "_emitter", None)
         fn = getattr(em, "emit", None) if em is not None else None
@@ -1151,7 +1147,7 @@ class OutboxWriter:
             try:
                 sid0 = str(payload.get("signal_id") or payload.get("sid") or sid or "")
             except Exception:
-                sid0 = str(sid or "")
+                sid0 = (sid or "")
             contract_check_best_effort(kind="payload", obj=to_json_safe(payload), where="OutboxWriter.emit", sid=sid0, logger=getattr(f.handler, "logger", None))
             if isinstance(meta, dict):
                 contract_check_best_effort(kind="meta", obj=to_json_safe(meta), where="OutboxWriter.emit", sid=sid0, logger=getattr(f.handler, "logger", None))
@@ -1349,8 +1345,8 @@ class CandidateEmitPipelineV2:
         stage: str,
         name: str,
         reason_code: str,
-        metrics: Optional[Dict[str, Any]] = None,
-        extra: Optional[Dict[str, Any]] = None,
+        metrics: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         """Diagnostics-only outbox.
 
@@ -1364,7 +1360,7 @@ class CandidateEmitPipelineV2:
         FAIL-OPEN: never blocks the main emission path.
         """
         try:
-            stream = str(os.getenv("ENTRY_POLICY_DIAG_STREAM", "") or "").strip()
+            stream = (os.getenv("ENTRY_POLICY_DIAG_STREAM", "") or "").strip()
             if not stream:
                 return
 
@@ -1397,9 +1393,9 @@ class CandidateEmitPipelineV2:
                 trace_id=trace_id or sid,
                 kind=kind,
                 symbol=symbol,
-                stage=str(stage or ""),
-                name=str(name or ""),
-                reason_code=str(reason_code or ""),
+                stage=(stage or ""),
+                name=(name or ""),
+                reason_code=(reason_code or ""),
                 metrics=metrics or {},
                 extra=extra or {},
             )
@@ -1489,7 +1485,7 @@ class CandidateEmitPipelineV2:
         except Exception:
             # fail-open: не мешаем сигналам
             try:
-                setattr(ctx, "news", None)
+                ctx.news = None
             except Exception:
                 pass
 
@@ -1542,7 +1538,7 @@ class CandidateEmitPipelineV2:
                     name="regime_gate",
                     passed=bool(ok),
                     veto=not bool(ok),
-                    reason_code=str(rc or "OK"),
+                    reason_code=(rc or "OK"),
                     duration_ms=float(sp_g1.ms()),
                     metrics={"kind": kind_s, "symbol": sym},
                 )
@@ -1554,7 +1550,7 @@ class CandidateEmitPipelineV2:
                 pass
             if not ok:
                 try:
-                    veto_total(self.h, kind=kind_s, reason_code=str(rc or "VETO_REGIME"))
+                    veto_total(self.h, kind=kind_s, reason_code=(rc or "VETO_REGIME"))
                 except Exception:
                     pass
 
@@ -1563,7 +1559,7 @@ class CandidateEmitPipelineV2:
                         f,
                         stage="gates",
                         name="regime_gate",
-                        reason_code=str(rc or "VETO_REGIME"),
+                        reason_code=(rc or "VETO_REGIME"),
                         metrics={"kind": kind_s, "symbol": sym},
                     )
                 except Exception:
@@ -1629,7 +1625,7 @@ class CandidateEmitPipelineV2:
                         f,
                         stage="gates",
                         name="confirmations",
-                        reason_code=str(veto_rc or "VETO_UNKNOWN"),
+                        reason_code=(veto_rc or "VETO_UNKNOWN"),
                         metrics={"kind": kind_s, "symbol": sym},
                     )
                 except Exception:
@@ -1704,7 +1700,7 @@ class CandidateEmitPipelineV2:
                 pass
             if not ok:
                 try:
-                    veto_total(self.h, kind=kind_s, reason_code=str(rc or "VETO_CONF"))
+                    veto_total(self.h, kind=kind_s, reason_code=(rc or "VETO_CONF"))
                 except Exception:
                     pass
                 # diagnostics-only outbox (never tradeable)
@@ -1713,7 +1709,7 @@ class CandidateEmitPipelineV2:
                         f,
                         stage="gates",
                         name="confidence_gate",
-                        reason_code=str(rc or "VETO_CONF"),
+                        reason_code=(rc or "VETO_CONF"),
                         metrics={"confidence_pct": float(confidence_pct), "conf_factor01": float(conf_factor01)},
                     )
                 except Exception:
@@ -1789,7 +1785,7 @@ class CandidateEmitPipelineV2:
                     ctx = getattr(f, "ctx", None) or getattr(f, "context", None)
                     tr = ensure_trace(ctx) if ctx is not None else None
                     if isinstance(tr, dict):
-                        tid = str(tr.get("trace_id") or "")
+                        tid = (tr.get("trace_id") or "")
                         rate = float(self.trace_log_sample_rate or 0.02)
                         if should_sample(tid, rate):
                             # build_trace_summary == make_trace_summary (alias в decision_trace.py)
@@ -1800,7 +1796,7 @@ class CandidateEmitPipelineV2:
                                 "where": "candidate_emit",
                                 "sent": bool(sent),
                                 "trace_id": tid,
-                                "sid": str(payload.get("signal_id") or ""),
+                                "sid": (payload.get("signal_id") or ""),
                                 "trace_summary": summ,
                             }))
                 except Exception:
@@ -1820,8 +1816,8 @@ class ConfidenceGateRunner:
         *,
         confidence_pct: float,
         conf_factor01: float,
-        rt: Optional[RuntimeSnapshot] = None,
-    ) -> Tuple[bool, str]:
+        rt: RuntimeSnapshot | None = None,
+    ) -> tuple[bool, str]:
         sym_u = _safe_str(f.ctx_symbol).strip().upper()
         # ------------------------------------------------------------------
         # "ещё выше": никаких os.getenv() в hot-path.

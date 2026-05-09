@@ -1,5 +1,7 @@
 import pytest
+
 from core.candidate_score import compute_candidate_score
+
 
 def test_candidate_score_penalties():
     cfg = {
@@ -13,7 +15,7 @@ def test_candidate_score_penalties():
         "book_stale_penalty_full_ms": 5000,
         "cand_p_book_stale": 0.20,
     }
-    
+
     # Case 1: Perfect conditions
     # Base = 1.0(of) + 0.5(delta_z) + 0.2(obi) = 1.7
     cs1 = compute_candidate_score(
@@ -79,7 +81,7 @@ def test_candidate_score_veto_under_pressure():
         "book_stale_penalty_full_ms": 5000,
         "cand_p_book_stale": 0.20,
     }
-    
+
     # Spread Z veto
     # spread_z = 3.1 => penalty factor = (3.1-2.0)/3.0 = 0.3666
     # penalty = 0.3666 * 0.25 = 0.09166

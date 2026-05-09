@@ -1,11 +1,10 @@
-from utils.time_utils import get_ny_time_millis
-import time
 
 import pytest
 from hypothesis import settings
-from hypothesis.stateful import RuleBasedStateMachine, rule, precondition, initialize
+from hypothesis.stateful import RuleBasedStateMachine, initialize, rule
 
 from services.signal_dispatcher import SignalDispatcher
+from utils.time_utils import get_ny_time_millis
 
 
 class DoneInvariantMachine(RuleBasedStateMachine):

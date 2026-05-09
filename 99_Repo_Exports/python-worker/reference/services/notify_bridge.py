@@ -25,11 +25,12 @@ Usage:
     uvicorn services.notify_bridge:app --host 127.0.0.1 --port 8089
 """
 
+import datetime as dt
+import os
+
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-import os
-import httpx
-import datetime as dt
 
 # Configuration
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -86,7 +87,7 @@ async def tg_send_photo_by_url(url: str, caption: str = "") -> bool:
             # Download image
             img_response = await client.get(url)
             img_response.raise_for_status()
-            
+
             # Send to Telegram
             response = await client.post(
 #                 f"{TELEGRAM_API}/sendPhoto",,
@@ -121,20 +122,20 @@ async def notify(req: Request):
         Status
     """
     payload = await req.json()
-    
+
     t = payload.get("ts", 0)
     symbol = payload.get("symbol", "XAUUSD")
     typ = payload.get("type", "event")
     obi = payload.get("obi", 0.0)
     dur = payload.get("duration_ms", 0)
     thr = payload.get("threshold", 0.0)
-    
+
     # Format timestamp
     when = dt.datetime.utcfromtimestamp(t / 1000).strftime("%H:%M:%S UTC")
-    
+
     # Emoji based on type
     emoji = "🟢⬆️" if "up" in typ else "🔴⬇️"
-    
+
     # Format message
     header = f"{TITLE} {symbol} {typ}"
     message = (
@@ -143,14 +144,14 @@ async def notify(req: Request):
         f"Duration: <b>{dur}ms</b> sustained\n"
         f"Time: {when}"
     )
-    
+
     # Send text message
     text_sent = await tg_send_text(message)
-    
+
     # Send OBI chart
     url = f"{OBI_HOST}/render/obi.png?symbol={symbol}&last=300"
     photo_sent = await tg_send_photo_by_url(url, caption=f"📊 {symbol} OBI Timeline")
-    
+
     return JSONResponse({
         "ok": True,
         "text_sent": text_sent,
@@ -171,7 +172,7 @@ def health():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     print(f"🚀 Notify Bridge starting on port {PORT}...")
     print(f"   Bot Token: {BOT_TOKEN[:10]}***")
     print(f"   Chat ID: {CHAT_ID}")
@@ -179,10 +180,10 @@ if __name__ == "__main__":
     print(f"   OBI Host: {OBI_HOST}")
     print()
     print("📊 Endpoints:")
-    print(f"   POST /notify - Receive OBI events → Telegram")
-    print(f"   GET /healthz - Health check")
+    print("   POST /notify - Receive OBI events → Telegram")
+    print("   GET /healthz - Health check")
     print()
-    
+
     uvicorn.run(
         "services.notify_bridge:app",
         host="127.0.0.1",

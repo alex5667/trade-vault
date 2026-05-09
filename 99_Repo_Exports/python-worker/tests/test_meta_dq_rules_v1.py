@@ -1,10 +1,7 @@
 import unittest
-import sys
-import os
 
 # Add parent dir to sys.path to allow importing tools
 # [AUTOGRAVITY CLEANUP] sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-
 from tools.meta_dq_rules_v1 import dq_freeze_decision
 
 

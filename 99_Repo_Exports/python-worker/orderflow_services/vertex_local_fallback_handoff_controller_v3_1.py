@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -85,15 +86,15 @@ SUPPORTED_FAMILIES = set(LOCAL_TASK_BY_FAMILY.keys())
 LOCAL_ONLY_FAMILIES = {"local_report", "offline_debug", "emergency_summarize"}
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -129,8 +130,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -161,7 +162,7 @@ def parse_int(value: Any, default: int = 0) -> int:
         return default
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     allow_families = maybe_json(raw.get("allow_families_json"), sorted(SUPPORTED_FAMILIES))
     if not isinstance(allow_families, list):
         allow_families = sorted(SUPPORTED_FAMILIES)
@@ -174,8 +175,8 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def vertex_degraded_from_hash(raw: Dict[str, Any]) -> bool:
-    status = str(raw.get("status") or "").lower()
+def vertex_degraded_from_hash(raw: dict[str, Any]) -> bool:
+    status = (raw.get("status") or "").lower()
     degraded = parse_int(raw.get("degraded"), 0)
     if degraded == 1:
         return True
@@ -191,7 +192,7 @@ def vertex_degraded_from_hash(raw: Dict[str, Any]) -> bool:
     return False
 
 
-def build_local_prompt(task_family: str, row: Dict[str, Any]) -> str:
+def build_local_prompt(task_family: str, row: dict[str, Any]) -> str:
     payload_json = row.get("payload_json", "{}")
     source = row.get("source", "unknown")
     severity = row.get("severity", "info")
@@ -215,8 +216,8 @@ def build_local_prompt(task_family: str, row: Dict[str, Any]) -> str:
     )
 
 
-def evaluate_handoff(row: Dict[str, Any], policy: Dict[str, Any], vertex_degraded: bool) -> Dict[str, Any]:
-    family = str(row.get("task_family") or "")
+def evaluate_handoff(row: dict[str, Any], policy: dict[str, Any], vertex_degraded: bool) -> dict[str, Any]:
+    family = (row.get("task_family") or "")
     force_local = parse_int(row.get("force_local"), 0)
     vertex_unavailable = parse_int(row.get("vertex_unavailable"), 0)
 
@@ -292,12 +293,12 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_hash(r: Any, key: str) -> Dict[str, Any]:
+async def read_hash(r: Any, key: str) -> dict[str, Any]:
     raw = await r.hgetall(key)
     return as_dict(raw)
 
 
-async def persist_if_configured(db_url: str, row: Dict[str, Any], decision: Dict[str, Any], destination_stream: str) -> None:
+async def persist_if_configured(db_url: str, row: dict[str, Any], decision: dict[str, Any], destination_stream: str) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -339,7 +340,7 @@ async def persist_if_configured(db_url: str, row: Dict[str, Any], decision: Dict
             conn.commit()
 
 
-async def route_local(r: Any, row: Dict[str, Any], family: str) -> None:
+async def route_local(r: Any, row: dict[str, Any], family: str) -> None:
     local_task_type = LOCAL_TASK_BY_FAMILY[family]
     payload = {
         "schema_version": 1,
@@ -356,7 +357,7 @@ async def route_local(r: Any, row: Dict[str, Any], family: str) -> None:
     await r.xadd(LOCAL_OUTPUT_STREAM, payload, maxlen=MAXLEN, approximate=True)
 
 
-async def route_vertex(r: Any, row: Dict[str, Any], family: str) -> str:
+async def route_vertex(r: Any, row: dict[str, Any], family: str) -> str:
     dst = PRIMARY_STREAM_BY_FAMILY[family]
     payload = {
         "schema_version": 1,
@@ -393,13 +394,13 @@ async def main() -> None:  # pragma: no cover
                 decision_label = "REJECT"
                 try:
                     row = as_dict(payload)
-                    family = str(row.get("task_family") or "")
+                    family = (row.get("task_family") or "")
                     policy = policy_from_hash(await read_hash(r, GLOBAL_POLICY_KEY))
                     try:
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     vertex_health = await read_hash(r, VERTEX_HEALTH_HASH)
                     vertex_degraded = vertex_degraded_from_hash(vertex_health)
                     decision = evaluate_handoff(row, policy, vertex_degraded)

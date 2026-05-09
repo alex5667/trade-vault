@@ -1,18 +1,16 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """redis_lock_v1.py (mirror)
 
 Keep in sync with orderflow_services/redis_lock_v1.py.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import os
-import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
 
 _RELEASE_LUA = """
 if redis.call('get', KEYS[1]) == ARGV[1] then
@@ -31,7 +29,7 @@ def _default_token() -> str:
     return f"{os.getpid()}:{_now_ms()}:{uuid.uuid4().hex}"
 
 
-async def acquire_lock(r: Any, *, key: str, ttl_sec: int, token: Optional[str] = None) -> str:
+async def acquire_lock(r: Any, *, key: str, ttl_sec: int, token: str | None = None) -> str:
     tok = str(token or _default_token())
     try:
         ok = await r.set(str(key), tok, nx=True, ex=int(ttl_sec))
@@ -57,7 +55,7 @@ class LockGuard:
     ttl_sec: int
     token: str = ""
 
-    async def __aenter__(self) -> "LockGuard":
+    async def __aenter__(self) -> LockGuard:
         self.token = await acquire_lock(self.r, key=self.key, ttl_sec=self.ttl_sec)
         return self
 

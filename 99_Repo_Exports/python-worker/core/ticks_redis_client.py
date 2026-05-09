@@ -27,7 +27,6 @@ CONSUMER GROUPS:
 """
 
 import os
-from typing import Optional, Any
 
 # redis-py is optional in unit-test environments.
 try:
@@ -49,11 +48,11 @@ class TicksRedisClient:
     - Fallback на основной Redis при необходимости
     - Автоматическое переподключение
     """
-    
+
     def __init__(
         self,
-        ticks_url: Optional[str] = None,
-        ticks_host: Optional[str] = None,
+        ticks_url: str | None = None,
+        ticks_host: str | None = None,
         ticks_port: int = 6379,
         ticks_db: int = 0,
         **kwargs
@@ -79,7 +78,7 @@ class TicksRedisClient:
                 "REDIS_TICKS_URL",
                 f"redis://{os.getenv('REDIS_TICKS_HOST', 'redis-ticks')}:{os.getenv('REDIS_TICKS_PORT', '6379')}/0"
             )
-        
+
         # Настройки по умолчанию для высокочастотных операций
         # FIX: Убраны socket_keepalive_options (Error 22 - не поддерживаются в контейнере)
         default_kwargs = {
@@ -90,21 +89,21 @@ class TicksRedisClient:
             "decode_responses": True,
             "max_connections": 100,
         }
-        
+
         # Объединяем с пользовательскими настройками
         default_kwargs.update(kwargs)
-        
+
         # Создаем клиент
         if redis is None:
             raise RuntimeError("redis package is not installed. Install it to enable Redis connectivity: pip install redis")
         self.client = redis.from_url(self.url, **default_kwargs)
-        
+
         print(f"✅ TicksRedisClient инициализирован: {self.url}")
-    
+
     def __getattr__(self, name):
         """Прозрачный доступ ко всем методам redis.Redis"""
         return getattr(self.client, name)
-    
+
     def ping(self) -> bool:
         """Проверка подключения к redis-ticks"""
         try:
@@ -112,7 +111,7 @@ class TicksRedisClient:
         except RedisError as e:
             print(f"❌ Ошибка подключения к redis-ticks: {e}")
             return False
-    
+
     def close(self):
         """Закрытие подключения"""
         self.client.close()
@@ -124,11 +123,11 @@ class DualTicksRedisClient:
     
     Записывает в redis-ticks, при ошибке - fallback на основной Redis.
     """
-    
+
     def __init__(
         self,
-        primary_url: Optional[str] = None,
-        fallback_url: Optional[str] = None,
+        primary_url: str | None = None,
+        fallback_url: str | None = None,
         **kwargs
     ):
         """
@@ -144,22 +143,22 @@ class DualTicksRedisClient:
             "REDIS_TICKS_URL",
             f"redis://{os.getenv('REDIS_TICKS_HOST', 'redis-ticks')}:6379/0"
         )
-        
+
         # Fallback: основной Redis
         self.fallback_url = fallback_url or os.getenv(
             "REDIS_URL",
             "redis://redis-worker-1:6379/0")
-        
+
         # Создаем клиенты
         self.primary = redis.from_url(self.primary_url, decode_responses=True, **kwargs)
         self.fallback = redis.from_url(self.fallback_url, decode_responses=True, **kwargs)
-        
+
         self.fallback_count = 0
-        
-        print(f"✅ DualTicksRedisClient инициализирован")
+
+        print("✅ DualTicksRedisClient инициализирован")
         print(f"   Primary: {self.primary_url}")
         print(f"   Fallback: {self.fallback_url}")
-    
+
     def xadd(self, stream: str, fields: dict, **kwargs):
         """
         Добавление записи в stream с fallback.
@@ -171,14 +170,14 @@ class DualTicksRedisClient:
         """
         try:
             # Пробуем записать в primary (redis-ticks)
-            return self.primary.xadd(stream, fields, **kwargs, maxlen=50000)
+            return self.primary.xadd(stream, fields, **kwargs, maxlen=50000, approximate=True)
         except RedisError as e:
             # Fallback на основной Redis
             self.fallback_count += 1
             if self.fallback_count % 100 == 0:
                 print(f"⚠️ Fallback на основной Redis (событие #{self.fallback_count}): {e}")
-            return self.fallback.xadd(stream, fields, **kwargs, maxlen=50000)
-    
+            return self.fallback.xadd(stream, fields, **kwargs, maxlen=50000, approximate=True)
+
     def set(self, key: str, value, **kwargs):
         """Установка значения с fallback"""
         try:
@@ -186,18 +185,18 @@ class DualTicksRedisClient:
         except RedisError:
             self.fallback_count += 1
             return self.fallback.set(key, value, **kwargs)
-    
+
     def get(self, key: str):
         """Получение значения с fallback"""
         try:
             return self.primary.get(key)
         except RedisError:
             return self.fallback.get(key)
-    
+
     def __getattr__(self, name):
         """Прозрачный доступ к методам primary client"""
         return getattr(self.primary, name)
-    
+
     def close(self):
         """Закрытие обоих подключений"""
         self.primary.close()
@@ -205,8 +204,8 @@ class DualTicksRedisClient:
 
 
 # Singleton instances
-_ticks_redis: Optional[TicksRedisClient] = None
-_dual_ticks_redis: Optional[DualTicksRedisClient] = None
+_ticks_redis: TicksRedisClient | None = None
+_dual_ticks_redis: DualTicksRedisClient | None = None
 
 
 def get_ticks_redis(**kwargs) -> TicksRedisClient:
@@ -245,7 +244,7 @@ def get_dual_ticks_redis(**kwargs) -> DualTicksRedisClient:
 def create_ticks_consumer_group(
     stream: str,
     group: str,
-    client: Optional[TicksRedisClient] = None
+    client: TicksRedisClient | None = None
 ) -> bool:
     """
     Создать consumer group для чтения тиков.
@@ -260,7 +259,7 @@ def create_ticks_consumer_group(
     """
     if client is None:
         client = get_ticks_redis()
-    
+
     try:
         client.xgroup_create(stream, group, id='$', mkstream=True)
         print(f"✅ Consumer group '{group}' создана для {stream}")
@@ -279,14 +278,14 @@ if __name__ == "__main__":
     print("=" * 70)
     print("Тестирование TicksRedisClient")
     print("=" * 70)
-    
+
     # Тест 1: Подключение
     client = get_ticks_redis()
     if client.ping():
         print("✅ Подключение к redis-ticks успешно")
     else:
         print("❌ Не удалось подключиться к redis-ticks")
-    
+
     # Тест 2: DualTicksRedisClient
     dual = get_dual_ticks_redis()
     try:
@@ -307,10 +306,10 @@ if __name__ == "__main__":
         print("✅ DualTicksRedisClient работает корректно")
     except Exception as e:
         print(f"❌ Ошибка DualTicksRedisClient: {e}")
-    
+
     # Тест 3: Создание consumer group
     create_ticks_consumer_group("stream:tick_", "ticks-test-group")
-    
+
     print("=" * 70)
     print("Тестирование завершено")
     print("=" * 70)

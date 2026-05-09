@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Comprehensive pytest test suite for signal_exec module.
 
@@ -7,27 +8,26 @@ All tests are self-contained: no Redis, no Postgres required.
 
 
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
-from signal_exec.models import (
-    Side,
-    AccountState,
-    SwingPoint,
-    HTFLevel,
-    OrderBookSnapshot,
-    Bar1m,
-    ExecutionPlan,
-    SymbolSetupConfig,
-)
+from signal_exec.bus import SignalBus
 from signal_exec.context import SignalContext
 from signal_exec.execution_planner import ExecutionPlanner
-from signal_exec.performance_tracker import (
-    SignalPerformanceTracker,
-    Outcome,
+from signal_exec.models import (
+    AccountState,
+    Bar1m,
+    ExecutionPlan,
+    HTFLevel,
+    OrderBookSnapshot,
+    Side,
+    SwingPoint,
+    SymbolSetupConfig,
 )
-from signal_exec.bus import SignalBus
-
+from signal_exec.performance_tracker import (
+    Outcome,
+    SignalPerformanceTracker,
+)
 
 # ──────────────────────────────────────────────
 # Fixtures
@@ -76,7 +76,7 @@ def _make_ctx(
         symbol="",
         setup_type="breakout",
         side=side,
-        ts_signal=datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+        ts_signal=datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC),
         price_at_signal=price,
         atr_1m=atr,
         tick_size=0.1,
@@ -136,7 +136,7 @@ class TestModelsInstantiation:
             symbol="",
             side=Side.LONG,
             setup_type="breakout",
-            ts_signal=datetime.now(timezone.utc),
+            ts_signal=datetime.now(UTC),
             price_at_signal=2000.0,
             entry_zone_low=1998.0,
             entry_zone_high=2000.0,
@@ -147,7 +147,7 @@ class TestModelsInstantiation:
             risk_usd=50.0,
             position_size=0.02,
             expiry_bars=5,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         assert plan.signal_id == "s1"
 
@@ -250,7 +250,7 @@ class TestExecutionPlanner:
             symbol="",
             setup_type="breakout",
             side=Side.LONG,
-            ts_signal=datetime.now(timezone.utc),
+            ts_signal=datetime.now(UTC),
             price_at_signal=2000.0,
             atr_1m=2.0,
             tick_size=0.1,
@@ -277,8 +277,8 @@ class TestSignalContextRoundtrip:
         assert restored.price_at_signal == ctx.price_at_signal
 
     def test_roundtrip_with_swings_and_htf(self):
-        swings = [SwingPoint(ts=datetime.now(timezone.utc), price=1990.0, type="low")]
-        htf = [HTFLevel(ts=datetime.now(timezone.utc), price=2010.0, kind="D_high")]
+        swings = [SwingPoint(ts=datetime.now(UTC), price=1990.0, type="low")]
+        htf = [HTFLevel(ts=datetime.now(UTC), price=2010.0, kind="D_high")]
         ctx = _make_ctx(swings=swings, htf=htf)
         restored = SignalContext.from_dict(ctx.to_dict())
         assert len(restored.local_swings) == 1
@@ -289,7 +289,7 @@ class TestSignalContextRoundtrip:
     def test_roundtrip_with_orderbook(self):
         ctx = _make_ctx()
         ctx.orderbook = OrderBookSnapshot(
-            ts=datetime.now(timezone.utc),
+            ts=datetime.now(UTC),
             best_bid=1999.9,
             best_ask=2000.1,
             bids=[1999.9, 1999.8],
@@ -341,7 +341,7 @@ class TestSignalPerformanceTracker:
     def test_bars_seen_increments(self):
         tracker, _ = _make_tracker()
         ctx, plan = _register_signal(tracker)
-        ts = datetime(2024, 1, 15, 10, 1, tzinfo=timezone.utc)
+        ts = datetime(2024, 1, 15, 10, 1, tzinfo=UTC)
         tracker.on_bar_1m(_make_bar(ts, high=2005.0, low=1998.0))
         st = tracker._states.get(plan.signal_id)
         if st:
@@ -352,7 +352,7 @@ class TestSignalPerformanceTracker:
         ctx, plan = _register_signal(tracker)
         expiry = plan.expiry_bars
 
-        ts = datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc)
+        ts = datetime(2024, 1, 15, 10, 0, tzinfo=UTC)
         for i in range(expiry + 1):
             bar_ts = ts + timedelta(minutes=i + 1)
             tracker.on_bar_1m(_make_bar(bar_ts, high=1999.0, low=1998.0))
@@ -365,7 +365,7 @@ class TestSignalPerformanceTracker:
         tracker, _ = _make_tracker()
         ctx, plan = _register_signal(tracker)
 
-        entry_ts = datetime(2024, 1, 15, 10, 2, tzinfo=timezone.utc)
+        entry_ts = datetime(2024, 1, 15, 10, 2, tzinfo=UTC)
         tracker.on_execution_event(plan.signal_id, "ENTRY_FILLED", entry_ts, 2000.5)
 
         st = tracker._states.get(plan.signal_id)
@@ -376,10 +376,10 @@ class TestSignalPerformanceTracker:
         tracker, repo = _make_tracker()
         ctx, plan = _register_signal(tracker)
 
-        entry_ts = datetime(2024, 1, 15, 10, 2, tzinfo=timezone.utc)
+        entry_ts = datetime(2024, 1, 15, 10, 2, tzinfo=UTC)
         tracker.on_execution_event(plan.signal_id, "ENTRY_FILLED", entry_ts, 2000.5)
 
-        stop_ts = datetime(2024, 1, 15, 10, 5, tzinfo=timezone.utc)
+        stop_ts = datetime(2024, 1, 15, 10, 5, tzinfo=UTC)
         tracker.on_execution_event(plan.signal_id, "STOP_HIT", stop_ts, 1996.0)
 
         assert repo.insert_signal_performance.called
@@ -392,10 +392,10 @@ class TestSignalPerformanceTracker:
         tracker, repo = _make_tracker()
         ctx, plan = _register_signal(tracker)
 
-        entry_ts = datetime(2024, 1, 15, 10, 2, tzinfo=timezone.utc)
+        entry_ts = datetime(2024, 1, 15, 10, 2, tzinfo=UTC)
         tracker.on_execution_event(plan.signal_id, "ENTRY_FILLED", entry_ts, 2000.0)
 
-        tp_ts = datetime(2024, 1, 15, 10, 10, tzinfo=timezone.utc)
+        tp_ts = datetime(2024, 1, 15, 10, 10, tzinfo=UTC)
         tracker.on_execution_event(plan.signal_id, "TP_HIT", tp_ts, 2010.0)
 
         call_args = repo.insert_signal_performance.call_args[0][0]
@@ -407,7 +407,7 @@ class TestSignalPerformanceTracker:
         tracker, repo = _make_tracker()
         ctx, plan = _register_signal(tracker)
 
-        stop_ts = datetime(2024, 1, 15, 10, 5, tzinfo=timezone.utc)
+        stop_ts = datetime(2024, 1, 15, 10, 5, tzinfo=UTC)
         tracker.on_execution_event(plan.signal_id, "STOP_HIT", stop_ts, 1996.0)
         # Second call is a noop
         tracker.on_execution_event(plan.signal_id, "STOP_HIT", stop_ts, 1996.0)
@@ -418,11 +418,11 @@ class TestSignalPerformanceTracker:
         tracker, repo = _make_tracker()
         ctx, plan = _register_signal(tracker)
 
-        stop_ts = datetime(2024, 1, 15, 10, 5, tzinfo=timezone.utc)
+        stop_ts = datetime(2024, 1, 15, 10, 5, tzinfo=UTC)
         tracker.on_execution_event(plan.signal_id, "STOP_HIT", stop_ts, 1996.0)
 
         # Late TP event arrives after STOP already finalized
-        late_ts = datetime(2024, 1, 15, 10, 20, tzinfo=timezone.utc)
+        late_ts = datetime(2024, 1, 15, 10, 20, tzinfo=UTC)
         tracker.on_execution_event(plan.signal_id, "TP_HIT", late_ts, 2020.0)
 
         # Only 1 insert, not 2
@@ -432,10 +432,10 @@ class TestSignalPerformanceTracker:
         tracker, repo = _make_tracker()
         ctx, plan = _register_signal(tracker)
 
-        entry_ts = datetime(2024, 1, 15, 10, 2, tzinfo=timezone.utc)
+        entry_ts = datetime(2024, 1, 15, 10, 2, tzinfo=UTC)
         tracker.on_execution_event(plan.signal_id, "ENTRY_FILLED", entry_ts, 2000.0)
 
-        ts = datetime(2024, 1, 15, 10, 3, tzinfo=timezone.utc)
+        ts = datetime(2024, 1, 15, 10, 3, tzinfo=UTC)
         for i in range(25):  # > max_lifetime_bars_after_entry=20
             bar_ts = ts + timedelta(minutes=i)
             tracker.on_bar_1m(_make_bar(bar_ts, high=2001.0, low=1999.0))
@@ -448,11 +448,11 @@ class TestSignalPerformanceTracker:
         tracker, repo = _make_tracker()
         ctx, plan = _register_signal(tracker)
 
-        entry_ts = datetime(2024, 1, 15, 10, 2, tzinfo=timezone.utc)
+        entry_ts = datetime(2024, 1, 15, 10, 2, tzinfo=UTC)
         tracker.on_execution_event(plan.signal_id, "ENTRY_FILLED", entry_ts, 2000.0)
 
         # Bar with favorable high
-        bar1_ts = datetime(2024, 1, 15, 10, 3, tzinfo=timezone.utc)
+        bar1_ts = datetime(2024, 1, 15, 10, 3, tzinfo=UTC)
         tracker.on_bar_1m(_make_bar(bar1_ts, high=2004.0, low=1999.0))
 
         st = tracker._states.get(plan.signal_id)
@@ -464,10 +464,10 @@ class TestSignalPerformanceTracker:
         tracker, _ = _make_tracker()
         ctx, plan = _register_signal(tracker)
 
-        stop_ts = datetime(2024, 1, 15, 10, 5, tzinfo=timezone.utc)
+        stop_ts = datetime(2024, 1, 15, 10, 5, tzinfo=UTC)
         tracker.on_execution_event(plan.signal_id, "STOP_HIT", stop_ts, 1996.0)
 
-        # After finalization, the symbol index should be empty for 
+        # After finalization, the symbol index should be empty for
         remaining = tracker._ids_by_symbol.get(set())
         assert plan.signal_id not in remaining
 
@@ -483,7 +483,7 @@ class TestSignalBusPlanDict:
             symbol="",
             side=Side.LONG,
             setup_type="breakout",
-            ts_signal=datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc),
+            ts_signal=datetime(2024, 1, 15, 10, 0, tzinfo=UTC),
             price_at_signal=2000.0,
             entry_zone_low=1998.0,
             entry_zone_high=2000.0,
@@ -494,7 +494,7 @@ class TestSignalBusPlanDict:
             risk_usd=50.0,
             position_size=0.025,
             expiry_bars=5,
-            created_at=datetime(2024, 1, 15, 10, 0, tzinfo=timezone.utc),
+            created_at=datetime(2024, 1, 15, 10, 0, tzinfo=UTC),
         )
         d = SignalBus._plan_to_dict(plan)
         required_keys = {
@@ -513,7 +513,7 @@ class TestSignalBusPlanDict:
             symbol="BTCUSDT",
             side=Side.SHORT,
             setup_type="fade",
-            ts_signal=datetime(2024, 2, 1, tzinfo=timezone.utc),
+            ts_signal=datetime(2024, 2, 1, tzinfo=UTC),
             price_at_signal=50000.0,
             entry_zone_low=49900.0,
             entry_zone_high=50000.0,
@@ -524,7 +524,7 @@ class TestSignalBusPlanDict:
             risk_usd=75.0,
             position_size=0.001,
             expiry_bars=3,
-            created_at=datetime(2024, 2, 1, tzinfo=timezone.utc),
+            created_at=datetime(2024, 2, 1, tzinfo=UTC),
         )
         d = SignalBus._plan_to_dict(plan)
         json_str = json.dumps(d)

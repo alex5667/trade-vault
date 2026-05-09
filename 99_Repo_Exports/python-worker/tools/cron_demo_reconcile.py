@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 tools/cron_demo_reconcile.py
 
@@ -34,17 +35,16 @@ ENV:
     TELEGRAM_BOT_TOKEN              For direct mode
     TELEGRAM_CHAT_ID                For direct mode
 """
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import html
 import json
 import os
-import sys
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -81,14 +81,14 @@ def _envi(name: str, default: int = 0) -> int:
     try:
         return int(os.getenv(name, default) or default)
     except Exception:
-        return int(default)
+        return default
 
 
 def _envf(name: str, default: float = 0.0) -> float:
     try:
         return float(os.getenv(name, default) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 # ---------------------------------------------------------------------------
@@ -107,9 +107,9 @@ class ProjectOrder:
     pnl_est: float   # from trades:closed or state
 
 
-def read_exec_stream(r: Any, stream: str, since_ms: int, max_scan: int = 200_000) -> List[Dict[str, str]]:
+def read_exec_stream(r: Any, stream: str, since_ms: int, max_scan: int = 200_000) -> list[dict[str, str]]:
     """Read demo open events from orders:exec."""
-    rows: List[Dict[str, str]] = []
+    rows: list[dict[str, str]] = []
     last_id = "+"
     scanned = 0
 
@@ -126,7 +126,7 @@ def read_exec_stream(r: Any, stream: str, since_ms: int, max_scan: int = 200_000
             scanned += 1
             last_id = msg_id
 
-            fields: Dict[str, str] = {}
+            fields: dict[str, str] = {}
             for k, v in (raw or {}).items():
                 k2 = k.decode("utf-8") if isinstance(k, bytes) else k
                 v2 = v.decode("utf-8") if isinstance(v, bytes) else v
@@ -143,8 +143,8 @@ def read_exec_stream(r: Any, stream: str, since_ms: int, max_scan: int = 200_000
                 break
 
             # Only virtual open events
-            is_virt = _truthy(fields.get("is_virtual")) or str(fields.get("venue", "")).lower() == "binance_demo"
-            action = str(fields.get("action", "")).lower()
+            is_virt = _truthy(fields.get("is_virtual")) or (fields.get("venue", "")).lower() == "binance_demo"
+            action = (fields.get("action", "")).lower()
             if not is_virt:
                 continue
             if action not in ("open", ""):
@@ -162,13 +162,13 @@ def read_exec_stream(r: Any, stream: str, since_ms: int, max_scan: int = 200_000
     return rows
 
 
-def read_order_state(r: Any, sid: str) -> Dict[str, Any]:
+def read_order_state(r: Any, sid: str) -> dict[str, Any]:
     """Read orders:state:{sid} hash."""
     try:
         raw = r.hgetall(f"orders:state:{sid}")
         if not raw:
             return {}
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
         for k, v in raw.items():
             k2 = k.decode("utf-8") if isinstance(k, bytes) else k
             v2 = v.decode("utf-8") if isinstance(v, bytes) else v
@@ -183,14 +183,14 @@ def read_order_state(r: Any, sid: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _signed_get(base_url: str, path: str, api_key: str, api_secret: str,
-                params: Optional[Dict[str, Any]] = None, timeout: float = 8.0) -> Any:
+                params: dict[str, Any] | None = None, timeout: float = 8.0) -> Any:
     """Minimal signed GET to Binance testnet — stdlib only."""
     import hashlib
     import hmac
     import urllib.parse
     import urllib.request
 
-    p: Dict[str, Any] = dict(params or {})
+    p: dict[str, Any] = dict(params or {})
     p["timestamp"] = _now_ms()
     p["recvWindow"] = 5000
 
@@ -208,10 +208,8 @@ def _signed_get(base_url: str, path: str, api_key: str, api_secret: str,
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = ""
-        try:
+        with contextlib.suppress(Exception):
             body = e.read().decode("utf-8", errors="replace")
-        except Exception:
-            pass
         raise RuntimeError(f"Binance HTTP {e.code}: {body[:400]}")
 
 
@@ -219,8 +217,8 @@ def _signed_get(base_url: str, path: str, api_key: str, api_secret: str,
 class TestnetAccount:
     total_wallet_balance: float
     total_unrealized_profit: float
-    positions: List[Dict[str, Any]]       # all non-zero positions
-    open_orders: List[Dict[str, Any]]     # all open orders
+    positions: list[dict[str, Any]]       # all non-zero positions
+    open_orders: list[dict[str, Any]]     # all open orders
 
 
 def fetch_testnet_account(base_url: str, api_key: str, api_secret: str) -> TestnetAccount:
@@ -236,12 +234,12 @@ def fetch_testnet_account(base_url: str, api_key: str, api_secret: str) -> Testn
         amt = _f(p.get("positionAmt"), 0.0)
         if amt != 0.0:
             open_pos.append({
-                "symbol": str(p.get("symbol", "")),
+                "symbol": (p.get("symbol", "")),
                 "positionAmt": amt,
                 "entryPrice": _f(p.get("entryPrice"), 0.0),
                 "markPrice": _f(p.get("markPrice"), 0.0),
                 "unrealizedProfit": _f(p.get("unrealizedProfit"), 0.0),
-                "positionSide": str(p.get("positionSide", "BOTH")),
+                "positionSide": (p.get("positionSide", "BOTH")),
             })
 
     return TestnetAccount(
@@ -253,7 +251,7 @@ def fetch_testnet_account(base_url: str, api_key: str, api_secret: str) -> Testn
 
 
 def fetch_testnet_income(base_url: str, api_key: str, api_secret: str,
-                         since_ms: int) -> List[Dict[str, Any]]:
+                         since_ms: int) -> list[dict[str, Any]]:
     """Fetch REALIZED_PNL income events from testnet."""
     try:
         rows = _signed_get(base_url, "/fapi/v1/income", api_key, api_secret, {
@@ -286,7 +284,7 @@ class SymbolPnlRow:
 @dataclass
 class ClosedPnlSummary:
     """Aggregated result of closed-trades PnL comparison."""
-    rows: List[SymbolPnlRow]          # per-symbol
+    rows: list[SymbolPnlRow]          # per-symbol
     proj_total_pnl: float             # sum of proj_pnl_net
     tn_total_pnl: float               # sum of testnet income
     delta_total: float                # proj - tn
@@ -309,7 +307,7 @@ class ClosedPnlSummary:
 def read_closed_trades_sql(
     dsn: str,
     since_ms: int,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Query closed virtual trades from SQL, grouped by symbol.
 
@@ -355,8 +353,8 @@ def read_closed_trades_sql(
 
 
 def compare_closed_pnl(
-    sql_rows: List[Dict[str, Any]],          # from read_closed_trades_sql
-    income_rows: List[Dict[str, Any]],       # from fetch_testnet_income
+    sql_rows: list[dict[str, Any]],          # from read_closed_trades_sql
+    income_rows: list[dict[str, Any]],       # from fetch_testnet_income
 ) -> ClosedPnlSummary:
     """
     Compare project closed-trade PnL (SQL) vs Binance testnet income events.
@@ -365,21 +363,21 @@ def compare_closed_pnl(
     income_rows keys: symbol, income (str), incomeType
     """
     # --- Aggregate testnet income per symbol ---
-    tn_by_sym: Dict[str, float] = {}
+    tn_by_sym: dict[str, float] = {}
     for row in income_rows:
-        sym = str(row.get("symbol", "") or "")
+        sym = (row.get("symbol", "") or "")
         inc = _f(row.get("income"), 0.0)
         tn_by_sym[sym] = tn_by_sym.get(sym, 0.0) + inc
 
     # --- Aggregate project SQL per symbol ---
-    sql_by_sym: Dict[str, Dict[str, Any]] = {}
+    sql_by_sym: dict[str, dict[str, Any]] = {}
     for row in sql_rows:
-        sym = str(row.get("symbol", "") or "")
+        sym = (row.get("symbol", "") or "")
         sql_by_sym[sym] = row
 
     all_symbols = sorted(set(sql_by_sym) | set(tn_by_sym))
 
-    result_rows: List[SymbolPnlRow] = []
+    result_rows: list[SymbolPnlRow] = []
     for sym in all_symbols:
         sq = sql_by_sym.get(sym)
         tn_pnl = tn_by_sym.get(sym, 0.0)
@@ -444,9 +442,9 @@ _TRAILING_TYPES = {"TRAILING_STOP_MARKET"}
 
 
 def classify_sl_tp_coverage(
-    positions: List[Dict[str, Any]],
-    open_orders: List[Dict[str, Any]],
-) -> Dict[str, _SymbolCoverage]:
+    positions: list[dict[str, Any]],
+    open_orders: list[dict[str, Any]],
+) -> dict[str, _SymbolCoverage]:
     """
     For each open position, determine which protective order types are present.
 
@@ -454,14 +452,14 @@ def classify_sl_tp_coverage(
     Only symbols that have an open position are keyed.
     Orders for symbols without a position are ignored.
     """
-    pos_syms = {str(p.get("symbol", "")) for p in positions}
-    coverage: Dict[str, _SymbolCoverage] = {sym: _SymbolCoverage() for sym in pos_syms if sym}
+    pos_syms = {(p.get("symbol", "")) for p in positions}
+    coverage: dict[str, _SymbolCoverage] = {sym: _SymbolCoverage() for sym in pos_syms if sym}
 
     for o in open_orders:
-        sym = str(o.get("symbol", "") or "")
+        sym = (o.get("symbol", "") or "")
         if sym not in coverage:
             continue
-        otype = str(o.get("type", "") or "").upper()
+        otype = (o.get("type", "") or "").upper()
         sc = coverage[sym]
 
         if otype in _SL_TYPES:
@@ -496,30 +494,30 @@ class ReconcileResult:
     # Testnet side
     testnet_wallet_balance: float
     testnet_unrealized_pnl: float
-    testnet_open_positions: List[Dict[str, Any]]
+    testnet_open_positions: list[dict[str, Any]]
     testnet_open_orders_n: int
     testnet_realized_pnl: float
 
     # Diff
-    position_diffs: List[str]       # human-readable diff lines
-    slippage_lines: List[str]       # per-symbol slippage
-    orphaned_positions: List[str]   # on testnet but not in project exec stream
-    missing_positions: List[str]    # in project stream but not on testnet
+    position_diffs: list[str]       # human-readable diff lines
+    slippage_lines: list[str]       # per-symbol slippage
+    orphaned_positions: list[str]   # on testnet but not in project exec stream
+    missing_positions: list[str]    # in project stream but not on testnet
 
     # SL/TP coverage: per-position protection status
-    sl_tp_coverage_lines: List[str] = field(default_factory=list)
+    sl_tp_coverage_lines: list[str] = field(default_factory=list)
     unprotected_count: int = 0
 
     # Closed-trades PnL comparison (None if DB unavailable or no trades)
-    closed_pnl: Optional[ClosedPnlSummary] = None
+    closed_pnl: ClosedPnlSummary | None = None
 
 
 def reconcile(
-    project_rows: List[Dict[str, str]],
+    project_rows: list[dict[str, str]],
     account: TestnetAccount,
-    income_rows: List[Dict[str, Any]],
+    income_rows: list[dict[str, Any]],
     *,
-    sql_trade_rows: Optional[List[Dict[str, Any]]] = None,
+    sql_trade_rows: list[dict[str, Any]] | None = None,
 ) -> ReconcileResult:
     # --- Project aggregates ---
     symbols_in_proj = {r.get("symbol", "?") for r in project_rows}
@@ -531,12 +529,12 @@ def reconcile(
     realized_pnl = sum(_f(r.get("income"), 0.0) for r in income_rows)
 
     # --- Position diff ---
-    testnet_pos_map: Dict[str, Dict[str, Any]] = {p["symbol"]: p for p in account.positions}
+    testnet_pos_map: dict[str, dict[str, Any]] = {p["symbol"]: p for p in account.positions}
     proj_sym_set = set(symbols_in_proj)
     testnet_sym_set = set(testnet_pos_map.keys())
 
-    position_diffs: List[str] = []
-    slippage_lines: List[str] = []
+    position_diffs: list[str] = []
+    slippage_lines: list[str] = []
 
     # Symbols on both sides
     for sym in sorted(proj_sym_set & testnet_sym_set):
@@ -581,7 +579,7 @@ def reconcile(
     ]
 
     # --- Closed-trades PnL comparison ---
-    closed_pnl: Optional[ClosedPnlSummary] = None
+    closed_pnl: ClosedPnlSummary | None = None
     if sql_trade_rows is not None:
         closed_pnl = compare_closed_pnl(sql_trade_rows, income_rows)
         if closed_pnl.proj_total_trades == 0 and abs(closed_pnl.tn_total_pnl) < 1e-8:
@@ -589,7 +587,7 @@ def reconcile(
 
     # --- SL/TP coverage ---
     sl_tp_coverage = classify_sl_tp_coverage(account.positions, account.open_orders)
-    sl_tp_lines: List[str] = []
+    sl_tp_lines: list[str] = []
     unprotected = 0
     for sym, sc in sorted(sl_tp_coverage.items()):
         sl_icon  = "✅ SL" if sc.has_sl       else "❌ SL"
@@ -629,7 +627,7 @@ def reconcile(
 # ---------------------------------------------------------------------------
 
 def build_reconcile_text(result: ReconcileResult, *, since_hours: float, ts: str) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
 
     window_label = f"{int(since_hours)}h" if since_hours == int(since_hours) else f"{since_hours:.1f}h"
 
@@ -681,13 +679,13 @@ def build_reconcile_text(result: ReconcileResult, *, since_hours: float, ts: str
 
     if result.orphaned_positions:
         lines.append("")
-        lines.append(f"<b>⚠️ Orphaned on testnet</b> (testnet has position, no project record):")
+        lines.append("<b>⚠️ Orphaned on testnet</b> (testnet has position, no project record):")
         for o in result.orphaned_positions[:8]:
             lines.append(f"  • {o}")
 
     if result.missing_positions:
         lines.append("")
-        lines.append(f"<b>⚠️ Missing on testnet</b> (project recorded open, testnet position=0):")
+        lines.append("<b>⚠️ Missing on testnet</b> (project recorded open, testnet position=0):")
         for m in result.missing_positions[:8]:
             lines.append(f"  • {m}")
 
@@ -760,8 +758,8 @@ def send_redis(redis_url: str, stream: str, text: str) -> None:
 
 
 def send_direct(token: str, chat_id: str, text: str) -> None:
-    import urllib.request as _ur
     import urllib.parse as _up
+    import urllib.request as _ur
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     body = _up.urlencode({
         "chat_id": chat_id, "text": text,
@@ -776,7 +774,7 @@ def send_direct(token: str, chat_id: str, text: str) -> None:
 
 def run() -> int:
     redis_url = _envs("REDIS_URL", "redis://localhost:6379/0")
-    exec_stream = _envs("EXEC_STREAM", "orders:exec")
+    exec_stream = _envs("EXEC_STREAM", RS.ORDERS_EXEC)
     since_hours = _envf("DEMO_RECONCILE_SINCE_HOURS", 24.0)
     since_ms = _now_ms() - int(since_hours * 3_600_000)
     ts = time.strftime("%Y%m%d_%H%M%S")
@@ -799,7 +797,7 @@ def run() -> int:
 
     # --- SQL: closed virtual trades PnL ---
     db_dsn = _envs("TRADES_DB_DSN", "")
-    sql_trade_rows: Optional[List[Dict[str, Any]]] = None
+    sql_trade_rows: list[dict[str, Any]] | None = None
     if db_dsn:
         print(f"[reconcile] Reading closed trades from SQL since {since_hours}h …")
         sql_trade_rows = read_closed_trades_sql(db_dsn, since_ms)
@@ -834,7 +832,7 @@ def run() -> int:
         # send_direct(token, chat_id, text)
         print("[reconcile] sent via Telegram API [DISABLED]")
     else:
-        notify_stream = _envs("TELEGRAM_NOTIFY_STREAM", "notify:telegram")
+        notify_stream = _envs("TELEGRAM_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
         notify_redis_url = _envs("TELEGRAM_REDIS_URL") or redis_url
         # send_redis(notify_redis_url, notify_stream, text)
         print(f"[reconcile] sent to Redis {notify_stream} [DISABLED]")

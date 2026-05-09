@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Canonical execution contracts for Binance executor materialized state and events.
@@ -9,14 +10,12 @@ state follows a stable schema, and that event payloads carry deterministic time
 fields and nested plain/algo references.
 """
 
-from dataclasses import dataclass, field
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Any, Dict, List, Optional
 import json
-import time
+from dataclasses import dataclass, field
+from typing import Any
 
 
-def _json_field(doc: Dict[str, Any], key: str, default: Any = None) -> Any:
+def _json_field(doc: dict[str, Any], key: str, default: Any = None) -> Any:
     """Decode a JSON-encoded field from the state document.
 
     Returns the decoded value (list/dict) or default when absent/invalid.
@@ -37,7 +36,7 @@ def _ms_now() -> int:
     return get_ny_time_millis()
 
 
-def _i(v: Any) -> Optional[int]:
+def _i(v: Any) -> int | None:
     try:
         if v in (None, '', 'None'):
             return None
@@ -46,7 +45,7 @@ def _i(v: Any) -> Optional[int]:
         return None
 
 
-def _f(v: Any) -> Optional[float]:
+def _f(v: Any) -> float | None:
     try:
         if v in (None, '', 'None'):
             return None
@@ -55,21 +54,21 @@ def _f(v: Any) -> Optional[float]:
         return None
 
 
-def _s(v: Any) -> Optional[str]:
-    s = str(v or '').strip()
+def _s(v: Any) -> str | None:
+    s = (v or '').strip()
     return s or None
 
 
 @dataclass(frozen=True)
 class BinancePlainOrderRef:
-    order_id: Optional[int] = None
-    client_order_id: Optional[str] = None
-    status: Optional[str] = None
-    qty: Optional[float] = None
-    avg_price: Optional[float] = None
+    order_id: int | None = None
+    client_order_id: str | None = None
+    status: str | None = None
+    qty: float | None = None
+    avg_price: float | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {}
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
         if self.order_id is not None:
             out['order_id'] = int(self.order_id)
         if self.client_order_id:
@@ -85,14 +84,14 @@ class BinancePlainOrderRef:
 
 @dataclass(frozen=True)
 class BinanceAlgoOrderRef:
-    algo_id: Optional[int] = None
-    client_algo_id: Optional[str] = None
-    trigger_price: Optional[float] = None
-    working_type: Optional[str] = None
-    status: Optional[str] = None
+    algo_id: int | None = None
+    client_algo_id: str | None = None
+    trigger_price: float | None = None
+    working_type: str | None = None
+    status: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {}
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
         if self.algo_id is not None:
             out['algo_id'] = int(self.algo_id)
         if self.client_algo_id:
@@ -114,14 +113,14 @@ class ExecutionEvent:
     event_type: str
     status: str = 'ok'
     ts_event_ms: int = field(default_factory=_ms_now)
-    ts_exec_start_ms: Optional[int] = None
-    ts_queue_ms: Optional[int] = None
-    ts_state_commit_ms: Optional[int] = None
-    severity: Optional[str] = None
-    payload: Dict[str, Any] = field(default_factory=dict)
+    ts_exec_start_ms: int | None = None
+    ts_queue_ms: int | None = None
+    ts_state_commit_ms: int | None = None
+    severity: str | None = None
+    payload: dict[str, Any] = field(default_factory=dict)
 
-    def to_stream_fields(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {
+    def to_stream_fields(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
             'sid': str(self.sid),
             'symbol': str(self.symbol),
             'action': str(self.action),
@@ -141,8 +140,8 @@ class ExecutionEvent:
         return out
 
 
-def collect_tp_algo_refs(state: Dict[str, Any]) -> List[BinanceAlgoOrderRef]:
-    refs: List[BinanceAlgoOrderRef] = []
+def collect_tp_algo_refs(state: dict[str, Any]) -> list[BinanceAlgoOrderRef]:
+    refs: list[BinanceAlgoOrderRef] = []
     idx = 1
     while True:
         algo_id = _i(state.get(f'tp{idx}_algo_id'))
@@ -160,7 +159,7 @@ def collect_tp_algo_refs(state: Dict[str, Any]) -> List[BinanceAlgoOrderRef]:
     return refs
 
 
-def build_materialized_state_view(state: Dict[str, Any]) -> Dict[str, Any]:
+def build_materialized_state_view(state: dict[str, Any]) -> dict[str, Any]:
     doc = dict(state or {})
     entry = BinancePlainOrderRef(
         order_id=_i(doc.get('binance_order_id') or doc.get('entry_order_id')),
@@ -184,7 +183,7 @@ def build_materialized_state_view(state: Dict[str, Any]) -> Dict[str, Any]:
         status=_s(doc.get('trail_status')),
     ).to_dict()
     tp_refs = collect_tp_algo_refs(doc)
-    protective: Dict[str, Any] = {
+    protective: dict[str, Any] = {
         'tp_algo_ids': [int(r.algo_id) for r in tp_refs if r.algo_id is not None],
         'tp_client_algo_ids': [str(r.client_algo_id) for r in tp_refs if r.client_algo_id],
         'tp_refs': [r.to_dict() for r in tp_refs],
@@ -209,7 +208,7 @@ def build_materialized_state_view(state: Dict[str, Any]) -> Dict[str, Any]:
     legs = _json_field(doc, 'legs_json')
     if legs is not None:
         doc.setdefault('position', {})['legs'] = legs
-    scale_in_meta: Dict[str, Any] = {}
+    scale_in_meta: dict[str, Any] = {}
     for k in ('scale_in_seq', 'source_signal_id', 'owner_sid'):
         if doc.get(k):
             scale_in_meta[k] = doc[k]

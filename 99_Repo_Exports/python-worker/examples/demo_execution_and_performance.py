@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """
 Demo: Signal Execution Planning and Performance Analysis
 
@@ -18,28 +19,27 @@ Demo: Signal Execution Planning and Performance Analysis
 
 
 import math
-import uuid
-from datetime import datetime, timedelta, timezone
-from typing import List
+import os
 
 # Импорт из signal_exec модуля
 import sys
-import os
+import uuid
+from datetime import UTC, datetime, timedelta
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from signal_exec.execution_planner import ExecutionPlanner, SymbolSetupConfig
 from signal_exec.models import (
-    Side,
-    SwingPoint,
+    AccountState,
+    Bar1m,
+    ExecutionPlan,
+    ExtendedSignalContext,
     HTFLevel,
     OrderBookSnapshot,
-    AccountState,
-    ExtendedSignalContext,
-    ExecutionPlan,
-    Bar1m,
+    Side,
+    SwingPoint,
 )
-from signal_exec.execution_planner import ExecutionPlanner, SymbolSetupConfig
 from signal_exec.performance_tracker import SignalPerformanceTracker
-
 
 # ---------- 1. Конфигурация по инструменту/сетапу ----------
 
@@ -93,7 +93,7 @@ def build_mock_signal_context() -> ExtendedSignalContext:
     Создаем моковый контекст сигнала для .
     Имитируем выход детектора сигналов с микроструктурными данными.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Локальные экстремумы по LTF вокруг сигнала
     local_swings = [
@@ -240,7 +240,7 @@ def build_mock_bars(
     n_bars: int,
     base_price: float,
     side: Side,
-) -> List[Bar1m]:
+) -> list[Bar1m]:
     """
     Генерация синтетических 1m баров для симуляции рынка.
 
@@ -248,7 +248,7 @@ def build_mock_bars(
     - Первые 5 баров: тренд в сторону edge
     - Остальное: откат и шум
     """
-    bars: List[Bar1m] = []
+    bars: list[Bar1m] = []
     ts = ts_start
 
     for i in range(n_bars):

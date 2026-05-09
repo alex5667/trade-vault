@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 MT5 Event Executor - Приём и классификация событий от MT5 EA.
@@ -18,10 +19,9 @@ MT5 Event Executor - Приём и классификация событий о�
 - Prometheus metrics
 """
 
-import os
 import json
-import time
-from typing import Any, Dict, List, Optional
+import os
+from typing import Any
 
 import redis
 from fastapi import FastAPI, HTTPException
@@ -89,16 +89,16 @@ class MT5Event(BaseModel):
     type: int              # Type сделки (DEAL_TYPE_BUY=0, DEAL_TYPE_SELL=1)
     price: float
     profit: float
-    comment: Optional[str] = None    # sid сигнала
-    volume: Optional[float] = None   # Объём сделки
-    ts: Optional[int] = None         # Timestamp (если MT5 не шлёт - ставим сервером)
+    comment: str | None = None    # sid сигнала
+    volume: float | None = None   # Объём сделки
+    ts: int | None = None         # Timestamp (если MT5 не шлёт - ставим сервером)
 
 
 # ═══════════════════════════════════════════════════════════════
 # Helper Functions
 # ═══════════════════════════════════════════════════════════════
 
-def load_signal(sid: str) -> Optional[Dict[str, Any]]:
+def load_signal(sid: str) -> dict[str, Any] | None:
     """Загрузить исходный сигнал из Redis."""
     try:
         raw = r.get(f"{SIGNAL_PREFIX}{sid}")
@@ -111,14 +111,14 @@ def load_signal(sid: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def load_trade_state(sid: str) -> Dict[str, Any]:
+def load_trade_state(sid: str) -> dict[str, Any]:
     """
     Загрузить состояние сделки из Redis.
     
     Если не существует - создаёт новое.
     """
     key = f"{TRADE_STATE_PREFIX}{sid}"
-    
+
     if not r.exists(key):
         # Создаём новый state
         return {
@@ -135,7 +135,7 @@ def load_trade_state(sid: str) -> Dict[str, Any]:
             "volume_opened": 0.0,
             "volume_closed": 0.0
         }
-    
+
     try:
         data = r.get(key)
         return json.loads(data)
@@ -144,7 +144,7 @@ def load_trade_state(sid: str) -> Dict[str, Any]:
         return load_trade_state.__defaults__[0]  # Новый state
 
 
-def save_trade_state(state: Dict[str, Any], ttl: int = 604800):
+def save_trade_state(state: dict[str, Any], ttl: int = 604800):
     """
     Сохранить состояние сделки в Redis.
     
@@ -154,7 +154,7 @@ def save_trade_state(state: Dict[str, Any], ttl: int = 604800):
     """
     sid = state["sid"]
     key = f"{TRADE_STATE_PREFIX}{sid}"
-    
+
     try:
         r.set(key, json.dumps(state), ex=ttl)
         log.debug("Trade state saved: %s", sid)
@@ -162,7 +162,7 @@ def save_trade_state(state: Dict[str, Any], ttl: int = 604800):
         log.error("Error saving trade state %s: %s", sid, str(e))
 
 
-def append_event_to_stream(evt: Dict[str, Any]):
+def append_event_to_stream(evt: dict[str, Any]):
     """Добавить событие в Redis stream для trade_back."""
     try:
         # Конвертируем все поля в строки для Redis
@@ -172,7 +172,7 @@ def append_event_to_stream(evt: Dict[str, Any]):
                 stream_data[key] = json.dumps(value)
             else:
                 stream_data[key] = str(value)
-        
+
         msg_id = r.xadd(EVENT_STREAM, stream_data, maxlen=10000)
         log.debug("Event published to stream: %s (id=%s)", evt.get("event_type"), msg_id)
     except Exception as e:
@@ -186,7 +186,7 @@ def price_close_enough(price: float, target: float, tolerance: float = None) -> 
     return abs(price - target) <= tolerance
 
 
-def classify_fill(event: MT5Event, signal: Optional[Dict[str, Any]]) -> Dict[str, str]:
+def classify_fill(event: MT5Event, signal: dict[str, Any] | None) -> dict[str, str]:
     """
     Классифицировать событие MT5.
     
@@ -201,23 +201,23 @@ def classify_fill(event: MT5Event, signal: Optional[Dict[str, Any]]) -> Dict[str
         "event_type": "UNKNOWN",
         "reason": "not_classified"
     }
-    
+
     if signal is None:
         result["event_type"] = "UNKNOWN"
         result["reason"] = "signal_not_found"
         return result
-    
+
     side = signal.get("side", "LONG")
     sl = float(signal.get("sl", 0.0))
-    tp_levels: List[float] = signal.get("tp_levels", [])
+    tp_levels: list[float] = signal.get("tp_levels", [])
     price = event.price
-    
+
     # OPEN - определяем по нулевой прибыли
     if abs(event.profit) < 0.01:
         result["event_type"] = "POSITION_OPENED"
         result["reason"] = "zero_profit_detected"
         return result
-    
+
     # SL - проверяем срабатывание stop loss
     if sl > 0:
         if side == "LONG" and price <= sl + PRICE_TOLERANCE:
@@ -228,7 +228,7 @@ def classify_fill(event: MT5Event, signal: Optional[Dict[str, Any]]) -> Dict[str
             result["event_type"] = "SL_HIT"
             result["reason"] = f"price {price:.2f} >= sl {sl:.2f}"
             return result
-    
+
     # TP levels - проверяем достижение take profit'ов
     if tp_levels:
         for idx, tp in enumerate(tp_levels[:3], 1):  # Максимум 3 уровня
@@ -242,7 +242,7 @@ def classify_fill(event: MT5Event, signal: Optional[Dict[str, Any]]) -> Dict[str
                     result["event_type"] = f"TP{idx}_HIT"
                     result["reason"] = f"price {price:.2f} <= tp{idx} {tp:.2f}"
                     return result
-    
+
     # Если прибыль отрицательная но не SL - возможно manual close
     if event.profit < 0:
         result["event_type"] = "POSITION_CLOSED"
@@ -250,7 +250,7 @@ def classify_fill(event: MT5Event, signal: Optional[Dict[str, Any]]) -> Dict[str
     elif event.profit > 0:
         result["event_type"] = "POSITION_CLOSED"
         result["reason"] = "positive_profit_manual_close"
-    
+
     return result
 
 
@@ -270,31 +270,31 @@ def receive_mt5_event(event: MT5Event):
     if not sid:
         log.warning("Event without comment (sid): %s", event.model_dump())
         raise HTTPException(400, "comment (sid) is required")
-    
+
     log.info(
         "📥 MT5 event: sid=%s symbol=%s price=%.2f profit=%.2f",
         sid, event.symbol, event.price, event.profit
     )
-    
+
     # 2. Загружаем исходный сигнал
     signal = load_signal(sid)
-    
+
     # 3. Классифицируем событие
     classified = classify_fill(event, signal)
     event_type = classified["event_type"]
     reason = classified.get("reason", "")
-    
+
     log.info(
         "🎯 Classified as: %s (reason: %s)",
         event_type, reason
     )
-    
+
     # 4. Загружаем текущее состояние сделки
     state = load_trade_state(sid)
-    
+
     # Timestamp
     now_ms = event.ts or get_ny_time_millis()
-    
+
     # 5. Обновляем state
     state_event = {
         "ts": now_ms,
@@ -306,22 +306,22 @@ def receive_mt5_event(event: MT5Event):
         "volume": event.volume or 0.0,
         "reason": reason,
     }
-    
+
     state["events"].append(state_event)
     state["last_event_ts"] = now_ms
-    
+
     # Обработка по типу события
     if event_type == "POSITION_OPENED":
         state["opened_at"] = now_ms
         if event.volume:
             state["volume_opened"] += event.volume
-    
+
     elif event_type == "TP1_HIT":
         state["tp1_hit"] = True
         state["pnl_realized"] = round(state.get("pnl_realized", 0.0) + event.profit, 2)
         if event.volume:
             state["volume_closed"] += event.volume
-        
+
         # Логируем через TradeEventsLogger
         if events_logger:
             events_logger.log_tp1_hit(
@@ -332,13 +332,13 @@ def receive_mt5_event(event: MT5Event):
                 lot=event.volume,
                 source="mt5",
             )
-    
+
     elif event_type == "TP2_HIT":
         state["tp2_hit"] = True
         state["pnl_realized"] = round(state.get("pnl_realized", 0.0) + event.profit, 2)
         if event.volume:
             state["volume_closed"] += event.volume
-        
+
         if events_logger:
             events_logger.log_tp2_hit(
                 sid=sid,
@@ -348,13 +348,13 @@ def receive_mt5_event(event: MT5Event):
                 lot=event.volume,
                 source="mt5",
             )
-    
+
     elif event_type == "TP3_HIT":
         state["tp3_hit"] = True
         state["pnl_realized"] = round(state.get("pnl_realized", 0.0) + event.profit, 2)
         if event.volume:
             state["volume_closed"] += event.volume
-        
+
         if events_logger:
             events_logger.log_tp3_hit(
                 sid=sid,
@@ -364,19 +364,19 @@ def receive_mt5_event(event: MT5Event):
                 lot=event.volume,
                 source="mt5",
             )
-    
+
     elif event_type == "SL_HIT":
         state["sl_hit"] = True
         state["closed_at"] = now_ms
         state["pnl_realized"] = round(state.get("pnl_realized", 0.0) + event.profit, 2)
         if event.volume:
             state["volume_closed"] += event.volume
-        
+
         # Определяем причину SL
         sl_reason = "normal_sl"
         if state.get("tp1_hit"):
             sl_reason = "tp1_then_sl"  # Критичная метрика!
-        
+
         if events_logger:
             events_logger.log_sl_hit(
                 sid=sid,
@@ -387,13 +387,13 @@ def receive_mt5_event(event: MT5Event):
                 source="mt5",
                 reason=sl_reason
             )
-    
+
     elif event_type == "POSITION_CLOSED":
         state["closed_at"] = now_ms
         state["pnl_realized"] = round(state.get("pnl_realized", 0.0) + event.profit, 2)
         if event.volume:
             state["volume_closed"] += event.volume
-        
+
         # Определяем причину закрытия
         if state.get("tp3_hit"):
             close_reason = "tp3"
@@ -405,7 +405,7 @@ def receive_mt5_event(event: MT5Event):
             close_reason = "loss_manual"
         else:
             close_reason = "profit_manual"
-        
+
         if events_logger:
             # Extract AB data from signal payload or top-level if available
             ab_arm = str(signal.get("ab_arm") or (signal.get("payload") or {}).get("ab_arm") or "A")
@@ -420,7 +420,7 @@ def receive_mt5_event(event: MT5Event):
             try:
                 # 1. Try explicit risk from signal
                 risk_usd = float(signal.get("risk_usd") or (signal.get("payload") or {}).get("risk_usd") or 0.0)
-                
+
                 # 2. Fallback: calculate from SL distance
                 if risk_usd <= 0 and "spec_from_symbol_info" in globals():
                     try:
@@ -428,7 +428,7 @@ def receive_mt5_event(event: MT5Event):
                         sl_px = float(signal.get("sl") or 0.0)
                         lot = float(event.volume or 0.0)
                         side = str(signal.get("side") or (signal.get("payload") or {}).get("side") or "LONG")
-                        
+
                         if entry_px > 0 and sl_px > 0 and lot > 0:
                             # Use new get_symbol_info which supports redis fallback locally
                             spec_info = get_symbol_info(event.symbol, r)
@@ -436,7 +436,7 @@ def receive_mt5_event(event: MT5Event):
                             risk_usd = spec.risk_money(entry_px, sl_px, lot, side, symbol=event.symbol)
                     except Exception:
                         pass
-                
+
                 if risk_usd > 1e-9:
                     r_mult = event.profit / risk_usd
             except Exception:
@@ -488,10 +488,10 @@ def receive_mt5_event(event: MT5Event):
                     "fee_bps": 0.0,
                 }
             )
-    
+
     # 6. Сохраняем обновлённый state
     save_trade_state(state)
-    
+
     # 7. Публикуем в stream для trade_back
     stream_event = {
         "sid": sid,
@@ -506,12 +506,12 @@ def receive_mt5_event(event: MT5Event):
         "state": state  # Полное состояние для анализа
     }
     append_event_to_stream(stream_event)
-    
+
     log.info(
         "✅ Event processed: %s for %s (pnl_total=%.2f)",
         event_type, sid, state["pnl_realized"]
     )
-    
+
     return {
         "ok": True,
         "sid": sid,
@@ -535,7 +535,7 @@ def health_check():
         redis_ok = True
     except Exception:
         redis_ok = False
-    
+
     return {
         "status": "healthy" if redis_ok else "unhealthy",
         "redis": "connected" if redis_ok else "disconnected",
@@ -550,10 +550,10 @@ def get_stats():
     try:
         # Подсчитываем количество событий в stream
         stream_len = r.xlen(EVENT_STREAM)
-        
+
         # Количество сделок в состоянии
         trade_states = len(r.keys(f"{TRADE_STATE_PREFIX}*"))
-        
+
         return {
             "events_in_stream": stream_len,
             "trade_states": trade_states,
@@ -568,10 +568,10 @@ def get_stats():
 def get_signal_state(sid: str):
     """Получить состояние сделки по sid."""
     state = load_trade_state(sid)
-    
+
     if not state or not state.get("opened_at"):
         raise HTTPException(404, f"Trade state not found for {sid}")
-    
+
     return state
 
 
@@ -593,10 +593,10 @@ def get_signal_events(sid: str):
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     host = os.getenv("MT5_EXECUTOR_HOST", "0.0.0.0")
     port = int(os.getenv("MT5_EXECUTOR_PORT", "8091"))
-    
+
     log.info("=" * 80)
     log.info("MT5 Event Executor Service")
     log.info("=" * 80)
@@ -606,7 +606,7 @@ if __name__ == "__main__":
     log.info("Events stream: %s", EVENT_STREAM)
     log.info("Events logger: %s", "enabled" if HAS_EVENTS_LOGGER else "disabled")
     log.info("=" * 80)
-    
+
     uvicorn.run(
         app,
         host=host,

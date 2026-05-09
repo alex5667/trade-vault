@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P6 tests for ExecutionIntentValidator.
 
 Tests cover:
@@ -7,21 +8,19 @@ Tests cover:
   - compute_trailing_activate_price edge cases
 """
 
-import math
+
 import pytest
-import sys
-import os
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 try:
-    from services.execution_intent_validator import validate_exit_intent
-    from services.binance_futures_client import AlgoOrderRef
     from services.binance_executor import compute_trailing_activate_price
+    from services.binance_futures_client import AlgoOrderRef
+    from services.execution_intent_validator import validate_exit_intent
 except Exception:
-    from execution_intent_validator import validate_exit_intent
-    from binance_futures_client import AlgoOrderRef
     from binance_executor import compute_trailing_activate_price
+    from binance_futures_client import AlgoOrderRef
+    from execution_intent_validator import validate_exit_intent
 
 
 def _make_ref(order_type: str, working_type: str = "MARK_PRICE") -> AlgoOrderRef:

@@ -3,17 +3,14 @@
 Unit tests for of_engine_replay_from_inputs.py
 """
 import json
-import tempfile
 import os
-from unittest.mock import Mock
-
-import pytest
+import tempfile
 
 from tools.of_engine_replay_from_inputs import (
+    build_cfg_indicators,
+    build_runtime_from_inputs,
     iter_ndjson,
     load_inputs,
-    build_runtime_from_inputs,
-    build_cfg_indicators,
     main,
 )
 
@@ -26,7 +23,7 @@ def test_iter_ndjson():
         f.write('\n')  # empty line
         f.write('{"c": 3}\n')
         temp_path = f.name
-    
+
     try:
         rows = list(iter_ndjson(temp_path))
         assert len(rows) == 3
@@ -42,7 +39,7 @@ def test_load_inputs_direct():
     with tempfile.NamedTemporaryFile(mode='w', suffix='.ndjson', delete=False) as f:
         f.write('{"symbol": "BTCUSDT", "direction": "LONG", "ts_ms": 1000}\n')
         temp_path = f.name
-    
+
     try:
         rows = list(load_inputs(temp_path))
         assert len(rows) == 1
@@ -56,7 +53,7 @@ def test_load_inputs_wrapped():
     with tempfile.NamedTemporaryFile(mode='w', suffix='.ndjson', delete=False) as f:
         f.write('{"payload": {"symbol": "BTCUSDT", "direction": "LONG"}}\n')
         temp_path = f.name
-    
+
     try:
         rows = list(load_inputs(temp_path))
         assert len(rows) == 1
@@ -81,7 +78,7 @@ def test_build_runtime_from_inputs():
         "fp_edge_absorb": 1,
         "weak_progress": 1,
     }
-    
+
     rt = build_runtime_from_inputs(inp)
     assert rt.symbol == "BTCUSDT"
     assert rt.last_regime == "trend"
@@ -105,7 +102,7 @@ def test_build_cfg_indicators():
         "fp_edge_absorb": 1,
         "cancel_bid_rate_ema": 0.5,
     }
-    
+
     cfg, indicators, absorption = build_cfg_indicators(inp)
     assert cfg["test_param"] == 1.0
     assert indicators["book_health_ok"] == 1
@@ -135,22 +132,22 @@ def test_main_end_to_end():
         }
         f.write(json.dumps(inp) + "\n")
         inputs_path = f.name
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.ndjson', delete=False) as f:
         out_path = f.name
-    
+
     try:
         import sys
         old_argv = sys.argv
         sys.argv = ["test", "--inputs", inputs_path, "--out", out_path, "--tf", "1s", "--sort", "1"]
-        
+
         try:
             main()
         finally:
             sys.argv = old_argv
-        
+
         # Check output exists and has sid
-        with open(out_path, "r") as f:
+        with open(out_path) as f:
             lines = f.readlines()
             assert len(lines) > 0
             row = json.loads(lines[0])

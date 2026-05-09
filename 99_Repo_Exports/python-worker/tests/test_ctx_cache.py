@@ -1,5 +1,7 @@
 from types import SimpleNamespace
+
 from common.ctx_cache import cached_on_ctx
+
 
 def test_cached_on_ctx():
     ctx = SimpleNamespace()

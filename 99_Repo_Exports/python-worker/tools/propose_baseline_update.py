@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Propose baseline update: export latest OFInputs, run engine replay, diff vs current baseline.
 
 Exports last N OFInputs for canary symbols from signals:of:inputs,
@@ -10,24 +12,22 @@ Usage:
   (reads ENV vars for streams, baseline paths, symbols)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
+import hashlib
+import hmac
 import json
 import os
 import secrets
-import time
-import hmac
-import hashlib
 import subprocess
 import sys
-from typing import Any, Dict, List
+import time
 
 import redis
 
 from common.log import setup_logger
-
-from core.ok_fields import parse_ok_fields, get_scenario, get_ts_ms
+from core.ok_fields import get_scenario, get_ts_ms, parse_ok_fields
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 logger = setup_logger("ProposeBaselineUpdate")
 
@@ -123,14 +123,10 @@ def _metrics_health(rows: list[dict]) -> dict:
         ok_i, soft_i = parse_ok_fields(r)
         ok += 1 if ok_i == 1 else 0
         soft += 1 if soft_i == 1 else 0
-        try:
+        with contextlib.suppress(Exception):
             lat.append(float(r.get("latency_us", 0.0) or 0.0))
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             ex.append(float(r.get("exec_risk_norm", 0.0) or 0.0))
-        except Exception:
-            pass
 
         sc = get_scenario(r) or "na"
         scen[sc] = scen.get(sc, 0) + 1
@@ -162,7 +158,7 @@ def export_inputs(r: redis.Redis, *, stream: str, field: str, symbols: set[str],
     
     Args:
         r: Redis client
-        stream: Stream name (e.g. "signals:of:inputs")
+        stream: Stream name (e.g. RS.OF_INPUTS)
         field: Field name containing JSON payload (e.g. "payload")
         symbols: Set of symbols to include (uppercase)
         out_path: Output NDJSON file path
@@ -176,7 +172,7 @@ def export_inputs(r: redis.Redis, *, stream: str, field: str, symbols: set[str],
     written = 0
     last_id = "+"
 
-    rows: List[dict] = []
+    rows: list[dict] = []
     while scanned < max_scan and written < max_write:
         batch = r.xrevrange(stream, max=last_id, min="-", count=2000)
         if not batch:
@@ -195,7 +191,7 @@ def export_inputs(r: redis.Redis, *, stream: str, field: str, symbols: set[str],
                 inp = json.loads(payload) if isinstance(payload, str) else json.loads(payload.decode("utf-8"))
             except Exception:
                 continue
-            sym = str(inp.get("symbol", "")).upper()
+            sym = (inp.get("symbol", "")).upper()
             if sym and sym in symbols:
                 rows.append(inp)
                 written += 1
@@ -236,7 +232,7 @@ def main() -> None:
     except Exception:
         streak = 0
 
-    last_status = str(r.get(last_status_key) or "")
+    last_status = (r.get(last_status_key) or "")
     last_ts = 0
     try:
         last_ts = int(r.get(last_ts_key) or "0")
@@ -255,7 +251,7 @@ def main() -> None:
                 f"need_streak=<code>{min_streak}</code> have=<code>{streak}</code>\n"
                 f"last_status=<code>{html.escape(last_status, quote=False)}</code> age_ok=<code>{int(age_ok)}</code>"
             )
-            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {"type": "report", "text": msg, "ts": str(now_ms())}, maxlen=200000, approximate=True)
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {"type": "report", "text": msg, "ts": str(now_ms())}, maxlen=200000, approximate=True)
         return
 
     # ------------------------------------------------------------
@@ -326,10 +322,10 @@ def main() -> None:
                 f"metrics=<code>{html.escape(str(mh), quote=False)}</code>\n"
                 f"streak=<code>{streak}</code> last=<code>{html.escape(str(last_status), quote=False)}</code>"
             )
-            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {"type": "report", "text": msg, "ts": str(now_ms())}, maxlen=200000, approximate=True)
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {"type": "report", "text": msg, "ts": str(now_ms())}, maxlen=200000, approximate=True)
         return
 
-    stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+    stream = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
     field = os.getenv("OF_INPUTS_STREAM_FIELD", "payload")
     symbols = {s.strip().upper() for s in os.getenv("CANARY_SYMBOLS", "BTCUSDT,ETHUSDT").split(",") if s.strip()}
 
@@ -407,7 +403,7 @@ def main() -> None:
         f"diff=<code>{html.escape(str(diff_path), quote=False)}</code>"
     )
     r.xadd(
-        os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"),
+        os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM),
         {
             "type": "report",
             "text": msg,

@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -74,15 +75,15 @@ DEFAULT_ADVISORY_ONLY = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_A
 DEFAULT_EXECUTOR_MODE = os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_RCA_GOVERNANCE_EXECUTOR_MODE", "DRY_RUN").upper()
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -139,8 +140,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -153,7 +154,7 @@ def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "min_samples": parse_int(raw.get("min_samples"), DEFAULT_MIN_SAMPLES),
         "min_avg_quality": parse_float(raw.get("min_avg_quality"), DEFAULT_MIN_AVG_QUALITY),
@@ -172,12 +173,12 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
+async def xr_recent(client: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await client.xrevrange(stream_key, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -185,7 +186,7 @@ async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, 
     return out
 
 
-def rollup_feedback(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def rollup_feedback(rows: list[dict[str, Any]]) -> dict[str, Any]:
     cutoff = now_ms() - WINDOW_MIN * 60 * 1000
     recent = [r for r in rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
     n = len(recent)
@@ -210,7 +211,7 @@ def rollup_feedback(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def evaluate_governance(rollup: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
+def evaluate_governance(rollup: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
     n = int(rollup["n"])
     if n < policy["min_samples"]:
         return {"decision": "HOLD", "reason_code": "INSUFFICIENT_SAMPLES", "target_bridge_mode": "AUTO"}
@@ -224,7 +225,7 @@ def evaluate_governance(rollup: Dict[str, Any], policy: Dict[str, Any]) -> Dict[
     return {"decision": "KEEP_AUTO", "reason_code": "QUALITY_STABLE", "target_bridge_mode": "AUTO"}
 
 
-async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None, rollup: Dict[str, Any], decision: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, feedback_row: dict[str, Any] | None, rollup: dict[str, Any], decision: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -314,7 +315,7 @@ async def main() -> None:  # pragma: no cover
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     decision = evaluate_governance(rollup, policy)
                     decision_label = decision["decision"]
 

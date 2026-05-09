@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from handlers.regime_service import MarketRegimeService, RegimeFeatures, RegimeConfig
+from handlers.regime_service import MarketRegimeService, RegimeConfig, RegimeFeatures
 
 
 def test_adx_q_pushes_to_trend():
@@ -19,7 +19,7 @@ def test_adx_q_pushes_to_trend():
     s1 = svc.state.score
     r2 = svc.update_regime(f_hi)
     s2 = svc.state.score
-    
+
     # High ADX should have higher score than low ADX
     assert s2 > s1, f"High ADX score {s2} should be > low ADX score {s1}"
     # High ADX with high ATR should be trending
@@ -30,10 +30,10 @@ def test_trend_direction_from_hold():
     """Verify trending_bear when hold_side_score is negative."""
     svc = MarketRegimeService(RegimeConfig())
     r = svc.update_regime(RegimeFeatures(
-        atr_q=0.95, 
-        adx_q=0.95, 
-        hold_side_score=-0.5, 
-        delta_ema=1.0, 
+        atr_q=0.95,
+        adx_q=0.95,
+        hold_side_score=-0.5,
+        delta_ema=1.0,
         vwap_cross_rate=0.0
     ))
     assert r == "trending_bear"
@@ -43,8 +43,8 @@ def test_trend_direction_from_delta_fallback():
     """Verify trending_bull when hold is weak but delta is positive."""
     svc = MarketRegimeService(RegimeConfig())
     r = svc.update_regime(RegimeFeatures(
-        atr_q=0.95, 
-        adx_q=0.95, 
+        atr_q=0.95,
+        adx_q=0.95,
         hold_side_score=0.05,  # below trend_dir_hold_min (0.10)
         delta_ema=1.0,         # positive delta => bull
         vwap_cross_rate=0.0
@@ -56,10 +56,10 @@ def test_range_on_low_adx():
     """Verify range regime on low ADX even with moderate ATR."""
     svc = MarketRegimeService(RegimeConfig())
     r = svc.update_regime(RegimeFeatures(
-        atr_q=0.50, 
+        atr_q=0.50,
         adx_q=0.20,  # very low ADX => chop
-        delta_ema=0.0, 
-        hold_side_score=0.0, 
+        delta_ema=0.0,
+        hold_side_score=0.0,
         vwap_cross_rate=0.3
     ))
     assert r in ("range", "mixed")

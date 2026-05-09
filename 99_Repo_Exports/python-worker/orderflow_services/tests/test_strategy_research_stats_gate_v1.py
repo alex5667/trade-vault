@@ -1,9 +1,9 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import time
-import pytest
+
 from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate, gate_check_message
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:

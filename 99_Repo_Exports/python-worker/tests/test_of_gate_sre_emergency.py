@@ -8,12 +8,11 @@
 """
 
 import json
+
 import pytest
-import time
+
 from tests.fakeredis import FakeStrictRedis
-from tools.of_gate_sre_emergency import (
-    compute_stats, merge_entry_policy_override, apply_bundle_auto, pctl, now_ms
-)
+from tools.of_gate_sre_emergency import apply_bundle_auto, compute_stats, merge_entry_policy_override, pctl
 
 
 @pytest.fixture
@@ -36,7 +35,7 @@ def test_compute_stats_basic():
         {"ok": "0", "ok_soft": "0", "latency_us": "5000", "exec_risk_norm": "0.8", "scenario_v4": "B2"},
     ]
     result = compute_stats(rows)
-    
+
     assert result["n"] == 3
     assert result["ok_rate"] == pytest.approx(2.0 / 3.0, abs=0.01)
     assert result["soft_rate"] == pytest.approx(1.0 / 3.0, abs=0.01)
@@ -76,23 +75,23 @@ def test_apply_bundle_auto_set(redis_client):
         {"op": "SET", "key": "cfg:entry_policy:overrides:A", "value": '{"version":1,"overrides":{"ENTRY_POLICY_SHADOW":"1"}}'},
     ]
     meta = {"kind": "test"}
-    
+
     # Устанавливаем начальное значение
     redis_client.set("cfg:entry_policy:overrides:A", '{"version":1,"overrides":{}}')
-    
+
     bundle_id, sig = apply_bundle_auto(redis_client, ops=ops, meta=meta, who="test", ttl=3600, secret="test_secret")
-    
+
     assert bundle_id is not None
     assert sig is not None
-    
+
     # Проверяем, что значение изменилось
     new_val = redis_client.get("cfg:entry_policy:overrides:A")
     assert new_val == '{"version":1,"overrides":{"ENTRY_POLICY_SHADOW":"1"}}'
-    
+
     # Проверяем статус
     status = redis_client.get(f"recs:status:{bundle_id}")
     assert status == "APPLIED"
-    
+
     # Проверяем audit
     audit_entries = redis_client.lrange(f"recs:audit:{bundle_id}", 0, -1)
     assert len(audit_entries) == 1
@@ -108,17 +107,17 @@ def test_apply_bundle_auto_mixed(redis_client):
         {"op": "HSET", "key": "config:orderflow:BTCUSDT", "field": "meta_model_mode", "value": "SHADOW"},
     ]
     meta = {"kind": "test"}
-    
+
     redis_client.set("cfg:entry_policy:overrides:A", '{"version":1,"overrides":{}}')
-    
+
     bundle_id, sig = apply_bundle_auto(redis_client, ops=ops, meta=meta, who="test", ttl=3600, secret="test_secret")
-    
+
     # Проверяем оба значения
     val1 = redis_client.get("cfg:entry_policy:overrides:A")
     val2 = redis_client.hget("config:orderflow:BTCUSDT", "meta_model_mode")
     assert val1 == '{"version":1,"overrides":{"ENTRY_POLICY_SHADOW":"1"}}'
     assert val2 == "SHADOW"
-    
+
     # Проверяем audit (должно быть 2 записи)
     audit_entries = redis_client.lrange(f"recs:audit:{bundle_id}", 0, -1)
     assert len(audit_entries) == 2

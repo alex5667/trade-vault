@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 XAU Order Flow Handler - анализ ордер-флоу по тиковым данным XAUUSD.
 
@@ -21,30 +22,31 @@ XAU Order Flow Handler - анализ ордер-флоу по тиковым д
 - Публикует в notify:telegram (читается notify-worker)
 """
 
+import json
 import logging
 import os
-import json
-import time
-import sys
 import threading
+import time
 from collections import deque
-from statistics import mean, pstdev
 from dataclasses import dataclass
-from typing import Optional, Dict
+from statistics import mean, pstdev
+
+from core.redis_keys import RedisStreams as RS
+from core.ticks_redis_client import get_ticks_redis
 
 # from core.redis_client import ...
 # from core.dual_redis_client import ...
 # from core.config import ...
-from core.xauusd_signal_formatter import XAUUSDSignalFormatter, XAUUSDSignal
-from signals.pivots import compute_daily_pivots, check_pivot_proximity, PivotProximityCfg
+from core.xauusd_signal_formatter import XAUUSDSignal, XAUUSDSignalFormatter
 from signals.atr import ATR
-from signals.position_sizing import suggest_lot
-from signals.detectors import obi_from_book, weak_progress as check_weak_progress
+from signals.detectors import obi_from_book
+from signals.detectors import weak_progress as check_weak_progress
 from signals.orderbook_metrics import BestLevelTracker
+from signals.pivots import PivotProximityCfg, check_pivot_proximity, compute_daily_pivots
+from signals.position_sizing import suggest_lot
 from signals.risk_levels import compute_levels  # v5.1: SL/TP calculation
-from .regime_gate import RegimeGateCfg, regime_allows
-from core.redis_keys import RedisStreams as RS
 
+from .regime_gate import RegimeGateCfg, regime_allows
 
 _log = logging.getLogger(__name__)
 
@@ -55,7 +57,7 @@ BOOK_STREAM = XAU_BOOK_STREAM
 GROUP = os.getenv("XAU_GROUP", "xauusd-signal-group")  # v3: unified group для tick+book
 CONSUMER_NAME_PREFIX = os.getenv("XAU_CONSUMER", "xau-handler")
 _DLQ_STREAM = os.getenv("XAU_DLQ_STREAM", RS.DLQ_ORDERFLOW)
-NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", "notify:telegram")
+NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 USE_TG_BTNS = os.getenv("USE_TELEGRAM_BUTTONS", "0") == "1"  # v4: optional Telegram inline buttons
 ATR_SOURCE = os.getenv("ATR_SOURCE", "redis")  # v5: ticks | redis
 ATR_TF = os.getenv("ATR_TF", "1m")  # v5: timeframe for Redis ATR
@@ -76,7 +78,7 @@ CFG = {
     "iceberg_min_duration": float(os.getenv("XAU_ICEBERG_DURATION", "1.5")),
     "iceberg_refresh_min_abs": float(os.getenv("XAU_ICEBERG_REFRESH_MIN_ABS", "1.0")),
     "dist_atr_threshold": float(os.getenv("XAU_DIST_ATR_THRESHOLD", "0.5")),
-    "dist_bp_threshold": float(val) if (val := os.getenv("XAU_DIST_BP_THRESHOLD")) else None, 
+    "dist_bp_threshold": float(val) if (val := os.getenv("XAU_DIST_BP_THRESHOLD")) else None,
     "dist_mode": os.getenv("XAU_DIST_MODE", "or"),
     "min_signal_interval_sec": int(os.getenv("XAU_MIN_SIGNAL_INTERVAL", "60")),  # 1 минута между сигналами
     "read_count": int(os.getenv("XAU_READ_COUNT", "100")),
@@ -107,16 +109,16 @@ class XAUOrderFlowHandler:
     """
     Обработчик ордер-флоу для XAUUSD на основе тиковых данных.
     """
-    
+
     def __init__(self):
         """Инициализация обработчика."""
-        # Redis клиенты
-        self.redis_client = get_redis()
+        # Tick/book streams live on redis-ticks shard, not worker-1.
+        self.redis_client = get_ticks_redis()
         self.dual_redis = lambda: None()
-        
+
         # Состояние работы
         self.is_running = False
-        
+
         # Буферы для анализа
         self.delta_window = deque(maxlen=CFG["delta_window_ticks"])
         self.last_signal_ts = 0
@@ -126,7 +128,7 @@ class XAUOrderFlowHandler:
         self.signal_count_short = 0  # Счетчик SHORT сигналов
         self.current_z_delta = 0.0  # Текущий z_delta для audit trail
         self.atr_fallback_count = 0  # Counter для ATR fallback warnings
-        
+
         # Состояние для детекции iceberg
         self.best_level_state = {
             "price": None,
@@ -134,22 +136,22 @@ class XAUOrderFlowHandler:
             "refresh": 0,
             "side": None
         }
-        
+
         # OBI tracking
         self.obi_state = deque()
-        
+
         # ATR расчет
         self.atr_calculator = ATR(period=14)
-        
+
         # Дневные уровни (пересчитываются на новом дне)
         self.daily_pivots = None
         self.last_pivot_date = None
-        
+
         # Отслеживание диапазона текущего бара для weak progress
         self.bar_high = -1e9
         self.bar_low = 1e9
         self.bar_start_ts = 0
-        
+
         # v3: Best Level Tracker для реальной iceberg детекции
         self.best_level_tracker = BestLevelTracker(
             min_duration_ms=int(CFG["iceberg_min_duration"] * 1000),
@@ -165,30 +167,30 @@ class XAUOrderFlowHandler:
             absorption_max_score=float(getattr(self, "regime_absorption_max_score", 0.0)),
             allow_sweep_any=bool(getattr(self, "regime_allow_sweep_any", True)),
         )
-        
+
         _log.info("XAUOrderFlowHandler v3 инициализирован")
         _log.info("  Tick Stream: %s", TICK_STREAM)
         _log.info("  Book Stream: %s", BOOK_STREAM)
         _log.info("  Group: %s (unified consumer)", GROUP)
         _log.info("  Delta Z threshold: %s", CFG['delta_z_threshold'])
         _log.info("  Iceberg: duration=%ss, refresh=%s", CFG['iceberg_min_duration'], CFG['iceberg_refresh_count'])
-    
+
     def start(self) -> None:
         """Запускает обработчик в отдельном потоке."""
         if self.is_running:
             _log.warning("XAUOrderFlowHandler уже запущен")
             return
-        
+
         self.is_running = True
         thread = threading.Thread(target=self._run_loop, daemon=True)
         thread.start()
         _log.info("XAUOrderFlowHandler запущен")
-    
+
     def stop(self) -> None:
         """Останавливает обработчик."""
         self.is_running = False
         _log.info("XAUOrderFlowHandler остановлен")
-    
+
     def _run_loop(self) -> None:
         """Основной цикл обработки тиков и order book (unified consumer)."""
         # Вспомогательная функция для создания consumer groups
@@ -211,21 +213,21 @@ class XAUOrderFlowHandler:
                 else:
                     _log.error("Ошибка создания consumer group для %s: %s", stream_name, e)
                     return False
-        
+
         try:
             # Создаем consumer groups для обоих стримов (v3: unified)
             for stream_name in [TICK_STREAM, BOOK_STREAM]:
                 ensure_consumer_group(stream_name)
-            
+
             # Уникальное имя консьюмера
             consumer_name = f"{CONSUMER_NAME_PREFIX}-{os.getpid()}-{int(time.time())}"
-            
+
             _log.info("Запуск цикла обработки тиков (consumer: %s)...", consumer_name)
-                
+
             tick_count = 0
             signal_count = 0
             start_time = time.time()
-            
+
             # Основной цикл (v3: unified consumer для tick+book)
             while self.is_running:
                 try:
@@ -237,13 +239,13 @@ class XAUOrderFlowHandler:
                         count=CFG["read_count"],
                         block=CFG["read_block_ms"]
                     )
-                    
+
                     if not messages:
                         continue
-                    
+
                     for stream, items in messages:
                         for msg_id, fields in items:
-                            _proc_error: Optional[Exception] = None
+                            _proc_error: Exception | None = None
                             try:
                                 # Определяем тип сообщения по stream
                                 if stream == TICK_STREAM:
@@ -286,14 +288,14 @@ class XAUOrderFlowHandler:
                                     self.redis_client.xack(stream, GROUP, msg_id)
                                 except Exception as e:
                                     _log.error("Ошибка ACK %s: %s", msg_id, e)
-                                                
+
                     # Статистика каждые 60 секунд
                     if time.time() - start_time >= 60:
                         _log.info("XAU OrderFlow: %d тиков, %d сигналов за 60с", tick_count, signal_count)
                         tick_count = 0
                         signal_count = 0
                         start_time = time.time()
-                        
+
                 except Exception as e:
                     error_str = str(e).upper()
                     # Обработка NOGROUP ошибки - пересоздаём consumer groups
@@ -306,10 +308,10 @@ class XAUOrderFlowHandler:
                     else:
                         _log.error("Ошибка в цикле обработки: %s", e)
                         time.sleep(1)
-                    
+
         except Exception as e:
             _log.error("Критическая ошибка XAUOrderFlowHandler: %s", e)
-        
+
     def _process_tick(self, tick: Tick) -> None:
         """
         Обработка одного тика.
@@ -325,54 +327,54 @@ class XAUOrderFlowHandler:
             _log.debug("last_pivot_date: %s", self.last_pivot_date)
             if self.daily_pivots:
                 _log.debug("pivot keys: %s", list(self.daily_pivots.keys()))
-            
+
         # Вычисляем mid price
         mid = (tick.bid + tick.ask) / 2 if (tick.bid and tick.ask) else (tick.last or 0.0)
-        
+
         if mid <= 0:
             return
-        
+
         # 1. Обновляем ATR (v5: поддержка Redis ATR)
         atr_val = self._get_atr(mid, tick.ts)
-        
+
         # 2. Обновляем/пересчитываем дневные pivots
         self._update_pivots(tick.ts)
-        
+
         # DEBUG: Force update pivots on first 10 ticks if they don't exist
         if self.processed_ticks <= 10 and self.daily_pivots is None:
             _log.debug("Принудительно инициализируем pivots на тике #%d", self.processed_ticks)
             self.last_pivot_date = None  # Force re-initialization
             self._update_pivots(tick.ts)
-            
+
         # 3. Классифицируем Delta
         delta = self._classify_delta(tick)
         self.delta_window.append(delta)
-        
+
         # 4. Вычисляем Z-score Delta
         z_delta = self._zscore(self.delta_window)
-        
+
         # 5. Weak Progress (диапазон бара / ATR)
         self._update_bar_range(mid, tick.ts)
         bar_range = abs(self.bar_high - self.bar_low)
         weak_progress = check_weak_progress(bar_range, atr_val, CFG["weak_progress_atr"])
-        
+
         # DEBUG: Логируем каждые 50 тиков в _process_tick
         if self.processed_ticks % 50 == 0:
             recent_deltas = list(self.delta_window)[-5:] if len(self.delta_window) >= 5 else list(self.delta_window)
             _log.debug("PROCESS_TICK: tick #%d, z_delta=%.3f, atr=%.4f, delta_window_len=%d, recent_deltas=%s", self.processed_ticks, z_delta, atr_val, len(self.delta_window), recent_deltas)
-            
+
         # 6. OBI (Order Book Imbalance) - реальный из DOM или суррогат
         obi = self._calc_real_obi(tick.ts, mid)
         self._track_obi(tick.ts, obi)
-        
+
         # 7. Iceberg эвристика
         # ВРЕМЕННО ОТКЛЮЧЕНО: Требует Order Book данных
         # TODO: Включить когда BookBridge заработает в MT5
         # self._track_iceberg(tick, mid)
-        
+
         # 8. Генерация сигналов (v5: передаем ts для sid)
         self._generate_signals(tick.ts, mid, z_delta, weak_progress, obi, atr_val)
-    
+
     def _classify_delta(self, tick: Tick) -> float:
         """
         Классифицирует направление сделки и возвращает Delta.
@@ -385,36 +387,36 @@ class XAUOrderFlowHandler:
         """
         # ВРЕМЕННО ОТКЛЮЧЕНО: Оригинальная логика требует реальные объёмы
         # TODO: Раскомментировать когда BookBridge заработает и будут реальные объёмы
-        
+
         # # Примитивная классификация на основе last vs bid/ask
         # if tick.last and tick.ask and tick.last >= tick.ask:
         #     return +tick.volume  # агрессивная покупка
         # if tick.last and tick.bid and tick.last <= tick.bid:
         #     return -tick.volume  # агрессивная продажа
-        # 
+        #
         # # Fallback: по движению mid
         # return +tick.volume if tick.ask > tick.bid else -tick.volume
-        
+
         # ВРЕМЕННАЯ ЗАГЛУШКА: Возвращаем ±1.0 для работы без реальных объёмов
         # Основано на flags (TICK_FLAG_BID=2, TICK_FLAG_ASK=4)
         if tick.flags:
             if tick.flags & 2:  # Изменение bid
                 return +1.0
-            if tick.flags & 4:  # Изменение ask  
+            if tick.flags & 4:  # Изменение ask
                 return -1.0
-        
+
         # Fallback: анализ last price vs bid/ask
         if tick.last and tick.ask and tick.last >= tick.ask:
             return +1.0  # агрессивная покупка
         if tick.last and tick.bid and tick.last <= tick.bid:
             return -1.0  # агрессивная продажа
-        
+
         # Простейший fallback на основе спреда
         if tick.bid and tick.ask:
             return +1.0 if tick.ask > tick.bid else -1.0
-        
+
         return 0.0  # нейтральный тик
-    
+
     def _zscore(self, window: deque) -> float:
         """
         Вычисляет Z-score для последнего значения в окне.
@@ -427,15 +429,15 @@ class XAUOrderFlowHandler:
         """
         if len(window) < max(30, window.maxlen // 4):
             return 0.0
-        
+
         m = mean(window)
         s = pstdev(window)
-        
+
         if s == 0:
             return 0.0
-        
+
         return (window[-1] - m) / s
-    
+
     def _update_bar_range(self, price: float, ts: int) -> None:
         """
         Обновляет диапазон текущего минутного бара.
@@ -447,15 +449,15 @@ class XAUOrderFlowHandler:
         # Сброс каждые 60 секунд
         if self.bar_start_ts == 0:
             self.bar_start_ts = ts
-        
+
         if ts - self.bar_start_ts >= 60_000:
             self.bar_start_ts = ts
             self.bar_high = price
             self.bar_low = price
-        
+
         self.bar_high = max(self.bar_high, price)
         self.bar_low = min(self.bar_low, price)
-    
+
     def _get_atr(self, price: float, ts: int) -> float:
         """
         Получает ATR из Redis кэша или вычисляет локально (паттерн из candle_of_worker.py).
@@ -483,7 +485,7 @@ class XAUOrderFlowHandler:
                             return val
                     except (json.JSONDecodeError, KeyError, ValueError):
                         pass
-                
+
                 # Попытка 2: новый формат ключа (atr:val:SYMBOL:TF)
                 key_val = f"atr:val:{SYMBOL}:{ATR_TF}"
                 cached = self.redis_client.get(key_val)
@@ -491,7 +493,7 @@ class XAUOrderFlowHandler:
                     val = float(cached)
                     if val > 0:
                         return val
-                
+
                 # Попытка 3: старый формат ключа (atr:SYMBOL:TF) - для совместимости
                 key_old = f"atr:{SYMBOL}:{ATR_TF}"
                 cached = self.redis_client.get(key_old)
@@ -501,14 +503,14 @@ class XAUOrderFlowHandler:
                         return val
             except Exception as e:
                 _log.warning("Не удалось получить ATR из Redis: %s", e)
-        
+
         # 2) Fallback: локальный ATR калькулятор (на основе тиков)
         self.atr_calculator.feed_tick(price, ts)
         atr_val = self.atr_calculator.value()
-        
+
         if atr_val and atr_val > 0:
             return atr_val
-        
+
         # 3) Последний fallback: фиксированное значение для XAUUSD 1m
         # Для XAUUSD типичный ATR(14) на 1m составляет ~0.5-2.0 пункта
         # Используем среднее значение 1.2 как консервативную оценку
@@ -520,14 +522,14 @@ class XAUOrderFlowHandler:
             estimated_atr = 6.5  # Типичный ATR для 15m XAUUSD
         else:
             estimated_atr = price * 0.0003  # 0.03% от цены для других TF
-        
+
         # Выводим предупреждение только каждое 10000-е сообщение, чтобы не засорять логи
         self.atr_fallback_count += 1
         if self.atr_fallback_count % 10000 == 0:
             _log.warning("ATR недоступен (событие #%d), используем типичное значение для %s: %.2f", self.atr_fallback_count, ATR_TF, estimated_atr)
-        
+
         return estimated_atr
-    
+
     def _calc_real_obi(self, ts: int, price: float) -> float:
         """
         Вычисляет реальный OBI из Order Book или fallback на суррогат.
@@ -544,21 +546,21 @@ class XAUOrderFlowHandler:
             symbol = "XAUUSD"  # TODO: Сделать конфигурируемым если нужна мультисимвольность
             cache_key = f"book:latest:{symbol}"
             book_json = self.redis_client.get(cache_key)
-            
+
             if book_json:
                 book = json.loads(book_json)
                 real_obi = obi_from_book(book, depth=5)
-                
+
                 if real_obi is not None:
                     # Используем реальный OBI из DOM
                     return real_obi
         except Exception:
             # Если ошибка получения DOM - используем fallback
             pass
-        
+
         # Fallback: суррогат на основе Delta window
         return self._calc_obi_surrogate()
-    
+
     def _calc_obi_surrogate(self) -> float:
         """
         Вычисляет суррогат OBI (Order Book Imbalance) на основе Delta.
@@ -568,16 +570,16 @@ class XAUOrderFlowHandler:
         """
         if not self.delta_window:
             return 0.0
-        
+
         buys = sum(1 for v in self.delta_window if v > 0)
         sells = sum(1 for v in self.delta_window if v < 0)
         total = buys + sells
-        
+
         if total == 0:
             return 0.0
-        
+
         return (buys - sells) / total
-    
+
     def _track_obi(self, ts: int, obi: float) -> None:
         """
         Отслеживает OBI во времени для детекции устойчивости.
@@ -587,12 +589,12 @@ class XAUOrderFlowHandler:
             obi: Значение OBI
         """
         self.obi_state.append((ts, obi))
-        
+
         # Удаляем старые значения (старше min_duration)
         duration_ms = CFG["obi_min_duration"] * 1000
         while self.obi_state and ts - self.obi_state[0][0] > duration_ms:
             self.obi_state.popleft()
-    
+
     def _obi_is_sustained(self) -> bool:
         """
         Проверяет устойчивость OBI.
@@ -602,10 +604,10 @@ class XAUOrderFlowHandler:
         """
         if not self.obi_state:
             return False
-        
+
         avg_obi = sum(obi for _, obi in self.obi_state) / len(self.obi_state)
         return abs(avg_obi) >= CFG["obi_threshold"]
-    
+
     def _track_iceberg(self, tick: Tick, mid: float) -> None:
         """
         Отслеживает потенциальные iceberg orders.
@@ -617,7 +619,7 @@ class XAUOrderFlowHandler:
         price = round(mid, 2)
         st = self.best_level_state
         now = tick.ts
-        
+
         # Если цена изменилась
         if st["price"] != price:
             st.update({
@@ -626,7 +628,7 @@ class XAUOrderFlowHandler:
                 "refresh": 0
             })
             return
-        
+
         # Цена "залипла" на уровне
         duration_ms = CFG["iceberg_min_duration"] * 1000
         if now - st["since"] >= duration_ms:
@@ -634,23 +636,23 @@ class XAUOrderFlowHandler:
             if abs(self._recent_executed_volume()) > 0:
                 st["refresh"] += 1
                 st["since"] = now
-                
+
                 # Если достаточно refresh-ей, генерируем сигнал
                 if st["refresh"] >= CFG["iceberg_refresh_count"]:
                     side = "SHORT" if self._recent_buying_dominant() else "LONG"
                     self._publish_signal(side, mid, "Iceberg absorption", "🧊", now)
                     st["refresh"] = 0  # сброс после сигнала
-    
+
     def _recent_executed_volume(self) -> float:
         """Возвращает суммарный объем в delta_window."""
         return sum(abs(v) for v in self.delta_window)
-    
+
     def _recent_buying_dominant(self) -> bool:
         """Проверяет преобладание покупок в delta_window."""
         buys = sum(1 for v in self.delta_window if v > 0)
         sells = sum(1 for v in self.delta_window if v < 0)
         return buys >= sells
-    
+
     def _process_book(self, book_data: dict) -> None:
         """
         Обработка Order Book snapshot (v3).
@@ -659,15 +661,15 @@ class XAUOrderFlowHandler:
             book_data: DOM данные с bids/asks
         """
         ts = int(book_data.get("ts", 0))
-        
+
         # Обновляем Best Level Tracker для iceberg детекции
         self.best_level_tracker.feed_book(book_data, ts)
-        
+
         # Обновляем OBI из реального DOM
         real_obi = obi_from_book(book_data, depth=5)
         if real_obi is not None:
             self._track_obi(ts, real_obi)
-    
+
     def _update_pivots(self, ts: int) -> None:
         """
         Обновляет дневные уровни Pivot при необходимости (v3).
@@ -678,7 +680,7 @@ class XAUOrderFlowHandler:
         # Определяем текущую дату (UTC)
         from datetime import datetime
         current_date = datetime.utcfromtimestamp(ts / 1000).date()
-        
+
         # Если новый день или pivots не инициализированы
         if self.last_pivot_date != current_date:
             self.last_pivot_date = current_date
@@ -688,8 +690,8 @@ class XAUOrderFlowHandler:
                 self.daily_pivots = compute_daily_pivots(hlc)
                 _log.info("Обновлены Pivot уровни для %s", current_date)
                 _log.info("  H:%.2f, L:%.2f, C:%.2f", hlc['H'], hlc['L'], hlc['C'])
-            
-    def _load_yesterday_hlc(self) -> Optional[Dict[str, float]]:
+
+    def _load_yesterday_hlc(self) -> dict[str, float] | None:
         """
         Загружает H/L/C предыдущего дня из Redis (v3).
         
@@ -706,12 +708,12 @@ class XAUOrderFlowHandler:
                 return hlc
         except Exception as e:
             _log.warning("Не удалось загрузить pivots из Redis: %s", e)
-        
+
         # Fallback: рассчитываем H/L/C из доступных тиков (последние 24 часа)
         _log.warning("pivots:latest не найден, рассчитываем H/L/C из тиков (запустите ohlc_aggregator)")
         return self._calculate_hlc_from_ticks()
-    
-    def _calculate_hlc_from_ticks(self) -> Dict[str, float]:
+
+    def _calculate_hlc_from_ticks(self) -> dict[str, float]:
         """
         Рассчитывает H/L/C из доступных тиков за последние 24 часа.
         Fallback логика для случая когда ohlc_aggregator не работает.
@@ -723,7 +725,7 @@ class XAUOrderFlowHandler:
             # Получаем тики за последние 24 часа (примерно 1440 минут)
             current_time_ms = get_ny_time_millis()
             start_time_ms = current_time_ms - (24 * 60 * 60 * 1000)  # 24 часа назад
-            
+
             # Читаем тики из Redis stream (последние ~2000 тиков)
             ticks = self.redis_client.xrevrange(
                 TICK_STREAM,
@@ -731,7 +733,7 @@ class XAUOrderFlowHandler:
                 min="-",  # До самых старых
                 count=2000  # Достаточно для 24 часов при ~1-2 тика/сек
             )
-            
+
             if not ticks:
                 _log.warning("Нет тиков для расчета H/L/C, пробуем получить последний тик")
                 # Пытаемся получить хотя бы последний тик
@@ -743,55 +745,55 @@ class XAUOrderFlowHandler:
                     current_price = (bid + ask) / 2 if (bid and ask) else 3956.0
                 else:
                     current_price = 3956.0  # Примерная текущая цена XAUUSD
-                
+
                 return {
                     "H": current_price + 30,  # +30 пипсов
                     "L": current_price - 30,  # -30 пипсов
                     "C": current_price
                 }
-            
+
             # Извлекаем цены из тиков и находим H/L/C
             prices = []
             last_price = None
-            
+
             for tick_id, fields in ticks:
                 try:
                     bid = float(fields.get("bid", 0))
                     ask = float(fields.get("ask", 0))
                     last = float(fields.get("last", 0))
-                    
+
                     # Используем mid price
                     mid_price = (bid + ask) / 2 if (bid and ask) else (last or 0.0)
-                    
+
                     if mid_price > 0:
                         prices.append(mid_price)
                         if last_price is None:  # Первый (самый свежий) тик
                             last_price = mid_price
-                            
+
                 except (ValueError, TypeError):
                     continue
-            
+
             if not prices:
                 _log.warning("Не удалось извлечь цены из тиков")
                 return {
                     "H": 3980.0,
-                    "L": 3930.0, 
+                    "L": 3930.0,
                     "C": 3955.0
                 }
-            
+
             # Рассчитываем H/L/C
             high = max(prices)
             low = min(prices)
             close = last_price or prices[0]  # Самая свежая цена
-            
+
             _log.info("H/L/C из %d тиков: H=%.2f, L=%.2f, C=%.2f", len(prices), high, low, close)
-            
+
             return {
                 "H": high,
                 "L": low,
                 "C": close
             }
-            
+
         except Exception as e:
             _log.error("Ошибка расчета H/L/C из тиков: %s", e)
             # Последний fallback - актуальные значения для XAUUSD
@@ -800,8 +802,8 @@ class XAUOrderFlowHandler:
                 "L": 3930.0,
                 "C": 3955.0
             }
-    
-    def _generate_signals(self, ts: int, price: float, z_delta: float, 
+
+    def _generate_signals(self, ts: int, price: float, z_delta: float,
                          weak_progress: bool, obi: float, atr: float) -> None:
         """
         Генерирует торговые сигналы на основе анализа.
@@ -816,20 +818,20 @@ class XAUOrderFlowHandler:
         """
         # Сохраняем z_delta для использования в _publish_signal (audit trail)
         self.current_z_delta = z_delta
-        
+
         # Антиспам - минимальный интервал между сигналами
         if ts - self.last_signal_ts < CFG["min_signal_interval_sec"] * 1000:
             return
-        
+
         if not self.daily_pivots:
             return
-        
+
         # Сигнал 1: ABSORPTION
         # Условие: weak progress + delta spike у уровня
-        
+
         if (weak_progress and
             abs(z_delta) >= CFG["delta_z_threshold"]):
-            
+
             # v3.1: Enhanced pivot proximity check (ATR + bps)
             # Check only if other conditions met (optimization)
             piv_cfg = PivotProximityCfg(
@@ -838,7 +840,7 @@ class XAUOrderFlowHandler:
                 mode=CFG.get("dist_mode", "or")
             )
             is_near, piv_details = check_pivot_proximity(price, self.daily_pivots, atr, piv_cfg, return_details=True)
-            
+
             if is_near:
                 # Regime gate (XAU: use 0.0 for now, will integrate full regime later)
                 rscore = 0.0  # mixed regime as default for XAU
@@ -848,13 +850,13 @@ class XAUOrderFlowHandler:
                 # Если покупатели давят, но прогресса нет → SHORT от сопротивления
                 # Если продавцы давят, но прогресса нет → LONG от поддержки
                 side = "SHORT" if z_delta > 0 else "LONG"
-                
+
                 # Enrich note with proximity info
                 prox_info = f"(near {piv_details.get('closest_key')} {piv_details.get('dist_bps'):.1f}bps)"
                 self._publish_signal(side, price, f"Absorption {prox_info}", "🛡️", ts, obi, weak_progress, pivot_details=piv_details)
                 self.last_signal_ts = ts
                 return
-        
+
         # Сигнал 2: BREAKOUT
         # Условие: delta spike + пробой уровня
         if self.processed_ticks % 50 == 0:
@@ -865,10 +867,10 @@ class XAUOrderFlowHandler:
             if self.z_delta_trigger_count % 10 == 0:
                 direction = "BUYING" if z_delta > 0 else "SELLING"
                 _log.info("Z-DELTA TRIGGER #%d: %s pressure Z=%.3f (threshold=%.1f)", self.z_delta_trigger_count, direction, z_delta, CFG['delta_z_threshold'])
-                    
+
             dir_up = z_delta > 0
             side = "LONG" if dir_up else "SHORT"
-            
+
             # Проверяем пробой уровня
             if self._is_breakout(price, dir_up):
                 # Regime gate (XAU: use 0.0 for now, will integrate full regime later)
@@ -888,7 +890,7 @@ class XAUOrderFlowHandler:
                 self._publish_signal(side, price, f"Extreme delta activity (Z={z_delta:.1f})", "💥", ts, obi, weak_progress)
                 self.last_signal_ts = ts
                 return
-        
+
         # Сигнал 3: ICEBERG (v3: реальная детекция из DOM)
         # ВРЕМЕННО ОТКЛЮЧЕНО: Требует Order Book данные из BookBridge.mq5
         # TODO: Включить когда BookBridge заработает в MT5
@@ -934,7 +936,7 @@ class XAUOrderFlowHandler:
             self.last_signal_ts = ts
             return
         """
-    
+
     def _is_breakout(self, price: float, up: bool) -> bool:
         """
         Проверяет, является ли движение пробоем уровня.
@@ -948,21 +950,21 @@ class XAUOrderFlowHandler:
         """
         if not self.daily_pivots:
             return False
-        
+
         # Проверяем пробой R1/R2/R3 или S1/S2/S3
         keys = ["R3", "R2", "R1"] if up else ["S3", "S2", "S1"]
-        
+
         for key in keys:
             if key not in self.daily_pivots:
                 continue
-            
+
             level = self.daily_pivots[key]
             if (up and price > level) or (not up and price < level):
                 return True
-        
+
         return False
-    
-    def _publish_signal(self, side: str, price: float, note: str, emoji: str = "🚨", ts: int = 0, 
+
+    def _publish_signal(self, side: str, price: float, note: str, emoji: str = "🚨", ts: int = 0,
                        obi: float = 0.0, weak_progress: bool = False, pivot_details: dict = None) -> None:
         """
         Публикует торговый сигнал в notify:telegram используя единый форматировщик.
@@ -980,15 +982,15 @@ class XAUOrderFlowHandler:
         # Расчет рекомендуемого лота - используем метод _get_atr для получения корректного значения
         atr = self._get_atr(price, ts or get_ny_time_millis())
         lot = suggest_lot(price=price, atr=atr)
-        
+
         # Используем текущее время если ts не передан
         if not ts:
             ts = get_ny_time_millis()
-        
+
         # v5.1: Calculate SL/TP levels
         # Для rocket_v1: TP1 = 0.78 ATR, остальные через RR
         trail_profile = "rocket_v1"  # Дефолт для XAUUSD
-        
+
         levels = compute_levels(price, atr, side, {
             "STOP_MODE": CFG["stop_mode"],
             "STOP_ATR_MULT": CFG["stop_atr_mult"],
@@ -999,7 +1001,7 @@ class XAUOrderFlowHandler:
             "TP_ATR_MULTS": "0.78",  # TP1 = 0.78 ATR для rocket_v1,
             "trail_profile": trail_profile,  # Передаем профиль для правильного расчета,
         }),
-        
+
         # ✅ ИСПОЛЬЗУЕМ ЕДИНЫЙ ФОРМАТИРОВЩИК XAUUSD
         xauusd_signal = XAUUSDSignal(
             sid=XAUUSDSignalFormatter.create_signal_id(side, price, ts),
@@ -1025,10 +1027,10 @@ class XAUOrderFlowHandler:
             trail_after_tp1=True,  # Включаем трейлинг по умолчанию для XAUUSD
             trail_profile="rocket_v1"  # Дефолт rocket_v1 для XAUUSD
         )
-        
+
         # Получаем payload в едином формате
         redis_payload = XAUUSDSignalFormatter.format_redis_payload(xauusd_signal)
-        
+
         # v4: Add Telegram inline buttons if enabled
         if USE_TG_BTNS:
             redis_payload["buttons"] = json.dumps([
@@ -1043,7 +1045,7 @@ class XAUOrderFlowHandler:
                     {"text": "x2", "callback": f"size:2:{xauusd_signal.sid}"}
                 ]
             ])
-        
+
         try:
             # Конвертируем для Redis (все значения должны быть строками)
             redis_data = {}
@@ -1052,7 +1054,7 @@ class XAUOrderFlowHandler:
                     redis_data[key] = json.dumps(value)
                 else:
                     redis_data[key] = str(value)
-            
+
             # Публикуем в notify:telegram через dual redis для надежности
             self.dual_redis.xadd(
                 NOTIFY_STREAM,
@@ -1060,7 +1062,7 @@ class XAUOrderFlowHandler:
                 maxlen=500,
                 approximate=True,
             )
-            
+
             # v4.1: Также публикуем в signals:orderflow:XAUUSD для aggregated-hub
             signal_payload = XAUUSDSignalFormatter.format_audit_payload(
                 xauusd_signal,
@@ -1069,7 +1071,7 @@ class XAUOrderFlowHandler:
                     "weak_progress": weak_progress,
                 }
             )
-            
+
             # Используем простой Redis для нового stream (не dual)
             try:
                 simple_redis = get_redis()
@@ -1082,7 +1084,7 @@ class XAUOrderFlowHandler:
                 )
             except Exception as e:
                 _log.warning("Failed to publish to %s: %s", ORDERFLOW_SIGNAL_STREAM, e)
-            
+
             # v6: Store signal snapshot for orders router
             snap_key = SNAP_PREFIX + xauusd_signal.sid
             self.redis_client.setex(
@@ -1110,7 +1112,7 @@ class XAUOrderFlowHandler:
                     "TP_RR": os.getenv("TP_RR", ""),
                     "TP_ATR_MULTS": os.getenv("TP_ATR_MULTS", ""),
                 }
-                
+
                 # Используем единый формат для audit
                 audit_payload = XAUUSDSignalFormatter.format_audit_payload(
                     xauusd_signal,
@@ -1120,7 +1122,7 @@ class XAUOrderFlowHandler:
                         "env": audit_env
                     }
                 )
-                
+
                 self.redis_client.xadd(
                     AUDIT_SIGNAL_STREAM,
                     {"data": json.dumps(audit_payload)},
@@ -1129,13 +1131,13 @@ class XAUOrderFlowHandler:
                 )
             except Exception as _:
                 pass
-            
+
             # Обновляем счетчики сигналов
             if side == "LONG":
                 self.signal_count_long += 1
             else:
                 self.signal_count_short += 1
-            
+
             total_signals = self.signal_count_long + self.signal_count_short
             _log.info("Сигнал опубликован: %s | %s @ %.2f", xauusd_signal.sid, side, price)
             _log.debug("Snapshot saved: %s (TTL=%ss)", snap_key, SNAP_TTL)
@@ -1143,4 +1145,4 @@ class XAUOrderFlowHandler:
 
         except Exception as e:
             _log.error("Ошибка публикации сигнала: %s", e)
-    
+

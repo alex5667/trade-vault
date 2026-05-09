@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -61,15 +62,15 @@ METRICS_REFRESH_INTERVAL_SEC = float(os.getenv("ML_ROUTE_INCIDENT_RCA_SHADOW_COM
 DB_URL = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -120,8 +121,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -145,10 +146,10 @@ def maybe_json(value: Any, default: Any = None) -> Any:
         return default
 
 
-def correlation_key(row: Dict[str, Any]) -> str:
-    incident_id = str(row.get("incident_id") or "").strip()
-    request_id = str(row.get("request_id") or "").strip()
-    compact_hash = str(row.get("compact_hash") or "").strip()
+def correlation_key(row: dict[str, Any]) -> str:
+    incident_id = (row.get("incident_id") or "").strip()
+    request_id = (row.get("request_id") or "").strip()
+    compact_hash = (row.get("compact_hash") or "").strip()
     return incident_id or request_id or compact_hash
 
 
@@ -156,16 +157,16 @@ def pending_key(side: str, corr: str) -> str:
     return f"{PENDING_PREFIX}{side}:{corr}"
 
 
-def payload_dict(row: Dict[str, Any]) -> Dict[str, Any]:
+def payload_dict(row: dict[str, Any]) -> dict[str, Any]:
     payload = maybe_json(row.get("payload_json"), {})
     return payload if isinstance(payload, dict) else {}
 
 
-def payload_keys(row: Dict[str, Any]) -> List[str]:
+def payload_keys(row: dict[str, Any]) -> list[str]:
     return sorted(payload_dict(row).keys())
 
 
-def primary_reason_codes(row: Dict[str, Any]) -> List[str]:
+def primary_reason_codes(row: dict[str, Any]) -> list[str]:
     payload = payload_dict(row)
     prc = payload.get("primary_reason_codes", [])
     if isinstance(prc, list):
@@ -176,21 +177,21 @@ def primary_reason_codes(row: Dict[str, Any]) -> List[str]:
     return []
 
 
-def compact_hash_matches(handoff: Dict[str, Any], legacy: Dict[str, Any]) -> bool:
-    h = str(handoff.get("compact_hash") or "").strip()
-    l = str(legacy.get("compact_hash") or "").strip()
+def compact_hash_matches(handoff: dict[str, Any], legacy: dict[str, Any]) -> bool:
+    h = (handoff.get("compact_hash") or "").strip()
+    l = (legacy.get("compact_hash") or "").strip()
     if not h or not l:
         return True
     return h == l
 
 
-def compare_rows(handoff: Dict[str, Any], legacy: Dict[str, Any]) -> Dict[str, Any]:
-    reason_codes: List[str] = []
+def compare_rows(handoff: dict[str, Any], legacy: dict[str, Any]) -> dict[str, Any]:
+    reason_codes: list[str] = []
     score = 1.0
 
-    incident_eq = str(handoff.get("incident_id") or "") == str(legacy.get("incident_id") or "")
-    task_type_eq = str(handoff.get("task_type") or "") == str(legacy.get("task_type") or "")
-    severity_eq = str(handoff.get("severity") or "") == str(legacy.get("severity") or "")
+    incident_eq = (handoff.get("incident_id") or "") == (legacy.get("incident_id") or "")
+    task_type_eq = (handoff.get("task_type") or "") == (legacy.get("task_type") or "")
+    severity_eq = (handoff.get("severity") or "") == (legacy.get("severity") or "")
     compact_eq = compact_hash_matches(handoff, legacy)
 
     handoff_keys = payload_keys(handoff)
@@ -261,14 +262,14 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def store_pending(r: Any, side: str, row: Dict[str, Any]) -> None:
+async def store_pending(r: Any, side: str, row: dict[str, Any]) -> None:
     corr = correlation_key(row)
     if not corr:
         return
     await r.set(pending_key(side, corr), stable_json(row), ex=PENDING_TTL_SEC)
 
 
-async def read_pending(r: Any, side: str, corr: str) -> Dict[str, Any]:
+async def read_pending(r: Any, side: str, corr: str) -> dict[str, Any]:
     raw = await r.get(pending_key(side, corr))
     return maybe_json(raw, {}) if raw else {}
 
@@ -300,9 +301,9 @@ async def refresh_pending_metrics(r: Any) -> None:
 async def persist_if_configured(
     db_url: str,
     corr: str,
-    handoff: Dict[str, Any],
-    legacy: Dict[str, Any],
-    comparison: Dict[str, Any],
+    handoff: dict[str, Any],
+    legacy: dict[str, Any],
+    comparison: dict[str, Any],
 ) -> None:
     if not db_url or psycopg is None:
         return
@@ -352,7 +353,7 @@ async def process_side(
     r: Any,
     db_url: str,
     side: str,
-    row: Dict[str, Any],
+    row: dict[str, Any],
 ) -> None:
     corr = correlation_key(row)
     if not corr:

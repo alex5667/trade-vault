@@ -1,10 +1,4 @@
-import os
-import json
-import math
-import inspect
-from types import SimpleNamespace
 
-import pytest
 
 import sys
 from pathlib import Path
@@ -16,18 +10,16 @@ if str(test_root) not in sys.path:
 
 from fake_redis import FakeRedis
 
-from domain.time_utils import session_from_ts_ms
-from domain.models import Tick, PositionState
 from domain.handlers import process_tick
+from domain.models import PositionState, Tick
+from domain.time_utils import session_from_ts_ms
 from services.stats_aggregator import StatsAggregator
-
-from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
 
 
 class _FakeSpec:
     def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol="") -> float:
         sign = 1.0 if str(direction).upper() == "LONG" else -1.0
-        return (float(price) - float(entry_price)) * sign * float(lot)
+        return (float(price) - float(entry_price)) * sign * lot
 
 
 def _call_process_tick(pos, tick, spec, tp_ratios):
@@ -104,12 +96,12 @@ def test_e2e_process_tick_finalize_trade_update_stats_writes_slipema_and_relcurv
         tp_levels=[101.0],
     )
     # Dynamic dims (must flow into TradeClosed after patch).
-    setattr(pos, "kind", "breakout")
-    setattr(pos, "venue", "binance_futures")
-    setattr(pos, "confidence", 57.0)
-    setattr(pos, "entry_regime", "trend")
+    pos.kind = "breakout"
+    pos.venue = "binance_futures"
+    pos.confidence = 57.0
+    pos.entry_regime = "trend"
     # Provide signal_payload as a fallback source for finalize_trade.
-    setattr(pos, "signal_payload", {"kind": "breakout", "venue": "binance_futures", "confidence": 57.0, "entry_regime": "trend"})
+    pos.signal_payload = {"kind": "breakout", "venue": "binance_futures", "confidence": 57.0, "entry_regime": "trend"}
 
     tick = Tick(symbol="BTCUSDT", ts_ms=entry_ts + 500, price=101.0, bid=100.00, ask=100.02, last=101.0)
 

@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
 
 
 class LevelType(Enum):
@@ -26,26 +25,26 @@ class Level:
     level_type: LevelType
     price: float
     ts_created_ms: int
-    ts_valid_until_ms: Optional[int] = None
+    ts_valid_until_ms: int | None = None
     strength: float = 1.0  # Level strength/confidence 0-1
-    metadata: Optional[dict] = None  # Additional data (session, etc.)
+    metadata: dict | None = None  # Additional data (session, etc.)
 
 
 @dataclass
 class GeometrySnapshot:
     symbol: str
     ts_event_ms: int
-    levels: List[Level]
-    nearest_level_above: Optional[Level] = None
-    nearest_level_below: Optional[Level] = None
-    distance_to_nearest_level_bp: Optional[float] = None
+    levels: list[Level]
+    nearest_level_above: Level | None = None
+    nearest_level_below: Level | None = None
+    distance_to_nearest_level_bp: float | None = None
     # Additional geometry features
-    nearest_resistance_bp: Optional[float] = None
-    nearest_support_bp: Optional[float] = None
+    nearest_resistance_bp: float | None = None
+    nearest_support_bp: float | None = None
     levels_above_count: int = 0
     levels_below_count: int = 0
     # Session info
-    current_session: Optional[str] = None
-    session_open_price: Optional[float] = None
-    session_high_price: Optional[float] = None
-    session_low_price: Optional[float] = None
+    current_session: str | None = None
+    session_open_price: float | None = None
+    session_high_price: float | None = None
+    session_low_price: float | None = None

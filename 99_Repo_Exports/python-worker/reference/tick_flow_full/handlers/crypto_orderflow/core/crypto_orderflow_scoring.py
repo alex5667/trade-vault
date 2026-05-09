@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
-import math
+from typing import Any
 
 from handlers.quality.quality_gate import QualityGate
 from handlers.scoring.score_model import ScoreModel, ScoreResult
@@ -10,7 +9,7 @@ from handlers.scoring.score_model import ScoreModel, ScoreResult
 
 @dataclass
 class ScoreParts:
-    parts: Dict[str, float]
+    parts: dict[str, float]
 
 
 class CryptoConfidenceScorer:
@@ -24,35 +23,35 @@ class CryptoConfidenceScorer:
         self._impl = ConfidenceScorer()
         self._qg = QualityGate()
 
-    def score(self, *, kind: str, side: int, ctx: Any) -> Tuple[float, Dict[str, float]]:
+    def score(self, *, kind: str, side: int, ctx: Any) -> tuple[float, dict[str, float]]:
         """
         kind: breakout/absorption/extreme/obi_spike/...
         side: int (+1/-1)
         """
         # Convert side int -> str for Compatibility
         side_str = "LONG" if side > 0 else "SHORT" if side < 0 else "NEUTRAL"
-        
+
         # Expert Scorer
         conf_factor01, parts = self._impl.score(kind=kind, side=side_str, ctx=ctx)
-        
+
         # Quality Gate (keep existing logic as secondary veto/multiplier if needed, or just merge parts)
         # Assuming ConfidenceScorer handles most checks, but QualityGate might deal with external L2/L3 latencies specifically.
-        # For now, we mix them or just return expert score. 
+        # For now, we mix them or just return expert score.
         # The prompt implies "adapt and integrate", so we should use the expert score as base.
-        
+
         # Compatibility with existing ScoreModel expectations
         parts["base01"] = conf_factor01
-        
+
         # Apply strict QualityGate if not already covered
         l2 = getattr(ctx, "l2_snapshot", None) or getattr(ctx, "l2", None)
         qa = self._qg.assess_kind(kind=kind, ctx=ctx, l2=l2)
         parts.update({f"q_{kk}": float(vv) for kk, vv in qa.parts.items()})
-        
+
         # If QualityGate vetoes, force zero
         if qa.veto:
              conf_factor01 = 0.0
              parts["quality_veto"] = 1.0
-        
+
         parts["conf01"] = conf_factor01
         return conf_factor01, parts
 
@@ -82,7 +81,7 @@ class CryptoScoreModel:
         self.conf_scorer = CryptoConfidenceScorer()
         self.base_model = ScoreModel()
 
-    def score(self, *, ctx: Any, kind: str, side: int, raw_score: float, quality_flags: Dict[str, Any]) -> ScoreResult:
+    def score(self, *, ctx: Any, kind: str, side: int, raw_score: float, quality_flags: dict[str, Any]) -> ScoreResult:
         """
         Расчет скора с использованием крипто-специфичного confidence-скорера.
         """

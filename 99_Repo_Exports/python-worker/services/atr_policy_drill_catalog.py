@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Dict, List
+from dataclasses import asdict, dataclass
 
 
 @dataclass(frozen=True)
@@ -12,7 +11,7 @@ class RecoveryDrill:
     requires_execute: bool
 
 
-DRILLS: Dict[str, RecoveryDrill] = {
+DRILLS: dict[str, RecoveryDrill] = {
     "ACTIVE_KEY_DELETE": RecoveryDrill(
         code="ACTIVE_KEY_DELETE",
         description="Delete active policy key for one bounded cohort; recovery must rebuild from SQL snapshot.",
@@ -52,5 +51,5 @@ DRILLS: Dict[str, RecoveryDrill] = {
 }
 
 
-def list_drills() -> List[dict]:
+def list_drills() -> list[dict]:
     return [asdict(x) for x in DRILLS.values()]

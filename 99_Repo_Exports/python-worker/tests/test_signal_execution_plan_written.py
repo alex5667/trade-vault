@@ -1,10 +1,10 @@
-import json
 import datetime
+import json
 from unittest.mock import MagicMock
 
 from orderflow.base_handler_legacy import BaseOrderFlowHandler
-from signal_exec.repository import SignalRepository
 from signal_exec.models import ExecutionPlan, Side
+from signal_exec.repository import SignalRepository
 
 
 def _make_plan() -> ExecutionPlan:
@@ -13,7 +13,7 @@ def _make_plan() -> ExecutionPlan:
         symbol="BTCUSDT",
         side=Side.LONG,
         setup_type="breakout",
-        ts_signal=datetime.datetime(2026, 4, 26, 12, 0, 0, tzinfo=datetime.timezone.utc),
+        ts_signal=datetime.datetime(2026, 4, 26, 12, 0, 0, tzinfo=datetime.UTC),
         price_at_signal=10050.0,
         entry_zone_low=10000.0,
         entry_zone_high=10100.0,

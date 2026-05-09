@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """OF Timers Worker: Consolidated Nightly Tasks and Monitors.
 
 Runs periodic tasks:
@@ -32,16 +33,16 @@ Usage:
   python -m services.of_timers_worker
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import json
+import logging
 import os
+import subprocess
 import sys
 import time
-import subprocess
-import logging
-import json
 from datetime import datetime
-from typing import List, Any, Tuple, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,6 +60,7 @@ except Exception:  # pragma: no cover
     redis = None
 
 from core.redis_keys import RedisStreams as RS
+import contextlib
 
 
 def _get_redis_sync():
@@ -162,7 +164,7 @@ def _clear_auto_apply_block_if_owned(reason: str, owner: str) -> None:
                     meta = obj
             except Exception:
                 meta = {}
-        if str(meta.get("owner") or "").strip() != str(owner or "").strip():
+        if (meta.get("owner") or "").strip() != (owner or "").strip():
             return
         r.delete(block_key, meta_key, ts_key)
     except Exception:
@@ -356,7 +358,7 @@ def run_prom_rules_bundle_smoke_check() -> bool:
 
     timeout_s = int(os.getenv("PROM_RULES_BUNDLE_SMOKE_TIMEOUT_S", "180"))
     cooldown_s = int(os.getenv("PROM_RULES_BUNDLE_SMOKE_COOLDOWN_S", str(6 * 3600)))
-    dedup_enable = str(os.getenv("PROM_RULES_BUNDLE_SMOKE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
+    dedup_enable = os.getenv("PROM_RULES_BUNDLE_SMOKE_DEDUP", "1").lower() in ("1", "true", "yes", "on")
     dedup_prefix = os.getenv("PROM_RULES_BUNDLE_SMOKE_DEDUP_PREFIX", "dedup:prom_rules_bundle:")
 
     # Use configurable module (default: orderflow_services version, works in both trees)
@@ -434,7 +436,7 @@ def run_prom_rules_loaded_probe() -> bool:
 
     timeout_s = int(os.getenv("PROM_RULES_LOADED_PROBE_TIMEOUT_S", "60"))
     cooldown_s = int(os.getenv("PROM_RULES_LOADED_PROBE_COOLDOWN_S", str(6 * 3600)))
-    dedup_enable = str(os.getenv("PROM_RULES_LOADED_PROBE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
+    dedup_enable = os.getenv("PROM_RULES_LOADED_PROBE_DEDUP", "1").lower() in ("1", "true", "yes", "on")
     dedup_prefix = os.getenv("PROM_RULES_LOADED_PROBE_DEDUP_PREFIX", "dedup:prom_rules_loaded:")
 
     module = os.getenv(
@@ -540,7 +542,7 @@ def run_world_practice_smoke_check() -> bool:
         return True
 
     parsed = _parse_world_practice_smoke_output(stdout, stderr)
-    issues = str(parsed.get("issues") or "")[:300]
+    issues = (parsed.get("issues") or "")[:300]
     n_recent = parsed.get("n_recent")
     bucket_invalid_share = parsed.get("bucket_invalid_share")
     vol_label_na_share = parsed.get("vol_label_na_share")
@@ -638,7 +640,7 @@ def run_lob_pressure_smoke_check() -> bool:
 
     parsed = _parse_lob_pressure_smoke_output(stdout, stderr)
 
-    issues = str(parsed.get("issues") or "")[:300]
+    issues = (parsed.get("issues") or "")[:300]
     n_recent = parsed.get("n_recent")
     no_data = parsed.get("no_data")
     missing_max_share = parsed.get("missing_max_share")
@@ -731,7 +733,7 @@ def run_new_features_smoke_check_a8() -> bool:
 
     parsed = _parse_new_features_smoke_output(stdout, stderr)
 
-    issues = str(parsed.get("issues") or "")[:300]
+    issues = (parsed.get("issues") or "")[:300]
     n_recent = parsed.get("n_recent")
     nan_rate = parsed.get("nan_rate")
     stuck_rv = parsed.get("stuck_realized_vol")
@@ -753,7 +755,7 @@ def run_new_features_smoke_check_a8() -> bool:
     ),
 
     cooldown_s = int(os.getenv("A8_NEW_FEATURES_SMOKE_COOLDOWN_S", str(6 * 3600)))
-    dedup_enable = str(os.getenv("A8_NEW_FEATURES_SMOKE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
+    dedup_enable = os.getenv("A8_NEW_FEATURES_SMOKE_DEDUP", "1").lower() in ("1", "true", "yes", "on")
     dedup_prefix = os.getenv("A8_NEW_FEATURES_SMOKE_DEDUP_PREFIX", "dedup:alert:a8_new_features:")
 
     if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=dedup_prefix):
@@ -790,11 +792,11 @@ def run_of_gate_exporters_smoke_p111() -> bool:
 
     timeout_s = int(os.getenv("OF_GATE_EXPORTERS_SMOKE_TIMEOUT_S", "30"))
     cooldown_s = int(os.getenv("OF_GATE_EXPORTERS_SMOKE_COOLDOWN_S", str(6 * 3600)))
-    dedup_enable = str(os.getenv("OF_GATE_EXPORTERS_SMOKE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
+    dedup_enable = os.getenv("OF_GATE_EXPORTERS_SMOKE_DEDUP", "1").lower() in ("1", "true", "yes", "on")
     dedup_prefix = os.getenv("OF_GATE_EXPORTERS_SMOKE_DEDUP_PREFIX", "dedup:alert:of_gate_exporters:")
 
     # Fail-closed: if wiring/monitoring is broken, block auto-apply (optional).
-    block_auto_apply = str(os.getenv("OF_GATE_EXPORTERS_SMOKE_BLOCK_AUTO_APPLY", "1")).lower() in ("1", "true", "yes", "on")
+    block_auto_apply = os.getenv("OF_GATE_EXPORTERS_SMOKE_BLOCK_AUTO_APPLY", "1").lower() in ("1", "true", "yes", "on")
     block_reason = os.getenv("OF_GATE_EXPORTERS_SMOKE_BLOCK_REASON", "of_gate_exporters_smoke")
     # Default: keep the block at least as long as dedup cooldown.
     block_ttl_s = int(os.getenv("OF_GATE_EXPORTERS_SMOKE_BLOCK_TTL_S", str(max(3600, cooldown_s))))
@@ -941,10 +943,8 @@ def run_atr_policy_restore_cert_execute() -> bool:
     failed_names = []
     if isinstance(failed, list):
         for f in failed[:6]:
-            try:
+            with contextlib.suppress(Exception):
                 failed_names.append(str(f.get("name") or f.get("target") or "?")[:64])
-            except Exception:
-                pass
 
     signature = f"rc={rc}|failed={','.join(sorted(failed_names))}"
 
@@ -1000,11 +1000,11 @@ def run_of_inputs_exporters_smoke_p107() -> bool:
 
     timeout_s = int(os.getenv("OF_INPUTS_EXPORTERS_SMOKE_TIMEOUT_S", "30"))
     cooldown_s = int(os.getenv("OF_INPUTS_EXPORTERS_SMOKE_COOLDOWN_S", str(6 * 3600)))
-    dedup_enable = str(os.getenv("OF_INPUTS_EXPORTERS_SMOKE_DEDUP", "1")).lower() in ("1", "true", "yes", "on")
+    dedup_enable = os.getenv("OF_INPUTS_EXPORTERS_SMOKE_DEDUP", "1").lower() in ("1", "true", "yes", "on")
     dedup_prefix = os.getenv("OF_INPUTS_EXPORTERS_SMOKE_DEDUP_PREFIX", "dedup:alert:of_inputs_exporters:")
 
     # Fail-closed: if wiring/monitoring is broken, block auto-apply (optional).
-    block_auto_apply = str(os.getenv("OF_INPUTS_EXPORTERS_SMOKE_BLOCK_AUTO_APPLY", "1")).lower() in ("1", "true", "yes", "on")
+    block_auto_apply = os.getenv("OF_INPUTS_EXPORTERS_SMOKE_BLOCK_AUTO_APPLY", "1").lower() in ("1", "true", "yes", "on")
     block_reason = os.getenv("OF_INPUTS_EXPORTERS_SMOKE_BLOCK_REASON", "of_inputs_exporters_smoke")
     # Default: keep the block at least as long as dedup cooldown.
     block_ttl_s = int(os.getenv("OF_INPUTS_EXPORTERS_SMOKE_BLOCK_TTL_S", str(max(3600, cooldown_s))))
@@ -1123,8 +1123,7 @@ def run_feature_registry_contract_smoke_check() -> bool:
     try:
         p = subprocess.run(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             timeout=timeout_s,
             env=os.environ.copy(),
@@ -1137,10 +1136,10 @@ def run_feature_registry_contract_smoke_check() -> bool:
             return True
 
         if rc == 2:
-            reason = str(d.get("reason") or "alert")
+            reason = (d.get("reason") or "alert")
             cur = (d.get("current") or {}) if isinstance(d.get("current"), dict) else {}
-            exp_schema = str(d.get("expected_schema_hash") or "")
-            exp_cols = str(d.get("expected_feature_cols_hash") or "")
+            exp_schema = (d.get("expected_schema_hash") or "")
+            exp_cols = (d.get("expected_feature_cols_hash") or "")
             cur_schema = str(cur.get("schema_hash") or d.get("schema_hash") or "")
             cur_cols = str(cur.get("feature_cols_hash") or d.get("feature_cols_hash") or "")
 
@@ -1163,7 +1162,7 @@ def run_feature_registry_contract_smoke_check() -> bool:
                 _notify_stream(msg, severity="crit", source="feature_registry_contract_smoke")
             return False
 
-        raw = str(d.get("raw") or "")[:600]
+        raw = (d.get("raw") or "")[:600]
         msg = (
             "[P94] Feature Registry contract ERROR\n"
             f"rc={rc}\n"
@@ -1251,7 +1250,7 @@ def run_of_inputs_dlq_auto_replay() -> bool:
     ok = parsed.get("ok")
     failed = parsed.get("failed")
     replayed = parsed.get("replayed")
-    last_err = str(parsed.get("last_err") or "")[:128]
+    last_err = (parsed.get("last_err") or "")[:128]
 
     signature = f"rc={rc}|ok={ok}|failed={failed}|replayed={replayed}|err={last_err}"
     if dedup_enable and not _dedup_allow(signature, cooldown_s=cooldown_s, prefix=prefix):
@@ -1635,7 +1634,7 @@ def run_feature_denylist_proposal_exporter() -> bool:
     return False
 
 
-def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, env_override: dict = None, **kwargs) -> bool:
+def run_tool(module: str = None, args: list[str] = None, timeout: int = 3600, env_override: dict = None, **kwargs) -> bool:
     """Run python module in a subprocess.
 
     Compatibility:
@@ -1646,20 +1645,18 @@ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, en
     if module is None:
         raise ValueError('module is required')
     if 'timeout_s' in kwargs and kwargs.get('timeout_s') is not None:
-        try:
+        with contextlib.suppress(Exception):
             timeout = int(kwargs.get('timeout_s'))
-        except Exception:
-            pass
     """Generic tool runner."""
     try:
         cmd = [sys.executable, "-m", module]
         if args:
             cmd.extend(args)
-        
+
         env = os.environ.copy()
         if env_override:
             env.update(env_override)
-            
+
         logger.info(f"Running {module} {' '.join(args or [])}...")
         result = subprocess.run(
             cmd,
@@ -1687,11 +1684,11 @@ def run_tool(module: str = None, args: List[str] = None, timeout: int = 3600, en
 
 def run_tool_rc(
     module: str = None,
-    args: List[str] = None,
+    args: list[str] = None,
     timeout: int = 3600,
     env_override: dict = None,
     **kwargs,
-) -> Tuple[int, str, str]:
+) -> tuple[int, str, str]:
     """Run python module in a subprocess and return (returncode, stdout, stderr).
 
     Compatibility:
@@ -1702,10 +1699,8 @@ def run_tool_rc(
     if module is None:
         raise ValueError('module is required')
     if 'timeout_s' in kwargs and kwargs.get('timeout_s') is not None:
-        try:
+        with contextlib.suppress(Exception):
             timeout = int(kwargs.get('timeout_s'))
-        except Exception:
-            pass
 
     try:
         cmd = [sys.executable, "-m", module]
@@ -1747,16 +1742,14 @@ def _best_effort_notify_telegram(text: str, source: str = "of_gate_contract_smok
     if not msg:
         return
     # Delegate to _notify_stream (already handles Redis + TG internally).
-    try:
+    with contextlib.suppress(Exception):
         _notify_stream(msg, severity="crit", sid=source)
-    except Exception:
-        pass
 
 
 def _format_of_gate_contract_smoke_msg(stdout: str, stderr: str, rc: int) -> str:
     """Format alert message from checker output, preferring JSON payload if present."""
     # Try to extract JSON payload from stdout.
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
     for line in reversed((stdout or "").splitlines()):
         if "{" in line and "}" in line:
             try:
@@ -1797,26 +1790,26 @@ def run_weekly_bench() -> bool:
     """Run weekly latency bench."""
     try:
         logger.info("Running weekly latency bench...")
-        
+
         # Create bench directory
         bench_dir = "/var/lib/trade/of_reports/out/bench"
         os.makedirs(bench_dir, exist_ok=True)
-        
+
         baseline_inputs = os.getenv("BASELINE_INPUTS", "")
         if not baseline_inputs:
             logger.error("BASELINE_INPUTS not set")
             return False
-        
+
         bench_json = f"{bench_dir}/bench.json"
-        
+
         # Run benchmark
         logger.info(f"Running benchmark on {baseline_inputs}...")
         if not run_tool("tools.bench_replay_throughput", ["--inputs", baseline_inputs, "--out", bench_json], timeout=1800):
             return False
-        
+
         logger.info("Benchmark completed, checking latency budget...")
         return run_tool("tools.assert_latency_budget", ["--bench-json", bench_json], timeout=60)
-            
+
     except Exception as e:
         logger.error(f"Weekly bench error: {e}")
         return False
@@ -2051,10 +2044,10 @@ def run_of_gate_rollups_refresh_nightly() -> bool:
         ),
         return True
 
-    days = str(os.getenv('OF_GATE_ROLLUPS_REFRESH_DAYS', '30')).strip() or '30'
+    days = os.getenv('OF_GATE_ROLLUPS_REFRESH_DAYS', '30').strip() or '30'
     timeout_s = 1800
     try:
-        timeout_s = int(str(os.getenv('OF_GATE_ROLLUPS_REFRESH_TIMEOUT_S', '1800')).strip())
+        timeout_s = int(os.getenv('OF_GATE_ROLLUPS_REFRESH_TIMEOUT_S', '1800').strip())
     except Exception:
         timeout_s = 1800
 
@@ -2094,7 +2087,7 @@ def run_of_gate_rollups_freshness_probe() -> bool:
 
     timeout_s = 60
     try:
-        timeout_s = int(str(os.getenv('OF_GATE_ROLLUPS_FRESHNESS_TIMEOUT_S', '60')).strip())
+        timeout_s = int(os.getenv('OF_GATE_ROLLUPS_FRESHNESS_TIMEOUT_S', '60').strip())
     except Exception:
         timeout_s = 60
 
@@ -2119,7 +2112,7 @@ def run_of_gate_timescale_policy_probe() -> bool:
 
     timeout_s = 60
     try:
-        timeout_s = int(str(os.getenv('OF_GATE_TIMESCALE_POLICY_PROBE_TIMEOUT_S', '60')).strip())
+        timeout_s = int(os.getenv('OF_GATE_TIMESCALE_POLICY_PROBE_TIMEOUT_S', '60').strip())
     except Exception:
         timeout_s = 60
     return run_tool('orderflow_services.of_gate_timescale_policy_probe_v1', timeout=timeout_s)
@@ -2146,7 +2139,7 @@ def run_feature_selection_loop_v1() -> bool:
     schema_ver = os.getenv("FEATURE_SELECTION_LOOP_SCHEMA_VER", "v5_of")
     model = os.getenv("FEATURE_SELECTION_LOOP_MODEL", "gbdt")
     max_val_rows = os.getenv("FEATURE_SELECTION_LOOP_MAX_VAL_ROWS", "250000")
-    
+
     args = [
         "--data_path", dataset,
         "--schema_ver", schema_ver,
@@ -2170,7 +2163,7 @@ def run_feature_selection_loop_bundle_v1() -> bool:
         return True
     timeout_s = 3600
     try:
-        timeout_s = int(str(os.getenv("FEATURE_SELECTION_LOOP_BUNDLE_TIMEOUT_S", "3600")).strip())
+        timeout_s = int(os.getenv("FEATURE_SELECTION_LOOP_BUNDLE_TIMEOUT_S", "3600").strip())
     except Exception:
         timeout_s = 3600
     return run_tool("ml_analysis.tools.nightly_feature_selection_loop_bundle_v1", timeout=timeout_s)
@@ -2327,7 +2320,7 @@ def run_nightly_slippage_calibrator() -> bool:
         return False
     timeout_s = 3600
     try:
-        timeout_s = int(str(os.getenv("SLIPPAGE_CALIBRATOR_TIMEOUT_S", "3600")).strip())
+        timeout_s = int(os.getenv("SLIPPAGE_CALIBRATOR_TIMEOUT_S", "3600").strip())
     except Exception:
         timeout_s = 3600
     return run_tool("ml_analysis.tools.nightly_slippage_calibrator_v1", timeout=timeout_s)
@@ -2349,7 +2342,7 @@ def run_nightly_tca_report() -> bool:
         return True
     timeout_s = 1800
     try:
-        timeout_s = int(str(os.getenv("TCA_NIGHTLY_REPORT_TIMEOUT_S", "1800")).strip())
+        timeout_s = int(os.getenv("TCA_NIGHTLY_REPORT_TIMEOUT_S", "1800").strip())
     except Exception:
         timeout_s = 1800
     return run_tool("services.posttrade.tca_nightly_report_v1", timeout=timeout_s)
@@ -2414,10 +2407,10 @@ def run_nightly_enforce_bucket_promoter() -> bool:
         return True
     timeout_s = 600
     try:
-        timeout_s = int(str(os.getenv("ENFORCE_BUCKET_PROMOTER_TIMEOUT_S", "600")).strip())
+        timeout_s = int(os.getenv("ENFORCE_BUCKET_PROMOTER_TIMEOUT_S", "600").strip())
     except Exception:
         timeout_s = 600
-    
+
     # Preflight (P78): skip promoter if infra/data not ready
     if os.getenv("ENABLE_ENFORCE_BUCKET_PREFLIGHT", "1") in ("1", "true", "True", "yes", "on"):
         try:
@@ -2451,10 +2444,10 @@ def run_enforce_bucket_promoter_rollback_controller() -> bool:
         return True
     timeout_s = 180
     try:
-        timeout_s = int(str(os.getenv("ENFORCE_BUCKET_ROLLBACK_TIMEOUT_S", "180")).strip())
+        timeout_s = int(os.getenv("ENFORCE_BUCKET_ROLLBACK_TIMEOUT_S", "180").strip())
     except Exception:
         timeout_s = 180
-    apply = str(os.getenv("ENFORCE_BUCKET_ROLLBACK_APPLY", "1") or "1").strip() in ("1","true","True","yes","on")
+    apply = (os.getenv("ENFORCE_BUCKET_ROLLBACK_APPLY", "1") or "1").strip() in ("1","true","True","yes","on")
     args = ["--apply", "1" if apply else "0"]
     return run_tool("orderflow_services.enforce_bucket_promoter_rollback_controller_v1", args, timeout=timeout_s)
 
@@ -2519,7 +2512,7 @@ def run_meta_ab_v2_nightly_job_v1() -> bool:
     module = os.getenv("META_AB_V2_JOB_MODULE", "services.orderflow.meta_ab_v2_nightly_job_v1")
     timeout_s = 2100
     try:
-        timeout_s = int(str(os.getenv("META_AB_V2_NIGHTLY_TIMEOUT_S", "2100")).strip())
+        timeout_s = int(os.getenv("META_AB_V2_NIGHTLY_TIMEOUT_S", "2100").strip())
     except Exception:
         timeout_s = 2100
     return run_tool(module, timeout=timeout_s)
@@ -2587,7 +2580,7 @@ def run_archive_maintenance() -> bool:
     retention_days = int(os.getenv("ARCHIVE_RETENTION_DAYS", "30"))
     keep_last = int(os.getenv("ARCHIVE_KEEP_LAST_DAYS", "3"))
     max_gb = float(os.getenv("ARCHIVE_MAX_TOTAL_GB", "100"))
-    
+
     args = [
         "--dir", archive_dir,
         "--retention-days", str(retention_days),
@@ -2718,7 +2711,7 @@ def run_ofc_golden_pipeline() -> bool:
     if not os.path.exists(capture):
         logger.warning(f"OFC capture not found at {capture}")
         return False
-    
+
     # Run shell script for the pipeline
     try:
         logger.info(f"Running nightly OFC golden pipeline (capture={capture})...")
@@ -2938,7 +2931,7 @@ def run_edge_stack_v1_dataset_build_fallback() -> bool:
         return False
     args = [
         "--redis_url", os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
-        "--signal_stream", os.getenv("ML_REPLAY_STREAM", "signals:of:inputs"),
+        "--signal_stream", os.getenv("ML_REPLAY_STREAM", RS.OF_INPUTS),
         "--closed_stream", os.getenv("TRADES_CLOSED_STREAM", "trades:closed"),
         "--archive_dir", os.getenv("ARCHIVE_DIR", "/var/lib/trade/of_inputs_archive"),
         "--signals_count", os.getenv("SIGNALS_COUNT", "200000"),
@@ -3038,7 +3031,7 @@ def run_of_gate_dlq_triage() -> bool:
     """Run OF-Gate DLQ Triage (P84) (Hourly)."""
     if os.getenv("ENABLE_OF_GATE_DLQ_TRIAGE_TIMER", "0") != "1":
         return True
-    
+
     args = [
         "triage",
         "--limit", os.getenv("OF_GATE_DLQ_TRIAGE_LIMIT", "5000"),
@@ -3186,10 +3179,10 @@ def main() -> None:
     logger.info("  07:10 - Meta Self-Heal")
     logger.info("  07:25 - Meta Stage2 Opt")
     logger.info("  07:40 - Close Backfill")
-    
+
     # State tracking to prevent double-runs
     last_run = {}
-    
+
     # Phase 4 Bootstrap on startup
     try:
         from services.atr_policy_bootstrap_service import run_bootstrap
@@ -3199,14 +3192,14 @@ def main() -> None:
         logger.warning(f"Could not import ATR Policy bootstrap: {e}")
     except Exception as e:
         logger.error(f"ATR Policy bootstrap failed: {e}")
-        
+
     while True:
         try:
             now = datetime.utcnow()
             hour = now.hour
             minute = now.minute
             weekday = now.weekday()  # 0=Monday, 6=Sunday
-            
+
             def should_run(name: str, h: int, m_start: int, m_end: int = None, wd: int = None) -> bool:
                 if wd is not None and weekday != wd:
                     return False
@@ -3216,7 +3209,7 @@ def main() -> None:
                     m_end = m_start + 1
                 if minute < m_start or minute >= m_end:
                     return False
-                
+
                 # Check last run time
                 last = last_run.get(name, 0)
                 if now.timestamp() - last < 120:  # Prevent re-run within 2 mins
@@ -3265,7 +3258,7 @@ def main() -> None:
                     run_world_practice_smoke_check()
                     last_run["world_practice_smoke"] = now.timestamp()
 
-            
+
 
             # Hourly:13 LOB-pressure smoke-check (P91)
             # exit=0 OK (or no_data), exit=2 ALERT (missing/invalid/stuck)
@@ -3284,7 +3277,7 @@ def main() -> None:
                 if now.timestamp() - last > 3500:
                     run_of_inputs_exporters_smoke_p107()
                     last_run["of_inputs_exporters_smoke"] = now.timestamp()
-                
+
                 # Run P111
                 last_p111 = last_run.get("of_gate_exporters_smoke_p111", 0)
                 if now.timestamp() - last_p111 > 3500:
@@ -3356,7 +3349,7 @@ def main() -> None:
             if now.timestamp() - last_rs >= 60:
                 run_atr_policy_regime_stress_state()
                 last_run["atr_policy_regime_stress"] = now.timestamp()
-                
+
             # Every 30 min: Regime/Stress TG Digest
             if minute % 30 == 15:
                 last_rs_tg = last_run.get("atr_policy_regime_stress_tg", 0)
@@ -3511,7 +3504,7 @@ def main() -> None:
                 ("meta_stage2_opt", 7, 25, run_nightly_meta_stage2_opt),
                 ("close_backfill", 7, 40, run_close_backfill),
             ]
-            
+
             for name, h, m, func in tasks:
                 if should_run(name, h, m):
                     func()
@@ -3629,7 +3622,7 @@ def main() -> None:
                     last_run["of_inputs_dlq_db_archive_p98"] = now.timestamp()
 
             time.sleep(30)
-            
+
         except KeyboardInterrupt:
             logger.info("Received interrupt, shutting down...")
             break

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 import redis
@@ -36,7 +36,7 @@ class RegimeRuntimeState:
         disable_until_str = data.get("disable_until")
         if status == "disabled" and disable_until_str:
             disable_until = datetime.fromisoformat(disable_until_str)
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             if now > disable_until:
                 # просрочен disable → можно трактовать как active (или дать RegimeGuard поменять)
                 status = "active"

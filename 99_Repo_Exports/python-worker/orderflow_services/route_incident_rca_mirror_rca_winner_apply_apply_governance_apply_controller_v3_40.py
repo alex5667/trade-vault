@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -78,15 +79,15 @@ PROMOTE_DECISION_TO_ARM = {
 ALL_ARMS = {"deterministic", "vertex_candidate", "local_fallback_candidate"}
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -146,8 +147,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -179,7 +180,7 @@ def default_allow_arms() -> list[str]:
     return arms or ["vertex_candidate", "local_fallback_candidate"]
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     apply_strategy = str(raw.get("apply_strategy") or DEFAULT_APPLY_STRATEGY).upper()
     if apply_strategy not in ALLOWED_APPLY_STRATEGIES:
         apply_strategy = DEFAULT_APPLY_STRATEGY
@@ -199,9 +200,9 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
-    mode = str(raw.get("mode") or "SHADOW").upper()
-    primary_arm = str(raw.get("primary_arm") or "deterministic")
+def experiment_policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
+    mode = (raw.get("mode") or "SHADOW").upper()
+    primary_arm = (raw.get("primary_arm") or "deterministic")
     shadow_arms = maybe_json(raw.get("shadow_arms_json"), ["vertex_candidate", "local_fallback_candidate"])
     if not isinstance(shadow_arms, list):
         shadow_arms = ["vertex_candidate", "local_fallback_candidate"]
@@ -216,13 +217,13 @@ def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 def evaluate_apply(
     *,
-    recommendation: Dict[str, Any],
-    controller_policy: Dict[str, Any],
-    experiment_policy: Dict[str, Any],
+    recommendation: dict[str, Any],
+    controller_policy: dict[str, Any],
+    experiment_policy: dict[str, Any],
     now_ts_ms: int,
-) -> Dict[str, Any]:
-    decision = str(recommendation.get("decision") or "")
-    winner_arm = str(recommendation.get("winner_arm") or "")
+) -> dict[str, Any]:
+    decision = (recommendation.get("decision") or "")
+    winner_arm = (recommendation.get("winner_arm") or "")
     winner_score = parse_float(recommendation.get("winner_score"), 0.0)
     current_mode = experiment_policy["mode"]
     current_primary_arm = experiment_policy["primary_arm"]
@@ -304,7 +305,7 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_hash(r: Any, key: str) -> Dict[str, Any]:
+async def read_hash(r: Any, key: str) -> dict[str, Any]:
     return as_dict(await r.hgetall(key))
 
 
@@ -317,7 +318,7 @@ async def update_mode_metrics(mode: str, primary_arm: str) -> None:
             CURRENT_PRIMARY_ARM.labels(arm=arm).set(1 if primary_arm == arm else 0)
 
 
-async def apply_change(r: Any, evaluation: Dict[str, Any]) -> None:
+async def apply_change(r: Any, evaluation: dict[str, Any]) -> None:
     mapping = {
         "mode": evaluation["target_mode"],
         "primary_arm": evaluation["target_primary_arm"],
@@ -331,8 +332,8 @@ async def apply_change(r: Any, evaluation: Dict[str, Any]) -> None:
 
 async def persist_if_configured(
     db_url: str,
-    recommendation: Dict[str, Any],
-    evaluation: Dict[str, Any],
+    recommendation: dict[str, Any],
+    evaluation: dict[str, Any],
 ) -> None:
     if not db_url or psycopg is None:
         return
@@ -448,7 +449,7 @@ async def main() -> None:  # pragma: no cover
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             controller_policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     experiment_policy = experiment_policy_from_hash(await read_hash(r, EXPERIMENT_POLICY_KEY))
                     evaluation = evaluate_apply(
                         recommendation=recommendation,

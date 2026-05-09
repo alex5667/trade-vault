@@ -1,7 +1,5 @@
 import json
-import os
 import time
-import pytest
 
 
 def test_norm_side_no_pass_and_bool_guard():
@@ -22,7 +20,7 @@ def _mk_cal():
 
 
 def test_get_group_side_aware_priority_and_legacy_fallback():
-    from common.calibration_store import CalibStore, CalibGroup
+    from common.calibration_store import CalibGroup, CalibStore
 
     # path="" -> load() keeps empty groups (no FS)
     s = CalibStore(path="", min_samples=10, reload_sec=0)
@@ -53,7 +51,7 @@ def test_get_group_side_aware_priority_and_legacy_fallback():
 
 
 def test_min_samples_gate_skips_small_groups():
-    from common.calibration_store import CalibStore, CalibGroup
+    from common.calibration_store import CalibGroup, CalibStore
     s = CalibStore(path="", min_samples=300, reload_sec=0)
     s._groups = {
         "kind:K|symbol:S|side:*": CalibGroup(calibrator=_mk_cal(), n=10),   # too small

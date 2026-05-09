@@ -1,11 +1,10 @@
 import json
-import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Optional, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any, Optional
 
 
 def _s(x: Any) -> str:
-    return str(x or "").strip()
+    return (x or "").strip()
 
 
 def _arm(x: Any) -> str:
@@ -49,12 +48,12 @@ class EntryPolicySuggestionMetaV1:
     reason: str = ""
 
     # Arm metrics snapshot (LCB etc) - compact dict for UI/reporting
-    arm_metrics: Dict[str, Any] = None
+    arm_metrics: dict[str, Any] = None
 
     # Approval policy
     approvals_required: int = 2
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         if self.v != 1:
             return False, "bad_version"
         if not _s(self.sid):
@@ -76,7 +75,7 @@ class EntryPolicySuggestionMetaV1:
         return json.dumps(d, ensure_ascii=False, separators=(",", ":"))
 
     @staticmethod
-    def from_json(raw: str) -> Tuple[Optional["EntryPolicySuggestionMetaV1"], str]:
+    def from_json(raw: str) -> tuple[Optional["EntryPolicySuggestionMetaV1"], str]:
         try:
             d = json.loads(raw or "")
             o = EntryPolicySuggestionMetaV1(

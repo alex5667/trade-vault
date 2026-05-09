@@ -1,4 +1,3 @@
-import time
 
 from services.news_reco_reader.cache import NewsRecoCache, now_ms
 

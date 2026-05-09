@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 def dist_bp(px: float, level: float) -> float:
     mid = 0.5 * (abs(px) + abs(level))
     return (10000.0 * abs(px - level) / mid) if mid > 0 else 0.0

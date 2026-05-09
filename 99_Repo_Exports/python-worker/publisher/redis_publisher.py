@@ -1,5 +1,6 @@
 import json
-from typing import Dict, Any
+from typing import Any
+
 from core.redis_client import get_redis
 
 # Redis клиент будет инициализирован при первом использовании
@@ -27,12 +28,12 @@ def publish_to_redis(channel: str, message: Any) -> bool:
         # Если сообщение не строка, преобразуем его в JSON
         if not isinstance(message, str):
             message = json.dumps(message)
-        
+
         # Публикуем сообщение
         recipients = _get_redis_client().publish(channel, message)
-        
+
         print(f"📢 Опубликовано в Redis канал '{channel}': {message[:100]}... ({recipients} получателей)")
         return True
     except Exception as e:
         print(f"❌ Ошибка публикации в Redis канал '{channel}': {e}")
-        return False 
+        return False

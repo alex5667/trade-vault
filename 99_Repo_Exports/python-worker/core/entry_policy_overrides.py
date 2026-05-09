@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Entry Policy Overrides V1 - Strict Schema with Validation
 
@@ -18,12 +19,11 @@ Expert validation:
   - DevOps/SRE: TTL-based Redis storage, no schema migrations required
   - Professor Statistics: Hysteresis prevents statistical dithering at decision boundaries
 """
-from utils.time_utils import get_ny_time_millis
-
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, Optional, Tuple
 import json
-import time
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -80,29 +80,29 @@ class EntryPolicyOverridesV1:
     ver: int = 1
 
     # Policy thresholds (all optional - only override what's needed)
-    entry_min_of_score: Optional[float] = None      # Range: 0..2 (typical 0.67..1.0)
-    entry_max_spread_z: Optional[float] = None      # Range: 0..10 (typical 1.5..3.0)
-    entry_near_zone_bp: Optional[float] = None      # Range: 1..200 (typical 8..20)
-    entry_obi_min_sec: Optional[float] = None       # Range: 0..10 (typical 1.0..2.0)
-    entry_min_leader_conf: Optional[float] = None   # Range: 0..1
+    entry_min_of_score: float | None = None      # Range: 0..2 (typical 0.67..1.0)
+    entry_max_spread_z: float | None = None      # Range: 0..10 (typical 1.5..3.0)
+    entry_near_zone_bp: float | None = None      # Range: 1..200 (typical 8..20)
+    entry_obi_min_sec: float | None = None       # Range: 0..10 (typical 1.0..2.0)
+    entry_min_leader_conf: float | None = None   # Range: 0..1
 
     # Stabilization metadata
     applied_ts_ms: int = 0                          # Timestamp when override was applied
     hold_down_ms: int = 0                           # Duration to block new suggestions (ms)
     hysteresis_impr: float = 0.0                    # Additional improvement required vs current
-    
+
     # Traceability
     sid: str = ""                                   # Suggestion ID that was applied
     src: str = "manual"                             # Source: "manual"|"ab_lcb"|"thresh_lcb"
     notes: str = ""                                 # Human-readable notes
-    extra: Dict[str, Any] = field(default_factory=dict)  # Extensibility
+    extra: dict[str, Any] = field(default_factory=dict)  # Extensibility
 
     def to_json(self) -> str:
         """Serialize to JSON for Redis storage"""
         return json.dumps(asdict(self), ensure_ascii=False, separators=(",", ":"))
 
     @staticmethod
-    def from_json(raw: str) -> Tuple[Optional["EntryPolicyOverridesV1"], str]:
+    def from_json(raw: str) -> tuple[EntryPolicyOverridesV1 | None, str]:
         """
         Deserialize from JSON with validation.
         
@@ -142,11 +142,11 @@ class EntryPolicyOverridesV1:
             notes=_s(pick("notes"), ""),
             extra=d.get("extra") if isinstance(d.get("extra"), dict) else {},
         )
-        
+
         ok, err = o.validate()
         return (o if ok else None), err
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         """
         Validate and enforce range constraints.
         
@@ -217,10 +217,10 @@ class EntryPolicyOverridesV1:
         """
         if self.hold_down_ms <= 0:
             return False
-        
+
         ts0 = int(self.applied_ts_ms or 0)
         if ts0 <= 0:
             return False  # No application timestamp => not in hold-down
-        
+
         elapsed = now_ms - ts0
         return elapsed < int(self.hold_down_ms)

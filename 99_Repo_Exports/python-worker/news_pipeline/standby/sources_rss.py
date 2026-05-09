@@ -1,15 +1,20 @@
 # python-worker/news_pipeline/standby/sources_rss.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
-import time
-import feedparser
-from typing import Iterable, Dict, Any, List
 
-def fetch_rss(*, name: str, urls: Iterable[str], user_agent: str = "trade-standby/1.0") -> List[Dict[str, Any]]:
+import time
+from collections.abc import Iterable
+from typing import Any
+
+import feedparser
+
+from utils.time_utils import get_ny_time_millis
+
+
+def fetch_rss(*, name: str, urls: Iterable[str], user_agent: str = "trade-standby/1.0") -> list[dict[str, Any]]:
     """
     Возвращает "сырые" новости без uid — uid будет назначен выше по pipeline.
     """
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     now_ms = get_ny_time_millis()
 
     # feedparser сам ходит в сеть; UA задаётся через request_headers

@@ -1,16 +1,13 @@
 from __future__ import annotations
+
 """
 Tests for OF Gate metrics integration (ML latency, source_consistency_ok, etc).
 """
-from utils.time_utils import get_ny_time_millis
-
-import json
-import time
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from services.ml_confirm_gate import MLConfirmDecision, MLConfirmGate
+from utils.time_utils import get_ny_time_millis
 
 
 def test_ml_confirm_decision_latency_us():
@@ -76,7 +73,7 @@ def test_strategy_payload_includes_ml_metrics():
     # Read strategy.py to verify fields are present
     import os
     strategy_path = os.path.join(os.path.dirname(__file__), "..", "services", "orderflow", "strategy.py")
-    with open(strategy_path, "r", encoding="utf-8") as f:
+    with open(strategy_path, encoding="utf-8") as f:
         content = f.read()
         for field in payload_fields_expected:
             assert field in content, f"Field {field} not found in strategy.py payload"
@@ -87,7 +84,7 @@ def test_strategy_payload_reason_capped():
     # Verify the code has reason[:120]
     import os
     strategy_path = os.path.join(os.path.dirname(__file__), "..", "services", "orderflow", "strategy.py")
-    with open(strategy_path, "r", encoding="utf-8") as f:
+    with open(strategy_path, encoding="utf-8") as f:
         content = f.read()
         # Check for the comment and cap
         assert "keep for offline debug but cap size" in content.lower() or "reason" in content
@@ -96,7 +93,7 @@ def test_strategy_payload_reason_capped():
 
 def test_of_gate_sre_monitor_computes_ml_latency():
     """Test that of_gate_sre_monitor computes ML latency percentiles."""
-    from tools.of_gate_sre_monitor import compute_stats, pctl
+    from tools.of_gate_sre_monitor import compute_stats
 
     rows = [
         {

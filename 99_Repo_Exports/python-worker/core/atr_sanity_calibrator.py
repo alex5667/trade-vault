@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 ATR Sanity Calibrator (Source Selector)
 
@@ -20,10 +19,9 @@ Fail-open:
   - if no candidates -> no preference, execution falls back to existing behavior.
 """
 
-import json
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 @dataclass
@@ -53,26 +51,26 @@ class ATRSanityCalibrator:
         self.min_samples = int(min_samples)
         self.max_age_ms = int(max_age_ms)
         # counters
-        self._n: Dict[str, int] = {}          # key: tf_norm
-        self._src_pref: Dict[str, str] = {}   # key: tf_norm -> src
-        self._mismatch: Dict[str, int] = {}   # key: tf_norm -> 0/1
+        self._n: dict[str, int] = {}          # key: tf_norm
+        self._src_pref: dict[str, str] = {}   # key: tf_norm -> src
+        self._mismatch: dict[str, int] = {}   # key: tf_norm -> 0/1
 
     @staticmethod
-    def _median(xs: List[float]) -> float:
+    def _median(xs: list[float]) -> float:
         ys = [float(x) for x in xs if math.isfinite(float(x)) and float(x) > 0]
         if not ys:
             return 0.0
         ys.sort()
         return float(ys[len(ys) // 2])
 
-    def decide(self, *, tf_norm: str, candidates: List[Dict[str, Any]]) -> ATRSanityDecision:
+    def decide(self, *, tf_norm: str, candidates: list[dict[str, Any]]) -> ATRSanityDecision:
         """
         candidates: list of dicts from ATRCache.get_candidates()
         Required keys per candidate:
           - atr, src, key, tf, ts_ms, age_ms, has_ts
         """
-        tfk = str(tf_norm or "M1").upper()
-        cs: List[ATRCandidate] = []
+        tfk = (tf_norm or "M1").upper()
+        cs: list[ATRCandidate] = []
         for c in candidates or []:
             try:
                 atr = float(c.get("atr", 0.0) or 0.0)
@@ -81,9 +79,9 @@ class ATRSanityCalibrator:
                 cs.append(
                     ATRCandidate(
                         atr=atr,
-                        src=str(c.get("src", "na") or "na"),
-                        key=str(c.get("key", "") or ""),
-                        tf=str(c.get("tf", "") or ""),
+                        src=(c.get("src", "na") or "na"),
+                        key=(c.get("key", "") or ""),
+                        tf=(c.get("tf", "") or ""),
                         ts_ms=int(c.get("ts_ms", 0) or 0),
                         age_ms=int(c.get("age_ms", 0) or 0),
                         has_ts=int(c.get("has_ts", 0) or 0),
@@ -96,7 +94,7 @@ class ATRSanityCalibrator:
             return ATRSanityDecision(ok=False, src_pref="", reason="no_candidates", n=int(self._n.get(tfk, 0)), mismatch=0, median=0.0, picked=0.0)
 
         # Filter by age if timestamped.
-        fresh: List[ATRCandidate] = []
+        fresh: list[ATRCandidate] = []
         for c in cs:
             if c.has_ts == 1 and c.age_ms > 0 and c.age_ms <= self.max_age_ms:
                 fresh.append(c)
@@ -149,11 +147,11 @@ class ATRSanityCalibrator:
         return ATRSanityDecision(ok=ok, src_pref=str(best.src), reason=reason, n=n, mismatch=mismatch, median=med, picked=float(best.atr))
 
     # ---------------- Persistence ----------------
-    def dump_state(self, *, symbol: str, tf_norm: str, updated_ts_ms: int) -> Dict[str, Any]:
-        tfk = str(tf_norm or "M1").upper()
+    def dump_state(self, *, symbol: str, tf_norm: str, updated_ts_ms: int) -> dict[str, Any]:
+        tfk = (tf_norm or "M1").upper()
         return {
             "v": 1,
-            "symbol": str(symbol),
+            "symbol": symbol,
             "tf": tfk,
             "updated_ts_ms": int(updated_ts_ms),
             "n": int(self._n.get(tfk, 0)),
@@ -161,11 +159,11 @@ class ATRSanityCalibrator:
             "mismatch": int(self._mismatch.get(tfk, 0)),
         }
 
-    def load_state(self, st: Dict[str, Any]) -> None:
+    def load_state(self, st: dict[str, Any]) -> None:
         try:
-            tfk = str(st.get("tf") or "M1").upper()
+            tfk = (st.get("tf") or "M1").upper()
             self._n[tfk] = int(st.get("n", 0) or 0)
-            self._src_pref[tfk] = str(st.get("src_pref", "") or "")
+            self._src_pref[tfk] = (st.get("src_pref", "") or "")
             self._mismatch[tfk] = int(st.get("mismatch", 0) or 0)
         except Exception:
             return

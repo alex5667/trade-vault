@@ -1,15 +1,16 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 VERIFIER_UP = Gauge("ml_rollback_verifier_up", "Rollback verifier liveness")
 VERIFIER_LAST_RUN_TS = Gauge("ml_rollback_verifier_last_run_ts_seconds", "Last verifier loop time")
@@ -32,17 +33,17 @@ def _now_ms() -> int:
 @dataclass
 class VerificationDecision:
     verification_status: str
-    reason_codes: List[str]
-    details: Dict[str, Any]
+    reason_codes: list[str]
+    details: dict[str, Any]
 
 
 def compute_rollback_verification(
-    baseline_snapshot: Dict[str, Any],
-    post_rollback_snapshot: Dict[str, Any],
-    cfg: Dict[str, Any],
+    baseline_snapshot: dict[str, Any],
+    post_rollback_snapshot: dict[str, Any],
+    cfg: dict[str, Any],
 ) -> VerificationDecision:
-    reasons: List[str] = []
-    details: Dict[str, Any] = {}
+    reasons: list[str] = []
+    details: dict[str, Any] = {}
 
     if not baseline_snapshot:
         return VerificationDecision(
@@ -99,7 +100,7 @@ def compute_rollback_verification(
     return VerificationDecision("INCONCLUSIVE", reasons, details)
 
 
-async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
+async def _persist_pg(database_url: str, payload: dict[str, Any]) -> None:
     import asyncpg  # type: ignore
 
     conn = await asyncpg.connect(database_url)
@@ -156,10 +157,8 @@ async def main() -> None:
     consumer = os.getenv("ML_ROLLBACK_VERIFIER_CONSUMER", os.getenv("HOSTNAME", "ml-rollback-verifier-1"))
     database_url = os.getenv("DATABASE_URL", "")
 
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(stream_results, group, id="0", mkstream=True)
-    except Exception:
-        pass
 
     cfg = {
         "ROLLBACK_VERIFY_MAX_ERROR_RATE_DELTA": os.getenv("ROLLBACK_VERIFY_MAX_ERROR_RATE_DELTA", "0.01"),
@@ -180,7 +179,7 @@ async def main() -> None:
                     ts_ms = int(payload.get("ts_ms", now_ms))
                     VERIFIER_QUEUE_LAG_MS.set(max(0, now_ms - ts_ms))
 
-                    recommendation_id = str(payload.get("recommendation_id", "") or "")
+                    recommendation_id = (payload.get("recommendation_id", "") or "")
                     model_id = str(payload.get("target_ref", "") or payload.get("model_id", "") or "")
                     baseline_snapshot_json = payload.get("baseline_snapshot_json", "") or ""
                     if baseline_snapshot_json:

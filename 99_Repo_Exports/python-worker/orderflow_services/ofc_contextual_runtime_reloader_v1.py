@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Runtime reloader for OFC contextual overlay / rollback integration.
 
 Purpose
@@ -16,12 +18,11 @@ import argparse
 import hashlib
 import json
 import os
-import shlex
 import signal
 import subprocess
-import sys
 import time
-from typing import Dict, Iterable, List, Optional
+from collections.abc import Iterable
+import contextlib
 
 
 def _now_ms() -> int:
@@ -36,14 +37,14 @@ def _to_int(v: object, default: int) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
-def load_env_file(path: str) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def load_env_file(path: str) -> dict[str, str]:
+    out: dict[str, str] = {}
     if not path or not os.path.exists(path):
         return out
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         for raw in fh:
             line = raw.strip()
             if not line or line.startswith("#"):
@@ -63,7 +64,7 @@ def load_env_file(path: str) -> Dict[str, str]:
     return out
 
 
-def merge_child_env(base_env: Dict[str, str], overlay_env: Dict[str, str]) -> Dict[str, str]:
+def merge_child_env(base_env: dict[str, str], overlay_env: dict[str, str]) -> dict[str, str]:
     env = dict(base_env)
     for k, v in overlay_env.items():
         if k:
@@ -71,7 +72,7 @@ def merge_child_env(base_env: Dict[str, str], overlay_env: Dict[str, str]) -> Di
     return env
 
 
-def fingerprint_overlay(overlay_env: Dict[str, str], rollback_exists: bool) -> str:
+def fingerprint_overlay(overlay_env: dict[str, str], rollback_exists: bool) -> str:
     payload = {
         "overlay": {k: overlay_env[k] for k in sorted(overlay_env.keys())},
         "rollback_exists": bool(rollback_exists),
@@ -80,7 +81,7 @@ def fingerprint_overlay(overlay_env: Dict[str, str], rollback_exists: bool) -> s
     return hashlib.sha256(raw).hexdigest()
 
 
-def _atomic_write_json(path: str, payload: Dict[str, object]) -> None:
+def _atomic_write_json(path: str, payload: dict[str, object]) -> None:
     if not path:
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -94,38 +95,34 @@ def _atomic_write_json(path: str, payload: Dict[str, object]) -> None:
 def _terminate_child(proc: subprocess.Popen, grace_sec: int) -> int:
     if proc.poll() is not None:
         return int(proc.returncode or 0)
-    try:
+    with contextlib.suppress(Exception):
         proc.terminate()
-    except Exception:
-        pass
     deadline = time.time() + max(1, grace_sec)
     while time.time() < deadline:
         rc = proc.poll()
         if rc is not None:
             return int(rc)
         time.sleep(0.2)
-    try:
+    with contextlib.suppress(Exception):
         proc.kill()
-    except Exception:
-        pass
     try:
         return int(proc.wait(timeout=5))
     except Exception:
         return 137
 
 
-def _spawn_child(argv: List[str], env: Dict[str, str]) -> subprocess.Popen:
+def _spawn_child(argv: list[str], env: dict[str, str]) -> subprocess.Popen:
     return subprocess.Popen(argv, env=env)
 
 
-def _split_cmd(args: argparse.Namespace) -> List[str]:
+def _split_cmd(args: argparse.Namespace) -> list[str]:
     cmd = list(args.cmd or [])
     if not cmd:
         raise SystemExit("runtime child command is required after '--'")
     return cmd
 
 
-def _load_overlay_state(path: str, rollback_flag_path: str) -> tuple[Dict[str, str], bool, str]:
+def _load_overlay_state(path: str, rollback_flag_path: str) -> tuple[dict[str, str], bool, str]:
     overlay = load_env_file(path)
     rb_exists = bool(rollback_flag_path and os.path.exists(rollback_flag_path))
     fp = fingerprint_overlay(overlay, rb_exists)
@@ -133,7 +130,7 @@ def _load_overlay_state(path: str, rollback_flag_path: str) -> tuple[Dict[str, s
 
 
 def _reason_kind(reason: str) -> str:
-    s = str(reason or "").strip().lower()
+    s = (reason or "").strip().lower()
     if not s:
         return "unknown"
     if s == "initial":
@@ -175,12 +172,12 @@ def run_supervisor(args: argparse.Namespace) -> int:
     restart_count = 0
     last_restart_reason = "initial"
     last_restart_detail = "initial"
-    last_child_exit_code: Optional[int] = None
+    last_child_exit_code: int | None = None
     defer_active = False
     defer_reason = ""
     defer_until_ts_ms = 0
 
-    def _write_state(event: str, reason: str, child_pid: int, child_rc: Optional[int]) -> None:
+    def _write_state(event: str, reason: str, child_pid: int, child_rc: int | None) -> None:
         nonlocal last_child_exit_code
         if child_rc is not None:
             last_child_exit_code = int(child_rc)
@@ -188,7 +185,7 @@ def run_supervisor(args: argparse.Namespace) -> int:
         payload = {
             "ts_ms": _now_ms(),
             "event": str(event),
-            "reason": str(reason),
+            "reason": reason,
             "overlay_env_file": overlay_path,
             "rollback_flag_path": rollback_flag_path,
             "active_overlay_fingerprint": str(active_fingerprint),
@@ -297,7 +294,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def main(argv: Optional[Iterable[str]] = None) -> int:
+def main(argv: Iterable[str] | None = None) -> int:
     ap = build_arg_parser()
     ns = ap.parse_args(list(argv) if argv is not None else None)
     cmd = list(ns.cmd or [])

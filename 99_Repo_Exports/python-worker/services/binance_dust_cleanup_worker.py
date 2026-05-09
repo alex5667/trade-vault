@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Periodic Binance dust-position cleanup worker.
 
@@ -31,7 +33,8 @@ import socket
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -89,7 +92,7 @@ log = logging.getLogger("binance_dust_cleanup_worker")
 
 def _is_429_error(exc: Exception) -> bool:
     """Return True if the exception chain contains an HTTP 429 rate-limit error."""
-    cur: Optional[BaseException] = exc
+    cur: BaseException | None = exc
     while cur is not None:
         if isinstance(cur, BinanceAPIError) and int(getattr(cur, 'status', 0) or 0) == 429:
             return True
@@ -99,7 +102,7 @@ def _is_429_error(exc: Exception) -> bool:
 
 def _is_network_error(exc: Exception) -> bool:
     """Return True if the exception chain contains a DNS / connectivity error."""
-    cur: Optional[BaseException] = exc
+    cur: BaseException | None = exc
     while cur is not None:
         if isinstance(cur, BinanceAPIError):
             code = (cur.payload or {}).get('code', '') if isinstance(cur.payload, dict) else ''
@@ -113,7 +116,7 @@ def _is_network_error(exc: Exception) -> bool:
 
 def _is_1021_error(exc: Exception) -> bool:
     """Return True if the exception chain contains a Binance -1021 timestamp error."""
-    cur: Optional[BaseException] = exc
+    cur: BaseException | None = exc
     while cur is not None:
         if isinstance(cur, BinanceAPIError) and isinstance(getattr(cur, 'payload', None), dict):
             if int(cur.payload.get('code', 0) or 0) == -1021:
@@ -133,19 +136,19 @@ def _f(v: Any, default: float = 0.0) -> float:
     """Safe float cast with fallback."""
     try:
         if v is None:
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _load_symbol_set(raw: str) -> Set[str]:
+def _load_symbol_set(raw: str) -> set[str]:
     """Parse comma-separated symbol set (allowlist or denylist) from env."""
-    return {part.strip().upper() for part in str(raw or '').split(',') if part.strip()}
+    return {part.strip().upper() for part in (raw or '').split(',') if part.strip()}
 
 
 def _step_decimals(step: float) -> int:
@@ -158,11 +161,11 @@ def _step_decimals(step: float) -> int:
     return len(s.split('.', 1)[1])
 
 
-def _position_side_for_mode(position_mode: str, logical_side: Optional[str]) -> Optional[str]:
+def _position_side_for_mode(position_mode: str, logical_side: str | None) -> str | None:
     """Return positionSide param value for hedge mode; None for one-way mode."""
-    if str(position_mode or '').strip().lower() != 'hedge':
+    if (position_mode or '').strip().lower() != 'hedge':
         return None
-    side = str(logical_side or '').upper().strip()
+    side = (logical_side or '').upper().strip()
     if side in {'LONG', 'SHORT'}:
         return side
     return None
@@ -190,19 +193,19 @@ class BinanceDustCleanupWorker:
     def __init__(
         self,
         *,
-        client: Optional[BinanceFuturesClient] = None,
+        client: BinanceFuturesClient | None = None,
         redis_client: Any = None,
-        interval_sec: Optional[float] = None,
-        confirm_passes: Optional[int] = None,
-        dust_notional_usdt: Optional[float] = None,
-        dust_margin_usdt: Optional[float] = None,
-        close_retries: Optional[int] = None,
-        verify_timeout_ms: Optional[int] = None,
-        verify_poll_ms: Optional[int] = None,
-        allowlist: Optional[Set[str]] = None,
-        denylist: Optional[Set[str]] = None,
-        cooldown_sec: Optional[int] = None,
-        error_cooldown_sec: Optional[int] = None,
+        interval_sec: float | None = None,
+        confirm_passes: int | None = None,
+        dust_notional_usdt: float | None = None,
+        dust_margin_usdt: float | None = None,
+        close_retries: int | None = None,
+        verify_timeout_ms: int | None = None,
+        verify_poll_ms: int | None = None,
+        allowlist: set[str] | None = None,
+        denylist: set[str] | None = None,
+        cooldown_sec: int | None = None,
+        error_cooldown_sec: int | None = None,
     ) -> None:
         self.client = client or BinanceFuturesClient.from_env()
         if redis_client is not None:
@@ -214,7 +217,7 @@ class BinanceDustCleanupWorker:
             )
         else:
             self.r = None
-        self.exec_stream = os.getenv('EXEC_STREAM', 'orders:exec')
+        self.exec_stream = os.getenv('EXEC_STREAM', RS.ORDERS_EXEC)
         self.exec_stream_maxlen = max(0, int(os.getenv('EXEC_STREAM_MAXLEN', '0') or '0')) or None
         self.enabled = _bool_env('BINANCE_DUST_SWEEP_ENABLE', True)
         self.interval_sec = float(
@@ -249,7 +252,7 @@ class BinanceDustCleanupWorker:
             int(verify_poll_ms if verify_poll_ms is not None
                 else os.getenv('BINANCE_DUST_VERIFY_POLL_MS', '250')),
         )
-        self.position_mode = str(os.getenv('BINANCE_POSITION_MODE') or 'oneway').strip().lower()
+        self.position_mode = (os.getenv('BINANCE_POSITION_MODE') or 'oneway').strip().lower()
         self.allowlist = {s.upper() for s in (allowlist or _load_symbol_set(os.getenv('BINANCE_SYMBOL_ALLOWLIST', '')))}
         # Static denylist from ENV (comma-separated); also supports dynamic Redis set and per-key overrides.
         self.denylist = {s.upper() for s in (denylist or _load_symbol_set(os.getenv('BINANCE_DUST_SWEEP_DENYLIST', '')))}
@@ -262,11 +265,11 @@ class BinanceDustCleanupWorker:
         self.dynamic_denylist_prefix = os.getenv('BINANCE_DUST_SWEEP_DENYLIST_PREFIX', 'orders:dust_cleanup:denylist:')
         self.cooldown_prefix = os.getenv('BINANCE_DUST_SWEEP_COOLDOWN_PREFIX', 'orders:dust_cleanup:cooldown:')
         # Per-symbol LOT_SIZE cache to avoid repeated exchange info calls.
-        self._filters: Dict[str, SymbolFilter] = {}
+        self._filters: dict[str, SymbolFilter] = {}
         # Consecutive dust observation counter — key is symbol, value is passes seen.
-        self._confirm_seen: Dict[str, int] = {}
+        self._confirm_seen: dict[str, int] = {}
         # In-process cooldown fallback when Redis is unavailable.
-        self._cooldown_local_until_ms: Dict[str, int] = {}
+        self._cooldown_local_until_ms: dict[str, int] = {}
 
     # -----------------------------------------------------------------------
     # Internal metrics helpers
@@ -276,40 +279,34 @@ class BinanceDustCleanupWorker:
         """Increment the per-symbol sweep outcome counter (safe, never raises)."""
         if EXECUTION_DUST_SWEEP_TOTAL is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             EXECUTION_DUST_SWEEP_TOTAL.labels(symbol=symbol, result=result).inc()
-        except Exception:
-            pass
 
     def _skip_metric_inc(self, symbol: str, reason: str) -> None:
         """Increment the skip counter for denylist/cooldown/error skip reasons."""
         if EXECUTION_DUST_SWEEP_SKIP_TOTAL is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             EXECUTION_DUST_SWEEP_SKIP_TOTAL.labels(symbol=symbol, reason=reason).inc()
-        except Exception:
-            pass
 
     def _set_cooldown_metric(self, symbol: str, seconds: float) -> None:
         """Update the cooldown-remaining gauge for the given symbol."""
         if EXECUTION_DUST_SWEEP_COOLDOWN_REMAINING_SEC is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             EXECUTION_DUST_SWEEP_COOLDOWN_REMAINING_SEC.labels(symbol=symbol).set(max(0.0, float(seconds)))
-        except Exception:
-            pass
 
     def _cooldown_key(self, symbol: str) -> str:
         """Return the Redis key used to store the per-symbol cleanup cooldown."""
-        return f"{self.cooldown_prefix}{str(symbol).upper().strip()}"
+        return f"{self.cooldown_prefix}{symbol.upper().strip()}"
 
     def _dynamic_denylist_key(self, symbol: str) -> str:
         """Return the Redis key for a per-symbol denylist override."""
-        return f"{self.dynamic_denylist_prefix}{str(symbol).upper().strip()}"
+        return f"{self.dynamic_denylist_prefix}{symbol.upper().strip()}"
 
     def _is_symbol_denylisted(self, symbol: str) -> bool:
         """Return True if symbol is blocked via static env denylist, Redis set, or per-key override."""
-        target = str(symbol or '').upper().strip()
+        target = (symbol or '').upper().strip()
         if not target:
             return False
         # 1. Static env denylist (loaded at startup from BINANCE_DUST_SWEEP_DENYLIST).
@@ -334,7 +331,7 @@ class BinanceDustCleanupWorker:
 
     def _cooldown_remaining_sec(self, symbol: str) -> int:
         """Return remaining cooldown seconds for the symbol (0 means no active cooldown)."""
-        target = str(symbol or '').upper().strip()
+        target = (symbol or '').upper().strip()
         if not target:
             return 0
         # Prefer Redis TTL-based check (most accurate after restarts).
@@ -375,12 +372,12 @@ class BinanceDustCleanupWorker:
 
     def _set_cooldown(self, symbol: str, *, seconds: int, reason: str) -> None:
         """Activate cleanup cooldown for the symbol; persists to Redis when available."""
-        target = str(symbol or '').upper().strip()
+        target = (symbol or '').upper().strip()
         if not target or int(seconds or 0) <= 0:
             self._set_cooldown_metric(target, 0.0)
             return
         until_ms = _now_ms() + (int(seconds) * 1000)
-        payload = json.dumps({'until_ms': until_ms, 'reason': str(reason)}, ensure_ascii=False, separators=(",", ":"))
+        payload = json.dumps({'until_ms': until_ms, 'reason': reason}, ensure_ascii=False, separators=(",", ":"))
         key = self._cooldown_key(target)
         if self.r is not None:
             try:
@@ -397,24 +394,22 @@ class BinanceDustCleanupWorker:
 
     def _clear_cooldown(self, symbol: str) -> None:
         """Remove cooldown when symbol leaves dust set or exits the allowlist."""
-        target = str(symbol or '').upper().strip()
+        target = (symbol or '').upper().strip()
         self._cooldown_local_until_ms.pop(target, None)
         if self.r is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.r.delete(self._cooldown_key(target))
-            except Exception:
-                pass
         self._set_cooldown_metric(target, 0.0)
 
     def _emit_exec_event(
-        self, *, symbol: str, event_type: str, status: str, payload: Dict[str, Any]
+        self, *, symbol: str, event_type: str, status: str, payload: dict[str, Any]
     ) -> None:
         """Write a structured event to the orders:exec Redis stream."""
         if self.r is None:
             return
         fields = {
             'sid': '',
-            'symbol': str(symbol),
+            'symbol': symbol,
             'action': 'dust_cleanup',
             'event_type': str(event_type),
             'status': str(status),
@@ -423,7 +418,7 @@ class BinanceDustCleanupWorker:
             'payload_json': json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         }
         try:
-            kwargs: Dict[str, Any] = {}
+            kwargs: dict[str, Any] = {}
             if self.exec_stream_maxlen:
                 kwargs = {'maxlen': self.exec_stream_maxlen, 'approximate': True}
             self.r.xadd(self.exec_stream, fields, **kwargs, maxlen=50000)
@@ -436,17 +431,17 @@ class BinanceDustCleanupWorker:
 
     def _load_symbol_filter(self, symbol: str) -> SymbolFilter:
         """Fetch and cache the LOT_SIZE filter for the given symbol."""
-        target = str(symbol or '').upper().strip()
+        target = (symbol or '').upper().strip()
         cached = self._filters.get(target)
         if cached is not None:
             return cached
         info = self.client.get_exchange_info() or {}
         filt = SymbolFilter(step_size=0.0, min_qty=0.0)
         for row in list(info.get('symbols') or []):
-            if str(row.get('symbol') or '').upper().strip() != target:
+            if (row.get('symbol') or '').upper().strip() != target:
                 continue
             for fr in list(row.get('filters') or []):
-                ftype = str(fr.get('filterType') or '').upper().strip()
+                ftype = (fr.get('filterType') or '').upper().strip()
                 if ftype == 'LOT_SIZE':
                     filt.step_size = _f(fr.get('stepSize'), 0.0)
                     filt.min_qty = _f(fr.get('minQty'), 0.0)
@@ -480,13 +475,13 @@ class BinanceDustCleanupWorker:
     # -----------------------------------------------------------------------
 
     def _build_live_exposure(
-        self, symbol: str, row: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, symbol: str, row: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Fetch current position risk + open order counts for a symbol from the exchange."""
         row = dict(row or self.client.get_symbol_position_risk(symbol) or {})
         signed_qty = _f(row.get('positionAmt'), 0.0)
         abs_qty = abs(signed_qty)
-        logical_side: Optional[str] = None
+        logical_side: str | None = None
         if signed_qty > 0:
             logical_side = 'LONG'
         elif signed_qty < 0:
@@ -518,7 +513,7 @@ class BinanceDustCleanupWorker:
             ),
         }
 
-    def _is_dust_position(self, snapshot: Dict[str, Any]) -> bool:
+    def _is_dust_position(self, snapshot: dict[str, Any]) -> bool:
         """Return True if the snapshot has size but is below the configured dust thresholds."""
         qty = abs(_f(snapshot.get('abs_qty'), 0.0))
         if qty <= 0.0:
@@ -535,18 +530,16 @@ class BinanceDustCleanupWorker:
     # -----------------------------------------------------------------------
 
     def _cancel_all_symbol_orders_best_effort(
-        self, symbol: str, exposure: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, symbol: str, exposure: dict[str, Any]
+    ) -> dict[str, Any]:
         """Cancel all plain + algo orders for the symbol; errors are swallowed."""
         plain_orders = list(exposure.get('plain_order_refs') or [])
         algo_orders = list(exposure.get('algo_order_refs') or [])
         canceled_plain = 0
         canceled_algo = 0
         # Bulk cancel first (best-effort — exchange might reject if already empty)
-        try:
+        with contextlib.suppress(Exception):
             self.client.cancel_all_orders(symbol)
-        except Exception:
-            pass
         # Individual fallback to handle partial cancels
         for row in plain_orders:
             try:
@@ -563,7 +556,7 @@ class BinanceDustCleanupWorker:
         for row in algo_orders:
             try:
                 oid = row.get('algoId')
-                cid = str(row.get('clientAlgoId') or '').strip() or None
+                cid = (row.get('clientAlgoId') or '').strip() or None
                 if oid is not None:
                     self.client.cancel_algo_order(symbol, algo_id=int(oid))
                     canceled_algo += 1
@@ -585,16 +578,16 @@ class BinanceDustCleanupWorker:
 
     def _make_client_order_id(self, symbol: str, attempt: int) -> str:
         """Unique clientOrderId for dust cleanup orders — max 36 chars."""
-        base = f"dust_{str(symbol).lower()[:8]}_{get_ny_time_millis() % 100000000}_{attempt}"
+        base = f"dust_{symbol.lower()[:8]}_{get_ny_time_millis() % 100000000}_{attempt}"
         return base[:36]
 
     def _submit_reduce_only_market_exit(
         self, *, symbol: str, logical_side: str, qty: float, attempt: int
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Place a MARKET reduceOnly order for the given quantity and side."""
         exit_side = 'SELL' if str(logical_side).upper() == 'LONG' else 'BUY'
         q_close = self._quantize_qty(symbol, qty)
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             'symbol': symbol,
             'side': exit_side,
             'type': 'MARKET',
@@ -616,25 +609,21 @@ class BinanceDustCleanupWorker:
             'side': exit_side,
         }
 
-    def _verify_symbol_flat(self, symbol: str) -> Dict[str, Any]:
+    def _verify_symbol_flat(self, symbol: str) -> dict[str, Any]:
         """Poll positionRisk until flat or timeout; updates EXECUTION_DUST_RESIDUAL_QTY metric."""
         deadline = time.time() + (self.verify_timeout_ms / 1000.0)
         last = self._build_live_exposure(symbol)
         while time.time() <= deadline:
             last = self._build_live_exposure(symbol)
             if EXECUTION_DUST_RESIDUAL_QTY is not None:
-                try:
+                with contextlib.suppress(Exception):
                     EXECUTION_DUST_RESIDUAL_QTY.labels(symbol=symbol).set(
                         float(last.get('abs_qty') or 0.0)
                     )
-                except Exception:
-                    pass
             if last.get('is_flat'):
                 if EXECUTION_FORCE_FLAT_VERIFY_TOTAL is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         EXECUTION_FORCE_FLAT_VERIFY_TOTAL.labels(symbol=symbol, result='flat').inc()
-                    except Exception:
-                        pass
                 return last
             time.sleep(self.verify_poll_ms / 1000.0)
         # Timed out — classify residual
@@ -650,13 +639,13 @@ class BinanceDustCleanupWorker:
     # Per-symbol cleanup
     # -----------------------------------------------------------------------
 
-    def _cleanup_symbol(self, symbol: str, row: Dict[str, Any]) -> Dict[str, Any]:
+    def _cleanup_symbol(self, symbol: str, row: dict[str, Any]) -> dict[str, Any]:
         """Execute the full cancel → exit → verify sequence for one symbol.
 
         Always reads live qty from exchange before each attempt so we never
         submit a stale quantity. Returns a structured result document.
         """
-        attempts: List[Dict[str, Any]] = []
+        attempts: list[dict[str, Any]] = []
 
         # Quick pre-check from the sweep row — may have already become flat
         verify = self._build_live_exposure(symbol, row=row)
@@ -672,7 +661,7 @@ class BinanceDustCleanupWorker:
             if live.get('is_flat'):
                 break
             live_qty = float(live.get('abs_qty') or 0.0)
-            live_side = str(live.get('logical_side') or '').upper().strip()
+            live_side = (live.get('logical_side') or '').upper().strip()
             if live_qty <= 0.0 or live_side not in {'LONG', 'SHORT'}:
                 # Position vanished or side indeterminate — stop
                 break
@@ -707,10 +696,8 @@ class BinanceDustCleanupWorker:
             else ('dust_remaining' if self._is_dust_position(verify) else 'residual_position')
         )
         if EXECUTION_DUST_CLEANUP_TOTAL is not None:
-            try:
+            with contextlib.suppress(Exception):
                 EXECUTION_DUST_CLEANUP_TOTAL.labels(symbol=symbol, result=status).inc()
-            except Exception:
-                pass
         self._metric_inc(symbol, status)
         doc = {
             'symbol': symbol,
@@ -730,23 +717,21 @@ class BinanceDustCleanupWorker:
     # Public sweep API
     # -----------------------------------------------------------------------
 
-    def sweep_once(self) -> Dict[str, Any]:
+    def sweep_once(self) -> dict[str, Any]:
         """Run one full sweep cycle. Returns a summary dict."""
         ts = time.time()
         if EXECUTION_DUST_SWEEP_LAST_RUN_TS is not None:
-            try:
+            with contextlib.suppress(Exception):
                 EXECUTION_DUST_SWEEP_LAST_RUN_TS.set(ts)
-            except Exception:
-                pass
 
         rows = list(self.client.get_position_risk() or [])
-        current_candidates: Set[str] = set()
-        pending_symbols: List[str] = []
-        acted: List[Dict[str, Any]] = []
-        skipped: List[Dict[str, Any]] = []
+        current_candidates: set[str] = set()
+        pending_symbols: list[str] = []
+        acted: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
 
         for row in rows:
-            symbol = str(row.get('symbol') or '').upper().strip()
+            symbol = (row.get('symbol') or '').upper().strip()
             if not symbol:
                 continue
             # Allowlist filter: if configured, skip symbols not in the list
@@ -821,7 +806,7 @@ class BinanceDustCleanupWorker:
             try:
                 result = self._cleanup_symbol(symbol, dict(row))
                 acted.append(result)
-                status = str(result.get('status') or '').strip() or 'unknown'
+                status = (result.get('status') or '').strip() or 'unknown'
                 # Arm cooldown after any real cleanup attempt (not for already_flat shortcuts)
                 if status != 'already_flat' and self.cooldown_sec > 0:
                     self._set_cooldown(symbol, seconds=self.cooldown_sec, reason=status)
@@ -845,10 +830,8 @@ class BinanceDustCleanupWorker:
                 self._confirm_seen.pop(symbol, None)
 
         if EXECUTION_DUST_SWEEP_CANDIDATES is not None:
-            try:
+            with contextlib.suppress(Exception):
                 EXECUTION_DUST_SWEEP_CANDIDATES.set(len(current_candidates))
-            except Exception:
-                pass
         return {
             'ts_ms': _now_ms(),
             'candidates': sorted(current_candidates),
@@ -891,13 +874,11 @@ class BinanceDustCleanupWorker:
                         'dust cleanup: -1021 timestamp drift, running sync_time() and backing off %.0fs',
                         _ts_backoff,
                     )
-                    try:
+                    with contextlib.suppress(Exception):
                         self.client.sync_time()
-                    except Exception:
-                        pass
                     time.sleep(max(_ts_backoff, 1.0))
                     continue
-                
+
                 log.exception('dust cleanup sweep failed: %s', exc)
             time.sleep(max(self.interval_sec, 1.0))
 

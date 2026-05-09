@@ -16,7 +16,7 @@ except Exception:  # pragma: no cover
 
 
 class _Noop:
-    def labels(self, *args: Any, **kwargs: Any) -> "_Noop":
+    def labels(self, *args: Any, **kwargs: Any) -> _Noop:
         return self
     def inc(self, *args: Any, **kwargs: Any) -> None:
         return None

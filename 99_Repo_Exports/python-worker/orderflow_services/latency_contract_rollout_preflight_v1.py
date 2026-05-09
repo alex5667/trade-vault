@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """Preflight guard for sensitive rollout/apply paths (P4.2).
 
 Checks the latency-contract rollout gate state before allowing a sensitive job

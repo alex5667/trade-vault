@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, Optional, Any
 import math
-
-from typing import TYPE_CHECKING
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level
@@ -17,9 +16,9 @@ def clamp01(x: float) -> float:
 def safe_float(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
-        return v if math.isfinite(v) else float(default)
+        return v if math.isfinite(v) else default
     except Exception:
-        return float(default)
+        return default
 
 
 def isfinite(x: Any) -> bool:
@@ -33,10 +32,10 @@ def _f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
 def sanitize_book(levels: Iterable[L2Level], *, max_levels: int, min_notional: float) -> list[L2Level]:
@@ -59,7 +58,7 @@ def sanitize_book(levels: Iterable[L2Level], *, max_levels: int, min_notional: f
     return out
 
 
-def best_bid_ask(bids: list[L2Level], asks: list[L2Level]) -> tuple[Optional[float], Optional[float]]:
+def best_bid_ask(bids: list[L2Level], asks: list[L2Level]) -> tuple[float | None, float | None]:
     bb = None
     ba = None
     for lv in bids:
@@ -73,7 +72,7 @@ def best_bid_ask(bids: list[L2Level], asks: list[L2Level]) -> tuple[Optional[flo
     return bb, ba
 
 
-def spread_bps(best_bid: Optional[float], best_ask: Optional[float]) -> Optional[float]:
+def spread_bps(best_bid: float | None, best_ask: float | None) -> float | None:
     if best_bid is None or best_ask is None:
         return None
     if best_bid <= 0 or best_ask <= 0:
@@ -84,7 +83,7 @@ def spread_bps(best_bid: Optional[float], best_ask: Optional[float]) -> Optional
     return (best_ask - best_bid) / mid * 10_000.0
 
 
-def is_crossed(best_bid: Optional[float], best_ask: Optional[float]) -> bool:
+def is_crossed(best_bid: float | None, best_ask: float | None) -> bool:
     if best_bid is None or best_ask is None:
         return True
     return bool(best_bid >= best_ask)
@@ -96,13 +95,13 @@ def wall_distance_bps(
     levels: list[L2Level],
     min_wall_notional: float,
     max_scan: int,
-) -> Optional[float]:
+) -> float | None:
     """
     Ищем ближайшую "стену" (level.notional >= min_wall_notional) и возвращаем min |p-ref| в bps.
     """
     if not math.isfinite(ref_price) or ref_price <= 0:
         return None
-    best: Optional[float] = None
+    best: float | None = None
     m = min_wall_notional
     scanned = 0
     for lv in levels:
@@ -137,8 +136,8 @@ def top_wall_notional(levels: list[L2Level], *, max_scan: int) -> float:
 @dataclass(frozen=True)
 class WallInfo:
     found: bool
-    wall_price: Optional[float]
-    wall_dist_bps: Optional[float]
+    wall_price: float | None
+    wall_dist_bps: float | None
     wall_notional: float
     wall_ratio: float
 
@@ -168,7 +167,7 @@ def find_near_wall(
         baseline = base_src[len(base_src) // 2]
         baseline = baseline if baseline > 0.0 else 1.0
 
-    best: Optional["L2Level"] = None
+    best: L2Level | None = None
     best_dist = None
     for lv in levels:
         try:

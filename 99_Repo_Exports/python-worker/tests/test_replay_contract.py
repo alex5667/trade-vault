@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import os
-import sys
-
 # Ensure project root is on sys.path (core/, services/, tools/)
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 import json
 from types import SimpleNamespace
 
@@ -47,7 +43,7 @@ def test_runtime_snapshot_json_safe_and_book_events_sanitized() -> None:
 
 def test_fp_edge_snapshot_fields_cover_evidence_contract() -> None:
     eng = OFConfirmEngine()
-    fields = set(getattr(eng, "_SNAP_LAST_FP_EDGE_FIELDS"))
+    fields = set(eng._SNAP_LAST_FP_EDGE_FIELDS)
     # fp_edge_evidence can fallback to p90/value if strength missing
     for k in ("ts_ms", "bias", "range_expansion", "p90", "value", "strength"):
         assert k in fields

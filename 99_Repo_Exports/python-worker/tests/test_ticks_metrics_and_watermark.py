@@ -1,7 +1,5 @@
-import time
-from dataclasses import dataclass
 
-from common.metrics2 import InMemoryMetrics, normalize_ts_ms, should_drop_by_watermark
+from common.metrics2 import normalize_ts_ms, should_drop_by_watermark
 
 
 def test_normalize_ts_ms_seconds_to_ms():

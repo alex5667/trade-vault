@@ -1,8 +1,10 @@
 import asyncio
-import time
 import logging
-from typing import Dict, Any, Optional
+import time
+from typing import Any
+
 import redis.asyncio as aioredis
+import contextlib
 
 
 class CoinGeckoSnapshotReader:
@@ -20,13 +22,13 @@ class CoinGeckoSnapshotReader:
         self.r = redis_client
         self.refresh_ms = refresh_ms
         self.max_stale_ms = max_stale_ms
-        self._global: Dict[str, Any] = {}
-        self._markets: Dict[str, Dict[str, Any]] = {}
-        self._derivatives: Dict[str, Any] = {}
-        self._sectors: Dict[str, Dict[str, Any]] = {}
-        self._liquidity: Dict[str, Dict[str, Any]] = {}
+        self._global: dict[str, Any] = {}
+        self._markets: dict[str, dict[str, Any]] = {}
+        self._derivatives: dict[str, Any] = {}
+        self._sectors: dict[str, dict[str, Any]] = {}
+        self._liquidity: dict[str, dict[str, Any]] = {}
         self._last_refresh_ms: int = 0
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self.logger = logging.getLogger("coingecko_snapshot")
 
     def start(self) -> None:
@@ -38,10 +40,8 @@ class CoinGeckoSnapshotReader:
         """Останавливает фоновую задачу."""
         if self._task is not None:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
 
     async def _poll_loop(self) -> None:
@@ -62,12 +62,12 @@ class CoinGeckoSnapshotReader:
             raw_global = await self.r.hgetall("runtime:coingecko:global")
             if raw_global:
                 self._global = {k.decode("utf-8"): v.decode("utf-8") for k, v in raw_global.items()}
-            
+
             # 1.5 Читаем Derivatives
             raw_deriv = await self.r.hgetall("runtime:coingecko:derivatives:binance_futures")
             if raw_deriv:
                 self._derivatives = {k.decode("utf-8"): v.decode("utf-8") for k, v in raw_deriv.items()}
-            
+
             # 2. Ищем все хэши (market, sector, liquidity)
             # SCAN может быть медленным, но мы делаем это раз в 10 сек в бэкграунде
             cursor = b"0"
@@ -77,7 +77,7 @@ class CoinGeckoSnapshotReader:
                 keys_to_fetch.extend([k.decode("utf-8") for k in keys])
                 if cursor == b"0":
                     break
-                    
+
             cursor = b"0"
             while True:
                 cursor, keys = await self.r.scan(cursor, match="runtime:coingecko:sector:*", count=100)
@@ -91,7 +91,7 @@ class CoinGeckoSnapshotReader:
                 keys_to_fetch.extend([k.decode("utf-8") for k in keys])
                 if cursor == b"0":
                     break
-            
+
             # 3. Читаем market/sector/liquidity данные через пайплайн
             new_markets = {}
             new_sectors = {}
@@ -118,18 +118,18 @@ class CoinGeckoSnapshotReader:
             self._markets = new_markets
             self._sectors = new_sectors
             self._liquidity = new_liquidity
-            
+
             self._last_refresh_ms = int(time.time() * 1000)
         except Exception as e:
             self.logger.error(f"Failed to refresh CoinGecko cache: {e}")
 
-    def get_snapshot(self, symbol: str, now_ms: int) -> Dict[str, Any]:
+    def get_snapshot(self, symbol: str, now_ms: int) -> dict[str, Any]:
         """
         Синхронно возвращает словарь с индикаторами cg_* для вставки в payloads.
         Не делает I/O!
         """
         ind = {}
-        
+
         # --- Global ---
         g = self._global
         g_ts = int(g.get("ts_ms", 0) or 0)
@@ -140,7 +140,7 @@ class CoinGeckoSnapshotReader:
             ind["cg_stable_dom_pct"] = float(g.get("stable_dom_pct", 0.0) or 0.0)
             ind["cg_btc_dom_mom"] = float(g.get("btc_dom_mom", 0.0) or 0.0)
             ind["cg_stable_dom_mom"] = float(g.get("stable_dom_mom", 0.0) or 0.0)
-        
+
         # --- Market ---
         m = self._markets.get(symbol, {})
         m_ts = int(m.get("ts_ms", 0) or 0)
@@ -151,7 +151,7 @@ class CoinGeckoSnapshotReader:
             ind["cg_symbol_rel_strength_btc_1h"] = float(m.get("rel_strength_btc_1h", 0.0) or 0.0)
             ind["cg_symbol_rel_strength_eth_1h"] = float(m.get("rel_strength_eth_1h", 0.0) or 0.0)
             ind["cg_symbol_ath_distance_pct"] = float(m.get("ath_distance_pct", 0.0) or 0.0)
-            
+
         # --- Derivatives ---
         d = self._derivatives
         d_ts = int(d.get("ts_ms", 0) or 0)
@@ -174,5 +174,5 @@ class CoinGeckoSnapshotReader:
         if l_ts > 0 and (now_ms - l_ts) < self.max_stale_ms:
             ind["cg_cost_to_move_imbalance"] = float(l.get("cost_to_move_imbalance", 0.0) or 0.0)
 
-            
+
         return ind

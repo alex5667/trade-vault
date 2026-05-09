@@ -1,9 +1,10 @@
 import json
-import os
 import logging
-from typing import Any, Dict, List
+import os
+from typing import Any
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger("atr_change_control_telegram")
 
@@ -11,9 +12,9 @@ def _redis():
     return redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
 
 def _ops_chat_id() -> str:
-    return str(os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
+    return (os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
 
-def _change_text(chg: Dict[str, Any], replay: Dict[str, Any] = None) -> str:
+def _change_text(chg: dict[str, Any], replay: dict[str, Any] = None) -> str:
     txt = (
         f"ATR Change Control\n"
         f"Change: {chg.get('change_id')}\n"
@@ -34,13 +35,13 @@ def _change_text(chg: Dict[str, Any], replay: Dict[str, Any] = None) -> str:
                 f"- delta_pnl_bps={post.get('delta_pnl_bps','?')}\n"
                 f"- delta_slippage_bps={post.get('delta_slippage_bps','?')}\n"
             )
-            
+
     if chg.get('status') == "APPROVAL_PENDING":
         txt += "\nNeed: 1 approval"
-        
+
     return txt
 
-def _buttons(change_id: str) -> List[List[Dict[str, str]]]:
+def _buttons(change_id: str) -> list[list[dict[str, str]]]:
     return [
         [
             {"text": "✅ Approve", "callback": f"atrchange:approve:{change_id}"},
@@ -55,8 +56,8 @@ def _buttons(change_id: str) -> List[List[Dict[str, str]]]:
         ]
     ]
 
-def publish_change_to_telegram(chg: Dict[str, Any], replay: Dict[str, Any] = None) -> bool:
-    change_id = str(chg.get("change_id") or "")
+def publish_change_to_telegram(chg: dict[str, Any], replay: dict[str, Any] = None) -> bool:
+    change_id = (chg.get("change_id") or "")
     if not change_id:
         return False
 
@@ -70,7 +71,7 @@ def publish_change_to_telegram(chg: Dict[str, Any], replay: Dict[str, Any] = Non
 
     try:
         _redis().xadd(
-            "notify:telegram",
+            RS.NOTIFY_TELEGRAM,
             payload,
             maxlen=int(os.getenv("ATR_POLICY_TELEGRAM_NOTIFY_MAXLEN", "10000")),
             approximate=True,
@@ -93,7 +94,7 @@ def publish_ack(change_id: str, action: str, actor: str, note: str = "") -> bool
     if chat_id:
         payload["chat_id"] = chat_id
     try:
-        _redis().xadd("notify:telegram", payload, maxlen=5000, approximate=True)
+        _redis().xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=5000, approximate=True)
         return True
     except Exception:
         return False

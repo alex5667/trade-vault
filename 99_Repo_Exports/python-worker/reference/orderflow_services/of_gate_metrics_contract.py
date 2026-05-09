@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Tuple
+from typing import Any
 
 # Canonical schema identity for the of-gate decision metrics stream.
 SCHEMA_NAME_V1 = "of_gate_metrics"
@@ -35,7 +35,7 @@ _SCEN_RE = re.compile(r"[^a-z0-9_]+")
 
 def normalize_scenario_v4(x: Any) -> str:
     """Normalize scenario to low-cardinality, stable, ASCII-only string (max 32 chars)."""
-    s = str(x or "na").strip().lower()
+    s = (x or "na").strip().lower()
     if not s:
         return "na"
     s = s.replace("-", "_").replace(" ", "_")
@@ -53,7 +53,7 @@ def _as_int01(v: Any, default: int = 0) -> int:
     try:
         i = int(v)
     except Exception:
-        return int(default)
+        return default
     return 1 if i == 1 else 0
 
 
@@ -61,22 +61,22 @@ def _as_int(v: Any, default: int = 0) -> int:
     try:
         return int(v)
     except Exception:
-        return int(default)
+        return default
 
 
 def _as_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
-def scenario_key(row: Dict[str, Any]) -> str:
+def scenario_key(row: dict[str, Any]) -> str:
     """Extract and normalize scenario from a row dict."""
     return normalize_scenario_v4(row.get("scenario_v4") or row.get("scenario") or "na")
 
 
-def derive_reason_code(row: Dict[str, Any]) -> str:
+def derive_reason_code(row: dict[str, Any]) -> str:
     """Derive coarse, low-cardinality reason codes from row fields.
 
     Priority: dq_fail > drift_block > ok_hard > ok_soft > veto
@@ -86,7 +86,7 @@ def derive_reason_code(row: Dict[str, Any]) -> str:
     ok_soft = _as_int01(row.get("ok_soft", 0))
 
     dq = str(row.get("dq_state", "") or row.get("dq", "") or "").lower()
-    drift = str(row.get("drift_state", "") or "").lower()
+    drift = (row.get("drift_state", "") or "").lower()
     if dq and dq not in {"ok", "na"}:
         return "dq_fail"
     if drift in {"block", "fail", "veto"}:
@@ -101,7 +101,7 @@ def derive_reason_code(row: Dict[str, Any]) -> str:
 
 def why_label(x: Any) -> str:
     """Prometheus label sanitizer: low cardinality, safe charset, max 64 chars."""
-    s = str(x or "na").strip().lower()
+    s = (x or "na").strip().lower()
     if not s:
         return "na"
     s = re.sub(r"[^a-z0-9_]+", "_", s)
@@ -111,7 +111,7 @@ def why_label(x: Any) -> str:
     return s or "na"
 
 
-def enrich_schema_fields(row: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+def enrich_schema_fields(row: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
     """Enrich producer rows with schema fields + normalized scenario + reason_code.
 
     Safe to call multiple times; it only fills missing / normalizes.
@@ -147,7 +147,7 @@ def enrich_schema_fields(row: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
     return row
 
 
-def validate_of_gate_row(row: Dict[str, Any]) -> Tuple[bool, str]:
+def validate_of_gate_row(row: dict[str, Any]) -> tuple[bool, str]:
     """Lightweight producer/consumer validation.
 
     Returns (ok, code) where code is a low-cardinality reason.
@@ -162,7 +162,7 @@ def validate_of_gate_row(row: Dict[str, Any]) -> Tuple[bool, str]:
             return False, f"missing_{k}"
 
     # Schema identity
-    if str(row.get("schema_name")) != SCHEMA_NAME_V1:
+    if (row.get("schema_name")) != SCHEMA_NAME_V1:
         return False, "schema_name"
     if _as_int(row.get("schema_version"), -1) != SCHEMA_VERSION_V1:
         return False, "schema_version"

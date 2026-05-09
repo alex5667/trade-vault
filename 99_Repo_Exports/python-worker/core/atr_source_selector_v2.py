@@ -1,13 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -70,7 +70,7 @@ class ATRSourceSelector:
         # Candidate TFs you support in Redis
         self.tfs = [x.strip() for x in os.getenv("ATR_SELECTOR_TFS", "1m,5m,15m").split(",") if x.strip()]
 
-    def _read_hash_candidate(self, sym: str, tf: str, px: float) -> Optional[ATRCandidate]:
+    def _read_hash_candidate(self, sym: str, tf: str, px: float) -> ATRCandidate | None:
         key = f"ATR:{sym}:{tf}"
         h = self.r.hgetall(key) or {}
         if not h:
@@ -84,7 +84,7 @@ class ATRSourceSelector:
         atr_bps = (atr / px * 10000.0) if px > 0 else 0.0
         return self._score(sym, tf=tf, src="ATR_HASH", key=key, atr=atr, ts_ms=ts_ms, age_ms=age, atr_bps=atr_bps)
 
-    def _read_json_candidate(self, sym: str, tf: str, px: float) -> Optional[ATRCandidate]:
+    def _read_json_candidate(self, sym: str, tf: str, px: float) -> ATRCandidate | None:
         key = f"atr:json:{sym}:{tf}"
         raw = self.r.get(key)
         if not raw:
@@ -101,7 +101,7 @@ class ATRSourceSelector:
         atr_bps = (atr / px * 10000.0) if px > 0 else 0.0
         return self._score(sym, tf=tf, src="atr_json", key=key, atr=atr, ts_ms=ts_ms, age_ms=age, atr_bps=atr_bps)
 
-    def _read_string_candidate(self, sym: str, tf: str, px: float) -> Optional[ATRCandidate]:
+    def _read_string_candidate(self, sym: str, tf: str, px: float) -> ATRCandidate | None:
         # Example keys: atr:{sym}:{tf} or atr:val:{sym}:{tf}
         for key in (f"atr:{sym}:{tf}", f"atr:val:{sym}:{tf}"):
             raw = self.r.get(key)
@@ -123,7 +123,7 @@ class ATRSourceSelector:
             return c
         return None
 
-    def _read_fallback_candidate(self, sym: str, px: float) -> Optional[ATRCandidate]:
+    def _read_fallback_candidate(self, sym: str, px: float) -> ATRCandidate | None:
         # last known TA output
         key = f"ta:last:atr:{sym}"
         raw = self.r.get(key)
@@ -181,7 +181,7 @@ class ATRSourceSelector:
 
         return ATRCandidate(tf=tf, src=src, key=key, atr=atr, ts_ms=ts_ms, age_ms=age_ms, atr_bps=atr_bps, score=score, reason=reason)
 
-    def _read_sel_meta(self, sym: str) -> Dict[str, Any]:
+    def _read_sel_meta(self, sym: str) -> dict[str, Any]:
         raw = self.r.get(f"cfg:atr_sel_meta:{sym}")
         if not raw:
             return {}
@@ -194,7 +194,7 @@ class ATRSourceSelector:
         prev_meta = self._read_sel_meta(sym)
         meta = {
             "v": 1,
-            "symbol": str(sym or "").upper(),
+            "symbol": (sym or "").upper(),
             "picked_tf": c.tf,
             "picked_src": c.src,
             "picked_key": c.key,
@@ -211,8 +211,8 @@ class ATRSourceSelector:
         pipe.set(f"cfg:atr_sel_meta:{sym}", json.dumps(meta, ensure_ascii=False), ex=6 * 3600)
         # count switches in a rolling window (for reporting)
         try:
-            prev_tf = str(prev_meta.get("picked_tf", "") or "")
-            prev_src = str(prev_meta.get("picked_src", "") or "")
+            prev_tf = (prev_meta.get("picked_tf", "") or "")
+            prev_src = (prev_meta.get("picked_src", "") or "")
             if (prev_tf and prev_src) and ((prev_tf != c.tf) or (prev_src != c.src)):
                 win = int(os.getenv("ATR_SWITCH_WINDOW_SEC", "3600"))
                 pipe.incr(f"cfg:atr_switch_count:{sym}")
@@ -223,7 +223,7 @@ class ATRSourceSelector:
             pass
         pipe.execute()
 
-    def select(self, sym: str, *, px: float) -> Optional[ATRCandidate]:
+    def select(self, sym: str, *, px: float) -> ATRCandidate | None:
         if not self.enable:
             return None
         if px <= 0:
@@ -231,11 +231,11 @@ class ATRSourceSelector:
 
         now = _now_ms()
         prev = self._read_sel_meta(sym)
-        prev_tf = str(prev.get("picked_tf", "") or "")
-        prev_src = str(prev.get("picked_src", "") or "")
+        prev_tf = (prev.get("picked_tf", "") or "")
+        prev_src = (prev.get("picked_src", "") or "")
         prev_sw_ms = _i(prev.get("ts_ms", None), 0)
 
-        cands: List[ATRCandidate] = []
+        cands: list[ATRCandidate] = []
         for tf in self.tfs:
             c = self._read_hash_candidate(sym, tf, px)
             if c:

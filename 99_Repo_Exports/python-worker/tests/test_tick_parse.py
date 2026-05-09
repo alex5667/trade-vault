@@ -1,6 +1,6 @@
+import json
 import os
 import sys
-import json
 
 # Ensure python-worker/ is on sys.path so `services.*` imports work in CI/pytest
 HERE = os.path.dirname(__file__)

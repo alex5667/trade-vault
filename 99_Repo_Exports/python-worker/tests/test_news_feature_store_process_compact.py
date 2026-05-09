@@ -1,7 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
-
-import pytest
+from typing import Any
 
 import news_pipeline.feature_store_service as fs
 from news_pipeline.feature_store_service import NewsFeatureStoreService
@@ -9,13 +7,13 @@ from news_pipeline.feature_store_service import NewsFeatureStoreService
 
 class FakeMetrics:
     def __init__(self) -> None:
-        self.inc_calls: list[tuple[str, int, Optional[dict[str, Any]]]] = []
-        self.obs_calls: list[tuple[str, float, Optional[dict[str, Any]]]] = []
+        self.inc_calls: list[tuple[str, int, dict[str, Any] | None]] = []
+        self.obs_calls: list[tuple[str, float, dict[str, Any] | None]] = []
 
-    def inc(self, name: str, value: int = 1, tags: Optional[dict[str, Any]] = None) -> None:
+    def inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:
         self.inc_calls.append((str(name), int(value), tags))
 
-    def observe(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def observe(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         self.obs_calls.append((str(name), float(value), tags))
 
 
@@ -28,7 +26,7 @@ class FakePipe:
         self.ops.append(("hgetall", (str(key),)))
         return self
 
-    def hset(self, key: str, mapping: Dict[str, Any]):
+    def hset(self, key: str, mapping: dict[str, Any]):
         self.ops.append(("hset", (str(key), dict(mapping))))
         return self
 
@@ -58,14 +56,14 @@ class FakePipe:
 
 class FakeRedis:
     def __init__(self) -> None:
-        self.hashes: Dict[str, Dict[str, str]] = {}
-        self.ttl: Dict[str, int] = {}
-        self.streams: Dict[str, list[Dict[str, str]]] = {}
+        self.hashes: dict[str, dict[str, str]] = {}
+        self.ttl: dict[str, int] = {}
+        self.streams: dict[str, list[dict[str, str]]] = {}
 
     def pipeline(self):
         return FakePipe(self)
 
-    def xadd(self, stream: str, fields: Dict[str, Any], maxlen: int = 0, approximate: bool = True):
+    def xadd(self, stream: str, fields: dict[str, Any], maxlen: int = 0, approximate: bool = True):
         st = self.streams.setdefault(str(stream), [])
         st.append({str(k): str(v) for k, v in (fields or {}).items()})
         return f"{len(st)}-0"

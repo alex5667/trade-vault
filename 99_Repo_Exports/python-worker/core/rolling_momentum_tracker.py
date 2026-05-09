@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Rolling momentum trackers (price + spread) deterministic by ts_ms.
 
 We intentionally compute momentum from bar-close observations:
@@ -18,7 +19,6 @@ Time safety
 
 import math
 from dataclasses import dataclass
-from typing import Dict
 
 from core.rolling_window import RollingWindow
 
@@ -41,7 +41,7 @@ class RollingMomentumTracker:
 
     _px: RollingWindow[float] = None  # type: ignore
     _sp: RollingWindow[float] = None  # type: ignore
-    last_snapshot: Dict[str, float] = None  # type: ignore
+    last_snapshot: dict[str, float] = None  # type: ignore
 
     def __post_init__(self) -> None:
         self._px = RollingWindow[float](horizon_ms=int(self.horizon_ms), maxlen=int(self.maxlen))
@@ -61,7 +61,7 @@ class RollingMomentumTracker:
         self._px.apply_config(horizon_ms=int(horizon_ms or 0), maxlen=int(maxlen or 0))
         self._sp.apply_config(horizon_ms=int(horizon_ms or 0), maxlen=int(maxlen or 0))
 
-    def update(self, *, ts_ms: int, px: float, spread_bps: float) -> Dict[str, float]:
+    def update(self, *, ts_ms: int, px: float, spread_bps: float) -> dict[str, float]:
         ts_ms = int(ts_ms or 0)
         px = float(px or 0.0)
         spread_bps = float(spread_bps or 0.0)
@@ -71,7 +71,7 @@ class RollingMomentumTracker:
         if not ok1 or not ok2:
             return dict(self.last_snapshot)
 
-        snap: Dict[str, float] = {
+        snap: dict[str, float] = {
             "price_momentum_bps": 0.0,
             "price_momentum_no_data": 1.0,
             "spread_momentum_bps_per_s": 0.0,

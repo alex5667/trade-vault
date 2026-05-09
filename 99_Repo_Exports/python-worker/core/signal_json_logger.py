@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, is_dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 def _env_bool(name: str, default: str = "1") -> bool:
-    v = str(os.getenv(name, default)).strip().lower()
+    v = os.getenv(name, default).strip().lower()
     return v not in {"0", "false", "no", "off", ""}
 
 
-def _to_float(x: Any) -> Optional[float]:
+def _to_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -20,7 +20,7 @@ def _to_float(x: Any) -> Optional[float]:
         return None
 
 
-def _pick_cancel_to_trade(ctx: Any) -> Optional[float]:
+def _pick_cancel_to_trade(ctx: Any) -> float | None:
     """
     cancel_to_trade в проекте обычно бывает в нескольких окнах/сторонах.
     Для лога берём "наихудшее"/максимальное из доступных — это самый полезный one-liner индикатор спуф-риска.
@@ -76,7 +76,7 @@ def _used_fallback_hlc(ctx: Any) -> bool:
     return False
 
 
-def _l2_is_stale(ctx: Any, parts: Optional[dict[str, Any]] = None) -> bool:
+def _l2_is_stale(ctx: Any, parts: dict[str, Any] | None = None) -> bool:
     """
     L2 stale может быть рассчитан в confirmations и сохранён в parts.
     Если parts нет — смотрим на ctx (если поля уже проставляются где-то в пайплайне).
@@ -93,19 +93,19 @@ def _l2_is_stale(ctx: Any, parts: Optional[dict[str, Any]] = None) -> bool:
     return False
 
 
-def _extract_level_key(payload: dict[str, Any]) -> Optional[str]:
+def _extract_level_key(payload: dict[str, Any]) -> str | None:
     """
     Для логов предпочтительнее level_key (строковый/стабильный),
     но если его нет — используем level_price.
     """
-    lk = payload.get("level_key", None)
+    lk = payload.get("level_key")
     if lk is not None:
         try:
             s = str(lk).strip()
             return s or None
         except Exception:
             pass
-    lp = payload.get("level_price", None)
+    lp = payload.get("level_price")
     if lp is not None:
         try:
             return str(lp)
@@ -114,7 +114,7 @@ def _extract_level_key(payload: dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _dataclass_to_dict(obj: Any) -> Optional[dict[str, Any]]:
+def _dataclass_to_dict(obj: Any) -> dict[str, Any] | None:
     if obj is None:
         return None
     if is_dataclass(obj):
@@ -129,7 +129,7 @@ def build_signal_json_log(
     *,
     payload: dict[str, Any],
     ctx: Any,
-    parts: Optional[dict[str, Any]] = None,
+    parts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     ### 5.3 Логи: "1 сигнал = 1 JSON"
@@ -139,9 +139,9 @@ def build_signal_json_log(
       - тут не должно быть тяжёлых объектов (L2 книги/большие массивы) -> только top-features
       - missing_* флаги считаем fail-open эвристиками (чтобы лог был всегда)
     """
-    conf_factor = _to_float(payload.get("conf_factor", None))
-    raw_score = _to_float(payload.get("raw_score", None))
-    final_score = _to_float(payload.get("final_score", None))
+    conf_factor = _to_float(payload.get("conf_factor"))
+    raw_score = _to_float(payload.get("raw_score"))
+    final_score = _to_float(payload.get("final_score"))
 
     # regime_score — стараемся взять "одну ось": trend-range, как вы делали в ctx.market_regime_score
     regime_score = _to_float(getattr(ctx, "market_regime_score", None))
@@ -192,12 +192,12 @@ def build_signal_json_log(
 
     return {
         # идентификация сигнала
-        "signal_id": payload.get("signal_id", None),
-        "kind": payload.get("kind", None),
-        "side": payload.get("side", None),
-        "symbol": payload.get("symbol", None),
-        "ts": payload.get("ts", None),
-        "price": payload.get("price", None),
+        "signal_id": payload.get("signal_id"),
+        "kind": payload.get("kind"),
+        "side": payload.get("side"),
+        "symbol": payload.get("symbol"),
+        "ts": payload.get("ts"),
+        "price": payload.get("price"),
         "level_key": _extract_level_key(payload),
         # scoring axis
         "raw_score": raw_score,
@@ -228,7 +228,7 @@ def log_signal_one_json(
     *,
     payload: dict[str, Any],
     ctx: Any,
-    parts: Optional[dict[str, Any]] = None,
+    parts: dict[str, Any] | None = None,
 ) -> None:
     """
     Пишем ровно одну строку JSON в logger.info.

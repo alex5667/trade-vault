@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Replay Redis ``orders:exec`` facts into a materialized ``orders:state:{sid}`` snapshot.
@@ -18,8 +19,9 @@ P3.3-ops-complete additions:
 
 import json
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 
 def _metric(cls, name, doc, labels=None, **kwargs):
@@ -35,7 +37,7 @@ def _metric(cls, name, doc, labels=None, **kwargs):
 
 
 try:  # pragma: no cover
-    from prometheus_client import Counter, Histogram, REGISTRY
+    from prometheus_client import REGISTRY, Counter, Histogram
 except Exception:  # pragma: no cover
     Counter = None  # type: ignore
     Histogram = None  # type: ignore
@@ -98,7 +100,7 @@ except Exception:  # pragma: no cover
 @dataclass
 class ReplayBuildResult:
     """Result of a single rebuild_state_with_fallback() call."""
-    state_doc: Dict[str, Any]
+    state_doc: dict[str, Any]
     source: str  # 'stream' | 'sql' | 'none'
     used_checkpoint: bool
     checkpoint_id: str
@@ -127,7 +129,7 @@ def _i(v: Any, default: int = 0) -> int:
         return default
 
 
-def _loads(value: Any) -> Dict[str, Any]:
+def _loads(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
     if isinstance(value, dict):
@@ -161,16 +163,16 @@ STATE_PRIORITY_FIELDS = {
 }
 
 
-def normalize_stream_rows(rows: Sequence[Tuple[Any, Mapping[str, Any]]]) -> List[Dict[str, Any]]:
+def normalize_stream_rows(rows: Sequence[tuple[Any, Mapping[str, Any]]]) -> list[dict[str, Any]]:
     """Normalize XRANGE/XREVRANGE rows into plain dictionaries.
 
     Each output item contains the original ``stream_id`` plus decoded field/value
     pairs. The function accepts either bytes or strings and preserves ordering
     from the input sequence.
     """
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for stream_id, fields in rows:
-        doc: Dict[str, Any] = {'stream_id': _s(stream_id)}
+        doc: dict[str, Any] = {'stream_id': _s(stream_id)}
         for k, v in dict(fields or {}).items():
             key = _s(k)
             if isinstance(v, bytes):
@@ -180,7 +182,7 @@ def normalize_stream_rows(rows: Sequence[Tuple[Any, Mapping[str, Any]]]) -> List
     return out
 
 
-def extract_sid_events(rows: Sequence[Tuple[Any, Mapping[str, Any]]], sid: str) -> List[Dict[str, Any]]:
+def extract_sid_events(rows: Sequence[tuple[Any, Mapping[str, Any]]], sid: str) -> list[dict[str, Any]]:
     sid = _s(sid)
     events = [doc for doc in normalize_stream_rows(rows) if _s(doc.get('sid')) == sid]
     # XRANGE returns oldest-first; XREVRANGE newest-first. Sort by stream id to
@@ -189,7 +191,7 @@ def extract_sid_events(rows: Sequence[Tuple[Any, Mapping[str, Any]]], sid: str) 
     return events
 
 
-def _stream_sort_key(stream_id: str) -> Tuple[int, int]:
+def _stream_sort_key(stream_id: str) -> tuple[int, int]:
     try:
         left, right = stream_id.split('-', 1)
         return int(left), int(right)
@@ -197,7 +199,7 @@ def _stream_sort_key(stream_id: str) -> Tuple[int, int]:
         return (0, 0)
 
 
-def replay_sid_state(events: Sequence[Mapping[str, Any]], *, base_state: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+def replay_sid_state(events: Sequence[Mapping[str, Any]], *, base_state: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Replay one SID's event list into a materialized state snapshot.
 
     Replay strategy:
@@ -207,7 +209,7 @@ def replay_sid_state(events: Sequence[Mapping[str, Any]], *, base_state: Optiona
     - track replay metadata so operators can see when the state was rebuilt from
       the stream rather than directly loaded from Redis.
     """
-    state: Dict[str, Any] = dict(base_state or {})
+    state: dict[str, Any] = dict(base_state or {})
     replay_count = 0
     last_stream_id = ''
     for ev in events:
@@ -287,7 +289,7 @@ def stream_retention_guard_report(
     exec_stream: str,
     checkpoint_prefix: str,
     sample_limit: int = 2000,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Scan checkpoint keys and report how many have drifted behind stream retention.
 
     Used by execution_healthcheck.py and scrub_replay_checkpoints.py.
@@ -296,7 +298,7 @@ def stream_retention_guard_report(
     oldest = _stream_oldest_id(redis_client, exec_stream)
     total = 0
     breached = 0
-    examples: List[Dict[str, Any]] = []
+    examples: list[dict[str, Any]] = []
     try:
         keys = list(redis_client.scan_iter(match=f'{prefix}*'))[:int(sample_limit)]
     except Exception:
@@ -333,7 +335,7 @@ def _bounded_rows(
     exec_stream: str,
     checkpoint_id: str,
     scan_count: int,
-) -> Tuple[List[Tuple[Any, Mapping[str, Any]]], bool, bool]:
+) -> tuple[list[tuple[Any, Mapping[str, Any]]], bool, bool]:
     """Fetch at most ``scan_count`` stream rows relative to the checkpoint.
 
     Returns (rows, truncated, retention_guard_triggered).
@@ -353,14 +355,14 @@ def _bounded_rows(
     return older, bool(older), retention_guard
 
 
-def rebuild_state_from_stream(redis_client: Any, *, exec_stream: str, sid: str, scan_count: int = 20000) -> Dict[str, Any]:
+def rebuild_state_from_stream(redis_client: Any, *, exec_stream: str, sid: str, scan_count: int = 20000) -> dict[str, Any]:
     """Load latest rows from the execution stream and rebuild one ``sid`` state."""
     rows = redis_client.xrevrange(exec_stream, '+', '-', count=int(scan_count))
     events = extract_sid_events(rows, sid)
     return replay_sid_state(events)
 
 
-def _load_sql_state_snapshot(*, dsn: str, sid: str) -> Dict[str, Any]:
+def _load_sql_state_snapshot(*, dsn: str, sid: str) -> dict[str, Any]:
     """Load the most recent execution state snapshot from the SQL journal.
 
     Returns an empty dict when no matching snapshot is found or on any error.
@@ -491,9 +493,9 @@ def persist_state_snapshot(
     return True
 
 
-def compare_replayed_state(redis_state: Mapping[str, Any], replayed_state: Mapping[str, Any]) -> Dict[str, Any]:
+def compare_replayed_state(redis_state: Mapping[str, Any], replayed_state: Mapping[str, Any]) -> dict[str, Any]:
     """Return a compact mismatch report for operator/runbook use."""
-    mismatches: Dict[str, Any] = {}
+    mismatches: dict[str, Any] = {}
     fields = [
         'symbol', 'status', 'fsm_state', 'execution_policy', 'binance_order_id',
         'sl_algo_id', 'tp1_algo_id', 'tp2_algo_id', 'tp3_algo_id', 'trail_algo_id'

@@ -15,13 +15,12 @@ Usage:
     uvicorn services.orders_http_bridge:app --host 0.0.0.0 --port 8088
 """
 
-import os
 import json
-import redis
-from fastapi import FastAPI, Response, Query
-from fastapi.responses import JSONResponse
-from typing import Dict, Optional
+import os
 
+import redis
+from fastapi import FastAPI, Query, Response
+from fastapi.responses import JSONResponse
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -54,7 +53,7 @@ def health():
 
 
 @app.post("/orders/queue")
-def queue_order(payload: Dict):
+def queue_order(payload: dict):
     """
     Manually add order to queue.
     
@@ -64,7 +63,7 @@ def queue_order(payload: Dict):
     Returns:
         Success response
     """
-    sid = str(payload.get("sid") or "").strip()
+    sid = (payload.get("sid") or "").strip()
     if not sid:
         return JSONResponse(
             {"error": "sid_required"},
@@ -84,7 +83,7 @@ def queue_order(payload: Dict):
 
 
 @app.get("/orders/poll")
-def poll_orders(symbol: Optional[str] = Query(None)):
+def poll_orders(symbol: str | None = Query(None)):
     """
     Poll next order from queue (non-blocking).
     
@@ -96,11 +95,11 @@ def poll_orders(symbol: Optional[str] = Query(None)):
     """
     # Non-blocking pop from right (FIFO)
     item = r.rpop(ORDERS_QUEUE)
-    
+
     if not item:
         # No orders in queue
         return Response(status_code=204)
-    
+
     # Parse payload
     try:
         payload = json.loads(item)
@@ -109,18 +108,18 @@ def poll_orders(symbol: Optional[str] = Query(None)):
             {"error": "bad_json", "raw": item},
             status_code=400
         )
-    
+
     # Symbol filter
     if symbol and payload.get("symbol") and payload["symbol"] != symbol:
         # Not this symbol - push back to left and return 204
         r.lpush(ORDERS_QUEUE, item)
         return Response(status_code=204)
-    
+
     return payload
 
 
 @app.post("/orders/confirm")
-def confirm_execution(exec_report: Dict):
+def confirm_execution(exec_report: dict):
     """
     Confirm order execution.
     
@@ -133,7 +132,7 @@ def confirm_execution(exec_report: Dict):
     try:
         # Add to execution stream
         r.xadd(EXEC_STREAM, exec_report)
-        
+
         return {"ok": True, "recorded": True}
     except Exception as e:
         return JSONResponse(
@@ -148,7 +147,7 @@ def get_stats():
     try:
         queue_len = r.llen(ORDERS_QUEUE)
         exec_len = r.xlen(EXEC_STREAM)
-        
+
         return {
             "queue_length": queue_len,
             "executions_total": exec_len

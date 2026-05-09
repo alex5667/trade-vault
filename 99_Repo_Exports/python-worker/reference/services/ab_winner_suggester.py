@@ -1,23 +1,23 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-import time
-from dataclasses import dataclass
-from typing import Any, Dict, DefaultDict
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any
 
-import redis.asyncio as aioredis # type: ignore
+import redis.asyncio as aioredis  # type: ignore
+
 from services.telegram.telegram_client import TelegramClient
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _j(s: str) -> Dict[str, Any]:
+def _j(s: str) -> dict[str, Any]:
     try:
         d = json.loads(s)
         return d if isinstance(d, dict) else {}
@@ -68,8 +68,8 @@ class WinnerSuggester:
         self.window_ms = int(os.getenv("AB_WINDOW_MS", str(6 * 60 * 60 * 1000)))
         self.every_ms = int(os.getenv("AB_SUGGEST_EVERY_MS", str(15 * 60 * 1000))) # 15 min default
         self.last_emit_ms = 0
-        self.stats: DefaultDict[str, DefaultDict[str, Stat]] = defaultdict(lambda: defaultdict(Stat))
-        
+        self.stats: defaultdict[str, defaultdict[str, Stat]] = defaultdict(lambda: defaultdict(Stat))
+
         # Telegram
         self.tg = TelegramClient.from_env()
 
@@ -87,7 +87,7 @@ class WinnerSuggester:
         best_arm = "A"
         # Tuple comparison: (Winrate, Mean, N) - prioritize Winrate then Mean
         best_key = (-1.0, -1e18, -1)
-        
+
         # Check A, B, C if they exist
         candidates = []
         for arm, st in self.stats[reg_group].items():
@@ -99,8 +99,8 @@ class WinnerSuggester:
             if key > best_key:
                 best_key = key
                 best_arm = arm
-                
-        # If A is significantly better or close, prefer A? 
+
+        # If A is significantly better or close, prefer A?
         # For now, simple strict winner.
         return best_arm
 
@@ -109,19 +109,19 @@ class WinnerSuggester:
         # write key
         key = f"{self.out_key_prefix}{reg_group}"
         st = {arm: {"n": s.n, "mean": float(f"{s.mean:.4f}"), "winrate": float(f"{s.winrate:.4f}")} for arm, s in self.stats[reg_group].items()}
-        
+
         try:
             await self.r.hset(key, mapping={"arm": winner, "ts_ms": str(ts), "stats": json.dumps(st, separators=(",", ":"), ensure_ascii=False)})
         except Exception:
             pass
-            
+
         # write stream
         payload = {"ts_ms": ts, "reg_group": reg_group, "winner": winner, "stats": st}
         try:
             await self.r.xadd(self.out_stream, {"payload": json.dumps(payload, separators=(",", ":"), ensure_ascii=False)}, maxlen=20000, approximate=True)
         except Exception:
             pass
-            
+
         # Notify Telegram
         if self.tg:
             msg = [
@@ -133,7 +133,7 @@ class WinnerSuggester:
             for arm in sorted(st.keys()):
                 d = st[arm]
                 msg.append(f" {arm}: WR={d['winrate']*100:.1f}% Avg={d['mean']:.2f} (N={d['n']})")
-                
+
             self.tg.send_text("\n".join(msg))
 
     async def run_forever(self) -> None:
@@ -148,15 +148,15 @@ class WinnerSuggester:
             if not msgs:
                 await asyncio.sleep(0.1)
                 continue
-            
+
             now = _now_ms()
             for _s, entries in msgs:
                 for msg_id, fields in entries:
                     try:
                         # Event parsing logic
-                        event_type = str(fields.get("type") or "").lower()
+                        event_type = (fields.get("type") or "").lower()
                         d = {}
-                        
+
                         # 1. Payload usually contains the data
                         if "payload" in fields:
                             d = _j(fields["payload"])
@@ -164,40 +164,40 @@ class WinnerSuggester:
                              d = _j(fields["data"])
                         else:
                             d = dict(fields)
-                            
+
                         # 2. Check type (CLOSE or position_closed)
                         if event_type not in ("close", "position_closed"):
                             # handlers.py emits "CLOSE", legacy might emit "position_closed"
                             continue
-                            
+
                         # 3. Extract Meta (ab_arm, regime)
                         # Could be in 'meta' field (json) or in 'payload' itself
                         ab_arm = d.get("ab_arm")
                         regime = d.get("regime")
-                        
+
                         if not ab_arm and "meta" in fields:
                             meta = _j(fields["meta"])
                             ab_arm = meta.get("ab_arm")
                             regime = meta.get("regime")
-                            
+
                         # If still missing, check entries in d
                         if not ab_arm:
                              ab_arm = d.get("ab_arm")
                         if not regime:
                              regime = d.get("regime") or d.get("entry_regime")
-                             
+
                         # 4. Check Window
                         ts_ms = int(fields.get("ts_ms") or d.get("ts_ms") or d.get("exit_ts_ms") or now)
                         if now - ts_ms > self.window_ms:
                             continue
-                            
+
                         # 5. Extract PnL
                         pnl = float(d.get("pnl_net") or d.get("pnl") or d.get("pnl_usd") or 0.0)
-                        
-                        arm = str(ab_arm or "A").upper()
-                        regime = str(regime or "na").lower()
+
+                        arm = (ab_arm or "A").upper()
+                        regime = (regime or "na").lower()
                         grp = self._reg_group(regime)
-                        
+
                         self.stats[grp][arm].add(pnl)
                     except Exception:
                         pass
@@ -206,7 +206,7 @@ class WinnerSuggester:
                             await self.r.xack(self.stream, self.group, msg_id)
                         except Exception:
                             pass
-                            
+
             if self.last_emit_ms == 0 or (now - self.last_emit_ms) >= self.every_ms:
                 self.last_emit_ms = now
                 for grp in ("default", "thin"):

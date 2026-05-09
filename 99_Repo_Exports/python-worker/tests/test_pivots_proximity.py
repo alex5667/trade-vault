@@ -1,5 +1,3 @@
-import math
-import pytest
 from signals.pivots import is_near_level_atr
 
 
@@ -26,7 +24,7 @@ def test_dist_bp_or_mode_passes_when_bps_is_ok():
     # bps ~ 0.6/100.6*10000 ~ 59.6 bps -> pass if thr>=60
     # Actually price=100.6, level=100.0. distance=0.6.
     # dist_bps(100.6, 100.0) = 0.6 / 100.6 * 10000 = 59.64
-    
+
     passed, det = is_near_level_atr(
         100.6,
         piv,

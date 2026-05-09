@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 SignalPerformanceTracker: Online performance analysis for executed signals.
 
@@ -6,18 +7,17 @@ Tracks TTD, MFE/MAE, and outcome classification for each signal.
 Integrates with TimescaleDB for historical analysis and TTD optimization.
 """
 
+import os
+from collections import defaultdict, deque
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any
+
 from utils.time_utils import get_ny_time_millis
 
-import os
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Any, Dict, Optional, TYPE_CHECKING, Set
-from collections import deque, defaultdict
-import time
-
 from .context import SignalContext
-from .models import Bar1m, Side, ExecutionPlan
+from .models import Bar1m, ExecutionPlan, Side
 from .repository import SignalRepository
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ except ImportError:
         def __init__(self, every_ms: int):
             self.every_ms = every_ms
             self._next_ms = 0
-        
+
         def hit(self) -> bool:
             now_ms = get_ny_time_millis()
             if now_ms >= self._next_ms:
@@ -41,7 +41,7 @@ except ImportError:
             return False
 
 
-class Outcome(str, Enum):
+class Outcome(StrEnum):
     TARGET_HIT = "target_hit"
     STOP_HIT = "stop_hit"
     BREAKEVEN = "breakeven"
@@ -71,27 +71,27 @@ class SignalPerfState:
     max_ttd_bars: int         # for measuring TTD
 
     # execution fields
-    ts_entry: Optional[datetime] = None
-    entry_price: Optional[float] = None
-    ts_exit: Optional[datetime] = None
-    exit_price: Optional[float] = None
+    ts_entry: datetime | None = None
+    entry_price: float | None = None
+    ts_exit: datetime | None = None
+    exit_price: float | None = None
 
     # NEW: бар-индексы (если у вас есть понятие bar_idx / candle_idx)
     # Позволяют отслеживать TTL в барах для финализации зависших позиций
-    bar_signal: Optional[int] = None
-    bar_entry: Optional[int] = None
-    bar_exit: Optional[int] = None
+    bar_signal: int | None = None
+    bar_entry: int | None = None
+    bar_exit: int | None = None
 
     # TTD / MFE / MAE
-    ttd_bars: Optional[int] = None
-    ttd_seconds: Optional[int] = None
+    ttd_bars: int | None = None
+    ttd_seconds: int | None = None
     mfe_R: float = 0.0
     mae_R: float = 0.0
 
     # counters
     bars_seen: int = 0
-    bars_to_entry: Optional[int] = None
-    bars_to_exit: Optional[int] = None
+    bars_to_entry: int | None = None
+    bars_to_exit: int | None = None
 
     # flags
     expired_without_entry: bool = False
@@ -100,9 +100,9 @@ class SignalPerfState:
     notes: str = ""
 
     # NEW: причина финализации (для аудита и отладки)
-    finalize_reason: Optional[str] = None
+    finalize_reason: str | None = None
 
-    extra: Dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -116,27 +116,27 @@ class SignalPerformance:
     side: Side
 
     ts_signal: datetime
-    ts_entry: Optional[datetime]
-    ts_exit: Optional[datetime]
+    ts_entry: datetime | None
+    ts_exit: datetime | None
 
     price_at_signal: float
-    entry_price: Optional[float]
-    exit_price: Optional[float]
-    stop_price: Optional[float]
+    entry_price: float | None
+    exit_price: float | None
+    stop_price: float | None
 
-    realized_R: Optional[float]
-    mfe_R: Optional[float]
-    mae_R: Optional[float]
+    realized_R: float | None
+    mfe_R: float | None
+    mae_R: float | None
 
-    ttd_bars: Optional[int]
-    ttd_seconds: Optional[int]
+    ttd_bars: int | None
+    ttd_seconds: int | None
 
-    bars_to_entry: Optional[int]
-    bars_to_exit: Optional[int]
+    bars_to_entry: int | None
+    bars_to_exit: int | None
 
     outcome: Outcome
     notes: str
-    extra: Dict[str, Any]
+    extra: dict[str, Any]
 
 
 class SignalPerformanceTracker:
@@ -154,21 +154,21 @@ class SignalPerformanceTracker:
     """
 
     def __init__(
-        self, 
-        repo: SignalRepository, 
-        ttd_target_R: float = 1.0, 
-        max_ttd_bars: int = 30, 
-        bus: Optional["SignalBus"] = None,
-        max_lifetime_bars_after_entry: Optional[int] = None,
-        max_lifetime_ms_after_entry: Optional[int] = None,
+        self,
+        repo: SignalRepository,
+        ttd_target_R: float = 1.0,
+        max_ttd_bars: int = 30,
+        bus: SignalBus | None = None,
+        max_lifetime_bars_after_entry: int | None = None,
+        max_lifetime_ms_after_entry: int | None = None,
         housekeeping_every_ms: int = 1000,
     ):
         self.repo = repo
         self.bus = bus
         self.ttd_target_R = ttd_target_R
         self.max_ttd_bars = max_ttd_bars
-        self._states: Dict[str, SignalPerfState] = {}
-        
+        self._states: dict[str, SignalPerfState] = {}
+
         # ----------------------------
         # NEW: Конфиги "вошли, но не вышли"
         # ----------------------------
@@ -191,26 +191,26 @@ class SignalPerformanceTracker:
             if max_lifetime_ms_after_entry is not None
             else int(os.getenv("PERF_MAX_LIFETIME_MS_AFTER_ENTRY", "3600000"))
         )
-        
+
         # Для обратной совместимости сохраняем публичные атрибуты
         self.max_lifetime_bars_after_entry = self._default_max_lifetime_bars_after_entry
         self.max_lifetime_ms_after_entry = self._default_max_lifetime_ms_after_entry
-        
+
         # NEW: троттлинг housekeeping (не гонять O(N) на каждом баре/событии)
         # КРИТИЧНО: TimeSampler (и fallback) работают в миллисекундах, НЕ секундах!
         self._housekeeping_sampler = TimeSampler(int(housekeeping_every_ms))
-        
+
         # NEW: защита от "поздних exit событий".
         # Делаем O(1) membership через set + ручной LRU-буфер.
-        self._finalized_set: Set[str] = set()
+        self._finalized_set: set[str] = set()
         self._finalized_lru: deque[str] = deque()
         self._finalized_lru_max: int = 4096
-        
+
         # NEW: индекс по символу, чтобы on_bar_1m работал быстро
-        self._ids_by_symbol: Dict[str, Set[str]] = defaultdict(set)
+        self._ids_by_symbol: dict[str, set[str]] = defaultdict(set)
 
     # --- Helper methods для работы с datetime ---
-    
+
     @staticmethod
     def _dt_to_naive_utc(dt: datetime) -> datetime:
         """
@@ -219,8 +219,8 @@ class SignalPerformanceTracker:
         """
         if dt.tzinfo is None:
             return dt
-        return dt.astimezone(timezone.utc).replace(tzinfo=None)
-    
+        return dt.astimezone(UTC).replace(tzinfo=None)
+
     @staticmethod
     def _naive_utc_from_ms(ts_ms: int) -> datetime:
         """Конвертирует timestamp в миллисекундах в naive UTC datetime."""
@@ -230,7 +230,7 @@ class SignalPerformanceTracker:
     def _dt_to_epoch_ms(dt: datetime) -> int:
         """Naive datetime трактуем как UTC (как у вас в трекере)."""
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return int(dt.timestamp() * 1000)
 
     def _remember_finalized(self, signal_id: str) -> None:
@@ -252,7 +252,7 @@ class SignalPerformanceTracker:
         self,
         ctx: SignalContext,
         plan: ExecutionPlan,
-        bar_idx: Optional[int] = None,
+        bar_idx: int | None = None,
     ) -> None:
         """
         Register new signal + plan for tracking.
@@ -272,18 +272,18 @@ class SignalPerformanceTracker:
             max_ttd_bars=self.max_ttd_bars,
             bar_signal=bar_idx,  # NEW: сохраняем индекс бара сигнала
         )
-        
+
         # NEW: запоминаем "сколько можно жить после entry"
         # Можно переопределять на уровне plan/strategy, но базово берём дефолт.
         state.extra["max_lifetime_bars_after_entry"] = self._default_max_lifetime_bars_after_entry
         state.extra["max_lifetime_ms_after_entry"] = self._default_max_lifetime_ms_after_entry
-        
+
         self._states[plan.signal_id] = state
-        
+
         # NEW: добавляем в индекс по символу для быстрого доступа в on_bar_1m
         self._ids_by_symbol[plan.symbol].add(plan.signal_id)
 
-    def on_bar(self, symbol: str, bar: Bar1m, bar_idx: Optional[int] = None) -> None:
+    def on_bar(self, symbol: str, bar: Bar1m, bar_idx: int | None = None) -> None:
         """
         Feed each closed 1m bar by symbol.
         bar_idx: текущий индекс бара (если доступен) для housekeeping по TTL в барах.
@@ -295,7 +295,7 @@ class SignalPerformanceTracker:
         """
         # Делегируем на on_bar_1m для единообразной обработки
         self.on_bar_1m(symbol, bar)
-    
+
     def on_bar_1m(self, symbol: str, bar: Bar1m) -> None:
         """
         NEW: вызывать на каждом завершённом 1m баре.
@@ -310,7 +310,7 @@ class SignalPerformanceTracker:
         ids = list(self._ids_by_symbol.get(symbol, set()))
         if not ids:
             return
-        
+
         # Конвертируем timestamp бара в naive UTC datetime
         # Если bar.ts уже datetime, используем его; иначе конвертируем из ms
         if isinstance(bar.ts, datetime):
@@ -318,31 +318,31 @@ class SignalPerformanceTracker:
         else:
             # bar.ts может быть int (миллисекунды)
             bar_dt = self._naive_utc_from_ms(int(bar.ts))
-        
+
         for signal_id in ids:
             st = self._states.get(signal_id)
             if st is None or st.finalized:
                 continue
-            
+
             # 1) бар "увидели"
             st.bars_seen += 1
-            
+
             # фиксируем bar_signal / bar_entry (если нужно для аудита)
             if st.bar_signal is None:
                 st.bar_signal = 1
             if st.ts_entry is not None and st.bar_entry is None:
                 st.bar_entry = st.bars_seen
-            
+
             # 2) если entry уже был, а bars_to_entry ещё не зафиксирован —
             #    фиксируем на первом баре после entry (как у вас задумано)
             if st.ts_entry is not None and st.bars_to_entry is None:
                 st.bars_to_entry = st.bars_seen
-            
+
             # 3) Обновляем TTD и MFE/MAE если нужно
             self._update_ttd(st, bar)
             if st.entry_price is not None:
                 self._update_mfe_mae(st, bar)
-            
+
             # 4) протухание БЕЗ входа: EXPIRED_NO_ENTRY
             if st.ts_entry is None and st.bars_seen >= st.expiry_bars:
                 st.expired_without_entry = True
@@ -355,7 +355,7 @@ class SignalPerformanceTracker:
                 st.notes = (st.notes + " | " if st.notes else "") + notes_msg
                 self._finalize_and_store(st, reason=notes_msg)
                 continue
-            
+
             # 5) КРИТИЧНО: вошли, но не вышли → EXPIRED_NO_TARGET
             if st.ts_entry is not None and st.ts_exit is None:
                 # ВАЖНО: ttl_bars<=0 означает "выключено", иначе вы получите мгновенный EXPIRED_NO_TARGET.
@@ -366,19 +366,19 @@ class SignalPerformanceTracker:
                     ttl_bars = int(st.extra.get("max_lifetime_bars_after_entry") or 0)
                 else:
                     ttl_bars = int(getattr(self, "_default_max_lifetime_bars_after_entry", 0) or 0)
-                
+
                 if ttl_bars > 0:
                     # Расчет held_bars: используем bar_entry (если есть) или bars_to_entry
                     entry_bar = st.bar_entry or st.bars_to_entry
                     held_bars = 0 if not entry_bar else (st.bars_seen - entry_bar)
-                    
+
                     if held_bars >= ttl_bars:
                         st.outcome = Outcome.EXPIRED_NO_TARGET
                         st.ts_exit = st.ts_exit or bar_dt
                         # Для EXPIRED_NO_TARGET полезно mark-to-market по close бара:
                         # так у вас появится realized_R, а не None.
                         try:
-                            st.exit_price = float(getattr(bar, "close"))
+                            st.exit_price = float(bar.close)
                         except Exception:
                             st.exit_price = None
                         st.bars_to_exit = st.bars_to_exit or st.bars_seen
@@ -386,7 +386,7 @@ class SignalPerformanceTracker:
                         st.notes = (st.notes + " | " if st.notes else "") + notes_msg
                         self._finalize_and_store(st, reason=notes_msg)
                         continue
-            
+
             # 6) If exit already known and bar passed — finalize
             if st.ts_exit is not None and bar_dt >= self._dt_to_naive_utc(st.ts_exit) and not st.finalized:
                 if st.bars_to_exit is None:
@@ -399,7 +399,7 @@ class SignalPerformanceTracker:
         event_type: str,
         ts: datetime,
         price: float,
-        bar_idx: Optional[int] = None,
+        bar_idx: int | None = None,
     ) -> None:
         """
         Feed execution events from MT5/ExecutionEngine:
@@ -423,7 +423,7 @@ class SignalPerformanceTracker:
             # Можно добавить логирование если нужно:
             # self.logger.warning("Late event ignored for finalized signal_id=%s", signal_id)
             return
-        
+
         state = self._states.get(signal_id)
         if state is None or state.finalized:
             return
@@ -448,12 +448,12 @@ class SignalPerformanceTracker:
             # NEW: финализируем сразу при exit событии
             self._finalize_and_store(state, reason=f"exit_{event_type.lower()}")
             return
-        
+
         # optional time-fallback housekeeping (если баров нет/редко приходят)
         self._housekeep_time_fallback()
 
     # --- Internal logic ---
-    
+
     def _housekeep_time_fallback(self) -> None:
         """
         Фоллбек по времени (ms TTL после entry), если on_bar_1m не зовётся регулярно.
@@ -464,30 +464,30 @@ class SignalPerformanceTracker:
             return
         if not self._housekeeping_sampler.hit():
             return
-        
+
         now_ms = get_ny_time_millis()
         for st in list(self._states.values()):
             if st is None or st.finalized:
                 continue
             if st.ts_entry is None or st.ts_exit is not None:
                 continue
-            
+
             try:
                 entry_ms = self._dt_to_epoch_ms(st.ts_entry)
             except Exception:
                 continue
-            
+
             age_ms = now_ms - entry_ms
             if age_ms < 0:
                 continue
-            
+
             ttl_ms = int((st.extra or {}).get("max_lifetime_ms_after_entry") or ttl_ms_default)
             if ttl_ms <= 0:
                 continue
-            
+
             if age_ms >= ttl_ms:
                 st.outcome = Outcome.EXPIRED_NO_TARGET
-                st.ts_exit = st.ts_exit or datetime.now(timezone.utc).replace(tzinfo=None)
+                st.ts_exit = st.ts_exit or datetime.now(UTC).replace(tzinfo=None)
                 # без цены — ставим entry_price (нулевой realized_R), но явно маркируем причину
                 st.exit_price = st.exit_price or st.entry_price
                 st.finalize_reason = f"expired_no_target_time age_ms={age_ms} ttl_ms={ttl_ms}"
@@ -541,10 +541,10 @@ class SignalPerformanceTracker:
 
         state.mfe_R = max(state.mfe_R, mfe_R)
         state.mae_R = min(state.mae_R, mae_R)
-    
 
 
-    def _finalize_and_store(self, state: SignalPerfState, reason: Optional[str] = None) -> None:
+
+    def _finalize_and_store(self, state: SignalPerfState, reason: str | None = None) -> None:
         """
         Финализация должна быть:
         - идемпотентной (двойной вызов не ломает статистику)
@@ -556,7 +556,7 @@ class SignalPerformanceTracker:
         # NEW: идемпотентность - если уже финализирован, ничего не делаем
         if state.finalized:
             return
-        
+
         state.finalized = True
         state.finalize_reason = state.finalize_reason or (reason or "normal_finalization")
 
@@ -573,7 +573,7 @@ class SignalPerformanceTracker:
         # 2) NEW: LRU защита от late-events (O(1) через set + deque)
         self._remember_finalized(state.signal_id)
 
-        realized_R: Optional[float] = None
+        realized_R: float | None = None
         if state.entry_price is not None and state.exit_price is not None and state.atr_1m > 0:
             diff = (
                 state.exit_price - state.entry_price

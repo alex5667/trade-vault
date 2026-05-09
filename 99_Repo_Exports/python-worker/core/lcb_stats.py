@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 LCB (Lower Confidence Bound) utilities.
 
@@ -18,8 +19,8 @@ Notes:
 
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Tuple
 
 
 @dataclass
@@ -31,11 +32,11 @@ class LCBStats:
     lcb: float
 
 
-def _mean(xs: List[float]) -> float:
+def _mean(xs: list[float]) -> float:
     return float(sum(xs) / max(1, len(xs)))
 
 
-def _stdev(xs: List[float], m: float) -> float:
+def _stdev(xs: list[float], m: float) -> float:
     # sample stdev (ddof=1)
     n = len(xs)
     if n < 2:
@@ -53,7 +54,7 @@ def mean_lcb(
     *,
     z: float = 1.64,          # ~90% one-sided
     min_n: int = 30,
-    clamp: Optional[Tuple[float, float]] = None,
+    clamp: tuple[float, float] | None = None,
 ) -> LCBStats:
     """
     Compute mean + LCB for values.

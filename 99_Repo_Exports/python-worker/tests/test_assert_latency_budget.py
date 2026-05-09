@@ -18,11 +18,11 @@ def test_assert_latency_budget_pass():
         "p99_us": 250.0,
         "max_us": 500.0,
     }
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(bench_data, f)
         bench_path = f.name
-    
+
     try:
         import sys
         old_argv = sys.argv
@@ -32,7 +32,7 @@ def test_assert_latency_budget_pass():
             "--p99-us-max", "3000",
             "--throughput-min", "2000",
         ]
-        
+
         try:
             # Should not raise
             main()
@@ -49,11 +49,11 @@ def test_assert_latency_budget_fail_p99():
         "throughput_calls_per_s": 5000.0,
         "p99_us": 3500.0,  # exceeds 3000
     }
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(bench_data, f)
         bench_path = f.name
-    
+
     try:
         import sys
         old_argv = sys.argv
@@ -63,7 +63,7 @@ def test_assert_latency_budget_fail_p99():
             "--p99-us-max", "3000",
             "--throughput-min", "2000",
         ]
-        
+
         try:
             with pytest.raises(SystemExit) as exc_info:
                 main()
@@ -81,11 +81,11 @@ def test_assert_latency_budget_fail_throughput():
         "throughput_calls_per_s": 1500.0,  # below 2000
         "p99_us": 2500.0,
     }
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(bench_data, f)
         bench_path = f.name
-    
+
     try:
         import sys
         old_argv = sys.argv
@@ -95,7 +95,7 @@ def test_assert_latency_budget_fail_throughput():
             "--p99-us-max", "3000",
             "--throughput-min", "2000",
         ]
-        
+
         try:
             with pytest.raises(SystemExit) as exc_info:
                 main()

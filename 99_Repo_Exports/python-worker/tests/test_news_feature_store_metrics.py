@@ -1,28 +1,28 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-from news_pipeline.feature_store_service import NewsFeatureStoreService, _agg_key_global, _agg_key_symbol
 from news_pipeline import config as news_cfg
+from news_pipeline.feature_store_service import NewsFeatureStoreService
 
 
 class FakeMetrics:
     def __init__(self) -> None:
-        self.calls: List[Tuple[str, int, Optional[dict[str, Any]]]] = []
+        self.calls: list[tuple[str, int, dict[str, Any] | None]] = []
 
-    def inc(self, name: str, value: int = 1, tags: Optional[dict[str, Any]] = None) -> None:
+    def inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:
         self.calls.append((str(name), int(value), tags if isinstance(tags, dict) else None))
 
 
 class FakePipe:
     def __init__(self, r: "FakeRedis") -> None:
         self.r = r
-        self.ops: List[Tuple[str, tuple]] = []
+        self.ops: list[tuple[str, tuple]] = []
 
     def hgetall(self, key: str):
         self.ops.append(("hgetall", (str(key),)))
         return self
 
-    def hset(self, key: str, mapping: Dict[str, Any]):
+    def hset(self, key: str, mapping: dict[str, Any]):
         self.ops.append(("hset", (str(key), dict(mapping))))
         return self
 
@@ -55,14 +55,14 @@ class FakePipe:
 
 class FakeRedis:
     def __init__(self) -> None:
-        self.hashes: Dict[str, Dict[str, str]] = {}
-        self.ttl: Dict[str, int] = {}
-        self.streams: Dict[str, List[Dict[str, str]]] = {}
+        self.hashes: dict[str, dict[str, str]] = {}
+        self.ttl: dict[str, int] = {}
+        self.streams: dict[str, list[dict[str, str]]] = {}
 
     def pipeline(self):
         return FakePipe(self)
 
-    def xadd(self, stream: str, fields: Dict[str, Any], maxlen: int = 0, approximate: bool = True):
+    def xadd(self, stream: str, fields: dict[str, Any], maxlen: int = 0, approximate: bool = True):
         st = self.streams.setdefault(str(stream), [])
         st.append({str(k): str(v) for k, v in (fields or {}).items()})
         return f"{len(st)}-0"
@@ -72,7 +72,7 @@ class FakeRedis:
 class StubAnalysis:
     uid: str
     news_ref: str
-    symbols: List[str]
+    symbols: list[str]
     risk: float
     surprise: float
     confidence: float
@@ -80,7 +80,7 @@ class StubAnalysis:
     primary_tag_id: int
 
 
-def _find_calls(m: FakeMetrics, name: str) -> List[tuple]:
+def _find_calls(m: FakeMetrics, name: str) -> list[tuple]:
     return [c for c in m.calls if c[0] == name]
 
 

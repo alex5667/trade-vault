@@ -1,14 +1,15 @@
 # publish_adapter.py
 from __future__ import annotations
+
+from typing import Any
+
 from utils.time_utils import get_ny_time_millis
 
-import time
-from typing import Any, Dict, Optional
-
 from .outbox_utils import (
-    ensure_ts_ms, normalize_to_bucket,
-    normalize_kind,
     PublishResult,
+    ensure_ts_ms,
+    normalize_kind,
+    normalize_to_bucket,
 )
 
 
@@ -27,8 +28,8 @@ class OutboxPublishAdapter:
         kind: str | None,
         level_key: str | None,
         ts_ms: int | float | None,
-        envelope: Dict[str, Any],
-        dedup_ttl_ms: Optional[int] = None,
+        envelope: dict[str, Any],
+        dedup_ttl_ms: int | None = None,
     ) -> PublishResult:
         if not self.outbox:
             return PublishResult(sent=False, dedup=False, msg_id=None)

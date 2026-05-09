@@ -56,7 +56,7 @@ def get_ctx_attr(ctx: Any, name: str, default: float = 0.0) -> float:
     try:
         v = getattr(ctx, name)
         if v is None:
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default

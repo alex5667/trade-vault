@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """
@@ -18,7 +19,7 @@ CLI: запись Redis stream в JSONL (N минут).
 
 import argparse
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from replay.jsonl import JsonlWriter
 
@@ -60,7 +61,7 @@ def main() -> None:
             for _stream, items in resp:
                 for xid, fields in items:
                     xid_s = _decode(xid)
-                    d: Dict[str, Any] = {}
+                    d: dict[str, Any] = {}
                     for k, v in (fields or {}).items():
                         d[str(_decode(k))] = _decode(v)
                     w.write(

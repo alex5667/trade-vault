@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Sync test: ensures ml_feature_schema_v8_of is identical in SoT and mirror.
 
 SoT:    reference/tick_flow_full/core/ml_feature_schema_v8_of.py
@@ -9,8 +10,8 @@ Run:
     PYTHONPATH=../tick_flow_full:. python -m pytest tests/core/test_ml_feature_schema_v8_of_sync.py -v
 """
 
-import sys
 import os
+import sys
 
 # ---------------------------------------------------------------------------
 # PYTHONPATH setup — both SoT (reference/tick_flow_full) and mirror (python-worker)
@@ -47,7 +48,6 @@ except Exception as e:
     pytest.skip(f"Не удалось загрузить SoT ml_feature_schema_v8_of: {e}", allow_module_level=True)
 
 from core.ml_feature_schema_v8_of import MLFeatureSchemaV8OF as MirrorSchema
-
 
 # ---------------------------------------------------------------------------
 # Tests

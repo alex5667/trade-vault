@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 try:
     import joblib  # type: ignore
@@ -11,7 +11,7 @@ except Exception:
     joblib = None  # type: ignore
 
 
-def _safe_loads(line: str) -> Optional[Dict[str, Any]]:
+def _safe_loads(line: str) -> dict[str, Any] | None:
     try:
         d = json.loads(line)
         return d if isinstance(d, dict) else None
@@ -19,11 +19,11 @@ def _safe_loads(line: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _key(inp: Dict[str, Any]) -> str:
-    sym = str(inp.get("symbol", "") or "").upper()
+def _key(inp: dict[str, Any]) -> str:
+    sym = (inp.get("symbol", "") or "").upper()
     ts = str(int(float(inp.get("ts_ms", 0) or 0)))
-    direction = str(inp.get("direction", "") or "")
-    sc = str(inp.get("scenario_v4", inp.get("scenario", "")) or "")
+    direction = (inp.get("direction", "") or "")
+    sc = (inp.get("scenario_v4", inp.get("scenario", "")) or "")
     return f"{sym}|{ts}|{direction}|{sc}"
 
 
@@ -37,17 +37,17 @@ def main() -> None:
     args = ap.parse_args()
 
     # reuse exact production logic by importing MLConfirmGate and driving it with cfg/model from record
-    from services.ml_confirm_gate import MLConfirmGate, _safe_loads as _cfg_loads  # type: ignore
-
     # dummy redis (not used in replay path below)
     import redis
+
+    from services.ml_confirm_gate import MLConfirmGate  # type: ignore
     r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
     gate = MLConfirmGate(r=r, mode=str(args.mode), fail_policy=str(args.fail_policy),
                          champion_key=os.getenv("ML_CFG_CHAMPION_KEY", "cfg:ml_confirm:champion"),
                          challenger_key=os.getenv("ML_CFG_CHALLENGER_KEY", "cfg:ml_confirm:challenger"))
 
     n = 0
-    with open(args.inputs, "r", encoding="utf-8") as f_in, open(args.out, "w", encoding="utf-8") as f_out:
+    with open(args.inputs, encoding="utf-8") as f_in, open(args.out, "w", encoding="utf-8") as f_out:
         for line in f_in:
             if n >= int(args.max_rows):
                 break
@@ -59,7 +59,7 @@ def main() -> None:
                 continue
 
             cfg = inp.get("cfg", {}) if isinstance(inp.get("cfg", {}), dict) else {}
-            model_path = str(cfg.get("model_path", "") or "")
+            model_path = (cfg.get("model_path", "") or "")
             if joblib is None or not model_path:
                 # cannot replay without model
                 out = {"k": _key(inp), "ok": 0, "status": "ERR_NO_MODEL_PATH", "symbol": inp.get("symbol", ""), "ts_ms": inp.get("ts_ms", 0)}
@@ -81,10 +81,10 @@ def main() -> None:
             gate._cache_loaded_ms = 10**18  # prevent refresh
 
             dec = gate.check(
-                symbol=str(inp.get("symbol", "")),
+                symbol=(inp.get("symbol", "")),
                 ts_ms=int(float(inp.get("ts_ms", 0) or 0)),
-                direction=str(inp.get("direction", "")),
-                scenario=str(inp.get("scenario_v4", inp.get("scenario", "")) or ""),
+                direction=(inp.get("direction", "")),
+                scenario=(inp.get("scenario_v4", inp.get("scenario", "")) or ""),
                 indicators=inp.get("indicators", {}) if isinstance(inp.get("indicators", {}), dict) else {},
                 rule_score=float(inp.get("rule_score", 0.0) or 0.0),
                 rule_have=int(inp.get("rule_have", 0) or 0),
@@ -95,10 +95,10 @@ def main() -> None:
 
             out = {
                 "k": _key(inp),
-                "symbol": str(inp.get("symbol", "") or "").upper(),
+                "symbol": (inp.get("symbol", "") or "").upper(),
                 "ts_ms": int(float(inp.get("ts_ms", 0) or 0)),
-                "direction": str(inp.get("direction", "") or ""),
-                "scenario_v4": str(inp.get("scenario_v4", inp.get("scenario", "")) or ""),
+                "direction": (inp.get("direction", "") or ""),
+                "scenario_v4": (inp.get("scenario_v4", inp.get("scenario", "")) or ""),
                 "allow": int(bool(dec.allow)),
                 "abstain": int(bool(getattr(dec, "abstain", False))),
                 "status": str(getattr(dec, "status", "") or ""),

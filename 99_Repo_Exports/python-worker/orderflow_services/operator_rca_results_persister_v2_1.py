@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -19,7 +20,7 @@ except Exception:  # pragma: no cover
     asyncpg = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
-
+import contextlib
 
 RESULTS_STREAM = os.getenv("ML_OPERATOR_RCA_RESULTS_STREAM", "stream:ml:operator_rca_results")
 QUALITY_STREAM = os.getenv("ML_OPERATOR_RCA_QUALITY_STREAM", "stream:ml:operator_rca_quality")
@@ -56,7 +57,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _json_hash(output_json: Dict[str, Any]) -> str:
+def _json_hash(output_json: dict[str, Any]) -> str:
     payload = json.dumps(output_json, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
@@ -70,7 +71,7 @@ class RCAResult:
     status: str
     latency_ms: int
     estimated_cost_usd: float
-    output_json: Dict[str, Any]
+    output_json: dict[str, Any]
     prompt_version: str
     policy_version: str
 
@@ -79,7 +80,7 @@ class RCAResult:
         return _json_hash(self.output_json)
 
 
-def parse_result(fields: Dict[Any, Any]) -> RCAResult:
+def parse_result(fields: dict[Any, Any]) -> RCAResult:
     return RCAResult(
         recommendation_id=_b2s(fields.get(b"recommendation_id", b"")),
         ts_ms=int(_b2s(fields.get(b"ts_ms", b"0")) or "0"),
@@ -94,7 +95,7 @@ def parse_result(fields: Dict[Any, Any]) -> RCAResult:
     )
 
 
-def build_quality_event(result: RCAResult) -> Dict[str, Any]:
+def build_quality_event(result: RCAResult) -> dict[str, Any]:
     findings = result.output_json.get("findings", []) if isinstance(result.output_json, dict) else []
     recs = result.output_json.get("recommendations", []) if isinstance(result.output_json, dict) else []
     return {
@@ -114,10 +115,8 @@ def build_quality_event(result: RCAResult) -> Dict[str, Any]:
 
 
 async def _ensure_group(r: Any) -> None:
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(RESULTS_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
 
 
 async def _upsert_sql(conn: Any, result: RCAResult) -> None:
@@ -203,10 +202,8 @@ async def run_forever() -> None:
         for _stream, messages in rows:
             for msg_id, fields in messages:
                 result = parse_result(fields)
-                try:
+                with contextlib.suppress(Exception):
                     QUEUE_LAG_MS.set(max(0, _now_ms() - result.ts_ms))
-                except Exception:
-                    pass
                 latest_key = f"{RESULT_HASH_PREFIX}{result.recommendation_id}"
                 prev_hash = _b2s(await r.hget(latest_key, b"output_hash") or "")
                 if prev_hash and prev_hash == result.output_hash:

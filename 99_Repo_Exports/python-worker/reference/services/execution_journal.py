@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Best-effort execution journal sink for Postgres.
@@ -23,14 +24,13 @@ ENV:
                             If not set, all writes are silently no-ops.
 """
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
 import json
 import os
-import time
+from dataclasses import dataclass
+from typing import Any
 
 try:
-    from prometheus_client import Counter, REGISTRY
+    from prometheus_client import REGISTRY, Counter
 except Exception:  # pragma: no cover
     Counter = None  # type: ignore
     REGISTRY = None  # type: ignore
@@ -66,7 +66,7 @@ except Exception:  # pragma: no cover
 
 def _s(v: Any) -> str:
     """Coerce to str, treating None/empty as empty string."""
-    return str(v or '')
+    return (v or '')
 
 
 def _i(v: Any, default: int = 0) -> int:
@@ -74,16 +74,16 @@ def _i(v: Any, default: int = 0) -> int:
     try:
         return int(v)
     except Exception:
-        return int(default)
+        return default
 
 
-def _optional_text(v: Any) -> Optional[str]:
+def _optional_text(v: Any) -> str | None:
     """Return stripped string or None if blank."""
-    s = str(v or '').strip()
+    s = (v or '').strip()
     return s or None
 
 
-def _first_text(doc: Dict[str, Any], *keys: str) -> Optional[str]:
+def _first_text(doc: dict[str, Any], *keys: str) -> str | None:
     """Return the first non-blank string value from doc for the given keys."""
     for key in keys:
         s = _optional_text(doc.get(key))
@@ -122,7 +122,7 @@ class ExecutionJournalSink:
             return None
         return self.connect_factory(self.dsn)
 
-    def record_event(self, event: Dict[str, Any]) -> bool:
+    def record_event(self, event: dict[str, Any]) -> bool:
         """Append one execution event to execution_order_events.
 
         Params
@@ -139,24 +139,23 @@ class ExecutionJournalSink:
         payload = dict(event or {})
         try:
             conn = self._connect()
-            with conn:
-                with conn.cursor() as cur:
-                    cur.execute(sql, (
-                        _s(payload.get('sid')),
-                        _s(payload.get('symbol')),
-                        _first_text(payload, 'signal_id', 'decision_id', 'id'),
-                        _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
-                        _s(payload.get('event_type') or payload.get('action') or 'event'),
-                        _i(payload.get('ts_ms') or get_ny_time_millis()),
-                        json.dumps(payload, ensure_ascii=False, default=str),
-                    ))
+            with conn, conn.cursor() as cur:
+                cur.execute(sql, (
+                    _s(payload.get('sid')),
+                    _s(payload.get('symbol')),
+                    _first_text(payload, 'signal_id', 'decision_id', 'id'),
+                    _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
+                    _s(payload.get('event_type') or payload.get('action') or 'event'),
+                    _i(payload.get('ts_ms') or get_ny_time_millis()),
+                    json.dumps(payload, ensure_ascii=False, default=str),
+                ))
             return True
         except Exception:
             if TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL:
                 TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL.labels(kind='event').inc()
             return False
 
-    def upsert_order_snapshot(self, state: Dict[str, Any]) -> bool:
+    def upsert_order_snapshot(self, state: dict[str, Any]) -> bool:
         """Upsert the current order state snapshot into execution_orders.
 
         Called on every FSM state transition so the table always reflects
@@ -187,38 +186,37 @@ class ExecutionJournalSink:
         now_ms = _i(doc.get('ts_ms') or get_ny_time_millis())
         try:
             conn = self._connect()
-            with conn:
-                with conn.cursor() as cur:
-                    cur.execute(sql, (
-                        _s(doc.get('sid')),
-                        _s(doc.get('symbol')),
-                        _s(doc.get('action')),
-                        _s(doc.get('status')),
-                        _s(doc.get('fsm_state')),
-                        _s(doc.get('execution_policy')),
-                        # entry_policy fallback to execution_policy for pre-P5 rows
-                        _s(doc.get('entry_policy') or doc.get('execution_policy')),
-                        _s(doc.get('exit_policy')),
-                        _first_text(doc, 'signal_id', 'decision_id', 'id'),
-                        _first_text(doc, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
-                        _optional_text(doc.get('entry_order_ref')),
-                        _optional_text(doc.get('exit_order_ref')),
-                        _optional_text(doc.get('closed_trade_id')),
-                        _s(doc.get('venue') or 'binance'),
-                        _s(doc.get('position_mode')),
-                        _s(doc.get('position_side')),
-                        _s(doc.get('working_type_policy')),
-                        json.dumps(doc, ensure_ascii=False, default=str),
-                        _i(doc.get('created_at_ms') or now_ms),
-                        _i(doc.get('updated_at_ms') or now_ms),
-                    ))
+            with conn, conn.cursor() as cur:
+                cur.execute(sql, (
+                    _s(doc.get('sid')),
+                    _s(doc.get('symbol')),
+                    _s(doc.get('action')),
+                    _s(doc.get('status')),
+                    _s(doc.get('fsm_state')),
+                    _s(doc.get('execution_policy')),
+                    # entry_policy fallback to execution_policy for pre-P5 rows
+                    _s(doc.get('entry_policy') or doc.get('execution_policy')),
+                    _s(doc.get('exit_policy')),
+                    _first_text(doc, 'signal_id', 'decision_id', 'id'),
+                    _first_text(doc, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
+                    _optional_text(doc.get('entry_order_ref')),
+                    _optional_text(doc.get('exit_order_ref')),
+                    _optional_text(doc.get('closed_trade_id')),
+                    _s(doc.get('venue') or 'binance'),
+                    _s(doc.get('position_mode')),
+                    _s(doc.get('position_side')),
+                    _s(doc.get('working_type_policy')),
+                    json.dumps(doc, ensure_ascii=False, default=str),
+                    _i(doc.get('created_at_ms') or now_ms),
+                    _i(doc.get('updated_at_ms') or now_ms),
+                ))
             return True
         except Exception:
             if TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL:
                 TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL.labels(kind='order_snapshot').inc()
             return False
 
-    def upsert_protection_refs(self, state: Dict[str, Any]) -> bool:
+    def upsert_protection_refs(self, state: dict[str, Any]) -> bool:
         """Upsert SL/TP/trail algo IDs into execution_protection_refs.
 
         Called together with upsert_order_snapshot whenever order state is saved.
@@ -244,27 +242,26 @@ class ExecutionJournalSink:
         s = state or {}
         try:
             conn = self._connect()
-            with conn:
-                with conn.cursor() as cur:
-                    cur.execute(sql, (
-                        sid,
-                        _s(s.get('symbol')),
-                        s.get('sl_algo_id'),
-                        _optional_text(s.get('sl_client_algo_id')),
-                        s.get('tp1_algo_id'),
-                        s.get('tp2_algo_id'),
-                        s.get('tp3_algo_id'),
-                        s.get('trail_algo_id'),
-                        _optional_text(s.get('trail_client_algo_id')),
-                        _i(s.get('updated_at_ms') or get_ny_time_millis()),
-                    ))
+            with conn, conn.cursor() as cur:
+                cur.execute(sql, (
+                    sid,
+                    _s(s.get('symbol')),
+                    s.get('sl_algo_id'),
+                    _optional_text(s.get('sl_client_algo_id')),
+                    s.get('tp1_algo_id'),
+                    s.get('tp2_algo_id'),
+                    s.get('tp3_algo_id'),
+                    s.get('trail_algo_id'),
+                    _optional_text(s.get('trail_client_algo_id')),
+                    _i(s.get('updated_at_ms') or get_ny_time_millis()),
+                ))
             return True
         except Exception:
             if TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL:
                 TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL.labels(kind='protection_refs').inc()
             return False
 
-    def record_watchdog_event(self, event: Dict[str, Any]) -> bool:
+    def record_watchdog_event(self, event: dict[str, Any]) -> bool:
         """Append one TP watchdog state event to execution_watchdog_events (P5).
 
         Called from _emit_tp_state() in the executor for durable forensic audit.
@@ -280,19 +277,18 @@ class ExecutionJournalSink:
         payload = dict(event or {})
         try:
             conn = self._connect()
-            with conn:
-                with conn.cursor() as cur:
-                    cur.execute(sql, (
-                        _s(payload.get('sid')),
-                        _s(payload.get('symbol')),
-                        _first_text(payload, 'signal_id', 'decision_id', 'id'),
-                        _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
-                        payload.get('tp_level'),
-                        _s(payload.get('tp_state') or payload.get('watchdog_state') or ''),
-                        _s(payload.get('event_type') or 'watchdog'),
-                        _i(payload.get('ts_ms') or get_ny_time_millis()),
-                        json.dumps(payload, ensure_ascii=False, default=str),
-                    ))
+            with conn, conn.cursor() as cur:
+                cur.execute(sql, (
+                    _s(payload.get('sid')),
+                    _s(payload.get('symbol')),
+                    _first_text(payload, 'signal_id', 'decision_id', 'id'),
+                    _first_text(payload, 'execution_plan_id', 'decision_id', 'signal_id', 'id'),
+                    payload.get('tp_level'),
+                    _s(payload.get('tp_state') or payload.get('watchdog_state') or ''),
+                    _s(payload.get('event_type') or 'watchdog'),
+                    _i(payload.get('ts_ms') or get_ny_time_millis()),
+                    json.dumps(payload, ensure_ascii=False, default=str),
+                ))
             return True
         except Exception:
             if TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL:

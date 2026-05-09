@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 from unittest.mock import MagicMock
 
 # Add project root to path
@@ -7,9 +7,10 @@ sys.path.append(os.path.abspath("python-worker"))
 
 from core.of_confirm_engine import OFConfirmEngine
 
+
 def test_score_breakdown_export():
     engine = OFConfirmEngine()
-    
+
     # Mock runtime and config
     runtime = MagicMock()
     runtime.liq_regime = "normal"
@@ -20,7 +21,7 @@ def test_score_breakdown_export():
         "w_ofi": 0.4,
         "w_fp_edge": 0.4
     }
-    
+
     # Fake indicators
     indicators = {
         "spread_bps": 5.0,
@@ -29,12 +30,12 @@ def test_score_breakdown_export():
         "fp_edge_score": 0.6,
         "liq_regime": "normal"
     }
-    
+
     # Mocking _clamp01 as it is local in of_confirm_engine.py
     # We rely on the actual implementation since we import the file.
-    
+
     evidence = {}
-    
+
     # In of_confirm_engine.py: build(self, *, symbol, tf, direction, tick_ts_ms, price, delta_z, runtime, cfg, indicators, absorption=None)
     final_score, _ = engine.build(
         symbol="BTCUSDT",
@@ -47,29 +48,29 @@ def test_score_breakdown_export():
         cfg=cfg,
         indicators=indicators
     )
-    
+
     print(f"Final Score: {final_score}")
     print(f"Indicators after build: {list(indicators.keys())}")
-    
+
     # Check new indicators
     assert "exec_risk_norm" in indicators
     assert "exec_risk_ref_bps" in indicators
     assert "exec_pen" in indicators
     assert "score_breakdown" in indicators
-    
+
     breakdown = indicators["score_breakdown"]
     print(f"Breakdown: {breakdown}")
-    
+
     assert isinstance(breakdown, dict)
     assert "ofi" in breakdown["contrib"]
     assert "fp_edge" in breakdown["contrib"]
     assert "exec_risk_penalty" in breakdown["contrib"]
-    
+
     # Check evidence enrichment within the returned object
     assert hasattr(final_score, "evidence")
     assert "score_breakdown" in final_score.evidence
     assert final_score.evidence["score_breakdown"] == breakdown
-    
+
     print("Verification SUCCESS: score_breakdown correctly exported and formatted.")
 
 if __name__ == "__main__":

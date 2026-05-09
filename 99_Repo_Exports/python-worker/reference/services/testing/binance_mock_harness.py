@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Deterministic Binance mock harness for executor/user-stream integration tests.
@@ -7,15 +8,16 @@ This module intentionally uses only the stdlib so it can run inside the same
 minimal test environment as the production bundle.
 """
 
+import json
+import time
+import urllib.parse
 from collections import defaultdict, deque
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock, Thread
-from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
-import json
-import time
-import urllib.parse
+from typing import Any
 
 
 def _ms_now() -> int:
@@ -29,9 +31,9 @@ def _ms_now() -> int:
 class InMemoryPipeline:
     """Minimal pipeline stub that buffers ops and executes them in order."""
 
-    def __init__(self, redis: "InMemoryRedis") -> None:
+    def __init__(self, redis: InMemoryRedis) -> None:
         self.redis = redis
-        self.ops: List[Tuple[str, tuple, dict]] = []
+        self.ops: list[tuple[str, tuple, dict]] = []
 
     def set(self, *args, **kwargs):
         self.ops.append(("set", args, kwargs))
@@ -65,10 +67,10 @@ class InMemoryRedis:
     """
 
     def __init__(self) -> None:
-        self.kv: Dict[str, str] = {}
-        self.lists: Dict[str, List[str]] = defaultdict(list)
-        self.streams: Dict[str, List[Tuple[str, Dict[str, str]]]] = defaultdict(list)
-        self.sets: Dict[str, set] = defaultdict(set)
+        self.kv: dict[str, str] = {}
+        self.lists: dict[str, list[str]] = defaultdict(list)
+        self.streams: dict[str, list[tuple[str, dict[str, str]]]] = defaultdict(list)
+        self.sets: dict[str, set] = defaultdict(set)
         self._lock = Lock()
         self._stream_seq = 0
 
@@ -79,7 +81,7 @@ class InMemoryRedis:
         with self._lock:
             return self.kv.get(key)
 
-    def set(self, key: str, value: str, ex: Optional[int] = None):
+    def set(self, key: str, value: str, ex: int | None = None):
         with self._lock:
             self.kv[key] = value
             return True
@@ -152,7 +154,7 @@ class InMemoryRedis:
                 return None
             time.sleep(0.01)
 
-    def xadd(self, key: str, fields: Dict[str, Any], maxlen: Optional[int] = None, approximate: bool = True):
+    def xadd(self, key: str, fields: dict[str, Any], maxlen: int | None = None, approximate: bool = True):
         with self._lock:
             self._stream_seq += 1
             msg_id = f"{_ms_now()}-{self._stream_seq}"
@@ -186,7 +188,7 @@ class ScriptedOrder:
     avg_price: float = 0.0
     executed_qty: float = 0.0
     # Script: list of query-response snapshots consumed in sequence
-    script: List[Dict[str, Any]] = field(default_factory=list)
+    script: list[dict[str, Any]] = field(default_factory=list)
     query_index: int = 0
     # Delta tracking to avoid double-applying position changes
     applied_qty: float = 0.0
@@ -228,46 +230,46 @@ class MockBinanceState:
 
     def __init__(self) -> None:
         self.available_balance = 5000.0
-        self.mark_prices: Dict[str, float] = {"BTCUSDT": 100.0}
-        self.contract_prices: Dict[str, float] = {"BTCUSDT": 100.0}
-        self.positions: Dict[str, float] = defaultdict(float)
-        self.leverage: Dict[str, int] = defaultdict(lambda: 10)
-        self.margin_type: Dict[str, str] = defaultdict(lambda: "ISOLATED")
+        self.mark_prices: dict[str, float] = {"BTCUSDT": 100.0}
+        self.contract_prices: dict[str, float] = {"BTCUSDT": 100.0}
+        self.positions: dict[str, float] = defaultdict(float)
+        self.leverage: dict[str, int] = defaultdict(lambda: 10)
+        self.margin_type: dict[str, str] = defaultdict(lambda: "ISOLATED")
         self.listen_key = "mock-listen-key"
         self.next_order_id = 1000
         self.next_algo_id = 5000
         # Full request log for assertion in tests
-        self.request_log: List[Dict[str, Any]] = []
+        self.request_log: list[dict[str, Any]] = []
         # User-stream events emitted by order fills / algo triggers
-        self.user_stream_events: Deque[str] = deque()
-        self.plain_orders: Dict[int, ScriptedOrder] = {}
-        self.plain_order_by_client: Dict[str, int] = {}
-        self.algo_orders: Dict[int, ScriptedAlgoOrder] = {}
-        self.algo_order_by_client: Dict[str, int] = {}
+        self.user_stream_events: deque[str] = deque()
+        self.plain_orders: dict[int, ScriptedOrder] = {}
+        self.plain_order_by_client: dict[str, int] = {}
+        self.algo_orders: dict[int, ScriptedAlgoOrder] = {}
+        self.algo_order_by_client: dict[str, int] = {}
         # Per-clientOrderId scripted behaviour (error injection, fill sequences)
-        self.order_scripts: Dict[str, Dict[str, Any]] = {}
+        self.order_scripts: dict[str, dict[str, Any]] = {}
         # Per-clientAlgoId error injection
-        self.algo_errors: Dict[str, Dict[str, Any]] = {}
+        self.algo_errors: dict[str, dict[str, Any]] = {}
         # Per-(method, path) HTTP fault injection queue (entries consumed one-by-one)
-        self.http_faults: Dict[Tuple[str, str], Deque[Dict[str, Any]]] = defaultdict(deque)
+        self.http_faults: dict[tuple[str, str], deque[dict[str, Any]]] = defaultdict(deque)
         # Live user-stream sinks: callables that receive raw JSON strings synchronously
-        self.user_stream_sinks: List[Callable[[str], None]] = []
+        self.user_stream_sinks: list[Callable[[str], None]] = []
         self._lock = Lock()
 
     # --- Test control helpers ---
 
     def set_mark_price(self, symbol: str, price: float) -> None:
-        self.mark_prices[str(symbol).upper()] = float(price)
+        self.mark_prices[symbol.upper()] = float(price)
 
     def set_contract_price(self, symbol: str, price: float) -> None:
-        self.contract_prices[str(symbol).upper()] = float(price)
+        self.contract_prices[symbol.upper()] = float(price)
 
     def set_plain_order_script(
         self,
         client_order_id: str,
         *,
-        query_sequence: Optional[List[Dict[str, Any]]] = None,
-        post_error: Optional[Dict[str, Any]] = None,
+        query_sequence: list[dict[str, Any]] | None = None,
+        post_error: dict[str, Any] | None = None,
         create_on_post_error: bool = True,
     ) -> None:
         """Script the REST behaviour for client_order_id.
@@ -283,11 +285,11 @@ class MockBinanceState:
             "create_on_post_error": bool(create_on_post_error),
         }
 
-    def set_algo_error(self, client_algo_id: str, *, status: int, payload: Dict[str, Any]) -> None:
+    def set_algo_error(self, client_algo_id: str, *, status: int, payload: dict[str, Any]) -> None:
         """Make POST /fapi/v1/algoOrder return an error for client_algo_id."""
         self.algo_errors[str(client_algo_id)] = {"status": int(status), "payload": dict(payload)}
 
-    def pop_user_stream_messages(self) -> List[str]:
+    def pop_user_stream_messages(self) -> list[str]:
         """Drain and return all queued user-stream event payloads (raw JSON strings)."""
         out = []
         while self.user_stream_events:
@@ -310,7 +312,7 @@ class MockBinanceState:
         path: str,
         *,
         status: int,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         repeat: int = 1,
     ) -> None:
         """Queue `repeat` HTTP fault responses for (method, path).
@@ -319,11 +321,11 @@ class MockBinanceState:
         instead of the normal mock response.  Faults are consumed one-by-one
         in FIFO order and removed when exhausted.
         """
-        key = (str(method or 'GET').upper(), str(path or '').split('?', 1)[0])
+        key = ((method or 'GET').upper(), (path or '').split('?', 1)[0])
         for _ in range(max(1, int(repeat))):
             self.http_faults[key].append({"status": int(status), "payload": dict(payload)})
 
-    def _publish_user_stream_payload(self, payload: Dict[str, Any]) -> None:
+    def _publish_user_stream_payload(self, payload: dict[str, Any]) -> None:
         """Append event to queue and synchronously notify all registered sinks."""
         raw = json.dumps(payload, ensure_ascii=False)
         self.user_stream_events.append(raw)
@@ -336,7 +338,7 @@ class MockBinanceState:
     # --- Internal event emitters ---
 
     def _emit_order_update(
-        self, order: ScriptedOrder, execution_type: str, *, event_time_ms: Optional[int] = None
+        self, order: ScriptedOrder, execution_type: str, *, event_time_ms: int | None = None
     ) -> None:
         payload = {
             "e": "ORDER_TRADE_UPDATE",
@@ -356,7 +358,7 @@ class MockBinanceState:
         self._publish_user_stream_payload(payload)
 
     def _emit_algo_update(
-        self, algo: ScriptedAlgoOrder, execution_type: str, *, event_time_ms: Optional[int] = None
+        self, algo: ScriptedAlgoOrder, execution_type: str, *, event_time_ms: int | None = None
     ) -> None:
         payload = {
             "e": "ALGO_UPDATE",
@@ -375,21 +377,21 @@ class MockBinanceState:
     def inject_plain_order_update(
         self,
         *,
-        client_order_id: Optional[str] = None,
-        order_id: Optional[int] = None,
+        client_order_id: str | None = None,
+        order_id: int | None = None,
         status: str,
-        executed_qty: Optional[float] = None,
-        avg_price: Optional[float] = None,
+        executed_qty: float | None = None,
+        avg_price: float | None = None,
         execution_type: str = "TRADE",
-        event_time_ms: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        event_time_ms: int | None = None,
+    ) -> dict[str, Any]:
         """Manually inject a plain order update event into the user-stream.
 
         Looks up an existing ScriptedOrder by order_id or client_order_id,
         applies state mutation, and publishes the event to all registered sinks.
         Returns a REST-like snapshot dict for assertion convenience.
         """
-        order: Optional[ScriptedOrder] = None
+        order: ScriptedOrder | None = None
         if order_id is not None:
             order = self.plain_orders.get(int(order_id))
         elif client_order_id:
@@ -419,17 +421,17 @@ class MockBinanceState:
     def inject_algo_update(
         self,
         *,
-        client_algo_id: Optional[str] = None,
-        algo_id: Optional[int] = None,
+        client_algo_id: str | None = None,
+        algo_id: int | None = None,
         status: str,
         execution_type: str = "TRIGGERED",
-        event_time_ms: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        event_time_ms: int | None = None,
+    ) -> dict[str, Any]:
         """Manually inject an algo order update event into the user-stream.
 
         Returns a REST-like snapshot dict for assertion convenience.
         """
-        algo: Optional[ScriptedAlgoOrder] = None
+        algo: ScriptedAlgoOrder | None = None
         if algo_id is not None:
             algo = self.algo_orders.get(int(algo_id))
         elif client_algo_id:
@@ -446,7 +448,7 @@ class MockBinanceState:
             "status": algo.status,
         }
 
-    def _record(self, method: str, path: str, params: Dict[str, Any]) -> None:
+    def _record(self, method: str, path: str, params: dict[str, Any]) -> None:
         self.request_log.append({"method": method, "path": path, "params": dict(params)})
 
     def _json_response(self, handler: BaseHTTPRequestHandler, code: int, payload: Any) -> None:
@@ -459,7 +461,7 @@ class MockBinanceState:
 
     # --- Exchange model helpers ---
 
-    def _exchange_info(self) -> Dict[str, Any]:
+    def _exchange_info(self) -> dict[str, Any]:
         """Minimal exchangeInfo for BTCUSDT — sufficient for FiltersCache.get()."""
         return {
             "symbols": [
@@ -476,7 +478,7 @@ class MockBinanceState:
             ]
         }
 
-    def _position_risk(self, symbol: str) -> List[Dict[str, Any]]:
+    def _position_risk(self, symbol: str) -> list[dict[str, Any]]:
         amt = float(self.positions.get(symbol, 0.0))
         return [{
             "symbol": symbol,
@@ -500,15 +502,15 @@ class MockBinanceState:
                 next_qty = min(0.0, next_qty)
         self.positions[symbol] = next_qty
 
-    def _new_order(self, params: Dict[str, Any]) -> ScriptedOrder:
+    def _new_order(self, params: dict[str, Any]) -> ScriptedOrder:
         self.next_order_id += 1
         order_id = self.next_order_id
         client_id = str(params.get("newClientOrderId") or f"cid-{order_id}")
-        symbol = str(params.get("symbol") or "").upper()
-        side = str(params.get("side") or "BUY").upper()
-        order_type = str(params.get("type") or "MARKET").upper()
+        symbol = (params.get("symbol") or "").upper()
+        side = (params.get("side") or "BUY").upper()
+        order_type = (params.get("type") or "MARKET").upper()
         quantity = float(params.get("quantity") or 0.0)
-        reduce_only = str(params.get("reduceOnly") or "false").lower() == "true"
+        reduce_only = (params.get("reduceOnly") or "false").lower() == "true"
         script_cfg = self.order_scripts.get(client_id, {})
         query_sequence = [dict(x) for x in script_cfg.get("query_sequence") or []]
         order = ScriptedOrder(
@@ -534,30 +536,30 @@ class MockBinanceState:
         self.plain_order_by_client[client_id] = order_id
         return order
 
-    def _new_algo_order(self, params: Dict[str, Any]) -> ScriptedAlgoOrder:
+    def _new_algo_order(self, params: dict[str, Any]) -> ScriptedAlgoOrder:
         self.next_algo_id += 1
         algo_id = self.next_algo_id
         client_id = str(params.get("clientAlgoId") or f"algo-{algo_id}")
-        symbol = str(params.get("symbol") or "").upper()
+        symbol = (params.get("symbol") or "").upper()
         algo = ScriptedAlgoOrder(
             algo_id=algo_id,
             client_algo_id=client_id,
             symbol=symbol,
-            side=str(params.get("side") or "SELL").upper(),
-            order_type=str(params.get("type") or "STOP_MARKET").upper(),
+            side=(params.get("side") or "SELL").upper(),
+            order_type=(params.get("type") or "STOP_MARKET").upper(),
             quantity=float(params.get("quantity") or 0.0),
             trigger_price=float(params.get("triggerPrice") or 0.0),
-            working_type=str(params.get("workingType") or "MARK_PRICE").upper(),
+            working_type=(params.get("workingType") or "MARK_PRICE").upper(),
             price=float(params.get("price") or 0.0),
-            reduce_only=str(params.get("reduceOnly") or "false").lower() == "true",
-            close_position=str(params.get("closePosition") or "false").lower() == "true",
+            reduce_only=(params.get("reduceOnly") or "false").lower() == "true",
+            close_position=(params.get("closePosition") or "false").lower() == "true",
         )
         self.algo_orders[algo_id] = algo
         self.algo_order_by_client[client_id] = algo_id
         self._emit_algo_update(algo, execution_type="NEW")
         return algo
 
-    def _query_plain_order(self, order: ScriptedOrder) -> Dict[str, Any]:
+    def _query_plain_order(self, order: ScriptedOrder) -> dict[str, Any]:
         """Advance the scripted query sequence and return the current snapshot."""
         seq = order.script
         if seq:
@@ -576,7 +578,7 @@ class MockBinanceState:
                 order.applied_qty += delta
                 self._emit_order_update(order, execution_type="TRADE")
             elif snapshot.get("emit", False):
-                self._emit_order_update(order, execution_type=str(snapshot.get("executionType") or "TRADE"))
+                self._emit_order_update(order, execution_type=(snapshot.get("executionType") or "TRADE"))
         return {
             "symbol": order.symbol,
             "orderId": order.order_id,
@@ -590,13 +592,13 @@ class MockBinanceState:
 
     # --- Main dispatch ---
 
-    def handle(self, handler: BaseHTTPRequestHandler, method: str, path: str, params: Dict[str, Any]) -> None:
+    def handle(self, handler: BaseHTTPRequestHandler, method: str, path: str, params: dict[str, Any]) -> None:
         """Route an HTTP request to the appropriate mock handler."""
         path = path.split("?", 1)[0]
         with self._lock:
             self._record(method, path, params)
             # Consume HTTP fault injection (FIFO): checked before any real handler
-            fault_key = (str(method or "GET").upper(), path)
+            fault_key = ((method or "GET").upper(), path)
             fault_queue = self.http_faults.get(fault_key)
             if fault_queue:
                 fault = fault_queue.popleft()
@@ -612,22 +614,22 @@ class MockBinanceState:
 
             # Market data
             if path == "/fapi/v1/premiumIndex":
-                symbol = str(params.get("symbol") or "BTCUSDT").upper()
+                symbol = (params.get("symbol") or "BTCUSDT").upper()
                 return self._json_response(handler, 200, {"symbol": symbol, "markPrice": f"{self.mark_prices.get(symbol, 100.0)}"})
             if path == "/fapi/v1/ticker/price":
-                symbol = str(params.get("symbol") or "BTCUSDT").upper()
+                symbol = (params.get("symbol") or "BTCUSDT").upper()
                 return self._json_response(handler, 200, {"symbol": symbol, "price": f"{self.contract_prices.get(symbol, 100.0)}"})
 
             # Account
             if path == "/fapi/v2/account":
                 return self._json_response(handler, 200, {"availableBalance": f"{self.available_balance}"})
             if path == "/fapi/v2/positionRisk":
-                symbol = str(params.get("symbol") or "BTCUSDT").upper()
+                symbol = (params.get("symbol") or "BTCUSDT").upper()
                 return self._json_response(handler, 200, self._position_risk(symbol))
 
             # Open orders
             if path == "/fapi/v1/openOrders":
-                symbol = str(params.get("symbol") or "BTCUSDT").upper()
+                symbol = (params.get("symbol") or "BTCUSDT").upper()
                 items = [
                     {
                         "symbol": o.symbol,
@@ -641,7 +643,7 @@ class MockBinanceState:
                 ]
                 return self._json_response(handler, 200, items)
             if path == "/fapi/v1/openAlgoOrders":
-                symbol = str(params.get("symbol") or "BTCUSDT").upper()
+                symbol = (params.get("symbol") or "BTCUSDT").upper()
                 items = [
                     {
                         "symbol": a.symbol,
@@ -658,12 +660,12 @@ class MockBinanceState:
 
             # Leverage / margin
             if path == "/fapi/v1/leverage" and method == "POST":
-                symbol = str(params.get("symbol") or "BTCUSDT").upper()
+                symbol = (params.get("symbol") or "BTCUSDT").upper()
                 self.leverage[symbol] = int(float(params.get("leverage") or 10))
                 return self._json_response(handler, 200, {"symbol": symbol, "leverage": self.leverage[symbol]})
             if path == "/fapi/v1/marginType" and method == "POST":
-                symbol = str(params.get("symbol") or "BTCUSDT").upper()
-                self.margin_type[symbol] = str(params.get("marginType") or "ISOLATED").upper()
+                symbol = (params.get("symbol") or "BTCUSDT").upper()
+                self.margin_type[symbol] = (params.get("marginType") or "ISOLATED").upper()
                 return self._json_response(handler, 200, {"symbol": symbol, "marginType": self.margin_type[symbol]})
 
             # ListenKey lifecycle
@@ -692,7 +694,7 @@ class MockBinanceState:
                 })
 
             if path == "/fapi/v1/algoOrder" and method == "POST":
-                client_algo_id = str(params.get("clientAlgoId") or "")
+                client_algo_id = (params.get("clientAlgoId") or "")
                 if client_algo_id in self.algo_errors:
                     err = self.algo_errors[client_algo_id]
                     return self._json_response(handler, err["status"], err["payload"])
@@ -761,7 +763,7 @@ class MockBinanceState:
 
             # Batch-cancel plain orders for symbol
             if path == "/fapi/v1/allOpenOrders" and method == "DELETE":
-                symbol = str(params.get("symbol") or "BTCUSDT").upper()
+                symbol = (params.get("symbol") or "BTCUSDT").upper()
                 for order in self.plain_orders.values():
                     if order.symbol == symbol and order.status not in {"CANCELED", "FILLED", "REJECTED", "EXPIRED"}:
                         order.status = "CANCELED"
@@ -770,7 +772,7 @@ class MockBinanceState:
 
             # Batch-cancel algo orders for symbol
             if path == "/fapi/v1/algoOpenOrders" and method == "DELETE":
-                symbol = str(params.get("symbol") or "BTCUSDT").upper()
+                symbol = (params.get("symbol") or "BTCUSDT").upper()
                 for algo in self.algo_orders.values():
                     if algo.symbol == symbol and algo.status not in {"CANCELED", "FILLED", "REJECTED", "EXPIRED"}:
                         algo.status = "CANCELED"
@@ -793,10 +795,10 @@ class _Handler(BaseHTTPRequestHandler):
         # Suppress default HTTP server logging during tests
         return
 
-    def _params(self) -> Dict[str, Any]:
+    def _params(self) -> dict[str, Any]:
         """Parse query params from URL and (for POST/PUT/DELETE) from body."""
         parsed = urllib.parse.urlsplit(self.path)
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         for k, vs in urllib.parse.parse_qs(parsed.query, keep_blank_values=True).items():
             params[k] = vs[-1]
         if self.command in {"POST", "PUT", "DELETE"}:
@@ -841,7 +843,7 @@ class DeterministicBinanceMockServer:
         self._thread = Thread(target=self._server.serve_forever, daemon=True)
         self.base_url = f"http://127.0.0.1:{self._server.server_address[1]}"
 
-    def start(self) -> "DeterministicBinanceMockServer":
+    def start(self) -> DeterministicBinanceMockServer:
         self._thread.start()
         return self
 

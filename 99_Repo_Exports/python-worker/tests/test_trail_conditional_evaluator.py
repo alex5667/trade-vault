@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+
 from handlers.crypto_orderflow.utils.trail_conditional import TrailConditionalEvaluator
 
 

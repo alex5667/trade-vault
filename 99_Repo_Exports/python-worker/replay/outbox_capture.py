@@ -7,14 +7,14 @@ Replay runner uses it to collect emitted signals deterministically without Redis
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 
 @dataclass
 class OutboxCapture:
-    items: List[Dict[str, Any]] = field(default_factory=list)
+    items: list[dict[str, Any]] = field(default_factory=list)
 
-    def publish(self, payload: Dict[str, Any]) -> None:
+    def publish(self, payload: dict[str, Any]) -> None:
         # store a shallow copy to avoid later mutations affecting history
         self.items.append(dict(payload))
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """A5: flags + sessions helpers.
 
 Design goals:
@@ -13,8 +14,7 @@ This module is used by tick_processor to:
 
 
 import math
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from core.feature_engineering import derive_session_label
 
@@ -43,7 +43,7 @@ def update_time_ema(
     prev_ts_ms: int,
     ts_ms: int,
     tau_ms: int,
-) -> Tuple[float, int, bool]:
+) -> tuple[float, int, bool]:
     """Update EMA using timestamps.
 
     Returns: (new_ema, new_ts_ms, bad_time)
@@ -70,7 +70,7 @@ def update_time_ema(
     return float(new_ema), int(ts_ms), False
 
 
-def session_onehot(ts_ms: int, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
+def session_onehot(ts_ms: int, cfg: dict[str, Any] | None = None) -> dict[str, int]:
     """Return session one-hot: session_asia/eu/us/off (sum==1)."""
 
     label = derive_session_label(ts_ms, cfg=cfg)
@@ -88,8 +88,8 @@ def session_open_close_flags(
     ts_ms: int,
     *,
     edge_window_ms: int = 300_000,
-    cfg: Optional[Dict[str, Any]] = None,
-) -> Dict[str, int]:
+    cfg: dict[str, Any] | None = None,
+) -> dict[str, int]:
     """Flags for session edges.
 
     Uses the same session boundaries as derive_session_label (UTC):
@@ -128,12 +128,12 @@ def compute_a5_flags(
     *,
     ts_ms: int,
     qty: float,
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     trade_qty_ema: float,
     depth_total10: float,
     depth_total10_ema: float,
-    cfg: Optional[Dict[str, Any]] = None,
-) -> Dict[str, int]:
+    cfg: dict[str, Any] | None = None,
+) -> dict[str, int]:
     """Compute A5 flags as 0/1.
 
     Inputs:
@@ -143,7 +143,7 @@ def compute_a5_flags(
     """
 
     cfg = cfg or {}
-    out: Dict[str, int] = {}
+    out: dict[str, int] = {}
 
     # high volatility
     high_vol_z_th = float(cfg.get("a5_high_vol_z_th", 2.0) or 2.0)

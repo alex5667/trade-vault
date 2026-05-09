@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Trailing Edge Analyzer - мини-анализатор pnl_if_fixed_exit vs pnl_net (edge трейлинга).
 
@@ -11,19 +12,16 @@ Trailing Edge Analyzer - мини-анализатор pnl_if_fixed_exit vs pnl_
 Интегрирован в PeriodicReporter для автоматической отправки отчетов в Telegram.
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import time
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 import redis
 
 from analytics.tag_stats import Trade
 from common.log import setup_logger
-from services.trade_closed_hydrator import hydrate_trade_closed_batch
 from domain.normalizers import canon_source, canon_symbol
 from services.trade_closed_hydrator import hydrate_trade_closed_batch
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("TrailingEdgeAnalyzer")
 
@@ -43,12 +41,12 @@ class Trade:
     trail_profile: str = ""
 
 
-def _norm_map(m: Dict[str, Any]) -> Dict[str, str]:
+def _norm_map(m: dict[str, Any]) -> dict[str, str]:
     """
     Нормализатор входа из Redis stream/hash.
     В проекте decode_responses=True, но на всякий случай приводим всё к str.
     """
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for k, v in (m or {}).items():
         if v is None:
             continue
@@ -59,19 +57,19 @@ def _norm_map(m: Dict[str, Any]) -> Dict[str, str]:
 def _si(v: Any, default: int = 0) -> int:
     try:
         if v is None:
-            return int(default)
+            return default
         return int(float(str(v).strip()))
     except Exception:
-        return int(default)
+        return default
 
 
 def _sf(v: Any, default: float = 0.0) -> float:
     try:
         if v is None:
-            return float(default)
+            return default
         return float(str(v).strip())
     except Exception:
-        return float(default)
+        return default
 
 
 def _sb(v: Any) -> bool:
@@ -79,11 +77,11 @@ def _sb(v: Any) -> bool:
     bool из Redis:
       '1'/'0', 'true'/'false', 'True'/'False'
     """
-    s = str(v or "").strip().lower()
+    s = (v or "").strip().lower()
     return s in ("1", "true", "yes", "y", "on")
 
 
-def _build_trade_from_fields(fields: Dict[str, str]) -> Optional[Trade]:
+def _build_trade_from_fields(fields: dict[str, str]) -> Trade | None:
     """
     Строит Trade из ПЛОСКОГО dict.
     Важно: fields уже должен быть "гидрирован" (если stream compact/частичный).
@@ -94,7 +92,7 @@ def _build_trade_from_fields(fields: Dict[str, str]) -> Optional[Trade]:
     if exit_ts <= 0:
         return None
 
-    tprof = str(fields.get("trailing_profile") or "")
+    tprof = (fields.get("trailing_profile") or "")
     aprof = str(fields.get("trail_profile") or tprof or "")
     if not tprof and aprof:
         tprof = aprof
@@ -105,20 +103,20 @@ def _build_trade_from_fields(fields: Dict[str, str]) -> Optional[Trade]:
     # 2. OR explicit profile is set
     # 3. OR movements > 0
     # 4. OR close reason bucket is TRAIL_SL (normalization already done externally or needs doing here)
-    
+
     t_started = _sb(fields.get("trailing_started"))
     t_moves = _si(fields.get("trailing_moves_count") or fields.get("trailing_moves") or 0)
-    
+
     # Check close reason/bucket
     raw_cr = (fields.get("close_reason") or "").upper()
     bucket = (fields.get("close_bucket") or raw_cr).upper() # assume hydrated fields might have it
-    
+
     # Is it a trailing exit?
     is_trail_exit = (bucket == "TRAIL_SL") or ("TRAIL" in raw_cr)
-    
+
     trailing_started_final = (t_started) or (aprof != "") or (t_moves > 0) or (is_trail_exit)
     # Note: trailing_started might be True while is_trail_exit is False (e.g. SL hit before trail closed it)
-    
+
     pnl_net_val = _sf(fields.get("pnl_net") or 0.0, 0.0)
 
     return Trade(
@@ -127,8 +125,8 @@ def _build_trade_from_fields(fields: Dict[str, str]) -> Optional[Trade]:
         exit_ts_ms=exit_ts,
         pnl_net=pnl_net_val,
         close_reason=raw_cr,
-        close_reason_raw=str(fields.get("close_reason_raw") or ""),
-        close_reason_detail=str(fields.get("close_reason_detail") or ""),
+        close_reason_raw=(fields.get("close_reason_raw") or ""),
+        close_reason_detail=(fields.get("close_reason_detail") or ""),
         trailing_started=trailing_started_final,  # <--- UPDATED
         trailing_active=_sb(fields.get("trailing_active")),
         trailing_profile=tprof, # original field
@@ -206,7 +204,7 @@ class TrailingEdgeResult:
 
         return "\n".join(lines)
 
-    def generate_trailing_recommendation(self) -> Optional[Dict[str, Any]]:
+    def generate_trailing_recommendation(self) -> dict[str, Any] | None:
         """
         Генерирует рекомендации по настройке трейлинга на основе анализа.
 
@@ -324,8 +322,8 @@ class TrailingEdgeAnalyzer:
         source: str,
         symbol: str,
         limit: int = 200,
-        since_hours: Optional[int] = None
-    ) -> Optional[TrailingEdgeResult]:
+        since_hours: int | None = None
+    ) -> TrailingEdgeResult | None:
         """
         Анализирует последние N сделок для trailing edge анализа.
 
@@ -355,8 +353,8 @@ class TrailingEdgeAnalyzer:
         source: str,
         symbol: str,
         limit: int,
-        since_hours: Optional[int]
-    ) -> List[Trade]:
+        since_hours: int | None
+    ) -> list[Trade]:
         """
         Загружает сделки из Redis stream trades:closed.
 
@@ -372,7 +370,7 @@ class TrailingEdgeAnalyzer:
         entries = self.redis.xrevrange("trades:closed", max="+", min="-", count=max(10, limit * 4)) or []
 
         # 1) Сначала нормализуем stream-fields
-        raw_items: List[Dict[str, str]] = []
+        raw_items: list[dict[str, str]] = []
         for _msg_id, fields in entries:
             raw_items.append(_norm_map(fields or {}))
 
@@ -385,7 +383,7 @@ class TrailingEdgeAnalyzer:
         )
 
         # 3) Фильтруем по source/symbol и строим Trade объекты
-        trades: List[Trade] = []
+        trades: list[Trade] = []
         for fields in hydrated_items:
             t = _build_trade_from_fields(fields)
             if not t:
@@ -404,11 +402,11 @@ class TrailingEdgeAnalyzer:
 
     def _analyze_trades(
         self,
-        trades: List[Trade],
+        trades: list[Trade],
         source: str,
         symbol: str,
         limit: int,
-        since_hours: Optional[int]
+        since_hours: int | None
     ) -> TrailingEdgeResult:
         """Выполняет анализ trailing edge на списке сделок."""
 

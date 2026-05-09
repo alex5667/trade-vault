@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import os
 import time
-from typing import Any, Dict, Tuple, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -39,13 +40,13 @@ EXECUTOR_MODE = os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_VERTEX_
 
 POLL_INTERVAL_SEC = 5.0
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_vertex_governance_runs_total", "Runs", ("status", "decision"))
@@ -60,27 +61,27 @@ ACC_R = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_vertex_governance_
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
     }
 
-def calculate_rollups(feedbacks: List[Dict[str, Any]]) -> Dict[str, float]:
+def calculate_rollups(feedbacks: list[dict[str, Any]]) -> dict[str, float]:
     if not feedbacks:
         return {"avg_q": 0.0, "avg_u": 0.0, "acc_r": 0.0, "low_q": 0.0, "n": 0.0}
-        
+
     qs, us, accs, lqs = 0.0, 0.0, 0.0, 0.0
     for f in feedbacks:
         q = float(f.get("quality_score", "0"))
         u = float(f.get("usefulness_score", "0"))
         acc = int(f.get("accepted", "0"))
-        
+
         qs += q
         us += u
         accs += acc
         lqs += 1 if q < 0.5 else 0
-        
+
     n = len(feedbacks)
     return {
         "avg_q": qs / n,
@@ -90,14 +91,14 @@ def calculate_rollups(feedbacks: List[Dict[str, Any]]) -> Dict[str, float]:
         "n": n
     }
 
-def decide_governance(rollups: Dict[str, float], min_n: int, min_q: float, min_u: float, min_a: float, max_lq: float) -> str:
+def decide_governance(rollups: dict[str, float], min_n: int, min_q: float, min_u: float, min_a: float, max_lq: float) -> str:
     n = rollups["n"]
     if n < min_n:
         return "HOLD"
-        
+
     if rollups["avg_q"] < min_q or rollups["avg_u"] < min_u or rollups["acc_r"] < min_a or rollups["low_q"] > max_lq:
         return "PREFER_LOCAL_ONLY"
-        
+
     return "KEEP_AUTO"
 
 async def main() -> None:  # pragma: no cover
@@ -106,31 +107,31 @@ async def main() -> None:  # pragma: no cover
     start_http_server(PORT)
     if UP:
         UP.set(1)
-        
+
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    
+
     last_id = "0-0"
-    
+
     while True:
         started = time.perf_counter()
         status = "ok"
         decision = "HOLD"
-        
+
         try:
             # We don't block here typically, just poll
             # We fetch up to 100 recent feedback samples to govern
             hist = await r.xrevrange(FEEDBACK_STREAM, max="+", min="-", count=100)
-            
+
             feedbacks = [decode_dict(fields) for _, fields in hist] if hist else []
-            
+
             rollups = calculate_rollups(feedbacks)
-            
+
             if AVG_Q: AVG_Q.set(rollups["avg_q"])
             if AVG_U: AVG_U.set(rollups["avg_u"])
             if ACC_R: ACC_R.set(rollups["acc_r"])
-            
+
             decision = decide_governance(rollups, MIN_SAMPLES, MIN_AVG_QUALITY, MIN_AVG_USEFULNESS, MIN_ACCEPTED_RATE, MAX_LOW_QUALITY_RATE)
-            
+
             await r.xadd(ROLLUPS_STREAM, {
                 "avg_quality": str(rollups["avg_q"]),
                 "avg_usefulness": str(rollups["avg_u"]),
@@ -139,28 +140,28 @@ async def main() -> None:  # pragma: no cover
                 "n_samples": str(rollups["n"]),
                 "ts_ms": str(now_ms())
             }, maxlen=MAXLEN, approximate=True)
-            
+
             await r.xadd(DECISIONS_STREAM, {
                 "decision": decision,
                 "advisory": str(ADVISORY_ONLY),
                 "ts_ms": str(now_ms())
             }, maxlen=MAXLEN, approximate=True)
-            
+
             await r.hset(LAST_METRIC, "decision", decision)
             await r.hset(LAST_METRIC, "n_samples", str(rollups["n"]))
             await r.hset(LAST_METRIC, "ts_ms", str(now_ms()))
-                
+
             if LAST_RUN:
                 LAST_RUN.set(time.time())
-                
-        except Exception as exc:
+
+        except Exception:
             status = "error"
         finally:
             if RUNS:
                 RUNS.labels(status=status, decision=decision).inc()
             if LAT:
                 LAT.observe(max(time.perf_counter() - started, 0.0))
-                
+
             await asyncio.sleep(POLL_INTERVAL_SEC)
 
 if __name__ == "__main__":  # pragma: no cover

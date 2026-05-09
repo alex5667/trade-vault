@@ -5,8 +5,7 @@ All tests are pure (no DB, no Redis, no I/O).
 """
 
 
-from signal_quality.bucketing import _bin, make_feature_bucket, get_bucket_quality_description
-
+from signal_quality.bucketing import _bin, get_bucket_quality_description, make_feature_bucket
 
 # ──────────────────────────────────────────────
 # _bin helper

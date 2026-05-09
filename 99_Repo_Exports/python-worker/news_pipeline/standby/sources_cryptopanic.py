@@ -1,11 +1,14 @@
 # python-worker/news_pipeline/standby/sources_cryptopanic.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
+
 import json
-import time
 import urllib.parse
 import urllib.request
-from typing import Dict, Any, List, Iterable
+from collections.abc import Iterable
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+
 
 def fetch_cryptopanic(
     *,
@@ -18,8 +21,8 @@ def fetch_cryptopanic(
     region: str = "en",
     timeout: float = 10.0,
     user_agent: str = "trade-standby/1.0",
-) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     now_ms = get_ny_time_millis()
 
     # CryptoPanic принимает currencies как CSV (часто)
@@ -45,10 +48,10 @@ def fetch_cryptopanic(
         if not isinstance(r, dict):
             continue
 
-        title = str(r.get("title") or "").strip()
-        link = str(r.get("url") or "").strip()
-        published_at = str(r.get("published_at") or "").strip()
-        provider_id = str(r.get("id") or "").strip()  # в вашем Go это добавлено в UID
+        title = (r.get("title") or "").strip()
+        link = (r.get("url") or "").strip()
+        published_at = (r.get("published_at") or "").strip()
+        provider_id = (r.get("id") or "").strip()  # в вашем Go это добавлено в UID
 
         pub_ms = now_ms
         try:

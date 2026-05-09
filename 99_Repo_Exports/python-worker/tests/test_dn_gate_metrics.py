@@ -1,16 +1,17 @@
 
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 from services.orderflow.strategy import (
-    OrderFlowStrategy,
     OF_GATE_METRICS_STREAM,
+    OrderFlowStrategy,
 )
+from utils.time_utils import get_ny_time_millis
+
 
 class TestDNGateMetrics:
     """Tests for DN-Gate metrics emission on veto."""
@@ -73,7 +74,7 @@ class TestDNGateMetrics:
         runtime.hawkes_snapshot = {}
         runtime.book_churn_hi = 0
         runtime.book_churn_hi = 0
-        
+
         # Mock tick_dn_calib
         runtime.tick_dn_calib = MagicMock()
         class MockTiers:
@@ -105,7 +106,7 @@ class TestDNGateMetrics:
                  patch("services.orderflow.components.tick_processor.OF_GATE_METRICS_SAMPLE", 1.0), \
                  patch("services.orderflow.components.tick_processor._should_sample", return_value=True), \
                  patch("services.orderflow.components.tick_processor.sampled_warning") as mock_warning:
-                
+
                 tick_ts = get_ny_time_millis()
                 # Small delta ($500 * 0.1 = $50) vs Threshold $100,000
                 tick = {
@@ -114,11 +115,11 @@ class TestDNGateMetrics:
                     "delta_event": {"delta": 0.1, "z": 0.5},
                     "direction": "LONG" # Added direction hint for logic if needed, though usually inferred
                 }
-                
+
                 # Mock indicators to ensure we reach DN gate
-                # We need data_health to be OK so we don't return None earlier? 
+                # We need data_health to be OK so we don't return None earlier?
                 # Actually DN gate is after data health.
-                
+
                 # Ensure runtime.dynamic_cfg doesn't override with 0
                 runtime.dynamic_cfg = {}
                 # Set delta_tier_min to 1 to force Veto for tier 0
@@ -126,32 +127,32 @@ class TestDNGateMetrics:
                 runtime.heartbeat_counter = 0
                 runtime.tick_count = 1
                 runtime.config["delta_tier_min"] = 1
-                
+
                 # Mock absorption_detector to return None or something valid
                 strategy.request_absorption = MagicMock(return_value=None)
-                
-                # We need to make sure direction is determined. 
+
+                # We need to make sure direction is determined.
                 # Strategy determines direction from tick or args?
                 # process_tick(self, runtime, tick) -> direction logic is inside.
                 # It usually comes from tick side or aggression.
                 # Adding side to tick
                 tick["side"] = "BUY" # Implies LONG
-                
+
                 # Verify TickProcessor doesn't return None early
                 strategy.tick_processor._apply_tick_time_guard = AsyncMock(return_value={"tick_ts_ms": tick_ts, "decision": "ok"})
-                
+
                 await strategy.process_tick(runtime, tick)
-                
+
                 # Check that xadd was called
                 assert mock_redis.xadd.called, "Redis xadd should be called even on DN Veto"
-                
+
                 # Verify payload
                 call_args = mock_redis.xadd.call_args
                 assert call_args, "xadd not called"
                 args = call_args[0]
                 assert args[0] == OF_GATE_METRICS_STREAM
                 payload = args[1]
-                
+
                 assert payload["type"] == "of_gate"
                 assert payload["ok"] == "0"
                 # assert payload["reason"] == "dn_veto" # We expect this after fix

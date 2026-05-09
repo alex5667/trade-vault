@@ -1,24 +1,23 @@
 from __future__ import annotations
+
 """Unit tests for services/observability/latency_semconv.py and latency_contract.py."""
 
-import sys, os
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-import pytest
 from services.observability.latency_semconv import (
-    as_int_ms,
-    non_negative_delta_ms,
-    ensure_epoch_ms_fields,
-    compute_contract_deltas,
-    parse_allowlist,
-    label_symbol,
-    STAGE_REDIS_TO_FEATURE,
-    STAGE_FEATURE_TO_EMIT,
-    STAGE_END_TO_END_EVENT,
-    FIELD_TS_EVENT_MS,
-    FIELD_TS_REDIS_READ_MS,
-    FIELD_TS_FEATURE_MS,
     FIELD_TS_EMIT_MS,
+    FIELD_TS_EVENT_MS,
+    FIELD_TS_FEATURE_MS,
+    FIELD_TS_REDIS_READ_MS,
+    STAGE_END_TO_END_EVENT,
+    STAGE_FEATURE_TO_EMIT,
+    STAGE_REDIS_TO_FEATURE,
+    as_int_ms,
+    compute_contract_deltas,
+    ensure_epoch_ms_fields,
+    label_symbol,
+    non_negative_delta_ms,
+    parse_allowlist,
 )
 
 

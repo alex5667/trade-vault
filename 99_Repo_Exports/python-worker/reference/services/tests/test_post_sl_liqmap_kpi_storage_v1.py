@@ -1,4 +1,5 @@
 import json
+
 import pytest
 
 pytest.importorskip("psycopg2")
@@ -73,7 +74,6 @@ def test_post_sl_liqmap_kpi_row_requires_trade_symbol_side():
         assert False, "expected ValueError"
     except ValueError:
         pass
-import json
 import pytest
 
 pytest.importorskip("psycopg2")
@@ -86,7 +86,6 @@ TICK_FLOW_ROOT = Path(__file__).resolve().parents[1]
 if str(TICK_FLOW_ROOT) not in sys.path:
     sys.path.insert(0, str(TICK_FLOW_ROOT))
 
-from services.archivers.stream_archiver import StreamArchiver
 
 
 def _dummy_archiver():

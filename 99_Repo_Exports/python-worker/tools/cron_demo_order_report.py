@@ -1,5 +1,7 @@
 # python-worker/tools/cron_demo_order_report.py
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Отдельный отчёт по ордерам, отправленным на демо-счёт (is_virtual=true).
 
@@ -24,17 +26,15 @@ ENV:
     TELEGRAM_BOT_TOKEN          Для direct-режима
     TELEGRAM_CHAT_ID            Для direct-режима
 """
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import html
-import json
 import os
 import time
-from collections import Counter, defaultdict
-from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from collections import Counter
+from dataclasses import dataclass
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # ENV helpers
@@ -49,14 +49,14 @@ def _envi(name: str, default: int = 0) -> int:
     try:
         return int(os.getenv(name, default) or default)
     except Exception:
-        return int(default)
+        return default
 
 
 def _envf(name: str, default: float = 0.0) -> float:
     try:
         return float(os.getenv(name, default) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 # ---------------------------------------------------------------------------
@@ -73,10 +73,10 @@ def _truthy(v: Any) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _is_demo_open(fields: Dict[str, Any]) -> bool:
+def _is_demo_open(fields: dict[str, Any]) -> bool:
     """Return True if this exec event is a FILLED demo-account open."""
     # Only care about open (entry) events; skip SL/TP/modify child events
-    action = str(fields.get("action") or "").lower()
+    action = (fields.get("action") or "").lower()
     if action not in ("open", ""):
         return False
 
@@ -85,7 +85,7 @@ def _is_demo_open(fields: Dict[str, Any]) -> bool:
         return True
 
     # Secondary: venue=binance_demo
-    venue = str(fields.get("venue") or "").lower()
+    venue = (fields.get("venue") or "").lower()
     if venue == "binance_demo":
         return True
 
@@ -106,7 +106,7 @@ class DemoOrder:
     ts_ms: int
 
     @classmethod
-    def from_fields(cls, fields: Dict[str, Any], stream_ts_ms: int) -> "DemoOrder":
+    def from_fields(cls, fields: dict[str, Any], stream_ts_ms: int) -> DemoOrder:
         def _f(k: str, d: float = 0.0) -> float:
             try:
                 return float(fields.get(k) or d)
@@ -128,15 +128,15 @@ class DemoOrder:
         ts = _i("ts_ms", 0) or stream_ts_ms
 
         return cls(
-            sid=str(fields.get("sid") or ""),
-            symbol=str(fields.get("symbol") or "").upper(),
+            sid=(fields.get("sid") or ""),
+            symbol=(fields.get("symbol") or "").upper(),
             side=side_raw or "?",
             exec_price=_f("exec_price"),
             qty=_f("qty"),
-            scenario_v4=str(fields.get("scenario_v4") or "na").lower(),
+            scenario_v4=(fields.get("scenario_v4") or "na").lower(),
             of_confirm_ok=_i("of_confirm_ok", 0),
             of_confirm_ok_soft=_i("of_confirm_ok_soft", 0),
-            execution_policy=str(fields.get("execution_policy") or "UNKNOWN").upper(),
+            execution_policy=(fields.get("execution_policy") or "UNKNOWN").upper(),
             ts_ms=ts,
         )
 
@@ -147,12 +147,12 @@ def collect_demo_orders(
     stream: str,
     since_ms: int,
     max_scan: int = 200_000,
-) -> List[DemoOrder]:
+) -> list[DemoOrder]:
     """
     Читает stream в обратном порядке и собирает демо-ордера за период [since_ms, now].
     Возвращает список DemoOrder (в хронологическом порядке).
     """
-    orders: List[DemoOrder] = []
+    orders: list[DemoOrder] = []
     last_id = "+"
     scanned = 0
 
@@ -178,7 +178,7 @@ def collect_demo_orders(
                 stream_ts_ms = 0
 
             # Decode bytes → str if needed
-            fields: Dict[str, Any] = {}
+            fields: dict[str, Any] = {}
             for k, v in (raw_fields or {}).items():
                 k2 = k.decode("utf-8") if isinstance(k, bytes) else k
                 v2 = v.decode("utf-8") if isinstance(v, bytes) else v
@@ -216,9 +216,9 @@ def collect_demo_orders(
 @dataclass
 class DemoStats:
     n: int
-    by_symbol: Dict[str, Dict[str, Any]]
-    by_scenario: Dict[str, int]
-    by_policy: Dict[str, int]
+    by_symbol: dict[str, dict[str, Any]]
+    by_scenario: dict[str, int]
+    by_policy: dict[str, int]
     ok_rate: float       # share of of_confirm_ok=1 (SHOULD be 0; >0 is misconfiguration)
     ok_soft_rate: float  # share of of_confirm_ok_soft=1 (expected ~1.0)
     long_count: int
@@ -226,7 +226,7 @@ class DemoStats:
     since_hours: float
 
 
-def compute_demo_stats(orders: List[DemoOrder], *, since_hours: float) -> DemoStats:
+def compute_demo_stats(orders: list[DemoOrder], *, since_hours: float) -> DemoStats:
     n = len(orders)
     if n == 0:
         return DemoStats(
@@ -241,7 +241,7 @@ def compute_demo_stats(orders: List[DemoOrder], *, since_hours: float) -> DemoSt
             since_hours=since_hours,
         )
 
-    by_sym: Dict[str, Dict[str, Any]] = {}
+    by_sym: dict[str, dict[str, Any]] = {}
     by_scn: Counter = Counter()
     by_pol: Counter = Counter()
     ok_total = 0
@@ -299,7 +299,7 @@ def build_report_text(
     ok_rate_warn: float = 0.0,
 ) -> str:
     """Build HTML report text (Telegram parse_mode=HTML)."""
-    lines: List[str] = []
+    lines: list[str] = []
 
     # ── Header ──────────────────────────────────────────────────────────────
     lines.append(
@@ -408,7 +408,7 @@ def run_report(mode: str) -> int:
     import redis as redis_lib
 
     redis_url = _envs("REDIS_URL", "redis://localhost:6379/0")
-    exec_stream = _envs("EXEC_STREAM", "orders:exec")
+    exec_stream = _envs("EXEC_STREAM", RS.ORDERS_EXEC)
     since_hours = _envf("DEMO_REPORT_SINCE_HOURS", 24.0)
     max_scan = _envi("DEMO_REPORT_MAX_SCAN", 200_000)
     ok_rate_warn = _envf("DEMO_REPORT_OK_RATE_WARN", 0.0)
@@ -442,7 +442,7 @@ def run_report(mode: str) -> int:
         print("[demo_report] sent via direct Telegram API")
     else:
         notify_redis_url = _envs("TELEGRAM_REDIS_URL") or redis_url
-        notify_stream = _envs("TELEGRAM_NOTIFY_STREAM", "notify:telegram")
+        notify_stream = _envs("TELEGRAM_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
         send_report_redis(notify_redis_url, notify_stream, text)
         print(f"[demo_report] sent to Redis stream {notify_stream}")
 

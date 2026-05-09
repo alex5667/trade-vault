@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Notification / reminder layer for Binance dust cleanup admin controls.
 
@@ -23,7 +25,8 @@ import json
 import os
 import sys
 import time
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -32,14 +35,14 @@ except Exception:  # pragma: no cover
 
 try:
     from services.binance_dust_cleanup_admin_ack import (
-        should_suppress_reminder,
         reminder_ack_state,
+        should_suppress_reminder,
     )  # P14: ACK suppress/renew layer
 except Exception:  # pragma: no cover
     try:
         from binance_dust_cleanup_admin_ack import (  # type: ignore[no-redef]
-            should_suppress_reminder,
             reminder_ack_state,
+            should_suppress_reminder,
         )
     except Exception:
         should_suppress_reminder = None  # type: ignore[assignment]
@@ -55,15 +58,15 @@ for _p in (REPO_ROOT, TICK_ROOT):
 try:
     from services.execution_metrics import (
         EXECUTION_DUST_ADMIN_NOTIFY_TOTAL,
-        EXECUTION_DUST_ADMIN_REMINDER_TOTAL,
         EXECUTION_DUST_ADMIN_OLD_ENTRY_AGE_SEC,
+        EXECUTION_DUST_ADMIN_REMINDER_TOTAL,
     )
 except Exception:  # pragma: no cover
     try:
         from execution_metrics import (
             EXECUTION_DUST_ADMIN_NOTIFY_TOTAL,
-            EXECUTION_DUST_ADMIN_REMINDER_TOTAL,
             EXECUTION_DUST_ADMIN_OLD_ENTRY_AGE_SEC,
+            EXECUTION_DUST_ADMIN_REMINDER_TOTAL,
         )
     except Exception:  # pragma: no cover
         EXECUTION_DUST_ADMIN_NOTIFY_TOTAL = None  # type: ignore
@@ -76,12 +79,12 @@ def _now_ms() -> int:
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
-    raw = str(os.getenv(name, '1' if default else '0')).strip().lower()
+    raw = os.getenv(name, '1' if default else '0').strip().lower()
     return raw in {'1', 'true', 'yes', 'on', 'y'}
 
 
 def _normalize_symbol(symbol: str) -> str:
-    target = str(symbol or '').upper().strip()
+    target = (symbol or '').upper().strip()
     if not target:
         raise ValueError('symbol_required')
     return target
@@ -92,8 +95,8 @@ class BinanceDustCleanupAdminNotifier:
         self,
         *,
         redis_client: Any = None,
-        notify_stream: Optional[str] = None,
-        audit_stream: Optional[str] = None,
+        notify_stream: str | None = None,
+        audit_stream: str | None = None,
     ) -> None:
         if redis_client is not None:
             self.r = redis_client
@@ -101,7 +104,7 @@ class BinanceDustCleanupAdminNotifier:
             self.r = redis.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379/0'), decode_responses=True)
         else:
             self.r = None
-        self.notify_stream = str(notify_stream or os.getenv('NOTIFY_TELEGRAM_STREAM', 'notify:telegram'))
+        self.notify_stream = str(notify_stream or os.getenv('NOTIFY_TELEGRAM_STREAM', RS.NOTIFY_TELEGRAM))
         self.audit_stream = str(audit_stream or os.getenv('BINANCE_DUST_ADMIN_AUDIT_STREAM', 'orders:dust_cleanup:audit'))
         self.audit_cursor_key = os.getenv('BINANCE_DUST_ADMIN_NOTIFY_CURSOR_KEY', 'orders:dust_cleanup:notify:last_id')
         self.dynamic_denylist_set_key = os.getenv('BINANCE_DUST_SWEEP_DENYLIST_SET_KEY', 'orders:dust_cleanup:denylist')
@@ -126,23 +129,19 @@ class BinanceDustCleanupAdminNotifier:
                 self._tg = None
 
     # ----- low-level helpers -------------------------------------------------
-    def _metric_inc(self, metric: Any, *, labels: Dict[str, str]) -> None:
+    def _metric_inc(self, metric: Any, *, labels: dict[str, str]) -> None:
         if metric is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             metric.labels(**labels).inc()
-        except Exception:
-            pass
 
     def _metric_set_age(self, kind: str, symbol: str, age_sec: float) -> None:
         if EXECUTION_DUST_ADMIN_OLD_ENTRY_AGE_SEC is None:
             return
-        try:
-            EXECUTION_DUST_ADMIN_OLD_ENTRY_AGE_SEC.labels(kind=str(kind), symbol=str(symbol)).set(float(max(0.0, age_sec)))
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            EXECUTION_DUST_ADMIN_OLD_ENTRY_AGE_SEC.labels(kind=str(kind), symbol=symbol).set(float(max(0.0, age_sec)))
 
-    def _get(self, key: str) -> Optional[str]:
+    def _get(self, key: str) -> str | None:
         if self.r is None:
             return None
         try:
@@ -153,10 +152,8 @@ class BinanceDustCleanupAdminNotifier:
     def _set(self, key: str, value: str) -> None:
         if self.r is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             self.r.set(key, value)
-        except Exception:
-            pass
 
     def _setex(self, key: str, ttl_sec: int, value: str) -> None:
         if self.r is None:
@@ -172,10 +169,8 @@ class BinanceDustCleanupAdminNotifier:
     def _delete(self, key: str) -> None:
         if self.r is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             self.r.delete(key)
-        except Exception:
-            pass
 
     def _pttl(self, key: str) -> int:
         if self.r is None:
@@ -185,7 +180,7 @@ class BinanceDustCleanupAdminNotifier:
         except Exception:
             return -2
 
-    def _scan_keys(self, prefix: str) -> List[str]:
+    def _scan_keys(self, prefix: str) -> list[str]:
         if self.r is None:
             return []
         patt = f"{prefix}*"
@@ -201,7 +196,7 @@ class BinanceDustCleanupAdminNotifier:
             pass
         return []
 
-    def _xrange(self, stream: str, start: str, end: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+    def _xrange(self, stream: str, start: str, end: str, count: int) -> list[tuple[str, dict[str, Any]]]:
         if self.r is None:
             return []
         try:
@@ -219,7 +214,7 @@ class BinanceDustCleanupAdminNotifier:
             return []
         return []
 
-    def _smembers(self, key: str) -> Set[str]:
+    def _smembers(self, key: str) -> set[str]:
         if self.r is None:
             return set()
         try:
@@ -229,33 +224,31 @@ class BinanceDustCleanupAdminNotifier:
             pass
         return set()
 
-    def _xadd_notify(self, text: str, *, symbol: str = '', kind: str = '', payload: Optional[Dict[str, Any]] = None, severity: str = 'warn') -> None:
+    def _xadd_notify(self, text: str, *, symbol: str = '', kind: str = '', payload: dict[str, Any] | None = None, severity: str = 'warn') -> None:
         if self.r is None:
             return
         fields = {
             'text': str(text),
             'source': 'binance_dust_admin_notifier',
             'severity': str(severity),
-            'symbol': str(symbol or ''),
-            'kind': str(kind or ''),
+            'symbol': (symbol or ''),
+            'kind': (kind or ''),
             'payload_json': json.dumps(dict(payload or {}), ensure_ascii=False, separators=(',', ':')),
             'ts_ms': str(_now_ms()),
         }
         try:
-            kwargs: Dict[str, Any] = {}
+            kwargs: dict[str, Any] = {}
             if self.notify_maxlen:
                 kwargs = {'maxlen': self.notify_maxlen, 'approximate': True}
             self.r.xadd(self.notify_stream, fields, **kwargs, maxlen=50000)
-            self._metric_inc(EXECUTION_DUST_ADMIN_NOTIFY_TOTAL, labels={'kind': str(kind or 'telegram'), 'result': 'ok'})
+            self._metric_inc(EXECUTION_DUST_ADMIN_NOTIFY_TOTAL, labels={'kind': (kind or 'telegram'), 'result': 'ok'})
         except Exception:
-            self._metric_inc(EXECUTION_DUST_ADMIN_NOTIFY_TOTAL, labels={'kind': str(kind or 'telegram'), 'result': 'error'})
+            self._metric_inc(EXECUTION_DUST_ADMIN_NOTIFY_TOTAL, labels={'kind': (kind or 'telegram'), 'result': 'error'})
         if self._tg is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._tg.send_message(text)
-            except Exception:
-                pass
 
-    def _parse_json_doc(self, raw: Optional[str]) -> Dict[str, Any]:
+    def _parse_json_doc(self, raw: str | None) -> dict[str, Any]:
         if raw in (None, ''):
             return {}
         try:
@@ -277,17 +270,17 @@ class BinanceDustCleanupAdminNotifier:
     def _state_key(self, symbol: str) -> str:
         return f"{self.reminder_state_prefix}{_normalize_symbol(symbol)}"
 
-    def _load_state(self, symbol: str) -> Dict[str, Any]:
+    def _load_state(self, symbol: str) -> dict[str, Any]:
         return self._parse_json_doc(self._get(self._state_key(symbol)))
 
-    def _save_state(self, symbol: str, doc: Dict[str, Any]) -> None:
+    def _save_state(self, symbol: str, doc: dict[str, Any]) -> None:
         self._set(self._state_key(symbol), json.dumps(doc, ensure_ascii=False, separators=(',', ':')))
 
     def _extract_symbol(self, key: str, prefix: str) -> str:
         return str(key).replace(prefix, '', 1).upper().strip()
 
     # ----- admin action mirror ----------------------------------------------
-    def process_manual_actions_once(self, *, count: int = 100) -> Dict[str, Any]:
+    def process_manual_actions_once(self, *, count: int = 100) -> dict[str, Any]:
         last_id = self._get(self.audit_cursor_key) or '0-0'
         rows = self._xrange(self.audit_stream, f'({last_id}', '+', max(1, int(count)))
         processed = 0
@@ -296,14 +289,14 @@ class BinanceDustCleanupAdminNotifier:
         for entry_id, fields in rows:
             processed += 1
             new_last = entry_id
-            action = str(fields.get('action') or '')
+            action = (fields.get('action') or '')
             if action not in {'add_denylist', 'remove_denylist', 'clear_cooldown'}:
                 continue
-            symbol = _normalize_symbol(str(fields.get('symbol') or ''))
-            operator = str(fields.get('operator') or '')
-            reason = str(fields.get('reason') or '')
-            ticket = str(fields.get('ticket') or '')
-            result = str(fields.get('result') or '')
+            symbol = _normalize_symbol((fields.get('symbol') or ''))
+            operator = (fields.get('operator') or '')
+            reason = (fields.get('reason') or '')
+            ticket = (fields.get('ticket') or '')
+            result = (fields.get('result') or '')
             payload = self._parse_json_doc(fields.get('payload_json'))
             text = (
                 f"🧹 Dust admin: {action} {symbol}\n"
@@ -332,7 +325,7 @@ class BinanceDustCleanupAdminNotifier:
         return {'processed': processed, 'emitted': emitted, 'last_id': new_last}
 
     # ----- reminder scans ----------------------------------------------------
-    def _dynamic_override_doc(self, symbol: str) -> Dict[str, Any]:
+    def _dynamic_override_doc(self, symbol: str) -> dict[str, Any]:
         key = f"{self.dynamic_denylist_prefix}{_normalize_symbol(symbol)}"
         raw = self._get(key)
         ttl_ms = self._pttl(key)
@@ -345,7 +338,7 @@ class BinanceDustCleanupAdminNotifier:
             'payload': doc,
         }
 
-    def _cooldown_doc(self, symbol: str) -> Dict[str, Any]:
+    def _cooldown_doc(self, symbol: str) -> dict[str, Any]:
         key = f"{self.cooldown_prefix}{_normalize_symbol(symbol)}"
         raw = self._get(key)
         ttl_ms = self._pttl(key)
@@ -361,7 +354,7 @@ class BinanceDustCleanupAdminNotifier:
         }
 
     # ----- P14: ACK-aware reminder helpers -----------------------------------
-    def _ack_suppression(self, kind: str, symbol: str, fingerprint: str = '') -> Dict[str, Any]:
+    def _ack_suppression(self, kind: str, symbol: str, fingerprint: str = '') -> dict[str, Any]:
         """Query ACK suppression state; returns {} if the ack module is unavailable."""
         if should_suppress_reminder is None or self.r is None:
             return {"suppressed": False, "reason": "ack_module_unavailable"}
@@ -370,14 +363,14 @@ class BinanceDustCleanupAdminNotifier:
         except Exception:
             return {"suppressed": False, "reason": "ack_check_error"}
 
-    def _maybe_emit_renew_reminder(self, kind: str, symbol: str, ack_state: Dict[str, Any]) -> None:
+    def _maybe_emit_renew_reminder(self, kind: str, symbol: str, ack_state: dict[str, Any]) -> None:
         """Emit a renewal reminder when the active ACK TTL is within the renew window."""
         ttl = int(ack_state.get('ttl_sec', -1))
         if ttl < 0 or ttl > self.ack_renew_reminder_sec:
             # TTL is comfortable (or infinite) — no renew reminder needed
             return
-        operator = str(ack_state.get('operator', ''))
-        ticket = str(ack_state.get('ticket', ''))
+        operator = (ack_state.get('operator', ''))
+        ticket = (ack_state.get('ticket', ''))
         text = (
             f"⏰ Dust reminder ACK is close to expiry: {symbol}\n"
             f"kind={kind}\n"
@@ -401,7 +394,7 @@ class BinanceDustCleanupAdminNotifier:
         except Exception:
             pass
 
-    def _emit_old_denylist_reminder(self, symbol: str, age_sec: int, doc: Dict[str, Any]) -> bool:
+    def _emit_old_denylist_reminder(self, symbol: str, age_sec: int, doc: dict[str, Any]) -> bool:
         # P14: check for active operator ACK before emitting reminder
         suppression = self._ack_suppression('old_denylist', symbol)
         if suppression.get('suppressed'):
@@ -412,9 +405,9 @@ class BinanceDustCleanupAdminNotifier:
         if not self._should_emit_reminder('old_denylist', symbol):
             self._metric_inc(EXECUTION_DUST_ADMIN_REMINDER_TOTAL, labels={'kind': 'old_denylist', 'result': 'deduped'})
             return False
-        operator = str(doc.get('operator') or '-')
-        ticket = str(doc.get('ticket') or '-')
-        reason = str(doc.get('reason') or '-')
+        operator = (doc.get('operator') or '-')
+        ticket = (doc.get('ticket') or '-')
+        reason = (doc.get('reason') or '-')
         text = (
             f"⚠️ Dust denylist is stale: {symbol}\n"
             f"age={age_sec}s operator={operator} ticket={ticket}\n"
@@ -424,7 +417,7 @@ class BinanceDustCleanupAdminNotifier:
         self._metric_inc(EXECUTION_DUST_ADMIN_REMINDER_TOTAL, labels={'kind': 'old_denylist', 'result': 'ok'})
         return True
 
-    def _emit_cooldown_loop_reminder(self, symbol: str, loop_age_sec: int, doc: Dict[str, Any]) -> bool:
+    def _emit_cooldown_loop_reminder(self, symbol: str, loop_age_sec: int, doc: dict[str, Any]) -> bool:
         # P14: check for active operator ACK before emitting reminder
         suppression = self._ack_suppression('cooldown_loop', symbol)
         if suppression.get('suppressed'):
@@ -435,7 +428,7 @@ class BinanceDustCleanupAdminNotifier:
         if not self._should_emit_reminder('cooldown_loop', symbol):
             self._metric_inc(EXECUTION_DUST_ADMIN_REMINDER_TOTAL, labels={'kind': 'cooldown_loop', 'result': 'deduped'})
             return False
-        reason = str(doc.get('reason') or '-')
+        reason = (doc.get('reason') or '-')
         text = (
             f"🔁 Dust cooldown loop suspected: {symbol}\n"
             f"loop_age={loop_age_sec}s reason={reason}\n"
@@ -445,7 +438,7 @@ class BinanceDustCleanupAdminNotifier:
         self._metric_inc(EXECUTION_DUST_ADMIN_REMINDER_TOTAL, labels={'kind': 'cooldown_loop', 'result': 'ok'})
         return True
 
-    def scan_reminders_once(self) -> Dict[str, Any]:
+    def scan_reminders_once(self) -> dict[str, Any]:
         now_ms = _now_ms()
         denylist_emitted = 0
         cooldown_emitted = 0
@@ -453,7 +446,7 @@ class BinanceDustCleanupAdminNotifier:
         dynamic_symbols = set(self._smembers(self.dynamic_denylist_set_key))
         for key in self._scan_keys(self.dynamic_denylist_prefix):
             dynamic_symbols.add(self._extract_symbol(key, self.dynamic_denylist_prefix))
-        seen_dynamic_symbols: Set[str] = set()
+        seen_dynamic_symbols: set[str] = set()
         for symbol in sorted(dynamic_symbols):
             doc = self._dynamic_override_doc(symbol)
             payload = dict(doc.get('payload') or {})
@@ -481,7 +474,7 @@ class BinanceDustCleanupAdminNotifier:
                 self._save_state(symbol, state)
                 self._metric_set_age('denylist', symbol, 0.0)
 
-        current_cooldown_symbols: Set[str] = set()
+        current_cooldown_symbols: set[str] = set()
         for key in self._scan_keys(self.cooldown_prefix):
             symbol = self._extract_symbol(key, self.cooldown_prefix)
             current_cooldown_symbols.add(symbol)
@@ -525,7 +518,7 @@ class BinanceDustCleanupAdminNotifier:
             'cooldown_symbols': len(current_cooldown_symbols),
         }
 
-    def run_once(self) -> Dict[str, Any]:
+    def run_once(self) -> dict[str, Any]:
         out1 = self.process_manual_actions_once()
         out2 = self.scan_reminders_once()
         return {'manual_actions': out1, 'reminders': out2}

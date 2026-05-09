@@ -10,7 +10,10 @@ Verifies:
   - No-crash on all-missing indicators
 """
 import math
+from datetime import UTC
+
 import pytest
+
 from core.ml_feature_schema_v4_stack import MLFeatureSchemaV4Stack
 
 SCHEMA_HASH = "efc5b0aa6094"
@@ -129,8 +132,8 @@ class TestVectorizeV4Stack:
         """Cyclical time sin/cos must match expected math."""
         # ts_ms = epoch for a known UTC time
         # 2024-01-01 06:00:00 UTC = Mon, hour=6, dow=0
-        from datetime import datetime, timezone
-        dt = datetime(2024, 1, 1, 6, 0, 0, tzinfo=timezone.utc)
+        from datetime import datetime
+        dt = datetime(2024, 1, 1, 6, 0, 0, tzinfo=UTC)
         ts_ms = int(dt.timestamp() * 1000)
 
         x = SCHEMA.vectorize(

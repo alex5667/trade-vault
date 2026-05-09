@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """eval_dq_thresholds_from_decision_records_v1.py
 
 Estimate reasonable SAFE/STRICT thresholds for DQ indicators from offline archives.
@@ -37,17 +38,17 @@ Usage:
     --by-hour
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import gzip
 import json
 import math
 import os
-import time
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -63,24 +64,24 @@ def _iter_lines(path: Path) -> Iterator[str]:
                 if line:
                     yield line
     else:
-        with open(p, "r", encoding="utf-8", errors="ignore") as f:
+        with open(p, encoding="utf-8", errors="ignore") as f:
             for line in f:
                 line = line.strip()
                 if line:
                     yield line
 
 
-def _expand_paths(p: str) -> List[Path]:
+def _expand_paths(p: str) -> list[Path]:
     path = Path(p)
     if path.is_dir():
-        out: List[Path] = []
+        out: list[Path] = []
         for ext in ("*.ndjson", "*.ndjson.gz", "*.jsonl", "*.jsonl.gz", "*.json", "*.json.gz"):
             out.extend(sorted(path.glob(ext)))
         return out
     return [path]
 
 
-def _iter_ndjson(paths: List[Path]) -> Iterator[Dict[str, Any]]:
+def _iter_ndjson(paths: list[Path]) -> Iterator[dict[str, Any]]:
     for p in paths:
         for line in _iter_lines(p):
             try:
@@ -91,7 +92,7 @@ def _iter_ndjson(paths: List[Path]) -> Iterator[Dict[str, Any]]:
                 continue
 
 
-def _as_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
+def _as_payload(obj: dict[str, Any]) -> dict[str, Any]:
     """Normalize common export variants that wrap the record under `payload`."""
     v = obj.get("payload")
     if isinstance(v, dict):
@@ -105,7 +106,7 @@ def _as_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
     return obj
 
 
-def _coerce_ts_ms(v: Any) -> Optional[int]:
+def _coerce_ts_ms(v: Any) -> int | None:
     try:
         x = int(float(v))
     except Exception:
@@ -118,7 +119,7 @@ def _coerce_ts_ms(v: Any) -> Optional[int]:
     return x
 
 
-def _get_ts_ms(rec: Dict[str, Any]) -> Optional[int]:
+def _get_ts_ms(rec: dict[str, Any]) -> int | None:
     # common root keys
     for k in ("ts_ms", "decision_ts_ms", "generated_at", "tick_ts_ms", "tick_ts"):
         if k in rec:
@@ -143,18 +144,18 @@ def _get_ts_ms(rec: Dict[str, Any]) -> Optional[int]:
     return None
 
 
-def _get_symbol(rec: Dict[str, Any]) -> str:
+def _get_symbol(rec: dict[str, Any]) -> str:
     for k in ("symbol",):
         v = rec.get(k)
         if v:
             return str(v).upper().strip()
     ctx = rec.get("ctx")
     if isinstance(ctx, dict) and ctx.get("symbol"):
-        return str(ctx.get("symbol")).upper().strip()
+        return (ctx.get("symbol")).upper().strip()
     return "UNKNOWN"
 
 
-def _to_float(v: Any) -> Optional[float]:
+def _to_float(v: Any) -> float | None:
     try:
         x = float(v)
     except Exception:
@@ -164,7 +165,7 @@ def _to_float(v: Any) -> Optional[float]:
     return x
 
 
-def _get_metric(rec: Dict[str, Any], key: str) -> Optional[float]:
+def _get_metric(rec: dict[str, Any], key: str) -> float | None:
     # direct
     if key in rec:
         return _to_float(rec.get(key))
@@ -185,7 +186,7 @@ def _get_metric(rec: Dict[str, Any], key: str) -> Optional[float]:
     return None
 
 
-def _quantile_sorted(xs: List[float], q: float) -> float:
+def _quantile_sorted(xs: list[float], q: float) -> float:
     """Linear-interpolated quantile; xs must be sorted."""
     n = len(xs)
     if n == 0:
@@ -202,11 +203,11 @@ def _quantile_sorted(xs: List[float], q: float) -> float:
     return float(xs[lo] * (1.0 - w) + xs[hi] * w)
 
 
-def _median_sorted(xs: List[float]) -> float:
+def _median_sorted(xs: list[float]) -> float:
     return _quantile_sorted(xs, 0.5)
 
 
-def _mad(xs_sorted: List[float], median: float) -> float:
+def _mad(xs_sorted: list[float], median: float) -> float:
     dev = [abs(x - median) for x in xs_sorted]
     dev.sort()
     return _median_sorted(dev)
@@ -233,7 +234,7 @@ def _cap01(x: float) -> float:
     return max(0.0, min(1.0, float(x)))
 
 
-def _compute_thresholds_for_metric(values: List[float], *, preset: Preset, kind: str) -> Dict[str, Any]:
+def _compute_thresholds_for_metric(values: list[float], *, preset: Preset, kind: str) -> dict[str, Any]:
     xs = [float(x) for x in values if math.isfinite(float(x))]
     xs.sort()
     n = len(xs)
@@ -255,7 +256,7 @@ def _compute_thresholds_for_metric(values: List[float], *, preset: Preset, kind:
     soft = max(p_soft, med + preset.k_soft * mad)
     hard = max(p_hard, med + preset.k_hard * mad, soft)
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "n": n,
         "min": float(xs[0]),
         "max": float(xs[-1]),
@@ -296,7 +297,7 @@ def _utc_hour_bucket(ts_ms: int) -> int:
     return int((int(ts_ms) // 1000) // 3600) % 24
 
 
-def _write_out(path: str, obj: Dict[str, Any]) -> None:
+def _write_out(path: str, obj: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     if path.endswith(".yml") or path.endswith(".yaml"):
         import yaml
@@ -308,7 +309,7 @@ def _write_out(path: str, obj: Dict[str, Any]) -> None:
         json.dump(obj, f, ensure_ascii=False, indent=2, sort_keys=False)
 
 
-def main(argv: Optional[Iterable[str]] = None) -> int:
+def main(argv: Iterable[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Estimate DQ thresholds from NDJSON archives")
     ap.add_argument(
         "--in",
@@ -346,19 +347,19 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     if not metrics:
         raise SystemExit("--metrics is empty")
 
-    metric_kind: Dict[str, str] = {}
+    metric_kind: dict[str, str] = {}
     for m in metrics:
         metric_kind[m] = "ema" if m.endswith("_ema") else "ms"
 
-    paths: List[Path] = []
+    paths: list[Path] = []
     for p in args.inp:
         paths.extend(_expand_paths(p))
     if not paths:
         raise SystemExit("No input files found")
 
     # Aggregation buffers
-    by_symbol: Dict[str, Dict[str, List[float]]] = {}
-    by_symbol_hour: Dict[Tuple[str, int], Dict[str, List[float]]] = {}
+    by_symbol: dict[str, dict[str, list[float]]] = {}
+    by_symbol_hour: dict[tuple[str, int], dict[str, list[float]]] = {}
 
     scanned = 0
     used = 0
@@ -374,7 +375,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         ts_ms = _get_ts_ms(rec)
 
         any_found = False
-        vals: Dict[str, float] = {}
+        vals: dict[str, float] = {}
         for m in metrics:
             v = _get_metric(rec, m)
             if v is None:
@@ -396,8 +397,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             for m, v in vals.items():
                 hbuf[m].append(float(v))
 
-    def _emit_group(buf: Dict[str, List[float]]) -> Dict[str, Any]:
-        out: Dict[str, Any] = {}
+    def _emit_group(buf: dict[str, list[float]]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
         for m in metrics:
             vs = buf.get(m, [])
             if len(vs) < int(args.min_n):
@@ -409,7 +410,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             }
         return out
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "version": "eval_dq_thresholds_from_decision_records_v1",
         "generated_at_ms": _now_ms(),
         "inputs": {
@@ -430,7 +431,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
     # Per symbol + hour
     if args.by_hour:
-        by_hour_out: Dict[str, Any] = {}
+        by_hour_out: dict[str, Any] = {}
         for (sym, hb), buf in sorted(by_symbol_hour.items(), key=lambda x: (x[0][0], x[0][1])):
             by_hour_out.setdefault(sym, {})[str(hb)] = _emit_group(buf)
         out["by_symbol_hour_utc"] = by_hour_out

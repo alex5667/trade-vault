@@ -1,37 +1,35 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Tests for cron_demo_order_report.py
 """
-from utils.time_utils import get_ny_time_millis
-
-import os
-import pytest
-from typing import Any, Dict, List, Tuple
+from typing import Any
 from unittest.mock import MagicMock
 
 from tools.cron_demo_order_report import (
     DemoOrder,
     DemoStats,
     _is_demo_open,
+    build_report_text,
     collect_demo_orders,
     compute_demo_stats,
-    build_report_text,
 )
-
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _fields(**kw) -> Dict[str, Any]:
+def _fields(**kw) -> dict[str, Any]:
     return {k: str(v) for k, v in kw.items()}
 
 
-def _make_stream_entry(msg_id: str, fields: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+def _make_stream_entry(msg_id: str, fields: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     return (msg_id, fields)
 
 
-def _redis_mock(entries: List[Tuple[str, Dict[str, Any]]]) -> MagicMock:
+def _redis_mock(entries: list[tuple[str, dict[str, Any]]]) -> MagicMock:
     """Build a Redis mock that returns entries from xrevrange (one batch, then empty)."""
     r = MagicMock()
     # First call returns entries, second returns empty to stop the loop
@@ -72,7 +70,6 @@ class TestIsDemoOpen:
 
 class TestCollectDemoOrders:
     def _now_ms(self) -> int:
-        import time
         return get_ny_time_millis()
 
     def test_filters_demo_entries(self):
@@ -93,7 +90,7 @@ class TestCollectDemoOrders:
             )),
         ]
         r = _redis_mock(entries)
-        orders = collect_demo_orders(redis_client=r, stream="orders:exec", since_ms=now - 100_000)
+        orders = collect_demo_orders(redis_client=r, stream=RS.ORDERS_EXEC, since_ms=now - 100_000)
         assert len(orders) == 1
         assert orders[0].symbol == "BTCUSDT"
         assert orders[0].of_confirm_ok == 0
@@ -115,14 +112,14 @@ class TestCollectDemoOrders:
         ]
         r = _redis_mock(entries)
         since_ms = now - 500_000  # 500 seconds ago
-        orders = collect_demo_orders(redis_client=r, stream="orders:exec", since_ms=since_ms)
+        orders = collect_demo_orders(redis_client=r, stream=RS.ORDERS_EXEC, since_ms=since_ms)
         # Only the recent entry should be included
         assert all(o.symbol == "BTCUSDT" for o in orders)
 
     def test_empty_stream(self):
         r = MagicMock()
         r.xrevrange.return_value = []
-        orders = collect_demo_orders(redis_client=r, stream="orders:exec", since_ms=0)
+        orders = collect_demo_orders(redis_client=r, stream=RS.ORDERS_EXEC, since_ms=0)
         assert orders == []
 
     def test_chronological_order(self):
@@ -134,7 +131,7 @@ class TestCollectDemoOrders:
             _make_stream_entry(f"{t1}-0", _fields(is_virtual="true", action="open", symbol="A", ts_ms=str(t1))),
         ]
         r = _redis_mock(entries)
-        orders = collect_demo_orders(redis_client=r, stream="orders:exec", since_ms=0)
+        orders = collect_demo_orders(redis_client=r, stream=RS.ORDERS_EXEC, since_ms=0)
         assert [o.symbol for o in orders] == ["A", "B", "C"]
 
     def test_venue_binance_demo_included(self):
@@ -146,7 +143,7 @@ class TestCollectDemoOrders:
             )),
         ]
         r = _redis_mock(entries)
-        orders = collect_demo_orders(redis_client=r, stream="orders:exec", since_ms=now - 10_000)
+        orders = collect_demo_orders(redis_client=r, stream=RS.ORDERS_EXEC, since_ms=now - 10_000)
         assert len(orders) == 1
         assert orders[0].symbol == "XRPUSDT"
 

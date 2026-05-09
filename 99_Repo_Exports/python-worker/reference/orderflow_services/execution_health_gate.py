@@ -43,13 +43,12 @@ This module preserves the legacy API used by older tests/callers.
 
 import math
 import os
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 from services.orderflow.exec_health_rollups import (
     ExecHealthDecision,
     ExecHealthThresholds,
     aread_exec_health_rollups,
-    read_exec_health_rollups_sync,
 )
 
 
@@ -57,18 +56,18 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         v = float(x)
     except Exception:
-        return float(d)
+        return d
     if not math.isfinite(v):
-        return float(d)
+        return d
     return float(v)
 
 
 def _profile() -> str:
-    return str(os.getenv("GATE_PROFILE", os.getenv("EXEC_HEALTH_PROFILE", "default")) or "default").strip().lower()
+    return os.getenv("GATE_PROFILE", os.getenv("EXEC_HEALTH_PROFILE", "default") or "default").strip().lower()
 
 
 def _mode() -> str:
-    m = str(os.getenv("EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
+    m = (os.getenv("EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
     if m in ("monitor", "tighten", "veto"):
         return m
     p = _profile()
@@ -79,7 +78,7 @@ def _mode() -> str:
     return "monitor"
 
 
-def build_rollup_keys(*, metric: str, sym: str, venue: str, session: str, tf: str, kind: str, side: str) -> List[str]:
+def build_rollup_keys(*, metric: str, sym: str, venue: str, session: str, tf: str, kind: str, side: str) -> list[str]:
     """Return fallback key list for one metric (legacy wrapper, 5-key subset)."""
     sym = (sym or "").upper()
     venue = (venue or "na").lower()
@@ -109,7 +108,7 @@ def build_rollup_keys(*, metric: str, sym: str, venue: str, session: str, tf: st
 
 async def read_exec_rollups(
     *, redis: Any, sym: str, venue: str, session: str, tf: str, kind: str, side: str, delta_sec: int = 1
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Legacy wrapper: delegates to aread_exec_health_rollups with single delta."""
     return await aread_exec_health_rollups(
         redis=redis,
@@ -123,9 +122,9 @@ async def read_exec_rollups(
     )
 
 
-def decide_execution_health(*, rollups: Dict[str, float], thr: ExecHealthThresholds) -> ExecHealthDecision:
+def decide_execution_health(*, rollups: dict[str, float], thr: ExecHealthThresholds) -> ExecHealthDecision:
     """Pure policy decision for execution-health gate (legacy wrapper)."""
-    flags: List[str] = []
+    flags: list[str] = []
 
     v_is = _f(rollups.get("is_p95_bps"), float("nan"))
     v_pi = _f(rollups.get("perm_impact_p95_bps_1"), float("nan"))
@@ -166,7 +165,7 @@ def decide_execution_health(*, rollups: Dict[str, float], thr: ExecHealthThresho
     return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add), mode=mode)
 
 
-def apply_exec_health_to_indicators(*, indicators: Dict[str, Any], dec: ExecHealthDecision) -> None:
+def apply_exec_health_to_indicators(*, indicators: dict[str, Any], dec: ExecHealthDecision) -> None:
     """Mutate indicators (fail-open)."""
     try:
         indicators["exec_health_apply"] = int(1 if dec.apply else 0)

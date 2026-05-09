@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 AB Winner Evaluator (core, unit-testable)
 ========================================
@@ -19,9 +19,9 @@ AB Winner Evaluator (core, unit-testable)
 import hashlib
 import json
 import math
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
-
+from typing import Any
 
 ARMS = ("A", "B", "C")
 
@@ -62,7 +62,7 @@ def norm_scenario(v: str) -> str:
 
 
 def is_non_a(a: str) -> bool:
-    return str(a or "").upper() in ("B", "C")
+    return (a or "").upper() in ("B", "C")
 
 
 # --- Normal quantile Z (avoid scipy) ---
@@ -82,8 +82,8 @@ def z_for_alpha(alpha: float) -> float:
     return float(_Z_BY_ALPHA[best])
 
 
-def winsorize(xs: Iterable[float], lo: float, hi: float) -> List[float]:
-    out: List[float] = []
+def winsorize(xs: Iterable[float], lo: float, hi: float) -> list[float]:
+    out: list[float] = []
     for x in xs:
         try:
             v = float(x)
@@ -113,17 +113,17 @@ class WinnerDecision:
     winner: str
     reason: str
     # raw stats
-    stats: Dict[str, ArmStats]
+    stats: dict[str, ArmStats]
 
     # optional: for multi-scenario aggregation/debug
-    meta: Dict[str, Any] = None
+    meta: dict[str, Any] = None
 
 
-def _mean(xs: List[float]) -> float:
+def _mean(xs: list[float]) -> float:
     return float(sum(xs) / max(1, len(xs)))
 
 
-def _std_sample(xs: List[float], mu: float) -> float:
+def _std_sample(xs: list[float], mu: float) -> float:
     n = len(xs)
     if n <= 1:
         return 0.0
@@ -137,13 +137,13 @@ def _std_sample(xs: List[float], mu: float) -> float:
 
 def compute_arm_stats(
     *,
-    arm_to_r: Mapping[str, List[float]],
+    arm_to_r: Mapping[str, list[float]],
     alpha: float,
     winsor_lo: float = -5.0,
     winsor_hi: float = +5.0,
-) -> Dict[str, ArmStats]:
+) -> dict[str, ArmStats]:
     z = z_for_alpha(alpha)
-    out: Dict[str, ArmStats] = {}
+    out: dict[str, ArmStats] = {}
     for arm in ARMS:
         xs0 = list(arm_to_r.get(arm) or [])
         xs = winsorize(xs0, winsor_lo, winsor_hi)
@@ -162,7 +162,7 @@ def compute_arm_stats(
 def choose_winner_lcb(
     *,
     regime: str,
-    arm_to_r: Mapping[str, List[float]],
+    arm_to_r: Mapping[str, list[float]],
     min_n: int,
     # regime-bucket thresholds (LCB gate)
     min_edge_by_bucket: Mapping[str, float],
@@ -283,12 +283,12 @@ def aggregate_scenario_winners(
 def hysteresis_should_publish(
     *,
     now_ms: int,
-    prev_meta: Optional[Mapping[str, Any]],
+    prev_meta: Mapping[str, Any] | None,
     new_winner: WinnerDecision,
     hold_down_ms: int,
     # stronger requirement when switching A->(B/C)
     switch_min_margin_r: float,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     "Ещё выше": hold-down + hysteresis чтобы latest pointer не дёргался.
 
@@ -336,12 +336,12 @@ def build_suggestion_sid(meta: Mapping[str, Any]) -> str:
       - include key axes: symbol/regime/group + winner_arm + thresholds bucket
     """
     key = {
-        "symbol": str(meta.get("symbol") or ""),
-        "regime": str(meta.get("regime") or ""),
-        "group": str(meta.get("group") or ""),
-        "winner_arm": str(meta.get("winner_arm") or ""),
+        "symbol": (meta.get("symbol") or ""),
+        "regime": (meta.get("regime") or ""),
+        "group": (meta.get("group") or ""),
+        "winner_arm": (meta.get("winner_arm") or ""),
         "arm_ver": int(meta.get("arm_ver") or 0),
-        "bucket": str(meta.get("bucket") or ""),
+        "bucket": (meta.get("bucket") or ""),
         "min_n": int(meta.get("min_n") or 0),
     }
     return _sha1(json.dumps(key, separators=(",", ":"), ensure_ascii=False))
@@ -360,11 +360,11 @@ def make_meta_payload(
     rbucket: str,
     min_edge: float,
     alpha: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     st = decision.stats
     meta = {
         "ts_ms": int(now_ms),
-        "symbol": str(symbol).upper(),
+        "symbol": symbol.upper(),
         "regime": norm_regime(regime),
         "group": str(group).strip().lower(),
         "bucket": str(rbucket),

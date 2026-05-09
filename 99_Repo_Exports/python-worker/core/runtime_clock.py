@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Process runtime clock (monotonic uptime + derived start timestamp).
 
 Why this exists:
@@ -11,10 +12,9 @@ avoid relying on wall-clock time.
 """
 
 
-from dataclasses import dataclass
 import time
-from typing import Optional, Any
-
+from dataclasses import dataclass
+from typing import Any
 
 _START_MONO = time.monotonic()
 
@@ -22,10 +22,10 @@ _START_MONO = time.monotonic()
 @dataclass(frozen=True)
 class RuntimeClock:
     uptime_sec: int
-    runtime_start_ts_ms: Optional[int] = None
+    runtime_start_ts_ms: int | None = None
 
 
-def snapshot(event_ts_ms: Optional[Any] = None) -> RuntimeClock:
+def snapshot(event_ts_ms: Any | None = None) -> RuntimeClock:
     """Take a monotonic runtime snapshot.
 
     Args:
@@ -44,7 +44,7 @@ def snapshot(event_ts_ms: Optional[Any] = None) -> RuntimeClock:
 
     uptime_sec = int(up)
 
-    runtime_start_ts_ms: Optional[int] = None
+    runtime_start_ts_ms: int | None = None
     if event_ts_ms is not None:
         try:
             et = int(event_ts_ms)

@@ -1,4 +1,5 @@
-from core.triple_barrier import label_path, BarrierSpec, BarrierOutcome
+from core.triple_barrier import BarrierOutcome, BarrierSpec, label_path
+
 
 def test_tb_long_tp_hit():
     spec = BarrierSpec(h_ms=1000, tp_bps=10.0, sl_bps=10.0)

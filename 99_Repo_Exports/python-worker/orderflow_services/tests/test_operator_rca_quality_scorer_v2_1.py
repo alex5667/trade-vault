@@ -1,5 +1,6 @@
 from orderflow_services.operator_rca_quality_scorer_v2_1 import score_output
 
+
 def test_score_output_good_payload():
     payload = {
         "summary": "Drift on top feature after promote.",

@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 tests/test_stage1_p1_time_utils_v2.py
 
@@ -12,9 +13,9 @@ Coverage:
 - String numeric inputs
 - .ts_ms attribute access (used by tick_processor instead of int(tick_ts))
 """
-import time
 import pytest
-from common.time_utils import normalize_epoch_ms_v2, NormalizedEpochMs
+
+from common.time_utils import NormalizedEpochMs, normalize_epoch_ms_v2
 
 # Fixed reference timestamps
 TS_SEC = 1_700_000_000          # 2023-11-14 in seconds

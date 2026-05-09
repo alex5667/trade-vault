@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 HANDLER = ROOT / "handlers" / "crypto_orderflow_handler.py"
 

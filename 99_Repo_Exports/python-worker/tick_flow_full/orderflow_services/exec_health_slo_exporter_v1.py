@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -28,14 +28,14 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 UP = Gauge("exec_health_slo_exporter_up", "1 if exporter can read Redis summary")
@@ -68,7 +68,7 @@ def main() -> None:
 
     while True:
         try:
-            m: Dict[str, Any] = r.hgetall(key) or {}
+            m: dict[str, Any] = r.hgetall(key) or {}
             UP.set(1.0)
             updated_ms = _i(m.get("updated_ts_ms"), 0)
             LAST_UPDATED_MS.set(float(updated_ms))

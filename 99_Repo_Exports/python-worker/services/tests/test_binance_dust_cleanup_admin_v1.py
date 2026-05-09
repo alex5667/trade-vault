@@ -68,7 +68,7 @@ class FakeRedis:
         return set(self.sets.get(str(key), set()))
 
     def scan_iter(self, match=None):
-        prefix = str(match or '').rstrip('*')
+        prefix = (match or '').rstrip('*')
         for key in sorted(self.kv.keys()):
             self._purge_key(key)
             if not prefix or str(key).startswith(prefix):

@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
-
-import pytest
-
-from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
-from services.feature_drift_alarm import FeatureDriftAlarm, DriftConfig
 
 # RegimeSessionGate lives here in your codebase
 from handlers.crypto_orderflow.utils.pre_publish_gates import RegimeSessionGate
+from services.feature_drift_alarm import DriftConfig, FeatureDriftAlarm
 
 
 class FakeRedis:

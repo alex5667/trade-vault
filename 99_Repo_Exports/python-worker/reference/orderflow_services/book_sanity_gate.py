@@ -18,7 +18,7 @@ The gate is designed to be fail-open and should never throw.
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
 @dataclass
@@ -27,12 +27,12 @@ class BookSanityDecision:
     veto: bool
     gate: str
     reason_code: str
-    flags: List[str]
+    flags: list[str]
     notes: str = ""
 
 
 def _profile() -> str:
-    return str(os.getenv("GATE_PROFILE", os.getenv("BOOK_SANITY_PROFILE", "default")) or "default").strip().lower()
+    return os.getenv("GATE_PROFILE", os.getenv("BOOK_SANITY_PROFILE", "default") or "default").strip().lower()
 
 
 class BookSanityGate:
@@ -45,13 +45,13 @@ class BookSanityGate:
         outside_bbo_max_dist_bps: float = 0.0,
     ) -> None:
         self.enabled = bool(enabled)
-        self.mode = str(mode or "auto").strip().lower()
+        self.mode = (mode or "auto").strip().lower()
         # Optional: hard-veto when a trade prints outside the current BBO.
         self.veto_trade_outside_bbo = bool(veto_trade_outside_bbo)
         self.outside_bbo_max_dist_bps = float(max(0.0, float(outside_bbo_max_dist_bps or 0.0)))
 
     @staticmethod
-    def from_env() -> "BookSanityGate":
+    def from_env() -> BookSanityGate:
         enabled = bool(int(os.getenv("BOOK_SANITY_GATE_ENABLED", "1") or 1))
         mode = os.getenv("BOOK_SANITY_MODE", "auto")
         return BookSanityGate(
@@ -70,7 +70,7 @@ class BookSanityGate:
             return "veto" if p == "hard" else "monitor"
         return "monitor"
 
-    def evaluate(self, *, indicators: Dict[str, Any], symbol: str) -> BookSanityDecision:
+    def evaluate(self, *, indicators: dict[str, Any], symbol: str) -> BookSanityDecision:
         if not self.enabled:
             return BookSanityDecision(apply=False, veto=False, gate="BookSanityGate", reason_code="", flags=[])
 
@@ -133,7 +133,7 @@ class BookSanityGate:
                 apply=True,
                 veto=True,
                 gate="BookSanityGate",
-                reason_code=str(reason),
+                reason_code=reason,
                 flags=flags + (["trade_outside_bbo"] if outside_bbo and "trade_outside_bbo" not in flags else []),
                 notes=f"symbol={symbol} dist_bps={outside_bbo_dist_bps:.4f}",
             )

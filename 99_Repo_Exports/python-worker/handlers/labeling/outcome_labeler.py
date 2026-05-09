@@ -1,10 +1,10 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-from dataclasses import dataclass
-from typing import Any, Optional
 import os
-import time
+from dataclasses import dataclass
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 @dataclass
@@ -34,7 +34,7 @@ class OutcomeLabeler:
     def _now_ms(self) -> int:
         return get_ny_time_millis()
 
-    def register_breakout(self, *, signal_id: str, ctx: Any, side: int, level_price: Optional[float]) -> None:
+    def register_breakout(self, *, signal_id: str, ctx: Any, side: int, level_price: float | None) -> None:
         sym = str(getattr(ctx, "symbol", "") or "")
         ts_ms = int(getattr(ctx, "ts", None) or self._now_ms())
         if not sym or level_price is None:

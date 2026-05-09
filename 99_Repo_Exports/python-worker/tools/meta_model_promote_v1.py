@@ -19,6 +19,7 @@ import os
 import shutil
 import time
 from pathlib import Path
+import contextlib
 
 
 def sha256_file(path: str) -> str:
@@ -43,10 +44,8 @@ def try_symlink_atomic(target: str, link_path: str) -> str:
     # Best-effort. On filesystems without symlink support, just skip.
     try:
         link_tmp = link_path + ".tmp"
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.remove(link_tmp)
-        except FileNotFoundError:
-            pass
         os.symlink(os.path.basename(target), link_tmp)
         os.replace(link_tmp, link_path)
         return link_path

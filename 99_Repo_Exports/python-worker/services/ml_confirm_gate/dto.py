@@ -1,5 +1,6 @@
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any
+
 
 @dataclass(slots=True)
 class MLConfirmInput:
@@ -8,7 +9,7 @@ class MLConfirmInput:
     ts_ms: int
     direction: str
     scenario: str
-    indicators: Dict[str, Any]
+    indicators: dict[str, Any]
     rule_score: float
     rule_have: int
     rule_need: int
@@ -27,7 +28,7 @@ class MLConfirmOutput:
     score: float
     bucket: str
     model_ver: str
-    missing: List[str]
+    missing: list[str]
     latency_us: int
     reason: str
 
@@ -47,9 +48,9 @@ class MLConfirmDecision:
     score: float = 0.0
     floor: float = 0.0
     bucket: str = "other"
-    util_pred: Optional[Dict[str, float]] = None
-    unc: Optional[Dict[str, float]] = None
-    missing: Optional[List[str]] = None
+    util_pred: dict[str, float] | None = None
+    unc: dict[str, float] | None = None
+    missing: list[str] | None = None
 
     model_run_id: str = ""
     model_path: str = ""
@@ -64,7 +65,7 @@ class MLConfirmDecision:
     conf: float = 0.0        # 0..1 proxy (see below)
     p_margin: float = 0.0    # p_edge - p_min (works for util_mh too)
     status: str = ""         # ALLOW|BLOCK|ABSTAIN_*|MISSING_*|SHADOW|OFF|ERR
-    
+
     # calibration fields (for metrics and drift tracking)
     p_edge_raw: float = 0.0   # pre-calibration probability
     p_edge_cal: float = 0.0   # post-calibration probability (effective p_edge)
@@ -75,7 +76,7 @@ class MLConfirmDecision:
     exec_risk_bps: float = 0.0
     exec_risk_norm: float = 0.0
     exec_pen: float = 0.0
-    score_breakdown_small: Optional[Dict[str, Any]] = None
+    score_breakdown_small: dict[str, Any] | None = None
     score_breakdown_json: str = ""
 
     # cfg diagnostics (for metrics/debug)
@@ -88,7 +89,7 @@ class MLConfirmDecision:
     effective_mode: str = ""    # resolved mode after per-symbol overrides
     mode_source: str = ""      # global|cfg_per_symbol|env_per_symbol|canary|cfg_per_symbol_canary
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "mode": self.mode,
             "kind": self.kind,

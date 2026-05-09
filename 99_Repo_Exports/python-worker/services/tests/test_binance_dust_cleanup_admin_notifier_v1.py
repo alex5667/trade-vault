@@ -1,9 +1,9 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 
 from services.binance_dust_cleanup_admin_notifier import BinanceDustCleanupAdminNotifier
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:
@@ -14,7 +14,6 @@ class FakeRedis:
         self.streams = {}
 
     def _now_ms(self):
-        import time
         return get_ny_time_millis()
 
     def get(self, key):

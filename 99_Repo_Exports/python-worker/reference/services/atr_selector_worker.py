@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+
 import redis
 
 from core.atr_source_selector_v2 import ATRSourceSelector

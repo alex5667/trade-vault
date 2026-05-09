@@ -11,21 +11,15 @@ Covers:
 
 import json
 import os
-import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
 # Ensure python-worker is on path
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from core.champion_cfg_validator import (
-    ALLOWED_MODES_WITH_OFF,
-    CfgError,
-    ModeOverrides,
     _validate_mode_overrides,
     validate_champion_cfg,
 )
-
 
 # ---------------------------------------------------------------------------
 # champion_cfg_validator: mode_overrides

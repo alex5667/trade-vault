@@ -3,16 +3,17 @@
 Tests for RegimeEngine integration with DataProcessor.
 """
 
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 # Import components
 try:
+    from contexts import BucketState, Tick
     from handlers.data_processor import OrderFlowDataProcessor
-    from contexts import Tick, BucketState
 except ImportError:
+    from python_worker.contexts import Tick
     from python_worker.handlers.data_processor import OrderFlowDataProcessor
-    from python_worker.contexts import Tick, BucketState
 
 
 def make_config():

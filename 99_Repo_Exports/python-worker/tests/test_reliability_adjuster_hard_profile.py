@@ -19,8 +19,8 @@ def test_hard_profile_skips_when_samples_insufficient():
     os.environ["RELIABILITY_ADJ_MIN_Z"] = "1.96"
     os.environ["RELIABILITY_ADJ_PRIOR_N"] = "50"
 
-    from services.reliability_curves import make_reliability_key_v4
     from services.reliability_adjuster import maybe_adjust_confidence
+    from services.reliability_curves import make_reliability_key_v4
 
     r = FakeRedis()
     strategy, symbol, tf = "CryptoOrderFlow", "BTCUSDT", "1m"
@@ -51,8 +51,8 @@ def test_hard_profile_applies_only_when_significant():
     os.environ["RELIABILITY_ADJ_PRIOR_N"] = "50"
     os.environ["RELIABILITY_ADJ_MAX_ABS"] = "0.20"
 
-    from services.reliability_curves import make_reliability_key_v4
     from services.reliability_adjuster import maybe_adjust_confidence
+    from services.reliability_curves import make_reliability_key_v4
 
     r = FakeRedis()
     strategy, symbol, tf = "CryptoOrderFlow", "BTCUSDT", "1m"

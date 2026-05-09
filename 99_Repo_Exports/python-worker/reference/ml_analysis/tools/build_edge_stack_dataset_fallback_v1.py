@@ -1,12 +1,10 @@
-import os
+import argparse
 import json
 import logging
-import argparse
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone
+
+import redis
 
 from ml_analysis.tools.replay_inputs_reader_v1 import ReplayInputsReader
-import redis
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -15,7 +13,7 @@ def build_dataset(
     redis_url: str,
     signal_stream: str,
     closed_stream: str,
-    archive_dir: Optional[str] = None,
+    archive_dir: str | None = None,
     signals_count: int = 200000,
     closes_count: int = 200000,
     out_jsonl: str = "dataset.jsonl",
@@ -23,7 +21,7 @@ def build_dataset(
 ):
     """Build dataset by joining signals and closed trades."""
     r = redis.from_url(redis_url, decode_responses=True)
-    
+
     logger.info(f"Fetching up to {closes_count} closed trades from {closed_stream}...")
     # Using XREVRANGE to get recent trades
     closed_raw = r.xrevrange(closed_stream, count=closes_count)
@@ -34,7 +32,7 @@ def build_dataset(
     closed_trades = []
     min_ts_ms = None
     max_ts_ms = None
-    
+
     for msg_id, data in closed_raw:
         record = json.loads(data['data']) if 'data' in data else data
         ts = record.get('ts_ms') or record.get('ts')
@@ -50,13 +48,13 @@ def build_dataset(
     signals_raw = r.xrevrange(signal_stream, count=signals_count)
     signals_by_sid = {}
     redis_min_ts = None
-    
+
     for msg_id, data in signals_raw:
         record = json.loads(data['data']) if 'data' in data else data
         sid = record.get('sid')
         if sid:
             signals_by_sid[sid] = record
-        
+
         ts = record.get('ts_ms') or record.get('ts')
         if ts:
             if redis_min_ts is None or ts < redis_min_ts:
@@ -68,7 +66,7 @@ def build_dataset(
     if fallback_enabled and archive_dir and min_ts_ms and (redis_min_ts is None or redis_min_ts > min_ts_ms):
         needed_start = min_ts_ms
         needed_end = redis_min_ts if redis_min_ts else max_ts_ms
-        
+
         logger.info(f"Redis data insufficient. Reading from archives: {needed_start} -> {needed_end}")
         reader = ReplayInputsReader(archive_dir)
         archive_count = 0
@@ -86,7 +84,7 @@ def build_dataset(
             sid = trade.get('sid')
             if not sid:
                 continue
-            
+
             signal = signals_by_sid.get(sid)
             if signal:
                 # Merge signal features into trade record or vice versa
@@ -107,9 +105,9 @@ if __name__ == "__main__":
     parser.add_argument("--closes_count", type=int, default=200000)
     parser.add_argument("--out", default="edge_train.jsonl")
     parser.add_argument("--no_fallback", action="store_true", help="Disable archive fallback")
-    
+
     args = parser.parse_args()
-    
+
     build_dataset(
         redis_url=args.redis_url,
         signal_stream=args.signal_stream,

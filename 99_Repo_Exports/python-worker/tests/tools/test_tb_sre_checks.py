@@ -1,7 +1,9 @@
 from unittest.mock import MagicMock, patch
-import pytest
+
 import redis
-from tools.tb_sre_checks import check_tb_health, TBHealth
+
+from tools.tb_sre_checks import check_tb_health
+
 
 class TestTBSREChecks:
     @patch("redis.Redis.from_url")
@@ -13,7 +15,7 @@ class TestTBSREChecks:
 
         # Call the function and assert it handles the error gracefully
         result = check_tb_health(redis_url="redis://localhost:6379/0")
-        
+
         assert result.ok is False
         assert result.reason == "redis_loading"
 
@@ -24,6 +26,6 @@ class TestTBSREChecks:
 
         # Call the function and assert it handles the error gracefully
         result = check_tb_health(redis_url="redis://localhost:6379/0")
-        
+
         assert result.ok is False
         assert result.reason == "redis_connection_error"

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Benchmark engine replay throughput and latency.
 
 Measures real-world performance of OFConfirmEngine.build() on replay inputs.
@@ -12,14 +13,15 @@ Usage:
 import argparse
 import json
 import time
-from typing import Any, Dict, Iterator, List
+from collections.abc import Iterator
+from typing import Any
 
 from core.of_confirm_engine import OFConfirmEngine
 
 
-def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
+def iter_ndjson(path: str) -> Iterator[dict[str, Any]]:
     """Iterator over NDJSON lines."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -27,7 +29,7 @@ def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
             yield json.loads(s)
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Calculate percentile from sorted list."""
     if not xs:
         return 0.0
@@ -52,7 +54,7 @@ class _PressureStub:
 class RuntimeStub:
     """Minimal runtime stub for benchmark (no real market state)."""
     def __init__(self) -> None:
-        self.dynamic_cfg: Dict[str, Any] = {}
+        self.dynamic_cfg: dict[str, Any] = {}
         self.pressure = _PressureStub()
         self.book_churn_hi = 0
         self.last_regime = "na"
@@ -90,9 +92,9 @@ def main() -> None:
     if len(rows) < max(1000, args.warmup):
         raise SystemExit(f"not_enough_inputs n={len(rows)} (need at least {max(1000, args.warmup)})")
 
-    def call(r: Dict[str, Any]) -> None:
+    def call(r: dict[str, Any]) -> None:
         """Single engine.build() call."""
-        rt.symbol = str(r.get("symbol", "") or "")
+        rt.symbol = (r.get("symbol", "") or "")
         cfg = dict(r.get("cfg") or {})
         ind = dict(r.get("indicators") or {})
         if "spread_bps" in r:
@@ -100,9 +102,9 @@ def main() -> None:
         if "expected_slippage_bps" in r:
             ind["expected_slippage_bps"] = float(r["expected_slippage_bps"])
         eng.build(
-            symbol=str(r.get("symbol", "")),
+            symbol=(r.get("symbol", "")),
             tf="1s",
-            direction=str(r.get("direction", "")),
+            direction=(r.get("direction", "")),
             tick_ts_ms=int(r.get("ts_ms", 0)),
             price=float(r.get("price", r.get("entry_price", 0.0)) or 0.0),
             delta_z=float(r.get("delta_z", 0.0) or 0.0),

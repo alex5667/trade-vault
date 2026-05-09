@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from handlers.confirmations.l2_confirmations import l2_confirm_breakout, l2_confirm_absorption
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot, L2Level
 from common.reason_codes import ReasonCode
+from handlers.confirmations.l2_confirmations import l2_confirm_absorption, l2_confirm_breakout
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot
 
 
 def test_wrapper_breakout_spread_wide_veto_has_structured_code():

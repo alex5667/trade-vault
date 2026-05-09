@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """
@@ -21,11 +22,12 @@ Top-N агрегация veto-reasons -> 1 компактное сообщени
   text: готовый human-readable текст
 """
 
-import os
-import time
 import hashlib
+import os
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any
+import contextlib
 
 
 def _env_int(name: str, default: int) -> int:
@@ -54,7 +56,7 @@ class VetoTopNReporter:
         *,
         emitter: Any,
         logger: Any,
-        now_ms_fn: Optional[Callable[[], int]] = None,
+        now_ms_fn: Callable[[], int] | None = None,
     ) -> None:
         self._emitter = emitter
         self._logger = logger
@@ -110,12 +112,12 @@ class VetoTopNReporter:
             sym = str(getattr(ctx, "symbol", "") or "")
         except Exception:
             sym = ""
-        k = _Key(symbol=sym or "unknown", kind=str(kind or "unknown"))
+        k = _Key(symbol=sym or "unknown", kind=(kind or "unknown"))
 
         self._total[k] = int(self._total.get(k, 0) + 1)
-        rk = (k, str(reason_norm or "unknown_veto"))
+        rk = (k, (reason_norm or "unknown_veto"))
         self._counts[rk] = int(self._counts.get(rk, 0) + 1)
-        fk = (k, str(reason_family or "unknown"))
+        fk = (k, (reason_family or "unknown"))
         self._family_counts[fk] = int(self._family_counts.get(fk, 0) + 1)
 
         # opportunistic flush (cheap)
@@ -181,10 +183,8 @@ class VetoTopNReporter:
                             now_ms=now,
                         )
                     except Exception as e:
-                        try:
+                        with contextlib.suppress(Exception):
                             self._logger.exception(f"VetoTopNReporter change emit failed: {e}")
-                        except Exception:
-                            pass
 
             # ---- "⅛ гайки": alert "доминанта FAMILY сменилась" ----
             prev_fam = self._last_top_family.get(key)
@@ -238,10 +238,8 @@ class VetoTopNReporter:
                             now_ms=now,
                         )
                     except Exception as e:
-                        try:
+                        with contextlib.suppress(Exception):
                             self._logger.exception(f"VetoTopNReporter family change emit failed: {e}")
-                        except Exception:
-                            pass
 
             if not (top_share >= self._alert_share or top_count >= self._alert_count):
                 continue
@@ -265,10 +263,8 @@ class VetoTopNReporter:
                     now_ms=now,
                 )
             except Exception as e:
-                try:
+                with contextlib.suppress(Exception):
                     self._logger.exception(f"VetoTopNReporter emit failed: {e}")
-                except Exception:
-                    pass
 
     def _emit_summary(
         self,
@@ -310,7 +306,7 @@ class VetoTopNReporter:
 
         text = "\n".join(lines)
 
-        sid = hashlib.sha1(f"veto_topn|{key.symbol}|{key.kind}|{top_reason}|{now_ms//self._win_ms}".encode("utf-8")).hexdigest()
+        sid = hashlib.sha1(f"veto_topn|{key.symbol}|{key.kind}|{top_reason}|{now_ms//self._win_ms}".encode()).hexdigest()
         payload = {
             "kind": "label_update",
             "symbol": key.symbol,
@@ -388,7 +384,7 @@ class VetoTopNReporter:
 
         text = "\n".join(lines)
         sid = hashlib.sha1(
-            f"veto_change|{key.symbol}|{key.kind}|{prev_top}|{new_top}|{now_ms//self._win_ms}".encode("utf-8")
+            f"veto_change|{key.symbol}|{key.kind}|{prev_top}|{new_top}|{now_ms//self._win_ms}".encode()
         ).hexdigest()
         payload = {
             "kind": "label_update",
@@ -417,7 +413,7 @@ class VetoTopNReporter:
         ctx: Any,
         key: _Key,
         total: int,
-        prev_total: Optional[int],
+        prev_total: int | None,
         total_delta: int,
         total_ratio: float,
         prev_family: str,
@@ -461,7 +457,7 @@ class VetoTopNReporter:
 
         text = "\n".join(lines)
         sid = hashlib.sha1(
-            f"veto_fam_change|{key.symbol}|{key.kind}|{prev_family}|{new_family}|{now_ms//self._win_ms}".encode("utf-8")
+            f"veto_fam_change|{key.symbol}|{key.kind}|{prev_family}|{new_family}|{now_ms//self._win_ms}".encode()
         ).hexdigest()
         payload = {
             "kind": "label_update",

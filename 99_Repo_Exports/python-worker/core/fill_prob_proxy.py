@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 # tick_flow_full/core/fill_prob_proxy.py
 # -*- coding: utf-8 -*-
-from __future__ import annotations
 """
 Fill probability / ETA proxy based on L3-lite stats.
 
@@ -14,7 +15,6 @@ to compute a simple proxy:
 """
 
 
-from typing import Dict
 
 
 def compute_fill_prob_proxy(
@@ -27,8 +27,8 @@ def compute_fill_prob_proxy(
     eta_fill_ask_sec: float = 0.0,
     max_wait_s: float = 2.0,
     eps: float = 1e-9,
-) -> Dict[str, float]:
-    d = str(direction or "").upper()
+) -> dict[str, float]:
+    d = (direction or "").upper()
     if d == "LONG":
         c2t = float(cancel_to_trade_bid or 0.0)
         eta = float(eta_fill_bid_sec or 0.0)

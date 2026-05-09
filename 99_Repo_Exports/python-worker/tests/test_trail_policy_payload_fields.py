@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from handlers.crypto_orderflow.utils.trail_conditional import apply_trailing_policy_to_payload, TrailDecision
+
+from handlers.crypto_orderflow.utils.trail_conditional import TrailDecision, apply_trailing_policy_to_payload
 
 
 class FakeEval:
@@ -23,5 +24,5 @@ def test_apply_trailing_policy_writes_payload_and_ctx():
     assert ok is False
     assert payload["trail_after_tp1"] is False
     assert payload["trail_after_tp1_reason"] == "VETO_TEST"
-    assert getattr(ctx, "trail_after_tp1") is False
-    assert getattr(ctx, "trail_after_tp1_reason") == "VETO_TEST"
+    assert ctx.trail_after_tp1 is False
+    assert ctx.trail_after_tp1_reason == "VETO_TEST"

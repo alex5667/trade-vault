@@ -1,10 +1,9 @@
-import json
 from types import SimpleNamespace
 
 from news_pipeline.news_debug import (
-    stable_sample_pct,
-    resolve_news_ref,
     extract_news_mini,
+    resolve_news_ref,
+    stable_sample_pct,
 )
 
 

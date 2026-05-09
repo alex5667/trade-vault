@@ -1,12 +1,13 @@
 import types
+
 import pytest
 
 from handlers.crypto_orderflow.core.crypto_orderflow_scoring import CryptoScoreModel, ScoreModelCfg
 from handlers.crypto_orderflow.types.crypto_orderflow_pipeline_types import Candidate, QualityState
 
 hypothesis = pytest.importorskip("hypothesis")
-from hypothesis import given, strategies as st, settings
-
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 finite = st.floats(allow_nan=False, allow_infinity=False, width=64, min_value=-1e6, max_value=1e6)
 unit = st.floats(allow_nan=False, allow_infinity=False, width=64, min_value=-3.0, max_value=3.0)

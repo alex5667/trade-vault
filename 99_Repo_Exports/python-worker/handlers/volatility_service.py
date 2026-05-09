@@ -1,13 +1,14 @@
 # volatility_service.py
 from __future__ import annotations
+
 """
 Volatility and ATR calculation functionality extracted from base_orderflow_handler.py
 """
 
+from typing import Any
+
 from utils.time_utils import get_ny_time_millis
 
-from typing import Optional, Dict, Any, Tuple
-import time
 
 # from common.log import setup_logger
 def setup_logger(name):
@@ -34,12 +35,12 @@ class VolatilityService:
         self._atr_cache_ttl_ms = int(atr_cache_ttl_ms)
         self._atr_estimate_ratio = float(atr_estimate_ratio)
         # cache: tf -> (atr_value, loaded_ts_ms)
-        self._atr_cache: Dict[str, Tuple[float, int]] = {}
+        self._atr_cache: dict[str, tuple[float, int]] = {}
 
     def _now_ms(self) -> int:
         return get_ny_time_millis()
 
-    def _to_float(self, raw: Any) -> Optional[float]:
+    def _to_float(self, raw: Any) -> float | None:
         if raw is None:
             return None
         try:
@@ -110,7 +111,7 @@ class VolatilityService:
             "1d": 7 * 24 * 3600_000,
         }.get(tf, 30 * 60_000)
 
-    def _load_atr_hash(self, tf: str) -> Optional[float]:
+    def _load_atr_hash(self, tf: str) -> float | None:
         """Load ATR from hash Redis store with staleness check."""
         if not self.redis:
             return None
@@ -144,7 +145,7 @@ class VolatilityService:
         # Simple estimation based on price level
         return float(price) * self._atr_estimate_ratio
 
-    def _load_tracker_atr_from_redis(self, timeframe: str, current_ts: int) -> Optional[float]:
+    def _load_tracker_atr_from_redis(self, timeframe: str, current_ts: int) -> float | None:
         """Load ATR from Redis with hash-first approach and staleness check."""
         tf = self._normalize_timeframe(timeframe)
         now_ms = self._now_ms()
@@ -177,7 +178,7 @@ class VolatilityService:
 
         return None
 
-    def _load_tracker_atr_from_redis_with_ts(self, timeframe: str, current_ts: int) -> Tuple[Optional[float], Optional[int]]:
+    def _load_tracker_atr_from_redis_with_ts(self, timeframe: str, current_ts: int) -> tuple[float | None, int | None]:
         """
         Load ATR value AND its timestamp from Redis.
 
@@ -201,7 +202,7 @@ class VolatilityService:
         except Exception:
             return None, None
 
-    def _load_legacy_atr_from_redis(self) -> Optional[float]:
+    def _load_legacy_atr_from_redis(self) -> float | None:
         """Load legacy ATR from Redis."""
         try:
             if not self.redis:
@@ -240,14 +241,14 @@ class VolatilityService:
         atr = self._load_tracker_atr_from_redis(tf, ts)
 
         if atr is not None and atr > 0:
-            self._atr_cache[tf] = (float(atr), now_ms)
+            self._atr_cache[tf] = (atr, now_ms)
             return atr
 
         # 3) Fallback to legacy ATR
         atr = self._load_legacy_atr_from_redis()
 
         if atr is not None and atr > 0:
-            self._atr_cache[tf] = (float(atr), now_ms)
+            self._atr_cache[tf] = (atr, now_ms)
             return atr
 
         # 4) Final fallback to estimation (cache too, but short-lived)

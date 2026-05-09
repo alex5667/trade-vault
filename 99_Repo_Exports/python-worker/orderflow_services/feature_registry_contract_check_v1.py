@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import annotations
 """P94 — Feature Registry contract smoke-check (v1)
 
 Goal
@@ -47,16 +48,15 @@ CLI
 Optional:
   --seed-pin 1   (one-time: writes current hashes into cfg hash)
 """,
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import logging
 import os
 import sys
-import time
 from dataclasses import asdict
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -87,7 +87,7 @@ def _as_int(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _as_str(v: Any, default: str = "") -> str:
@@ -104,7 +104,7 @@ def _connect_redis(url: str):
     return redis.Redis.from_url(url, decode_responses=True)
 
 
-def _hgetall_safe(r, key: str) -> Dict[str, str]:
+def _hgetall_safe(r, key: str) -> dict[str, str]:
     try:
         d = r.hgetall(key) or {}
         if not isinstance(d, dict):
@@ -114,7 +114,7 @@ def _hgetall_safe(r, key: str) -> Dict[str, str]:
         return {}
 
 
-def _hset_safe(r, key: str, mapping: Dict[str, Any]) -> None:
+def _hset_safe(r, key: str, mapping: dict[str, Any]) -> None:
     m = {str(k): str(v) for k, v in (mapping or {}).items()}
     if not m:
         return
@@ -129,11 +129,11 @@ def _compute_current(schema_ver: str,
                      *,
                      max_numeric: int,
                      scenario_prefix: str,
-                     include_time_onehot: Optional[bool],
+                     include_time_onehot: bool | None,
                      include_direction: bool,
                      include_scenario: bool,
                      strict_feature_cols: bool,
-                     forbid_scenario_v4_onehot: bool) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+                     forbid_scenario_v4_onehot: bool) -> tuple[dict[str, Any], dict[str, Any]]:
     _ensure_import_paths()
 
     from core import feature_registry as fr  # type: ignore
@@ -175,7 +175,7 @@ def _compute_current(schema_ver: str,
     return current, dbg
 
 
-def _compare_pins(pins: Dict[str, str], current: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+def _compare_pins(pins: dict[str, str], current: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
     """Return (ok, details).""",
     want_ver = _as_str(pins.get("schema_ver") or pins.get("feature_schema_ver") or "").strip()
     want_schema_hash = _as_str(pins.get("schema_hash") or "").strip()
@@ -222,7 +222,7 @@ def main() -> int:
 
     args = ap.parse_args()
 
-    include_time_onehot: Optional[bool]
+    include_time_onehot: bool | None
     it = str(args.include_time_onehot or "").strip().lower()
     if it in ("1", "true", "yes", "on"):
         include_time_onehot = True
@@ -231,7 +231,7 @@ def main() -> int:
     else:
         include_time_onehot = None
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "tool": "feature_registry_contract_check_v1",
         "ts_ms": _now_ms(),
         "pin_key": str(args.pin_key),
@@ -275,9 +275,9 @@ def main() -> int:
             out["pins_present"] = 0
             if int(args.seed_pin) == 1:
                 seed = {
-                    "schema_ver": str(current.get("schema_ver") or ""),
-                    "schema_hash": str(current.get("schema_hash") or ""),
-                    "feature_cols_hash": str(current.get("feature_cols_hash") or ""),
+                    "schema_ver": (current.get("schema_ver") or ""),
+                    "schema_hash": (current.get("schema_hash") or ""),
+                    "feature_cols_hash": (current.get("feature_cols_hash") or ""),
                     "updated_ts_ms": str(_now_ms()),
                 }
                 _hset_safe(r, str(args.pin_key), seed)
@@ -329,12 +329,12 @@ def main() -> int:
             "mismatch_schema_ver": int(out.get("mismatch_schema_ver", 0)),
             "mismatch_schema_hash": int(out.get("mismatch_schema_hash", 0)),
             "mismatch_feature_cols_hash": int(out.get("mismatch_feature_cols_hash", 0)),
-            "schema_ver": str(current.get("schema_ver") or ""),
-            "schema_hash": str(current.get("schema_hash") or ""),
-            "feature_cols_hash": str(current.get("feature_cols_hash") or ""),
-            "expected_schema_ver": str(out.get("expected_schema_ver") or ""),
-            "expected_schema_hash": str(out.get("expected_schema_hash") or ""),
-            "expected_feature_cols_hash": str(out.get("expected_feature_cols_hash") or ""),
+            "schema_ver": (current.get("schema_ver") or ""),
+            "schema_hash": (current.get("schema_hash") or ""),
+            "feature_cols_hash": (current.get("feature_cols_hash") or ""),
+            "expected_schema_ver": (out.get("expected_schema_ver") or ""),
+            "expected_schema_hash": (out.get("expected_schema_hash") or ""),
+            "expected_feature_cols_hash": (out.get("expected_feature_cols_hash") or ""),
             "updated_ts_ms": str(_now_ms()),
         }
         # keep params to help debugging (low-cardinality)
@@ -342,7 +342,7 @@ def main() -> int:
         if isinstance(params, dict):
             for k in ("max_numeric", "scenario_prefix", "include_time_onehot", "include_direction", "include_scenario"):
                 if k in params:
-                    metrics[f"param_{k}"] = str(params.get(k))
+                    metrics[f"param_{k}"] = (params.get(k))
 
         _hset_safe(r, str(args.metrics_key), metrics)
 

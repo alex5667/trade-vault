@@ -25,11 +25,14 @@ import gzip
 import json
 import os
 import time
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 import redis.asyncio as aioredis
-from redis.exceptions import ResponseError, ConnectionError as RedisConnectionError
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import ResponseError
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def env(name: str, default: str) -> str:
@@ -98,7 +101,7 @@ async def wait_for_redis_ready(
         try:
             # Try a simple operation to check if Redis is ready
             await r.ping()
-            
+
             # Try to get a key to ensure Redis is fully loaded
             # Use a non-existent key to avoid side effects
             try:
@@ -122,7 +125,7 @@ async def wait_for_redis_ready(
             except Exception:
                 # Any other error means Redis is ready (just the operation failed)
                 return True
-                
+
         except (RedisConnectionError, OSError) as e:
             # Connection error - wait and retry
             delay = min(base_delay * (2 ** attempt), max_delay)
@@ -137,7 +140,7 @@ async def wait_for_redis_ready(
             # Unexpected error - assume Redis is ready
             print(f"⚠️  Unexpected error checking Redis readiness: {e}")
             return True
-    
+
     return False
 
 
@@ -145,7 +148,7 @@ async def create_redis_connection(
     redis_url: str,
     max_retries: int = 30,
     base_delay: float = 2.0
-) -> Optional[aioredis.Redis]:
+) -> aioredis.Redis | None:
     """
     Create Redis connection with retry logic and readiness check.
     
@@ -166,7 +169,7 @@ async def create_redis_connection(
                 socket_timeout=10,
                 health_check_interval=30
             )
-            
+
             # Test connection first
             try:
                 await r.ping()
@@ -177,35 +180,29 @@ async def create_redis_connection(
                     delay = min(base_delay * (2 ** attempt), 30.0)
                     if attempt < max_retries - 1:
                         print(f"⏳ Redis is loading dataset, waiting {delay:.1f}s (attempt {attempt + 1}/{max_retries})")
-                        try:
+                        with contextlib.suppress(Exception):
                             await r.aclose()
-                        except Exception:
-                            pass
                         await asyncio.sleep(delay)
                         continue
                     else:
                         print(f"❌ Redis still loading after {max_retries} attempts")
-                        try:
+                        with contextlib.suppress(Exception):
                             await r.aclose()
-                        except Exception:
-                            pass
                         return None
                 else:
                     # Other response error, re-raise to be caught by outer handler
-                    try:
+                    with contextlib.suppress(Exception):
                         await r.aclose()
-                    except Exception:
-                        pass
                     raise
-            
+
             # Wait for Redis to be fully ready
             if await wait_for_redis_ready(r, max_retries=60, base_delay=base_delay):
-                print(f"✅ Redis connection established and ready")
+                print("✅ Redis connection established and ready")
                 return r
             else:
                 await r.aclose()
                 return None
-                
+
         except (RedisConnectionError, OSError) as e:
             # Connection error - check if it's BusyLoading
             error_msg = str(e).lower()
@@ -272,7 +269,7 @@ async def create_redis_connection(
                 else:
                     print(f"❌ Failed to create Redis connection after {max_retries} attempts: {e}")
                     return None
-    
+
     return None
 
 
@@ -283,10 +280,10 @@ def is_redis_loading_error(error: Exception) -> bool:
 
 
 async def export_stream(
-    r: aioredis.Redis, 
-    stream: str, 
-    out_dir: str, 
-    last_id_key: str, 
+    r: aioredis.Redis,
+    stream: str,
+    out_dir: str,
+    last_id_key: str,
     chunk: int = 2000
 ) -> int:
     """
@@ -294,7 +291,7 @@ async def export_stream(
     
     Args:
         r: Redis client
-        stream: Stream name (e.g. 'events:trades')
+        stream: Stream name (e.g. RS.EVENTS_TRADES)
         out_dir: Output directory root
         last_id_key: Redis key to store last exported stream_id
         chunk: Number of messages per XRANGE call
@@ -316,13 +313,13 @@ async def export_stream(
         if is_redis_loading_error(e):
             raise Exception("Redis is loading the dataset in memory") from e
         raise
-    
+
     exported = 0
 
     while True:
         # XRANGE: read chunk after last_id
         try:
-            items: List[Tuple[str, Dict[str, Any]]] = await r.xrange(
+            items: list[tuple[str, dict[str, Any]]] = await r.xrange(
                 stream, min=last_id, max="+", count=chunk
             )
         except ResponseError as e:
@@ -333,12 +330,12 @@ async def export_stream(
             if is_redis_loading_error(e):
                 raise Exception("Redis is loading the dataset in memory") from e
             raise
-        
+
         if not items:
             break
 
         fetched_count = len(items)
-        
+
         # Skip first item if it's the last_id (already exported)
         if items and items[0][0] == last_id:
             items = items[1:]
@@ -357,9 +354,9 @@ async def export_stream(
 
         # Determine day from first item's timestamp (for file rotation)
         day = datetime.fromtimestamp(
-            stream_ms(items[0][0]) / 1000.0, tz=timezone.utc
+            stream_ms(items[0][0]) / 1000.0, tz=UTC
         ).strftime("%Y%m%d")
-        
+
         # Build path: out_dir/stream_name/stream_name_YYYYMMDD.ndjson.gz
         stream_safe = stream.replace(":", "_")
         path = os.path.join(out_dir, stream_safe)
@@ -389,7 +386,7 @@ async def export_stream(
             if is_redis_loading_error(e):
                 raise Exception("Redis is loading the dataset in memory") from e
             raise
-        
+
         # If Redis returned less than chunk, we are at the end
         if fetched_count < chunk:
             break
@@ -404,17 +401,17 @@ async def main() -> None:
         return
 
     redis_url = env("REDIS_URL", "redis://redis:6379/0")
-    
+
     # Config
     out_dir = env("STREAM_EXPORT_DIR", "/var/log/trade/exports")
     interval = env_int("STREAM_EXPORT_INTERVAL_SEC", 300)
     keep_days = env_int("STREAM_EXPORT_KEEP_DAYS", 90)
 
     entry_stream = env("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit")
-    events_stream = env("TRADE_EVENTS_STREAM", "events:trades")
+    events_stream = env("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
 
     print(f"✅ Stream Exporter starting | out_dir={out_dir} interval={interval}s keep_days={keep_days}")
-    
+
     # Create Redis connection with retry and readiness check
     r = await create_redis_connection(redis_url, max_retries=30, base_delay=2.0)
     if r is None:
@@ -428,7 +425,7 @@ async def main() -> None:
 
     while True:
         cycle_errors = 0
-        
+
         # Export entry audit stream
         try:
             n1 = await export_stream(
@@ -478,10 +475,8 @@ async def main() -> None:
                 await r.ping()
             except Exception:
                 print("⚠️  Redis connection lost, attempting to reconnect...")
-                try:
+                with contextlib.suppress(Exception):
                     await r.aclose()
-                except Exception:
-                    pass
                 r = await create_redis_connection(redis_url, max_retries=10, base_delay=2.0)
                 if r is None:
                     consecutive_errors += 1

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """services.orderflow.liquidity_geom_policy
 
 Shared, pure logic for Phase C (P2) liquidity geometry/resiliency gating.
@@ -16,12 +17,11 @@ Profiles:
 
 
 from dataclasses import dataclass
-from typing import List, Tuple
 
 
 @dataclass
 class LiqGeomDecision:
-    flags: List[str]
+    flags: list[str]
     slope_min: float
     tighten_add_bps: float
     veto: bool
@@ -65,7 +65,7 @@ def evaluate_liq_geom(
     This is intentionally conservative: uses the most severe single breach
     rather than summing breaches, to avoid over-penalizing correlated signals.
     """
-    p = str(profile or "default").strip().lower()
+    p = (profile or "default").strip().lower()
     if p not in {"default", "soft", "strict", "hard"}:
         p = "default"
 
@@ -78,7 +78,7 @@ def evaluate_liq_geom(
     td = float(thr_dws or 0.0)
     tr = int(thr_recovery_ms or 0)
 
-    flags: List[str] = []
+    flags: list[str] = []
     # Slope flag: only if slope is known (>0) and below threshold
     if ts > 0.0 and smin > 0.0 and smin < ts:
         flags.append("slope_low")

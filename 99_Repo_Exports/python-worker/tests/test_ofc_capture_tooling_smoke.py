@@ -1,9 +1,6 @@
 import subprocess
-
 import sys
-
 from pathlib import Path
-
 
 
 def test_ofc_capture_tooling_smoke(tmp_path):

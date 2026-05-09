@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """utils.candle_utils — Lightweight candle/kline computation helpers.
 
 All functions are pure (no I/O) and safe for use in hot paths.

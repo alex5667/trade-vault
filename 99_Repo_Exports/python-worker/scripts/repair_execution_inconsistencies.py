@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Repair SQL execution journal rows from Redis state/stream mirrors.
 
@@ -37,9 +39,9 @@ import argparse
 import json
 import os
 import sys
-import time
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any
 
 # Allow direct execution without installing the package
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -77,7 +79,7 @@ def _i(v: Any, default: int = 0) -> int:
             return default
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _s(v: Any) -> str:
@@ -89,7 +91,7 @@ def select_best_source(
     redis_doc: Mapping[str, Any],
     stream_doc: Mapping[str, Any],
     sql_doc: Mapping[str, Any],
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     """Choose the least lossy mirror for SQL repair.
 
     Preference order:
@@ -110,7 +112,7 @@ def build_repair_plan(
     stream_latest: Mapping[str, Mapping[str, Any]],
     sql_orders: Mapping[str, Mapping[str, Any]],
     sql_refs: Mapping[str, Mapping[str, Any]],
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Build an ordered list of repair steps per sid.
 
     Each step contains:
@@ -121,11 +123,11 @@ def build_repair_plan(
       source_ref_doc – protection-ref fields (from Redis or SQL fallback)
       categories   – set of mismatch categories involved
     """
-    by_sid: Dict[str, List[consistency.ConsistencyMismatch]] = {}
+    by_sid: dict[str, list[consistency.ConsistencyMismatch]] = {}
     for mm in mismatches:
         by_sid.setdefault(mm.sid, []).append(mm)
 
-    plan: List[Dict[str, Any]] = []
+    plan: list[dict[str, Any]] = []
     for sid, items in sorted(by_sid.items()):
         redis_doc = dict(redis_state.get(sid) or {})
         stream_doc = dict(stream_latest.get(sid) or {})
@@ -133,7 +135,7 @@ def build_repair_plan(
         sql_ref_doc = dict(sql_refs.get(sid) or {})
         source_name, source_doc = select_best_source(redis_doc, stream_doc, sql_doc)
         categories = {m.category for m in items}
-        actions: List[str] = []
+        actions: list[str] = []
         if 'sql_missing' in categories:
             actions.append('upsert_execution_order')
         if any(c.endswith('_mismatch') for c in categories):
@@ -167,7 +169,7 @@ class SQLRepairWriter:
     def __init__(self, conn: Any):
         self.conn = conn
 
-    def apply(self, plan: Iterable[Mapping[str, Any]]) -> Dict[str, int]:
+    def apply(self, plan: Iterable[Mapping[str, Any]]) -> dict[str, int]:
         """Execute the plan; returns counters dict with orders_upserted/orders_synced/refs_synced."""
         counters = {
             'orders_upserted': 0,
@@ -268,7 +270,7 @@ def run_repair(
     stream_count: int,
     dry_run: bool = False,
     ledger_dsn: str = '',
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Orchestrate the full repair flow: read mirrors → diff → plan → (optionally) apply."""
     import redis as redislib  # type: ignore
 
@@ -284,7 +286,7 @@ def run_repair(
 
     mismatches, _, _ = consistency.compare_execution_views(redis_state, stream_latest, sql_orders, sql_refs)
     plan = build_repair_plan(mismatches, redis_state, stream_latest, sql_orders, sql_refs)
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         'checked_at_ms': get_ny_time_millis(),
         'mismatches_total': len(mismatches),
         'repair_steps_total': len([p for p in plan if p.get('actions')]),
@@ -309,12 +311,12 @@ def run_repair(
     return result
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Repair SQL execution journal from Redis mirrors.')
     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
     parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
     parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
-    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC))
     parser.add_argument('--stream-count', type=int, default=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')))
     parser.add_argument('--dry-run', action='store_true', help='Plan only – do not write to SQL')
     parser.add_argument('--ledger-dsn', default=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))

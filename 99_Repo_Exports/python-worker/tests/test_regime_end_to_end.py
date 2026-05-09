@@ -3,18 +3,19 @@
 End-to-end tests for Regime Engine integration.
 """
 
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 # Import components
 try:
+    from contexts import Tick
     from handlers.data_processor import OrderFlowDataProcessor
     from handlers.signal_generator import SignalGenerator
-    from contexts import Tick
 except ImportError:
+    from python_worker.contexts import Tick
     from python_worker.handlers.data_processor import OrderFlowDataProcessor
     from python_worker.handlers.signal_generator import SignalGenerator
-    from python_worker.contexts import Tick
 
 
 def make_config():

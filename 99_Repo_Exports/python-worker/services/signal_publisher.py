@@ -1,14 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
 
 from services.signal_preprocess import preprocess_signal_for_publish
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _json_dumps_safe(obj: Any) -> str:
@@ -89,11 +89,11 @@ class SignalPublisher:
         self.r = redis_client
         self.sinks = sinks
         self.source = source
-        self.metrics_prefix = str(metrics_prefix or "signals_publish")
+        self.metrics_prefix = (metrics_prefix or "signals_publish")
         self.logger = logger
         self.order_builder = order_builder
 
-    def publish(self, payload: Dict[str, Any], *, symbol: str) -> PublishResult:
+    def publish(self, payload: dict[str, Any], *, symbol: str) -> PublishResult:
         """
         Publish pipeline (FAIL-OPEN). Never raises.
         Returns structured status for diagnostics/tests.
@@ -102,7 +102,7 @@ class SignalPublisher:
         busy = False
 
         try:
-            preprocess_signal_for_publish(payload, symbol=str(symbol), source=self.source, logger=self.logger)
+            preprocess_signal_for_publish(payload, symbol=symbol, source=self.source, logger=self.logger)
         except Exception:
             # preprocessing must never block publishing
             pass
@@ -128,10 +128,8 @@ class SignalPublisher:
             except Exception as e:
                 _r_incr_fail_open(self.r, f"{self.metrics_prefix}:store_errors_total")
                 if self.logger is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.logger.error("publish.store failed sid=%s err=%r", sid, e)
-                    except Exception:
-                        pass
 
         # BusyLoading => do not spam further Redis ops
         if busy:
@@ -155,10 +153,8 @@ class SignalPublisher:
             except Exception as e:
                 _r_incr_fail_open(self.r, f"{self.metrics_prefix}:raw_xadd_errors_total")
                 if self.logger is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.logger.error("publish.raw_xadd failed sid=%s err=%r", sid, e)
-                    except Exception:
-                        pass
 
         if busy:
             _r_incr_fail_open(self.r, f"{self.metrics_prefix}:busyloading_total")
@@ -181,10 +177,8 @@ class SignalPublisher:
             except Exception as e:
                 _r_incr_fail_open(self.r, f"{self.metrics_prefix}:notify_xadd_errors_total")
                 if self.logger is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.logger.error("publish.notify_xadd failed sid=%s err=%r", sid, e)
-                    except Exception:
-                        pass
 
         if busy:
             _r_incr_fail_open(self.r, f"{self.metrics_prefix}:busyloading_total")
@@ -194,16 +188,14 @@ class SignalPublisher:
         # 4) ORDER BUILD + QUEUE PUSH
         # --------------------------
         if self.sinks.orders_queue and self.order_builder is not None:
-            order_payload: Optional[Dict[str, Any]] = None
+            order_payload: dict[str, Any] | None = None
             try:
                 order_payload = self.order_builder.build_order_from_signal(payload)
             except Exception as e:
                 _r_incr_fail_open(self.r, f"{self.metrics_prefix}:order_build_errors_total")
                 if self.logger is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.logger.error("publish.order_build failed sid=%s err=%r", sid, e)
-                    except Exception:
-                        pass
 
             if order_payload is not None:
                 try:
@@ -214,10 +206,8 @@ class SignalPublisher:
                 except Exception as e:
                     _r_incr_fail_open(self.r, f"{self.metrics_prefix}:order_push_errors_total")
                     if self.logger is not None:
-                        try:
+                        with contextlib.suppress(Exception):
                             self.logger.error("publish.order_push failed sid=%s err=%r", sid, e)
-                        except Exception:
-                            pass
 
         if busy:
             _r_incr_fail_open(self.r, f"{self.metrics_prefix}:busyloading_total")

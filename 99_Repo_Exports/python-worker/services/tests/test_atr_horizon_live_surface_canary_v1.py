@@ -1,7 +1,7 @@
 from __future__ import annotations
+
 """Phase 2.4A unit tests: should_apply_live_surface canary router."""
 
-import pytest
 
 from services.atr_horizon_live_surface_canary import should_apply_live_surface
 

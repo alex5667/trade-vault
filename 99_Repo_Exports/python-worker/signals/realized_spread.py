@@ -1,5 +1,6 @@
 # signals/realized_spread.py
 from __future__ import annotations
+
 """
 Realized Spread Tracker для микроструктурного анализа.
 
@@ -9,12 +10,11 @@ Realized Spread Tracker для микроструктурного анализа
 Без Redis/JSON: только арифметика + deque + EMA для максимальной производительности.
 """
 
-from dataclasses import dataclass
 from collections import deque
-from typing import Deque, Optional
+from dataclasses import dataclass
 
 
-def _ema_update(prev: Optional[float], x: float, alpha: float) -> float:
+def _ema_update(prev: float | None, x: float, alpha: float) -> float:
     """EMA update: prev + alpha * (x - prev)"""
     if prev is None:
         return x
@@ -80,16 +80,16 @@ class RealizedSpreadTracker:
         self.spread_ema_alpha = float(spread_ema_alpha)
         self.adverse_ema_alpha = float(adverse_ema_alpha)
 
-        self._pending: Deque[_PendingTrade] = deque(maxlen=int(max_pending))
+        self._pending: deque[_PendingTrade] = deque(maxlen=int(max_pending))
 
         self._last_ts: int = 0
 
         self._realized_last: float = 0.0
-        self._realized_ema: Optional[float] = None
+        self._realized_ema: float | None = None
 
-        self._spread_ema: Optional[float] = None
+        self._spread_ema: float | None = None
 
-        self._adverse_ratio_ema: Optional[float] = None
+        self._adverse_ratio_ema: float | None = None
 
         self._realized_count: int = 0
 
@@ -118,7 +118,7 @@ class RealizedSpreadTracker:
         return (ask - bid) / mid * 10_000.0
 
     @staticmethod
-    def _infer_q(is_buyer_maker: Optional[bool], last: float, mid: float) -> int:
+    def _infer_q(is_buyer_maker: bool | None, last: float, mid: float) -> int:
         """
         Определяет направление агрессии (q).
         
@@ -142,8 +142,8 @@ class RealizedSpreadTracker:
         bid: float,
         ask: float,
         last: float,
-        is_buyer_maker: Optional[bool] = None,
-        is_trade_hint: Optional[bool] = None,
+        is_buyer_maker: bool | None = None,
+        is_trade_hint: bool | None = None,
     ) -> RealizedSpreadMetrics:
         """
         Вызывать на каждом тике.
@@ -224,8 +224,8 @@ class RealizedSpreadTracker:
             adverse_count = sum(1 for r in realized_this_tick if r < 0)
             adverse_ratio = adverse_count / len(realized_this_tick)
             self._adverse_ratio_ema = _ema_update(
-                self._adverse_ratio_ema, 
-                adverse_ratio, 
+                self._adverse_ratio_ema,
+                adverse_ratio,
                 self.adverse_ema_alpha
             )
 
@@ -282,10 +282,10 @@ def interpret_metrics(metrics: RealizedSpreadMetrics) -> str:
     """
     if metrics.realized_count < 10:
         return "warming_up"
-    
+
     realized = metrics.realized_ema_bps
     adverse = metrics.adverse_ratio_ema
-    
+
     if realized > 2.0 and adverse < 0.3:
         return "strong_momentum"
     elif realized > 0.5 and adverse < 0.4:

@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """core.redis_lock_async
 
 Async Redis lock (SET NX EX) with safe release.
@@ -16,10 +17,8 @@ Design:
 """
 
 
-from dataclasses import dataclass
-from typing import Optional
 import secrets
-
+from dataclasses import dataclass
 
 _RELEASE_LUA = """
 if redis.call('get', KEYS[1]) == ARGV[1] then
@@ -44,7 +43,7 @@ def new_lock_value(prefix: str = "") -> str:
     return f"{prefix}{tok}" if prefix else tok
 
 
-async def acquire_lock(*, r, key: str, ttl_sec: int, value: Optional[str] = None) -> Optional[RedisLock]:
+async def acquire_lock(*, r, key: str, ttl_sec: int, value: str | None = None) -> RedisLock | None:
     """Acquire lock.
 
     Args:
@@ -70,7 +69,7 @@ async def acquire_lock(*, r, key: str, ttl_sec: int, value: Optional[str] = None
         return None
 
 
-async def refresh_lock(*, r, lock: RedisLock, ttl_sec: Optional[int] = None) -> bool:
+async def refresh_lock(*, r, lock: RedisLock, ttl_sec: int | None = None) -> bool:
     """Best-effort TTL refresh.
 
     Uses compare-and-set via Lua (only refresh if still owned).
@@ -82,7 +81,7 @@ async def refresh_lock(*, r, lock: RedisLock, ttl_sec: Optional[int] = None) -> 
         # Lua: if owned then EXPIRE
         # We avoid a second Lua string; do it in 2 commands for simplicity:
         cur = await r.get(lock.key)
-        if str(cur or "") != lock.value:
+        if (cur or "") != lock.value:
             return False
         await r.expire(lock.key, ttl)
         return True
@@ -99,7 +98,7 @@ async def release_lock(*, r, lock: RedisLock) -> bool:
         return False
 
 
-async def run_locked(*, r, key: str, ttl_sec: int, coro, value: Optional[str] = None) -> bool:
+async def run_locked(*, r, key: str, ttl_sec: int, coro, value: str | None = None) -> bool:
     """Acquire lock and run awaitable `coro` if acquired.
 
     Returns:

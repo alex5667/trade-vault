@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Phase 2.1 — ATR Candidate Cache Writer.
 
@@ -16,7 +17,6 @@ tf_label values: 15s / 30s / 1m / 3m / 5m / 15m
 import json
 import logging
 import os
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ try:
 except ImportError:  # pragma: no cover
     _redis_lib = None  # type: ignore
 
-_R: Optional[object] = None
+_R: object | None = None
 _REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 _TTL_SEC = int(os.getenv("ATR_HORIZON_CANDIDATE_TTL_SEC", "86400") or 86400)
 _ENABLED = os.getenv("ATR_HORIZON_CANDIDATE_WRITER_ENABLE", "1") == "1"
@@ -34,7 +34,7 @@ _ENABLED = os.getenv("ATR_HORIZON_CANDIDATE_WRITER_ENABLE", "1") == "1"
 _VALID_TF_LABELS = frozenset({"15s", "30s", "1m", "3m", "5m", "15m"})
 
 
-def _redis() -> Optional[object]:
+def _redis() -> object | None:
     global _R
     if _redis_lib is None:
         return None
@@ -67,8 +67,8 @@ def publish_atr_candidate(
     if not _ENABLED:
         return False
     try:
-        symbol = str(symbol or "").upper()
-        tf_label = str(tf_label or "").lower().strip()
+        symbol = (symbol or "").upper()
+        tf_label = (tf_label or "").lower().strip()
         if not symbol or tf_label not in _VALID_TF_LABELS:
             return False
         atr_value = float(atr_value)
@@ -86,7 +86,7 @@ def publish_atr_candidate(
             "ts_ms": ts_ms,
         }
         key = f"ta:last:atr:{symbol}:{tf_label}"
-        getattr(r, "set")(
+        r.set(
             key,
             json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
             ex=_TTL_SEC,

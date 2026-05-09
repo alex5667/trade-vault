@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 test_world_practice_trackers_v1.py
 ===================================
@@ -17,13 +18,11 @@ drifts without requiring edits to core tracker files.
 
 
 import asyncio
-import os
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Path bootstrap — tests run from the python-worker root.
@@ -47,7 +46,7 @@ def _as_float(x: Any, default: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(default)
+        return default
 
 
 def _call_update(tracker: Any, ts_ms: int, price: float) -> None:
@@ -75,14 +74,14 @@ def _call_update(tracker: Any, ts_ms: int, price: float) -> None:
     raise AttributeError(f"{type(tracker).__name__} has no update/on_price method")
 
 
-def _call_snapshot(tracker: Any) -> Dict[str, Any]:
+def _call_snapshot(tracker: Any) -> dict[str, Any]:
     """Return snapshot dict from tracker; falls back to attribute inspection."""
     if hasattr(tracker, "snapshot"):
         return tracker.snapshot()
     if hasattr(tracker, "state"):
         return tracker.state()
     # Last-resort: pull known public attributes into a dict
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k in ("vol_fast_bps", "vol_slow_bps", "vol_ratio", "vol_ratio_z",
                "recovered", "res_recovered", "score"):
         if hasattr(tracker, k):
@@ -257,9 +256,9 @@ class _DummyRedis:
     """Minimal async Redis stub sufficient for TickProcessor instantiation."""
 
     def __init__(self) -> None:
-        self._h: Dict[str, Dict[str, str]] = {}
+        self._h: dict[str, dict[str, str]] = {}
 
-    async def hgetall(self, key: str) -> Dict[str, str]:
+    async def hgetall(self, key: str) -> dict[str, str]:
         return dict(self._h.get(key, {}))
 
     async def hset(self, key: str, mapping: Any = None, **kwargs: Any) -> int:
@@ -300,7 +299,7 @@ class _DummyDeltaDetector:
     before calling push().
     """
 
-    def push(self, tick: Dict[str, Any]) -> Any:
+    def push(self, tick: dict[str, Any]) -> Any:
         # After the qty-sanitization patch, 'qty' must always be present and valid
         assert "qty" in tick, "'qty' not in tick after sanitization"
         _ = float(tick["qty"])
@@ -313,8 +312,8 @@ class _DummyRuntime:
 
     def __init__(self) -> None:
         self.symbol = "BTCUSDT"
-        self.config: Dict[str, Any] = {}
-        self.dynamic_cfg: Dict[str, Any] = {}
+        self.config: dict[str, Any] = {}
+        self.dynamic_cfg: dict[str, Any] = {}
         self.last_ts_ms = 0
         self.last_tick_ts = 0
         self.tick_count = 0
@@ -346,7 +345,7 @@ def test_tick_processor_missing_qty_does_not_crash(monkeypatch: pytest.MonkeyPat
     )
 
     # Stub out _apply_tick_time_guard to bypass full Redis state
-    async def _fake_tick_time_guard(self: Any, runtime: Any, tick: Any) -> Dict[str, Any]:
+    async def _fake_tick_time_guard(self: Any, runtime: Any, tick: Any) -> dict[str, Any]:
         return {"tick_ts_ms": 1_700_000_000_000, "decision": "ok", "meta": {}}
 
     tp._apply_tick_time_guard = _fake_tick_time_guard.__get__(tp, TickProcessor)
@@ -354,7 +353,7 @@ def test_tick_processor_missing_qty_does_not_crash(monkeypatch: pytest.MonkeyPat
     runtime = _DummyRuntime()
 
     # Tick with no qty/q/quantity/volume field -- should not crash
-    tick: Dict[str, Any] = {
+    tick: dict[str, Any] = {
         "ts_ms": 1_700_000_000_000,
         "price": 100.0,
         "is_buyer_maker": False,

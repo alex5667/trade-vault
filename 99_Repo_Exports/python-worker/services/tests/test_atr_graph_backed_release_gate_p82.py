@@ -9,7 +9,6 @@ Test coverage:
   - _is_bounded_scope() filtering
   - ReleaseEquivalenceCertService cert rendering
 """
-import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -82,7 +81,6 @@ def _graph_state(
 # ─── Import target under test ─────────────────────────────────────────────────
 # We import after defining helpers so module-level env reads don't fail.
 
-import importlib, os, sys
 
 # Patch DB away before import
 _MOCK_CONN = MagicMock()
@@ -94,13 +92,11 @@ _MOCK_CONN.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
 with patch("services.analytics_db.get_conn", return_value=_MOCK_CONN):
     from services.atr_graph_backed_release_gate import (
-        compare_with_legacy,
         _is_bounded_scope,
-        _BOUNDED_SYMBOLS,
-        _BOUNDED_STAGES,
-        render_shadow_compare_healthy,
+        compare_with_legacy,
         render_critical_drift,
         render_cutover_ready,
+        render_shadow_compare_healthy,
     )
 
 
@@ -283,7 +279,6 @@ class TestEvaluateReleaseModeSwitching(unittest.TestCase):
 
     def _make_evaluate(self, mode: str, graph_decision: str, legacy_decision: str):
         """Helper: patch env and DB, call evaluate_release(), return result."""
-        import importlib
         import services.atr_graph_backed_release_gate as mod
 
         orig_mode   = mod._MODE

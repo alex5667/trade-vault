@@ -5,8 +5,8 @@ Centralizes all Lua scripts used for atomic Redis operations in signal delivery.
 Provides SHA caching and fallback execution.
 """
 
-from typing import Any, Dict, List, Optional
 import logging
+from typing import Any
 
 
 class LuaScriptManager:
@@ -19,11 +19,11 @@ class LuaScriptManager:
     - Execute scripts with evalsha/eval fallback
     - Provide type-safe script execution
     """
-    
+
     # =========================================================================
     # Lua Scripts
     # =========================================================================
-    
+
     XADD_AND_MARK = r"""
 -- KEYS[1] = marker_key
 -- KEYS[2] = stream
@@ -450,7 +450,7 @@ redis.call("XACK", KEYS[1], KEYS[3], msg_id)
 return 1
 """
 
-    def __init__(self, redis_client: Any, logger: Optional[logging.Logger] = None):
+    def __init__(self, redis_client: Any, logger: logging.Logger | None = None):
         """
         Initialize Lua script manager.
         
@@ -460,8 +460,8 @@ return 1
         """
         self.redis = redis_client
         self.logger = logger or logging.getLogger(__name__)
-        self._sha_cache: Dict[str, str] = {}
-        self._scripts: Dict[str, str] = {
+        self._sha_cache: dict[str, str] = {}
+        self._scripts: dict[str, str] = {
             "xadd_or_setex_then_mark": self.XADD_OR_SETEX_THEN_MARK,
             "notify_gate_xadd_then_mark": self.NOTIFY_GATE_XADD_THEN_MARK,
             "marker_after_delivery": self.MARKER_AFTER_DELIVERY,
@@ -479,7 +479,7 @@ return 1
             "mark_and_notify": self.MARK_AND_NOTIFY,
             "zpop_due": self.ZPOP_DUE,
         }
-    
+
     def get_sha(self, script_name: str) -> str:
         """
         Get SHA hash for script, loading if needed.
@@ -495,21 +495,21 @@ return 1
         """
         if script_name not in self._scripts:
             raise KeyError(f"Unknown script: {script_name}")
-        
+
         if script_name not in self._sha_cache:
             script = self._scripts[script_name]
             sha = self.redis.script_load(script)
             self._sha_cache[script_name] = sha
             self.logger.debug(f"Loaded script {script_name}: {sha[:8]}...")
-        
+
         return self._sha_cache[script_name]
-    
+
     def execute(
         self,
         script_name: str,
-        keys: List[str],
-        args: List[Any],
-        client: Optional[Any] = None
+        keys: list[str],
+        args: list[Any],
+        client: Any | None = None
     ) -> Any:
         """
         Execute Lua script with evalsha/eval fallback.
@@ -525,15 +525,15 @@ return 1
         """
         target_client = client or self.redis
         try:
-            # We need SHA from the target client? 
+            # We need SHA from the target client?
             # Scripts might not be loaded on target_client.
             # But get_sha() loads on self.redis only?
             # Ideally target_client should load it too.
             # Let's try to use SHA derived from self.redis (it's constant for script content).
             # But we must ensure it's loaded on target_client.
-            
+
             sha = self.get_sha(script_name) # This ensures loaded on self.redis.
-            
+
             # Try running on target_client
             try:
                 return target_client.evalsha(sha, len(keys), *keys, *args)
@@ -547,13 +547,13 @@ return 1
         except Exception as e:
              # Fallback to eval if evalsha fails (and not just noscript handled above)
              if "NOSCRIPT" in str(e):
-                 # This path shouldn't be reached if inner try/except handles it, 
+                 # This path shouldn't be reached if inner try/except handles it,
                  # but for safety:
                  self.logger.debug(f"SHA not found for {script_name}, using eval")
                  script = self._scripts[script_name]
                  return target_client.eval(script, len(keys), *keys, *args)
              raise
-    
+
     def preload_all(self) -> None:
         """Preload all scripts to Redis."""
         for script_name in self._scripts:

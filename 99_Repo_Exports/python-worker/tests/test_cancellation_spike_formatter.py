@@ -36,20 +36,20 @@ def test_cancellation_spike_veto_display():
             "cancel_spike_ask_rate_ema": 8.3,
         }
     )
-    
+
     message = CryptoSignalFormatter.format_telegram_message(signal)
-    
+
     # Verify veto section is present
     assert "🚫" in message, "Veto emoji should be present"
     assert "Cancellation Spike Veto" in message, "Veto header should be present"
     assert "bid_support_pulled" in message, "Veto reason should be displayed"
-    
+
     # Verify metrics are present
     assert "Ratio=3.45" in message, "Ratio metric should be displayed"
     assert "Z=2.87" in message, "Z-score metric should be displayed"
     assert "Bid EMA=12.50" in message, "Bid EMA should be displayed"
     assert "Ask EMA=8.30" in message, "Ask EMA should be displayed"
-    
+
     print("✅ Test passed: Veto display is correct")
     print("\n" + "="*80)
     print("Generated message:")
@@ -83,18 +83,18 @@ def test_cancellation_spike_monitor_display():
             "cancel_spike_ask_rate_ema": 4.8,
         }
     )
-    
+
     message = CryptoSignalFormatter.format_telegram_message(signal)
-    
+
     # Verify monitor section is present
     assert "🔍" in message, "Monitor emoji should be present"
     assert "Cancellation Spike Monitor" in message, "Monitor header should be present"
     assert "ok_no_spike" in message, "Monitor status should be displayed"
-    
+
     # Verify metrics are present
     assert "Ratio=1.20" in message, "Ratio metric should be displayed"
     assert "Z=0.50" in message, "Z-score metric should be displayed"
-    
+
     print("✅ Test passed: Monitor display is correct")
     print("\n" + "="*80)
     print("Generated message:")
@@ -121,12 +121,12 @@ def test_no_cancellation_spike_data():
         confirmations=[],
         indicators={}  # No cancellation spike data
     )
-    
+
     message = CryptoSignalFormatter.format_telegram_message(signal)
-    
+
     # Verify cancellation spike section is NOT present
     assert "Cancellation Spike" not in message, "Cancellation spike section should not be present when no data"
-    
+
     print("✅ Test passed: No cancellation spike section when data is absent")
     print("\n" + "="*80)
     print("Generated message:")
@@ -137,14 +137,14 @@ def test_no_cancellation_spike_data():
 
 if __name__ == "__main__":
     print("Running cancellation spike evidence integration tests...\n")
-    
+
     test_cancellation_spike_veto_display()
     print()
-    
+
     test_cancellation_spike_monitor_display()
     print()
-    
+
     test_no_cancellation_spike_data()
     print()
-    
+
     print("\n🎉 All tests passed!")

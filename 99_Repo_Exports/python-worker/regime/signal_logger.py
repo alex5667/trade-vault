@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from datetime import UTC
+
 import psycopg2
 import psycopg2.extras
 
@@ -47,17 +48,17 @@ class SignalLogger:
         # Map snapshot fields to signals table schema
         # Required fields: signal_id, ts_signal, symbol, side, setup_type, price_at_signal, final_score
         try:
-            from datetime import datetime, timezone
             import uuid
+            from datetime import datetime
 
             # Generate signal_id if not present
             signal_id = data.get('signal_id') or str(uuid.uuid4())
 
             # Parse timestamp
-            ts_signal = data.get('ts') or data.get('ts_signal') or datetime.now(timezone.utc)
+            ts_signal = data.get('ts') or data.get('ts_signal') or datetime.now(UTC)
             if isinstance(ts_signal, (int, float)):
                 # Convert epoch ms to datetime
-                ts_signal = datetime.fromtimestamp(ts_signal / 1000.0, tz=timezone.utc)
+                ts_signal = datetime.fromtimestamp(ts_signal / 1000.0, tz=UTC)
 
             # Extract required fields
             symbol = data.get('symbol', 'UNKNOWN')
@@ -103,7 +104,7 @@ class SignalLogger:
                 signal_id,
                 ts_signal,
                 symbol,
-                str(side).upper(),
+                side.upper(),
                 setup_type,
                 price_at_signal,
                 final_score,
@@ -121,8 +122,8 @@ class SignalLogger:
 
     def get_recent_signals(
         self,
-        symbol: Optional[str] = None,
-        family: Optional[str] = None,
+        symbol: str | None = None,
+        family: str | None = None,
         limit: int = 100
     ) -> list[dict]:
         """

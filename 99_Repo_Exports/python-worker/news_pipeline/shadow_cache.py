@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """news_pipeline.shadow_cache
 
 Shadow cache for news/calendar enrichment.
@@ -18,13 +19,13 @@ Redis keys (expected)
     event_tminus_sec, event_grade_id, updated_ts_ms
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import time
-import threading
 import logging
+import threading
+import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     # Prefer project helper if present
@@ -37,7 +38,7 @@ from contexts import NewsFeatures
 log = logging.getLogger("news_shadow_cache")
 
 # Fields we read from news:agg:<symbol>. HMGET is cheaper than HGETALL.
-NEWS_HASH_FIELDS: Tuple[str, ...] = (
+NEWS_HASH_FIELDS: tuple[str, ...] = (
     "ref",
     "risk_ema",
     "surprise_ema",
@@ -50,7 +51,7 @@ NEWS_HASH_FIELDS: Tuple[str, ...] = (
 )
 
 # Calendar: keep it fixed-width as well.
-CAL_HASH_FIELDS: Tuple[str, ...] = (
+CAL_HASH_FIELDS: tuple[str, ...] = (
     "event_tminus_sec",
     "event_grade_id",
     "updated_ts_ms",
@@ -175,13 +176,13 @@ class ShadowCache:
     """
 
     def __init__(self, *, per_symbol_cache_ms: int = 1500, max_age_ms: int = 300_000) -> None:
-        self.news_by_symbol: Dict[str, NewsFeatures] = {}
-        self.cal_by_asset: Dict[str, Tuple[int, int, int]] = {}
+        self.news_by_symbol: dict[str, NewsFeatures] = {}
+        self.cal_by_asset: dict[str, tuple[int, int, int]] = {}
         # cal tuple: (event_tminus_sec, event_grade_id, updated_ts_ms)
 
         # Interest sets (updated by tick-loop).
-        self._seen_symbol_ms: Dict[str, int] = {}
-        self._seen_asset_ms: Dict[str, int] = {}
+        self._seen_symbol_ms: dict[str, int] = {}
+        self._seen_asset_ms: dict[str, int] = {}
 
         # Diagnostics
         self.last_refresh_ms: int = 0
@@ -190,7 +191,7 @@ class ShadowCache:
         # Micro-cache for merged (symbol, asset_class) -> NewsFeatures
         self._per_symbol_cache_ms = max(0, int(per_symbol_cache_ms))
         self._max_age_ms = max(0, int(max_age_ms))
-        self._merged_cache: Dict[Tuple[str, str], Tuple[int, Tuple[Any, ...], Tuple[int, int, int], NewsFeatures]] = {}
+        self._merged_cache: dict[tuple[str, str], tuple[int, tuple[Any, ...], tuple[int, int, int], NewsFeatures]] = {}
 
     # --- tick-loop API (no Redis, constant time) ---
 
@@ -202,7 +203,7 @@ class ShadowCache:
         if ac:
             self._seen_asset_ms[ac] = now
 
-    def is_stale(self, nf: NewsFeatures, *, max_age_ms: Optional[int] = None) -> bool:
+    def is_stale(self, nf: NewsFeatures, *, max_age_ms: int | None = None) -> bool:
         age_limit = self._max_age_ms if max_age_ms is None else max(0, int(max_age_ms))
         if age_limit <= 0:
             return False
@@ -211,7 +212,7 @@ class ShadowCache:
         age = _now_ms() - int(nf.asof_ts_ms)
         return age > age_limit
 
-    def get(self, symbol: str, asset_class: str = "", *, max_age_ms: int = 0) -> Optional[NewsFeatures]:
+    def get(self, symbol: str, asset_class: str = "", *, max_age_ms: int = 0) -> NewsFeatures | None:
         """Get merged NewsFeatures (news + calendar fields).
 
         max_age_ms:
@@ -293,9 +294,9 @@ class ShadowCache:
 
     # --- background thread support (called from refresher) ---
 
-    def active_symbols(self, *, ttl_ms: int, limit: int) -> List[str]:
+    def active_symbols(self, *, ttl_ms: int, limit: int) -> list[str]:
         now = _now_ms()
-        out: List[Tuple[int, str]] = []
+        out: list[tuple[int, str]] = []
         # Copy items to avoid RuntimeError if dict resizes
         for sym, ts in list(self._seen_symbol_ms.items()):
             if now - ts <= ttl_ms:
@@ -304,9 +305,9 @@ class ShadowCache:
         lim = max(0, int(limit))
         return [sym for _ts, sym in out[:lim]]
 
-    def active_assets(self, *, ttl_ms: int, limit: int) -> List[str]:
+    def active_assets(self, *, ttl_ms: int, limit: int) -> list[str]:
         now = _now_ms()
-        out: List[Tuple[int, str]] = []
+        out: list[tuple[int, str]] = []
         for ac, ts in list(self._seen_asset_ms.items()):
             if now - ts <= ttl_ms:
                 out.append((ts, ac))
@@ -342,7 +343,7 @@ class ShadowRefresher:
         self.cal_key_prefix = cal_key_prefix
 
         self._stop = threading.Event()
-        self._t: Optional[threading.Thread] = None
+        self._t: threading.Thread | None = None
         self._err_count = 0
 
     # --- public API ---
@@ -418,7 +419,7 @@ class ShadowRefresher:
                     continue
                 d = dict(zip(NEWS_HASH_FIELDS, row))
 
-                ref = _ensure_ref(str(d.get("ref") or ""))
+                ref = _ensure_ref((d.get("ref") or ""))
 
                 nf = NewsFeatures(
                     ref=ref,

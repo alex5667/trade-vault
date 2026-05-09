@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """DB adapters for decision_snapshot table: SQLite (tests/dev) and Postgres/Timescale (prod).
 
 We intentionally keep the interface tiny and explicit:
@@ -18,12 +19,12 @@ Dependencies:
 
 
 import json
-import os
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
-Row = Dict[str, Any]
+Row = dict[str, Any]
 
 
 def _to_int(v: Any, default: int = 0) -> int:
@@ -33,7 +34,7 @@ def _to_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def _to_float(v: Any) -> Optional[float]:
+def _to_float(v: Any) -> float | None:
     try:
         f = float(v)
     except Exception:
@@ -43,7 +44,7 @@ def _to_float(v: Any) -> Optional[float]:
     return f
 
 
-def _to_text_array(v: Any) -> List[str]:
+def _to_text_array(v: Any) -> list[str]:
     if v is None:
         return []
     if isinstance(v, list):

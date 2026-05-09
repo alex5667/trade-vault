@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Build confirm_train_v7 NDJSON dataset by joining decisions:final + trades:closed.
 
 Produces two files consumed by downstream nightly timers:
@@ -19,8 +20,6 @@ CLI example:
     --out_outcomes  /var/lib/trade/training/latest_outcomes.ndjson \\
     --out_report    /var/lib/trade/training/confirm_v7_report.json
 """
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import gzip
 import json
@@ -28,8 +27,9 @@ import os
 import re
 import sys
 import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -132,8 +132,8 @@ def _normalize_sid(raw_sid: Any, *, symbol="", ts_ms: int = 0) -> str:
     return s
 
 
-def _decode_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _decode_fields(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in (fields or {}).items():
         kk = _as_str(k)
         out[kk] = v.decode("utf-8", "ignore") if isinstance(v, bytes) else v
@@ -142,9 +142,9 @@ def _decode_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
 
 # ─── Redis stream reader ─────────────────────────────────────────────────────
 
-def _xrevrange_recent(r: Any, stream: str, *, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+def _xrevrange_recent(r: Any, stream: str, *, count: int) -> list[tuple[str, dict[str, Any]]]:
     """Read last N entries from a Redis stream in reverse order."""
-    out: List[Tuple[str, Dict[str, Any]]] = []
+    out: list[tuple[str, dict[str, Any]]] = []
     last_id = "+"
     remaining = int(count)
     chunk_size = 1000
@@ -181,14 +181,14 @@ def _utc_day_from_ts_ms(ts_ms: int) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(int(ts_ms) / 1000))
 
 
-def _list_archive_files(archive_dir: str, *, lookback_days: int) -> List[str]:
-    d = str(archive_dir or "").strip()
+def _list_archive_files(archive_dir: str, *, lookback_days: int) -> list[str]:
+    d = (archive_dir or "").strip()
     if not d or not os.path.isdir(d):
         return []
     now = _now_ms()
     day_a = _utc_day_from_ts_ms(now - lookback_days * 86400 * 1000)
     day_b = _utc_day_from_ts_ms(now)
-    names: List[str] = []
+    names: list[str] = []
     for nm in os.listdir(d):
         m = _DAY_RE.match(nm)
         if not m:
@@ -204,12 +204,12 @@ def _list_archive_files(archive_dir: str, *, lookback_days: int) -> List[str]:
 def _open_text_maybe_gzip(path: str):
     if str(path).endswith(".gz"):
         return gzip.open(path, "rt", encoding="utf-8", errors="replace")
-    return open(path, "r", encoding="utf-8", errors="replace")
+    return open(path, encoding="utf-8", errors="replace")
 
 
-def _read_archive_items(archive_dir: str, *, lookback_days: int, max_records: int) -> List[Tuple[str, Dict[str, Any]]]:
+def _read_archive_items(archive_dir: str, *, lookback_days: int, max_records: int) -> list[tuple[str, dict[str, Any]]]:
     files = _list_archive_files(archive_dir, lookback_days=lookback_days)
-    items: List[Tuple[str, Dict[str, Any]]] = []
+    items: list[tuple[str, dict[str, Any]]] = []
     limit = max_records if max_records > 0 else 10_000_000
     for fp in files:
         if len(items) >= limit:
@@ -236,7 +236,7 @@ def _read_archive_items(archive_dir: str, *, lookback_days: int, max_records: in
 
 # ─── Decision parsing ────────────────────────────────────────────────────────
 
-def parse_decision(fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def parse_decision(fields: dict[str, Any]) -> dict[str, Any] | None:
     """Parse a decisions:final stream entry → full decision payload dict.
 
     Returns a dict with at minimum: sid, symbol, ts_ms, direction.
@@ -297,7 +297,7 @@ def parse_decision(fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 # ─── Outcome parsing ─────────────────────────────────────────────────────────
 
-def parse_outcome(fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def parse_outcome(fields: dict[str, Any]) -> dict[str, Any] | None:
     """Parse a trades:closed stream entry → outcome dict.
 
     Returns: {sid, symbol, pnl, risk_usd, pnl_bps_net, realized_slippage_bps, fill_delay_ms, exit_ts_ms, direction}
@@ -360,7 +360,7 @@ def parse_outcome(fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 # ─── Atomic file write ───────────────────────────────────────────────────────
 
-def _write_jsonl_atomic(path: str, rows: List[Dict[str, Any]]) -> int:
+def _write_jsonl_atomic(path: str, rows: list[dict[str, Any]]) -> int:
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     tmp = f"{path}.tmp"
     n = 0
@@ -374,7 +374,7 @@ def _write_jsonl_atomic(path: str, rows: List[Dict[str, Any]]) -> int:
     return n
 
 
-def _write_json_atomic(path: str, obj: Dict[str, Any]) -> None:
+def _write_json_atomic(path: str, obj: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -399,14 +399,14 @@ def build_confirm_train_v7(
     out_decisions: str = "/var/lib/trade/training/latest_confirm_train_v7.ndjson",
     out_outcomes: str = "/var/lib/trade/training/latest_outcomes.ndjson",
     out_report: str = "/var/lib/trade/training/confirm_v7_report.json",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build confirm_train_v7 + outcomes NDJSON files."""
 
     start_ts = _now_ms()
     print(f"[confirm_v7] Starting build at {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}")
 
     # ── 1. Read decisions ────────────────────────────────────────────────────
-    decisions_raw: List[Tuple[str, Dict[str, Any]]] = []
+    decisions_raw: list[tuple[str, dict[str, Any]]] = []
     redis_decisions_n = 0
     archive_decisions_n = 0
 
@@ -429,7 +429,7 @@ def build_confirm_train_v7(
             decisions_raw.extend(archive_items)
 
     # ── 2. Read outcomes (trades:closed) ─────────────────────────────────────
-    closes_raw: List[Tuple[str, Dict[str, Any]]] = []
+    closes_raw: list[tuple[str, dict[str, Any]]] = []
     redis_closes_n = 0
     archive_closes_n = 0
 
@@ -450,7 +450,7 @@ def build_confirm_train_v7(
             closes_raw.extend(archive_items)
 
     # ── 3. Parse decisions ───────────────────────────────────────────────────
-    decisions_by_sid: Dict[str, Dict[str, Any]] = {}
+    decisions_by_sid: dict[str, dict[str, Any]] = {}
     dec_parse_ok = 0
     dec_parse_fail = 0
     for _id, fields in decisions_raw:
@@ -468,7 +468,7 @@ def build_confirm_train_v7(
     print(f"[confirm_v7] Parsed decisions: {dec_parse_ok} ok, {dec_parse_fail} failed, {len(decisions_by_sid)} unique SIDs")
 
     # ── 4. Parse outcomes ────────────────────────────────────────────────────
-    outcomes_by_sid: Dict[str, Dict[str, Any]] = {}
+    outcomes_by_sid: dict[str, dict[str, Any]] = {}
     out_parse_ok = 0
     out_parse_fail = 0
     for _id, fields in closes_raw:
@@ -489,8 +489,8 @@ def build_confirm_train_v7(
     print(f"[confirm_v7] SID join: {len(joined_sids)} matched (decisions={len(decisions_by_sid)}, outcomes={len(outcomes_by_sid)})")
 
     # Sort by ts_ms for deterministic output
-    joined_decisions: List[Dict[str, Any]] = []
-    joined_outcomes: List[Dict[str, Any]] = []
+    joined_decisions: list[dict[str, Any]] = []
+    joined_outcomes: list[dict[str, Any]] = []
     for sid in sorted(joined_sids, key=lambda s: decisions_by_sid[s].get("ts_ms", 0)):
         joined_decisions.append(decisions_by_sid[sid])
         joined_outcomes.append(outcomes_by_sid[sid])
@@ -528,7 +528,7 @@ def build_confirm_train_v7(
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Build confirm_train_v7 + outcomes NDJSON from Redis streams")
     ap.add_argument("--redis_url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--decisions_stream", default=os.getenv("DECISIONS_FINAL_STREAM", "decisions:final"))

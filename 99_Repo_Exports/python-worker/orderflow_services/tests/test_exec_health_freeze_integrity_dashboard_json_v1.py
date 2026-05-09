@@ -7,7 +7,7 @@ import json
 
 def test_dashboard_json_loads_and_has_key_panels() -> None:
     """Dashboard JSON must be valid and include violation and ack state panels."""
-    with open("orderflow_services/grafana/exec_health_freeze_integrity_v1.json", "r") as fh:
+    with open("orderflow_services/grafana/exec_health_freeze_integrity_v1.json") as fh:
         d = json.load(fh)
     assert "ExecHealth" in d.get("title", "")
     panel_titles = {p.get("title", "") for p in d.get("panels", [])}

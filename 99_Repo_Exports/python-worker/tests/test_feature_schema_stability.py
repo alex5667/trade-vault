@@ -1,5 +1,6 @@
 
-from core.ml_feature_schema import feature_names, build_feature_vector
+from core.ml_feature_schema import build_feature_vector, feature_names
+
 
 def test_feature_order_stable():
     names = feature_names()

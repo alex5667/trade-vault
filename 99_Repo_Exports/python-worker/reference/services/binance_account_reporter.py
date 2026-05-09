@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Hourly Binance account state reporter -> Telegram (+ Redis snapshot).
@@ -62,7 +63,7 @@ import json
 import math
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -134,10 +135,10 @@ def _fmt_usdt(x: float) -> str:
 def _safe_float(v: Any, default: float = 0.0) -> float:
     try:
         if v is None:
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _side_from_position_amt(amt: float) -> str:
@@ -161,7 +162,7 @@ class AccountSnapshot:
     open_positions_n: int
     open_notional_usdt: float
     open_orders_n: int
-    positions: List[Dict[str, Any]]
+    positions: list[dict[str, Any]]
 
     def to_json(self) -> str:
         return json.dumps(
@@ -201,7 +202,7 @@ def build_snapshot(
     init_m = _safe_float(acct.get("totalInitialMargin"))
     maint_m = _safe_float(acct.get("totalMaintMargin"))
 
-    all_positions: List[Dict[str, Any]] = []
+    all_positions: list[dict[str, Any]] = []
     open_notional = 0.0
     if isinstance(pr, list):
         for row in pr:
@@ -216,7 +217,7 @@ def build_snapshot(
             open_notional += abs(notional)
             all_positions.append(
                 {
-                    "symbol": str(row.get("symbol") or ""),
+                    "symbol": (row.get("symbol") or ""),
                     "side": _side_from_position_amt(amt),
                     "position_amt": amt,
                     "entry_price": entry,
@@ -227,7 +228,7 @@ def build_snapshot(
                     "initial_margin": _safe_float(row.get("initialMargin")),
                     "maint_margin": _safe_float(row.get("maintMargin")),
                     "isolated_margin": _safe_float(row.get("isolatedMargin")),
-                    "margin_type": str(row.get("marginType") or ""),
+                    "margin_type": (row.get("marginType") or ""),
                     "leverage": _safe_float(row.get("leverage")),
                 }
             )
@@ -295,13 +296,13 @@ def _read_delta_available(
     history_key: str,
     now_ts_ms: int,
     current_available: float,
-) -> Dict[str, Optional[float]]:
+) -> dict[str, float | None]:
     """Return {"1h": delta_float_or_None, "24h": delta_float_or_None}.
 
     Looks for the closest snapshot to exactly 1 h and 24 h ago
     (within ±10 min window to tolerate drift / restarts).
     """
-    result: Dict[str, Optional[float]] = {"1h": None, "24h": None}
+    result: dict[str, float | None] = {"1h": None, "24h": None}
     try:
         window_ms = 10 * 60 * 1000  # ±10 min tolerance
         for label, target_offset_ms in (("1h", _MS_1H), ("24h", _MS_24H)):
@@ -316,26 +317,26 @@ def _read_delta_available(
             best_val, best_score = min(
                 entries, key=lambda kv: abs(float(kv[1]) - target_ms)
             )
-            
+
             val_str = best_val
             if isinstance(val_str, bytes):
                 val_str = val_str.decode("utf-8")
             else:
                 val_str = str(val_str)
-                
+
             if ":" in val_str:
                 _, avail_str = val_str.split(":", 1)
                 old_avail = float(avail_str)
             else:
                 old_avail = float(val_str)
-                
+
             result[label] = current_available - old_avail
     except Exception as exc:  # pragma: no cover
         log.warning("⚠️ history read failed: %s", exc)
     return result
 
 
-def _fmt_delta(delta: Optional[float]) -> str:
+def _fmt_delta(delta: float | None) -> str:
     """Format a delta USDT value with sign and arrow, or '—' if unavailable."""
     if delta is None:
         return "—"
@@ -346,7 +347,7 @@ def _fmt_delta(delta: Optional[float]) -> str:
 
 def format_report(
     snapshot: AccountSnapshot,
-    deltas: Optional[Dict[str, Optional[float]]] = None
+    deltas: dict[str, float | None] | None = None
 ) -> str:
     t_utc = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(snapshot.ts_ms / 1000))
 
@@ -361,7 +362,7 @@ def format_report(
     upnl = snapshot.unrealized_pnl
     upnl_sign = "+" if upnl >= 0 else ""
 
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"<b>📊 Binance USDT-M Account</b>  <code>{t_utc}</code>")
     lines.append("")
     lines.append(f"Wallet: <code>{_fmt_usdt(snapshot.wallet_balance)} USDT</code>")
@@ -390,8 +391,8 @@ def format_report(
         lines.append("")
         lines.append("<b>Top positions</b>")
         for p in snapshot.positions:
-            sym = str(p.get("symbol") or "")
-            side = str(p.get("side") or "")
+            sym = (p.get("symbol") or "")
+            side = (p.get("side") or "")
             amt = _safe_float(p.get("position_amt"))
             notional = _safe_float(p.get("notional"))
             pupnl = _safe_float(p.get("unrealized_pnl"))
@@ -475,7 +476,7 @@ def main() -> None:
     metrics_enable = os.getenv("ACCOUNT_REPORT_METRICS_ENABLE", "0").lower() in {"1", "true", "yes"}
     metrics_port = int(os.getenv("ACCOUNT_REPORT_METRICS_PORT", "9133"))
     metrics_addr = os.getenv("ACCOUNT_REPORT_METRICS_ADDR", "0.0.0.0")
-    m: Optional[Metrics] = None
+    m: Metrics | None = None
     if metrics_enable:
         if start_http_server is None:
             log.warning("⚠️ prometheus_client not installed; metrics disabled")
@@ -511,7 +512,7 @@ def main() -> None:
         try:
             snap = build_snapshot(client=client, topn_positions=topn, include_open_orders=include_oo)
             # Store snapshot for UI / downstream services (optional).
-            deltas: Optional[Dict[str, Optional[float]]] = None
+            deltas: dict[str, float | None] | None = None
             if r is not None:
                 r.set(snapshot_key, snap.to_json(), ex=snapshot_ttl)
                 # Read deltas BEFORE storing current point (so we don't compare to self)

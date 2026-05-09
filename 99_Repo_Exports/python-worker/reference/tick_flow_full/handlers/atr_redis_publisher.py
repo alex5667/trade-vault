@@ -1,12 +1,12 @@
 # atr_redis_publisher.py
 from __future__ import annotations
+
 """
 ATR Redis Publisher - publishes ATR values to Redis with hash schema and legacy compatibility.
 """
-from utils.time_utils import get_ny_time_millis
+from typing import Any
 
-from typing import Any, Optional
-import time
+from utils.time_utils import get_ny_time_millis
 
 
 class AtrRedisPublisher:
@@ -32,11 +32,11 @@ class AtrRedisPublisher:
             "1d": 30 * 24 * 60 * 60,# 30 days
         }.get(tf, 2 * 60 * 60)
 
-    def publish(self, tf: str, atr: float, ts_ms: Optional[int] = None) -> None:
+    def publish(self, tf: str, atr: float, ts_ms: int | None = None) -> None:
         if not self.redis:
             return
         try:
-            atr_f = float(atr)
+            atr_f = atr
         except Exception:
             return
         if atr_f <= 0.0:

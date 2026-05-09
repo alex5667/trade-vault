@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Unit tests for core.book_microstructure_v4.compute_microstructure_v4 (A1).
 
 Coverage (A1):
@@ -11,8 +11,6 @@ Coverage (A1):
 
 
 # Allow running tests from repo root without PYTHONPATH tweaks.
-import sys
-from pathlib import Path
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # .../tick_flow_full
 
 import math

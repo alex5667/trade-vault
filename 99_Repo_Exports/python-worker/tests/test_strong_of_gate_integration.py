@@ -1,8 +1,12 @@
 import types
-import pytest
 from unittest.mock import MagicMock
-import core.of_confirm_engine as ofe
+
+import pytest
+
 import core.compat_utils
+import core.of_confirm_engine as ofe
+import contextlib
+
 
 @pytest.fixture
 def mock_engine_deps(monkeypatch):
@@ -41,21 +45,19 @@ def test_engine_reversal_scenario_triggers_eval(mock_engine_deps, monkeypatch):
         last_regime="na",
         last_div=None,
     )
-    
+
     ind = {"book_health_ok": 1, "data_health": 1.0, "now_ts_ms": 1100}
     cfg = {"strong_need_reversal": 2}
-    
+
     eng = ofe.OFConfirmEngine()
-    
+
     # We catch any exception from other parts of build(). We only care that eval_reversal was called with the correct args.
-    try:
+    with contextlib.suppress(Exception):
         eng.build(
-            symbol="T", tf="1m", direction="LONG", tick_ts_ms=1100, price=100, delta_z=3.0, 
+            symbol="T", tf="1m", direction="LONG", tick_ts_ms=1100, price=100, delta_z=3.0,
             runtime=rt, cfg=cfg, indicators=ind, absorption=None
         )
-    except Exception:
-        pass
-        
+
     assert len(captured) > 0, "eval_reversal was not called"
     assert captured["weak_progress"] is True
     assert captured["sweep_recent"] is True
@@ -91,20 +93,18 @@ def test_engine_continuation_scenario_triggers_eval(mock_engine_deps, monkeypatc
         last_div=types.SimpleNamespace(ts_ms=1050, kind="bullish_hidden"),
         cont_ctx_ts_ms=1050,
     )
-    
+
     ind = {"book_health_ok": 1, "data_health": 1.0, "now_ts_ms": 1100}
     cfg = {"strong_need_continuation": 2, "hidden_ctx_valid_ms": 1000, "cont_ctx_valid_ms": 1000}
-    
+
     eng = ofe.OFConfirmEngine()
-    
-    try:
+
+    with contextlib.suppress(Exception):
         eng.build(
-            symbol="T", tf="1m", direction="LONG", tick_ts_ms=1100, price=100, delta_z=3.0, 
+            symbol="T", tf="1m", direction="LONG", tick_ts_ms=1100, price=100, delta_z=3.0,
             runtime=rt, cfg=cfg, indicators=ind, absorption=None
         )
-    except Exception:
-        pass
-        
+
     assert len(captured) > 0, "eval_continuation was not called"
     assert captured["trend_dir"] == "LONG"
     assert captured["hidden_ctx_recent"] is True

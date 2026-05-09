@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Meta-features schema v9.
 
 v9 = v8 + liquidation-map (liqmap) compact scalars + liqmap gate scalars.
@@ -13,9 +14,8 @@ Notes:
 """
 
 
-from typing import Any, Dict, List, Tuple
-
 import hashlib
+from typing import Any
 
 from core.meta_features_v8 import (
     META_FEAT_V8_COLS,
@@ -24,14 +24,13 @@ from core.meta_features_v8 import (
     build_meta_features_v8,
 )
 
-
 LIQMAP_WINDOWS_V9 = ("5m", "1h")
 
 META_FEAT_V9_NAME = "meta_feat_v9"
 META_FEAT_V9_VERSION = 9
 
 
-def _liq_cols(window: str) -> List[str]:
+def _liq_cols(window: str) -> list[str]:
     w = str(window)
     p = f"liqmap_{w}_"
     return [
@@ -53,7 +52,7 @@ def _liq_cols(window: str) -> List[str]:
     ]
 
 
-META_FEAT_V9_NEW_COLS: List[str] = []
+META_FEAT_V9_NEW_COLS: list[str] = []
 for _w in LIQMAP_WINDOWS_V9:
     META_FEAT_V9_NEW_COLS.extend(_liq_cols(_w))
 
@@ -69,12 +68,12 @@ META_FEAT_V9_NEW_COLS.extend(
     ]
 )
 
-META_FEAT_V9_COLS: List[str] = list(META_FEAT_V8_COLS) + list(META_FEAT_V9_NEW_COLS)
+META_FEAT_V9_COLS: list[str] = list(META_FEAT_V8_COLS) + list(META_FEAT_V9_NEW_COLS)
 META_FEAT_V9_HASH: str = hashlib.sha1(",".join(META_FEAT_V9_COLS).encode("utf-8")).hexdigest()
 
 
-META_FEAT_V9_TRANSFORMS: Dict[str, str] = dict(META_FEAT_V8_TRANSFORMS)
-META_FEAT_V9_DESCRIPTIONS: Dict[str, str] = {}
+META_FEAT_V9_TRANSFORMS: dict[str, str] = dict(META_FEAT_V8_TRANSFORMS)
+META_FEAT_V9_DESCRIPTIONS: dict[str, str] = {}
 
 for _w in LIQMAP_WINDOWS_V9:
     p = f"liqmap_{_w}_"
@@ -142,10 +141,10 @@ META_FEAT_V9_DESCRIPTIONS.update(
 
 
 def build_meta_features_v9(
-    evidence: Dict[str, Any],
-    indicators: Dict[str, Any],
+    evidence: dict[str, Any],
+    indicators: dict[str, Any],
     **kwargs,
-) -> Tuple[Dict[str, float], List[str]]:
+) -> tuple[dict[str, float], list[str]]:
     """Build meta_feat_v9 (v8 base + liqmap scalars + liqmap gate scalars)."""
 
     feat, missing = build_meta_features_v8(evidence=evidence, indicators=indicators, **kwargs)

@@ -1,4 +1,5 @@
-from news_pipeline.standby_ingestor import stable_uid, bucket_start_ms
+from news_pipeline.standby_ingestor import bucket_start_ms, stable_uid
+
 
 def test_stable_uid_deterministic():
     a = stable_uid("cryptopanic", "u", "t", "id", "123")

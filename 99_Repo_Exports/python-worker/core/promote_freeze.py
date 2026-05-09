@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Promotion freeze registry.
 
 Purpose:
@@ -14,12 +15,11 @@ Fields:
   - source: e.g., monitoring_smoke
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import os
-import time
 from dataclasses import dataclass
-from typing import Dict, Optional
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -55,21 +55,19 @@ def read_freeze(redis_url: str) -> FreezeState:
         now_ms = get_ny_time_millis()
         active = until_ts_ms > now_ms
         if (not active) and until_ts_ms > 0:
-            try:
+            with contextlib.suppress(Exception):
                 r.delete(freeze_key())
-            except Exception:
-                pass
         return FreezeState(
             active=active,
             until_ts_ms=until_ts_ms,
-            reason=str(d.get("reason", "") or ""),
-            source=str(d.get("source", "") or ""),
+            reason=(d.get("reason", "") or ""),
+            source=(d.get("source", "") or ""),
         )
     except Exception:
         return FreezeState(active=False, until_ts_ms=0, reason="read_error", source="")
 
 
-def set_freeze(redis_url: str, duration_s: int, reason: str, source: str = "monitoring_smoke", extra: Optional[Dict[str, str]] = None) -> bool:
+def set_freeze(redis_url: str, duration_s: int, reason: str, source: str = "monitoring_smoke", extra: dict[str, str] | None = None) -> bool:
     r = _client(redis_url)
     if r is None:
         return False
@@ -79,8 +77,8 @@ def set_freeze(redis_url: str, duration_s: int, reason: str, source: str = "moni
         "active": "1",
         "until_ts_ms": str(until_ts_ms),
         "set_ts_ms": str(now_ms),
-        "reason": str(reason or "unspecified")[:400],
-        "source": str(source or "")[:64],
+        "reason": (reason or "unspecified")[:400],
+        "source": (source or "")[:64],
     }
     if extra:
         for k, v in extra.items():

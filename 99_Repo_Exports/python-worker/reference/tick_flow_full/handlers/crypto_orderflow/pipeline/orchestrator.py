@@ -1,24 +1,21 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-from typing import Any, List, Optional, Callable
-
-from common.dq_flags import append_dq_flag
-from common.math_safe import safe_float, finite_or
-from handlers.crypto_orderflow.types.crypto_orderflow_pipeline_types import (
-    Candidate as CandidatePipeline, ScoredCandidate
-)
-from signal_scoring.reason_registry import normalize_reason
+import json
 
 # Import our components
 import os
-import time
-import json
 import random
-from handlers.crypto_orderflow.config.handler_config import CryptoOrderFlowConfigManager
+from collections.abc import Callable
+from typing import Any
+
+from common.dq_flags import append_dq_flag
+from common.math_safe import safe_float
 from handlers.crypto_orderflow.components.gates import CryptoSignalGates
 from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
 from handlers.crypto_orderflow.components.observability import CryptoObservability
+from handlers.crypto_orderflow.config.handler_config import CryptoOrderFlowConfigManager
+from utils.time_utils import get_ny_time_millis
+
 
 class SignalOrchestrator:
     """
@@ -44,7 +41,7 @@ class SignalOrchestrator:
     def process(
         self,
         ctx: Any,
-        detect_fn: Callable[[Any], List[Any]],
+        detect_fn: Callable[[Any], list[Any]],
     ) -> bool:
         """
         Main processing loop.
@@ -56,7 +53,7 @@ class SignalOrchestrator:
             return False
 
         any_sent = False
-        
+
         # Snapshot config (hot-path)
         rt = self.cfg.get_runtime_snapshot()
 
@@ -102,7 +99,7 @@ class SignalOrchestrator:
             try:
                 # Resolve risk config
                 risk_cfg = self.cfg.resolve_risk_cfg()
-                
+
                 # SLQ dynamic stop override (fail-open, idempotent)
                 try:
                     from services.slq_risk_adjust import maybe_apply_slq_to_risk_cfg
@@ -115,7 +112,7 @@ class SignalOrchestrator:
                         cfg=dict(risk_cfg or {}),
                     )
                     try:
-                        setattr(ctx, "risk_cfg", dict(risk_cfg or {}))
+                        ctx.risk_cfg = dict(risk_cfg or {})
                     except Exception:
                         pass
                 except Exception:
@@ -124,7 +121,7 @@ class SignalOrchestrator:
                 # Using liquidity component to ensure levels
                 # side normalization
                 side_val = getattr(cand, "side", 0)
-                
+
                 self.liquidity.ensure_trade_levels_once(
                     ctx=ctx,
                     symbol=ctx.symbol,
@@ -136,7 +133,7 @@ class SignalOrchestrator:
                 # 3.5 Level Metrics
                 tm = str(getattr(ctx, "tp_mode_used", "ATR_LEGACY")).upper()
                 self.observability.emit_level_mode_metric(tm, ctx)
-            except Exception as e:
+            except Exception:
                 append_dq_flag(ctx, "levels_attach_failed")
 
             # 4. Cost Edge Gate
@@ -174,7 +171,7 @@ class SignalOrchestrator:
             # 6. Payload & Entry Policy
             try:
                 payload, parts = self._build_payload(ctx, cand, res)
-            except Exception as e:
+            except Exception:
                 append_dq_flag(ctx, "payload_build_failed")
                 continue
 
@@ -199,9 +196,9 @@ class SignalOrchestrator:
     def _build_payload(self, ctx: Any, cand: Any, res: Any) -> Any:
         # Re-implementing payload logic based on observed patterns
         # This duplicates logic from handler but consolidating it here is the goal.
-        
+
         # Safe string helpers
-        def _ss(v): return str(v or "")
+        def _ss(v): return (v or "")
 
         reasons = list(getattr(cand, "reasons", None) or [])
         reasons = [_ss(x) for x in reasons][:16]
@@ -239,7 +236,7 @@ class SignalOrchestrator:
             "trailing_min_lock_r": safe_float(getattr(ctx, "trailing_min_lock_r", None), 0.0),
             "slq_used": int(getattr(ctx, "risk_cfg", {}).get("slq_used", 0) or 0),
         }
-        
+
         # parts
         parts = getattr(res, "parts", {})
         return payload, parts
@@ -259,7 +256,7 @@ class SignalOrchestrator:
         # EdgeCostGateDecision: veto + passed property
         veto = bool(getattr(cost_decision, "veto", False))
         passed = not veto
-        
+
         # Sampling
         if not passed:
             # VETO: 100% sample by default
@@ -267,7 +264,7 @@ class SignalOrchestrator:
         else:
             # PASS: 1-5% sample by default
             sample_rate = float(os.getenv("EDGE_GATE_SAMPLE_PASS", "0.02"))
-            
+
         if sample_rate < 1.0 and random.random() > sample_rate:
             return
 
@@ -276,7 +273,7 @@ class SignalOrchestrator:
             return
 
         stream_key = os.getenv("EDGE_GATE_EVENTS_STREAM", "stream:diag:edge_gate_events")
-        
+
         # Build event with robust field mapping
         try:
             # Normalize ts_ms (handle seconds, missing values)
@@ -294,25 +291,25 @@ class SignalOrchestrator:
             exp_bps = float(getattr(cost_decision, "expected_move_bps", 0.0))
             req_bps = float(getattr(cost_decision, "threshold_bps", 0.0))
             k = float(getattr(cost_decision, "k", 0.0))
-            
+
             fees_bps = float(getattr(cost_decision, "fees_bps", 0.0))
             slip_bps = float(getattr(cost_decision, "slippage_bps", 0.0))
             buf_bps = float(getattr(cost_decision, "buffer_bps", 0.0))
-            
+
             # Total costs: always recompute to guarantee buffer inclusion
             total_costs_bps = fees_bps + slip_bps + buf_bps
-            
-            edge_source = str(getattr(cost_decision, "edge_source", 
+
+            edge_source = str(getattr(cost_decision, "edge_source",
                             getattr(cost_decision, "mode", "none")) or "none")
-            
+
             # Short veto code (reason_code)
             veto_code = None
             if not passed:
                 veto_code = str(getattr(cost_decision, "reason_code", "edge_cost:veto") or "edge_cost:veto")
-            
+
             # Compute margin and edge_ratio
             margin_bps = exp_bps - req_bps
-            
+
             # Edge ratio with safe division
             if req_bps > 0:
                 edge_ratio = exp_bps / req_bps
@@ -329,25 +326,25 @@ class SignalOrchestrator:
                 "passed": 1 if passed else 0,
                 "veto_code": veto_code,
                 "edge_source": edge_source,
-                
+
                 # Metrics
                 "exp_bps": exp_bps,
                 "req_bps": req_bps,
                 "margin_bps": margin_bps,
                 "edge_ratio": edge_ratio,
-                
+
                 "k": k,
                 "fees_bps": fees_bps,
                 "slip_bps": slip_bps,
                 "buf_bps": buf_bps,
                 "total_costs_bps": total_costs_bps,
-                
-                "ctx": json.dumps({"kind": kind}) 
+
+                "ctx": json.dumps({"kind": kind})
             }
-            
+
             # Fire and forget
             redis_client.xadd(stream_key, {k: str(v) if v is not None else "" for k, v in evt.items()}, maxlen=50000, approximate=True)
-            
+
         except Exception:
             pass
 

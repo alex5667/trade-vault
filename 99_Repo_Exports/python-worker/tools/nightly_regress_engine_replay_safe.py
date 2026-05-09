@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Nightly regression test with automatic emergency disable ENFORCE on fail.
 
 On regression mismatch:
@@ -11,19 +13,19 @@ Usage:
   (reads BASELINE_INPUTS, BASELINE_OUTPUT from env)
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import hashlib
+import hmac
 import json
 import os
 import secrets
 import subprocess
 import sys
 import time
-import hmac
-import hashlib
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:
@@ -37,23 +39,23 @@ def sign(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def xadd_notify(r: redis.Redis, text: str, buttons: List[List[Dict[str, str]]] | None = None) -> None:
+def xadd_notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Send notification to Telegram stream."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
 def apply_emergency_bundle(
     r: redis.Redis,
     *,
-    ops: List[Dict[str, str]],
-    meta: Dict[str, Any],
+    ops: list[dict[str, str]],
+    meta: dict[str, Any],
     who: str,
     ttl_sec: int,
     secret: str,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """
     Auto-apply bundle (no approve) but keep rollback via recs_callback_worker.
     
@@ -83,7 +85,7 @@ def apply_emergency_bundle(
 
     # audit old values + apply
     hset_ops = [op for op in ops if op.get("op") == "HSET"]
-    old_vals: List[Tuple[str, str, str, str]] = []
+    old_vals: list[tuple[str, str, str, str]] = []
     for op in hset_ops:
         key = op["key"]
         field = op["field"]
@@ -137,7 +139,7 @@ def main() -> None:
     status_out = f"{run_dir}/status.json"
 
     status_data = {"status": "UNKNOWN", "ts": ts}
-    
+
     try:
         if not os.path.exists(baseline_inputs):
              status_data["status"] = "SKIPPED"
@@ -159,7 +161,7 @@ def main() -> None:
             "--fail-on-mismatch", "0",
         ])
 
-        rep = json.loads(open(diff_out, "r", encoding="utf-8").read())
+        rep = json.loads(open(diff_out, encoding="utf-8").read())
         mism = int(rep.get("mismatches", 0) or 0)
         overlap = int(rep.get("n", 0) or 0)
 
@@ -205,7 +207,7 @@ def main() -> None:
         if not syms:
             syms = ["BTCUSDT", "ETHUSDT"]
 
-        ops: List[Dict[str, str]] = []
+        ops: list[dict[str, str]] = []
         for sym in syms:
             key = f"{prefix}{sym}"
             # emergency: force SHADOW (keep enable=1 for telemetry)

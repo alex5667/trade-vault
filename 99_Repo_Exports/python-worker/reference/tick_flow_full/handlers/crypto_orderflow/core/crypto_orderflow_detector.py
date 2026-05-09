@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
-from ..types.crypto_orderflow_pipeline_types import Candidate, SignalKind
+from ..types.crypto_orderflow_pipeline_types import Candidate
 
 
 @dataclass(frozen=True)
@@ -26,15 +27,15 @@ class CryptoEventDetector:
         self,
         cfg: DetectorCfg,
         *,
-        nearest_pivot_key: Callable[[float, Dict[str, float]], str],
-        breakout_cross_info: Callable[[float, bool, Dict[str, float]], Optional[str]],
+        nearest_pivot_key: Callable[[float, dict[str, float]], str],
+        breakout_cross_info: Callable[[float, bool, dict[str, float]], str | None],
     ) -> None:
         self.cfg = cfg
         self._nearest_pivot_key = nearest_pivot_key
         self._breakout_cross_info = breakout_cross_info
 
-    def detect(self, ctx: Any) -> List[Candidate]:
-        out: List[Candidate] = []
+    def detect(self, ctx: Any) -> list[Candidate]:
+        out: list[Candidate] = []
 
         price = float(getattr(ctx, "price", 0.0) or getattr(ctx, "last_price", 0.0) or 0.0)
         pivots = getattr(ctx, "pivots", None) or {}

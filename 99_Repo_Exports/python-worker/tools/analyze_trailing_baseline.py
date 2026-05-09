@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Mini-анализатор pnl_if_fixed_exit vs pnl_net (edge трейлинга).
 
@@ -14,9 +14,8 @@ Mini-анализатор pnl_if_fixed_exit vs pnl_net (edge трейлинга)
 """
 
 
-import math
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 import psycopg2
 
@@ -47,7 +46,7 @@ def load_last_trades_from_db(
     source: str,
     symbol: str,
     limit: int = 100,
-) -> List[TradeRow]:
+) -> list[TradeRow]:
     """
     Загружает последние N сделок из trades_closed.
     """
@@ -76,7 +75,7 @@ def load_last_trades_from_db(
         )
         rows = cur.fetchall()
 
-    result: List[TradeRow] = []
+    result: list[TradeRow] = []
     for r in rows:
         result.append(
             TradeRow(
@@ -96,11 +95,11 @@ def load_last_trades_from_db(
     return result
 
 
-def analyze_trailing_edge(trades: List[TradeRow]) -> Dict[str, Any]:
+def analyze_trailing_edge(trades: list[TradeRow]) -> dict[str, Any]:
     if not trades:
         return {"n": 0}
 
-    def calc_stats(subset: List[TradeRow]) -> Dict[str, Any]:
+    def calc_stats(subset: list[TradeRow]) -> dict[str, Any]:
         if not subset:
             return {"n": 0}
 
@@ -127,7 +126,7 @@ def analyze_trailing_edge(trades: List[TradeRow]) -> Dict[str, Any]:
                 equal += 1
 
         n = len(subset)
-        def mean(xs: List[float]) -> float:
+        def mean(xs: list[float]) -> float:
             return sum(xs) / len(xs) if xs else 0.0
 
         return {
@@ -151,11 +150,11 @@ def analyze_trailing_edge(trades: List[TradeRow]) -> Dict[str, Any]:
     }
 
 
-def print_report(symbol: str, source: str, stats: Dict[str, Any]) -> None:
+def print_report(symbol: str, source: str, stats: dict[str, Any]) -> None:
     total = stats.get("total", {})
     trailing = stats.get("trailing_only", {})
 
-    print(f"=== Edge трейлинга vs baseline ===")
+    print("=== Edge трейлинга vs baseline ===")
     print(f"source={source}, symbol={symbol}")
     print()
     print(f"Всего сделок: {total.get('n', 0)}")

@@ -1,18 +1,19 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Форматирование данных для публикации: тикеры, объёмы и ставки финансирования.
 Содержит функции приведения структур к единым полям для последующей отправки в стримы.
 """
 import logging
-import time
-from typing import Any, Dict, List
+from typing import Any
+import contextlib
 
 logger = logging.getLogger(__name__)
 
 
-def format_entries(tickers: List[Dict]) -> List[Dict[str, Any]]:
+def format_entries(tickers: list[dict]) -> list[dict[str, Any]]:
     """Форматирует список тикеров для публикации."""
-    formatted: List[Dict[str, Any]] = []
+    formatted: list[dict[str, Any]] = []
     for ticker in tickers:
         try:
             # Вычисляем процент изменения: приоритет у поля Binance 'priceChangePercent'
@@ -48,22 +49,20 @@ def format_entries(tickers: List[Dict]) -> List[Dict[str, Any]]:
     return formatted
 
 
-def format_volume_entries(volume_data: List[Dict]) -> List[Dict[str, Any]]:
+def format_volume_entries(volume_data: list[dict]) -> list[dict[str, Any]]:
     """Форматирует список объемов для публикации. Добавляет 'change' как +/-% строку, если доступно."""
-    formatted: List[Dict[str, Any]] = []
+    formatted: list[dict[str, Any]] = []
     for entry in volume_data:
         try:
-            item: Dict[str, Any] = {
+            item: dict[str, Any] = {
                 "symbol": entry.get("symbol", ""),
                 "volume": entry.get("volume", ""),
                 "quoteVolume": f"{entry.get('quoteVolume', 0):,.0f}",
                 "timestamp": entry.get("timestamp", get_ny_time_millis()),
             }
             if "change" in entry and entry.get("change") is not None:
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     item["change"] = f"{float(entry.get('change', 0)):+.2f}%"
-                except (ValueError, TypeError):
-                    pass
             formatted.append(item)
         except Exception as e:
             logger.warning("Error formatting volume for %s: %s", entry.get('symbol', 'unknown'), e)
@@ -71,9 +70,9 @@ def format_volume_entries(volume_data: List[Dict]) -> List[Dict[str, Any]]:
     return formatted
 
 
-def format_funding_entries(funding_data: List[Dict]) -> List[Dict[str, Any]]:
+def format_funding_entries(funding_data: list[dict]) -> list[dict[str, Any]]:
     """Форматирует список funding rates для публикации."""
-    formatted: List[Dict[str, Any]] = []
+    formatted: list[dict[str, Any]] = []
     for entry in funding_data:
         try:
             formatted.append({
@@ -85,10 +84,10 @@ def format_funding_entries(funding_data: List[Dict]) -> List[Dict[str, Any]]:
         except Exception as e:
             logger.warning("Error formatting funding entry for %s: %s", entry.get('symbol', 'unknown'), e)
             continue
-    return formatted 
+    return formatted
 
 
-def format_ticker_data(ticker: Dict[str, Any]) -> Dict[str, Any]:
+def format_ticker_data(ticker: dict[str, Any]) -> dict[str, Any]:
     """Форматирует данные тикера для вывода."""
     try:
         if not isinstance(ticker, dict):
@@ -101,7 +100,7 @@ def format_ticker_data(ticker: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 logger.warning("Ticker data is not a dict: %s", type(ticker))
                 return {}
-            
+
         # Подготовка процента изменения
         change_val = 0.0
         raw = ticker.get('priceChangePercent')
@@ -132,10 +131,10 @@ def format_ticker_data(ticker: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         sym = ticker.get('symbol', 'unknown') if isinstance(ticker, dict) else 'unknown'
         logger.warning("Error formatting ticker data for %s: %s", sym, e)
-        return {} 
+        return {}
 
 
-def format_ticker_signal(ticker: Dict[str, Any]) -> Dict[str, Any]:
+def format_ticker_signal(ticker: dict[str, Any]) -> dict[str, Any]:
     """Форматирует тикер в сигнал."""
     return {
         "type": "ticker",
@@ -148,7 +147,7 @@ def format_ticker_signal(ticker: Dict[str, Any]) -> Dict[str, Any]:
         "source": "binance"
     }
 
-def format_entry_signal(entry: Dict[str, Any]) -> Dict[str, Any]:
+def format_entry_signal(entry: dict[str, Any]) -> dict[str, Any]:
     """Форматирует entry в сигнал."""
     return {
         "type": "entry",
@@ -160,7 +159,7 @@ def format_entry_signal(entry: Dict[str, Any]) -> Dict[str, Any]:
         "source": "telegram"
     }
 
-def format_funding_signal(entry: Dict[str, Any]) -> Dict[str, Any]:
+def format_funding_signal(entry: dict[str, Any]) -> dict[str, Any]:
     """Форматирует funding в сигнал."""
     return {
         "type": "funding",
@@ -172,7 +171,7 @@ def format_funding_signal(entry: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def format_volume_signal(ticker: Dict[str, Any]) -> Dict[str, Any]:
+def format_volume_signal(ticker: dict[str, Any]) -> dict[str, Any]:
     """Форматирует volume в сигнал."""
     return {
         "type": "volume",
@@ -181,4 +180,4 @@ def format_volume_signal(ticker: Dict[str, Any]) -> Dict[str, Any]:
         "price": ticker.get("price", "0"),
         "timestamp": ticker.get("closeTime", get_ny_time_millis()),  # Используем правильное NY время
         "source": "binance"
-    } 
+    }

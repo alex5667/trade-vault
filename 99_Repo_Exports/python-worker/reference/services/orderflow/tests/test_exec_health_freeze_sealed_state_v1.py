@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import os
-from services.orderflow.exec_health_freeze_sealed_state import prepare_sealed_mapping, sealed_set_sync, verify_sealed_hash
+
+from services.orderflow.exec_health_freeze_sealed_state import (
+    prepare_sealed_mapping,
+    sealed_set_sync,
+    verify_sealed_hash,
+)
 
 
 class FakeRedis:
@@ -17,7 +22,7 @@ class FakeRedis:
             if fn.endswith('sealed_set'):
                 expected_seal = str(argv[0])
                 expected_ver = int(argv[1])
-                cur_seal = str(cur.get('seal_digest', ''))
+                cur_seal = (cur.get('seal_digest', ''))
                 cur_ver = int(cur.get('seal_version', 0) or 0)
                 if cur_seal != expected_seal:
                     return 0

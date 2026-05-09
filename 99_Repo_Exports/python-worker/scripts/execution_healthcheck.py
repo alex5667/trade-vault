@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Periodic execution healthcheck for systemd timer / cron.
 
@@ -23,9 +25,8 @@ import argparse
 import json
 import os
 import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Allow direct execution without installing the package
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -44,7 +45,7 @@ except Exception:  # pragma: no cover
         from execution_state_replay import stream_retention_guard_report  # type: ignore
 
 
-def build_autonomy_recommendations(report: Dict[str, Any]) -> Dict[str, Any]:
+def build_autonomy_recommendations(report: dict[str, Any]) -> dict[str, Any]:
     """Derive autonomy actions from the health report.
 
     P3.3-autonomy: exposes whether the checkpoint scrubber and/or the
@@ -54,7 +55,7 @@ def build_autonomy_recommendations(report: Dict[str, Any]) -> Dict[str, Any]:
     """
     consistency_doc = dict(report.get('consistency') or {})
     retention = dict(report.get('retention_guard') or {})
-    overall = str(report.get('overall_status') or 'unknown')
+    overall = (report.get('overall_status') or 'unknown')
     trigger_scrubber = bool(
         overall in {'warning', 'critical'}
         or int(retention.get('breached_checkpoints') or 0) > 0
@@ -74,7 +75,7 @@ def build_autonomy_recommendations(report: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def render_prometheus_textfile(report: Dict[str, Any]) -> str:
+def render_prometheus_textfile(report: dict[str, Any]) -> str:
     """Convert the health report dict to Prometheus node-exporter textfile format.
 
     Produces a .prom file suitable for node_exporter's textfile_collector.
@@ -83,7 +84,7 @@ def render_prometheus_textfile(report: Dict[str, Any]) -> str:
     consistency_doc = dict(report.get('consistency') or {})
     user_stream = dict(report.get('user_stream') or {})
     autonomy = dict(report.get('autonomy_recommendations') or {})
-    status = str(report.get('overall_status') or 'unknown')
+    status = (report.get('overall_status') or 'unknown')
     code_map = {'ok': 0, 'warning': 1, 'critical': 2}
     lines = [
         '# HELP trade_execution_health_status_code Overall health status as a numeric code (ok=0, warning=1, critical=2).',
@@ -133,7 +134,7 @@ def _check_user_stream_freshness(
     *,
     cache_prefix: str,
     stale_ms: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Scan user-stream cache keys and determine if the latest event is stale.
 
     Returns a dict with:
@@ -146,7 +147,7 @@ def _check_user_stream_freshness(
     keys_checked = 0
     for key in redis_client.scan_iter(match=f"{cache_prefix}*"):
         keys_checked += 1
-        doc: Dict[str, Any] = {}
+        doc: dict[str, Any] = {}
         try:
             ktype = redis_client.type(key)
             if ktype == 'hash':
@@ -178,7 +179,7 @@ def _check_user_stream_freshness(
     }
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description='Run execution health checks and write JSON report.'
     )
@@ -195,8 +196,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     r = redis.from_url(args.redis_url, decode_responses=True)
 
     # --- consistency check (may be skipped if no DSN configured) ---
-    summary: Optional[consistency.ConsistencySummary] = None
-    consistency_error: Optional[str] = None
+    summary: consistency.ConsistencySummary | None = None
+    consistency_error: str | None = None
     if args.journal_dsn:
         try:
             _raw_prefix = os.getenv('EXEC_CONSISTENCY_SID_PREFIX_ALLOWLIST', '')
@@ -205,7 +206,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 redis_url=args.redis_url,
                 journal_dsn=args.journal_dsn,
                 state_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
-                exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
+                exec_stream=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC),
                 stream_count=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')),
                 sid_prefix_allowlist=_sid_prefix_allowlist,
             )
@@ -224,7 +225,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # --- P3.3-ops-complete: stream retention guard ---
     retention_guard = stream_retention_guard_report(
         r,
-        exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
+        exec_stream=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC),
         checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'),
         sample_limit=int(os.getenv('EXEC_REPLAY_RETENTION_GUARD_SAMPLE_LIMIT', '2000')),
     )
@@ -245,7 +246,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         overall = 'unknown'
 
-    report: Dict[str, Any] = {
+    report: dict[str, Any] = {
         'checked_at_ms': get_ny_time_millis(),
         'consistency': consistency.asdict(summary) if summary is not None else None,
         'consistency_error': consistency_error,

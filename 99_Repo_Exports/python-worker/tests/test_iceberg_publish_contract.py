@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import types
+
 import redis
 
 
@@ -74,7 +75,7 @@ def test_publish_payload_enforces_contract_and_writes_all_sinks(monkeypatch):
     monkeypatch.setenv("SIGNAL_PREPROCESS_ENABLED", "1")
     monkeypatch.setenv("ICEBERG_SID_RANDOM_SUFFIX", "0")
     from services.binance_iceberg_detector import _build_iceberg_signal_payload
-    from services.signal_publisher import SignalPublisher, PublishSinks
+    from services.signal_publisher import PublishSinks, SignalPublisher
 
     r = FakeRedis()
     ob = DummyOrderBuilder()
@@ -127,7 +128,7 @@ def test_publish_busyloading_fail_open(monkeypatch):
     monkeypatch.setenv("SIGNAL_PREPROCESS_ENABLED", "1")
     monkeypatch.setenv("ICEBERG_SID_RANDOM_SUFFIX", "0")
     from services.binance_iceberg_detector import _build_iceberg_signal_payload
-    from services.signal_publisher import SignalPublisher, PublishSinks
+    from services.signal_publisher import PublishSinks, SignalPublisher
 
     r = FakeRedis()
     r.raise_on["set"] = redis.exceptions.BusyLoadingError()

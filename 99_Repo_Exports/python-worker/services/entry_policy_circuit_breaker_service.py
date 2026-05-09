@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Entry Policy Circuit Breaker Service V1
 
@@ -23,19 +24,18 @@ Expert review:
   - DevOps/SRE: Horizontal scaling via consumer groups, observable freeze keys
   - Professor Statistics: P² algorithm accurate for P95, EMA for of_score smoothing
 """
-from utils.time_utils import get_ny_time_millis
-
-import os
-import json
-import time
 import asyncio
+import json
+import os
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any
 
 import redis.asyncio as aioredis
 
 from core.entry_policy_freeze import EntryPolicyFreezeV1
 from core.switch_budget import utc_day_id
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _now_ms() -> int:
@@ -82,7 +82,7 @@ class P2Quantile:
         """Add sample to streaming quantile"""
         x = float(x)
         self.n += 1
-        
+
         # Bootstrap: collect first 5 samples
         if len(self._x) < 5:
             self._x.append(x)
@@ -92,7 +92,7 @@ class P2Quantile:
                 self.ni = [1, 2, 3, 4, 5]
                 self.np = [1.0, 1.0 + 2.0*self.p, 1.0 + 4.0*self.p, 3.0 + 2.0*self.p, 5.0]
             return
-        
+
         # Find cell k where x belongs
         k = 0
         if x < self.q[0]:
@@ -109,13 +109,13 @@ class P2Quantile:
         else:
             self.q[4] = x
             k = 3
-        
+
         # Increment positions
         for i in range(k+1, 5):
             self.ni[i] += 1
         for i in range(5):
             self.np[i] += self.dn[i]
-        
+
         # Adjust marker heights (P² algorithm core)
         for i in (1, 2, 3):
             d = self.np[i] - self.ni[i]
@@ -170,14 +170,14 @@ class KeyStats:
     def add(self, *, spread_z: float, obi_age_ms: float, pressure_sps: float, of_score: float) -> None:
         """Add sample to running statistics"""
         self.n += 1
-        
+
         if spread_z > 0:
             self.spread_z_p95.add(spread_z)
         if obi_age_ms > 0:
             self.obi_age_p95.add(obi_age_ms)
         if pressure_sps > 0:
             self.pressure_p95.add(pressure_sps)
-        
+
         # EMA for of_score (0..1 range typically)
         alpha = float(os.getenv("CB_OF_SCORE_EMA_ALPHA", "0.06"))
         if self.n == 1:
@@ -197,7 +197,7 @@ class EntryPolicyCircuitBreakerService:
     def __init__(self) -> None:
         redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.r = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30, max_connections=10)
-        
+
         self.stream = os.getenv("CB_AUDIT_STREAM", "stream:trade:entry_audit")
         self.group = os.getenv("CB_GROUP", "entry-cb")
         self.consumer = os.getenv("CB_CONSUMER", f"cb-{os.getpid()}")
@@ -225,7 +225,7 @@ class EntryPolicyCircuitBreakerService:
         self.max_pressure_p95 = float(os.getenv("CB_PRESSURE_P95_MAX", "1.4"))
         self.min_of_score_ema = float(os.getenv("CB_OF_SCORE_EMA_MIN", "0.55"))
 
-        self.stats: Dict[str, KeyStats] = {}
+        self.stats: dict[str, KeyStats] = {}
 
     def _key(self, sym: str, grp: str, scn: str) -> str:
         """Stats key: symbol:group:scenario"""
@@ -241,7 +241,7 @@ class EntryPolicyCircuitBreakerService:
     async def run_forever(self) -> None:
         """Main loop: consume audit stream and trigger freezes"""
         await self.ensure_group()
-        
+
         while True:
             try:
                 resp = await self.r.xreadgroup(
@@ -253,27 +253,27 @@ class EntryPolicyCircuitBreakerService:
             except Exception:
                 await asyncio.sleep(0.5)
                 continue
-            
+
             if not resp:
                 continue
-            
+
             for _stream, msgs in resp:
                 for msg_id, fields in msgs:
                     await self._process_one(msg_id, fields)
 
-    async def _process_one(self, msg_id: str, fields: Dict[str, Any]) -> None:
+    async def _process_one(self, msg_id: str, fields: dict[str, Any]) -> None:
         """Process single audit event"""
         try:
             # Filter for entry_policy_audit events
-            if str(fields.get("type", "")) != "entry_policy_audit":
+            if (fields.get("type", "")) != "entry_policy_audit":
                 await self.r.xack(self.stream, self.group, msg_id)
                 return
-            
+
             payload_raw = fields.get("payload")
             if not payload_raw:
                 await self.r.xack(self.stream, self.group, msg_id)
                 return
-            
+
             p = json.loads(payload_raw)
         except Exception:
             await self.r.xack(self.stream, self.group, msg_id)
@@ -282,11 +282,11 @@ class EntryPolicyCircuitBreakerService:
         # Extract dimensions
         sym = _s(p.get("symbol", "")).upper()
         scn = _s(p.get("decision", "")).lower()
-        
+
         if scn not in ("reversal", "continuation"):
             await self.r.xack(self.stream, self.group, msg_id)
             return
-        
+
         # Group extraction (prefer ab_group if available)
         group = _s(p.get("ab_group", "default")).lower()
         if not group:
@@ -294,7 +294,7 @@ class EntryPolicyCircuitBreakerService:
 
         # Extract metrics from payload
         snap = p.get("snap") if isinstance(p.get("snap"), dict) else {}
-        
+
         spread_z = _f(p.get("spread_z", snap.get("spread_z", 0.0)), 0.0)
         obi_age_ms = _f(p.get("obi_age_ms", snap.get("obi_age_ms", 0.0)), 0.0)
         pressure_sps = _f(p.get("pressure_sps", snap.get("pressure_sps", 0.0)), 0.0)
@@ -306,7 +306,7 @@ class EntryPolicyCircuitBreakerService:
         if st is None:
             st = KeyStats()
             self.stats[k] = st
-        
+
         st.add(spread_z=spread_z, obi_age_ms=obi_age_ms, pressure_sps=pressure_sps, of_score=of_score)
 
         # Trigger freeze only after min samples
@@ -315,14 +315,12 @@ class EntryPolicyCircuitBreakerService:
             return
 
         now = _now_ms()
-        
+
         # --- If freeze exists and active, attempt auto-unfreeze based on recovery ---
         fkey = f"cfg:entry_policy:freeze:v1:{sym}:{group}:{scn}"
         fraw = None
-        try:
+        with contextlib.suppress(Exception):
             fraw = await self.r.get(fkey)
-        except Exception:
-            pass
 
         if fraw:
             obj, _ = EntryPolicyFreezeV1.from_json(str(fraw))
@@ -346,15 +344,13 @@ class EntryPolicyCircuitBreakerService:
                         st.recover_streak += 1
                     else:
                         st.recover_streak = 0
-                    
+
                     if st.recover_streak >= int(self.recover_streak_need):
                         # Recovery confirmed! Unfreeze early
-                        try:
+                        with contextlib.suppress(Exception):
                             await self.r.delete(fkey)
-                        except Exception:
-                            pass
                         st.recover_streak = 0
-                
+
                 # If already frozen (even if in recovery process), skip trigger check
                 await self.r.xack(self.stream, self.group, msg_id)
                 return
@@ -383,13 +379,13 @@ class EntryPolicyCircuitBreakerService:
 
         # Determine mode: 3+ bad → hard, 2 bad → shadow
         mode = "hard" if bad_cnt >= int(self.hard_bad_cnt) else "shadow"
-        
+
         # Determine freeze duration (regime-dependent)
         rg = _s(p.get("regime", "na")).lower()
         if rg in ("thin", "news", "illiquid") and bad_cnt >= 2:
             # Thin/news: prefer shadow degradation (hard only if extremely bad)
             mode = "hard" if bad_cnt >= max(int(self.hard_bad_cnt), 3) else "shadow"
-            
+
         dur = self.freeze_ms_thin if rg in ("thin", "news", "illiquid") else self.freeze_ms
         until = now + int(dur)
 

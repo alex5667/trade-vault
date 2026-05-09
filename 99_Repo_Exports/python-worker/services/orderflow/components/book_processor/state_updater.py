@@ -1,23 +1,23 @@
 import logging
-from typing import Dict, Any, Tuple, Optional
-
-from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
-from services.orderflow.components.parsing import OrderFlowParsing
-from services.orderflow.configuration import _safe_int
-from services.orderflow.metrics import log_silent_error
+from typing import Any
 
 # P5: book sanity + stream integrity
 from services.orderflow.book_sanity import check_book_sanity
-from services.orderflow.metrics_stream_integrity_p5 import emit_integrity_metrics
+from services.orderflow.components.parsing import OrderFlowParsing
+from services.orderflow.configuration import _safe_int
+from services.orderflow.metrics import log_silent_error
 from services.orderflow.metrics_book_sanity_p5 import book_crossed_total, book_sanity_flags_total
+from services.orderflow.metrics_stream_integrity_p5 import emit_integrity_metrics
+from services.orderflow.runtime import BookSnapshot, BookState, SymbolRuntime
+import contextlib
 
 logger = logging.getLogger("orderflow_book_state_updater")
 
 class BookStateUpdater:
     @staticmethod
     def parse_and_update(
-        processor: Any, runtime: SymbolRuntime, raw: Dict[str, Any], ingest_ts_ms: int
-    ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[BookSnapshot], Optional[BookSnapshot], int, int]:
+        processor: Any, runtime: SymbolRuntime, raw: dict[str, Any], ingest_ts_ms: int
+    ) -> tuple[bool, dict[str, Any] | None, BookSnapshot | None, BookSnapshot | None, int, int]:
         """
         Parses raw payload and updates the atomic BookState on runtime.
         Returns:
@@ -72,10 +72,8 @@ class BookStateUpdater:
                 pass
 
             # Strict DQ: book missing-seq continuity (Binance depthUpdate U/u)
-            try:
+            with contextlib.suppress(Exception):
                 processor._update_book_missing_seq(runtime, book_raw)
-            except Exception:
-                pass
 
             # Atomic Snapshot
             try:
@@ -100,11 +98,9 @@ class BookStateUpdater:
         except Exception as exc:
             log_silent_error(exc, 'book_process_failure', runtime.symbol, 'BookStateUpdater:parse_and_update')
             from services.orderflow.metrics import book_parse_errors_total
-            try:
+            with contextlib.suppress(Exception):
                 book_parse_errors_total.labels(
                     symbol=str(runtime.symbol),
                     reason=type(exc).__name__,
                 ).inc()
-            except Exception:
-                pass
             return False, None, None, None, 0, 0

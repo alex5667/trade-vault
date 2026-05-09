@@ -21,8 +21,8 @@ moved away from baseline".
 """
 
 import math
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Iterable, List, Sequence, Tuple
 
 import numpy as np
 
@@ -47,7 +47,7 @@ class PsiResult:
 
 
 def _as_float_array(xs: Iterable[float | int | None]) -> np.ndarray:
-    vals: List[float] = []
+    vals: list[float] = []
     for x in xs:
         try:
             if x is None:
@@ -80,7 +80,7 @@ def quantile_bins(
     n_bins: int = 10,
     clip_q_lo: float = 0.005,
     clip_q_hi: float = 0.995,
-) -> Tuple[np.ndarray, float, float]:
+) -> tuple[np.ndarray, float, float]:
     """Build stable reference bins and clip bounds.
 
     The clip bounds are returned separately because clip deltas are often more

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """
@@ -19,13 +20,12 @@ metrics2.py
 """
 
 import math
-import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Deque, Dict, Iterable, Optional, Tuple
+from typing import Any
 
 
-def _safe_tags(tags: Optional[dict[str, Any]]) -> Optional[dict[str, str]]:
+def _safe_tags(tags: dict[str, Any] | None) -> dict[str, str] | None:
     """Стандартизируем tags (низкая кардинальность — ответственность вызывающей стороны)."""
     if not tags:
         return None
@@ -42,25 +42,25 @@ def _safe_tags(tags: Optional[dict[str, Any]]) -> Optional[dict[str, str]]:
 
 class Metrics:
     """Единый контракт. Любая реализация должна быть fail-open."""
-    def inc(self, name: str, value: int = 1, tags: Optional[dict[str, Any]] = None) -> None:  # pragma: no cover
+    def inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:  # pragma: no cover
         raise NotImplementedError
 
-    def gauge(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:  # pragma: no cover
+    def gauge(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:  # pragma: no cover
         raise NotImplementedError
 
-    def observe(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:  # pragma: no cover
+    def observe(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:  # pragma: no cover
         raise NotImplementedError
 
 
 class NoopMetrics(Metrics):
     """Полностью пустая реализация (использовать по умолчанию)."""
-    def inc(self, name: str, value: int = 1, tags: Optional[dict[str, Any]] = None) -> None:
+    def inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:
         return
 
-    def gauge(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def gauge(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         return
 
-    def observe(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def observe(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         return
 
 
@@ -70,21 +70,21 @@ class InMemoryMetrics(Metrics):
     Хранит события в списках — удобно assert'ить.
     """
     def __init__(self) -> None:
-        self.counters: list[tuple[str, int, Optional[dict[str, str]]]] = []
-        self.gauges: list[tuple[str, float, Optional[dict[str, str]]]] = []
-        self.observations: list[tuple[str, float, Optional[dict[str, str]]]] = []
+        self.counters: list[tuple[str, int, dict[str, str] | None]] = []
+        self.gauges: list[tuple[str, float, dict[str, str] | None]] = []
+        self.observations: list[tuple[str, float, dict[str, str] | None]] = []
 
-    def inc(self, name: str, value: int = 1, tags: Optional[dict[str, Any]] = None) -> None:
+    def inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:
         self.counters.append((str(name), int(value), _safe_tags(tags)))
 
-    def gauge(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def gauge(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         self.gauges.append((str(name), float(value), _safe_tags(tags)))
 
-    def observe(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def observe(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         self.observations.append((str(name), float(value), _safe_tags(tags)))
 
 
-def safe_float(x: Any) -> Optional[float]:
+def safe_float(x: Any) -> float | None:
     try:
         v = float(x)
         if math.isnan(v) or math.isinf(v):
@@ -99,13 +99,13 @@ class NoopMetrics:
     Fail-open sink: принимает любые метрики и ничего не делает.
     Используйте его как дефолт, чтобы инструментирование НИКОГДА не ломало trading path.
     """
-    def inc(self, name: str, value: int = 1, tags: Optional[dict[str, Any]] = None) -> None:
+    def inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:
         return
 
-    def gauge(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def gauge(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         return
 
-    def observe(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def observe(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         return
 
 
@@ -115,17 +115,17 @@ class InMemoryMetrics:
     Не используйте в проде.
     """
     def __init__(self) -> None:
-        self.counters: list[tuple[str, int, Optional[dict[str, Any]]]] = []
-        self.gauges: list[tuple[str, float, Optional[dict[str, Any]]]] = []
-        self.observations: list[tuple[str, float, Optional[dict[str, Any]]]] = []
+        self.counters: list[tuple[str, int, dict[str, Any] | None]] = []
+        self.gauges: list[tuple[str, float, dict[str, Any] | None]] = []
+        self.observations: list[tuple[str, float, dict[str, Any] | None]] = []
 
-    def inc(self, name: str, value: int = 1, tags: Optional[dict[str, Any]] = None) -> None:
+    def inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:
         self.counters.append((name, int(value), dict(tags) if tags else None))
 
-    def gauge(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def gauge(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         self.gauges.append((name, float(value), dict(tags) if tags else None))
 
-    def observe(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def observe(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         self.observations.append((name, float(value), dict(tags) if tags else None))
 
 
@@ -161,11 +161,11 @@ class LagTracker:
         metric: str,
         export_every_n: int = 200,
         window: int = 2048,
-        tags: Optional[dict[str, Any]] = None,
+        tags: dict[str, Any] | None = None,
     ) -> None:
         self.metric = metric
         self.export_every_n = max(1, int(export_every_n))
-        self._xs: Deque[float] = deque(maxlen=max(16, int(window)))
+        self._xs: deque[float] = deque(maxlen=max(16, int(window)))
         self._n = 0
         self._tags = dict(tags) if tags else None
 
@@ -197,10 +197,10 @@ class MissingRateTracker:
     Считает ratio missing/stale в скользящем окне N событий.
     Экспортирует gauge(metric, missing_ratio).
     """
-    def __init__(self, *, metric: str, export_every_n: int = 200, window: int = 500, tags: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, *, metric: str, export_every_n: int = 200, window: int = 500, tags: dict[str, Any] | None = None) -> None:
         self.metric = metric
         self.export_every_n = max(1, int(export_every_n))
-        self._win: Deque[int] = deque(maxlen=max(10, int(window)))  # 1=miss, 0=ok
+        self._win: deque[int] = deque(maxlen=max(10, int(window)))  # 1=miss, 0=ok
         self._n = 0
         self._tags = dict(tags) if tags else None
 
@@ -223,7 +223,7 @@ class EventRateTracker:
     """
     EMA events/sec. Полезно для L3 event rate.
     """
-    def __init__(self, *, metric: str, alpha: float = 0.3, export_every_ms: int = 1000, tags: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, *, metric: str, alpha: float = 0.3, export_every_ms: int = 1000, tags: dict[str, Any] | None = None) -> None:
         self.metric = metric
         self.alpha = max(0.01, min(0.99, float(alpha)))
         self.export_every_ms = max(200, int(export_every_ms))
@@ -252,7 +252,7 @@ class EventRateTracker:
         m.gauge(self.metric, float(self._ema), self._tags)
 
 
-def extract_ts_ms(obj: Any) -> Optional[int]:
+def extract_ts_ms(obj: Any) -> int | None:
     """
     Best-effort извлечение timestamp (ms) из L2/L3/снапшотов/контекстов.
     Поддерживаем частые поля/форматы:
@@ -332,7 +332,7 @@ def is_stale(*, obj: Any, now_ms: int, max_age_ms: int) -> bool:
     return lag > int(max_age_ms)
 
 
-def normalize_ts_ms(ts: Any) -> Optional[int]:
+def normalize_ts_ms(ts: Any) -> int | None:
     """
     Нормализация входного ts:
       - если < 1e12 => seconds => *1000
@@ -388,9 +388,9 @@ class LagTracker:
         metric_p50: str = "tick_lag_ms_p50",
         metric_p95: str = "tick_lag_ms_p95",
         metric_p99: str = "tick_lag_ms_p99",
-        tags: Optional[dict[str, Any]] = None,
+        tags: dict[str, Any] | None = None,
     ) -> None:
-        self._xs: Deque[float] = deque(maxlen=max(16, int(window)))
+        self._xs: deque[float] = deque(maxlen=max(16, int(window)))
         self._n = 0
         self._export_every_n = max(1, int(export_every_n))
         self._metric_p50 = metric_p50
@@ -408,7 +408,7 @@ class LagTracker:
         self._xs.append(float(v))
         self._n += 1
 
-    def snapshot(self) -> Optional[LagSnapshot]:
+    def snapshot(self) -> LagSnapshot | None:
         if len(self._xs) < 8:
             return None
         ys = sorted(self._xs)
@@ -440,7 +440,7 @@ class MissingRateTracker:
       - mark(total += 1, miss += 1 если missing/stale)
       - экспортирует gauge rate = miss/total (EMA можно добавить позже)
     """
-    def __init__(self, *, metric: str, export_every_n: int = 200, tags: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, *, metric: str, export_every_n: int = 200, tags: dict[str, Any] | None = None) -> None:
         self._metric = metric
         self._tags = tags
         self._total = 0
@@ -480,20 +480,20 @@ class EventRateTracker:
         metric: str,
         export_every_ms: int = 1000,
         alpha: float = 0.3,
-        tags: Optional[dict[str, Any]] = None,
+        tags: dict[str, Any] | None = None,
     ) -> None:
         self._metric = metric
         self._tags = tags
         self._alpha = max(0.01, min(0.99, float(alpha)))
         self._export_every_ms = max(250, int(export_every_ms))
-        self._last_export_ms: Optional[int] = None
+        self._last_export_ms: int | None = None
         self._since = 0
         self._rate = 0.0
 
     def mark_event(self) -> None:
         self._since += 1
 
-    def maybe_export(self, metrics: Metrics, now_ms: Optional[int] = None) -> None:
+    def maybe_export(self, metrics: Metrics, now_ms: int | None = None) -> None:
         nms = int(now_ms if now_ms is not None else get_ny_time_millis())
         if self._last_export_ms is None:
             self._last_export_ms = nms

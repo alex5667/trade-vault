@@ -1,5 +1,9 @@
-import pytest
-from orderflow_services.route_incident_rca_mirror_rca_winner_apply_evaluator_v3_23 import parse_arm_from_request_id, build_scorecards, evaluate_winner
+from orderflow_services.route_incident_rca_mirror_rca_winner_apply_evaluator_v3_23 import (
+    build_scorecards,
+    evaluate_winner,
+    parse_arm_from_request_id,
+)
+
 
 def test_parse_arm():
     assert parse_arm_from_request_id("req_123_vertex_candidate") == "vertex_candidate"
@@ -22,16 +26,16 @@ def test_build_scorecards():
         # Vertex: 1 feedback
         {"request_id": "req_1_vertex_candidate", "quality_score": "0.95", "usefulness_score": "0.95", "accepted": "1"}
     ]
-    
+
     scorecards = build_scorecards(exposures, results, feedbacks)
-    
+
     det = scorecards["deterministic"]
     assert det["exposure_n"] == 2
     assert det["result_n"] == 1
     assert det["feedback_n"] == 1
     assert det["result_coverage"] == 0.5
     assert det["feedback_coverage"] == 0.5
-    
+
     # 0.9 * 0.3 + 0.9 * 0.4 + 1.0 * 0.3 = 0.27 + 0.36 + 0.3 = 0.93
     # coverage mult = sqrt(0.5 * 0.5) = 0.5
     # score = 0.93 * 0.5 = 0.465

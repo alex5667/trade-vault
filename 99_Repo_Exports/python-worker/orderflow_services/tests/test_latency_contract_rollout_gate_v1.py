@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """Tests for latency_contract_rollout_gate_v1 (P4.2)."""
 from orderflow_services.latency_contract_rollout_gate_v1 import Cfg, evaluate_once
 
@@ -74,7 +75,6 @@ def test_rollout_gate_blocks_on_sustained_budget_breach():
 
 def test_rollout_gate_does_not_block_fresh_budget_breach():
     """Gate must NOT activate on a fresh (under hold threshold) budget breach."""
-    import time
     now_ms = get_ny_time_millis()
     data = {
         'metrics:latency_contract:slo:last': {

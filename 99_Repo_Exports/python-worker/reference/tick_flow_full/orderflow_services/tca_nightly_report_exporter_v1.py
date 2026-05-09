@@ -14,7 +14,7 @@ ENV vars:
 
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -36,17 +36,17 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
-def publish_from_mapping(m: Dict[str, Any]) -> None:
+def publish_from_mapping(m: dict[str, Any]) -> None:
     updated_ms = _i(m.get('updated_ts_ms'), 0)
     now_s = time.time()
     LAST_UPDATED_TS_MS.set(float(updated_ms))

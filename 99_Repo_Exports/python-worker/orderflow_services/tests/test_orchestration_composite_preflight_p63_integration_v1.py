@@ -95,7 +95,7 @@ class FakeRedis:
         self._last_hset: dict = {}
 
     @classmethod
-    def from_url(cls, url: str, **kw) -> 'FakeRedis':  # type: ignore
+    def from_url(cls, url: str, **kw) -> FakeRedis:  # type: ignore
         return cls()
 
     def hgetall(self, key: str) -> dict:

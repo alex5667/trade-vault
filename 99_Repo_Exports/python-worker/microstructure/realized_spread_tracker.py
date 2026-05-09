@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import os
 import math
+import os
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def _clip01(x: float) -> float:
@@ -19,7 +20,7 @@ def _isfinite(x: float) -> bool:
     return not (math.isnan(x) or math.isinf(x))
 
 
-def _ema(prev: Optional[float], x: float, alpha: float) -> float:
+def _ema(prev: float | None, x: float, alpha: float) -> float:
     """
     Стандартная EMA:
       ema := alpha*x + (1-alpha)*prev
@@ -54,7 +55,7 @@ class RealizedSpreadTracker:
         *,
         pending_pause_high: float = float(os.getenv("RS_PENDING_PAUSE_HIGH", "0.90")),
         pending_resume_low: float = float(os.getenv("RS_PENDING_RESUME_LOW", "0.80")),
-        metrics: Optional[Any] = None,
+        metrics: Any | None = None,
     ) -> None:
         self.max_pending = int(max_pending)
         self.pending_pause_high = float(pending_pause_high)
@@ -66,16 +67,16 @@ class RealizedSpreadTracker:
         self._m_inc: Callable[[str, int], None] = getattr(metrics, "inc", lambda _k, _v=1: None)
         self._m_gauge: Callable[[str, float], None] = getattr(metrics, "gauge", lambda _k, _v: None)
 
-        self.pending: List[PendingTrade] = []
+        self.pending: list[PendingTrade] = []
         self.pending_head: int = 0
 
-        self._last_mid: Optional[float] = None
+        self._last_mid: float | None = None
         self._last_ts_ms: int = 0
 
 
 @dataclass(slots=True)
 class RealizedSpreadSnapshot:
-    realized_bps_ema: Optional[float]
+    realized_bps_ema: float | None
     n_realized: int
     pending_len: int
     dropped_due_to_cap: int
@@ -108,8 +109,8 @@ class RealizedSpreadTrackerHorizon:
         self.ema_alpha = float(ema_alpha)
         self.max_pending = int(max(1, max_pending))
 
-        self.pending: Deque[PendingTradeHorizon] = deque()
-        self.realized_bps_ema: Optional[float] = None
+        self.pending: deque[PendingTradeHorizon] = deque()
+        self.realized_bps_ema: float | None = None
         self.n_realized: int = 0
         self.dropped_due_to_cap: int = 0
 

@@ -1,18 +1,20 @@
 # data_processor.py
 from __future__ import annotations
+
 """
 Data processing functionality extracted from base_orderflow_handler.py
 """
 
+import logging
+import math
+import os
+from collections import deque
+from dataclasses import fields as dc_fields
+from dataclasses import is_dataclass
+from typing import Any
+
 from utils.time_utils import get_ny_time_millis
 
-from typing import Optional, Dict, Any, Tuple, List, Deque, Union
-from collections import deque
-import time
-import os
-import math
-import logging
-from dataclasses import fields as dc_fields, is_dataclass
 
 class CVDTracker:
     """
@@ -20,7 +22,7 @@ class CVDTracker:
     """
     def __init__(self, window_sec: int = 300):
         self.window_sec = window_sec
-        self._events: Deque[Tuple[float, float]] = deque()
+        self._events: deque[tuple[float, float]] = deque()
         self.cvd = 0.0
         self.divergence = 0.0
 
@@ -28,18 +30,18 @@ class CVDTracker:
         now = ts_ms / 1000.0
         self._events.append((now, delta))
         self.cvd += delta
-        
+
         while self._events and now - self._events[0][0] > self.window_sec:
             _, old_delta = self._events.popleft()
             self.cvd -= old_delta
-            
+
         self.divergence = self.cvd / atr if atr > 0 else 0.0
         return self.cvd
 
 # Imports from contexts module
 
 
-def normalize_pivots_input(pivots: Union[None, Dict[str, float], Dict[str, Any]]) -> Tuple[Dict[str, float], int, str]:
+def normalize_pivots_input(pivots: None | dict[str, float] | dict[str, Any]) -> tuple[dict[str, float], int, str]:
     """
     Normalize pivots input to (pivots_dict, pivots_ts_ms, pivots_date).
     Supports:
@@ -48,7 +50,7 @@ def normalize_pivots_input(pivots: Union[None, Dict[str, float], Dict[str, Any]]
     Fail-open: returns empty dict and (0,"") on errors.
     """
     try:
-        raw_pivots: Optional[Dict[str, Any]] = None
+        raw_pivots: dict[str, Any] | None = None
         pivots_ts_ms = 0
         pivots_date = ""
 
@@ -59,13 +61,13 @@ def normalize_pivots_input(pivots: Union[None, Dict[str, float], Dict[str, Any]]
             except Exception:
                 pivots_ts_ms = 0
             try:
-                pivots_date = str(pivots.get("date") or "")
+                pivots_date = (pivots.get("date") or "")
             except Exception:
                 pivots_date = ""
         elif isinstance(pivots, dict):
             raw_pivots = pivots
 
-        out: Dict[str, float] = {}
+        out: dict[str, float] = {}
         if raw_pivots:
             for k, v in raw_pivots.items():
                 try:
@@ -80,7 +82,7 @@ def normalize_pivots_input(pivots: Union[None, Dict[str, float], Dict[str, Any]]
         return {}, 0, ""
 
 
-def nearest_pivot(price: float, pivots_dict: Dict[str, float]) -> Tuple[str, float]:
+def nearest_pivot(price: float, pivots_dict: dict[str, float]) -> tuple[str, float]:
     """
     Return (nearest_key, nearest_price). If not found -> ("", 0.0).
     Deterministic tie-break: first encountered with minimal distance (dict order in py3.7+ stable).
@@ -104,24 +106,32 @@ def nearest_pivot(price: float, pivots_dict: Dict[str, float]) -> Tuple[str, flo
 # Imports from contexts module
 
 from .data_parser import OrderFlowDataParser
+import contextlib
+
 try:
     # For running as part of the package
-    from ..contexts import BucketState, L2Level, Tick, SimpleL2Snapshot, OrderflowSignalContext, OrderflowSignalThresholds
+    from ..contexts import (
+        BucketState,
+        L2Level,
+        OrderflowSignalContext,
+        OrderflowSignalThresholds,
+        SimpleL2Snapshot,
+        Tick,
+    )
+    from ..core.regime_quantiles_redis import parse_rq
+    from ..core.regime_quantiles_store import RegimeQuantilesStore, approx_quantile_3pt
+    from ..handlers.regime_service import MarketRegimeService, RegimeConfig, RegimeFeatures
     from ..l2_microstructure_engine import L2MicrostructureEngine
     from ..regime_engine import BarBuilder1m, RegimeEngine
-    from ..handlers.regime_service import MarketRegimeService, RegimeConfig, RegimeFeatures
-    from ..core.regime_quantiles_store import RegimeQuantilesStore, approx_quantile_3pt
-    from ..core.regime_quantiles_redis import parse_rq
 except ImportError:
     # For direct execution/testing
-    from contexts import BucketState, Tick, OrderflowSignalContext, OrderflowSignalThresholds
+    from contexts import BucketState, OrderflowSignalContext, OrderflowSignalThresholds, Tick
+    from core.regime_quantiles_redis import parse_rq
+    from core.regime_quantiles_store import RegimeQuantilesStore, approx_quantile_3pt
+    from core.robust_stats import RollingRobustZ
+    from handlers.regime_service import MarketRegimeService, RegimeConfig, RegimeFeatures
     from l2_microstructure_engine import L2MicrostructureEngine
     from regime_engine import BarBuilder1m, RegimeEngine
-    from handlers.regime_service import MarketRegimeService, RegimeConfig, RegimeFeatures
-    from core.regime_quantiles_store import RegimeQuantilesStore, approx_quantile_3pt
-    from core.regime_quantiles_redis import parse_rq
-    from core.regime_quantiles_redis import parse_rq
-    from core.robust_stats import RollingRobustZ
 
 try:
     from .atr_redis_publisher import AtrRedisPublisher
@@ -134,7 +144,7 @@ except Exception:
     ATR = None  # type: ignore
 
 
-def _filter_dataclass_kwargs(cls: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+def _filter_dataclass_kwargs(cls: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     """
     Предотвращение сбоев runtime при различии версий dataclass.
     Fail-open (без TypeError в __init__):
@@ -148,10 +158,10 @@ def _filter_dataclass_kwargs(cls: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]
             return dict(kwargs)
 
         field_names = {f.name for f in dc_fields(cls)}
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
 
         has_extra = "extra" in field_names
-        extra: Dict[str, Any] = {}
+        extra: dict[str, Any] = {}
 
         # Seed extra with already-provided extra, if supported.
         if has_extra:
@@ -193,7 +203,7 @@ def _filter_dataclass_kwargs(cls: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]
         return dict(kwargs)
 
 
-def _build_regime_config_safe(cfg_cls: Any, raw: Dict[str, Any]) -> Any:
+def _build_regime_config_safe(cfg_cls: Any, raw: dict[str, Any]) -> Any:
     """
     Создание RegimeConfig только с полями, существующими в текущей версии.
     Это позволяет избежать ошибок при несовпадении версий конфигурации.
@@ -228,13 +238,13 @@ class OrderFlowDataProcessor:
         self.specs = specs
         self.config = config
         self.logger = logging.getLogger(f"OrderFlowDataProcessor:{symbol}")
-        
+
         # GPU Processor
         self.l2_gpu_processor = l2_gpu_processor
 
         # Bucket management
-        self.delta_window: Deque[float] = deque(maxlen=config.delta_window_ticks)
-        self._bucket_id: Optional[int] = None
+        self.delta_window: deque[float] = deque(maxlen=config.delta_window_ticks)
+        self._bucket_id: int | None = None
         self._bucket_sum = 0.0
         self._last_bucket_value = 0.0
         self._last_z_delta = 0.0
@@ -244,7 +254,7 @@ class OrderFlowDataProcessor:
 
         # сигнал-триггер по "bucket closed" (для более частых сигналов, чем 1m)
         self._signal_bucket_ms = int(os.getenv("SIGNAL_BUCKET_MS", "1000"))  # 1s по умолчанию
-        self._signal_bucket_id: Optional[int] = None
+        self._signal_bucket_id: int | None = None
 
         # Parser
         self.parser = OrderFlowDataParser(symbol, specs)
@@ -297,7 +307,7 @@ class OrderFlowDataProcessor:
                 tf_ms = env_tf_s * 1000
         self._bar_tf_ms = int(max(tf_ms, 1000))  # hard floor 1s
 
-        self._bar_id: Optional[int] = None
+        self._bar_id: int | None = None
         self._bar_open: float = 0.0
         self._bar_high: float = 0.0
         self._bar_low: float = 0.0
@@ -360,7 +370,7 @@ class OrderFlowDataProcessor:
         self._regime_delta_alpha = float(getattr(config, "regime_delta_ema_alpha", 0.05))
 
         self._regime_last_side = 0
-        self._regime_cross_hist: Deque[int] = deque(maxlen=int(getattr(config, "regime_cross_hist", 30)))
+        self._regime_cross_hist: deque[int] = deque(maxlen=int(getattr(config, "regime_cross_hist", 30)))
         self._regime_hold_ema = 0.0
         self._regime_hold_alpha = float(getattr(config, "regime_hold_ema_alpha", 0.10))
         self._regime_atr_q = 0.5  # fallback, will be computed from quantiles
@@ -386,15 +396,15 @@ class OrderFlowDataProcessor:
         # Robust stats for P1 features
         # Spread (tick-based) - window ~300 ticks
         self._spread_stats = RollingRobustZ(window=300)
-        
+
         # Churn (book-based) - window ~300 updates
         self._churn_stats = RollingRobustZ(window=300)
         self._last_book_ts = 0
-        
+
         # OFI (bucket-based, or trade-based) - window ~100 buckets
         self._ofi_stats = RollingRobustZ(window=100)
 
-    def get_obi_metrics(self) -> Dict[str, Any]:
+    def get_obi_metrics(self) -> dict[str, Any]:
         """
         Единый источник истины для OBI метрик: чтение из BucketState.
         Заменяет устаревший контракт _get_obi(), использовавшийся в хендлерах.
@@ -411,46 +421,46 @@ class OrderFlowDataProcessor:
             "obi20_valid": bool(getattr(st, "obi_20_valid", False)),
         }
 
-    def _get_rq(self, symbol: str, now_ms: int) -> Optional[Any]:
+    def _get_rq(self, symbol: str, now_ms: int) -> Any | None:
         """
         Read quantiles from Redis key regime:q:{symbol}:{tf} with local caching.
         Throttled fetch (default: once per 60s) to minimize Redis calls.
         Fail-open: return None if unavailable.
         """
-        sym = str(symbol or "").upper()
+        sym = (symbol or "").upper()
         if not sym:
             return None
-        
+
         # Check cache freshness
         last = int(self._rq_last_fetch_ms.get(sym, 0) or 0)
         if now_ms - last < self._rq_fetch_gap_ms:
             return self._rq_cache.get(sym)
-        
+
         self._rq_last_fetch_ms[sym] = now_ms
-        
+
         try:
             # Read from Redis (requires parser.redis to be available)
             if not hasattr(self, 'parser') or not hasattr(self.parser, 'redis'):
                 return self._rq_cache.get(sym)
-            
+
             redis_client = getattr(self.parser, 'redis', None)
             if not redis_client:
                 return self._rq_cache.get(sym)
-            
+
             raw = redis_client.get(f"regime:q:{sym}:{self._rq_tf}")
             if not raw:
                 return self._rq_cache.get(sym)
-            
+
             rq = parse_rq(raw)
             if rq is None or int(getattr(rq, "sample_size", 0) or 0) < self._rq_min_samples:
                 return self._rq_cache.get(sym)
-            
+
             self._rq_cache[sym] = rq
             return rq
         except Exception:
             return self._rq_cache.get(sym)
 
-    def _extract_top1(self, x: Any) -> Tuple[float, float]:
+    def _extract_top1(self, x: Any) -> tuple[float, float]:
         """Извлечение топового уровня из данных стакана."""
         if isinstance(x, dict):
             return float(x.get("price", 0.0)), float(x.get("size", 0.0))
@@ -458,7 +468,7 @@ class OrderFlowDataProcessor:
             return float(x[0]), float(x[1])
         return 0.0, 0.0
 
-    def _extract_top_levels(self, book_data: Dict[str, Any], side: str, n: int = 3) -> List[Tuple[float, float]]:
+    def _extract_top_levels(self, book_data: dict[str, Any], side: str, n: int = 3) -> list[tuple[float, float]]:
         """Извлечение топ-N уровней из данных стакана."""
         levels_data = book_data.get(side, [])
         if not levels_data:
@@ -488,7 +498,7 @@ class OrderFlowDataProcessor:
         # buyer is maker, значит taker SELL -> side = -1
         return -1 if tick.is_buyer_maker else 1
 
-    def _feed_delta_bucket(self, delta: float, ts: int) -> Optional[int]:
+    def _feed_delta_bucket(self, delta: float, ts: int) -> int | None:
         """Добавление дельты в бакет и возврат ID бакета, если он завершен."""
         self._bucket_sum += delta
         self.delta_window.append(delta)
@@ -522,7 +532,7 @@ class OrderFlowDataProcessor:
                     st.taker_sell_rate_ema = float(l3_stats.taker_sell_rate_ema)
                     st.cancel_bid_rate_ema = float(l3_stats.cancel_bid_rate_ema)
                     st.cancel_ask_rate_ema = float(l3_stats.cancel_ask_rate_ema)
-                    
+
                     # P1: Update OFI
                     self._update_ofi(l3_stats)
 
@@ -533,7 +543,7 @@ class OrderFlowDataProcessor:
 
         return None
 
-    def _get_obi(self, ts: int) -> Tuple[float, float, bool, float, float, bool]:
+    def _get_obi(self, ts: int) -> tuple[float, float, bool, float, float, bool]:
         """
         Legacy API: вернуть OBI-метрики из BucketState (единый источник истины).
         Формат сохранён: (obi, obi_avg, obi_sustained, obi_avg_20, obi_sustained_20, invalid_flag)
@@ -551,18 +561,18 @@ class OrderFlowDataProcessor:
         """Update OFI stats from a closed bucket/L3 stats."""
         if not hasattr(self, "_ofi_stats"):
             return
-        
+
         # OFI = TakerBuy - TakerSell (Flow Imbalance)
-        # We can use the bucket values or the EMA rates. 
+        # We can use the bucket values or the EMA rates.
         # Using raw volume imbalance per bucket seems more standard for OFI.
         buy_qty = float(getattr(bucket_stats, "taker_buy_qty", 0.0))
         sell_qty = float(getattr(bucket_stats, "taker_sell_qty", 0.0))
-        
+
         ofi = buy_qty - sell_qty
         self._ofi_stats.update(ofi)
-        
+
         z = self._ofi_stats.z(ofi)
-        
+
         # Store in state (persists until next bucket update)
         st = self._bucket_state
         st.ofi_val = ofi
@@ -732,18 +742,18 @@ class OrderFlowDataProcessor:
         except Exception:
             return 0
 
-    def _process_tick(self, tick: Tick) -> Tuple[Optional[object], Optional[int]]:
+    def _process_tick(self, tick: Tick) -> tuple[object | None, int | None]:
         """Обработка входящего тика."""
         st = self._bucket_state
-        
+
         # 1. Normalize TS
         now_ms = get_ny_time_millis()
         ts_ms = self._normalize_ts(tick.ts) or now_ms
-        
+
         # Вычисление знаковой дельты ОДИН РАЗ и передача её в обновление BucketState через lambda
         delta = self._classify_delta(tick)
         st.update_from_tick_inplace(tick, ts_ms, delta_classifier=lambda _t: delta)
-        
+
         # Обновление CVD
         atr_val = float(getattr(st, 'atr_14_raw', 0.0) or getattr(st, 'atr', 1.0))
         if atr_val <= 0:
@@ -760,7 +770,7 @@ class OrderFlowDataProcessor:
              self.l3_queue.on_trade(side=self._taker_side(tick), qty=tick.volume)
 
         # --- bucket closed detector (по времени тика, в ms) ---
-        closed_bucket_ts_ms: Optional[int] = None
+        closed_bucket_ts_ms: int | None = None
         try:
             if ts_ms > 0 and self._signal_bucket_ms > 0:
                 bid = ts_ms // self._signal_bucket_ms
@@ -777,19 +787,19 @@ class OrderFlowDataProcessor:
         # Обновление устаревания L2 на каждом тике (важно для build_signal_ctx)
         self._update_l2_tick_staleness(ts_ms)
 
-        # REMOVED: self._emit_health_metrics_best_effort() 
+        # REMOVED: self._emit_health_metrics_best_effort()
         # (avoiding double emit, Handler handles it)
 
         # Обновление диапазона бара
         self._update_bar_range(tick.last, ts_ms)
-        
+
         # P1: Update spread stats (tick-based)
         if hasattr(self, "_spread_stats"):
-             # We need valid spread_bps from bucket state. 
-             # Note: st.spread_bps is updated in st.update_from_tick_inplace if we parse bid/ask there, 
-             # BUT standard Ticket doesn't always have bid/ask. 
+             # We need valid spread_bps from bucket state.
+             # Note: st.spread_bps is updated in st.update_from_tick_inplace if we parse bid/ask there,
+             # BUT standard Ticket doesn't always have bid/ask.
              # Let's rely on st.best_bid/best_ask if available.
-             
+
              # Calculate spread_bps from current state
              bb = float(getattr(st, "best_bid", 0.0) or 0.0)
              ba = float(getattr(st, "best_ask", 0.0) or 0.0)
@@ -797,7 +807,7 @@ class OrderFlowDataProcessor:
                  mid = 0.5 * (bb + ba)
                  sbps = ((ba - bb) / mid) * 10000.0
                  self._spread_stats.update(sbps)
-                 
+
                  # Store stats in BucketState
                  med, _, _ = self._spread_stats.median_mad()
                  z = self._spread_stats.z(sbps)
@@ -888,10 +898,10 @@ class OrderFlowDataProcessor:
             try:
                 # Get current timestamp
                 now_ms = int(ts_ms if ts_ms > 0 else get_ny_time_millis())
-                
+
                 # Fetch quantiles from Redis (cached, throttled)
                 rq = self._get_rq(str(self.symbol), now_ms)
-                
+
                 if rq is not None:
                     # Compute ATR% ratio: atr_value / price
                     atr_val = 0.0
@@ -899,9 +909,9 @@ class OrderFlowDataProcessor:
                         atr_val = float(getattr(self.atr_calculator, 'value', 0.0) or 0.0)
                     elif hasattr(st, 'atr'):
                         atr_val = float(getattr(st, 'atr', 0.0) or 0.0)
-                    
+
                     atrp = (atr_val / price) if (price > 0 and atr_val > 0) else 0.0
-                    
+
                     if atrp > 0:
                         q25 = float(getattr(rq, "atrp_p25", 0.0) or 0.0)
                         q50 = float(getattr(rq, "atrp_p50", 0.0) or 0.0)
@@ -921,11 +931,9 @@ class OrderFlowDataProcessor:
                         if redis_client:
                             adx_raw = redis_client.get(f"adx:{str(self.symbol).upper()}")
                             if adx_raw:
-                                try:
+                                with contextlib.suppress(Exception):
                                     adx_val = float(adx_raw)
-                                except Exception:
-                                    pass
-                    
+
                     if adx_val > 0:
                         # Compute ADX quantile using 3-point approximation
                         q40 = float(getattr(rq, "adx_p40", 0.0) or 0.0)
@@ -1001,7 +1009,7 @@ class OrderFlowDataProcessor:
         except Exception:
             return 0.0
 
-    def build_signal_ctx(self, pivots: Union[None, Dict[str, float], Dict[str, Any]] = None) -> OrderflowSignalContext:
+    def build_signal_ctx(self, pivots: None | dict[str, float] | dict[str, Any] = None) -> OrderflowSignalContext:
         """Создание OrderflowSignalContext из текущего BucketState"""
         st = self._bucket_state
 
@@ -1017,7 +1025,7 @@ class OrderFlowDataProcessor:
         except Exception:
             st.pivots_ts_ms = 0
         try:
-            st.pivots_date = str(pivots_date or "")
+            st.pivots_date = (pivots_date or "")
         except Exception:
             st.pivots_date = ""
 
@@ -1037,7 +1045,7 @@ class OrderFlowDataProcessor:
         ref_price = float(mid if mid > 0.0 else getattr(st, "price", 0.0) or 0.0)
         npk, npp = nearest_pivot(ref_price, pivots_dict)
         try:
-            st.nearest_pivot_key = str(npk or "")
+            st.nearest_pivot_key = (npk or "")
         except Exception:
             st.nearest_pivot_key = ""
         try:
@@ -1091,10 +1099,10 @@ class OrderFlowDataProcessor:
         def _f_attr(name: str, default: float = 0.0) -> float:
             try:
                 v = getattr(st, name, default)
-                fv = float(v) if v is not None else float(default)
-                return fv if math.isfinite(fv) else float(default)
+                fv = float(v) if v is not None else default
+                return fv if math.isfinite(fv) else default
             except Exception:
-                return float(default)
+                return default
 
         def _i_attr(name: str, default: int = 0, *, nonneg: bool = True) -> int:
             try:
@@ -1103,7 +1111,7 @@ class OrderFlowDataProcessor:
                     return 0
                 return v
             except Exception:
-                return 0 if nonneg else int(default)
+                return 0 if nonneg else default
 
         def _b_attr(name: str, default: bool = False) -> bool:
             try:
@@ -1252,7 +1260,7 @@ class OrderFlowDataProcessor:
             eta_fill_ask_sec=float(getattr(st, "eta_fill_ask_sec", 0.0) or 0.0),
             pull_ask_qty_proxy=float(getattr(st, "pull_ask_qty_proxy", 0.0) or 0.0),
             pull_bid_qty_proxy=float(getattr(st, "pull_bid_qty_proxy", 0.0) or 0.0),
-            
+
             # P1: OFI / Churn
             ofi_val=float(getattr(st, "ofi_val", 0.0) or 0.0),
             ofi_z=float(getattr(st, "ofi_z", 0.0) or 0.0),
@@ -1388,25 +1396,21 @@ class OrderFlowDataProcessor:
         # so any downstream logic (filters, risk, regime, etc.) can use it.
         # ------------------------------------------------------------------
         try:
-            from news_pipeline.enricher_singleton import get_news_enricher
             from common.dq_flags import append_dq_flag  # fail-open telemetry marker
+            from news_pipeline.enricher_singleton import get_news_enricher
             enr = get_news_enricher()
             if enr is not None:
                 enr.attach(ctx, asset_class=getattr(ctx, "asset_class", "crypto"))
                 # Optional alias for older code paths:
-                try:
+                with contextlib.suppress(Exception):
                     ctx.news_ref = (ctx.news.ref if getattr(ctx, "news", None) else "")
-                except Exception:
-                    pass
             else:
                 # disabled or unavailable
                 pass
         except Exception:
             # fail-open: mark once for observability, but keep pipeline alive
-            try:
+            with contextlib.suppress(Exception):
                 append_dq_flag(ctx, "news_enrich_fail")
-            except Exception:
-                pass
             try:
                 ctx.news = None
                 ctx.news_ref = ""
@@ -1465,7 +1469,7 @@ class OrderFlowDataProcessor:
         # skew = рассинхрон времени (в любую сторону)
         skew_thr = int(getattr(self.config, "l2_skew_tick_thr_ms", 5000))
         st.l2_skew_tick_ms = delta_ms
-        
+
         is_skewed = bool(l2_ts > 0 and abs(delta_ms) >= skew_thr)
         st.l2_skew_tick_flag = is_skewed
         st.l2_skew_flag = is_skewed
@@ -1609,9 +1613,7 @@ class OrderFlowDataProcessor:
 
         # microprice_shift знак "за вашу сторону"
         microprice_shift = float(getattr(ctx, "microprice_shift_bps_20", 0.0))
-        if impulse_side == "buy" and microprice_shift <= 0.0:
-            return False
-        elif impulse_side == "sell" and microprice_shift >= 0.0:
+        if impulse_side == "buy" and microprice_shift <= 0.0 or impulse_side == "sell" and microprice_shift >= 0.0:
             return False
 
         return True
@@ -1619,7 +1621,7 @@ class OrderFlowDataProcessor:
     # NOTE: legacy L2/OBI helpers removed.
     # OBI/OBI20/bands/sustained/micro/slope/walls are computed by L2MicrostructureEngine and stored in BucketState.
 
-    def _process_book(self, book: Union[Any, Dict[str, Any]]) -> None:
+    def _process_book(self, book: Any | dict[str, Any]) -> None:
         """
         book может быть:
           1) уже распарсенным SimpleL2Snapshot
@@ -1662,7 +1664,7 @@ class OrderFlowDataProcessor:
                     gpu_updates.append({'price': float(p), 'size': float(s), 'side': 'bid'})
                 for p, s in snap.asks[:20]:
                     gpu_updates.append({'price': float(p), 'size': float(s), 'side': 'ask'})
-                
+
                 if gpu_updates:
                     self.l2_gpu_processor.add_l2_data(gpu_updates)
             except Exception:
@@ -1680,10 +1682,10 @@ class OrderFlowDataProcessor:
                     # Churn often implies volume change too, but update-rate is a good proxy for "activity/speed"
                     # Clamp to sane values (e.g. 100 Hz max)
                     hz = min(hz, 200.0)
-                    
+
                     self._churn_stats.update(hz)
                     z = self._churn_stats.z(hz)
-                    
+
                     st.book_churn_hz = float(hz)
                     st.book_churn_z = float(z)
             self._last_book_ts = now_ms

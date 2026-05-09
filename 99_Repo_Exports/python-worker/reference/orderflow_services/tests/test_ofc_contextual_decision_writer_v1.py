@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from domain.evidence_keys import CtxKeys
 from services.orderflow.ofc_contextual_decision_writer_v1 import _normalize_row
 
 
@@ -33,8 +34,8 @@ def test_normalize_row_accepts_ctx_event():
     assert row is not None
     assert row["sid"] == "s1"
     assert row["ctx_enabled"] is True
-    assert row["ctx_mode"] == "shadow"
-    assert row["ctx_shadow_disagree"] is True
+    assert row[CtxKeys.MODE] == "shadow"
+    assert row[CtxKeys.SHADOW_DISAGREE] is True
 
 
 def test_normalize_row_skips_non_ctx_event():

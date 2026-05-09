@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P82: Staleness gates for enforce-bucket automation.
 
 Goal:
@@ -31,8 +32,7 @@ Return shape:
 
 import os
 import time
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def _now_s() -> int:
@@ -40,28 +40,28 @@ def _now_s() -> int:
 
 
 def _env_int(name: str, default: int) -> int:
-    v = str(os.getenv(name, str(default))).strip()
+    v = os.getenv(name, str(default)).strip()
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_str(name: str, default: str) -> str:
     v = os.getenv(name)
-    return str(v).strip() if v is not None and str(v).strip() else str(default)
+    return str(v).strip() if v is not None and str(v).strip() else default
 
 
-def check_status_file_staleness(path: str, max_age_sec: int) -> Dict[str, Any]:
+def check_status_file_staleness(path: str, max_age_sec: int) -> dict[str, Any]:
     """Checks mtime age of a local status/report file."""
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ok": True,
         "path": path,
         "age_sec": None,
         "max_age_sec": max_age_sec,
         "reason": "ok",
     }
-    p = str(path or "").strip()
+    p = (path or "").strip()
     if not p:
         out["ok"] = False
         out["reason"] = "empty_path"
@@ -84,7 +84,7 @@ def check_status_file_staleness(path: str, max_age_sec: int) -> Dict[str, Any]:
         return out
 
 
-def _stream_last_entry(redis_client: Any, stream: str) -> Tuple[Optional[str], Optional[int]]:
+def _stream_last_entry(redis_client: Any, stream: str) -> tuple[str | None, int | None]:
     """Returns (last_id, last_ts_ms) or (None, None)."""
     try:
         # XREVRANGE stream + - COUNT 1
@@ -105,9 +105,9 @@ def check_redis_stream_staleness(
     max_age_sec: int,
     min_events: int,
     scan: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Checks staleness and basic liveness of a Redis stream."""
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ok": True,
         "stream": stream,
         "age_sec": None,
@@ -149,9 +149,9 @@ def check_db_view_staleness(
     ts_col: str,
     max_age_sec: int,
     min_rows: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Checks freshness of a DB view/MV by last timestamp and row count in recent window."""
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ok": True,
         "view": view,
         "ts_col": ts_col,
@@ -162,8 +162,8 @@ def check_db_view_staleness(
         "rows": None,
         "reason": "ok",
     }
-    v = str(view or "").strip()
-    c = str(ts_col or "").strip()
+    v = (view or "").strip()
+    c = (ts_col or "").strip()
     if not v or not c:
         out["ok"] = False
         out["reason"] = "empty_view_or_ts_col"
@@ -206,14 +206,14 @@ def check_db_view_staleness(
         return out
 
 
-def should_block_apply(checks: Dict[str, Dict[str, Any]]) -> Tuple[bool, str, List[str]]:
+def should_block_apply(checks: dict[str, dict[str, Any]]) -> tuple[bool, str, list[str]]:
     """Decision policy: hard block on infra errors; soft block on 'not enough data' or staleness."""
-    reasons: List[str] = []
+    reasons: list[str] = []
     hard = False
     for name, r in checks.items():
         if r.get("ok") is True:
             continue
-        reason = str(r.get("reason") or "failed")
+        reason = (r.get("reason") or "failed")
         reasons.append(f"{name}:{reason}")
         # hard on exceptions/connectivity
         if reason.startswith("error"):
@@ -228,10 +228,10 @@ def should_block_apply(checks: Dict[str, Dict[str, Any]]) -> Tuple[bool, str, Li
 
 def run_staleness_gates(
     *,
-    redis_client: Optional[Any] = None,
-    db_conn: Optional[Any] = None,
-    status_files: Optional[Dict[str, str]] = None,
-) -> Dict[str, Any]:
+    redis_client: Any | None = None,
+    db_conn: Any | None = None,
+    status_files: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Run all configured gates and return structured result."""
     status_files = status_files or {}
 
@@ -247,7 +247,7 @@ def run_staleness_gates(
 
     max_file_age = _env_int("ENFORCE_MAX_STATUS_FILE_AGE_SEC", 1800)
 
-    checks: Dict[str, Dict[str, Any]] = {}
+    checks: dict[str, dict[str, Any]] = {}
     if redis_client is not None:
         checks["redis_stream"] = check_redis_stream_staleness(
             redis_client, redis_stream, max_redis_age, min_redis_events, redis_scan

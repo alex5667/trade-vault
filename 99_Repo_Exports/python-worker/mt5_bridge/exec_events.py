@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Execution Events - MT5 сделки в Redis Streams
 
@@ -7,11 +8,11 @@ Execution Events - MT5 сделки в Redis Streams
 """
 
 
-from dataclasses import dataclass, asdict
-from datetime import datetime
-from typing import Optional, Dict, Any
-
 import json
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Any
+
 import redis
 
 
@@ -42,14 +43,14 @@ class ExecutionEvent:
     pnl_ccy: float = 0.0      # реализованный PnL по сделке в валюте счёта
     account_ccy: str = "USD"  # валюта счёта MT5
 
-    mt5_deal: Optional[int] = None
-    mt5_order: Optional[int] = None
-    mt5_position_id: Optional[int] = None
+    mt5_deal: int | None = None
+    mt5_order: int | None = None
+    mt5_position_id: int | None = None
 
-    comment: Optional[str] = None
-    meta: Optional[Dict[str, Any]] = None
+    comment: str | None = None
+    meta: dict[str, Any] | None = None
 
-    def _to_payload(self) -> Dict[str, Any]:
+    def _to_payload(self) -> dict[str, Any]:
         """
         Payload, который пойдёт внутри JSON.
         Конвертируем datetime в ISO строку.
@@ -59,7 +60,7 @@ class ExecutionEvent:
         # meta может быть None - оставляем как есть
         return d
 
-    def to_redis_fields(self) -> Dict[str, str]:
+    def to_redis_fields(self) -> dict[str, str]:
         """
         Структура записи в stream:signals:exec_events.
         Делаем плоские поля + payload JSON (как для plans).

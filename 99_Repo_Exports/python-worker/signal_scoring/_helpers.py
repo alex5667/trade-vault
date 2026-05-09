@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 signal_scoring/_helpers.py
 ===========================
@@ -7,7 +8,7 @@ All functions are stateless, deterministic, and importable without side-effects.
 """
 
 import math
-from typing import Any, Optional
+from typing import Any
 
 
 def is_finite(x: Any) -> bool:
@@ -23,9 +24,9 @@ def safe_float(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
     except Exception:
-        return float(default)
+        return default
     if not math.isfinite(v):
-        return float(default)
+        return default
     return v
 
 

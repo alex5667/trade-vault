@@ -12,10 +12,9 @@
 import os
 import sys
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
 
-import psycopg2
 import numpy as np
+import psycopg2
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -39,7 +38,7 @@ def calculate_baseline_for_family(
     symbol: str,
     timeframe: str,
     window_days: int = WINDOW_DAYS,
-) -> Optional[Dict]:
+) -> dict | None:
     """
     Считает baseline для конкретной комбинации family/venue/symbol/timeframe.
 
@@ -117,7 +116,7 @@ def calculate_baseline_for_family(
     }
 
 
-def update_baseline_table(pg_conn, baselines: Dict[Tuple[str, str, str, str], Dict]):
+def update_baseline_table(pg_conn, baselines: dict[tuple[str, str, str, str], dict]):
     """Записывает рассчитанные baseline в таблицу signal_family_baseline."""
 
     with pg_conn.cursor() as cur:
@@ -148,7 +147,7 @@ def update_baseline_table(pg_conn, baselines: Dict[Tuple[str, str, str, str], Di
     pg_conn.commit()
 
 
-def get_all_family_combinations(pg_conn) -> List[Tuple[str, str, str, str]]:
+def get_all_family_combinations(pg_conn) -> list[tuple[str, str, str, str]]:
     """Получает все уникальные комбинации (family, venue, symbol, timeframe) из истории."""
 
     query = """

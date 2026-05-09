@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import pytest
 from types import SimpleNamespace
+
 from core.of_confirm_engine import OFConfirmEngine
-from core.of_confirm_contract import BIT_A, BIT_B, BIT_C
 
 
 def test_reversal_miss_leg_b_leg_c():
@@ -163,7 +162,7 @@ def test_cap_reason_keep_miss():
     def _cap_reason_keep_miss(r: str, maxlen: int = 120) -> str:
         """Cap reason but preserve '|miss:...' suffix for quick scan/grep."""
         try:
-            s = str(r or "")
+            s = (r or "")
             if len(s) <= maxlen:
                 return s
             i = s.find("|miss:")
@@ -174,26 +173,26 @@ def test_cap_reason_keep_miss():
             keep_base = max(0, maxlen - len(miss))
             return base[:keep_base] + miss
         except Exception:
-            return str(r or "")[:maxlen]
-    
+            return (r or "")[:maxlen]
+
     # Test: long reason with miss suffix should preserve suffix
     long_reason = "a" * 150 + "|miss:leg_b,leg_c"
     result = _cap_reason_keep_miss(long_reason, 120)
     assert len(result) <= 120
     assert result.endswith("|miss:leg_b,leg_c")
     assert "miss:leg_b,leg_c" in result
-    
+
     # Test: short reason should be unchanged
     short_reason = "reversal_gate(1/2)|miss:leg_b"
     result = _cap_reason_keep_miss(short_reason, 120)
     assert result == short_reason
-    
+
     # Test: reason without miss suffix should be truncated normally
     long_no_miss = "a" * 150
     result = _cap_reason_keep_miss(long_no_miss, 120)
     assert len(result) == 120
     assert "|miss:" not in result
-    
+
     # Test: exactly at boundary
     boundary_reason = "a" * 100 + "|miss:leg_a,leg_b,leg_c"
     result = _cap_reason_keep_miss(boundary_reason, 120)

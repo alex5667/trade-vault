@@ -5,13 +5,14 @@ import json
 import os
 import sys
 
+
 def main():
     ap = argparse.ArgumentParser(description="Convert skew audit report to Meta Freeze Guard JSON.")
     ap.add_argument("--skew-json", required=True, help="Input machine-readable JSON report from audit tool")
     ap.add_argument("--out", required=True, help="Output meta_freeze.json path")
     ap.add_argument("--ab-warn-cap", type=float, default=0.05, help="AB share cap for WARN status (default 0.05)")
     ap.add_argument("--enf-warn-cap", type=float, default=0.25, help="Enforce share cap for WARN status (default 0.25)")
-    
+
     args = ap.parse_args()
 
     if not os.path.exists(args.skew_json):
@@ -19,7 +20,7 @@ def main():
         sys.exit(1)
 
     try:
-        with open(args.skew_json, "r", encoding="utf-8") as f:
+        with open(args.skew_json, encoding="utf-8") as f:
             report = json.load(f)
     except Exception as e:
         print(f"ERROR parsing skew report: {e}")
@@ -59,12 +60,12 @@ def main():
     out_dir = os.path.dirname(os.path.abspath(args.out))
     if not os.path.exists(out_dir):
         os.makedirs(out_dir, exist_ok=True)
-        
+
     temp_out = args.out + ".tmp"
     with open(temp_out, "w", encoding="utf-8") as f:
         json.dump(guard_state, f, indent=2)
     os.rename(temp_out, args.out)
-    
+
     print(f"Written guard state to {args.out}: freeze={freeze}, ab_cap={ab_cap}, enf_cap={enf_cap}, comment={comment}")
 
 if __name__ == "__main__":

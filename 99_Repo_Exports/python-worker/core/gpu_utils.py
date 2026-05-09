@@ -3,6 +3,7 @@ GPU Utilities for transparent CPU/GPU array operations.
 """
 import logging
 import os
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def is_gpu_available() -> bool:
             _gpu_available = True
     except ImportError:
         _gpu_available = False
-    
+
     return _gpu_available
 
 def get_xp():
@@ -50,7 +51,7 @@ def get_xp():
     else:
         _xp = np
         logger.info("Using NumPy (CPU) backend")
-    
+
     return _xp
 
 def to_cpu(array):
@@ -67,6 +68,6 @@ def to_gpu(array):
     """Safely convert array to GPU cupy array if available."""
     if not is_gpu_available():
         return np.array(array)
-    
+
     xp = get_xp()
     return xp.array(array)

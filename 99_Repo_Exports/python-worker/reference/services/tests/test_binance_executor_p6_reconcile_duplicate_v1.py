@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P6 tests for BinanceExecutor reconcile and duplicate prevention.
 
 Covers:
@@ -7,9 +8,7 @@ Covers:
   - EXECUTION_DUPLICATE_PREVENTED_TOTAL is incremented on duplicate detection
 """
 
-import sys
 import os
-import pytest
 from unittest.mock import MagicMock, patch
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))

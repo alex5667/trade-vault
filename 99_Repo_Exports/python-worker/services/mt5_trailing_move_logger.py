@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 MT5 Trailing Move Logger - Логирование движений trailing stop из MT5.
 
@@ -31,10 +30,9 @@ logger.log_move(
 """
 
 import time
-from typing import Optional
 
-from services.trade_events_logger import TradeEventsLogger
 from common.log import setup_logger
+from services.trade_events_logger import TradeEventsLogger
 
 log = setup_logger("mt5_trailing_move_logger")
 
@@ -48,8 +46,8 @@ class MT5TrailingMoveLogger:
     - Эффективность профилей
     - Статистика по волатильности
     """
-    
-    def __init__(self, redis_url: Optional[str] = None):
+
+    def __init__(self, redis_url: str | None = None):
         """
         Args:
             redis_url: URL Redis (если None, берётся из REDIS_URL env)
@@ -57,21 +55,21 @@ class MT5TrailingMoveLogger:
         self.events_logger = TradeEventsLogger(redis_url)
         self.redis_url = self.events_logger.redis_url
         self.r = self.events_logger.r
-        
+
         # Кэш для отслеживания последнего SL (чтобы не дублировать)
         self.last_sl_cache = {}  # {sid: last_sl}
-        
+
         log.info("✅ MT5TrailingMoveLogger initialized")
-    
+
     def log_move(
         self,
         sid: str,
         symbol: str,
         new_sl: float,
-        current_price: Optional[float] = None,
+        current_price: float | None = None,
         profile: str = "unknown",
-        position_id: Optional[str] = None,
-        atr: Optional[float] = None
+        position_id: str | None = None,
+        atr: float | None = None
     ) -> bool:
         """
         Записать движение trailing stop.
@@ -93,7 +91,7 @@ class MT5TrailingMoveLogger:
         if last_sl is not None and abs(new_sl - last_sl) < 0.01:
             # SL не изменился или изменился незначительно
             return False
-        
+
         # Получаем исходный сигнал для расчёта distance_from_entry
         distance_from_entry = None
         try:
@@ -104,7 +102,7 @@ class MT5TrailingMoveLogger:
                 signal = json.loads(signal_data)
                 entry = signal.get("entry")
                 side = signal.get("side")
-                
+
                 if entry and side:
                     if side == "LONG":
                         distance_from_entry = new_sl - entry
@@ -112,7 +110,7 @@ class MT5TrailingMoveLogger:
                         distance_from_entry = entry - new_sl
         except Exception as e:
             log.debug("Could not calculate distance_from_entry: %s", e)
-        
+
         # Логируем событие
         success = self.events_logger.log_trailing_move(
             sid=sid,
@@ -124,19 +122,19 @@ class MT5TrailingMoveLogger:
             distance_from_entry=distance_from_entry,
             atr=atr
         )
-        
+
         if success:
             # Обновляем кэш
             self.last_sl_cache[sid] = new_sl
-            
+
             log.info(
                 "📈 Trailing move: sid=%s new_sl=%.2f distance=%.2f profile=%s",
                 sid, new_sl, distance_from_entry or 0.0, profile
             )
-        
+
         return success
-    
-    def get_trailing_distance(self, sid: str) -> Optional[float]:
+
+    def get_trailing_distance(self, sid: str) -> float | None:
         """
         Получить максимальное расстояние, на которое удалось утащить SL.
         
@@ -150,25 +148,25 @@ class MT5TrailingMoveLogger:
             trailing_history = self.events_logger.get_trailing_history(sid)
             if not trailing_history:
                 return None
-            
+
             max_distance = 0.0
             for event in trailing_history:
                 metadata = event.get("metadata", {})
                 if isinstance(metadata, str):
                     import json
                     metadata = json.loads(metadata)
-                
+
                 distance = metadata.get("distance_from_entry")
                 if distance and distance > max_distance:
                     max_distance = distance
-            
+
             return max_distance if max_distance > 0 else None
-            
+
         except Exception as e:
             log.error("Failed to get trailing distance for %s: %s", sid, str(e))
             return None
-    
-    def get_trailing_stats(self, sid: str) -> Optional[Dict]:
+
+    def get_trailing_stats(self, sid: str) -> Dict | None:
         """
         Получить статистику trailing для сигнала.
         
@@ -182,16 +180,16 @@ class MT5TrailingMoveLogger:
             trailing_history = self.events_logger.get_trailing_history(sid)
             if not trailing_history:
                 return None
-            
+
             sl_values = []
             for event in trailing_history:
                 new_sl = event.get("new_sl")
                 if new_sl:
                     sl_values.append(new_sl)
-            
+
             if not sl_values:
                 return None
-            
+
             return {
                 "moves_count": len(sl_values),
                 "first_sl": sl_values[0],
@@ -201,7 +199,7 @@ class MT5TrailingMoveLogger:
                 "total_movement": sl_values[-1] - sl_values[0],
                 "avg_sl": sum(sl_values) / len(sl_values)
             }
-            
+
         except Exception as e:
             log.error("Failed to get trailing stats for %s: %s", sid, str(e))
             return None
@@ -209,13 +207,13 @@ class MT5TrailingMoveLogger:
 
 if __name__ == "__main__":
     # Тестирование
-    
+
     logger = MT5TrailingMoveLogger()
-    
+
     test_sid = f"test-trailing-{int(time.time())}"
-    
+
     print(f"\n=== Testing MT5TrailingMoveLogger with {test_sid} ===\n")
-    
+
     # Создаём тестовый сигнал
     import json
     signal = {
@@ -227,10 +225,10 @@ if __name__ == "__main__":
         "tp_levels": [2769.9, 2773.1, 2776.3]
     }
     logger.r.set(f"signals:{test_sid}", json.dumps(signal), ex=3600)
-    
+
     # Симулируем движения trailing
     print("Симулируем движения trailing stop...\n")
-    
+
     moves = [
         (2762.0, 2772.0),  # SL подтянут до 2762.0, цена на 2772.0
         (2764.5, 2774.5),  # SL → 2764.5
@@ -238,7 +236,7 @@ if __name__ == "__main__":
         (2769.0, 2779.0),  # SL → 2769.0 (почти на уровне entry!)
         (2770.5, 2780.5),  # SL → 2770.5 (уже в прибыли!)
     ]
-    
+
     for i, (new_sl, current_price) in enumerate(moves, 1):
         success = logger.log_move(
             sid=test_sid,
@@ -248,35 +246,35 @@ if __name__ == "__main__":
             profile="rocket_v1",
             atr=2.5
         )
-        
+
         if success:
             distance = new_sl - signal["entry"]
             print(f"Move {i}: SL={new_sl:.2f} price={current_price:.2f} distance={distance:+.2f}")
-        
+
         time.sleep(0.1)
-    
+
     # Показываем результаты
     print("\n=== Trailing History ===")
     history = logger.events_logger.get_trailing_history(test_sid)
     print(f"Total moves: {len(history)}")
-    
+
     for i, event in enumerate(history, 1):
         metadata = event.get("metadata", {})
         if isinstance(metadata, str):
             metadata = json.loads(metadata)
-        
+
         distance = metadata.get("distance_from_entry", 0)
         print(f"{i}. SL={event['new_sl']:.2f} distance={distance:+.2f}")
-    
+
     # Статистика
     print("\n=== Trailing Stats ===")
     stats = logger.get_trailing_stats(test_sid)
     if stats:
         print(json.dumps(stats, indent=2))
-    
+
     # Максимальное расстояние
     max_dist = logger.get_trailing_distance(test_sid)
     print(f"\nMax distance from entry: {max_dist:+.2f} pips")
-    
+
     print("\n✅ Test complete")
 

@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+
 """Operator ack/silence workflow for latency deploy-lint notifier.
 
 P4.9 adds operator policy controls for rolling silence budget and re-ack limits.
@@ -25,8 +27,7 @@ import argparse
 import json
 import os
 import sys
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from services.observability.latency_deploy_contract import CONTRACTS
@@ -47,8 +48,10 @@ from services.observability.latency_deploy_lint_silence_state import (
     evaluate_ack_policy,
     parse_silence_state,
     record_dual_control_denial,
-    state_key as silence_state_key,
     upsert_ack_silence,
+)
+from services.observability.latency_deploy_lint_silence_state import (
+    state_key as silence_state_key,
 )
 from services.observability.latency_deploy_lint_state import state_key as lint_state_key
 
@@ -147,9 +150,9 @@ def _read_purpose_status(r: Any, cfg: Cfg, purpose: str, now_ms: int) -> dict[st
     approval_binding_match = bool(approval.present and not approval_binding_mismatch)
     return {
         'purpose': purpose,
-        'gate_active': str(lint_raw.get('gate_active', '0')) == '1',
-        'gate_reason_code': str(lint_raw.get('gate_reason_code', 'unknown') or 'unknown'),
-        'error_codes': str(lint_raw.get('error_codes', 'ok') or 'ok'),
+        'gate_active': (lint_raw.get('gate_active', '0')) == '1',
+        'gate_reason_code': (lint_raw.get('gate_reason_code', 'unknown') or 'unknown'),
+        'error_codes': (lint_raw.get('error_codes', 'ok') or 'ok'),
         'fail_age_s': _i(lint_raw.get('fail_age_s'), 0),
         'silence_active': silence.silence_active,
         'silence_until_ts_ms': silence.silence_until_ts_ms,
@@ -207,9 +210,9 @@ def _read_purpose_status(r: Any, cfg: Cfg, purpose: str, now_ms: int) -> dict[st
         'latest_approval_bound_warning_codes_hash': approval.bound_warning_codes_hash,
         'latest_approval_bound_warning_severity_policy': approval.bound_warning_severity_policy,
         'latest_approval_bound_notifier_route_class': approval.bound_notifier_route_class,
-        'latest_approval_current_gate_reason_code': str(current_binding.get('bound_gate_reason_code', 'ok') or 'ok'),
+        'latest_approval_current_gate_reason_code': (current_binding.get('bound_gate_reason_code', 'ok') or 'ok'),
         'latest_approval_current_errors_count': _i(current_binding.get('bound_errors_count'), 0),
-        'latest_approval_current_details_fingerprint': str(current_binding.get('bound_details_fingerprint', '') or ''),
+        'latest_approval_current_details_fingerprint': (current_binding.get('bound_details_fingerprint', '') or ''),
         'latest_approval_current_warning_codes_hash': current_binding.get('bound_warning_codes_hash', ''),
         'latest_approval_current_warning_severity_policy': current_binding.get('bound_warning_severity_policy', ''),
         'latest_approval_current_notifier_route_class': current_binding.get('bound_notifier_route_class', ''),
@@ -317,7 +320,7 @@ def cmd_ack(
 ) -> dict[str, Any]:
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
     lint_raw = r.hgetall(lint_state_key(cfg.state_prefix, purpose)) or {}
-    gate_active = str(lint_raw.get('gate_active', '0')) == '1'
+    gate_active = (lint_raw.get('gate_active', '0')) == '1'
     # P4.10: preview policy to detect if dual-control gate applies before writing state
     prev = r.hgetall(silence_state_key(cfg.silence_prefix, purpose)) or {}
     policy_preview = evaluate_ack_policy(
@@ -400,8 +403,8 @@ def cmd_ack(
                 'operator': operator,
                 'ticket': ticket,
                 'minutes': int(minutes),
-                'escalation_ticket': str(escalation_ticket or ''),
-                'approval_request_id': str(approval_request_id or ''),
+                'escalation_ticket': (escalation_ticket or ''),
+                'approval_request_id': (approval_request_id or ''),
                 'policy': {
                     'window_hours': int(cfg.policy_window_s / 3600),
                     'max_budget_minutes': cfg.policy_max_budget_minutes,
@@ -459,7 +462,7 @@ def cmd_ack(
         'operator': operator,
         'ticket': ticket,
         'minutes': int(minutes),
-        'escalation_ticket': str(escalation_ticket or ''),
+        'escalation_ticket': (escalation_ticket or ''),
         'approval_request_id': str(approval_state.request_id if approval_state else approval_request_id or ''),
         'policy': {
             'window_hours': int(cfg.policy_window_s / 3600),

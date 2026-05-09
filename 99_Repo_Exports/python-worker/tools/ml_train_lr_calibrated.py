@@ -3,22 +3,21 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Any, Dict, List, Tuple
-import numpy as np
-
-from sklearn.linear_model import LogisticRegression
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.metrics import average_precision_score, log_loss
+from typing import Any
 
 import joblib  # type: ignore
+import numpy as np
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import average_precision_score, log_loss
 
-from core.ml_feature_schema import feature_names, build_feature_vector
+from core.ml_feature_schema import build_feature_vector, feature_names
 from core.ml_metrics_utils import brier_score, ece_score
 
 
-def load_dataset(path: str) -> List[Dict[str, Any]]:
+def load_dataset(path: str) -> list[dict[str, Any]]:
     out = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -43,7 +42,7 @@ def ece_score(y_true: np.ndarray, p: np.ndarray, n_bins: int = 15) -> float:
     return float(ece)
 
 
-def build_xy(rows: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray, List[int]]:
+def build_xy(rows: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray, list[int]]:
     X = []
     y = []
     ts = []
@@ -57,10 +56,10 @@ def build_xy(rows: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray, List[i
             # Legacy format: extract features from dict
             indicators = dict(xraw)
             vec, _miss = build_feature_vector(
-                symbol=str(xraw.get("symbol","")),
+                symbol=(xraw.get("symbol","")),
                 ts_ms=int(xraw.get("ts_ms", 0)),
-                direction=str(xraw.get("direction","")),
-                scenario=str(xraw.get("scenario","")),
+                direction=(xraw.get("direction","")),
+                scenario=(xraw.get("scenario","")),
                 indicators=indicators,
                 rule_score=float(xraw.get("score", xraw.get("rule_score", 0.0)) or 0.0),
                 rule_have=int(xraw.get("have", xraw.get("rule_have", 0)) or 0),
@@ -77,7 +76,7 @@ def build_xy(rows: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray, List[i
     return Xn, yn, ts
 
 
-def time_split(rows: List[Dict[str, Any]], test_share: float, calib_share: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+def time_split(rows: list[dict[str, Any]], test_share: float, calib_share: float) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     rows = sorted(rows, key=lambda r: int(r.get("ts_ms", 0)))
     n = len(rows)
     n_test = int(max(1, n * test_share))

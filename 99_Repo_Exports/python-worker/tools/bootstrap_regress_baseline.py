@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 """
 Bootstrap regression baseline from existing Redis inputs.
 
@@ -6,13 +8,14 @@ Usage:
   python -m tools.bootstrap_regress_baseline
 """
 
-import os
 import json
-import time
-import sys
-import subprocess
-import redis
 import logging
+import os
+import subprocess
+import sys
+import time
+
+import redis
 
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -22,16 +25,16 @@ def main():
     # 1. Config
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     baseline_dir = os.getenv("BASELINE_DIR", "/app/of_reports_baselines")
-    
-    # We reuse existing tool logic where possible via subprocess, 
+
+    # We reuse existing tool logic where possible via subprocess,
     # ensuring we use same environment variables.
-    
+
     baseline_inputs_path = os.path.join(baseline_dir, "inputs_canary.ndjson")
     baseline_output_path = os.path.join(baseline_dir, "baseline.ndjson")
-    
+
     logger.info(f"Connecting to Redis at {redis_url}")
     r = redis.Redis.from_url(redis_url, decode_responses=True)
-    
+
     # Retry loop for Redis readiness
     max_retries = 30
     for i in range(max_retries):
@@ -55,24 +58,24 @@ def main():
     else:
         logger.info("Baseline inputs missing. Exporting from Redis...")
         os.makedirs(baseline_dir, exist_ok=True)
-        
+
         # Use propose_baseline_update's export logic by importing or reimplementing
         # Re-implementing simplified version here to be self-contained or better yet, use the code from propose_baseline_update
         # actually, let's use the code we saw in propose_baseline_update.py:export_inputs
-        
-        stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+
+        stream = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
         field = os.getenv("OF_INPUTS_STREAM_FIELD", "payload")
         symbols = {s.strip().upper() for s in os.getenv("CANARY_SYMBOLS", "BTCUSDT,ETHUSDT").split(",") if s.strip()}
-        
+
         logger.info(f"Exporting from {stream} for symbols {symbols}...")
-        
+
         scanned = 0
         written = 0
         max_scan = 500000
         max_write = 50000 # Cap size
         last_id = "+"
         rows = []
-        
+
         while scanned < max_scan and written < max_write:
             batch = r.xrevrange(stream, max=last_id, min="-", count=2000)
             if not batch:
@@ -84,7 +87,7 @@ def main():
                 if msg_id == last_id:
                     continue
                 last_id = msg_id
-                
+
                 payload = fields.get(field)
                 if not payload:
                     continue
@@ -92,19 +95,19 @@ def main():
                     inp = json.loads(payload) if isinstance(payload, str) else json.loads(payload.decode("utf-8"))
                 except Exception:
                     continue
-                    
-                sym = str(inp.get("symbol", "")).upper()
+
+                sym = (inp.get("symbol", "")).upper()
                 if sym and sym in symbols:
                     rows.append(inp)
                     written += 1
                     if written >= max_write:
                         break
-        
+
         rows.reverse() # Oldest first
         if not rows:
             logger.error("No inputs found in Redis! Cannot bootstrap.")
             sys.exit(1)
-            
+
         logger.info(f"Found {len(rows)} inputs. Writing to {baseline_inputs_path}...")
         with open(baseline_inputs_path, "w", encoding="utf-8") as f:
             for x in rows:
@@ -131,11 +134,11 @@ def main():
     streak_key = os.getenv("REGRESS_PASS_STREAK_KEY", "sre:regress:pass_streak")
     last_status_key = os.getenv("REGRESS_LAST_STATUS_KEY", "sre:regress:last_status")
     last_ts_key = os.getenv("REGRESS_LAST_TS_KEY", "sre:regress:last_ts_ms")
-    
+
     r.set(streak_key, "1")
     r.set(last_status_key, "PASS")
     r.set(last_ts_key, str(get_ny_time_millis()))
-    
+
     logger.info("Done! Bootstrap complete.")
 
 if __name__ == "__main__":

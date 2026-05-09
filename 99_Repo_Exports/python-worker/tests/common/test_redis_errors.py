@@ -1,10 +1,10 @@
 import redis
 
 from common.redis_errors import (
+    get_redis_error_category,
     is_redis_connection_error,
     is_redis_key_error,
     is_redis_stream_error,
-    get_redis_error_category,
 )
 
 

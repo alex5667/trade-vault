@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """enforce_bucket_state_exporter_v1.py
 
 Prometheus exporter for:
@@ -102,15 +103,15 @@ Outputs:
 
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import signal
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server  # type: ignore
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -131,32 +132,32 @@ def _as_str(x: Any, default: str = "") -> str:
 def _as_int(x: Any, default: int = 0) -> int:
     try:
         if x is None or isinstance(x, bool):
-            return int(default)
+            return default
         if isinstance(x, (int, float)):
             return int(x)
         s = _as_str(x).strip()
-        return int(float(s)) if s else int(default)
+        return int(float(s)) if s else default
     except Exception:
-        return int(default)
+        return default
 
 
 def _as_float(x: Any, default: float = 0.0) -> float:
     try:
         if x is None or isinstance(x, bool):
-            return float(default)
+            return default
         if isinstance(x, (int, float)):
             return float(x)
         s = _as_str(x).strip()
-        return float(s) if s else float(default)
+        return float(s) if s else default
     except Exception:
-        return float(default)
+        return default
 
 
-def _parse_list(raw: str) -> List[str]:
-    raw = str(raw or "").strip()
+def _parse_list(raw: str) -> list[str]:
+    raw = (raw or "").strip()
     if not raw:
         return []
-    xs: List[str] = []
+    xs: list[str] = []
     for p in raw.replace(";", ",").split(","):
         s = p.strip().upper()
         if s and s not in xs:
@@ -164,9 +165,9 @@ def _parse_list(raw: str) -> List[str]:
     return xs
 
 
-def _load_json(path: str) -> Optional[Dict[str, Any]]:
+def _load_json(path: str) -> dict[str, Any] | None:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         return obj if isinstance(obj, dict) else None
     except Exception:
@@ -187,7 +188,7 @@ def _connect_redis():
 
 def _safe_ident(x: str, default: str = "") -> str:
     """Sanitize a string to be safe as a Prometheus label value (uppercase alphanumeric+underscore)."""
-    s = str(x or "").strip().upper()
+    s = (x or "").strip().upper()
     if not s:
         return default
     s2 = "".join(
@@ -197,7 +198,7 @@ def _safe_ident(x: str, default: str = "") -> str:
 
 
 def _norm_cause(x: str) -> str:
-    s = str(x or "").strip().lower()
+    s = (x or "").strip().lower()
     if s in ("slo_freeze", "rollback", "manual", "rules_bundle_invalid", "stale_snapshot", "last_run_failed", "preflight_soft_block", "quarantine"):
         return s
     return "unknown" if s else "unknown"
@@ -547,8 +548,8 @@ class Exporter:
         self.db_stats_enabled = _as_int(os.getenv("ENFORCE_STATE_EXPORTER_DB_STATS", "0"), 0) == 1
         self.db_dsn = os.getenv("ANALYTICS_DB_DSN") or (os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL")) or ""
         self.db_lookback_h = _as_int(os.getenv("ENFORCE_STATE_EXPORTER_DB_LOOKBACK_H", "4"), 4)
-        self.db_mv = str(os.getenv("ENFORCE_STATE_EXPORTER_DB_MV", "mv_exec_slippage_eval_1h_stats") or "mv_exec_slippage_eval_1h_stats").strip()
-        self.db_view = str(os.getenv("ENFORCE_STATE_EXPORTER_DB_VIEW", "v_exec_slippage_eval") or "v_exec_slippage_eval").strip()
+        self.db_mv = (os.getenv("ENFORCE_STATE_EXPORTER_DB_MV", "mv_exec_slippage_eval_1h_stats") or "mv_exec_slippage_eval_1h_stats").strip()
+        self.db_view = (os.getenv("ENFORCE_STATE_EXPORTER_DB_VIEW", "v_exec_slippage_eval") or "v_exec_slippage_eval").strip()
 
         # Export multiple block sources (low-cardinality)
         # Priority: AUTO_APPLY_BLOCK_REASONS_EXPORT > AUTO_APPLY_BLOCK_REASONS > single reason
@@ -568,7 +569,7 @@ class Exporter:
             return ""
         try:
             v = self.redis.get(key)
-            return str(v or "")
+            return (v or "")
         except Exception:
             return ""
 
@@ -601,7 +602,7 @@ class Exporter:
                 except Exception:
                     continue
 
-    def _read_promoter_report(self) -> Optional[Dict[str, Any]]:
+    def _read_promoter_report(self) -> dict[str, Any] | None:
         # Prefer file (cheap), fallback to redis report key
         obj = _load_json(self.promoter_status_path)
         if isinstance(obj, dict):
@@ -624,7 +625,7 @@ class Exporter:
         ts_ms = _as_int(rep.get("ts_ms", 0), 0)
         age_sec = float((_now_ms() - ts_ms) / 1000.0) if ts_ms > 0 else float("nan")
         of_enforce_promoter_report_age_sec.set(age_sec)
-        of_enforce_promoter_apply_enabled.set(1.0 if str(rep.get("apply") or "0") in ("1", "true", "True") else 0.0)
+        of_enforce_promoter_apply_enabled.set(1.0 if (rep.get("apply") or "0") in ("1", "true", "True") else 0.0)
 
         decisions = rep.get("decisions") if isinstance(rep.get("decisions"), dict) else {}
         for comp in ("slippage", "taker"):

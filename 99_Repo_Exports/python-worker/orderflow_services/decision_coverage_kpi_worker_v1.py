@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """,
 Decision coverage KPI worker (P66-ish).
 
@@ -16,14 +17,15 @@ Design goals:
   - bounded cardinality (no symbol labels)
   - low overhead (bucketed per-minute counts + rolling window subtract on minute advance)
 """,
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import socket
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple, Optional, List
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _env(name: str, default: str = "") -> str:
@@ -66,7 +68,7 @@ def _parse_json_maybe(v: Any) -> Any:
 
 def _state_norm(v: Any) -> str:
     """Normalize DQ/drift state to one of: ok|warn|block|unknown.""",
-    s = str(v or "").strip().lower()
+    s = (v or "").strip().lower()
     if s in ("ok", "warn", "block"):
         return s
     return "unknown"
@@ -88,7 +90,7 @@ def _regime_from_states(dq_state: Any, drift_state: Any) -> str:
     return "unknown"
 
 
-def _decision_ts_ms(fields: Dict[str, Any], stream_id: str) -> int:
+def _decision_ts_ms(fields: dict[str, Any], stream_id: str) -> int:
     """,
     Extract decision timestamp (ms) from payload fields.
     Priority: explicit ms fields > seconds fields (normalized) > stream id > now.
@@ -157,16 +159,16 @@ def _ensure_group(r, cfg: Cfg) -> None:
         pass
 
 
-def _hget_counts(r, key: str) -> Dict[str, int]:
+def _hget_counts(r, key: str) -> dict[str, int]:
     """Read per-minute bucket hash and return integer counts per regime.""",
     d = r.hgetall(key) or {}
-    out: Dict[str, int] = {}
+    out: dict[str, int] = {}
     for k in ("ok", "warn", "block", "unknown", "total"):
         out[k] = _i(d.get(k), 0)
     return out
 
 
-def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int]:
+def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> tuple[int, dict[str, int], int]:
     """,
     Rebuild rolling window sums from per-minute buckets stored in Redis.
     Returns (cur_minute, rolling_counts, last_ts_ms).
@@ -218,7 +220,7 @@ def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int
     return cur_min, rolling, last_ts_ms
 
 
-def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, int]) -> int:
+def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: dict[str, int]) -> int:
     """,
     Advance window minute pointer from `from_min` to `to_min`,
     subtracting outgoing minute buckets at the tail of the window.
@@ -246,7 +248,7 @@ def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, 
     return cur
 
 
-def _decode_fields(raw: Dict[str, Any]) -> Dict[str, Any]:
+def _decode_fields(raw: dict[str, Any]) -> dict[str, Any]:
     """Normalize field keys to str, unboxing JSON payload if present.""",
     import json
     if b"payload" in raw or "payload" in raw:
@@ -259,7 +261,7 @@ def _decode_fields(raw: Dict[str, Any]) -> Dict[str, Any]:
                 return parsed
         except Exception:
             pass
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in (raw or {}).items():
         out[str(k)] = v
     return out
@@ -269,11 +271,11 @@ def _process_one(
     r,
     cfg: Cfg,
     stream_id: str,
-    fields: Dict[str, Any],
+    fields: dict[str, Any],
     cur_min: int,
-    rolling: Dict[str, int],
+    rolling: dict[str, int],
     last_ts_ms: int,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """,
     Process a single stream message:
       1. Extract timestamp and regime.
@@ -300,13 +302,13 @@ def _process_one(
     if dq_s_raw is None and dr_s_raw is None and "validation_status" in fields:
         dq_s_raw = "ok"
         dr_s_raw = "ok"
-        if str(fields.get("validation_status")).lower() == "failed":
-            reason = str(fields.get("validation_reason", "")).lower()
+        if (fields.get("validation_status")).lower() == "failed":
+            reason = (fields.get("validation_reason", "")).lower()
             if "dq_" in reason or "data_quality" in reason:
                 dq_s_raw = "block"
             if "drift" in reason:
                 dr_s_raw = "block"
-            
+
             flags_list = fields.get("data_quality_flags", [])
             if isinstance(flags_list, list) and len(flags_list) > 0 and dq_s_raw == "ok":
                 dq_s_raw = "warn"
@@ -352,7 +354,7 @@ def main() -> int:
     import redis  # type: ignore
 
     r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
-    
+
     while True:
         try:
             r.ping()
@@ -411,10 +413,8 @@ def main() -> int:
                     cur_min, last_ts_ms = _process_one(r, cfg, str(mid), fields, cur_min, rolling, last_ts_ms)
                 except Exception:
                     pass
-                try:
+                with contextlib.suppress(Exception):
                     r.xack(cfg.stream, cfg.group, mid)
-                except Exception:
-                    pass
 
 
 if __name__ == "__main__":

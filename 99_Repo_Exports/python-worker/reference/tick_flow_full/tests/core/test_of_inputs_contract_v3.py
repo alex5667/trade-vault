@@ -1,6 +1,6 @@
 import json
 
-from core.of_inputs_contract import OFInputsV1, OFInputsV2, OFInputsV3
+from core.of_inputs_contract import OFInputsV1, OFInputsV3
 
 
 def test_of_inputs_to_json_is_deterministic() -> None:

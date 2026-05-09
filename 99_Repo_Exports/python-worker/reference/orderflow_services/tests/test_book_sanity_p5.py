@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for P5 book sanity + BookSanityGate.
 
 Covers:
@@ -8,8 +9,8 @@ Covers:
 """
 
 
-import math
 import pytest
+
 from services.orderflow.book_sanity import check_book_sanity, trade_outside_bbo
 from services.orderflow.book_sanity_gate import BookSanityGate
 

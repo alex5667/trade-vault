@@ -1,23 +1,23 @@
 # data_parser.py
 from __future__ import annotations
+
 """
 Data parsing functionality extracted from base_orderflow_handler.py
 """
 
-from utils.time_utils import get_ny_time_millis
-
-from typing import Optional, Dict, Any, Tuple, List
-import time
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 # Safe imports
 try:
-    from contexts import Tick, SimpleL2Snapshot, L2Level
+    from contexts import L2Level, SimpleL2Snapshot, Tick
 except ImportError:
     # Fallback definitions for testing
     class Tick:
-        def __init__(self, ts: int, bid: float, ask: float, last: float, volume: float, flags: int, is_buyer_maker: Optional[bool]):
+        def __init__(self, ts: int, bid: float, ask: float, last: float, volume: float, flags: int, is_buyer_maker: bool | None):
             self.ts = ts
             self.bid = bid
             self.ask = ask
@@ -32,7 +32,7 @@ except ImportError:
             self.size = size
 
     class SimpleL2Snapshot:
-        def __init__(self, bids: List[L2Level], asks: List[L2Level], ts_ms: int, mid: float,
+        def __init__(self, bids: list[L2Level], asks: list[L2Level], ts_ms: int, mid: float,
                      best_bid: float, best_ask: float, depth_bid_5: float, depth_ask_5: float,
                      depth_bid_20: float, depth_ask_20: float):
             self.bids = bids
@@ -51,7 +51,7 @@ EPOCH_MS_MIN = 946684800000  # 2000-01-01
 EPOCH_MS_FUTURE_SKEW = 86_400_000  # +1 day
 
 
-def _ensure_epoch_ms(ts: Any, *, now_ms: Optional[int] = None) -> Optional[int]:
+def _ensure_epoch_ms(ts: Any, *, now_ms: int | None = None) -> int | None:
     """
     Strict epoch-ms validation.
     Rejects minutes-of-day, small offsets, non-epoch timestamps.
@@ -78,7 +78,7 @@ def _ensure_epoch_ms(ts: Any, *, now_ms: Optional[int] = None) -> Optional[int]:
                 iso = s.replace("Z", "+00:00")
                 dt = datetime.fromisoformat(iso)
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
+                    dt = dt.replace(tzinfo=UTC)
                 return int(dt.timestamp() * 1000)
             except Exception:
                 return None
@@ -102,7 +102,7 @@ def _ensure_epoch_ms(ts: Any, *, now_ms: Optional[int] = None) -> Optional[int]:
 
 
 # Backward compatibility alias
-def _ensure_ts_ms(ts: Any, *, now_ms: Optional[int] = None, fallback_now: bool = False) -> Optional[int]:
+def _ensure_ts_ms(ts: Any, *, now_ms: int | None = None, fallback_now: bool = False) -> int | None:
     """Legacy wrapper for backward compatibility."""
     result = _ensure_epoch_ms(ts, now_ms=now_ms)
     if result is None and fallback_now:
@@ -110,7 +110,7 @@ def _ensure_ts_ms(ts: Any, *, now_ms: Optional[int] = None, fallback_now: bool =
     return result
 
 
-def _parse_bool(v: Any) -> Optional[bool]:
+def _parse_bool(v: Any) -> bool | None:
     if v is None:
         return None
     if isinstance(v, bool):
@@ -150,7 +150,7 @@ class OrderFlowDataParser:
         self.specs = specs
         self.logger = logger  # optional
 
-    def _parse_tick(self, fields: Dict[str, Any]) -> Optional[Tick]:
+    def _parse_tick(self, fields: dict[str, Any]) -> Tick | None:
         try:
             data = fields
             if "data" in fields:
@@ -203,7 +203,7 @@ class OrderFlowDataParser:
                 self.logger.debug("Failed to parse tick: %s | fields=%s", e, fields)
             return None
 
-    def _parse_book(self, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_book(self, fields: dict[str, Any]) -> dict[str, Any] | None:
         try:
             data = fields
             if "data" in fields:
@@ -220,7 +220,7 @@ class OrderFlowDataParser:
             if not isinstance(bids_data, list) or not isinstance(asks_data, list):
                 return None
 
-            def _lvl(it: Any) -> Optional[Tuple[float, float]]:
+            def _lvl(it: Any) -> tuple[float, float] | None:
                 if isinstance(it, (list, tuple)) and len(it) >= 2:
                     return float(it[0]), float(it[1])
                 if isinstance(it, dict):
@@ -231,7 +231,7 @@ class OrderFlowDataParser:
                     return float(p), float(q)
                 return None
 
-            bids: List[L2Level] = []
+            bids: list[L2Level] = []
             for it in bids_data[:20]:
                 lv = _lvl(it)
                 if not lv:
@@ -240,7 +240,7 @@ class OrderFlowDataParser:
                 if price > 0 and size > 0:
                     bids.append(L2Level(price=price, size=size))
 
-            asks: List[L2Level] = []
+            asks: list[L2Level] = []
             for it in asks_data[:20]:
                 lv = _lvl(it)
                 if not lv:
@@ -262,7 +262,7 @@ class OrderFlowDataParser:
 
             mid = (best_bid + best_ask) / 2.0
 
-            def _sum_depth(levels: List[L2Level], n: int) -> float:
+            def _sum_depth(levels: list[L2Level], n: int) -> float:
                 return float(sum(l.size for l in levels[: min(n, len(levels))]))
 
             snapshot = SimpleL2Snapshot(
@@ -277,7 +277,7 @@ class OrderFlowDataParser:
                 self.logger.debug("Failed to parse book: %s | fields=%s", e, fields)
             return None
 
-    def _parse_l3_event(self, fields: Dict[str, Any]) -> Optional[Any]:
+    def _parse_l3_event(self, fields: dict[str, Any]) -> Any | None:
         try:
             data = fields
             if "data" in fields:

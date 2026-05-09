@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 Fees-aware minimum ATR(bps) needed to cover roundtrip fees + buffer, given TP1 share and rocket multiplier.
 Pure function: easy to test and reuse.
 """
 
 
-from typing import Dict, Tuple
 
 
 def fees_aware_min_atr_bps(
@@ -15,7 +15,7 @@ def fees_aware_min_atr_bps(
     tp_bps_buffer: float,
     tp1_share: float,
     rocket_mult: float,
-) -> Tuple[float, Dict]:
+) -> tuple[float, dict]:
     fb = float(fees_bps_rt or 0.0)
     buf = float(tp_bps_buffer or 0.0)
     share = float(tp1_share or 0.0)

@@ -1,18 +1,20 @@
 from __future__ import annotations
+
 import math
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
-from .result import ConfirmResult
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot, L2Level
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
+
 from .reason_utils import normalize_and_u16
+from .result import ConfirmResult
 
 # Структурированные коды причин живут в signal_scoring/reason_registry.py (единственный источник правды).
 # Мы храним "строки" здесь, чтобы избежать импорта множества enum по всему репозиторию.
 VETO_WALL_NEAR = "VETO_WALL_NEAR"
 OK = "OK"
 
-def _f(x: Any) -> Optional[float]:
+def _f(x: Any) -> float | None:
     try:
         v = float(x)
     except Exception:
@@ -39,7 +41,7 @@ class L2ConfirmBreakout:
       - нужен стабильный reason_code="VETO_WALL_NEAR" для калибровки/метрик,
       - дальнейший скоринг не должен "спасать" такие кандидаты.
     """
-    def __init__(self, cfg: Optional[BreakoutConfirmCfg] = None, **kwargs: Any) -> None:
+    def __init__(self, cfg: BreakoutConfirmCfg | None = None, **kwargs: Any) -> None:
         if cfg is None and kwargs:
             cfg = BreakoutConfirmCfg(
                 max_near_wall_bps=kwargs.get("wall_within_bps", 4.0),
@@ -47,7 +49,7 @@ class L2ConfirmBreakout:
             )
         self.cfg = cfg or BreakoutConfirmCfg()
 
-    def _get_l2(self, ctx: Any) -> Optional[L2Snapshot]:
+    def _get_l2(self, ctx: Any) -> L2Snapshot | None:
         return getattr(ctx, "l2", None) or getattr(ctx, "l2_snapshot", None) or getattr(ctx, "book", None)
 
     def _is_stale(self, ctx: Any) -> bool:
@@ -63,7 +65,7 @@ class L2ConfirmBreakout:
         ctx: Any,
         side: int | str,
         level_price: float,
-        l2: Optional[L2Snapshot] = None,
+        l2: L2Snapshot | None = None,
         **_: Any,  # допускаем лишние kwargs от оберток/движков при рефакторинге
     ) -> ConfirmResult:
         if isinstance(side, int):

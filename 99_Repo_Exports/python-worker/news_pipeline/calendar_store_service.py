@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import logging
 import json
-import time
-from typing import Dict, List, Tuple, Optional, Set
+import logging
 
 import redis
 
-from .models import CalendarEvent
-from .redis_streams import ensure_group, xreadgroup_block, xack
-from .utils import now_ms, safe_int
 from . import config
-
+from .models import CalendarEvent
+from .redis_streams import ensure_group, xack, xreadgroup_block
+from .utils import now_ms
+import contextlib
 
 log = logging.getLogger("calendar-feature-store")
 
@@ -37,10 +35,8 @@ def _keys_set() -> str:
 
 def _touch_key(r: redis.Redis, key: str) -> None:
     # Запоминаем ключи (без TTL или с большим TTL)
-    try:
+    with contextlib.suppress(Exception):
         r.sadd(_keys_set(), key)
-    except Exception:
-        pass
 
 
 def _refresh_agg_for_key(r: redis.Redis, key: str, idx_zset: str) -> None:
@@ -161,7 +157,7 @@ class CalendarFeatureStoreService:
                         self.r.expire(ek, int(config.CALENDAR_EVENT_TTL_SEC))
 
                         # indexes + aggs
-                        keys_to_refresh: List[Tuple[str, str]] = []
+                        keys_to_refresh: list[tuple[str, str]] = []
 
                         if ev.currency:
                             key = f"CUR:{ev.currency}"
@@ -195,7 +191,5 @@ class CalendarFeatureStoreService:
 
                     except Exception as e:
                         log.exception("calendar store failed msg_id=%s err=%s", msg_id, e)
-                        try:
+                        with contextlib.suppress(Exception):
                             xack(self.r, config.CALENDAR_EVENTS_STREAM, config.CALENDAR_FEATURE_GROUP, msg_id)
-                        except Exception:
-                            pass

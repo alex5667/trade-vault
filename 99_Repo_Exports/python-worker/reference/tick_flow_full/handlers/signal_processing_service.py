@@ -1,12 +1,15 @@
 # signal_processing_service.py
 from __future__ import annotations
+
 """
 Signal processing functionality extracted from base_orderflow_handler.py
 """
 
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any
+
 from utils.time_utils import get_ny_time_millis
 
-from typing import Optional, List, TYPE_CHECKING, Any, Dict, Iterable
 
 # from common.log import setup_logger
 def setup_logger(name):
@@ -14,8 +17,7 @@ def setup_logger(name):
     return logging.getLogger(name)
 
 if TYPE_CHECKING:
-    from contexts import PipelineSignalContext, OrderflowSignalContext
-    from contexts import BarSample
+    from contexts import BarSample, OrderflowSignalContext, PipelineSignalContext
     from health_metrics import HealthMetrics
 
 
@@ -34,7 +36,7 @@ class SignalProcessingService:
         *,
         unified_pipeline: Any = None,
         signal_generator: Any = None,
-        health_metrics: Optional["HealthMetrics"] = None,
+        health_metrics: HealthMetrics | None = None,
         outbox: Any = None,
     ):
         self.symbol = symbol
@@ -70,7 +72,7 @@ class SignalProcessingService:
         from signals.outbox_utils import PublishResult
         return PublishResult(sent=False, dedup=False, msg_id=None)
 
-    def _as_publish_result(self, x: Any) -> Optional[Any]:
+    def _as_publish_result(self, x: Any) -> Any | None:
         """
         Best-effort: detect PublishResult-like object without hard dependency on class identity.
         """
@@ -96,13 +98,13 @@ class SignalProcessingService:
         # epoch seconds -> ms
         if 1_000_000_000 <= v < 100_000_000_000:
             v *= 1000
-        
+
         # окно валидности (2000..now+7d)
         if v < 946_684_800_000 or v > now + 7 * 86_400_000:
             return now
         return v
 
-    def _build_pipeline_ctx(self, of_ctx: "OrderflowSignalContext") -> "PipelineSignalContext":
+    def _build_pipeline_ctx(self, of_ctx: OrderflowSignalContext) -> PipelineSignalContext:
         """
         Adapter: OrderflowSignalContext -> PipelineSignalContext.
         """
@@ -115,14 +117,14 @@ class SignalProcessingService:
             volume=float(getattr(of_ctx, "volume", 0.0) or 0.0),
         )
 
-    def _call_unified(self, of_ctx: "OrderflowSignalContext") -> Any:
+    def _call_unified(self, of_ctx: OrderflowSignalContext) -> Any:
         """
         Вызов унифицированного пайплайна с проверкой сигнатуры.
         """
         if self.unified_pipeline is None:
             return None
         pctx = self._build_pipeline_ctx(of_ctx)
-        
+
         fn = getattr(self.unified_pipeline, "process", None)
         if fn is None:
             return None
@@ -134,9 +136,9 @@ class SignalProcessingService:
             # Remove 'self' if it's a bound method (it usually is)
             if hasattr(fn, "__self__"):
                 pass # signature already handles this for bound methods
-            
+
             non_default_params = [p for p in params.values() if p.default is inspect.Parameter.empty]
-            
+
             # Signature process(pctx)
             if len(non_default_params) == 1:
                  return fn(pctx)
@@ -156,7 +158,7 @@ class SignalProcessingService:
         except TypeError:
             return fn(of_ctx)
 
-    def _publish_envelopes(self, envs: Iterable[Dict[str, Any]]):
+    def _publish_envelopes(self, envs: Iterable[dict[str, Any]]):
         """
         If unified returns envelopes (dict), publish them here (optional mode).
         Агрегация результатов:
@@ -216,13 +218,14 @@ class SignalProcessingService:
             confidence=last_conf
         )
 
-    def process_orderflow_context(self, ctx: "OrderflowSignalContext", signal_type: str = "bar"):
+    def process_orderflow_context(self, ctx: OrderflowSignalContext, signal_type: str = "bar"):
         """
         Main entrypoint for BaseOrderFlowHandler:
           ctx = data_processor.build_signal_ctx(...)
           result = signal_processing.process_orderflow_context(ctx, signal_type="bar")
         """
         import time
+
         from signals.outbox_utils import PublishResult
 
         start_time = time.time()
@@ -288,7 +291,7 @@ class SignalProcessingService:
             return PublishResult(sent=False, dedup=False, msg_id=None)
 
     # Backward-compat shim (if old code still calls bar-based API)
-    def process_bar_signals(self, bar: "BarSample"):
+    def process_bar_signals(self, bar: BarSample):
         """
         Deprecated: bar-based path. Prefer process_orderflow_context(ctx).
         Kept only to avoid breaking old callers.

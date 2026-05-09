@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """OFInputs V3 circuit state exporter (P100).
 
 Purpose
@@ -48,19 +49,20 @@ Cardinality control
 Run
   python -m orderflow_services.of_inputs_v3_circuit_state_exporter_p100,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import time
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server  # type: ignore
 
 from services.observability.latency_semconv import default_symbol_allowlist
+from utils.time_utils import get_ny_time_millis
+
 try:
     from orderflow_services.auto_apply_guard import DEFAULT_REASONS as AUTO_APPLY_REASONS
-except:
+except Exception:
     AUTO_APPLY_REASONS = "tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke,of_gate_exporters_smoke"
 
 
@@ -84,16 +86,16 @@ def _as_str(x: Any, default: str = "") -> str:
 def _as_int(x: Any, default: int = 0) -> int:
     try:
         if x is None or isinstance(x, bool):
-            return int(default)
+            return default
         if isinstance(x, (int, float)):
             return int(x)
         s = _as_str(x).strip()
-        return int(float(s)) if s else int(default)
+        return int(float(s)) if s else default
     except Exception:
-        return int(default)
+        return default
 
 
-def _json_loads(s: Optional[str]) -> Dict[str, Any]:
+def _json_loads(s: str | None) -> dict[str, Any]:
     if not s:
         return {}
     try:
@@ -103,11 +105,11 @@ def _json_loads(s: Optional[str]) -> Dict[str, Any]:
         return {}
 
 
-def _parse_csv(raw: str, upper: bool = True) -> List[str]:
-    raw = str(raw or "").strip()
+def _parse_csv(raw: str, upper: bool = True) -> list[str]:
+    raw = (raw or "").strip()
     if not raw:
         return []
-    xs: List[str] = []
+    xs: list[str] = []
     for p in raw.replace(";", ",").split(","):
         s = p.strip()
         s = s.upper() if upper else s
@@ -128,7 +130,7 @@ def _connect_redis():
         return None
 
 
-def _remove_stale(g: Gauge, prev: Set[Tuple[str, ...]], cur: Set[Tuple[str, ...]]) -> Set[Tuple[str, ...]]:
+def _remove_stale(g: Gauge, prev: set[tuple[str, ...]], cur: set[tuple[str, ...]]) -> set[tuple[str, ...]]:
     stale = prev - cur
     for lv in stale:
         try:
@@ -233,7 +235,7 @@ def _sym_from_cfg_disabled_key(key: str) -> str:
     return key[len(CFG_DISABLED_PREFIX) :].strip().upper()
 
 
-def _reason_sym_from_dg_key(key: str) -> Tuple[str, str]:
+def _reason_sym_from_dg_key(key: str) -> tuple[str, str]:
     if not key.startswith(STATE_DG_PREFIX):
         return ("", "")
     rest = key[len(STATE_DG_PREFIX) :]
@@ -249,7 +251,7 @@ def _reason_from_ap_glob_key(key: str) -> str:
     return key[len(AP_GLOB_PREFIX) :].strip().lower() or "unknown"
 
 
-def _sym_reason_from_ap_sym_key(key: str) -> Tuple[str, str]:
+def _sym_reason_from_ap_sym_key(key: str) -> tuple[str, str]:
     if not key.startswith(AP_SYM_PREFIX):
         return ("", "")
     rest = key[len(AP_SYM_PREFIX) :]
@@ -260,12 +262,12 @@ def _sym_reason_from_ap_sym_key(key: str) -> Tuple[str, str]:
 
 
 def _iter_scan(r, pattern: str) -> Iterable[str]:
-    # No longer used to prevent Redis CPU saturation. 
+    # No longer used to prevent Redis CPU saturation.
     # Use deterministic key generation instead.
     return []
 
 
-def _derive_until_ms(meta: Dict[str, Any], now_ms: int, pttl_ms: int) -> Tuple[int, str]:
+def _derive_until_ms(meta: dict[str, Any], now_ms: int, pttl_ms: int) -> tuple[int, str]:
     # Mirror services.orderflow.of_inputs_v3_circuit.refresh_disabled_state semantics.
     until_ms = _as_int(meta.get("until_ms"), 0)
     reason = _as_str(meta.get("reason") or meta.get("dq_code") or "cfg", "cfg")
@@ -279,9 +281,9 @@ def _derive_until_ms(meta: Dict[str, Any], now_ms: int, pttl_ms: int) -> Tuple[i
             until_ms = now_ms + max(0, int(pttl_ms))
             reason = reason or "cfg_ttl"
 
-    return int(until_ms), str(reason or "cfg")
+    return int(until_ms), (reason or "cfg")
 
-def _derive_hard_until_ms(meta: Dict[str, Any], until_ms: int) -> int:
+def _derive_hard_until_ms(meta: dict[str, Any], until_ms: int) -> int:
     hard = _as_int(meta.get("hard_until_ms"), 0)
     return int(hard) if int(hard) > 0 else int(until_ms)
 
@@ -300,37 +302,37 @@ def main() -> None:
 
     start_http_server(port)
 
-    prev_disabled: Set[Tuple[str, ...]] = set()
-    prev_until: Set[Tuple[str, ...]] = set()
-    prev_hard_until: Set[Tuple[str, ...]] = set()
-    prev_hard: Set[Tuple[str, ...]] = set()
-    prev_cooldown: Set[Tuple[str, ...]] = set()
-    prev_ttl: Set[Tuple[str, ...]] = set()
-    prev_dg: Set[Tuple[str, ...]] = set()
-    prev_ap_glob: Set[Tuple[str, ...]] = set()
-    prev_ap_glob_ttl: Set[Tuple[str, ...]] = set()
-    prev_ap_sym: Set[Tuple[str, ...]] = set()
-    prev_ap_sym_ttl: Set[Tuple[str, ...]] = set()
+    prev_disabled: set[tuple[str, ...]] = set()
+    prev_until: set[tuple[str, ...]] = set()
+    prev_hard_until: set[tuple[str, ...]] = set()
+    prev_hard: set[tuple[str, ...]] = set()
+    prev_cooldown: set[tuple[str, ...]] = set()
+    prev_ttl: set[tuple[str, ...]] = set()
+    prev_dg: set[tuple[str, ...]] = set()
+    prev_ap_glob: set[tuple[str, ...]] = set()
+    prev_ap_glob_ttl: set[tuple[str, ...]] = set()
+    prev_ap_sym: set[tuple[str, ...]] = set()
+    prev_ap_sym_ttl: set[tuple[str, ...]] = set()
 
     while True:
         now_ms = _now_ms()
         G_UP.set(1)
         G_POLL_TS_MS.set(now_ms)
 
-        cur_disabled: Set[Tuple[str, ...]] = set()
-        cur_until: Set[Tuple[str, ...]] = set()
-        cur_hard_until: Set[Tuple[str, ...]] = set()
-        cur_hard: Set[Tuple[str, ...]] = set()
-        cur_cooldown: Set[Tuple[str, ...]] = set()
-        cur_ttl: Set[Tuple[str, ...]] = set()
-        cur_dg: Set[Tuple[str, ...]] = set()
-        cur_ap_glob: Set[Tuple[str, ...]] = set()
-        cur_ap_glob_ttl: Set[Tuple[str, ...]] = set()
-        cur_ap_sym: Set[Tuple[str, ...]] = set()
-        cur_ap_sym_ttl: Set[Tuple[str, ...]] = set()
+        cur_disabled: set[tuple[str, ...]] = set()
+        cur_until: set[tuple[str, ...]] = set()
+        cur_hard_until: set[tuple[str, ...]] = set()
+        cur_hard: set[tuple[str, ...]] = set()
+        cur_cooldown: set[tuple[str, ...]] = set()
+        cur_ttl: set[tuple[str, ...]] = set()
+        cur_dg: set[tuple[str, ...]] = set()
+        cur_ap_glob: set[tuple[str, ...]] = set()
+        cur_ap_glob_ttl: set[tuple[str, ...]] = set()
+        cur_ap_sym: set[tuple[str, ...]] = set()
+        cur_ap_sym_ttl: set[tuple[str, ...]] = set()
 
-        disabled_by_reason: Dict[str, int] = {}
-        dg_sum: Dict[str, int] = {}
+        disabled_by_reason: dict[str, int] = {}
+        dg_sum: dict[str, int] = {}
 
         try:
             # ---- cfg disabled
@@ -397,12 +399,12 @@ def main() -> None:
             # Keep stable 0 series for allowlisted reasons if provided.
             reasons_for_zero = set(reasons_allow) if reasons_allow else set(disabled_by_reason.keys())
             for rsn in reasons_for_zero:
-                rsn_s = str(rsn or "unknown").lower()
+                rsn_s = (rsn or "unknown").lower()
                 G_DISABLED_BY_REASON.labels(reason=rsn_s).set(int(disabled_by_reason.get(rsn_s, 0)))
 
             # ---- downgrades zsets
             dg_keys = [STATE_DG_PREFIX + rsn + ":" + sym for sym in symbols_allow for rsn in reasons_allow]
-            
+
             # Optionally constrain to allowlisted symbols/reasons.
             for k in dg_keys:
                 reason, sym = _reason_sym_from_dg_key(k)
@@ -423,7 +425,7 @@ def main() -> None:
             # dg sum series
             reasons_for_zero = set(reasons_allow) if reasons_allow else set(dg_sum.keys())
             for rsn in reasons_for_zero:
-                rsn_s = str(rsn or "unknown").lower()
+                rsn_s = (rsn or "unknown").lower()
                 G_DG_SUM.labels(reason=rsn_s).set(int(dg_sum.get(rsn_s, 0)))
 
             # ---- auto-apply blocks (global)

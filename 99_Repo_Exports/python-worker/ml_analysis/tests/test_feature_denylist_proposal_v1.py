@@ -2,8 +2,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 # Mirror existing tests' import contract:
 # add tick_flow_full to sys.path so we can import as `core.*`
 ROOT = Path(__file__).resolve().parents[2]

@@ -1,19 +1,20 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
-import time
-from typing import Any, Dict
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _safe_loads(s: Any) -> Dict[str, Any]:
+def _safe_loads(s: Any) -> dict[str, Any]:
     """
     Safe JSON loads with fallback to empty dict.
     """
@@ -50,7 +51,7 @@ def main() -> None:
     """
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     champion_key = os.getenv("ML_CFG_CHAMPION_KEY", "cfg:ml_confirm:champion")
-    notify_stream = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    notify_stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
 
     ece_max = float(os.getenv("ML_CALIB_ECE_MAX", "0.06") or 0.06)
     brier_max = float(os.getenv("ML_CALIB_BRIER_MAX", "0.22") or 0.22)

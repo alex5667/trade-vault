@@ -1,13 +1,15 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Shared gate helpers for nightly strategy research stats (P6.1).
 
 Reads Redis blocker and summary hashes, evaluates gate status, and returns a
 result dict with keys: status, reason, blocked, soft_blocked, gate_mode, age_sec.
 """,
 import os
-import time
-from typing import Any, Dict, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -23,10 +25,10 @@ def _to_int(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
-def _read_hash(client: Any, key: str) -> Dict[str, str]:
+def _read_hash(client: Any, key: str) -> dict[str, str]:
     if client is None or not key:
         return {}
     try:
@@ -58,7 +60,7 @@ def evaluate_strategy_research_stats_gate(
     max_age_sec: float = 0.0,
     fail_closed_missing: int = 1,
     client: Any | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Evaluate the strategy research stats gate state from Redis.
 
     Args:
@@ -103,15 +105,15 @@ def evaluate_strategy_research_stats_gate(
 
     if _to_int(blocker.get('invalid', '0'), 0) > 0:
         if gate_mode == 'soft':
-            return {'status': 'soft', 'reason': str(blocker.get('reason') or 'invalid'), 'blocked': False, 'soft_blocked': True, 'gate_mode': gate_mode, 'age_sec': age_sec}
+            return {'status': 'soft', 'reason': (blocker.get('reason') or 'invalid'), 'blocked': False, 'soft_blocked': True, 'gate_mode': gate_mode, 'age_sec': age_sec}
         if gate_mode == 'hard':
-            return {'status': 'invalid', 'reason': str(blocker.get('reason') or 'invalid'), 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
+            return {'status': 'invalid', 'reason': (blocker.get('reason') or 'invalid'), 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
 
     if _to_int(blocker.get('blocked', '0'), 0) > 0:
-        return {'status': 'block', 'reason': str(blocker.get('reason') or 'strategy_research_stats_blocked'), 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
+        return {'status': 'block', 'reason': (blocker.get('reason') or 'strategy_research_stats_blocked'), 'blocked': True, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
 
     if _to_int(blocker.get('soft_blocked', '0'), 0) > 0:
-        return {'status': 'soft', 'reason': str(blocker.get('reason') or 'strategy_research_stats_soft_block'), 'blocked': False, 'soft_blocked': True, 'gate_mode': gate_mode, 'age_sec': age_sec}
+        return {'status': 'soft', 'reason': (blocker.get('reason') or 'strategy_research_stats_soft_block'), 'blocked': False, 'soft_blocked': True, 'gate_mode': gate_mode, 'age_sec': age_sec}
 
     return {'status': 'ok', 'reason': 'ok', 'blocked': False, 'soft_blocked': False, 'gate_mode': gate_mode, 'age_sec': age_sec}
 

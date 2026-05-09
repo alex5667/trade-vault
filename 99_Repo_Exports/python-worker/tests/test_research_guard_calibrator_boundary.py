@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Regression: Research Guard Calibrator — boundary math conditions (merge-blocker).
 
@@ -14,12 +14,9 @@ Run:
     cd python-worker && python -m pytest tests/test_research_guard_calibrator_boundary.py -v
 """
 
-import math
-import pytest
 
 from core.research_guard_calibrator import (
     NightlyReport,
-    ResearchGuardCalibResult,
     evaluate_research_guard,
 )
 

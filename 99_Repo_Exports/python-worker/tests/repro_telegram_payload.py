@@ -1,25 +1,25 @@
 
-import unittest
 import json
-from unittest.mock import MagicMock
+import unittest
+
 
 # Mocking the worker's extraction logic
 def extract_text(message_data):
     payload_str = message_data.get("payload")
     payload = {}
-    
+
     if payload_str:
         try:
             payload = json.loads(payload_str) if isinstance(payload_str, str) else payload_str
         except json.JSONDecodeError:
             payload = {"message": str(payload_str)}
-    
+
     text = payload.get("message", "")
     if not text:
         # Fallback as implemented in the fix
         text = (
-            message_data.get("message", "") or 
-            message_data.get("text", "") or 
+            message_data.get("message", "") or
+            message_data.get("text", "") or
             message_data.get("caption", "") or
             payload.get("text", "") or
             payload.get("caption", "")

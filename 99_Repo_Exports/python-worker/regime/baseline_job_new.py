@@ -8,9 +8,8 @@
 
 import os
 import sys
-from datetime import datetime, timedelta
 from collections import defaultdict
-from typing import Dict, Tuple, List
+from datetime import datetime, timedelta
 
 import psycopg
 
@@ -18,7 +17,8 @@ import psycopg
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from common.log import setup_logger
-from .baseline_calc import SignalExecRow, BaselineQuantiles, compute_family_baseline
+
+from .baseline_calc import BaselineQuantiles, SignalExecRow, compute_family_baseline
 
 # Config
 DEFAULT_WINDOW_SIZE = int(os.getenv("BASELINE_WINDOW_SIZE", "50"))
@@ -41,7 +41,7 @@ class SignalFamilyBaselineJob:
         self.horizon_days = horizon_days
         self.logger = setup_logger("baseline_job")
 
-    def _fetch_signals(self, conn) -> Dict[Tuple[str, str], List[SignalExecRow]]:
+    def _fetch_signals(self, conn) -> dict[tuple[str, str], list[SignalExecRow]]:
         """
         Читает сигналы за horizon_days и группирует по (symbol, family).
         """
@@ -49,7 +49,7 @@ class SignalFamilyBaselineJob:
 
         self.logger.info(f"Fetching signals since {cutoff} (horizon: {self.horizon_days} days)")
 
-        by_key: Dict[Tuple[str, str], List[SignalExecRow]] = defaultdict(list)
+        by_key: dict[tuple[str, str], list[SignalExecRow]] = defaultdict(list)
 
         with conn.cursor() as cur:
             cur.execute(

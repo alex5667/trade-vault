@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """E2E-ish tests for OF-gate ok_rate / soft_rate logic.
 
 Goal:

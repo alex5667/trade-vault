@@ -1,7 +1,8 @@
-import types
 import unittest
+
 from domain.handlers import create_position
-from domain.models import SignalNorm, PositionState
+from domain.models import SignalNorm
+
 
 class FakeSpec:
     def risk_money(self, entry, sl, lot, side, symbol):
@@ -26,9 +27,9 @@ class TestRiskUsdSpecMoney(unittest.TestCase):
         )
         spec = FakeSpec()
         pos = create_position(sig, spec)
-        
+
         # entry=100, sl=99, lot=2. diff=1. stub multiplier=10. expected=20.
-        expected = 20.0 
+        expected = 20.0
         val = getattr(pos, "risk_usd", 0.0)
         self.assertAlmostEqual(val, expected, places=5)
         # Also check persistence

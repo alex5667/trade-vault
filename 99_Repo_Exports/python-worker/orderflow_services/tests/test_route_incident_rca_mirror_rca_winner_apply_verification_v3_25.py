@@ -1,6 +1,11 @@
-import pytest
 import json
-from orderflow_services.route_incident_rca_mirror_rca_winner_apply_verification_loop_v3_25 import calculate_rates, evaluate_verification, build_rollback_state
+
+from orderflow_services.route_incident_rca_mirror_rca_winner_apply_verification_loop_v3_25 import (
+    build_rollback_state,
+    calculate_rates,
+    evaluate_verification,
+)
+
 
 def test_calculate_rates():
     exposures = [
@@ -13,7 +18,7 @@ def test_calculate_rates():
     assert abs(pmr - 0.666) < 0.01 # 2/3
     assert abs(upr - 0.333) < 0.01 # 1 is deterministic (which doesn't contain 'shadow' in name, but is not target)
     assert abs(sr - 0.333) < 0.01
-    
+
 def test_evaluate_verification_keep():
     dec, rco = evaluate_verification(10, "SHADOW", 0.9, 0.05, 0.05)
     assert dec == "KEEP_APPLIED"

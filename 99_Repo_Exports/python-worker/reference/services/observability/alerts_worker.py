@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import time
-from typing import List
 
 import redis
 
@@ -16,9 +15,9 @@ def _b2s(x) -> str:
     return x.decode("utf-8") if isinstance(x, (bytes, bytearray)) else str(x)
 
 
-def _read_set(r: redis.Redis, key: str, max_n: int = 50) -> List[str]:
+def _read_set(r: redis.Redis, key: str, max_n: int = 50) -> list[str]:
     xs = list(r.smembers(key) or [])
-    out: List[str] = []
+    out: list[str] = []
     for x in xs[:max_n]:
         out.append(_b2s(x))
     return out
@@ -73,7 +72,7 @@ def main() -> None:
                     worst_xlen = xlen
                     worst_sym = sym
 
-            msgs: List[str] = []
+            msgs: list[str] = []
             if used_mb > redis_mem_mb_max and _cooldown_ok(r, "alerts:cooldown:redis_mem", cooldown):
                 msgs.append(f"REDIS used_memory_mb={used_mb:.0f} > {redis_mem_mb_max:.0f}")
 

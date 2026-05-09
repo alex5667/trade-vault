@@ -1,9 +1,11 @@
 import json
-import os
 import logging
-from typing import Any, Dict, List
+import os
+from typing import Any
 
 import redis
+from core.redis_keys import RedisStreams as RS
+
 try:
     from core.redis_client import get_atr_redis
 except Exception:
@@ -17,9 +19,9 @@ def _redis():
     return redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
 
 def _ops_chat_id() -> str:
-    return str(os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
+    return (os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
 
-def _rollback_text(rb: Dict[str, Any], cert: Dict[str, Any] = None) -> str:
+def _rollback_text(rb: dict[str, Any], cert: dict[str, Any] = None) -> str:
     txt = (
         f"ATR Rollback Control\n"
         f"Rollback: {rb.get('rollback_id')}\n"
@@ -27,14 +29,14 @@ def _rollback_text(rb: Dict[str, Any], cert: Dict[str, Any] = None) -> str:
         f"Scope: {rb.get('symbol','*')} | {rb.get('scenario','*')} | {rb.get('layer','*')} | v{rb.get('policy_ver','0')}\n"
         f"Status: {rb.get('status')}\n"
     )
-    
+
     txt += "\nTarget:\n"
     if rb.get("target_policy_ver"):
         txt += f"- policy_ver={rb.get('target_policy_ver')}\n"
     if rb.get("target_stage"):
         txt += f"- rollout_stage={rb.get('target_stage')}\n"
     txt += f"- use_last_good={rb.get('use_last_good', False)}\n"
-        
+
     txt += "\nPost-rollback cert:\n"
     if cert:
         txt += f"- status={cert.get('status', 'unknown')}\n"
@@ -49,7 +51,7 @@ def _rollback_text(rb: Dict[str, Any], cert: Dict[str, Any] = None) -> str:
 
     return txt
 
-def _buttons(rollback_id: str) -> List[List[Dict[str, str]]]:
+def _buttons(rollback_id: str) -> list[list[dict[str, str]]]:
     return [
         [
             {"text": "✅ Approve", "callback": f"atr_rollback:approve:{rollback_id}"},
@@ -64,8 +66,8 @@ def _buttons(rollback_id: str) -> List[List[Dict[str, str]]]:
         ]
     ]
 
-def publish_rollback_to_telegram(rb: Dict[str, Any], cert: Dict[str, Any] = None) -> bool:
-    rollback_id = str(rb.get("rollback_id") or "")
+def publish_rollback_to_telegram(rb: dict[str, Any], cert: dict[str, Any] = None) -> bool:
+    rollback_id = (rb.get("rollback_id") or "")
     if not rollback_id:
         return False
 
@@ -79,7 +81,7 @@ def publish_rollback_to_telegram(rb: Dict[str, Any], cert: Dict[str, Any] = None
 
     try:
         _redis().xadd(
-            "notify:telegram",
+            RS.NOTIFY_TELEGRAM,
             payload,
             maxlen=int(os.getenv("ATR_POLICY_TELEGRAM_NOTIFY_MAXLEN", "10000")),
             approximate=True,
@@ -102,7 +104,7 @@ def publish_ack(rollback_id: str, action: str, actor: str, note: str = "") -> bo
     if chat_id:
         payload["chat_id"] = chat_id
     try:
-        _redis().xadd("notify:telegram", payload, maxlen=5000, approximate=True)
+        _redis().xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=5000, approximate=True)
         return True
     except Exception:
         return False

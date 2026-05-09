@@ -1,9 +1,9 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
-import time
-from typing import Any, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:

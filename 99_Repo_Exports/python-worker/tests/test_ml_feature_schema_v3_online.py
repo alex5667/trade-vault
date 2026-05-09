@@ -7,7 +7,6 @@ Verifies:
   - vectorize_row() as thin wrapper
   - No-crash on missing/None values
 """
-import pytest
 from core.ml_feature_schema_v3_online import MLFeatureSchemaV3Online
 
 SCHEMA_HASH = "78e60fa067e1"

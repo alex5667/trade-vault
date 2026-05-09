@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -13,6 +13,7 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+import contextlib
 
 IN_STREAM = os.getenv("ML_OPERATOR_RCA_ROUTING_VERIFY_STREAM", "stream:ml:operator_rca_routing_verify_results")
 OUT_STREAM = os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_REQUESTS_STREAM", "stream:ml:operator_rca_routing_retry_requests")
@@ -41,8 +42,8 @@ NON_RETRYABLE = {
 }
 
 
-def _to_str_dict(raw: Dict[Any, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _to_str_dict(raw: dict[Any, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for k, v in raw.items():
         out[k.decode() if isinstance(k, bytes) else str(k)] = v.decode() if isinstance(v, bytes) else str(v)
     return out
@@ -61,25 +62,25 @@ class VerifyEvent:
     ts_ms: int
 
 
-def _parse(raw: Dict[str, str]) -> Optional[VerifyEvent]:
+def _parse(raw: dict[str, str]) -> VerifyEvent | None:
     try:
         return VerifyEvent(
-            recommendation_id=str(raw.get("recommendation_id", "")),
-            route_change_id=str(raw.get("route_change_id", "")),
-            verify_status=str(raw.get("verify_status", "")),
-            reason_code=str(raw.get("reason_code", "")),
+            recommendation_id=(raw.get("recommendation_id", "")),
+            route_change_id=(raw.get("route_change_id", "")),
+            verify_status=(raw.get("verify_status", "")),
+            reason_code=(raw.get("reason_code", "")),
             ts_ms=int(raw.get("ts_ms", "0") or 0),
         )
     except Exception:
         return None
 
 
-async def _state_get(cli: "redis.Redis", rid: str) -> Dict[str, str]:
+async def _state_get(cli: redis.Redis, rid: str) -> dict[str, str]:
     raw = await cli.hgetall(f"metrics:ml:operator_rca_routing_retry:{rid}")
     return _to_str_dict(raw)
 
 
-async def _state_set(cli: "redis.Redis", rid: str, mapping: Dict[str, Any]) -> None:
+async def _state_set(cli: redis.Redis, rid: str, mapping: dict[str, Any]) -> None:
     await cli.hset(f"metrics:ml:operator_rca_routing_retry:{rid}", mapping={k: str(v) for k, v in mapping.items()})
 
 
@@ -87,7 +88,7 @@ def _backoff_sec(attempt: int, base: float, max_backoff: float) -> float:
     return min(max_backoff, base * (2 ** max(0, attempt - 1)))
 
 
-async def process_event(cli: "redis.Redis", ev: VerifyEvent, cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+async def process_event(cli: redis.Redis, ev: VerifyEvent, cfg: dict[str, Any]) -> dict[str, Any] | None:
     if ev.verify_status not in ("FAIL", "INCONCLUSIVE", "ROLLBACK_REQUIRED"):
         SUPPRESS.labels(reason="verify_status_not_retryable").inc()
         return None
@@ -140,10 +141,8 @@ async def main() -> None:
         raise RuntimeError("redis.asyncio is required")
     start_http_server(int(os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_METRICS_PORT", "9881")))
     cli = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    try:
+    with contextlib.suppress(Exception):
         await cli.xgroup_create(IN_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
     cfg = {
         "max_attempts": int(os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_MAX_ATTEMPTS", "3")),
         "base_backoff_sec": float(os.getenv("ML_OPERATOR_RCA_ROUTING_RETRY_BASE_BACKOFF_SEC", "60")),

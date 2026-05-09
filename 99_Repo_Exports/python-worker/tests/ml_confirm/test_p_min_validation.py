@@ -1,6 +1,8 @@
 import pytest
 from pydantic import ValidationError
+
 from services.ml_confirm_gate import MLConfirmConfig
+
 
 def test_ml_confirm_config_valid_p_min():
     # p_min=0.55 is within [0.5, 0.95]

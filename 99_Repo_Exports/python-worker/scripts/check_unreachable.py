@@ -4,7 +4,7 @@ import sys
 filename = 'services/crypto_orderflow_service.py'
 
 try:
-    with open(filename, 'r') as f:
+    with open(filename) as f:
         tree = ast.parse(f.read())
 except Exception as e:
     print(f"Error parsing file: {e}")
@@ -13,7 +13,7 @@ except Exception as e:
 class UnreachableCodeFinder(ast.NodeVisitor):
     def visit_FunctionDef(self, node):
         self.check_body(node.body, f"Function: {node.name}")
-    
+
     def visit_AsyncFunctionDef(self, node):
         self.check_body(node.body, f"AsyncFunction: {node.name}")
 
@@ -24,10 +24,10 @@ class UnreachableCodeFinder(ast.NodeVisitor):
                 print(f"Unreachable code found in {context} at line {stmt.lineno}")
                 print(f"  Statement: {ast.dump(stmt)}")
                 return # Stop reporting for this block
-            
+
             if isinstance(stmt, ast.Return):
                 has_returned = True
-            
+
             # Recurse into blocks (if, for, while, etc.)
             if isinstance(stmt, ast.If):
                 self.check_body(stmt.body, f"{context} -> If body")

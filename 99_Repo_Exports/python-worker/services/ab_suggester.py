@@ -1,14 +1,16 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 # Try import TelegramClient, safe fallback
 try:
@@ -44,7 +46,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _json_load(s: str) -> Dict[str, Any]:
+def _json_load(s: str) -> dict[str, Any]:
     try:
         d = json.loads(s)
         return d if isinstance(d, dict) else {}
@@ -73,7 +75,7 @@ class ABSuggester:
 
     def __init__(self, r: aioredis.Redis) -> None:
         self.r = r
-        self.stream = os.getenv("AB_EVENTS_STREAM", "events:trades")
+        self.stream = os.getenv("AB_EVENTS_STREAM", RS.EVENTS_TRADES)
         self.group = os.getenv("AB_EVENTS_GROUP", "ab_suggester")
         self.consumer = os.getenv("AB_EVENTS_CONSUMER", f"ab_suggester:{os.getpid()}")
         self.out_stream = os.getenv("AB_SUGGEST_STREAM", "stream:ab:suggestions")
@@ -83,11 +85,11 @@ class ABSuggester:
         self.sleep_no_msgs = float(os.getenv("AB_IDLE_SLEEP_SEC", "0.25"))
 
         # in-memory: regime -> arm -> stats
-        self.stats: Dict[str, Dict[str, ArmStats]] = {}
+        self.stats: dict[str, dict[str, ArmStats]] = {}
         self.last_ts_ms: int = 0
-        
+
         # Telegram Setup
-        self.tg: Optional[Any] = None
+        self.tg: Any | None = None
         if TelegramClient:
             # Try standard env vars first
             self.tg = TelegramClient.from_env()
@@ -114,7 +116,7 @@ class ABSuggester:
         self.stats[reg].setdefault(a, ArmStats())
         return self.stats[reg][a]
 
-    def _pick_winner(self, regime: str) -> Optional[str]:
+    def _pick_winner(self, regime: str) -> str | None:
         reg = (regime or "na").lower()
         arms = self.stats.get(reg) or {}
         # winner by mean pnl, tie-break by winrate then n
@@ -138,7 +140,7 @@ class ABSuggester:
         }
         key = f"{self.key_prefix}{reg}"
         ts_ms = _now_ms()
-        try:
+        with contextlib.suppress(Exception):
             await self.r.hset(
                 key,
                 mapping={
@@ -147,8 +149,6 @@ class ABSuggester:
                     "stats": json.dumps(stats_json, ensure_ascii=False, separators=(",", ":")),
                 }
             )
-        except Exception:
-            pass
         # stream suggestion
         payload = {
             "ts_ms": ts_ms,
@@ -158,16 +158,14 @@ class ABSuggester:
             "window_ms": self.window_ms,
             "min_n": self.min_n,
         }
-        try:
+        with contextlib.suppress(Exception):
             await self.r.xadd(
                 self.out_stream,
                 fields={"payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
                 maxlen=20000,
                 approximate=True,
             )
-        except Exception:
-            pass
-            
+
         # Notify Telegram
         if self.tg:
             # Prepare message
@@ -175,7 +173,7 @@ class ABSuggester:
             for arm, st in sorted(arms.items()):
                 marker = "✅" if arm == winner else "  "
                 msg += f"{marker} <b>{arm}</b>: n={st.n} μ={st.mean:.2f} WR={int(st.winrate*100)}%\n"
-            
+
             # Send (non-blocking via executor)
             try:
                 loop = asyncio.get_running_loop()
@@ -207,16 +205,16 @@ class ABSuggester:
                 for msg_id, fields in entries:
                     try:
                         # support both direct fields and nested JSON payload
-                        d: Dict[str, Any] = {}
+                        d: dict[str, Any] = {}
                         if "payload" in fields:
                             d = _json_load(fields.get("payload") or "")
                         else:
                             d = dict(fields)
-                        if str(d.get("type") or "") != "position_closed":
+                        if (d.get("type") or "") != "position_closed":
                             continue
                         pnl = float(d.get("pnl") or 0.0)
                         arm = str(d.get("ab_arm") or d.get("arm") or "A").upper()
-                        regime = str(d.get("regime") or "na").lower()
+                        regime = (d.get("regime") or "na").lower()
                         ts_ms = int(d.get("ts_ms") or d.get("close_ts") or now_ms)
 
                         # windowed acceptance (drop too old)
@@ -225,10 +223,8 @@ class ABSuggester:
 
                         self._stats_for(regime, arm).add(pnl)
                     finally:
-                        try:
+                        with contextlib.suppress(Exception):
                             await self.r.xack(self.stream, self.group, msg_id)
-                        except Exception:
-                            pass
 
             # periodically suggest winners (simple throttle)
             if self.last_ts_ms == 0 or (now_ms - self.last_ts_ms) >= int(os.getenv("AB_SUGGEST_EVERY_MS", "300000")):
@@ -246,10 +242,8 @@ async def _main() -> None:
         s = ABSuggester(r)
         await s.run_forever()
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await r.aclose()
-        except Exception:
-            pass
 
 
 if __name__ == "__main__":

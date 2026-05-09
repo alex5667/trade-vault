@@ -1,7 +1,7 @@
-import math
 import pytest
 
-from common.math_safe import safe_float, clamp01, safe_div, safe_bps_dist
+from common.math_safe import clamp01, safe_bps_dist, safe_div, safe_float
+
 
 def test_safe_float_filters_nan_inf():
     assert safe_float(float("nan")) is None

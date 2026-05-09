@@ -1,11 +1,10 @@
 from __future__ import annotations
+
 """Tests for latency_contract_slo_gate_v1.evaluate_once()."""
 
-import sys
-import os
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from orderflow_services.latency_contract_slo_gate_v1 import evaluate_once, Cfg
+from orderflow_services.latency_contract_slo_gate_v1 import Cfg, evaluate_once
 
 
 class FakeRedis:

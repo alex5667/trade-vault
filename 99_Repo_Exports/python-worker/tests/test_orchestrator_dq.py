@@ -1,6 +1,7 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
 from handlers.crypto_orderflow.pipeline.orchestrator import _emit_dq_flag
+
 
 class DummyCtx:
     def __init__(self):

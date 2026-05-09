@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 BurstFlusher — фоновый flush-loop и per-symbol burst processing.
 
@@ -15,17 +16,21 @@ import logging
 import os
 import random
 import time
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 from handlers.crypto_orderflow.utils.log_sampler import LogSamplerFactory
 from services.observability import metrics_registry  # noqa: F401 (side-effect import для init)
 from services.orderflow.metrics import (
-    burst_active_gauge, burst_flush_total,
-    signals_emitted_total, signals_published_total,
+    burst_active_gauge,
+    burst_flush_total,
+    signals_emitted_total,
+    signals_published_total,
 )
 from services.signal_preprocess import preprocess_signal_for_publish
 from utils.task_manager import safe_create_task
 from utils.time_utils import get_ny_time_millis
+import contextlib
 
 logger = logging.getLogger("burst_flusher")
 
@@ -43,8 +48,8 @@ class BurstFlusher:
     def __init__(
         self,
         *,
-        symbol_contexts_fn: Callable[[], Dict[str, Any]],
-        strategy_fn: Callable[[], Optional[Any]],
+        symbol_contexts_fn: Callable[[], dict[str, Any]],
+        strategy_fn: Callable[[], Any | None],
         gate: Any,                    # SignalGate
         is_shutdown_fn: Callable[[], bool],
     ) -> None:
@@ -52,7 +57,7 @@ class BurstFlusher:
         self._strategy = strategy_fn
         self._gate = gate
         self._shutdown = is_shutdown_fn
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
 
     def start(self) -> None:
         self._task = safe_create_task(self._loop(), name="burst-flusher")
@@ -66,7 +71,7 @@ class BurstFlusher:
     # ── Loop ─────────────────────────────────────────────────────────────────
 
     async def _loop(self) -> None:
-        mode = str(os.getenv("BURST_FLUSH_MODE", "wall")).lower()
+        mode = os.getenv("BURST_FLUSH_MODE", "wall").lower()
         if mode == "off":
             logger.info("ℹ️ Burst wall-flush loop is OFF")
             return
@@ -126,7 +131,7 @@ class BurstFlusher:
         trigger_source: str,
         ts_ms: int,
         do_publish: bool = True,
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         """Единая точка burst-проверки.
 
         Args:
@@ -147,10 +152,8 @@ class BurstFlusher:
             return None
 
         runtime.last_signal_ts = int(ts_ms)
-        try:
+        with contextlib.suppress(Exception):
             runtime.pressure.record_emit(int(ts_ms))
-        except Exception:
-            pass
 
         if burst_flush_total:
             burst_flush_total.labels(symbol=runtime.symbol, mode=trigger_source).inc()
@@ -166,7 +169,7 @@ class BurstFlusher:
             )
 
         if do_publish:
-            try:
+            with contextlib.suppress(Exception):
                 preprocess_signal_for_publish(
                     out,
                     symbol=runtime.symbol,
@@ -174,8 +177,6 @@ class BurstFlusher:
                     logger=logger,
                     fast_path=False,
                 )
-            except Exception:
-                pass
 
             strat = self._strategy()
             if strat and await self._gate.allows(runtime, out):

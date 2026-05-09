@@ -7,10 +7,10 @@ Scenarios:
   RW-4: dry_run=True → guard NOT deleted, record updated
   RW-5: run_once() processes all guard keys in scan
 """
-from pathlib import Path
 import importlib.util
 import json
 import sys
+from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
 if str(root) not in sys.path:
@@ -38,7 +38,7 @@ class FakeRedis:
         self.kv.pop(key, None)
 
     def scan_iter(self, match=None):
-        prefix = str(match or "").rstrip("*")
+        prefix = (match or "").rstrip("*")
         for key in list(self.kv.keys()):
             if key.startswith(prefix):
                 yield key

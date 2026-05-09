@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 """
 Weak Progress configuration for signal scoring.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Literal
+from typing import Literal
 
 PatternFamily = Literal["continuation", "fade", "other"]
 
@@ -36,7 +37,7 @@ class WeakProgressConfig:
 
 
 # Default configurations for different patterns
-PATTERN_WP_CONFIG: Dict[str, WeakProgressConfig] = {
+PATTERN_WP_CONFIG: dict[str, WeakProgressConfig] = {
     # Continuation patterns - need strong progress
     "breakout_R1": WeakProgressConfig(
         family="continuation",

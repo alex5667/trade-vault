@@ -1,5 +1,5 @@
 import types
-import os
+
 
 def test_attach_levels_caches_floor_skip(monkeypatch):
     # module under test

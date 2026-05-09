@@ -1,8 +1,10 @@
 import os
-import pytest
-from hypothesis import given, settings, strategies as st, HealthCheck
+
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from stream_consumer_impl import StreamConsumer
+import contextlib
 
 
 class DummyStats:
@@ -22,10 +24,8 @@ class DummyHandler:
 
 
 def _ensure_group(r, stream: str, group: str) -> None:
-    try:
+    with contextlib.suppress(Exception):
         r.xgroup_create(stream, group, id="0-0", mkstream=True)
-    except Exception:
-        pass
 
 
 def _mk_consumer(r):

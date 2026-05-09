@@ -1,14 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
-import time
-from typing import Any, Optional
+from typing import Any
 
 from core.signal_json_logger import log_signal_one_json
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         v = float(x)
     except Exception:
@@ -44,7 +44,7 @@ def log_signal_one_json_unified(
     veto: bool = False,
     veto_reason_code: str = "",
     veto_reason_u16: int = 0,
-    conf_factor: Optional[float] = None,
+    conf_factor: float | None = None,
     event: str = "emit",  # "emit" | "veto" | "candidate"
 ) -> None:
     """
@@ -74,7 +74,7 @@ def log_signal_one_json_unified(
             "confidence": _safe_float(payload.get("confidence")),  # 0..100
             # veto
             "veto": 1 if bool(veto) else 0,
-            "veto_reason_code": str(veto_reason_code or ""),
+            "veto_reason_code": (veto_reason_code or ""),
             "veto_reason_u16": int(veto_reason_u16 or 0),
             # top features (ctx)
             "spread_bps": _safe_float(getattr(ctx, "spread_bps", None)),
@@ -99,10 +99,8 @@ def log_signal_one_json_unified(
         logger.info(msg)
     except Exception:
         # Fail-open: logging must never break the trading pipeline.
-        try:
+        with contextlib.suppress(Exception):
             logger.exception("log_signal_one_json failed")
-        except Exception:
-            pass
 
 
 def log_signal_one_json(logger, *, payload: dict[str, Any], ctx: Any, parts: dict[str, Any], emitted: bool) -> None:
@@ -186,7 +184,7 @@ def _log_veto_one_json(
             "level_price": getattr(cand, "level_price", None),
             "level_key": getattr(cand, "level_key", None),
             "raw_score": float(getattr(cand, "raw_score", 0.0) or 0.0),
-            "veto_reason_code": str(veto_reason_code or ""),
+            "veto_reason_code": (veto_reason_code or ""),
             "veto_reason_u16": int(veto_reason_u16 or 0),
             # Top-features (best-effort, fail-open)
             "spread_bps": getattr(ctx, "spread_bps", None),

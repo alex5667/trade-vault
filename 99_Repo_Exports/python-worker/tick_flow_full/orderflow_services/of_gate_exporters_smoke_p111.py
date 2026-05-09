@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P111 — OF-Gate exporters smoke-check.
 
 Purpose:
@@ -20,7 +21,6 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import List, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -29,16 +29,16 @@ from urllib.request import Request, urlopen
 class TargetSpec:
     name: str
     endpoint: str  # host:port or full URL
-    must_contain: Optional[str] = None
+    must_contain: str | None = None
 
 
-DEFAULT_TARGETS: List[TargetSpec] = [
+DEFAULT_TARGETS: list[TargetSpec] = [
     TargetSpec("archiver", "of-gate-archiver-exporter:9152", "of_gate_archiver_last_run_ts_ms"),
     TargetSpec("dlq", "of-gate-dlq-exporter:9154", "of_gate_dlq_len"),
 ]
 
 
-def _parse_targets_from_env() -> List[TargetSpec]:
+def _parse_targets_from_env() -> list[TargetSpec]:
     """Allow override via env.
 
     Format:
@@ -51,7 +51,7 @@ def _parse_targets_from_env() -> List[TargetSpec]:
     if not raw:
         return list(DEFAULT_TARGETS)
 
-    out: List[TargetSpec] = []
+    out: list[TargetSpec] = []
     for item in raw.split(","):
         item = item.strip()
         if not item:

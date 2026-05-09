@@ -1,5 +1,4 @@
 import asyncio
-import os
 
 from services.orderflow.microbar_publish import publish_microbar_closed
 

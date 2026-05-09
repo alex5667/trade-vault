@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """P4.8/P4.9: Refresh risk_mismatch_summary_mv materialized view and export JSON report.
@@ -43,7 +44,7 @@ _MAX_RETRIES = 3
 _BACKOFF_SECONDS = (5, 15, 30)
 
 
-def _connect_with_retry(dsn: str, *, max_retries: int = _MAX_RETRIES) -> "psycopg.Connection":
+def _connect_with_retry(dsn: str, *, max_retries: int = _MAX_RETRIES) -> psycopg.Connection:
     """Connect to PostgreSQL with exponential back-off on transient errors."""
     last_exc: Exception | None = None
     for attempt in range(max_retries + 1):
@@ -102,8 +103,8 @@ def render_textfile(report: dict) -> str:
         '# HELP trade_risk_mismatch_summary_quarantine_count Quarantine count aggregated from risk_mismatch_summary_mv.',
         '# TYPE trade_risk_mismatch_summary_quarantine_count gauge']
     for row in rows:
-        window_name = str(row.get('window_name') or '')
-        tier = str(row.get('tier') or 'UNKNOWN')
+        window_name = (row.get('window_name') or '')
+        tier = (row.get('tier') or 'UNKNOWN')
         avg_rate = float(row.get('avg_mismatch_rate') or 0.0)
         quarantine_count = int(row.get('quarantine_count') or 0)
         lines.append(f'trade_risk_mismatch_summary_avg_rate{{window_name="{window_name}",tier="{tier}"}} {avg_rate}')

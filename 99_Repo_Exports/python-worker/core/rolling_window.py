@@ -1,18 +1,20 @@
 from __future__ import annotations
+
 """Deterministic rolling windows by event time (ts_ms)."""
 
-from dataclasses import dataclass
 from collections import deque
-from typing import Deque, Generic, Iterable, Iterator, Optional, Tuple, TypeVar
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+from typing import TypeVar
 
 T = TypeVar("T")
 
 
 @dataclass
-class RollingWindow(Generic[T]):
+class RollingWindow[T]:
     horizon_ms: int
     maxlen: int = 512
-    _dq: Deque[Tuple[int, T]] = None  # type: ignore
+    _dq: deque[tuple[int, T]] = None  # type: ignore
     last_ts_ms: int = 0
     bad_time_total: int = 0
 
@@ -61,16 +63,16 @@ class RollingWindow(Generic[T]):
     def __len__(self) -> int:
         return len(self._dq)
 
-    def items(self) -> Iterable[Tuple[int, T]]:
+    def items(self) -> Iterable[tuple[int, T]]:
         return list(self._dq)
 
-    def first(self) -> Optional[Tuple[int, T]]:
+    def first(self) -> tuple[int, T] | None:
         return self._dq[0] if self._dq else None
 
-    def last(self) -> Optional[Tuple[int, T]]:
+    def last(self) -> tuple[int, T] | None:
         return self._dq[-1] if self._dq else None
 
-    def __iter__(self) -> Iterator[Tuple[int, T]]:
+    def __iter__(self) -> Iterator[tuple[int, T]]:
         return iter(self._dq)
 
 
@@ -78,7 +80,7 @@ class RollingWindow(Generic[T]):
 class WeightedRollingWindow:
     horizon_ms: int
     maxlen: int = 512
-    _dq: Deque[Tuple[int, float, float]] = None  # type: ignore
+    _dq: deque[tuple[int, float, float]] = None  # type: ignore
     last_ts_ms: int = 0
     bad_time_total: int = 0
 
@@ -127,8 +129,8 @@ class WeightedRollingWindow:
     def __len__(self) -> int:
         return len(self._dq)
 
-    def items(self) -> Iterable[Tuple[int, float, float]]:
+    def items(self) -> Iterable[tuple[int, float, float]]:
         return list(self._dq)
 
-    def __iter__(self) -> Iterator[Tuple[int, float, float]]:
+    def __iter__(self) -> Iterator[tuple[int, float, float]]:
         return iter(self._dq)

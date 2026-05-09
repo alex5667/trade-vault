@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Manual/admin control plane for Binance dust cleanup sweep.
@@ -20,8 +21,8 @@ All controls write to the same Redis keys already consumed by
 import json
 import os
 import sys
-import time
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -56,7 +57,7 @@ def _now_ms() -> int:
 
 
 def _normalize_symbol(symbol: str) -> str:
-    target = str(symbol or '').upper().strip()
+    target = (symbol or '').upper().strip()
     if not target:
         raise ValueError('symbol_required')
     return target
@@ -70,7 +71,7 @@ class BinanceDustCleanupAdmin:
             self.r = redis.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379/0'), decode_responses=True)
         else:
             self.r = None
-        self.static_denylist = {s.strip().upper() for s in str(os.getenv('BINANCE_DUST_SWEEP_DENYLIST', '')).split(',') if s.strip()}
+        self.static_denylist = {s.strip().upper() for s in os.getenv('BINANCE_DUST_SWEEP_DENYLIST', '').split(',') if s.strip()}
         self.dynamic_denylist_set_key = os.getenv('BINANCE_DUST_SWEEP_DENYLIST_SET_KEY', 'orders:dust_cleanup:denylist')
         self.dynamic_denylist_prefix = os.getenv('BINANCE_DUST_SWEEP_DENYLIST_PREFIX', 'orders:dust_cleanup:denylist:')
         self.cooldown_prefix = os.getenv('BINANCE_DUST_SWEEP_COOLDOWN_PREFIX', 'orders:dust_cleanup:cooldown:')
@@ -80,34 +81,30 @@ class BinanceDustCleanupAdmin:
     def _metric_action(self, action: str, result: str) -> None:
         if EXECUTION_DUST_ADMIN_ACTION_TOTAL is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             EXECUTION_DUST_ADMIN_ACTION_TOTAL.labels(action=str(action), result=str(result)).inc()
-        except Exception:
-            pass
 
     def _metric_state(self, kind: str, value: int) -> None:
         if EXECUTION_DUST_ADMIN_STATE_TOTAL is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             EXECUTION_DUST_ADMIN_STATE_TOTAL.labels(kind=str(kind)).set(float(max(0, int(value))))
-        except Exception:
-            pass
 
-    def _audit(self, *, action: str, symbol: str, operator: str, reason: str, ticket: str, result: str, payload: Optional[Dict[str, Any]] = None) -> None:
+    def _audit(self, *, action: str, symbol: str, operator: str, reason: str, ticket: str, result: str, payload: dict[str, Any] | None = None) -> None:
         if self.r is None:
             return
         fields = {
             'ts_ms': str(_now_ms()),
             'action': str(action),
-            'symbol': str(symbol),
-            'operator': str(operator or ''),
-            'reason': str(reason or ''),
-            'ticket': str(ticket or ''),
+            'symbol': symbol,
+            'operator': (operator or ''),
+            'reason': (reason or ''),
+            'ticket': (ticket or ''),
             'result': str(result),
             'payload_json': json.dumps(dict(payload or {}), ensure_ascii=False, separators=(',', ':')),
         }
         try:
-            kwargs: Dict[str, Any] = {}
+            kwargs: dict[str, Any] = {}
             if self.audit_stream_maxlen:
                 kwargs = {'maxlen': self.audit_stream_maxlen, 'approximate': True}
             self.r.xadd(self.audit_stream, fields, **kwargs, maxlen=50000)
@@ -120,7 +117,7 @@ class BinanceDustCleanupAdmin:
     def _cooldown_key(self, symbol: str) -> str:
         return f"{self.cooldown_prefix}{_normalize_symbol(symbol)}"
 
-    def _scan_keys(self, prefix: str) -> List[str]:
+    def _scan_keys(self, prefix: str) -> list[str]:
         if self.r is None:
             return []
         patt = f"{prefix}*"
@@ -136,7 +133,7 @@ class BinanceDustCleanupAdmin:
             pass
         return []
 
-    def _smembers(self, key: str) -> Set[str]:
+    def _smembers(self, key: str) -> set[str]:
         if self.r is None:
             return set()
         try:
@@ -156,7 +153,7 @@ class BinanceDustCleanupAdmin:
             pass
         return -2
 
-    def _get(self, key: str) -> Optional[str]:
+    def _get(self, key: str) -> str | None:
         if self.r is None:
             return None
         try:
@@ -167,12 +164,10 @@ class BinanceDustCleanupAdmin:
     def _delete(self, key: str) -> None:
         if self.r is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             self.r.delete(key)
-        except Exception:
-            pass
 
-    def _parse_json_doc(self, raw: Optional[str]) -> Dict[str, Any]:
+    def _parse_json_doc(self, raw: str | None) -> dict[str, Any]:
         if raw in (None, ''):
             return {}
         try:
@@ -180,7 +175,7 @@ class BinanceDustCleanupAdmin:
         except Exception:
             return {'raw': raw}
 
-    def _cooldown_doc(self, symbol: str) -> Dict[str, Any]:
+    def _cooldown_doc(self, symbol: str) -> dict[str, Any]:
         target = _normalize_symbol(symbol)
         key = self._cooldown_key(target)
         raw = self._get(key)
@@ -192,13 +187,13 @@ class BinanceDustCleanupAdmin:
             'symbol': target,
             'key': key,
             'exists': raw not in (None, ''),
-            'reason': str(doc.get('reason') or ''),
+            'reason': (doc.get('reason') or ''),
             'until_ms': until_ms,
             'remaining_sec': int((remaining_ms + 999) // 1000) if remaining_ms > 0 else 0,
             'payload': doc,
         }
 
-    def _dynamic_denylist_doc(self, symbol: str) -> Dict[str, Any]:
+    def _dynamic_denylist_doc(self, symbol: str) -> dict[str, Any]:
         target = _normalize_symbol(symbol)
         key = self._dynamic_denylist_key(target)
         raw = self._get(key)
@@ -212,16 +207,16 @@ class BinanceDustCleanupAdmin:
             'payload': doc,
         }
 
-    def add_denylist_symbol(self, symbol: str, *, operator: str, reason: str, ticket: str, ttl_sec: Optional[int] = None) -> Dict[str, Any]:
+    def add_denylist_symbol(self, symbol: str, *, operator: str, reason: str, ticket: str, ttl_sec: int | None = None) -> dict[str, Any]:
         if self.r is None:
             raise RuntimeError('redis_unavailable')
         target = _normalize_symbol(symbol)
         ttl = int(ttl_sec or 0)
         payload = {
             'symbol': target,
-            'operator': str(operator or ''),
-            'reason': str(reason or ''),
-            'ticket': str(ticket or ''),
+            'operator': (operator or ''),
+            'reason': (reason or ''),
+            'ticket': (ticket or ''),
             'ts_ms': _now_ms(),
             'ttl_sec': ttl,
         }
@@ -243,7 +238,7 @@ class BinanceDustCleanupAdmin:
             self._audit(action='add_denylist', symbol=target, operator=operator, reason=reason, ticket=ticket, result='error', payload={'error': str(exc)})
             raise
 
-    def remove_denylist_symbol(self, symbol: str, *, operator: str, reason: str, ticket: str) -> Dict[str, Any]:
+    def remove_denylist_symbol(self, symbol: str, *, operator: str, reason: str, ticket: str) -> dict[str, Any]:
         if self.r is None:
             raise RuntimeError('redis_unavailable')
         target = _normalize_symbol(symbol)
@@ -260,7 +255,7 @@ class BinanceDustCleanupAdmin:
             self._audit(action='remove_denylist', symbol=target, operator=operator, reason=reason, ticket=ticket, result='error', payload={'error': str(exc)})
             raise
 
-    def clear_cooldown(self, symbol: str, *, operator: str, reason: str, ticket: str) -> Dict[str, Any]:
+    def clear_cooldown(self, symbol: str, *, operator: str, reason: str, ticket: str) -> dict[str, Any]:
         if self.r is None:
             raise RuntimeError('redis_unavailable')
         target = _normalize_symbol(symbol)
@@ -277,7 +272,7 @@ class BinanceDustCleanupAdmin:
             self._audit(action='clear_cooldown', symbol=target, operator=operator, reason=reason, ticket=ticket, result='error', payload={'error': str(exc)})
             raise
 
-    def symbol_state(self, symbol: str) -> Dict[str, Any]:
+    def symbol_state(self, symbol: str) -> dict[str, Any]:
         target = _normalize_symbol(symbol)
         dyn_set = target in self._smembers(self.dynamic_denylist_set_key)
         dyn_doc = self._dynamic_denylist_doc(target)
@@ -292,7 +287,7 @@ class BinanceDustCleanupAdmin:
         }
         return out
 
-    def current_state(self) -> Dict[str, Any]:
+    def current_state(self) -> dict[str, Any]:
         dynamic_set = sorted(self._smembers(self.dynamic_denylist_set_key))
         dynamic_docs = [self._dynamic_denylist_doc(k.replace(self.dynamic_denylist_prefix, '', 1)) for k in self._scan_keys(self.dynamic_denylist_prefix)]
         cooldown_docs = [self._cooldown_doc(k.replace(self.cooldown_prefix, '', 1)) for k in self._scan_keys(self.cooldown_prefix)]
@@ -309,17 +304,17 @@ class BinanceDustCleanupAdmin:
         self._metric_state('cooldowns', len(cooldown_docs))
         return out
 
-    def recent_audit(self, *, symbol: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    def recent_audit(self, *, symbol: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         if self.r is None or limit <= 0:
             return []
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         try:
             if hasattr(self.r, 'xrevrange'):
                 raw = self.r.xrevrange(self.audit_stream, count=int(limit))
                 for item_id, fields in raw:
                     doc = {'id': str(item_id)}
                     doc.update({str(k): v for k, v in dict(fields).items()})
-                    if symbol and str(doc.get('symbol') or '').upper() != str(symbol).upper():
+                    if symbol and (doc.get('symbol') or '').upper() != symbol.upper():
                         continue
                     rows.append(doc)
         except Exception:

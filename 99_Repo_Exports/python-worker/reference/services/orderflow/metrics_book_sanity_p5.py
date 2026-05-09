@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Prometheus metrics for P5 book sanity.
 
 Cardinality policy:
@@ -8,10 +9,11 @@ Cardinality policy:
 
 
 import logging
-from typing import Sequence, Type, TypeVar
+from collections.abc import Sequence
+from typing import TypeVar
 
 try:
-    from prometheus_client import Counter, Gauge, Histogram, REGISTRY  # type: ignore
+    from prometheus_client import REGISTRY, Counter, Gauge, Histogram  # type: ignore
     from prometheus_client.registry import Collector  # type: ignore
 except Exception:  # pragma: no cover
     Counter = Gauge = Histogram = object  # type: ignore
@@ -25,7 +27,7 @@ TCollector = TypeVar("TCollector", bound="Collector")
 
 def _get_or_create(
     name: str,
-    ctor: Type[TCollector],
+    ctor: type[TCollector],
     documentation: str,
     labelnames: Sequence[str] = (),
     **kwargs,

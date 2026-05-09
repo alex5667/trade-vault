@@ -17,16 +17,16 @@ A separate BookSanityGate decides whether to veto.
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         v = float(x)
     except Exception:
-        return float(d)
+        return d
     if not math.isfinite(v):
-        return float(d)
+        return d
     return float(v)
 
 
@@ -41,7 +41,7 @@ def _finite(x: Any) -> bool:
 @dataclass
 class BookSanityResult:
     ok: bool
-    flags: List[str]
+    flags: list[str]
     best_bid: float = 0.0
     best_ask: float = 0.0
     mid: float = 0.0
@@ -63,7 +63,7 @@ def check_book_sanity(*, book: Any) -> BookSanityResult:
 
     Accepts either a typed BookSnapshot (preferred) or a dict-like raw book.
     """
-    flags: List[str] = []
+    flags: list[str] = []
     bb = 0.0
     ba = 0.0
 
@@ -124,7 +124,7 @@ def check_book_sanity(*, book: Any) -> BookSanityResult:
     return BookSanityResult(ok=ok, flags=flags, best_bid=float(bb), best_ask=float(ba), mid=float(mid))
 
 
-def trade_outside_bbo(*, trade_px: float, best_bid: float, best_ask: float, eps_bps: float = 1.0) -> Tuple[bool, float]:
+def trade_outside_bbo(*, trade_px: float, best_bid: float, best_ask: float, eps_bps: float = 1.0) -> tuple[bool, float]:
     """Detect stale-book symptom: trade price outside current BBO.
 
     eps_bps provides tolerance for small timing jitter.

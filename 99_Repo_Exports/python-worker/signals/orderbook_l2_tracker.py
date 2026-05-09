@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Order Book L2 Tracker - отслеживание изменений глубины рынка.
 
@@ -41,9 +41,8 @@ Order Book L2 Tracker - отслеживание изменений глубин
 """
 
 from dataclasses import dataclass
-from typing import Optional, List
 
-from signals.orderbook_l2_metrics import L2Metrics, compute_l2_metrics, EPS
+from signals.orderbook_l2_metrics import EPS, L2Metrics, compute_l2_metrics
 
 # ✅ GPU Support: lazy initialization
 _gpu_service_cache = None
@@ -143,10 +142,10 @@ class L2BookTracker:
         self.wall_mult = float(wall_mult)
         self.wall_max_dist_bps = float(wall_max_dist_bps)
 
-        self.prev: Optional[L2Metrics] = None
-        self.last: Optional[L2Snapshot] = None
+        self.prev: L2Metrics | None = None
+        self.last: L2Snapshot | None = None
 
-    def feed(self, book: dict) -> Optional[L2Snapshot]:
+    def feed(self, book: dict) -> L2Snapshot | None:
         """
         Обрабатывает новый снимок Order Book.
         
@@ -189,8 +188,8 @@ class L2BookTracker:
         self.prev = m
         self.last = snap
         return snap
-    
-    def feed_batch(self, books: List[dict]) -> List[Optional[L2Snapshot]]:
+
+    def feed_batch(self, books: list[dict]) -> list[L2Snapshot | None]:
         """
         Батч обработка множества книг с GPU ускорением.
         
@@ -204,15 +203,15 @@ class L2BookTracker:
         """
         if not books:
             return []
-        
+
         # ✅ GPU Support: используем GPU батч если доступен и книг достаточно
         gpu_service = _get_gpu_service()
         use_gpu_batch = (
-            gpu_service and 
-            gpu_service.is_gpu_available() and 
+            gpu_service and
+            gpu_service.is_gpu_available() and
             len(books) >= 5  # Используем GPU для батчей из 5+ книг
         )
-        
+
         if use_gpu_batch:
             try:
                 # Подготавливаем книги с mid price
@@ -232,7 +231,7 @@ class L2BookTracker:
                             books_with_mid.append(book_with_mid)
                     except Exception:
                         continue
-                
+
                 if books_with_mid:
                     # Вызываем GPU батч метод
                     gpu_results = gpu_service.compute_l2_metrics_batch(
@@ -242,14 +241,14 @@ class L2BookTracker:
                         wall_mult=self.wall_mult,
                         wall_max_dist_bps=self.wall_max_dist_bps,
                     )
-                    
+
                     # Конвертируем результаты в L2Snapshot
                     snapshots = []
                     for i, gpu_result in enumerate(gpu_results):
                         if gpu_result is None:
                             snapshots.append(None)
                             continue
-                        
+
                         # Создаем L2Metrics из результата GPU
                         m = L2Metrics(
                             ts=gpu_result["ts"],
@@ -276,7 +275,7 @@ class L2BookTracker:
                             bid_top5=gpu_result["depth_bid_5"],
                             ask_top5=gpu_result["depth_ask_5"],
                         )
-                        
+
                         # Вычисляем изменения
                         ch = L2Change()
                         if self.prev is not None:
@@ -284,20 +283,20 @@ class L2BookTracker:
                             ch.ask_top3_ratio = (m.ask_top3 - self.prev.ask_top3) / max(self.prev.ask_top3, EPS)
                             ch.bid_top5_ratio = (m.bid_top5 - self.prev.bid_top5) / max(self.prev.bid_top5, EPS)
                             ch.ask_top5_ratio = (m.ask_top5 - self.prev.ask_top5) / max(self.prev.ask_top5, EPS)
-                        
+
                         snap = L2Snapshot(m=m, ch=ch)
                         self.prev = m  # Обновляем prev для следующей итерации
                         snapshots.append(snap)
-                    
+
                     return snapshots
             except Exception:
                 # Fallback на CPU если GPU батч не удался
                 pass
-        
+
         # CPU fallback: обрабатываем по одной книге
         return [self.feed(book) for book in books]
 
-    def get_last(self) -> Optional[L2Snapshot]:
+    def get_last(self) -> L2Snapshot | None:
         """
         Возвращает последний снимок без обработки нового book.
         

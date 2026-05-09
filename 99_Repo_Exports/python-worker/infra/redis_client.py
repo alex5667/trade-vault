@@ -1,18 +1,18 @@
-# -*- coding: utf-8 -*-
 """
 Синхронный Redis-клиент с автоподключением.
 """
 
-import redis
-from typing import Optional
 from functools import lru_cache
+
+import redis
 
 
 def _wait_for_redis_ready(url: str) -> redis.Redis:
     """Wait for Redis to be ready, handling BusyLoadingError"""
-    import redis
-    import time
     import logging
+    import time
+
+    import redis
 
     max_retries = 60  # 10 минут при 10сек задержке
     retry_count = 0
@@ -51,7 +51,7 @@ def get_redis(url: str) -> redis.Redis:
     return _wait_for_redis_ready(url)
 
 
-def try_get_json(r: redis.Redis, key: str) -> Optional[dict]:
+def try_get_json(r: redis.Redis, key: str) -> dict | None:
     import json
     v = r.get(key)
     if not v:

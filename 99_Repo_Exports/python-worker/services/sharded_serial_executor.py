@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import time
 import queue
 import threading
+import time
 import zlib
-from dataclasses import dataclass
-from typing import Callable, Any, Dict
+from collections.abc import Callable
 from concurrent.futures import Future
+from dataclasses import dataclass
+from typing import Any
+import contextlib
 
 
 def _crc32(s: str) -> int:
@@ -80,10 +82,8 @@ class ShardedSerialExecutor:
             except Exception:
                 pass
         for t in self._threads:
-            try:
+            with contextlib.suppress(Exception):
                 t.join(timeout=join_timeout_s)
-            except Exception:
-                pass
 
     def _pick_shard(self, key: str) -> int:
         return _crc32(key) % self.shards
@@ -93,7 +93,7 @@ class ShardedSerialExecutor:
         Submit task to a shard determined by key. Returns Future.
         If queue is full and cannot enqueue within submit_timeout_s -> Future set to exception.
         """
-        k = str(key or "unknown")
+        k = (key or "unknown")
         fut: Future = Future()
         task = _Task(
             key=k,
@@ -146,10 +146,8 @@ class ShardedSerialExecutor:
                         self.logger.warning("⚠️ executor task failed shard=%s key=%s name=%s: %s", shard_id, task.key, task.name, error_msg)
                     except Exception:
                         # Fallback: log without exception details
-                        try:
+                        with contextlib.suppress(Exception):
                             self.logger.warning("⚠️ executor task failed shard=%s key=%s name=%s (error formatting failed)", shard_id, task.key, task.name)
-                        except Exception:
-                            pass
             finally:
                 q.task_done()
 
@@ -159,7 +157,7 @@ class ShardedSerialExecutor:
             return 0
         return int(self._qs[shard_id].qsize())
 
-    def snapshot_stats(self) -> Dict[str, int]:
+    def snapshot_stats(self) -> dict[str, int]:
         with self._stats_lock:
             return {
                 "submitted": int(self.stats.submitted),

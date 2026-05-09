@@ -1,14 +1,14 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
-import os
 import queue
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     import psycopg2
@@ -40,18 +40,18 @@ class NewsPostgresWriterAsync:
 
     def __init__(self, cfg: PgConfig) -> None:
         self.cfg = cfg
-        self.q: "queue.Queue[Tuple[str, Dict[str, Any]]]" = queue.Queue(maxsize=cfg.max_queue)
+        self.q: queue.Queue[tuple[str, dict[str, Any]]] = queue.Queue(maxsize=cfg.max_queue)
         self._stop = threading.Event()
         self._thr = threading.Thread(target=self._run, name="news-pg-writer", daemon=True)
         self._thr.start()
 
-    def enqueue_analysis(self, row: Dict[str, Any]) -> None:
+    def enqueue_analysis(self, row: dict[str, Any]) -> None:
         self._enqueue("analysis", row)
 
-    def enqueue_features(self, row: Dict[str, Any]) -> None:
+    def enqueue_features(self, row: dict[str, Any]) -> None:
         self._enqueue("features", row)
 
-    def _enqueue(self, kind: str, row: Dict[str, Any]) -> None:
+    def _enqueue(self, kind: str, row: dict[str, Any]) -> None:
         if not self.cfg.enabled or not self.cfg.dsn or psycopg2 is None:
             return
         try:
@@ -62,18 +62,16 @@ class NewsPostgresWriterAsync:
 
     def close(self) -> None:
         self._stop.set()
-        try:
+        with contextlib.suppress(Exception):
             self._thr.join(timeout=2.0)
-        except Exception:
-            pass
 
     def _run(self) -> None:
         if psycopg2 is None:
             return
 
-        conn: Optional[Any] = None
-        cur: Optional[Any] = None
-        batch: list[Tuple[str, Dict[str, Any]]] = []
+        conn: Any | None = None
+        cur: Any | None = None
+        batch: list[tuple[str, dict[str, Any]]] = []
         last_flush = time.time()
 
         def ensure_conn() -> bool:
@@ -109,10 +107,8 @@ class NewsPostgresWriterAsync:
 
         # финальный flush
         if batch and ensure_conn() and cur is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._flush(cur, batch)
-            except Exception:
-                pass
 
         try:
             if cur is not None:
@@ -122,7 +118,7 @@ class NewsPostgresWriterAsync:
         except Exception:
             pass
 
-    def _flush(self, cur: Any, batch: list[Tuple[str, Dict[str, Any]]]) -> None:
+    def _flush(self, cur: Any, batch: list[tuple[str, dict[str, Any]]]) -> None:
         analysis_rows = [r for (k, r) in batch if k == "analysis"]
         feature_rows = [r for (k, r) in batch if k == "features"]
 

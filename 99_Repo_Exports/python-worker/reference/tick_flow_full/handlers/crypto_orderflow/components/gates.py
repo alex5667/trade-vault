@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Optional, Tuple
+from typing import Any
 
-from common.dq_flags import append_dq_flag
 from common.ctx_cache import cached_on_ctx
-from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
+from common.dq_flags import append_dq_flag
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
-from signals.ev_gate import evaluate_ev_gate, estimate_costs_bps
+from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
+
 
 class CryptoSignalGates:
     """
@@ -20,8 +20,8 @@ class CryptoSignalGates:
 
     def __init__(
         self,
-        entry_policy: Optional[EntryPolicyGate],
-        cost_gate: Optional[EdgeCostGate],
+        entry_policy: EntryPolicyGate | None,
+        cost_gate: EdgeCostGate | None,
         consistency_gate: Any = None,
         regime_liquidity_gate: Any = None,
         smt_gate: Any = None,
@@ -39,7 +39,7 @@ class CryptoSignalGates:
         """
         if self._regime_liquidity_gate is None:
              return type("QA", (), {"veto": False, "reason": "", "flags": []})()
-        
+
         sym = str(getattr(ctx, "symbol", "") or "")
         # Side is not yet known/parsed at this stage of detection, passing empty
         return self._regime_liquidity_gate.evaluate(ctx=ctx, symbol=sym, kind=kind, side="")
@@ -52,8 +52,8 @@ class CryptoSignalGates:
         try:
             # Extract args from ctx or payload
             sym = str(getattr(ctx, "symbol", "") or "").strip().upper()
-            kind = str(payload.get("kind", "") or "custom")
-            
+            kind = (payload.get("kind", "") or "custom")
+
             return self._entry_policy.evaluate(ctx=ctx, symbol=sym, kind=kind)
         except Exception as e:
             return type("Dec", (), {"veto": False, "reason_code": "ERROR", "notes": str(e)})()
@@ -65,7 +65,7 @@ class CryptoSignalGates:
         try:
             if ev_cfg and ev_cfg.enabled:
                 # This requires imported logic
-                # To avoid re-importing huge get_tp1_hit_prob stack, 
+                # To avoid re-importing huge get_tp1_hit_prob stack,
                 # we assume caller might handle data fetching or we import here.
                 # Handler called get_tp1_hit_prob.
                 # We can do it here if we have redis.
@@ -86,12 +86,12 @@ class CryptoSignalGates:
         if not callable(fn):
             return type("QD", (), {"apply": False, "veto": False, "reason_code": "OK", "notes": "no_gate"})()
 
-        key = (str(symbol), str(kind), str(side))
+        key = (symbol, str(kind), side)
 
         def _compute():
             try:
-                return fn(ctx=ctx, symbol=str(symbol), kind=str(kind), side=str(side))
-            except Exception as e:
+                return fn(ctx=ctx, symbol=symbol, kind=str(kind), side=side)
+            except Exception:
                 # fail-open
                 try:
                     append_dq_flag(ctx, "consistency_error")
@@ -111,25 +111,25 @@ class CryptoSignalGates:
         if gate is None:
             return None
 
-        key = (str(kind), str(side)) # minimal key if symbol is constant for handler? 
-        # Handler used symbol in call. 
-        # Let's assume unique per ctx+kind+side? 
+        key = (str(kind), side) # minimal key if symbol is constant for handler?
+        # Handler used symbol in call.
+        # Let's assume unique per ctx+kind+side?
         # Actually handler used cached_on_ctx too?
         # Verify handler implementation in Step 139:
         # cost_decision = self._edge_cost_cached(...)
         # I should mimic that method.
         pass
-        
+
         # Simplified:
         try:
             return gate.evaluate(ctx=ctx, kind=kind, symbol=symbol, side=side, cfg=cfg)
         except Exception:
             return None
 
-    def _mark_dq(self, ctx: Any, flag: str, exc: Optional[Exception] = None) -> None:
+    def _mark_dq(self, ctx: Any, flag: str, exc: Exception | None = None) -> None:
         append_dq_flag(ctx, flag)
 
-    def check_regime_gate(self, ctx: Any, kind: str) -> Tuple[bool, str]:
+    def check_regime_gate(self, ctx: Any, kind: str) -> tuple[bool, str]:
         """
         Step 2: Strict regime gate (configured via ENV).
         """
@@ -137,7 +137,7 @@ class CryptoSignalGates:
             try:
                 if isinstance(v, str):
                     return v.lower()
-                return str(v or "").lower()
+                return (v or "").lower()
             except Exception:
                 return ""
 
@@ -166,11 +166,11 @@ class CryptoSignalGates:
         """
         if self._smt_gate is None:
              return type("SMT", (), {"veto": False, "reason": "SMT_DISABLED"})()
-        
+
         # Determine direction from side
         # Side can be int (1/-1) or str ("LONG"/"SHORT"/"BUY"/"SELL")
         try:
-            s = str(side).upper()
+            s = side.upper()
             if s in {"1", "BUY", "LONG"}:
                 direction = "UP"
             elif s in {"-1", "SELL", "SHORT"}:

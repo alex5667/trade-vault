@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Dict
-
 
 def bucket_from_scenario(s: str) -> str:
     """Determine bucket (trend/range/other) from scenario string.

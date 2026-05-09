@@ -1,10 +1,10 @@
 from __future__ import annotations
-from core.confidence_utils import normalize_confidence_pct, confidence_pct_to_ratio
 
 import math
 import os
-from enum import Enum
-from typing import Dict, Optional, Tuple, cast
+from enum import StrEnum
+
+from core.confidence_utils import confidence_pct_to_ratio, normalize_confidence_pct
 
 # Try to import optional dependencies, provide stubs if not available
 try:
@@ -31,9 +31,9 @@ except ImportError:
 
 try:
     from signal_scoring.weak_progress import (
-        get_weak_progress_config,
         apply_weak_progress_and_fade_filters,
-        validate_signal_for_weak_progress
+        get_weak_progress_config,
+        validate_signal_for_weak_progress,
     )
     WEAK_PROGRESS_AVAILABLE = True
 except ImportError:
@@ -53,12 +53,13 @@ try:
 except ImportError:  # pragma: no cover – only absent in unit-test environments
     _LiquidityContext = None  # type: ignore[assignment,misc]
 
+from scoring.scoring_engine import ScoringResult, SignalQualityLabel
+
 from .config import ScoringConfig
 from .ctx import SignalContext
-from scoring.scoring_engine import ScoringResult, QualityResult, SignalQualityLabel
 
 
-class LiquidityPattern(str, Enum):
+class LiquidityPattern(StrEnum):
     NONE = "none"
     BREAK = "break"
     ABSORPTION = "absorption"
@@ -69,7 +70,7 @@ class SignalScoringEngine:
         self,
         calib_store: LocalCalibrationStore,
         config: ScoringConfig,
-        quality_estimator: Optional[SignalQualityEstimator] = None
+        quality_estimator: SignalQualityEstimator | None = None
     ):
         self._calib_store = calib_store
         self._cfg = config
@@ -113,7 +114,7 @@ class SignalScoringEngine:
         2. Apply weak progress filters and scoring adjustments
         3. Return final confidence
         """
-        metric_qs: Dict[str, float] = {}
+        metric_qs: dict[str, float] = {}
 
         # delta_spike_z: high better => invert=False
         q_delta = self._metric_local_q(ctx, "delta_spike_z", invert=False)
@@ -267,7 +268,7 @@ class SignalScoringEngine:
         - pattern == "absorption": даём штраф (чем выше score, тем больше -%)
         - pattern == "none": слабая двухсторонняя модуляция вокруг 0
         """
-        liq_ctx: Optional[object] = getattr(ctx, "liquidity_context", None)
+        liq_ctx: object | None = getattr(ctx, "liquidity_context", None)
         if liq_ctx is None:
             return 0.0
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Regression pack для SignalOrchestrator (prod-pipeline).
 
@@ -10,14 +11,11 @@ notional cap, veto metrics, DLQ xadd, edge-gate events.
 ни multi-candidate батч, ни payload-schema.
 """
 
-import os
 import time
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, call
-import pytest
+from unittest.mock import MagicMock, patch
 
 from handlers.crypto_orderflow.pipeline.orchestrator import SignalOrchestrator
-
 
 # ---------------------------------------------------------------------------
 # Фабрики
@@ -535,12 +533,11 @@ class TestBuildFailedMetric:
     def test_T16_build_failed_counter_incremented(self):
         orch, _, emitter = _make_orchestrator()
 
-        with patch.object(orch, "_build_payload", side_effect=ValueError("bad payload")):
-            with patch(
-                "handlers.crypto_orderflow.pipeline.orchestrator.SIGNAL_BUILD_FAILED_TOTAL"
-            ) as mock_cnt:
-                mock_cnt.labels.return_value.inc = MagicMock()
-                result = orch.process(_make_ctx(), lambda c: [_make_cand()])
+        with patch.object(orch, "_build_payload", side_effect=ValueError("bad payload")), patch(
+            "handlers.crypto_orderflow.pipeline.orchestrator.SIGNAL_BUILD_FAILED_TOTAL"
+        ) as mock_cnt:
+            mock_cnt.labels.return_value.inc = MagicMock()
+            result = orch.process(_make_ctx(), lambda c: [_make_cand()])
 
         assert result is False
         mock_cnt.labels.assert_called_with(symbol="BTCUSDT")

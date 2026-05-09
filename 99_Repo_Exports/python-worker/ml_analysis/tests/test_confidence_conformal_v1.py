@@ -1,7 +1,5 @@
 
 import unittest
-import sys
-import os
 
 # Ensure we can import services
 try:

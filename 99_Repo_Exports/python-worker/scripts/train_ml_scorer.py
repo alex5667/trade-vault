@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 ML Scorer V2 Training Script — Regression model for signal confidence scoring.
 
@@ -23,8 +25,6 @@ Usage:
     --feature_schema_ver v12_of
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import hashlib
 import json
@@ -32,11 +32,14 @@ import logging
 import math
 import os
 import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
+
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # GPU / CPU array backend (CuPy preferred, numpy fallback)
@@ -76,14 +79,14 @@ logger = logging.getLogger("ml_scorer_v2_train")
 
 def _f(x: Any, default: float = 0.0) -> float:
     try:
-        v = float(x) if x is not None else float(default)
-        return v if math.isfinite(v) else float(default)
+        v = float(x) if x is not None else default
+        return v if math.isfinite(v) else default
     except Exception:
-        return float(default)
+        return default
 
 
 def _sha256_16(items: Sequence[str]) -> str:
-    payload = "\n".join(str(x) for x in items).encode("utf-8")
+    payload = "\n".join(x for x in items).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:16]
 
 
@@ -140,7 +143,7 @@ class PurgedEmbargoTimeSeriesSplit:
     embargo_ms: int = 120_000  # 2 min
     min_train: int = 500
 
-    def split(self, ts_ms: Sequence[int]) -> Iterable[Tuple[np.ndarray, np.ndarray]]:
+    def split(self, ts_ms: Sequence[int]) -> Iterable[tuple[np.ndarray, np.ndarray]]:
         order = np.argsort(np.asarray(ts_ms, dtype=np.int64), kind="mergesort")
         n = len(order)
         if n == 0:
@@ -187,16 +190,16 @@ class PurgedEmbargoTimeSeriesSplit:
 # ---------------------------------------------------------------------------
 
 def _get_dsn() -> str:
+    return os.getenv(
+        "PG_DSN",
         os.getenv(
-            "PG_DSN",
-            os.getenv(
-                "ANALYTICS_DB_DSN",
-                f"postgresql://trading:{os.getenv('TRADING_PASSWORD', 'trading_password')}@postgres:5432/scanner_analytics",
-            )
-        )
+            "ANALYTICS_DB_DSN",
+            f"postgresql://trading:{os.getenv('TRADING_PASSWORD', 'trading_password')}@postgres:5432/scanner_analytics",
+        ),
+    )
 
 
-def fetch_training_data(lookback_days: int) -> Optional[Any]:
+def fetch_training_data(lookback_days: int) -> Any | None:
     """Fetch joined signal_facts + trade_performance from PostgreSQL."""
     if psycopg2 is None:
         logger.error("psycopg2 not installed — cannot fetch from DB")
@@ -250,6 +253,8 @@ def fetch_training_data(lookback_days: int) -> Optional[Any]:
         conn = psycopg2.connect(dsn)
         cur = conn.cursor()
         cur.execute(query)
+        if cur.description is None:
+            raise ValueError("No metadata (description) returned from cursor")
         cols = [desc[0] for desc in cur.description]
         rows = cur.fetchall()
         cur.close()
@@ -272,9 +277,7 @@ def fetch_training_data(lookback_days: int) -> Optional[Any]:
 
 # Numeric feature columns from signal_facts (in stable order)
 NUMERIC_FEATURES = [
-    "conf_score",
     "atr_14",
-    "delta_spike_z",
     "obi_avg_20",
     "weak_progress_ratio",
     "l3_spread_bps",
@@ -299,16 +302,18 @@ DERIVED_FEATURES = [
     "cancel_to_trade_max",  # max(bid_5s, ask_5s, bid_20s, ask_20s)
     "obi_spread",           # obi_5 - obi_50
     "queue_imbalance",      # pressure_bid - pressure_ask
+    "outlier_count",
+    "is_extreme_outlier",
 ]
 
 
-def _build_feature_names() -> List[str]:
+def _build_feature_names() -> list[str]:
     return [f"f_{c}" for c in NUMERIC_FEATURES] + DERIVED_FEATURES
 
 
-def _build_feature_row(row_dict: Dict[str, Any]) -> List[float]:
+def _build_feature_row(row_dict: dict[str, Any]) -> list[float]:
     """Build feature vector from a row dict."""
-    out: List[float] = []
+    out: list[float] = []
 
     # Raw numeric features (with robust scaling applied later)
     for col in NUMERIC_FEATURES:
@@ -334,19 +339,27 @@ def _build_feature_row(row_dict: Dict[str, Any]) -> List[float]:
     qp_ask = _f(row_dict.get("l3_queue_pressure_ask"), 0.0)
     out.append(qp_bid - qp_ask)  # queue_imbalance
 
+    # Explicit right-tail outlier penalization markers
+    outlier_count = 0.0
+    for val in out:
+        if abs(val) > 10.0:
+            outlier_count += 1.0
+    out.append(outlier_count)
+    out.append(1.0 if outlier_count > 0 else 0.0)
+
     return out
 
 
 def _fit_robust_scaler(
-    X: np.ndarray, feature_names: List[str]
-) -> Dict[str, Dict[str, float]]:
+    X: np.ndarray, feature_names: list[str]
+) -> dict[str, dict[str, float]]:
     """Fit median/MAD robust scaler per feature.
 
     GPU-accelerated: transfers full matrix to GPU once, computes
     median + MAD for all columns in batch. ~10-50× faster on GPU
     for typical N=2000-50000 training samples.
     """
-    params: Dict[str, Dict[str, float]] = {}
+    params: dict[str, dict[str, float]] = {}
     if _GPU and cp is not None and X.shape[0] >= 200:
         try:
             X_gpu = cp.asarray(X, dtype=cp.float64)
@@ -375,8 +388,8 @@ def _fit_robust_scaler(
 
 def _apply_robust_scaler(
     X: np.ndarray,
-    feature_names: List[str],
-    params: Dict[str, Dict[str, float]],
+    feature_names: list[str],
+    params: dict[str, dict[str, float]],
 ) -> np.ndarray:
     """Apply robust scaler in-place."""
     out = X.copy()
@@ -392,7 +405,7 @@ def _apply_robust_scaler(
 # Target engineering
 # ---------------------------------------------------------------------------
 
-def _compute_target(row_dict: Dict[str, Any]) -> float:
+def _compute_target(row_dict: dict[str, Any]) -> float:
     """Compute regression target = R-multiple (winsorized later)."""
     return _f(row_dict.get("pnl_r"), 0.0)
 
@@ -404,12 +417,12 @@ def _compute_target(row_dict: Dict[str, Any]) -> float:
 def train_model(
     X: np.ndarray,
     y: np.ndarray,
-    ts_ms: List[int],
+    ts_ms: list[int],
     *,
     n_splits: int = 5,
     purge_ms: int = 300_000,
     embargo_ms: int = 120_000,
-) -> Tuple[Any, np.ndarray, Dict[str, float]]:
+) -> tuple[Any, np.ndarray, dict[str, float]]:
     """Train LightGBM with OOF evaluation."""
     if lgb is None:
         raise SystemExit("lightgbm is required: pip install lightgbm")
@@ -523,7 +536,7 @@ def train_model(
 
 def _build_r_to_conf01_isotonic(
     y_oof: np.ndarray, p_oof: np.ndarray
-) -> Optional[Any]:
+) -> Any | None:
     """Fit isotonic regression: predicted_R → P(R > 0) → conf01."""
     try:
         from sklearn.isotonic import IsotonicRegression  # type: ignore
@@ -644,7 +657,7 @@ def main() -> int:
     calibrator = _build_r_to_conf01_isotonic(y[oof_mask], oof_preds[oof_mask])
 
     # 10. Package and save as CANDIDATE (not yet promoted)
-    out_pack: Dict[str, Any] = {
+    out_pack: dict[str, Any] = {
         "schema_version": 2,
         "kind": "ml_scorer_v2",
         "model": model,
@@ -687,13 +700,13 @@ def main() -> int:
 # Telegram Approval Flow
 # ---------------------------------------------------------------------------
 
-NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", "notify:telegram")
+NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 PENDING_PREFIX = "ml_scorer:pending"
 PENDING_TTL = int(os.getenv("ML_SCORER_PENDING_TTL_SEC", "86400") or 86400)
 REMINDER_SEC = int(os.getenv("ML_SCORER_REMINDER_SEC", "1800") or 1800)
 
 
-def _get_redis():
+def _get_redis() -> Any:
     """Get Redis client for approval flow."""
     import redis as _redis
     url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -706,7 +719,7 @@ def _get_redis():
         return None
 
 
-def _format_approval_report(metrics: Dict[str, float], n_samples: int) -> str:
+def _format_approval_report(metrics: dict[str, float], n_samples: int) -> str:
     """Format Telegram report with model metrics."""
     mae = metrics.get("mae_oof", -1)
     r2 = metrics.get("r2_oof", -1)
@@ -760,7 +773,7 @@ def _build_approval_buttons(run_id: str) -> list:
 
 
 def _create_pending(
-    r, run_id: str, metrics: Dict, n_samples: int,
+    r, run_id: str, metrics: dict, n_samples: int,
     candidate_path: str, production_path: str, report: str,
 ) -> None:
     """Store pending approval in Redis."""
@@ -785,7 +798,7 @@ def _create_pending(
 
 def _notify_telegram(r, message: str, buttons: list = None) -> None:
     """Publish message to notify:telegram stream."""
-    fields: Dict[str, str] = {
+    fields: dict[str, str] = {
         "type": "report",
         "text": message,
         "parse_mode": "HTML",
@@ -801,7 +814,7 @@ def _notify_telegram(r, message: str, buttons: list = None) -> None:
 
 
 def _send_approval_request(
-    args, metrics: Dict, n_samples: int,
+    args, metrics: dict, n_samples: int,
     candidate_path: str, production_path: str,
 ) -> None:
     """Send Telegram approval request and start reminder loop."""

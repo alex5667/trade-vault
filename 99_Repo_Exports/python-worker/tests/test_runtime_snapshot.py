@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 from common.runtime_snapshot import RuntimeSnapshot
 
 

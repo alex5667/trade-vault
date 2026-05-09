@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
 
 
 @dataclass
@@ -40,19 +38,19 @@ def approx_quantile_3pt(x: float, q25: float, q50: float, q75: float) -> float:
         return 0.0
     if q25 <= 0 or q50 <= 0 or q75 <= 0:
         return 0.0
-    
+
     # Below 25th percentile: map to [0.10..0.25]
     if x <= q25:
         return 0.10 + 0.15 * (x / max(q25, 1e-12))
-    
+
     # Between 25th and 50th: map to [0.25..0.50]
     if x <= q50:
         return 0.25 + 0.25 * ((x - q25) / max((q50 - q25), 1e-12))
-    
+
     # Between 50th and 75th: map to [0.50..0.75]
     if x <= q75:
         return 0.50 + 0.25 * ((x - q50) / max((q75 - q50), 1e-12))
-    
+
     # Above 75th percentile: map to [0.75..0.95] (soft cap)
     return min(0.95, 0.75 + 0.20 * ((x - q75) / max(q75, 1e-12)))
 
@@ -75,19 +73,19 @@ def approx_quantile_adx(x: float, p40: float, p60: float, p75: float) -> float:
         return 0.0
     if p40 <= 0 or p60 <= 0 or p75 <= 0:
         return 0.0
-    
+
     # Below 40th percentile: map to [0.10..0.40]
     if x <= p40:
         return 0.10 + 0.30 * (x / max(p40, 1e-12))
-    
+
     # Between 40th and 60th: map to [0.40..0.60]
     if x <= p60:
         return 0.40 + 0.20 * ((x - p40) / max((p60 - p40), 1e-12))
-    
+
     # Between 60th and 75th: map to [0.60..0.75]
     if x <= p75:
         return 0.60 + 0.15 * ((x - p60) / max((p75 - p60), 1e-12))
-    
+
     # Above 75th percentile: map to [0.75..0.95] (soft cap)
     return min(0.95, 0.75 + 0.20 * ((x - p75) / max(p75, 1e-12)))
 
@@ -101,9 +99,9 @@ class RegimeQuantilesStore:
     def __init__(self, *, refresh_ms: int = 300_000) -> None:
         self.refresh_ms = int(refresh_ms)
         self._last_refresh_ms: int = 0
-        self._cache: Dict[Tuple[str, str], RegimeQuantiles] = {}
+        self._cache: dict[tuple[str, str], RegimeQuantiles] = {}
 
-    def maybe_refresh(self, *, now_ms: int, rows: Optional[list[dict]] = None) -> None:
+    def maybe_refresh(self, *, now_ms: int, rows: list[dict] | None = None) -> None:
         """
         Refresh cache from DB rows if refresh interval has passed.
         
@@ -114,7 +112,7 @@ class RegimeQuantilesStore:
             return
         if rows is None:
             return
-        new: Dict[Tuple[str, str], RegimeQuantiles] = {}
+        new: dict[tuple[str, str], RegimeQuantiles] = {}
         for d in rows:
             try:
                 sym = str(d["symbol"]).upper()
@@ -137,6 +135,6 @@ class RegimeQuantilesStore:
         self._cache = new
         self._last_refresh_ms = int(now_ms)
 
-    def get(self, *, symbol: str, timeframe: str) -> Optional[RegimeQuantiles]:
+    def get(self, *, symbol: str, timeframe: str) -> RegimeQuantiles | None:
         """Get cached quantiles for a symbol/timeframe pair."""
-        return self._cache.get((str(symbol).upper(), str(timeframe)))
+        return self._cache.get((symbol.upper(), str(timeframe)))

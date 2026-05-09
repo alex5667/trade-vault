@@ -1,5 +1,6 @@
 from common.json_fast import dumps1
 
+
 def test_dumps1_compact_no_spaces():
     s = dumps1({"a": 1, "b": "тест"})
     # must be one-line compact

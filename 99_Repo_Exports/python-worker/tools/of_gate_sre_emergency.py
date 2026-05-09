@@ -1,4 +1,8 @@
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 """Emergency safety: auto-disable execution (ENTRY_POLICY_SHADOW=1) on critical drifts.
 
 Reads metrics:of_gate for a time window, and if critical thresholds are exceeded,
@@ -13,23 +17,20 @@ Usage:
   (reads ENV vars for thresholds, cooldown, override keys)
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import hashlib
+import hmac
 import json
 import os
-import time
 import secrets
-import hmac
-import hashlib
 from collections import Counter
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
 
 from common.log import setup_logger
 from common.redis_errors import retry_redis_operation
-
-from core.ok_fields import parse_ok_fields, get_scenario, get_ts_ms
+from core.ok_fields import get_scenario, get_ts_ms, parse_ok_fields
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("OfGateSreEmergency")
 
@@ -39,7 +40,7 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Computes percentile q (0.0-1.0) from sorted list xs."""
     if not xs:
         return 0.0
@@ -54,7 +55,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -62,7 +63,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def sign(bundle_id: str, secret: str) -> str:
@@ -71,7 +72,7 @@ def sign(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def read_window_xrevrange(r: redis.Redis, stream: str, since_ms: int, *, max_scan: int = 250_000) -> List[Dict[str, Any]]:
+def read_window_xrevrange(r: redis.Redis, stream: str, since_ms: int, *, max_scan: int = 250_000) -> list[dict[str, Any]]:
     """
     Reads messages from Redis stream in reverse chronological order (newest first),
     stopping when timestamp < since_ms.
@@ -85,7 +86,7 @@ def read_window_xrevrange(r: redis.Redis, stream: str, since_ms: int, *, max_sca
     Returns:
         List of message dicts (chronological order, oldest first)
     """
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -110,7 +111,7 @@ def read_window_xrevrange(r: redis.Redis, stream: str, since_ms: int, *, max_sca
     return rows
 
 
-def compute_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def compute_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Computes statistics from metrics rows.
     
@@ -143,10 +144,10 @@ def compute_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         lat.append(_f(r.get("latency_us", 0.0), 0.0))
         ex.append(_f(r.get("exec_risk_norm", 0.0), 0.0))
 
-        mp = _f(r.get("meta_p", -1.0), -1.0)
+        mp = _f(r.get(MetaKeys.P, -1.0), -1.0)
         if mp >= 0.0:
             meta_n += 1
-            meta_veto += 1 if _i(r.get("meta_veto", 0), 0) == 1 else 0
+            meta_veto += 1 if _i(r.get(MetaKeys.VETO, 0), 0) == 1 else 0
 
         sc = get_scenario(r) or "na"
         scen[sc] += 1
@@ -207,7 +208,7 @@ def _retry_redis_operation(operation, max_retries: int = 10, operation_name: str
     )
 
 
-def apply_bundle_auto(r: redis.Redis, ops: List[Dict[str, str]], meta: Dict[str, Any], who: str, ttl: int, secret: str) -> Tuple[str, str]:
+def apply_bundle_auto(r: redis.Redis, ops: list[dict[str, str]], meta: dict[str, Any], who: str, ttl: int, secret: str) -> tuple[str, str]:
     """
     Automatically applies bundle (without preview/confirm flow).
     
@@ -229,7 +230,7 @@ def apply_bundle_auto(r: redis.Redis, ops: List[Dict[str, str]], meta: Dict[str,
     sig = sign(bundle_id, secret)
 
     bundle = {"id": bundle_id, "created_ms": now_ms(), "ttl_sec": ttl, "who": who, "ops": ops, "meta": meta}
-    
+
     # Retry Redis operations on BusyLoadingError
     _retry_redis_operation(
         lambda: r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=ttl),
@@ -276,7 +277,7 @@ def apply_bundle_auto(r: redis.Redis, ops: List[Dict[str, str]], meta: Dict[str,
                 "new": newv
             })
             pipe.hset(key, field, newv)
-    
+
     _retry_redis_operation(
         lambda: pipe.execute(),
         operation_name="Pipeline execute"
@@ -329,7 +330,7 @@ def main() -> None:
     ttl = int(os.getenv("RECS_TTL_SEC", "86400") or 86400)
 
     # Helper function to retry Redis operations on BusyLoadingError
-    def _redis_get_with_retry(key: str, max_retries: int = 10) -> Optional[str]:
+    def _redis_get_with_retry(key: str, max_retries: int = 10) -> str | None:
         """Get Redis key with retry on BusyLoadingError."""
         try:
             return retry_redis_operation(
@@ -365,7 +366,7 @@ def main() -> None:
     except Exception:
         rows = []
     st = compute_stats(rows)
-    
+
     if st["n"] < 20:
         logger.debug("Not enough metrics: n=%d < 20", st["n"])
         return
@@ -385,7 +386,7 @@ def main() -> None:
         return
 
     # Build operations
-    ops: List[Dict[str, str]] = []
+    ops: list[dict[str, str]] = []
     for k in override_keys:
         old = _redis_get_with_retry(k) or ""
         newv = merge_entry_policy_override(old, shadow_field)
@@ -421,7 +422,7 @@ def main() -> None:
     )
     _retry_redis_operation(
         lambda: r.xadd(
-            os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"),
+            os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM),
             {
                 "type": "report",
                 "text": msg,

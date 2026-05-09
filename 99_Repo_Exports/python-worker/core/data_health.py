@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """core.data_health
 
 Unified Data Quality / Health layer.
@@ -24,8 +25,8 @@ Score semantics:
 """
 
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any
 
 
 def _b(x: Any) -> int:
@@ -57,7 +58,7 @@ def _f(x: Any, d: float = 0.0) -> float:
 class DataHealth:
     # aggregate
     score: float = 1.0
-    reasons: List[str] = None
+    reasons: list[str] = None
 
     # components (0/1)
     tick_time_ok: int = 1
@@ -72,13 +73,13 @@ class DataHealth:
     book_rate_hz: float = 0.0
     spread_bps: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["reasons"] = list(self.reasons or [])
         return d
 
 
-def compute_data_health(*, indicators: Dict[str, Any], cfg: Dict[str, Any]) -> DataHealth:
+def compute_data_health(*, indicators: dict[str, Any], cfg: dict[str, Any]) -> DataHealth:
     """Compute data health from indicators + config.
 
     Expected inputs in `indicators` (best-effort):
@@ -97,7 +98,7 @@ def compute_data_health(*, indicators: Dict[str, Any], cfg: Dict[str, Any]) -> D
       - data_health_min_book_hz: float (if book_rate_hz known)
     """
 
-    reasons: List[str] = []
+    reasons: list[str] = []
 
     # --- Tick time ---
     tick_ts_missing = _b(indicators.get("tick_ts_missing", 0))
@@ -203,7 +204,7 @@ def compute_data_health(*, indicators: Dict[str, Any], cfg: Dict[str, Any]) -> D
     )
 
 
-def apply_book_evidence_policy(*, indicators: Dict[str, Any], dh: DataHealth, cfg: Dict[str, Any]) -> None:
+def apply_book_evidence_policy(*, indicators: dict[str, Any], dh: DataHealth, cfg: dict[str, Any]) -> None:
     """Fail-closed for book-based evidences when data health is low.
 
     This helper only annotates indicators. Consumers should:
@@ -223,7 +224,7 @@ def apply_book_evidence_policy(*, indicators: Dict[str, Any], dh: DataHealth, cf
         indicators["book_evidence_allowed"] = 1
 
 
-def apply_shadow_only_policy(*, indicators: Dict[str, Any], dh: DataHealth, cfg: Dict[str, Any]) -> None:
+def apply_shadow_only_policy(*, indicators: dict[str, Any], dh: DataHealth, cfg: dict[str, Any]) -> None:
     """Mark signal as shadow-only below threshold.
 
     This does NOT block the pipeline; it only signals the publisher/routers

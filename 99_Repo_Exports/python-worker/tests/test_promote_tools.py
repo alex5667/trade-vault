@@ -1,10 +1,12 @@
-import unittest
-import tempfile
-import shutil
 import os
+import shutil
+import tempfile
 import time
+import unittest
+
 from tools.cleanup_promoted_models_v1 import cleanup_promoted_models
 from tools.meta_promote_dir_check_v1 import check_promote_dir
+
 
 class TestPromoteTools(unittest.TestCase):
     def setUp(self):
@@ -17,7 +19,7 @@ class TestPromoteTools(unittest.TestCase):
         path = os.path.join(self.test_dir, name)
         with open(path, 'w') as f:
             f.write("dummy")
-        
+
         # Set mtime
         now = time.time()
         mtime = now - age_seconds
@@ -27,7 +29,7 @@ class TestPromoteTools(unittest.TestCase):
     def test_cleanup_retention(self):
         # Create artifacts
         # Policy: keep-last=2, keep-days=1 (86400s)
-        
+
         # f1: now (newest)
         self.create_dummy_file("meta_model_1.json", 0)
         # f2: 1 hour ago
@@ -46,9 +48,9 @@ class TestPromoteTools(unittest.TestCase):
         # f3: not in top 2, age 90000 > 86400 -> DELETE
         # f4: DELETE
         # ignored.txt: Pattern mismatch -> IGNORE (Keep)
-        
+
         cleanup_promoted_models(self.test_dir, keep_last=2, keep_days=1)
-        
+
         files = sorted(os.listdir(self.test_dir))
         # Expected: ignored.txt, meta_model_1.json, meta_model_2.json
         self.assertIn("meta_model_1.json", files)
@@ -63,7 +65,7 @@ class TestPromoteTools(unittest.TestCase):
         self.assertEqual(metrics["meta_promote_dir_exists"], 1)
         self.assertEqual(metrics["meta_promote_dir_writable"], 1)
         self.assertEqual(metrics["meta_promote_dir_ok"], 1)
-        
+
         # Test non-existing dir
         fake_dir = os.path.join(self.test_dir, "nonexistent")
         metrics_bad = check_promote_dir(fake_dir)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 """
 Опциональный провайдер health-снапшота.
@@ -20,7 +20,7 @@ class RedisHealthSnapshotProvider:
         self._snapshot_key_tpl = snapshot_key_tpl
 
     @classmethod
-    def from_env(cls) -> Optional["RedisHealthSnapshotProvider"]:
+    def from_env(cls) -> RedisHealthSnapshotProvider | None:
         """
         Включается только если HEALTH_SNAPSHOT_ENABLE=1.
         Это позволяет безопасно выключить сбор метрик без изменения кода.
@@ -36,12 +36,12 @@ class RedisHealthSnapshotProvider:
         except Exception:
             return None
 
-    def get_snapshot(self, symbol: str) -> Dict[str, Any]:
+    def get_snapshot(self, symbol: str) -> dict[str, Any]:
         """
         Возвращает dict полей для добавления в stream.
         Ключи оставляем совместимыми (health_*).
         """
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         key = self._snapshot_key_tpl.format(symbol=symbol)
         snap = self._hm._redis.hgetall(key) or {}
 

@@ -1,17 +1,15 @@
 
 import sys
-import os
-from unittest.mock import MagicMock
 
 # Add project root to sys.path
 # [AUTOGRAVITY CLEANUP] sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from services.trade_metrics_service import TradeMetricsService
+
 
 def test_metrics_finalization():
     tm = TradeMetricsService()
     m = tm.new_metrics()
-    
+
     # Mock trade data matching user's report characteristics
     # APTUSDT: WR=66%, P/L net=+192.00, Fees=19.92, 100 trades
     mock_trades = []
@@ -34,22 +32,22 @@ def test_metrics_finalization():
     print(f"Accumulating {len(mock_trades)} mock trades...")
     for t in mock_trades:
         tm.accumulate_trade(m, t)
-    
+
     print("Finalizing metrics...")
     tm.finalize(m)
-    
+
     # Assertions
     print(f"Total Trades: {m['total_trades']}")
     print(f"Wins: {m['wins']}")
     print(f"Expectancy R: {m['expectancy_r']:.4f}")
     print(f"PF Net: {m['profit_factor_net']:.4f}")
     print(f"Avg SL ATR: {m['avg_sl_atr']:.2f}")
-    
+
     assert m['total_trades'] == 100
     assert m['expectancy_r'] > 0
     assert m['profit_factor_net'] > 0
     assert m['avg_sl_atr'] > 0
-    
+
     print("✅ Verification PASSED: Metrics are correctly populated after finalize()")
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 A/B Compare - Статистическое сравнение стратегий с bootstrap доверительными интервалами.
 
@@ -18,13 +19,14 @@ A/B Compare - Статистическое сравнение стратегий
         --pairs aggregated:orderflow,aggregated:ta
 """
 
-import os
-import time
-import json
 import argparse
+import json
+import os
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import List, Dict, Tuple, Callable, Any
+from typing import Any
 
 import numpy as np
 import redis
@@ -32,10 +34,9 @@ import redis
 # Добавляем python-worker в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from analytics.repository import Repository, RepoConfig, Order
+from analytics.repository import Order, RepoConfig, Repository
 from analytics.telegram_reporter_ext import TelegramReporterExt
 from common.log import setup_logger
-
 
 logger = setup_logger("ABCompare")
 
@@ -51,7 +52,7 @@ except Exception:
     _GPU_AVAILABLE = False
 
 
-def _quantiles(values: np.ndarray, probs: List[float], use_gpu: bool) -> np.ndarray:
+def _quantiles(values: np.ndarray, probs: list[float], use_gpu: bool) -> np.ndarray:
     """Безопасное вычисление квантилей с GPU fallback."""
     if values.size == 0:
         return np.zeros(len(probs), dtype=np.float32)
@@ -63,25 +64,25 @@ def _quantiles(values: np.ndarray, probs: List[float], use_gpu: bool) -> np.ndar
             pass
     return np.quantile(values, probs_arr).astype(np.float32)
 
-def winrate(data: List[float]) -> float:
+def winrate(data: list[float]) -> float:
     """Вычисление winrate"""
     if not data:
         return 0.0
     return sum(1 for x in data if x >= 0) / float(len(data))
 
 
-def avg(data: List[float]) -> float:
+def avg(data: list[float]) -> float:
     """Вычисление среднего"""
     return float(np.mean(data)) if data else 0.0
 
 
 def bootstrap_ci(
-    values: List[float],
-    stat_fn: Callable[[List[float]], float],
+    values: list[float],
+    stat_fn: Callable[[list[float]], float],
     n_boot: int = 2000,
     alpha: float = 0.05,
     use_gpu: bool = False
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Bootstrap доверительный интервал (vectorised NumPy implementation).
 
@@ -120,9 +121,9 @@ def bootstrap_ci(
 
 
 def prob_A_beats_B(
-    a_values: List[float],
-    b_values: List[float],
-    stat_fn: Callable[[List[float]], float],
+    a_values: list[float],
+    b_values: list[float],
+    stat_fn: Callable[[list[float]], float],
     n_boot: int = 2000
 ) -> float:
     """
@@ -165,10 +166,10 @@ def prob_A_beats_B(
 def load_orders(
     repo: Repository,
     symbol: str,
-    strategies: List[str],
+    strategies: list[str],
     since: float,
     until: float
-) -> Dict[str, List[Order]]:
+) -> dict[str, list[Order]]:
     """
     Загрузка ордеров для указанных стратегий.
     
@@ -182,7 +183,7 @@ def load_orders(
     Returns:
         Словарь {strategy: [Order, ...]}
     """
-    res: Dict[str, List[Order]] = {s: [] for s in strategies}
+    res: dict[str, list[Order]] = {s: [] for s in strategies}
 
     for o in repo.read_closed_trades(200000):
         if o.symbol != symbol:
@@ -199,7 +200,7 @@ def load_orders(
     return res
 
 
-def summarize_orders(orders: List[Order]) -> Dict[str, Any]:
+def summarize_orders(orders: list[Order]) -> dict[str, Any]:
     """
     Вычисление сводной статистики для ордеров.
     
@@ -227,7 +228,7 @@ def summarize_orders(orders: List[Order]) -> Dict[str, Any]:
     },
 
 
-def publish_to_redis(r: redis.Redis, symbol: str, summary: Dict[str, Dict]):
+def publish_to_redis(r: redis.Redis, symbol: str, summary: dict[str, dict]):
     """Публикация результатов A/B сравнения в Redis"""
     try:
         key = f"analytics:ab:last:{symbol}"
@@ -258,8 +259,8 @@ def publish_to_redis(r: redis.Redis, symbol: str, summary: Dict[str, Dict]):
 
 def make_telegram_text(
     symbol: str,
-    summary: Dict[str, Dict],
-    pairs: List[Tuple[str, str]]
+    summary: dict[str, dict],
+    pairs: list[tuple[str, str]]
 ) -> str:
     """Формирование текста для Telegram"""
     lines = [f"<b>🧪 A/B Сравнение</b>  <code>{symbol}</code>\n"]
@@ -390,8 +391,8 @@ def main():
 
     # Вычисление статистики и bootstrap CI
     logger.info("\n📊 Computing statistics...")
-    summary: Dict[str, Dict] = {}
-    boot: Dict[str, List[float]] = {}
+    summary: dict[str, dict] = {}
+    boot: dict[str, list[float]] = {}
 
     use_gpu = bool(args.use_gpu and _GPU_AVAILABLE)
     if args.use_gpu and not _GPU_AVAILABLE:

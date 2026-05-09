@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot, L2Level
-from handlers.confirmations.l2_confirm_breakout import L2ConfirmBreakout, BreakoutConfirmCfg
-from handlers.confirmations.l2_confirmations import l2_confirm_breakout, VETO_WALL_NEAR, OK
+from handlers.confirmations.l2_confirm_breakout import BreakoutConfirmCfg, L2ConfirmBreakout
+from handlers.confirmations.l2_confirmations import OK, VETO_WALL_NEAR, l2_confirm_breakout
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
 
 
 def _mk_l2(*, bids: list[tuple[float, float]], asks: list[tuple[float, float]]) -> L2Snapshot:
@@ -105,9 +103,9 @@ def test_functional_breakout_no_longer_vetoes_wall_near_buy():
     )
 
     # L2ConfirmResult is expected to expose these attributes (as in your current code).
-    assert getattr(res, "veto") is False
-    assert getattr(res, "reason_code") == OK
-    parts = getattr(res, "parts")
+    assert res.veto is False
+    assert res.reason_code == OK
+    parts = res.parts
     assert parts.get("near_wall") == 1
     assert parts.get("wall_dist_bps") is not None
 
@@ -133,4 +131,4 @@ def test_functional_breakout_still_vetoes_on_mp_contra():
         side="buy",
         mp_contra_bps=2.0,
     )
-    assert getattr(res, "veto") is True
+    assert res.veto is True

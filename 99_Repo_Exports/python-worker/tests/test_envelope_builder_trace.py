@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 
-from services.outbox.envelope_builder import build_outbox_envelope, build_trace_sidecar_meta
 from common.decision_trace import ensure_trace, trace_gate
+from services.outbox.envelope_builder import build_outbox_envelope, build_trace_sidecar_meta
+
 
 def test_envelope_contains_only_short_trace_fields(monkeypatch):
     ctx = SimpleNamespace()

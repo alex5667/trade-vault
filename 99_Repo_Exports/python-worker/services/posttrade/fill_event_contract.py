@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Fill / trade-close event contract (A3).
 
 Goal:
@@ -29,10 +29,10 @@ Optional (high value):
 
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
-def _safe_float(v: Any) -> Optional[float]:
+def _safe_float(v: Any) -> float | None:
     try:
         f = float(v)
     except Exception:
@@ -42,7 +42,7 @@ def _safe_float(v: Any) -> Optional[float]:
     return float(f)
 
 
-def _safe_int(v: Any) -> Optional[int]:
+def _safe_int(v: Any) -> int | None:
     try:
         i = int(float(v))
     except Exception:
@@ -50,13 +50,13 @@ def _safe_int(v: Any) -> Optional[int]:
     return int(i)
 
 
-def normalize_fill_event(evt: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_fill_event(evt: dict[str, Any]) -> dict[str, Any]:
     """Return canonical dict with best-effort key mapping.
 
     All values in the output follow strict types (str|float|int|None).
     This function never raises.
     """
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
 
     # Join key — must match decision_snapshot.sid
     sid = evt.get("sid") or evt.get("signal_id") or evt.get("client_order_id")
@@ -108,12 +108,12 @@ def normalize_fill_event(evt: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def validate_fill_event(evt: Dict[str, Any]) -> Tuple[bool, List[str]]:
+def validate_fill_event(evt: dict[str, Any]) -> tuple[bool, list[str]]:
     """Validate required fields after normalization.
 
     Returns (ok, missing_fields).
     """
-    missing: List[str] = []
+    missing: list[str] = []
 
     sid = evt.get("sid")
     if not sid:

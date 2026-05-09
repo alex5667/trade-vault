@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 apply_meta_enforce_cov_suggestion.py
 
@@ -32,13 +33,12 @@ ENV
   NOTIFY_TELEGRAM_STREAM (default notify:telegram)  # optional
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -46,7 +46,7 @@ except Exception:
     redis = None  # type: ignore
 
 try:
-    from core.switch_budget import SwitchState, can_switch, apply_switch
+    from core.switch_budget import SwitchState, apply_switch, can_switch
 except Exception:
     SwitchState = None  # type: ignore
     can_switch = None  # type: ignore
@@ -78,7 +78,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _jloads(x: Any) -> Optional[Dict[str, Any]]:
+def _jloads(x: Any) -> dict[str, Any] | None:
     if x is None:
         return None
     if isinstance(x, dict):
@@ -96,7 +96,7 @@ def _redis() -> Any:
     return redis.Redis.from_url(url, decode_responses=True)
 
 
-def _keys(prefix: str, sid: str) -> Dict[str, str]:
+def _keys(prefix: str, sid: str) -> dict[str, str]:
     return {
         "latest": f"{prefix}:latest",
         "meta": f"{prefix}:meta:{sid}",
@@ -106,15 +106,15 @@ def _keys(prefix: str, sid: str) -> Dict[str, str]:
     }
 
 
-def _load_cfg2(r: Any, dyn_key: str) -> Dict[str, Any]:
+def _load_cfg2(r: Any, dyn_key: str) -> dict[str, Any]:
     d = r.hgetall(dyn_key) or {}
     # keep raw strings, but provide convenient numeric access via helpers
     return {str(k): v for k, v in d.items()}
 
 
-def _write_cfg2_patch(r: Any, dyn_key: str, patch: Dict[str, Any]) -> None:
+def _write_cfg2_patch(r: Any, dyn_key: str, patch: dict[str, Any]) -> None:
     # HSET expects strings; keep float formatting stable
-    m: Dict[str, str] = {}
+    m: dict[str, str] = {}
     for k, v in patch.items():
         if v is None:
             continue
@@ -134,7 +134,7 @@ def _switch_budget_check_and_update(
     max_per_day: int,
     min_gap_ms: int,
     dry_run: bool,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     if SwitchState is None or can_switch is None or apply_switch is None:
         # fail-open: budget system not available
         return True, "ok_no_budget"
@@ -163,7 +163,7 @@ def main() -> int:
     min_gap_sec = int(os.environ.get("META_ENFORCE_COV_MIN_GAP_SEC", "3600") or 3600)
 
     dyn_key = os.environ.get("DYN_CFG_KEY", "settings:dynamic_cfg")
-    notify_stream = os.environ.get("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    notify_stream = os.environ.get("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
 
     # Global latch: if tick-quality gate blocks auto-apply, do nothing.
     assert_auto_apply_not_blocked()
@@ -171,7 +171,7 @@ def main() -> int:
     r = _redis()
     sid = str(args.sid or "").strip()
     if not sid:
-        sid = str(r.get(f"{prefix}:latest") or "").strip()
+        sid = (r.get(f"{prefix}:latest") or "").strip()
     if not sid:
         print(json.dumps({"ok": 0, "reason": "no_sid"}))
         return 0
@@ -223,8 +223,8 @@ def main() -> int:
     patch2["meta_cov_outcome_last_apply_ms"] = int(now_ts)
 
     # Record before/after snapshot for rollback/debug
-    before: Dict[str, Any] = {}
-    for kk in patch2.keys():
+    before: dict[str, Any] = {}
+    for kk in patch2:
         before[str(kk)] = cfg2.get(str(kk))
 
     if not args.dry_run:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict
 
 
 @dataclass
@@ -230,9 +229,7 @@ class TagStats:
         cr = (t.close_reason_raw or "").upper()
         crd = (t.close_reason_detail or "").upper()
         # Прямое совпадение или наличие ключевого слова
-        if any(x in cr for x in ("TRAIL", "TRAILING", "SL_AFTER", "MOVED_SL", "LOCK")):
-            is_trailing_close = True
-        elif any(x in crd for x in ("TRAIL", "TRAILING", "SL_AFTER", "MOVED_SL", "LOCK")):
+        if any(x in cr for x in ("TRAIL", "TRAILING", "SL_AFTER", "MOVED_SL", "LOCK")) or any(x in crd for x in ("TRAIL", "TRAILING", "SL_AFTER", "MOVED_SL", "LOCK")):
             is_trailing_close = True
 
         if trailing_flag and is_trailing_close:
@@ -254,11 +251,11 @@ class TagStats:
         if dd_f > self.mdd_fixed:
             self.mdd_fixed = dd_f
 
-    def finalize(self) -> Dict[str, float]:
+    def finalize(self) -> dict[str, float]:
         if self.n == 0:
             return {"tag": self.tag, "n": 0.0}
 
-        res: Dict[str, float] = {"tag": self.tag, "n": float(self.n)}
+        res: dict[str, float] = {"tag": self.tag, "n": float(self.n)}
 
         res["pnl_net_sum"] = self.sum_pnl_net
         res["pnl_net_avg"] = self.sum_pnl_net / self.n

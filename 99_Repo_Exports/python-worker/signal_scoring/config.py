@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict
 
 
 @dataclass
@@ -14,7 +13,7 @@ class PatternScoringConfig:
 @dataclass
 class ScoringConfig:
     min_confidence_default: float = 80.0
-    
+
     # NEW: fields for compatibility with InitializationManager
     confidence_threshold: float = 0.5
     max_score_age_ms: int = 300000
@@ -22,7 +21,7 @@ class ScoringConfig:
     golden_pattern_min_confidence: float = 90.0
 
     # веса метрик в комбинированном q
-    metric_weights: Dict[str, float] = field(
+    metric_weights: dict[str, float] = field(
         default_factory=lambda: {
             "delta_spike_z": 1.0,
             "obi": 0.7,
@@ -31,7 +30,7 @@ class ScoringConfig:
         }
     )
 
-    pattern_config: Dict[str, PatternScoringConfig] = field(default_factory=dict)
+    pattern_config: dict[str, PatternScoringConfig] = field(default_factory=dict)
 
     # NEW: вклад ликвидности в скоринг
     liquidity_weight: float = 0.2      # насколько сильно liquidity влияет на суммарный score
@@ -41,7 +40,7 @@ class ScoringConfig:
     liquidity_absorption_kill_floor: float = 0.6  # порог для absorption kill-switch
 
     @classmethod
-    def from_env(cls) -> "ScoringConfig":
+    def from_env(cls) -> ScoringConfig:
         cfg = cls()
 
         # глобальный минимум
@@ -61,7 +60,7 @@ class ScoringConfig:
                 cfg.metric_weights[metric] = float(value)
 
         # per-pattern config:
-        patterns: Dict[str, PatternScoringConfig] = {}
+        patterns: dict[str, PatternScoringConfig] = {}
 
         for key, value in os.environ.items():
             if key.startswith("SIGNAL_PATTERN_WEIGHT__"):

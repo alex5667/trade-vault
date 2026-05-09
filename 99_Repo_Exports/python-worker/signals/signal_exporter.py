@@ -12,11 +12,11 @@
 
 import json
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Any
 
-from core.signals_redis_client import get_signals_redis
-from core.config import STREAM_MAPPING, STREAM_MAX_LENGTH
 from common.time_utils import format_timestamp_for_redis, get_current_timestamp_ms
+from core.config import STREAM_MAPPING, STREAM_MAX_LENGTH
+from core.signals_redis_client import get_signals_redis
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +34,8 @@ class SignalExporter:
         if self._redis_client is None:
             self._redis_client = get_signals_redis()
         return self._redis_client
-    
-    def export_losers(self, losers_data: List[Dict[str, Any]]) -> bool:
+
+    def export_losers(self, losers_data: list[dict[str, Any]]) -> bool:
         """
         Экспортирует данные о падающих активах в Redis.
         
@@ -67,8 +67,8 @@ class SignalExporter:
         except Exception as e:
             logger.error("Error exporting losers: %s", e)
             return False
-    
-    def export_gainers(self, gainers_data: List[Dict[str, Any]]) -> bool:
+
+    def export_gainers(self, gainers_data: list[dict[str, Any]]) -> bool:
         """
         Экспортирует данные о растущих активах в Redis.
         
@@ -99,8 +99,8 @@ class SignalExporter:
         except Exception as e:
             logger.error("Error exporting gainers: %s", e)
             return False
-    
-    def export_volume(self, volume_data: List[Dict[str, Any]]) -> bool:
+
+    def export_volume(self, volume_data: list[dict[str, Any]]) -> bool:
         """
         Экспортирует данные об объемах торгов в Redis.
         
@@ -131,8 +131,8 @@ class SignalExporter:
         except Exception as e:
             logger.error("Error exporting volume: %s", e)
             return False
-    
-    def export_funding(self, funding_data: List[Dict[str, Any]]) -> bool:
+
+    def export_funding(self, funding_data: list[dict[str, Any]]) -> bool:
         """
         Экспортирует данные о ставках финансирования в Redis.
         
@@ -163,8 +163,8 @@ class SignalExporter:
         except Exception as e:
             logger.error("Error exporting funding: %s", e)
             return False
-    
-    def export_volatility_by_range(self, volatility_data: Dict[str, Any]) -> bool:
+
+    def export_volatility_by_range(self, volatility_data: dict[str, Any]) -> bool:
         """
         Экспортирует данные о волатильности по диапазону в Redis.
         
@@ -195,8 +195,8 @@ class SignalExporter:
         except Exception as e:
             logger.error("Error exporting volatilitybyrange: %s", e)
             return False
-    
-    def export_volatility_spike(self, volatility_data: Dict[str, Any]) -> bool:
+
+    def export_volatility_spike(self, volatility_data: dict[str, Any]) -> bool:
         """
         Экспортирует данные о всплесках волатильности в Redis.
         
@@ -227,8 +227,8 @@ class SignalExporter:
         except Exception as e:
             logger.error("Error exporting volatilityspike: %s", e)
             return False
-    
-    def _publish_to_stream(self, stream_name: str, data: Dict[str, Any]) -> Optional[str]:
+
+    def _publish_to_stream(self, stream_name: str, data: dict[str, Any]) -> str | None:
         """
         Публикует данные в Redis Stream.
         
@@ -259,7 +259,7 @@ class SignalExporter:
         except Exception as e:
             logger.error("Error publishing to stream %s: %s", stream_name, e)
             return None
-    
+
     def _check_connection(self) -> bool:
         """Проверяет доступность Redis."""
         try:
@@ -281,18 +281,18 @@ def _get_exporter() -> SignalExporter:
 
 
 def export_all_signals_to_redis_6380(
-    losers: Optional[List[Dict[str, Any]]] = None,
-    gainers: Optional[List[Dict[str, Any]]] = None,
-    volume: Optional[List[Dict[str, Any]]] = None,
-    funding: Optional[List[Dict[str, Any]]] = None,
-    volatility_by_range: Optional[Dict[str, Any]] = None,
-    volatility_spike: Optional[Dict[str, Any]] = None
-) -> Dict[str, bool]:
+    losers: list[dict[str, Any]] | None = None,
+    gainers: list[dict[str, Any]] | None = None,
+    volume: list[dict[str, Any]] | None = None,
+    funding: list[dict[str, Any]] | None = None,
+    volatility_by_range: dict[str, Any] | None = None,
+    volatility_spike: dict[str, Any] | None = None
+) -> dict[str, bool]:
     """
     Экспортирует все переданные сигналы в Redis на порт 6380.
     """
     exporter = _get_exporter()
-    results: Dict[str, bool] = {}
+    results: dict[str, bool] = {}
 
     if losers is not None:
         results['losers'] = exporter.export_losers(losers)

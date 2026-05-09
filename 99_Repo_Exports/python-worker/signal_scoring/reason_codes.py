@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 
-class ReasonCode(str, Enum):
+class ReasonCode(StrEnum):
     """
     Stable, structured veto/decision codes.
     Эти строки — контракт для:
@@ -61,7 +60,7 @@ _LEGACY_MAP: list[LegacyReasonMap] = [
 ]
 
 
-def legacy_reason_to_code(legacy_reason: Optional[str]) -> ReasonCode:
+def legacy_reason_to_code(legacy_reason: str | None) -> ReasonCode:
     """
     Best-effort маппинг legacy 'reason' в стабильный ReasonCode.
     Если не нашли — возвращаем VETO_UNKNOWN (и отдельно считаем метрикой).
@@ -75,7 +74,7 @@ def legacy_reason_to_code(legacy_reason: Optional[str]) -> ReasonCode:
     return ReasonCode.VETO_UNKNOWN
 
 
-def is_valid_reason_code(code: Optional[str]) -> bool:
+def is_valid_reason_code(code: str | None) -> bool:
     if not code:
         return False
     try:

@@ -1,10 +1,9 @@
-from utils.time_utils import get_ny_time_millis
 import json
-import time
 
 import fakeredis
 
 from utils.atr_cache import ATRCache
+from utils.time_utils import get_ny_time_millis
 
 # Monkeypatch fakeredis if hmget is missing (older versions)
 if not hasattr(fakeredis.FakeRedis, 'hmget'):

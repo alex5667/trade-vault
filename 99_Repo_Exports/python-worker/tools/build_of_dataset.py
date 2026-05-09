@@ -1,4 +1,7 @@
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+
 """Dataset join: OF replay rows ↔ POSITION_CLOSED by sid (fallback — approximate key) and labels.
 
 Why:
@@ -13,12 +16,13 @@ Usage:
 import argparse
 import json
 import os
-from typing import Any, Dict, List, Optional, Tuple
-from core.confirmations_schema_v1 import extract_confirmation_flags, CONF_KEYS_V1
+from typing import Any
+
+from core.confirmations_schema_v1 import CONF_KEYS_V1, extract_confirmation_flags
 
 
 def iter_ndjson(path: str):
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -30,30 +34,30 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(d)
+        return d
 
 
-def build_trade_index(trades_path: str) -> Dict[str, Dict[str, Any]]:
+def build_trade_index(trades_path: str) -> dict[str, dict[str, Any]]:
     """
     Index trades by sid.
     export_trade_closed_ndjson.py in your repo already flattens meta fields; sid must exist for join.
     """
-    idx: Dict[str, Dict[str, Any]] = {}
+    idx: dict[str, dict[str, Any]] = {}
     for r in iter_ndjson(trades_path):
-        sid = str(r.get("sid", "") or "")
+        sid = (r.get("sid", "") or "")
         if sid:
             idx[sid] = r
     return idx
 
 
-def extract_features(replay_row: Dict[str, Any]) -> Dict[str, Any]:
+def extract_features(replay_row: dict[str, Any]) -> dict[str, Any]:
     ev = replay_row.get("evidence") or {}
     legs = ev.get("legs") or {}
     if not isinstance(legs, dict):
@@ -72,19 +76,19 @@ def extract_features(replay_row: Dict[str, Any]) -> Dict[str, Any]:
             return 0
 
     out = {
-        "sid": str(replay_row.get("sid", "") or ""),
-        "symbol": str(replay_row.get("symbol", "") or ""),
+        "sid": (replay_row.get("sid", "") or ""),
+        "symbol": (replay_row.get("symbol", "") or ""),
         "ts_ms": _i(replay_row.get("ts_ms", 0)),
-        "direction": str(replay_row.get("direction", "") or ""),
-        "scenario": str(replay_row.get("scenario", "") or ""),
+        "direction": (replay_row.get("direction", "") or ""),
+        "scenario": (replay_row.get("scenario", "") or ""),
         "ok": _i(replay_row.get("ok", 0)),
         "have": _i(replay_row.get("have", 0)),
         "need": _i(replay_row.get("need", 0)),
         # Prefer base_score if available, else score (may already include exec penalty)
         "score": _f(replay_row.get("score", 0.0)),
         "base_score": _f(sb.get("base_score", replay_row.get("score", 0.0))),
-        "scenario_v4": str(ev.get("scenario_v4", "") or ""),
-        "need_reason": str(ev.get("need_reason", "") or ""),
+        "scenario_v4": (ev.get("scenario_v4", "") or ""),
+        "need_reason": (ev.get("need_reason", "") or ""),
         "ok_soft": _i(ev.get("ok_soft", 0)),
         # execution-risk
         "exec_risk_bps": _f(ev.get("exec_risk_bps", 0.0)),
@@ -99,8 +103,8 @@ def extract_features(replay_row: Dict[str, Any]) -> Dict[str, Any]:
         "leg_weak_progress": leg("weak_progress"),
         "leg_sweep_recent": leg("sweep_recent"),
         # meta-model telemetry (if enabled in engine)
-        "meta_p": _f(ev.get("meta_p", -1.0)),
-        "meta_veto": _i(ev.get("meta_veto", 0)),
+        "meta_p": _f(ev.get(MetaKeys.P, -1.0)),
+        "meta_veto": _i(ev.get(MetaKeys.VETO, 0)),
     }
 
     # Stage 4: v7 confirmation flags for skew audit
@@ -112,7 +116,7 @@ def extract_features(replay_row: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def extract_trade_labels(tr: Dict[str, Any]) -> Dict[str, Any]:
+def extract_trade_labels(tr: dict[str, Any]) -> dict[str, Any]:
     meta = tr.get("meta") if isinstance(tr.get("meta"), dict) else {}
     return {
         "r_mult": _f(tr.get("r_mult", 0.0)),
@@ -122,7 +126,7 @@ def extract_trade_labels(tr: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def make_label_binary(r_mult: float, *, pos_th: float, neg_th: float) -> Optional[int]:
+def make_label_binary(r_mult: float, *, pos_th: float, neg_th: float) -> int | None:
     """
     returns 1 for good, 0 for bad, None for ignore zone.
     """
@@ -148,7 +152,7 @@ def main() -> None:
 
     with open(args.out, "w", encoding="utf-8") as f:
         for rr in iter_ndjson(args.replay):
-            sid = str(rr.get("sid", "") or "")
+            sid = (rr.get("sid", "") or "")
             if not sid:
                 continue
             tr = trade_idx.get(sid)
@@ -176,7 +180,7 @@ def main() -> None:
         print(f"exporting_audit_confirmations path={audit_path}")
         # Re-read the output file we just wrote to extract only audit-relevant fields
         # (This is slightly inefficient but keeps main logic clean)
-        with open(args.out, "r") as f_in, open(audit_path, "w") as f_out:
+        with open(args.out) as f_in, open(audit_path, "w") as f_out:
             for line in f_in:
                 row = json.loads(line)
                 audit_row = {

@@ -1,26 +1,27 @@
 from __future__ import annotations
+
 """
 Signal generation logic for CryptoOrderFlowHandler.
 
 This module contains candidate detection, validation, scoring, and signal generation.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import os
-import time
+from dataclasses import dataclass
 from typing import Any
 
-from handlers.crypto_orderflow.logging.logging_utils import log_signal_one_json_unified
-from ..types.crypto_orderflow_pipeline_types import Candidate as CandidatePipeline, SignalDTO
-from dataclasses import dataclass
-from typing import Dict, Any
 # from orderflow.candidates import ScoredCandidate  <-- REMOVED due to shadowing collision
 from common.math_safe import clamp01, finite_or
-from signal_scoring.reason_codes import ReasonCode
-from signal_scoring.wire_u16 import pack_u16
 from common.u16_pack import pack_u16_list
+from handlers.crypto_orderflow.logging.logging_utils import log_signal_one_json_unified
+from signal_scoring.reason_codes import ReasonCode
 from signal_scoring.reason_registry import reason_code_to_u16
+from signal_scoring.wire_u16 import pack_u16
+from utils.time_utils import get_ny_time_millis
+
+from ..types.crypto_orderflow_pipeline_types import Candidate as CandidatePipeline
+from ..types.crypto_orderflow_pipeline_types import SignalDTO
+import contextlib
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,7 @@ class ScoredCandidate:
     conf_factor: float          # [0..1]
     final_score: float          # raw_score * conf_factor
     confidence_pct: float       # [0..100] calibrated display metric
-    score_parts: Dict[str, Any] # breakdown for debug/audit
+    score_parts: dict[str, Any] # breakdown for debug/audit
 
 
 class CryptoOrderFlowGenerateMixin:
@@ -81,10 +82,8 @@ class CryptoOrderFlowGenerateMixin:
 
         # Метрика staleness должна считаться именно здесь: это место, где L2 реально влияет на решение.
         # Поведение торговли НЕ меняем этим блоком — только отмечаем stale/missing в ctx и метриках.
-        try:
+        with contextlib.suppress(Exception):
             self._mark_l2_staleness(ctx=ctx, kind=kind_name)
-        except Exception:
-            pass
 
         if is_abs:
             res = self._l2_confirm_absorption_engine.check(snap, side=int(cand.side), price=float(price or 0.0))
@@ -251,7 +250,7 @@ class CryptoOrderFlowGenerateMixin:
                     pass
 
                 # log veto event
-                try:
+                with contextlib.suppress(Exception):
                     log_signal_one_json_unified(
                         self.logger,
                         payload={
@@ -272,8 +271,6 @@ class CryptoOrderFlowGenerateMixin:
                         conf_factor=None,
                         event="veto",
                     )
-                except Exception:
-                    pass
                 continue
 
             raw_score = float(cand.raw_score)

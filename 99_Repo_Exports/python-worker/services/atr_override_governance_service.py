@@ -1,9 +1,10 @@
-import os
 import json
 import logging
+import os
 import uuid
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 import redis
 
 from services.analytics_db import get_conn
@@ -21,7 +22,7 @@ class ATROverrideGovernanceService:
     def _generate_id(self) -> str:
         return f"ovr_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",
 
-    def _get_authority_matrix(self) -> Dict[str, List[str]]:
+    def _get_authority_matrix(self) -> dict[str, list[str]]:
         return {
             "operator": [
                 "READONLY_ACK",
@@ -52,7 +53,7 @@ class ATROverrideGovernanceService:
             return "senior_operator"
         return "operator"
 
-    def _check_hard_forbidden_rules(self, override_class: str, target_state: str, scope: Dict[str, Any]) -> Optional[str]:
+    def _check_hard_forbidden_rules(self, override_class: str, target_state: str, scope: dict[str, Any]) -> str | None:
         # Connect to DB to check for open SEV1 or protective breaches
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             # Check for SEV1
@@ -60,7 +61,7 @@ class ATROverrideGovernanceService:
             sev1_open = cur.fetchone()["c"]
             if sev1_open > 0 and target_state in ["normal", "clip"]:
                 return "FORBID_OVERRIDE_OPEN_SEV1_ON_RELATED_SCOPE"
-            
+
             # Check for hard freeze breaches (e.g., from atr_invariant_violations)
             cur.execute("""
                 SELECT count(*) as c FROM atr_invariant_violations v
@@ -69,18 +70,18 @@ class ATROverrideGovernanceService:
             """)
             if cur.fetchone()["c"] > 0:
                 return "FORBID_OVERRIDE_HARD_FREEZE_PROTECTIVE_BREACH"
-                
+
             # If target live100 without replay
             if target_state == "live_100":
                 # simplistic check
                 return "FORBID_OVERRIDE_LIVE100_WITHOUT_REPLAY"
-        
+
         return None
 
-    def request_override(self, override_class: str, scope: Dict[str, Any], current_state: str, requested_target_state: str, ttl_sec: int, requester: str, reason_code: str) -> Dict[str, Any]:
+    def request_override(self, override_class: str, scope: dict[str, Any], current_state: str, requested_target_state: str, ttl_sec: int, requester: str, reason_code: str) -> dict[str, Any]:
         if not self.enabled:
             return {"status": "error", "message": "Override Governance is disabled."}
-            
+
         symbol = scope.get("symbol", "all")
         if ATRGraphReconciliationService.detect_out_of_band_legacy_write(
             component="override",
@@ -93,9 +94,9 @@ class ATROverrideGovernanceService:
             return {"status": "error", "message": "Blocked by Graph Primary Authority"}
 
         override_id = self._generate_id()
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         not_after = now_utc + timedelta(seconds=ttl_sec)
-        
+
         req_json = {
             "scope": scope,
             "constraints": {
@@ -104,7 +105,7 @@ class ATROverrideGovernanceService:
                 "new_entries_allowed": requested_target_state in ["normal", "clip"]
             }
         }
-        
+
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO atr_override_requests (
@@ -122,12 +123,12 @@ class ATROverrideGovernanceService:
                 scope.get("layer"), scope.get("policy_ver"), requested_target_state, current_state,
                 "requested", requester, reason_code, ttl_sec, not_after.isoformat(), json.dumps(req_json), now_utc.isoformat()
             ))
-            
+
             cur.execute("""
                 INSERT INTO atr_override_events (override_id, old_status, new_status, reason_code, event_json)
                 VALUES (%s, %s, %s, %s, %s)
             """, (override_id, "none", "requested", reason_code, json.dumps({"requester": requester})))
-            
+
             # Emit graph event
             ControlPlaneGraphService.emit_graph_event(
                 scope_kind=scope.get("kind", "global"),
@@ -145,26 +146,26 @@ class ATROverrideGovernanceService:
 
         return {"status": "success", "override_id": override_id}
 
-    def approve_override(self, override_id: str, approver: str) -> Dict[str, Any]:
+    def approve_override(self, override_id: str, approver: str) -> dict[str, Any]:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             cur.execute("SELECT * FROM atr_override_requests WHERE override_id = %s", (override_id,))
             req = cur.fetchone()
             if not req:
                 return {"status": "error", "message": "Not found"}
-                
+
             if req["status"] != "requested":
                 return {"status": "error", "message": "Can only approve requested overrides"}
-                
+
             role = self._get_role(approver)
             allowed_classes = self._get_authority_matrix().get(role, [])
-            
+
             if req["override_class"] not in allowed_classes:
                 return {"status": "error", "message": f"Authority error: {role} cannot approve {req['override_class']}"}
-                
+
             forbidden_reason = self._check_hard_forbidden_rules(req["override_class"], req["requested_target_state"], req["request_json"].get("scope", {}))
             if forbidden_reason:
                 return {"status": "error", "message": f"Forbidden: {forbidden_reason}"}
-                
+
             symbol = req["symbol"] if req["symbol"] else "all"
             if ATRGraphReconciliationService.detect_out_of_band_legacy_write(
                 component="override",
@@ -175,14 +176,14 @@ class ATROverrideGovernanceService:
             ):
                 logger.warning(f"Blocked legacy override approval for {symbol} due to Graph Primary Authority.")
                 return {"status": "error", "message": "Blocked by Graph Primary Authority"}
-                
-            now_utc = datetime.now(timezone.utc).isoformat()
+
+            now_utc = datetime.now(UTC).isoformat()
             cur.execute("UPDATE atr_override_requests SET status = 'approved', approver = %s WHERE override_id = %s", (approver, override_id))
             cur.execute("""
                 INSERT INTO atr_override_events (override_id, old_status, new_status, reason_code, event_json)
                 VALUES (%s, %s, %s, %s, %s)
             """, (override_id, "requested", "approved", "OVERRIDE_APPROVED", json.dumps({"approver": approver})))
-            
+
             # Emit graph event
             ControlPlaneGraphService.emit_graph_event(
                 scope_kind=req["scope_kind"],
@@ -207,8 +208,8 @@ class ATROverrideGovernanceService:
             req = cur.fetchone()
             if not req or req["status"] != "approved":
                 return
-                
-            now_utc = datetime.now(timezone.utc).isoformat()
+
+            now_utc = datetime.now(UTC).isoformat()
             cur.execute("UPDATE atr_override_requests SET status = 'active', activated_at = %s WHERE override_id = %s", (now_utc, override_id))
             cur.execute("""
                 INSERT INTO atr_override_events (override_id, old_status, new_status, reason_code, event_json)
@@ -236,7 +237,7 @@ class ATROverrideGovernanceService:
             req = cur.fetchone()
             if not req or req["status"] not in ["requested", "approved", "active"]:
                 return
-                
+
             symbol = req["symbol"] if req["symbol"] else "all"
             if not auto_expire and ATRGraphReconciliationService.detect_out_of_band_legacy_write(
                 component="override",
@@ -247,9 +248,9 @@ class ATROverrideGovernanceService:
             ):
                 logger.warning(f"Blocked legacy override revoke for {symbol} due to Graph Primary Authority.")
                 return
-                
+
             old_status = req["status"]
-            now_utc = datetime.now(timezone.utc).isoformat()
+            now_utc = datetime.now(UTC).isoformat()
             cur.execute("UPDATE atr_override_requests SET status = %s, expired_at = %s WHERE override_id = %s", (new_status, now_utc, override_id))
             cur.execute("""
                 INSERT INTO atr_override_events (override_id, old_status, new_status, reason_code, event_json)
@@ -274,23 +275,23 @@ class ATROverrideGovernanceService:
             req = cur.fetchone()
             if not req or req["status"] not in ["expired", "revoked"]:
                 return
-            
+
             # simplistic mock check
             checks = {"O1": "passed", "O2": "passed", "O3": "passed"}
             status = "passed"
-            
+
             cur.execute("""
                 INSERT INTO atr_post_override_certifications (cert_id, override_id, status, checks_json, summary_json)
                 VALUES (%s, %s, %s, %s, %s)
             """, (f"cert_{override_id}", override_id, status, json.dumps(checks), json.dumps({"desc": "Simulated check"})))
             conn.commit()
-            
+
     def run_ttl_checker(self):
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
-            now_utc = datetime.now(timezone.utc)
+            now_utc = datetime.now(UTC)
             cur.execute("SELECT override_id FROM atr_override_requests WHERE status = 'active' AND not_after <= %s", (now_utc.isoformat(),))
             active_expired = cur.fetchall()
-            
+
             for row in active_expired:
                 self.revoke_override(row["override_id"], "TTL_EXPIRED", auto_expire=True)
                 self.certify_override(row["override_id"])
@@ -300,23 +301,23 @@ class ATROverrideGovernanceService:
         if self.advisory_only:
             logger.info("Override governance in advisory mode. Skpping redis sync.")
             return
-            
+
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             cur.execute("SELECT * FROM atr_override_requests WHERE status = 'active'")
             active_overrides = cur.fetchall()
-            
+
             # Simple approach: clear all override keys first or set them to normal
             # For this example, we just add `cfg:atr_override:*` keys
             for o in active_overrides:
                 scope = f"{o['scope_kind']}:{o.get('symbol','*')}"
                 if o.get("symbol") is None:
                     scope = "global:all" # fallback
-                
+
                 payload = {
                     "state": o["requested_target_state"],
                     "override_id": o["override_id"]
                 }
-                
+
                 self.redis_client.set(f"cfg:atr_override:{scope}", json.dumps(payload), ex=3600)
-                
+
             # Usually we'd also clean up expired keys, but `ex` handles it, or explicit delete.

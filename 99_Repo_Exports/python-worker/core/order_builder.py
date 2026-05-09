@@ -1,8 +1,8 @@
 import time
-from typing import Any, Dict
+from typing import Any
+
 from common.contracts.registry import OrderIntentV1
-from common.normalization import normalize_side, normalize_direction, get_side_int
-from common.enums.trading import Side
+from common.normalization import get_side_int, normalize_side
 
 
 class OrderBuilder:
@@ -18,7 +18,7 @@ class OrderBuilder:
     def __init__(self, redis_core):
         self.r = redis_core
 
-    def _load_hash(self, key: str) -> Dict[str, Any]:
+    def _load_hash(self, key: str) -> dict[str, Any]:
         try:
             data = self.r.hgetall(key)
         except Exception:
@@ -27,14 +27,14 @@ class OrderBuilder:
         if not data:
             return {}
 
-        decoded: Dict[str, Any] = {}
+        decoded: dict[str, Any] = {}
         for raw_key, raw_value in data.items():
             key = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
             value = raw_value.decode() if isinstance(raw_value, bytes) else raw_value
             decoded[key] = value
         return decoded
 
-    def _resolve_quantity(self, signal: Dict[str, Any]) -> float:
+    def _resolve_quantity(self, signal: dict[str, Any]) -> float:
         symbol = signal["symbol"]
         cfg = self._load_hash(f"config:orderflow:{symbol}")
 
@@ -56,9 +56,9 @@ class OrderBuilder:
 
         return 0.01
 
-    def build_order_from_signal(self, signal: Dict[str, Any]) -> Dict[str, Any]:
+    def build_order_from_signal(self, signal: dict[str, Any]) -> dict[str, Any]:
         symbol = signal["symbol"]
-        direction = str(signal.get("direction", "")).upper()
+        direction = (signal.get("direction", "")).upper()
         price = signal.get("entry")
         sid = signal["sid"]
         ts_ms = signal.get("ts_ms") or int(time.time() * 1000)
@@ -69,11 +69,11 @@ class OrderBuilder:
         try:
             side_norm = normalize_side(direction)
             side_int = get_side_int(direction)
-            
+
             intent_v1 = OrderIntentV1(
                 intent_id=f"int:{sid}:{int(time.time()*1000)}",
                 signal_id=str(sid),
-                symbol=str(symbol),
+                symbol=symbol,
                 ts_ms=int(ts_ms),
                 side=side_norm,
                 side_int=side_int,

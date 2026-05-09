@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """Feature Drift Exporter V1.
 
 Exposes drift metrics from Redis `settings:dynamic_cfg` to Prometheus.
@@ -13,12 +14,12 @@ Metrics:
   drift_staleness_sec (Gauge)
 """
 
-import os
-import sys
-import time
 import logging
-from prometheus_client import start_http_server, Gauge
+import os
+import time
+
 import redis
+from prometheus_client import Gauge, start_http_server
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -41,18 +42,18 @@ G_STALENESS = Gauge("drift_staleness_sec", "Seconds since last drift calculation
 def main():
     logger.info(f"Starting Drift Exporter on port {PORT}...")
     start_http_server(PORT)
-    
+
     r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-    
+
     while True:
         try:
             val = r.hgetall(DYN_CFG_KEY)
-            
+
             if not val:
                 logger.debug("No data in dynamic cfg")
                 time.sleep(POLL_INTERVAL)
                 continue
-                
+
             # Parse values
             max_z = float(val.get("feature_drift_max_z_24h", 0.0))
             max_psi = float(val.get("psi_max_24h", 0.0))
@@ -60,14 +61,14 @@ def main():
             n_cur = int(float(val.get("drift_n_cur_24h", 0)))
             n_ref = int(float(val.get("drift_n_ref_24h", 0)))
             last_ts = int(float(val.get("drift_last_ts_ms", 0)))
-            
+
             # Update gauges
             G_MAX_Z.set(max_z)
             G_MAX_PSI.set(max_psi)
             G_STATE.set(state)
             G_N_CUR.set(n_cur)
             G_N_REF.set(n_ref)
-            
+
             # Staleness
             now_ms = get_ny_time_millis()
             if last_ts > 0:
@@ -82,7 +83,7 @@ def main():
             logger.warning(f"Waiting for Redis to load dataset: {e}")
         except Exception as e:
             logger.error(f"Error updating metrics: {e}")
-        
+
         time.sleep(POLL_INTERVAL)
 
 if __name__ == "__main__":

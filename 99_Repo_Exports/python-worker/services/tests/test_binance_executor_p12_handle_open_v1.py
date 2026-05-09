@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P12 — handle_open does NOT mark FSM_PROTECTED after EMERGENCY_FLATTENED.
 
 Tests the critical P12 invariant: if handle_open ends with an emergency
@@ -10,18 +11,16 @@ that handle_open uses, without running the full order submission chain.
 """
 
 import importlib.util
-import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import pytest
+from core.redis_keys import RedisStreams as RS
+
 
 # --- Env setup ---
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
@@ -41,10 +40,10 @@ spec.loader.exec_module(mod)
 
 class FakeRedis:
     def __init__(self):
-        self.store: Dict[str, str] = {}
+        self.store: dict[str, str] = {}
         self.stream: list = []
 
-    def get(self, key: str) -> Optional[bytes]:
+    def get(self, key: str) -> bytes | None:
         v = self.store.get(key)
         return v.encode() if v else None
 
@@ -65,11 +64,11 @@ class FakeClient:
         }
 
 
-def _mk_executor() -> "mod.BinanceExecutor":
+def _mk_executor() -> mod.BinanceExecutor:
     """Build a minimal BinanceExecutor with P12 FSM control."""
     ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
     ex.r = FakeRedis()
-    ex.exec_stream = "orders:exec"
+    ex.exec_stream = RS.ORDERS_EXEC
     ex.orders_state_prefix = "orders:state:"
     ex.orders_state_ttl = 86400
     ex.protection_arm_timeout_ms = 2500

@@ -1,23 +1,23 @@
-from utils.time_utils import get_ny_time_millis
 import json
-import os
-import time
-import random
-import uuid
-from typing import Any, Dict, Optional
-
 import logging
+import os
+import random
+import time
+import uuid
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger(__name__)
 
-from core.redis_client import get_redis
-from core.dual_redis_client import get_dual_signals_redis
-from core.redis_stream_consumer import SyncRedisStreamHelper
-from core.delivery_atomic import DeliveryAtomic, DeliveryAtomicSettings
-from core.sid_lease import SidLease, SidLeaseSettings
-from core.outbox_retry_queue import OutboxRetryQueue, RetryQueueSettings
-from core.notify_gate import NotifyGate, NotifyGateSettings
 from common.transient_errors import is_transient_error
+from core.delivery_atomic import DeliveryAtomic, DeliveryAtomicSettings
+from core.dual_redis_client import get_dual_signals_redis
+from core.notify_gate import NotifyGate, NotifyGateSettings
+from core.outbox_retry_queue import OutboxRetryQueue, RetryQueueSettings
+from core.redis_client import get_redis
+from core.redis_stream_consumer import SyncRedisStreamHelper
+from core.sid_lease import SidLease, SidLeaseSettings
 
 
 class SignalDispatcher:
@@ -85,7 +85,7 @@ class SignalDispatcher:
                 marker_ttl_sec=int(os.getenv("SIGNAL_DELIVERY_MARKER_TTL_SEC", "86400")),
             )
         )
-        
+
         self.signal_notify_stream = os.getenv("SIGNAL_NOTIFY_STREAM", "stream:notify:telegram")
         self.signal_manual_stream = os.getenv("SIGNAL_MANUAL_STREAM", "stream:signals:manual")
         self.signal_notify_maxlen = int(os.getenv("SIGNAL_NOTIFY_MAXLEN", "10000"))
@@ -136,7 +136,7 @@ class SignalDispatcher:
         delay = min(self.retry_max_ms, self.retry_base_ms * (2 ** min(attempt - 1, 8)))
         return int(delay * (0.5 + random.random() * 0.5))
 
-    def _schedule_retry(self, msg_id: str, fields: Dict[str, Any], attempt: int, err: Exception) -> None:
+    def _schedule_retry(self, msg_id: str, fields: dict[str, Any], attempt: int, err: Exception) -> None:
         delay_ms = self._compute_delay_ms(attempt)
         now_ms = get_ny_time_millis()
         due_ms = now_ms + int(delay_ms)
@@ -309,7 +309,7 @@ class SignalDispatcher:
                 logger.error("❌ [%s] Fatal error in SignalDispatcher loop: %s", self.consumer, exc, exc_info=True)
                 time.sleep(1)
 
-    def _parse_envelope(self, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_envelope(self, fields: dict[str, Any]) -> dict[str, Any] | None:
         """Parse signal envelope from stream fields"""
         try:
             data = fields.get("payload") or fields.get("data")
@@ -337,7 +337,7 @@ class SignalDispatcher:
         except Exception:
             pass
 
-    def _send_dlq(self, msg_id: str, envelope: Dict[str, Any], reason: str) -> None:
+    def _send_dlq(self, msg_id: str, envelope: dict[str, Any], reason: str) -> None:
         """Send failed message to DLQ"""
         try:
             payload = {
@@ -362,7 +362,7 @@ class SignalDispatcher:
             logger.warning("⚠️ Failed to bump attempt for %s: %s", msg_id, e)
             return 1
 
-    def _deliver_all_atomic(self, env: Dict[str, Any], *, sid: str, lease_token: str) -> None:
+    def _deliver_all_atomic(self, env: dict[str, Any], *, sid: str, lease_token: str) -> None:
         targets = env.get("targets") or {}
         meta = env.get("meta") or {}
 
@@ -383,7 +383,7 @@ class SignalDispatcher:
             marker_key = self._delivery.marker_key("notify", sid)
             # "сверхидеал": gating стабилен для sid и не ломается ретраями
             symbol = env.get("symbol") or env.get("sym") or ""
-            if self._notify_gate.should_send(sid, symbol=str(symbol)):
+            if self._notify_gate.should_send(sid, symbol=symbol):
                 ok, _ = self._delivery.xadd_once(
                     marker_key=marker_key,
                     stream=self.signal_notify_stream,
@@ -392,7 +392,7 @@ class SignalDispatcher:
                 )
 
         # 2) strategy stream
-        signal_stream = str(meta.get("signal_stream") or "")
+        signal_stream = (meta.get("signal_stream") or "")
         signal_payload = targets.get("signal_stream_payload")
         if signal_stream and signal_payload and simple_client:
             print(f"      [DEBUG] Delivering to signal_stream={signal_stream}", flush=True)
@@ -406,7 +406,7 @@ class SignalDispatcher:
             )
 
         # 3) audit stream
-        audit_stream = str(meta.get("audit_stream") or "")
+        audit_stream = (meta.get("audit_stream") or "")
         audit_payload = targets.get("audit_payload")
         if audit_stream and audit_payload and self.redis:
             print(f"      [DEBUG] Delivering to audit_stream={audit_stream}", flush=True)
@@ -441,7 +441,7 @@ class SignalDispatcher:
         # 4) manual stream (also gated/deduplicated)
         manual_payload = targets.get("manual_payload")
         if self.signal_manual_stream and manual_payload and dual_client:
-            print(f"      [DEBUG] Delivering to manual stream", flush=True)
+            print("      [DEBUG] Delivering to manual stream", flush=True)
             _renew_or_raise()
             marker_key = self._delivery.marker_key("manual", sid)
             ok, _ = self._delivery.xadd_once(
@@ -454,17 +454,17 @@ class SignalDispatcher:
         # 5) mt5 plans (new)
         mt5_plan = targets.get("mt5_plan")
         if self.mt5_plans_stream and mt5_plan and simple_client:
-            print(f"      [DEBUG] Delivering to mt5_plans_stream", flush=True)
+            print("      [DEBUG] Delivering to mt5_plans_stream", flush=True)
             _renew_or_raise()
             marker_key = self._delivery.marker_key("mt5_plan", sid)
             # mt5_bridge.redis_consumer wants specific format: { "payload": JSON({"plan": ...}) }
             # but here we just put the plan object itself into a wrapper
             # redis_consumer expects: { "payload": "{ \"plan\": { ... } }" }
-            
+
             # Wrap plan into envelope expected by mt5_bridge
             wrapper = {"plan": mt5_plan}
             payload_json = json.dumps(wrapper, ensure_ascii=False)
-            
+
             ok, _ = self._delivery.xadd_once(
                 marker_key=marker_key,
                 stream=self.mt5_plans_stream,
@@ -473,11 +473,11 @@ class SignalDispatcher:
             )
 
         # 5) snapshot
-        snap_key = str(meta.get("snap_key") or "")
+        snap_key = (meta.get("snap_key") or "")
         snap_ttl = int(meta.get("snap_ttl") or 21600)
         snap_payload = targets.get("snapshot")
         if snap_key and snap_payload and self.redis:
-            print(f"      [DEBUG] Delivering to snapshot", flush=True)
+            print("      [DEBUG] Delivering to snapshot", flush=True)
             _renew_or_raise()
             marker_key = self._delivery.marker_key("snapshot", sid)
             ok = self._delivery.setex_once(
@@ -487,7 +487,7 @@ class SignalDispatcher:
                 payload=snap_payload,
             )
 
-    def _handle_one(self, msg_id: str, fields: Dict[str, Any], *, helper: SyncRedisStreamHelper, attempt_hint: int = 0) -> bool:
+    def _handle_one(self, msg_id: str, fields: dict[str, Any], *, helper: SyncRedisStreamHelper, attempt_hint: int = 0) -> bool:
         """Process one outbox message"""
         try:
             self._handle_one_count += 1

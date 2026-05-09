@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 nightly_meta_enforce_ramp_or_freeze_bundle.py
 
@@ -22,22 +23,20 @@ Usage:
   (reads ENV vars for schedule, thresholds, symbols, DiD params, freeze policy)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
+import hashlib
+import hmac
 import json
 import os
 import secrets
 import subprocess
 import sys
 import time
-import hmac
-import hashlib
-from typing import Dict, List, Tuple
 
 import redis
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("NightlyMetaEnforceRampOrFreeze")
 
@@ -53,21 +52,21 @@ def sign(bid: str, secret: str) -> str:
     return d[:8]
 
 
-def _notify(r: redis.Redis, text: str, buttons: List[List[Dict[str, str]]] | None = None) -> None:
+def _notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Send notification to Telegram stream."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
 def _read_float_h(r: redis.Redis, key: str, field: str, default: float = 0.0) -> float:
     """Read float value from Redis hash field."""
     v = r.hget(key, field)
     try:
-        return float(v) if v is not None else float(default)
+        return float(v) if v is not None else default
     except Exception:
-        return float(default)
+        return default
 
 
 def main() -> None:
@@ -100,7 +99,7 @@ def main() -> None:
         streak = int(r.get(streak_key) or "0")
     except Exception:
         streak = 0
-    last_status = str(r.get(last_status_key) or "")
+    last_status = (r.get(last_status_key) or "")
     try:
         last_ts = int(r.get(last_ts_key) or "0")
     except Exception:
@@ -174,7 +173,7 @@ def main() -> None:
     trades_out = f"{run_dir}/trades.ndjson"
     eval_out = f"{run_dir}/eval_strat.json"
 
-    trades_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    trades_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     export_hours = max(args.since_hours, 2.0 * args.window_hours + 12.0)
 
     logger.info(f"Exporting trades from {trades_stream} (since {export_hours}h)")
@@ -209,7 +208,7 @@ def main() -> None:
         "--did-mean-p05-min", str(did_mean_p05_min),
     ])
 
-    rep = json.loads(open(eval_out, "r", encoding="utf-8").read())
+    rep = json.loads(open(eval_out, encoding="utf-8").read())
     dec = rep.get("decision") or {}
 
     # ---------------- If OK -> propose ramp bundle ----------------
@@ -219,7 +218,7 @@ def main() -> None:
         bundle_id = secrets.token_hex(6)
         sig = sign(bundle_id, secret)
 
-        salt = str(os.getenv("META_ENFORCE_SALT", "enf_v1"))
+        salt = os.getenv("META_ENFORCE_SALT", "enf_v1")
         ops = []
         for sym in syms:
             hk = f"{prefix}{sym}"
@@ -281,14 +280,14 @@ def main() -> None:
         failed_top = rep.get("failed_top") or []
         if not failed_top:
             if args.notify_on_skip == 1:
-                _notify(r, f"<b>Meta ramp blocked</b>\nreason=<code>worst_case_failed</code>\n(no failed_top)")
+                _notify(r, "<b>Meta ramp blocked</b>\nreason=<code>worst_case_failed</code>\n(no failed_top)")
             logger.warning("worst_case_failed but no failed_top in eval report")
             return
 
         # Extract cells like "BTCUSDT|trend"
         cells = []
         for x in failed_top:
-            ck = str(x.get("cell", "") or "")
+            ck = (x.get("cell", "") or "")
             if ck and ck not in cells:
                 cells.append(ck)
             if len(cells) >= max_freeze_cells:
@@ -296,7 +295,7 @@ def main() -> None:
 
         if not cells:
             if args.notify_on_skip == 1:
-                _notify(r, f"<b>Meta ramp blocked</b>\nreason=<code>worst_case_failed</code>\n(no valid cells to freeze)")
+                _notify(r, "<b>Meta ramp blocked</b>\nreason=<code>worst_case_failed</code>\n(no valid cells to freeze)")
             logger.warning("worst_case_failed but no valid cells extracted")
             return
 
@@ -329,7 +328,7 @@ def main() -> None:
 
         if not cells_to_freeze:
             if args.notify_on_skip == 1:
-                _notify(r, f"<b>Meta ramp blocked</b>\nreason=<code>worst_case_failed</code>\n(all cells already <= floor)")
+                _notify(r, "<b>Meta ramp blocked</b>\nreason=<code>worst_case_failed</code>\n(all cells already <= floor)")
             logger.warning("worst_case_failed but all cells already <= floor")
             return
 
@@ -346,7 +345,7 @@ def main() -> None:
 
             ops.append({"op": "HSET", "key": hk, "field": "meta_model_enable", "value": "1"})
             ops.append({"op": "HSET", "key": hk, "field": "meta_model_mode", "value": "ENFORCE"})
-            ops.append({"op": "HSET", "key": hk, "field": "meta_enforce_salt", "value": str(os.getenv("META_ENFORCE_SALT", "enf_v1"))})
+            ops.append({"op": "HSET", "key": hk, "field": "meta_enforce_salt", "value": os.getenv("META_ENFORCE_SALT", "enf_v1")})
 
             if use_per_regime:
                 # freeze only this bucket
@@ -356,12 +355,12 @@ def main() -> None:
             else:
                 # without per-regime: freeze whole symbol
                 ops.append({"op": "HSET", "key": hk, "field": "meta_enforce_share", "value": f"{freeze_to:.2f}"})
-            
+
             freeze_cells.append(ck)
 
         if not ops:
             if args.notify_on_skip == 1:
-                _notify(r, f"<b>Meta ramp blocked</b>\nreason=<code>worst_case_failed</code>\n(no ops generated)")
+                _notify(r, "<b>Meta ramp blocked</b>\nreason=<code>worst_case_failed</code>\n(no ops generated)")
             logger.warning("worst_case_failed but no ops generated")
             return
 

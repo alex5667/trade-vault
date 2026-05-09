@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from common.news_gate import NewsGate, GateDecision
+
+from common.news_gate import GateDecision, NewsGate
 
 
 class R:

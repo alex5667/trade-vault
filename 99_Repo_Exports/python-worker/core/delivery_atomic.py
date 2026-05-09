@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 """
 Atomic per-target delivery with idempotent markers, WITHOUT "loss":
@@ -111,11 +111,11 @@ class DeliveryAtomicSettings:
 
 
 class DeliveryAtomic:
-    def __init__(self, redis_client: Any, *, settings: Optional[DeliveryAtomicSettings] = None) -> None:
+    def __init__(self, redis_client: Any, *, settings: DeliveryAtomicSettings | None = None) -> None:
         self.redis = redis_client
         self.settings = settings or DeliveryAtomicSettings()
-        self._sha_xadd: Optional[str] = None
-        self._sha_setex: Optional[str] = None
+        self._sha_xadd: str | None = None
+        self._sha_setex: str | None = None
 
     def marker_key(self, target: str, sid: str) -> str:
         # dedicated namespace (no collisions with old deliver:{target}:{sid})
@@ -138,10 +138,10 @@ class DeliveryAtomic:
         *,
         marker_key: str,
         stream: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         maxlen: int,
-        marker_ttl_sec: Optional[int] = None,
-    ) -> Tuple[bool, Optional[str]]:
+        marker_ttl_sec: int | None = None,
+    ) -> tuple[bool, str | None]:
         ttl = int(marker_ttl_sec or self.settings.marker_ttl_sec)
         expire_at_ms = get_ny_time_millis() + ttl * 1000
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -180,8 +180,8 @@ class DeliveryAtomic:
         marker_key: str,
         key: str,
         ttl_sec: int,
-        payload: Dict[str, Any],
-        marker_ttl_sec: Optional[int] = None,
+        payload: dict[str, Any],
+        marker_ttl_sec: int | None = None,
     ) -> bool:
         ttl = int(marker_ttl_sec or self.settings.marker_ttl_sec)
         expire_at_ms = get_ny_time_millis() + ttl * 1000

@@ -1,11 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -40,13 +42,13 @@ MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_VERT
 MODE = os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_VERTEX_RCA_HANDLER_MODE", "DETERMINISTIC").upper()
 POLL_INTERVAL_SEC = 2.0
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_apply_vertex_rca_runs_total", "Runs", ("status", "decision"))
@@ -59,7 +61,7 @@ RESULTS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_apply_vertex_r
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
@@ -88,19 +90,19 @@ async def persist_result(db_url: str, request_id: str, bundle_id: str, result_js
             )
             conn.commit()
 
-def build_deterministic_result(bundle_json_str: str) -> Dict[str, Any]:
+def build_deterministic_result(bundle_json_str: str) -> dict[str, Any]:
     try:
         b = json.loads(bundle_json_str)
     except Exception:
         b = {}
-    
-    triggers = b.get("trigger", {}) 
+
+    triggers = b.get("trigger", {})
     trig_type = triggers.get("type", "unknown")
     sev = triggers.get("severity", "unknown")
-    
+
     findings = []
     actions = []
-    
+
     if trig_type == "rollback":
         findings.append("ROLLBACK_TRIGGERED")
         findings.append("verify_keep_rate_dropped_or_mttr_breach")
@@ -114,7 +116,7 @@ def build_deterministic_result(bundle_json_str: str) -> Dict[str, Any]:
         actions.append("check_retry_exhaustion_in_governance")
     else:
         findings.append("UNKNOWN_TRIGGER")
-        
+
     return {
         "summary": "Deterministic apply-governance RCA summary based on bundle headers.",
         "dominant_findings": findings,
@@ -126,29 +128,29 @@ def build_deterministic_result(bundle_json_str: str) -> Dict[str, Any]:
         "quality_flags": ["auto_generated", "deterministic_fallback"]
     }
 
-async def process_msg(r: Any, db_url: str, request_id: str, fields: Dict[str, Any]) -> None:
+async def process_msg(r: Any, db_url: str, request_id: str, fields: dict[str, Any]) -> None:
     started = time.perf_counter()
     status = "ok"
     decision = "ACCEPT"
-    
+
     try:
-        bundle_id = fields.get("apply_id", "") 
+        bundle_id = fields.get("apply_id", "")
         bundle_json = fields.get("bundle_json", "")
         if not bundle_id or not bundle_json:
             decision = "REJECT_INVALID_PAYLOAD"
             return
-            
+
         b = json.loads(bundle_json)
         sev = b.get("trigger", {}).get("severity", "unknown")
-            
+
         if MODE == "DETERMINISTIC":
             res_payload = build_deterministic_result(bundle_json)
         else:
             # Here real vertex call would happen
             res_payload = build_deterministic_result(bundle_json)
-            
+
         rj = json.dumps(res_payload)
-        
+
         await r.xadd(OUT_VERTEX_RCA_RESULTS, {
             "request_id": request_id,
             "bundle_id": bundle_id,
@@ -156,17 +158,17 @@ async def process_msg(r: Any, db_url: str, request_id: str, fields: Dict[str, An
             "result_json": rj,
             "ts_ms": str(now_ms())
         }, maxlen=MAXLEN, approximate=True)
-        
+
         await r.hset(LAST_METRIC, "request_id", request_id)
         await r.hset(LAST_METRIC, "bundle_id", bundle_id)
         await r.hset(LAST_METRIC, "ts_ms", str(now_ms()))
-        
+
         await persist_result(db_url, request_id, bundle_id, rj)
-        
+
         if RESULTS:
             RESULTS.labels(severity=sev, provider_mode=MODE).inc()
-            
-    except Exception as exc:
+
+    except Exception:
         status = "error"
     finally:
         if RUNS:
@@ -184,20 +186,18 @@ async def main() -> None:  # pragma: no cover
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     db_url = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
 
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(IN_VERTEX_RCA, CG_NAME, id="0", mkstream=True)
-    except Exception:
-        pass
 
     while True:
         try:
             resp = await r.xreadgroup(CG_NAME, CONS_NAME, {IN_VERTEX_RCA: ">"}, count=10, block=2000)
             if LAST_RUN:
                 LAST_RUN.set(time.time())
-                
+
             if not resp:
                 continue
-                
+
             for stream_name, msgs in resp:
                 for msg_id, fields in msgs:
                     mid = msg_id.decode() if isinstance(msg_id, bytes) else msg_id

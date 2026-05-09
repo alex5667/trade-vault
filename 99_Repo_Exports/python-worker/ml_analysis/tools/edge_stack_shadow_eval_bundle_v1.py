@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """P60 Edge Stack Shadow Eval Bundle.
 
 Runs nightly:
@@ -26,8 +27,8 @@ Usage:
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 try:
     import numpy as np  # type: ignore
@@ -62,10 +63,10 @@ from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import (
 )
 
 
-def _read_jsonl(path: str) -> List[Dict[str, Any]]:
+def _read_jsonl(path: str) -> list[dict[str, Any]]:
     """Read a JSONL file and return list of dicts."""
-    out: List[Dict[str, Any]] = []
-    with open(path, "r", encoding="utf-8") as f:
+    out: list[dict[str, Any]] = []
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -83,9 +84,9 @@ def _f(x: Any, d: float = 0.0) -> float:
     """Safe float conversion, NaN-safe."""
     try:
         v = float(x)
-        return v if v == v else float(d)
+        return v if v == v else d
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -93,10 +94,10 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(d)
+        return d
 
 
-def _load_cfg(r: redis.Redis, key: str) -> Optional[Dict[str, Any]]:
+def _load_cfg(r: redis.Redis, key: str) -> dict[str, Any] | None:
     """Load JSON config from Redis key."""
     raw = r.get(key)
     if not raw:
@@ -110,7 +111,7 @@ def _load_cfg(r: redis.Redis, key: str) -> Optional[Dict[str, Any]]:
     return obj
 
 
-def _predict_pack_p(model_pack: Dict[str, Any], row: Dict[str, Any]) -> Tuple[float, int]:
+def _predict_pack_p(model_pack: dict[str, Any], row: dict[str, Any]) -> tuple[float, int]:
     """Return (p_edge_raw, missing_count).
 
     Uses the standard edge_stack_v1 pack format: lr + gbdt + meta stacking.
@@ -120,8 +121,8 @@ def _predict_pack_p(model_pack: Dict[str, Any], row: Dict[str, Any]) -> Tuple[fl
     from ml_analysis.tools.train_edge_stack_v1_oof import build_feature_row  # type: ignore
 
     indicators = row.get("indicators") if isinstance(row.get("indicators"), dict) else {}
-    direction = str(row.get("direction") or "")
-    scenario = str(row.get("scenario") or "")
+    direction = (row.get("direction") or "")
+    scenario = (row.get("scenario") or "")
     ts_ms = _i(row.get("ts_ms"), 0)
 
     feature_cols = model_pack.get("feature_cols") or []
@@ -169,7 +170,7 @@ def _predict_pack_p(model_pack: Dict[str, Any], row: Dict[str, Any]) -> Tuple[fl
     return p, missing
 
 
-def _metrics_blob(rows: List[Dict[str, Any]], p_list: List[float]) -> Dict[str, float]:
+def _metrics_blob(rows: list[dict[str, Any]], p_list: list[float]) -> dict[str, float]:
     """Compute shadow metrics dict from rows and predictions."""
     y = np.asarray([_i(r.get("y"), 0) for r in rows], dtype=np.int32)
     rmult = np.asarray([_f(r.get("r_mult"), 0.0) for r in rows], dtype=np.float32)
@@ -181,17 +182,17 @@ def _read_env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 def _read_env_int(name: str, default: int) -> int:
     try:
         return int(float(os.getenv(name, str(default)) or default))
     except Exception:
-        return int(default)
+        return default
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--window_hours", type=int, default=int(os.getenv("EDGE_STACK_SHADOW_WINDOW_HOURS", "24")))
     ap.add_argument("--auto_promote_guarded", type=int, default=0)
@@ -264,7 +265,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     try:
-        report_obj = json.loads(open(ds_report, "r", encoding="utf-8").read())
+        report_obj = json.loads(open(ds_report, encoding="utf-8").read())
     except Exception:
         report_obj = {}
 
@@ -314,14 +315,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             champ_cfg_valid, _info = validate_champion_cfg(json.dumps(champ_cfg, ensure_ascii=False))
             champ_model_path = champ_cfg_valid.model_path
         except Exception:
-            champ_model_path = str(champ_cfg.get("model_path", ""))
+            champ_model_path = (champ_cfg.get("model_path", ""))
     else:
-        champ_model_path = str(champ_cfg.get("model_path", ""))
+        champ_model_path = (champ_cfg.get("model_path", ""))
 
     champ_pack = joblib.load(champ_model_path)
 
     # Evaluate champion on dataset
-    champ_p: List[float] = []
+    champ_p: list[float] = []
     champ_missing_sum = 0
     for rr in rows:
         p, miss = _predict_pack_p(champ_pack, rr)
@@ -333,8 +334,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     champ_metrics_cal = dict(champ_metrics_raw)
 
     # Candidate evaluation (optional)
-    cand_metrics_raw: Dict[str, float] = {}
-    cand_metrics_cal: Dict[str, float] = {}
+    cand_metrics_raw: dict[str, float] = {}
+    cand_metrics_cal: dict[str, float] = {}
     cand_missing_sum = 0
     cand_pack = None
     cand_cfg_valid = None
@@ -345,12 +346,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 cand_cfg_valid, _info2 = validate_champion_cfg(json.dumps(cand_cfg, ensure_ascii=False))
                 cand_model_path = cand_cfg_valid.model_path
             else:
-                cand_model_path = str(cand_cfg.get("model_path", ""))
+                cand_model_path = (cand_cfg.get("model_path", ""))
             cand_pack = joblib.load(cand_model_path)
         except Exception:
             cand_pack = None
 
-    cand_p: List[float] = []
+    cand_p: list[float] = []
     if cand_pack is not None:
         for rr in rows:
             p, miss = _predict_pack_p(cand_pack, rr)
@@ -361,7 +362,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # Promotion decision
     promote_recommended = 0
-    promote_reasons: List[str] = []
+    promote_reasons: list[str] = []
     if cand_pack is not None:
         ok, reasons = check_promotion_guard(
             champion_metrics=champ_metrics_cal,
@@ -409,7 +410,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "promote_reasons": list(promote_reasons)[:10],
         "champion": {
             "cfg": {
-                "run_id": str(champ_cfg.get("run_id", "")),
+                "run_id": (champ_cfg.get("run_id", "")),
                 "model_path": str(champ_model_path),
             },
             "metrics": {"raw": champ_metrics_raw, "cal": champ_metrics_cal},
@@ -417,8 +418,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         },
         "candidate": {
             "cfg": {
-                "run_id": str(cand_cfg.get("run_id", "")) if isinstance(cand_cfg, dict) else "",
-                "model_path": str(cand_model_path or ""),
+                "run_id": (cand_cfg.get("run_id", "")) if isinstance(cand_cfg, dict) else "",
+                "model_path": (cand_model_path or ""),
             },
             "metrics": {"raw": cand_metrics_raw, "cal": cand_metrics_cal} if cand_pack is not None else {},
             "missing_sum": int(cand_missing_sum),
@@ -427,7 +428,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     atomic_write_json(status_path, status_obj)
 
     # Write Redis metrics hash for Prometheus alerts (P60)
-    out_metrics: Dict[str, Any] = {
+    out_metrics: dict[str, Any] = {
         "status": "ok",
         "success": 1,
         "window_hours": int(args.window_hours),

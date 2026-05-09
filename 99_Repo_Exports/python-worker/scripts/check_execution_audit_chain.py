@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 P5.6 execution audit-chain checker.
 
@@ -37,9 +38,10 @@ import json
 import os
 import sys
 import time
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
+from typing import Any
 
 try:
     import psycopg2  # type: ignore
@@ -60,7 +62,7 @@ class AuditRow:
     signal_id: str
     closed_trade_id: str
     symbol: str
-    source_ts: Optional[float] = None
+    source_ts: float | None = None
 
 
 def env_str(name: str, default: str) -> str:
@@ -87,7 +89,7 @@ def normalize_id(value: Any) -> str:
     return str(value).strip()
 
 
-def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments; env vars provide defaults."""
     parser = argparse.ArgumentParser(description="Check execution audit-chain health")
     parser.add_argument(
@@ -120,7 +122,7 @@ def table_name(env_name: str, default: str) -> str:
     return env_str(env_name, default)
 
 
-def get_table_map() -> Dict[str, str]:
+def get_table_map() -> dict[str, str]:
     """Return the mapping of logical role -> actual table name (configurable via ENV)."""
     return {
         "execution_orders": table_name("EXEC_AUDIT_TBL_EXECUTION_ORDERS", "execution_orders"),
@@ -143,7 +145,7 @@ def _split_table_name(name: str) -> Sequence[str]:
     return ("public", str(name))
 
 
-def discover_existing_tables(conn: Any, tables: Mapping[str, str]) -> Set[str]:
+def discover_existing_tables(conn: Any, tables: Mapping[str, str]) -> set[str]:
     """
     Query information_schema to discover which of the desired tables actually exist.
     Returns a set of logical role names (e.g. 'signals', 'trades_closed').
@@ -163,7 +165,7 @@ def discover_existing_tables(conn: Any, tables: Mapping[str, str]) -> Set[str]:
         )
         rows = cur.fetchall()
     existing_pairs = {(str(r[0]), str(r[1])) for r in rows}
-    existing: Set[str] = set()
+    existing: set[str] = set()
     for logical, table in tables.items():
         if tuple(_split_table_name(table)) in existing_pairs:
             existing.add(logical)
@@ -172,7 +174,7 @@ def discover_existing_tables(conn: Any, tables: Mapping[str, str]) -> Set[str]:
 
 def read_seed_execution_orders(
     conn: Any, table: str, lookback_hours: int, limit: int
-) -> List[AuditRow]:
+) -> list[AuditRow]:
     """
     Read seed rows from execution_orders within lookback window.
     Returns list of AuditRow objects for downstream linkage verification.
@@ -205,7 +207,7 @@ def read_seed_execution_orders(
     ]
 
 
-def build_lookup_set(conn: Any, table: str, columns: Sequence[str]) -> Set[str]:
+def build_lookup_set(conn: Any, table: str, columns: Sequence[str]) -> set[str]:
     """
     Build a set of composite keys from *columns* in *table*.
     Key format: 'col1_val|col2_val'.
@@ -222,30 +224,30 @@ def build_lookup_set(conn: Any, table: str, columns: Sequence[str]) -> Set[str]:
 
 def analyze_chain_rows(
     seed_rows: Sequence[AuditRow],
-    signal_keys: Set[str],
-    plan_keys: Set[str],
-    trade_keys: Set[str],
-    position_event_keys: Set[str],
-    entry_policy_keys: Set[str],
-    decision_snapshot_keys: Set[str],
+    signal_keys: set[str],
+    plan_keys: set[str],
+    trade_keys: set[str],
+    position_event_keys: set[str],
+    entry_policy_keys: set[str],
+    decision_snapshot_keys: set[str],
     *,
-    now_ts: Optional[float] = None,
-    existing_tables: Optional[Iterable[str]] = None,
+    now_ts: float | None = None,
+    existing_tables: Iterable[str] | None = None,
     lookback_hours: int = DEFAULT_LOOKBACK_HOURS,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Core linkage checker: for each seed execution_order row, verify that
     all downstream tables (when they exist) have a matching key.
     Broken links are collected by 'kind' for Prometheus cardinality.
     """
     existing = set(existing_tables or [])
-    broken: List[Dict[str, Any]] = []
-    counts: Dict[str, int] = {}
+    broken: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
 
-    def add(kind: str, row: AuditRow, details: Optional[Mapping[str, Any]] = None) -> None:
+    def add(kind: str, row: AuditRow, details: Mapping[str, Any] | None = None) -> None:
         """Record a broken link entry with row metadata."""
         counts[kind] = counts.get(kind, 0) + 1
-        item: Dict[str, Any] = {
+        item: dict[str, Any] = {
             "kind": kind,
             "sid": row.sid,
             "signal_id": row.signal_id,
@@ -299,7 +301,7 @@ def analyze_chain_rows(
 
 
 def render_textfile_metrics(
-    report: Mapping[str, Any], *, now_ts: Optional[float] = None
+    report: Mapping[str, Any], *, now_ts: float | None = None
 ) -> str:
     """
     Render Prometheus textfile exporter format from a report dict.
@@ -348,13 +350,13 @@ def write_json_report(path: str, report: Mapping[str, Any]) -> None:
 
 
 def write_textfile_report(
-    path: str, report: Mapping[str, Any], *, now_ts: Optional[float] = None
+    path: str, report: Mapping[str, Any], *, now_ts: float | None = None
 ) -> None:
     """Write Prometheus textfile metrics to *path* atomically."""
     atomic_write_text(path, render_textfile_metrics(report, now_ts=now_ts))
 
 
-def build_report_from_db(dsn: str, *, lookback_hours: int, limit: int) -> Dict[str, Any]:
+def build_report_from_db(dsn: str, *, lookback_hours: int, limit: int) -> dict[str, Any]:
     """
     Connect to DB via *dsn*, discover tables, read seed rows, and run linkage analysis.
     Returns the complete report dict.
@@ -420,7 +422,7 @@ def build_report_from_db(dsn: str, *, lookback_hours: int, limit: int) -> Dict[s
         conn.close(),
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Entry point: parse args, run audit chain check, write reports."""
     args = parse_args(argv),
     try:

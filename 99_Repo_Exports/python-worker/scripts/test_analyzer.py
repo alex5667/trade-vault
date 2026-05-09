@@ -3,13 +3,20 @@
 Simple test for the trailing analyzer with mock data.,
 """
 
-import sys
 import os
+import sys
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__))),
 
 from analyze_trailing_vs_baseline_postgres import (
-    TradeRow, TagStats, analyze_global, analyze_by_tag,
-    print_global_report, print_tag_report, mean, stddev, max_drawdown,
+    TradeRow,
+    analyze_by_tag,
+    analyze_global,
+    max_drawdown,
+    mean,
+    print_global_report,
+    print_tag_report,
+    stddev,
 )
 
 

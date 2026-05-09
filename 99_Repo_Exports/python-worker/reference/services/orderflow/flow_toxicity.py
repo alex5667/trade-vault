@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Flow toxicity metrics and enforcement helpers (Phase D / P3).
 
 We want to detect situations when order-flow signals look strong (OFI/OBI),
@@ -20,9 +20,9 @@ Design principles (production):
 """
 
 
-from dataclasses import dataclass
-from typing import Any, List
 import math
+from dataclasses import dataclass
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -78,7 +78,7 @@ def compute_ofi_norm_notional(*, ofi_best_qty: float, mid: float, depth_usd_near
 class FlowToxicityDecision:
     hit: bool
     mode: str  # monitor|tighten|veto
-    flags: List[str]
+    flags: list[str]
     tighten_add_bps: float = 0.0
     veto: bool = False
     veto_reason: str = ""
@@ -128,7 +128,7 @@ def evaluate_flow_toxicity(
     vc = _f(vpin_cdf, 0.0)
     thrv = _f(thr_vpin_cdf, 0.0)
 
-    flags: List[str] = []
+    flags: list[str] = []
     ofi_bad = bool(thrz > 0.0 and z > thrz)
     vpin_bad = bool(thrv > 0.0 and vc > thrv)
     flow_bad = bool(ofi_bad or vpin_bad)

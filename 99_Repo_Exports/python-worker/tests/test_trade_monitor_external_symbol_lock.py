@@ -5,8 +5,8 @@ import types
 
 
 def test_external_sl_hit_repo_io_outside_global_lock(monkeypatch):
-    from services.trade_monitor import TradeMonitorService
     import services.trade_monitor as tm
+    from services.trade_monitor import TradeMonitorService
 
     # stub finalize_trade (pure)
     monkeypatch.setattr(tm, "finalize_trade", lambda pos, spec, exit_price, exit_ts_ms, close_reason_raw, tp_ratios: types.SimpleNamespace(
@@ -98,8 +98,8 @@ def test_external_sl_hit_repo_io_outside_global_lock(monkeypatch):
 
 
 def test_update_trailing_sl_repo_io_outside_global_lock(monkeypatch):
-    from services.trade_monitor import TradeMonitorService
     import services.trade_monitor as tm
+    from services.trade_monitor import TradeMonitorService
 
     svc = TradeMonitorService.__new__(TradeMonitorService)
     svc._lock = type('MockLock', (), {'_is_owned': lambda: False, '__enter__': lambda self: None, '__exit__': lambda self, *a: None})()

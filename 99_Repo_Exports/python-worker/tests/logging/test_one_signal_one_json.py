@@ -4,8 +4,6 @@ import json
 import logging
 from types import SimpleNamespace
 
-import pytest
-
 from handlers.crypto_orderflow.logging.logging_utils import log_signal_one_json_unified
 from signal_scoring import reason_registry as rr
 

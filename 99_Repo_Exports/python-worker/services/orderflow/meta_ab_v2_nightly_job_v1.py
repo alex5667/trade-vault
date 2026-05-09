@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Stage4: Meta AB-winner v2 nightly oneshot job.
 
@@ -22,7 +23,7 @@ try:
     from core.redis_keys import RedisStreams as RS
 except Exception:  # pragma: no cover
     class _RS:
-        NOTIFY_TELEGRAM = "notify:telegram"
+        NOTIFY_TELEGRAM = RS.NOTIFY_TELEGRAM
     RS = _RS()
 
 import json
@@ -30,8 +31,9 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
+import contextlib
 
 try:
     from services.orderflow.meta_ab_v2_policy_guardrail_v1 import decide_meta_ab_v2_policy  # type: ignore
@@ -43,13 +45,13 @@ def _now_ms() -> int:
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    v = str(os.getenv(name, "1" if default else "0")).strip().lower()
+    v = os.getenv(name, "1" if default else "0").strip().lower()
     return v in ("1", "true", "yes", "on")
 
 
 def _env_int(name: str, default: int) -> int:
     try:
-        return int(str(os.getenv(name, str(default))).strip())
+        return int(os.getenv(name, str(default)).strip())
     except Exception:
         return default
 
@@ -65,7 +67,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _log(msg: str) -> None:
-    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    ts = datetime.now(UTC).isoformat(timespec="seconds")
     print(f"[{ts}] meta_ab_v2_nightly_job: {msg}", flush=True)
 
 
@@ -80,7 +82,7 @@ def _atomic_write_json(path: str, obj: dict) -> None:
     os.replace(tmp, path)
 
 
-def _file_age_hours(path: str) -> Optional[float]:
+def _file_age_hours(path: str) -> float | None:
     try:
         st = os.stat(path)
         return max(0.0, (time.time() - float(st.st_mtime)) / 3600.0)
@@ -108,7 +110,7 @@ def _parse_symbols() -> list[str]:
     return out
 
 
-def _read_freeze_max_share() -> Optional[float]:
+def _read_freeze_max_share() -> float | None:
     # best-effort: integrate with your Stage4 freeze file
     try:
         from core.meta_freeze_file import get_meta_freeze_state  # type: ignore
@@ -153,11 +155,11 @@ def _policy_env_overrides(cfg) -> dict[str, Any]:
 
 def _redis_connect():
     import redis  # type: ignore
-    redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     return redis.Redis.from_url(redis_url, decode_responses=True)
 
 
-def _read_current_share_from_redis(symbols: list[str], prefix: str, field: str) -> Optional[float]:
+def _read_current_share_from_redis(symbols: list[str], prefix: str, field: str) -> float | None:
     if not symbols:
         return None
     try:
@@ -268,16 +270,14 @@ def _try_timescale_insert(cfg: TimescaleConfig, report: dict) -> None:
                 );
                 """
             )
-            try:
+            with contextlib.suppress(Exception):
                 cur.execute(f"SELECT create_hypertable('{table}', 'ts', if_not_exists => TRUE);")
-            except Exception:
-                pass
 
         ts_ms = int(report.get("ts_ms") or 0)
-        run_id = str(report.get("run_id") or datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        run_id = str(report.get("run_id") or datetime.now(UTC).isoformat(timespec="seconds"))
 
-        winner = str(report.get("winner") or "tie")
-        reason = str(report.get("reason") or "")
+        winner = (report.get("winner") or "tie")
+        reason = (report.get("reason") or "")
 
         cfg_obj = report.get("config") or {}
         p_min = float(cfg_obj.get("p_min") or report.get("p_min") or 0.0)
@@ -289,14 +289,14 @@ def _try_timescale_insert(cfg: TimescaleConfig, report: dict) -> None:
         ramp = report.get("ramp") or {}
         share_current = float(ramp.get("share_current") or 0.0)
         share_next = float(ramp.get("share_next") or share_current)
-        action = str(ramp.get("action") or "hold")
+        action = (ramp.get("action") or "hold")
 
         delta = report.get("delta") or {}
         delta_exp_r = float(delta.get("exp_r_per_candidate") or 0.0)
         delta_tail = float(delta.get("tail_rate_per_candidate") or 0.0)
 
-        champ = str(report.get("champion_model") or "")
-        chall = str(report.get("challenger_model") or "")
+        champ = (report.get("champion_model") or "")
+        chall = (report.get("challenger_model") or "")
 
         cur.execute(
             f"""
@@ -313,7 +313,7 @@ def _try_timescale_insert(cfg: TimescaleConfig, report: dict) -> None:
             );
             """
             (
-                datetime.now(timezone.utc),
+                datetime.now(UTC),
                 ts_ms,
                 run_id,
                 winner,
@@ -446,7 +446,7 @@ def main() -> int:
 
         freeze_max = _read_freeze_max_share()
         share_next, action = abv2.recommend_next_share(
-            str(rep.get("winner") or "tie"),
+            (rep.get("winner") or "tie"),
             float(share_current),
             cfg,
             freeze_max,
@@ -480,7 +480,7 @@ def main() -> int:
         }
 
         rep["ts_ms"] = int(rep.get("ts_ms") or _now_ms())
-        rep["run_id"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        rep["run_id"] = datetime.now(UTC).isoformat(timespec="seconds")
         rep["champion_model"] = champion_model
         rep["challenger_model"] = challenger_model
         rep["ramp"] = {
@@ -506,7 +506,7 @@ def main() -> int:
         if _env_bool("META_AB_V2_APPLY", False):
             allow_apply = bool((rep.get("policy") or {}).get("allow_apply", False))
             if allow_apply:
-                _apply_share_to_redis(symbols, float(share_next), str(rep.get("winner") or "tie"), _compact(rep))
+                _apply_share_to_redis(symbols, float(share_next), (rep.get("winner") or "tie"), _compact(rep))
             else:
                 _log(f"apply blocked (policy): reasons={(rep.get('policy') or {}).get('blocked_reasons', [])}")
 
@@ -517,7 +517,7 @@ def main() -> int:
         # best-effort: write failure report (so exporter shows something)
         fail = {
             "ts_ms": _now_ms(),
-            "run_id": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "run_id": datetime.now(UTC).isoformat(timespec="seconds"),
             "winner": "tie",
             "reason": f"{type(e).__name__}: {e}",
             "counts": {"n_total": 0, "n_eligible": 0},
@@ -526,10 +526,8 @@ def main() -> int:
             "champion_model": champion_model,
             "challenger_model": challenger_model,
         }
-        try:
+        with contextlib.suppress(Exception):
             _atomic_write_json(out_json, fail)
-        except Exception:
-            pass
         return 3
 
 

@@ -8,9 +8,9 @@ We validate:
   - report formatting is stable and includes key metrics
 """
 
-import unittest
 import importlib.util
 import sys
+import unittest
 from pathlib import Path
 
 mod_path = Path(__file__).with_name("binance_account_reporter.py")
@@ -214,7 +214,7 @@ class TestAvailableHistory(unittest.TestCase):
 
     def test_store_and_read_1h_delta(self):
         r = self.MockRedis()
-        now_ms = int(1_700_000_000_000)
+        now_ms = 1_700_000_000_000
         old_ts = now_ms - _MS_1H
         _store_history(r, "history", old_ts, 500.0)
         deltas = _read_delta_available(r, "history", now_ms, 520.0)
@@ -225,7 +225,7 @@ class TestAvailableHistory(unittest.TestCase):
 
     def test_store_and_read_24h_delta(self):
         r = self.MockRedis()
-        now_ms = int(1_700_000_000_000)
+        now_ms = 1_700_000_000_000
         _store_history(r, "history", now_ms - _MS_24H, 1000.0)
         deltas = _read_delta_available(r, "history", now_ms, 950.0)
 
@@ -242,7 +242,7 @@ class TestAvailableHistory(unittest.TestCase):
     def test_ttl_cleanup(self):
         """Old entries beyond TTL are removed from the sorted set."""
         r = self.MockRedis()
-        now_ms = int(1_700_000_000_000)
+        now_ms = 1_700_000_000_000
         # 3 days ago – should be pruned with ttl_sec=90000 (25h)
         _store_history(r, "history", now_ms - 3 * _MS_24H, 999.0, ttl_sec=90_000)
         _store_history(r, "history", now_ms, 100.0, ttl_sec=90_000)

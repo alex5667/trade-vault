@@ -8,7 +8,7 @@ import yaml
 def test_alerts_yaml_loads_and_has_required_alerts() -> None:
     """Alerts YAML must be valid and contain the three P8 rules."""
     with open(
-        "orderflow_services/prometheus_alerts_exec_health_freeze_integrity_v1.yml", "r"
+        "orderflow_services/prometheus_alerts_exec_health_freeze_integrity_v1.yml"
     ) as fh:
         d = yaml.safe_load(fh)
     assert "groups" in d

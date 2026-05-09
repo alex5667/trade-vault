@@ -1,6 +1,6 @@
 # tests/test_fill_prob_exec_pen_fallback_v1.py
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Unit-level tests for the fill_prob / exec_fill_pen *fallback* block
 introduced in:
@@ -18,8 +18,8 @@ they run without needing the full tick_processor import chain.
 """
 
 import pytest
-from core.fill_prob_proxy import compute_fill_prob_proxy
 
+from core.fill_prob_proxy import compute_fill_prob_proxy
 
 # ---------------------------------------------------------------------------
 # Helpers to simulate the fallback block (same logic as tick_processor.py)

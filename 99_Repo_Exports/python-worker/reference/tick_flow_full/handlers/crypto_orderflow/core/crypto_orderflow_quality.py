@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
-from typing import Any, Callable, List, Optional
 import logging
+import os
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 from ..types.crypto_orderflow_pipeline_types import Candidate, QualityState
-from .crypto_orderflow_confirmations import L2ConfirmBreakout, L2ConfirmAbsorption
+from .crypto_orderflow_confirmations import L2ConfirmAbsorption, L2ConfirmBreakout
 
 
 class Validator:
@@ -18,7 +19,7 @@ class Validator:
 
 @dataclass(frozen=True)
 class CompositeValidator:
-    validators: List[Validator]
+    validators: list[Validator]
 
     def validate(self, ctx: Any, cand: Candidate) -> QualityState:
         q = QualityState()

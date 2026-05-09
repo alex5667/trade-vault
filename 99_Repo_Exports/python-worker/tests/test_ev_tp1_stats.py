@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from services.ev_tp1_stats import EvTp1StatsConfig, update_tp1_hit_ema
 
 
 class FakeRedis:
     def __init__(self) -> None:
-        self.h: Dict[str, Dict[str, str]] = {}
-        self.ttl: Dict[str, int] = {}
+        self.h: dict[str, dict[str, str]] = {}
+        self.ttl: dict[str, int] = {}
 
     def hincrby(self, key: str, field: str, amount: int) -> int:
         m = self.h.setdefault(key, {})
@@ -17,10 +17,10 @@ class FakeRedis:
         m[field] = str(v)
         return v
 
-    def hget(self, key: str, field: str) -> Optional[str]:
+    def hget(self, key: str, field: str) -> str | None:
         return self.h.get(key, {}).get(field)
 
-    def hset(self, key: str, mapping: Dict[str, Any]) -> None:
+    def hset(self, key: str, mapping: dict[str, Any]) -> None:
         m = self.h.setdefault(key, {})
         for k, v in mapping.items():
             m[str(k)] = str(v)

@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+
 """P9 dual-control thaw state exporter for Prometheus.
 
 Reads the freeze control hash, state hash, and event stream from Redis,
@@ -19,7 +21,7 @@ Metrics exposed:
 """,
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -27,11 +29,14 @@ except Exception:  # pragma: no cover
     redis = None
 from prometheus_client import Gauge, start_http_server
 
-from services.orderflow.exec_health_freeze_dual_control import DUAL_CONTROL_VIOLATION_KINDS, evaluate_freeze_dual_control
+from services.orderflow.exec_health_freeze_dual_control import (
+    DUAL_CONTROL_VIOLATION_KINDS,
+    evaluate_freeze_dual_control,
+)
 from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
 
 
-def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+def _read_events(r: Any, key: str, count: int) -> list[tuple[str, dict[str, Any]]]:
     try:
         rows = r.xrevrange(key, count=max(1, int(count))) or []
         return [(str(eid), dict(payload or {})) for eid, payload in rows]

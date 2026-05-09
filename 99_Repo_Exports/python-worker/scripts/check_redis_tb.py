@@ -1,5 +1,9 @@
+import os
+
+import redis
+
 from utils.time_utils import get_ny_time_millis
-import os, redis, time
+
 
 def main():
     redis_url = os.getenv('REDIS_URL', 'redis://redis-worker-1:6379/0')
@@ -10,7 +14,7 @@ def main():
     jobs_in_set = r.zcard('tb:jobs:due')
     print('Jobs in ZSET:', jobs_in_set)
     print('Due now (first 10):', due)
-    
+
     last_err = r.get('tb:last_err_ts_ms')
     last_lbl = r.get('tb:last_label_ts_ms')
     last_inp = r.get('tb:last_ts_ms')

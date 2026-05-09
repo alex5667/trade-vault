@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """python-worker/core/horizon_contract.py
 
 Phase 0 — Единый horizon-aware контракт для всего пайплайна.
@@ -18,7 +19,8 @@ Backward compatibility:
 
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
+import contextlib
 
 # ─── Canonical type aliases ────────────────────────────────────────────────────
 
@@ -102,7 +104,7 @@ class ATRProfileV1:
     vol_ratio_fast_slow: float = 0.0
     vol_ratio_z: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "mode": self.mode,
             "atr_value": self.atr_value,
@@ -138,9 +140,9 @@ class HorizonProfileV1:
     profile_source: str             # "static_bootstrap" | "history" | "fallback"
     profile_conf: float = 0.0       # 0..1
     reason_code: str = RC.HZ_STATIC_BOOTSTRAP
-    reason_details: Dict[str, Any] = field(default_factory=dict)
+    reason_details: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "phase_mode": self.phase_mode,
             "hold_target_ms": self.hold_target_ms,
@@ -168,7 +170,7 @@ class SignalRiskProfileV1:
     tp1_atr_mult: float = 0.0
     tp2_atr_mult: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "contract_ver": self.horizon.contract_ver,
             "horizon": self.horizon.to_dict(),
@@ -396,7 +398,7 @@ def attach_phase0_profiles_to_ctx(
     tp1_atr_mult: float = 0.0,
     tp2_atr_mult: float = 0.0,
     rr_target: float = 0.0,
-) -> Optional[SignalRiskProfileV1]:
+) -> SignalRiskProfileV1 | None:
     """Best-effort: attach atr_profile and horizon_profile to ctx.
 
     IMPORTANT:
@@ -424,18 +426,14 @@ def attach_phase0_profiles_to_ctx(
             try:
                 object.__setattr__(ctx, "atr_profile", risk_profile.atr)
             except (AttributeError, TypeError):
-                try:
+                with contextlib.suppress(Exception):
                     ctx.atr_profile = risk_profile.atr
-                except Exception:
-                    pass
 
             try:
                 object.__setattr__(ctx, "horizon_profile", risk_profile.horizon)
             except (AttributeError, TypeError):
-                try:
+                with contextlib.suppress(Exception):
                     ctx.horizon_profile = risk_profile.horizon
-                except Exception:
-                    pass
 
             # Compatibility aliases
             _attach_compat_aliases(ctx, risk_profile)
@@ -462,10 +460,8 @@ def _attach_compat_aliases(ctx: Any, rp: SignalRiskProfileV1) -> None:
         try:
             object.__setattr__(ctx, attr, val)
         except (AttributeError, TypeError):
-            try:
+            with contextlib.suppress(Exception):
                 setattr(ctx, attr, val)
-            except Exception:
-                pass
 
 
 # ─── Payload meta builder ─────────────────────────────────────────────────────
@@ -473,8 +469,8 @@ def _attach_compat_aliases(ctx: Any, rp: SignalRiskProfileV1) -> None:
 def build_horizon_meta_for_payload(
     risk_profile: SignalRiskProfileV1,
     *,
-    existing_meta: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    existing_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Merge horizon/atr_profile into existing signal meta dict.
 
     Called from orchestrator._build_payload() when ATR_HORIZON_EMIT_PAYLOAD_META=1.
@@ -504,7 +500,7 @@ def build_horizon_meta_for_payload(
 
 # ─── Diagnostics trace enrichment ─────────────────────────────────────────────
 
-def build_horizon_trace_fragment(risk_profile: SignalRiskProfileV1) -> Dict[str, Any]:
+def build_horizon_trace_fragment(risk_profile: SignalRiskProfileV1) -> dict[str, Any]:
     """Build the 'horizon' and 'atr_profile' fragment for diagnostics trace.
 
     Added to trace['horizon'] and trace['atr_profile'] in diagnostics stream.

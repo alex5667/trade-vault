@@ -1,5 +1,5 @@
-import pytest
 from core.liq_pressure_gate_v1 import eval_liq_pressure_gate
+
 
 def test_eval_liq_pressure_gate_off():
     cfg = {"liq_pressure_gate_mode": "off"}

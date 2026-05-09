@@ -8,13 +8,13 @@
 Поддерживает несколько уровней TP для частичной фиксации прибыли.
 """
 
-import os
 import logging
-from typing import List, Dict, Optional
+import os
+import contextlib
 
 logger = logging.getLogger(__name__)
 
-def parse_floats(csv: str) -> List[float]:
+def parse_floats(csv: str) -> list[float]:
     """
     Парсит разделенные запятыми float-числа.
     """
@@ -23,10 +23,8 @@ def parse_floats(csv: str) -> List[float]:
         x = x.strip()
         if not x:
             continue
-        try:
+        with contextlib.suppress(ValueError):
             vals.append(float(x))
-        except ValueError:
-            pass
     return vals
 
 
@@ -34,7 +32,7 @@ def _f(v, d=0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(d)
+        return d
 
 
 def _cfg_get(cfg: dict, *names, default=None):
@@ -54,7 +52,7 @@ def _cfg_str(cfg: dict, *names, default="") -> str:
     return str(v or default)
 
 
-def _should_strict_rr(cfg: dict, stop_dist_override: Optional[float], eps: float = 1e-6) -> bool:
+def _should_strict_rr(cfg: dict, stop_dist_override: float | None, eps: float = 1e-6) -> bool:
     # 1) SLQ flag
     try:
         if int(_cfg_get(cfg, "slq_used", "SLQ_USED", default=0) or 0) == 1:
@@ -92,23 +90,23 @@ def compute_sl_floor_bps(symbol: str, entry: float, atr: float, cfg: dict) -> fl
     default_fixed = os.getenv("SL_FLOOR_DEFAULT_BPS", "25.0")
     fixed_env = os.getenv(f"SL_FLOOR_BPS__{sym_clean}", default_fixed)
     fixed = float(_cfg_get(cfg, f"SL_FLOOR_BPS__{sym_clean}", default=fixed_env))
-    
+
     # 2. market components
     spread_bps = float(_cfg_get(cfg, "spread_bps", default=0.0))
     slippage_bps = float(_cfg_get(cfg, "slippage_ema_bps", default=0.0))
     atr_pct_bps = (atr / entry) * 10_000.0 if entry > 0 else 0.0
-    
+
     # 3. multipliers
     k_spread = float(os.getenv("SL_FLOOR_SPREAD_MULT", "2.0"))
     k_slip = float(os.getenv("SL_FLOOR_SLIPPAGE_MULT", "1.5"))
     k_atr = float(os.getenv("SL_FLOOR_ATR_MULT", "0.25"))
-    
+
     dynamic = max(
         spread_bps * k_spread,
         slippage_bps * k_slip,
         atr_pct_bps * k_atr
     )
-    
+
     final_floor = max(fixed, dynamic)
     return final_floor
 
@@ -120,28 +118,28 @@ def compute_levels(
     entry: float,
     atr: float,
     side: str,
-    cfg: Dict,
+    cfg: dict,
     *,
     symbol="",
-    stop_dist_override: Optional[float] = None,
-    tp1_dist_override: Optional[float] = None,
-) -> Dict:
+    stop_dist_override: float | None = None,
+    tp1_dist_override: float | None = None,
+) -> dict:
     """
     Вычисляет уровни SL и TP для торгового сигнала.
     """
     global _COMPUTE_LEVELS_N
     _COMPUTE_LEVELS_N += 1
-    
+
     # Знак направления: +1 для LONG, -1 для SHORT
     sgn = 1 if side.upper() == "LONG" else -1
     atr = max(atr, 1e-9)  # Предотвращение деления на ноль
-    
+
     # ═══════════════════════════════════════════════════════════════
     # Вычисление Stop Loss (с поддержкой переопределения)
     # ═══════════════════════════════════════════════════════════════
-    
+
     stop_mode = _cfg_str(cfg, "STOP_MODE", "stop_mode", default="ATR").upper()
-    
+
     stop_dist = 0.0
     if stop_dist_override is not None:
         try:
@@ -157,17 +155,17 @@ def compute_levels(
             stop_atr_mult = float(_cfg_get(cfg, "STOP_ATR_MULT", "stop_atr_mult", default=0.0) or 0.0)
             if stop_atr_mult > 0:
                 stop_dist = stop_atr_mult * atr
-        
+
         elif stop_mode == "PCT":
             # Стоп на основе процента
             stop_pct = float(_cfg_get(cfg, "STOP_PCT", "stop_pct", default=0.2))
             stop_dist = abs(entry) * stop_pct / 100.0
-        
+
         else:  # POINTS
             # Стоп на основе фиксированных пунктов
             stop_points = float(_cfg_get(cfg, "STOP_POINTS", "stop_points", default=1.0))
             stop_dist = stop_points
-    
+
     # Если stop_dist всё ещё 0/invalid (например, missing config), fail-open (пустой словарь)
     if stop_dist <= 1e-12:
          return {}
@@ -182,20 +180,20 @@ def compute_levels(
 
     # Цена SL
     sl = entry - sgn * stop_dist
-    
+
     # ═══════════════════════════════════════════════════════════════
     # Вычисление уровней Take Profit
     # ═══════════════════════════════════════════════════════════════
-    
+
     tp_mode_target = _cfg_str(cfg, "TP_MODE", "tp_mode", default="RR").upper()
     trail_profile = _cfg_str(cfg, "trail_profile", "TRAIL_PROFILE", default="")
 
     strict_rr = False
     tp_mode = tp_mode_target
-    
+
     if tp_mode_target == "RR":
         strict_rr = _should_strict_rr(cfg, stop_dist_override=stop_dist_override)
-        # Если стоп дефолтный -> считаем TP как раньше (ATR/rocket), 
+        # Если стоп дефолтный -> считаем TP как раньше (ATR/rocket),
         # НЕ игнорируя мультипликаторы
         if not strict_rr:
             tp_mode = "ATR"
@@ -213,28 +211,27 @@ def compute_levels(
             _f(_cfg_get(cfg, "STOP_ATR_MULT_BASE", "stop_atr_mult_base", default=0.0), 0.0),
             trail_profile,
         )
-    
+
     tps = []
     rr_list = []
-    
+
     if tp_mode == "RR":
         # TP на основе соотношений Risk-Reward
         # Check for rocket_v1 compromise: TP1 remains ATR-based
         # lock_and_trail also uses ROCKET_TP1_ATR_MULT for TP1 positioning
         is_rocket_v1 = trail_profile in ("rocket_v1", "lock_and_trail")
-        
+
         rrs_raw = _cfg_get(cfg, "TP_RR", "tp_rr", "tp_rr_levels", default="1,2,3")
         rrs = []
         if isinstance(rrs_raw, (list, tuple)):
              for x in rrs_raw:
-                 try: rrs.append(float(x))
-                 except: pass
+                 with contextlib.suppress(Exception): rrs.append(float(x))
         else:
             rrs = parse_floats(str(rrs_raw))
 
         if not rrs:
             rrs = [1.0, 2.0, 3.0]
-        
+
         if is_rocket_v1:
             # Compromise: TP1 = ROCKET_TP1_ATR_MULT ATR, TP2+ = RR scaling
             tp1_mult = float(_cfg_get(cfg, "ROCKET_TP1_ATR_MULT", "rocket_tp1_atr_mult", default=0.78))
@@ -246,7 +243,7 @@ def compute_levels(
             tp1_price = entry + sgn * tp1_dist
             tps.append(tp1_price)
             rr_list.append(tp1_dist / stop_dist if stop_dist > 0 else 0.0)
-            
+
             for rr in rrs[1:]:
                 tp_price = entry + sgn * (rr * stop_dist)
                 tps.append(tp_price)
@@ -268,13 +265,13 @@ def compute_levels(
                     rr_list[0] = (d / stop_dist) if stop_dist > 0 else rr_list[0]
             except Exception:
                 pass
-    
+
     else:  # ATR / OTHER
         # TP на основе мультипликаторов ATR
         # Проверяем, используется ли профиль rocket_v1 или lock_and_trail
         trail_profile = _cfg_str(cfg, "trail_profile", "TRAIL_PROFILE", default="")
         is_rocket_v1 = trail_profile in ("rocket_v1", "lock_and_trail")
-        
+
         if is_rocket_v1:
             # Для rocket_v1: TP1 = ROCKET_TP1_ATR_MULT (def 0.78) ATR, остальные через RR
             tp1_mult = float(_cfg_get(cfg, "ROCKET_TP1_ATR_MULT", "rocket_tp1_atr_mult", default=0.78))
@@ -287,13 +284,13 @@ def compute_levels(
             tps.append(tp1)
             rr1 = tp1_dist / stop_dist if stop_dist > 0 else 0.0
             rr_list.append(rr1)
-            
+
             # TP2 и TP3 через RR от stop_dist
             rrs_raw = _cfg_get(cfg, "TP_RR", "tp_rr", "tp_rr_levels", default="1,2,3")
             rrs = parse_floats(str(rrs_raw))
             if not rrs:
                 rrs = [1.0, 2.0, 3.0]
-                
+
             # Пропускаем первый RR (он уже использован для TP1 через ATR)
             for rr in rrs[1:]:
                 tp_price = entry + sgn * (rr * stop_dist)
@@ -305,7 +302,7 @@ def compute_levels(
             mults = parse_floats(str(raw_mults))
             if not mults:
                 mults = [0.6, 1.0, 1.5]
-            
+
             for m in mults:
                 tp_price = entry + sgn * (m * atr)
                 tps.append(tp_price)
@@ -322,7 +319,7 @@ def compute_levels(
                         rr_list[0] = (d / stop_dist) if stop_dist > 0 else rr_list[0]
                 except Exception:
                     pass
-    
+
     return {
         "sl": sl,
         "tp_levels": tps,
@@ -339,7 +336,7 @@ def compute_levels(
 
 def format_sltp_text(
     entry: float,
-    levels: Dict,
+    levels: dict,
     side: str
 ) -> str:
     """
@@ -363,10 +360,10 @@ def format_sltp_text(
         TP3: 1878.12 (+3.12, RR 3.0)
     """
     lines = []
-    
+
     # Entry
     lines.append(f"Entry: {entry:.2f}")
-    
+
     # Stop Loss
     sl_dist = abs(levels['sl'] - entry)
     sl_sign = "+" if levels['sl'] > entry else "-"
@@ -374,7 +371,7 @@ def format_sltp_text(
         f"SL: {levels['sl']:.2f} ({sl_sign}{sl_dist:.2f}, "
         f"{levels['stop_dist'] / (levels.get('atr', 1.0)):.2f} ATR)"
     )
-    
+
     # Take Profits
     for i, (tp, rr) in enumerate(zip(levels['tp_levels'], levels['rr']), 1):
         tp_dist = abs(tp - entry)
@@ -382,6 +379,6 @@ def format_sltp_text(
         lines.append(
             f"TP{i}: {tp:.2f} ({tp_sign}{tp_dist:.2f}, RR {rr:.1f})"
         )
-    
+
     return "\n".join(lines)
 

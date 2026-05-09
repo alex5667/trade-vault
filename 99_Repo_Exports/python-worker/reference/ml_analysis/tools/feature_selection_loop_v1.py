@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Minimal feature selection loop: importance + stability by regimes/sessions.
 
 Goal
@@ -35,18 +36,16 @@ Example
       --model gbdt --max_val_rows 200000
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import csv
 import json
 import math
 import os
-import random
-import time
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
 
 try:
     import numpy as np
@@ -61,8 +60,8 @@ except Exception as e:  # pragma: no cover
 
 # sklearn is optional at import time; we fail with a clean message at runtime
 try:
-    from sklearn.linear_model import LogisticRegression  # type: ignore
     from sklearn.ensemble import HistGradientBoostingClassifier  # type: ignore
+    from sklearn.linear_model import LogisticRegression  # type: ignore
     from sklearn.metrics import roc_auc_score  # type: ignore
 except Exception:
     LogisticRegression = None  # type: ignore
@@ -74,9 +73,11 @@ except Exception:
 # Centralized schema choices (avoid drift across tools)
 # ---------------------------------------------------------------------------
 try:
-    from tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 except Exception:  # pragma: no cover
-    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from ml_analysis.tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 
 
 def _now_ms() -> int:
@@ -86,24 +87,24 @@ def _now_ms() -> int:
 def _safe_float(x: Any, d: float = 0.0) -> float:
     try:
         if x is None:
-            return float(d)
+            return d
         v = float(x)
         if not math.isfinite(v):
-            return float(d)
+            return d
         return float(v)
     except Exception:
-        return float(d)
+        return d
 
 
 def _safe_int(x: Any, d: int = 0) -> int:
     try:
         if x is None:
-            return int(d)
+            return d
         if isinstance(x, bool):
-            return int(d)
+            return d
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _utc_hour(ts_ms: int) -> int:
@@ -114,7 +115,7 @@ def _utc_hour(ts_ms: int) -> int:
 
 
 def _normalize_regime(x: Any) -> str:
-    s = str(x or "").strip().lower()
+    s = (x or "").strip().lower()
     if s in ("trend", "range", "other"):
         return s
     # common aliases
@@ -193,7 +194,7 @@ def _fit_model(
     if LogisticRegression is None or HistGradientBoostingClassifier is None:
         raise SystemExit("scikit-learn is required (LogisticRegression, HistGradientBoostingClassifier)")
 
-    m = str(model_name or "gbdt").strip().lower()
+    m = (model_name or "gbdt").strip().lower()
     if m in ("lr", "logreg", "logit"):
         # Balanced makes it more robust across symbols.
         model = LogisticRegression(
@@ -239,9 +240,9 @@ def permutation_importance_auc_drop(
     *,
     feature_names: Sequence[str],
     n_repeats: int = 3,
-    max_features: Optional[int] = None,
+    max_features: int | None = None,
     seed: int = 7,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Permutation importance as AUC drop.
 
     importance[f] = auc_base - mean(auc_perm)
@@ -258,9 +259,9 @@ def permutation_importance_auc_drop(
     if max_features is not None and int(max_features) > 0 and len(idxs) > int(max_features):
         idxs = idxs[: int(max_features)]
 
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
     for j in idxs:
-        aucs: List[float] = []
+        aucs: list[float] = []
         for _ in range(int(max(1, n_repeats))):
             Xp = X0.copy()
             perm = rng.permutation(n)
@@ -279,7 +280,7 @@ def _try_shap_importance(
     feature_names: Sequence[str],
     max_rows: int = 20000,
     seed: int = 7,
-) -> Optional[Dict[str, float]]:
+) -> dict[str, float] | None:
     """Return mean(|SHAP|) per feature if shap is available; otherwise None."""
     try:
         import shap  # type: ignore
@@ -310,7 +311,7 @@ def _try_shap_importance(
         return None
 
 
-def _write_csv(path: str, rows: List[Dict[str, Any]], fieldnames: Sequence[str]) -> None:
+def _write_csv(path: str, rows: list[dict[str, Any]], fieldnames: Sequence[str]) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(fieldnames))
@@ -332,11 +333,11 @@ def _fmt_opt(x: Any, fmt: str) -> str:
         return ""
 
 
-def _topk(d: Dict[str, float], k: int = 30) -> List[Tuple[str, float]]:
+def _topk(d: dict[str, float], k: int = 30) -> list[tuple[str, float]]:
     return sorted([(a, float(b)) for a, b in d.items()], key=lambda t: (-t[1], t[0]))[: int(k)]
 
 
-def main(argv: Optional[Sequence[str]] = None) -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_path", required=True, help=".parquet/.csv/.ndjson/.jsonl")
     ap.add_argument("--meta_json", default="", help="sidecar meta.json; optional if --schema_ver is set")
@@ -367,11 +368,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     os.makedirs(out_dir, exist_ok=True)
 
     # meta.json or FeatureRegistry
-    meta: Dict[str, Any] = {}
-    feature_names: List[str] = []
-    column_names: List[str] = []
+    meta: dict[str, Any] = {}
+    feature_names: list[str] = []
+    column_names: list[str] = []
     if str(args.meta_json).strip():
-        with open(str(args.meta_json), "r", encoding="utf-8") as f:
+        with open(str(args.meta_json), encoding="utf-8") as f:
             meta = json.load(f)
         feature_names = list(meta.get("feature_names") or [])
         column_names = list(meta.get("column_names") or [])
@@ -398,8 +399,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     elif data_path.endswith(".csv"):
         df = pd.read_csv(data_path)
     elif data_path.endswith(".ndjson") or data_path.endswith(".jsonl"):
-        rows: List[Dict[str, Any]] = []
-        with open(data_path, "r", encoding="utf-8") as f:
+        rows: list[dict[str, Any]] = []
+        with open(data_path, encoding="utf-8") as f:
             for line in f:
                 s = line.strip()
                 if not s:
@@ -495,8 +496,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     regimes = np.array([_normalize_regime(x) for x in regime_va], dtype=object)
     hours = np.array([_utc_hour(int(t)) for t in ts_va], dtype=np.int16)
 
-    def _group_masks(values: np.ndarray, groups: Sequence[Any]) -> Dict[str, np.ndarray]:
-        out: Dict[str, np.ndarray] = {}
+    def _group_masks(values: np.ndarray, groups: Sequence[Any]) -> dict[str, np.ndarray]:
+        out: dict[str, np.ndarray] = {}
         for g in groups:
             out[str(g)] = (values == g)
         return out
@@ -505,7 +506,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     hour_masks = _group_masks(hours, list(range(24)))
 
     # Per-group performance (AUC/Brier)
-    perf_regime: List[Dict[str, Any]] = []
+    perf_regime: list[dict[str, Any]] = []
     for g, m in regime_masks.items():
         n = int(m.sum())
         if n < int(args.min_group_rows):
@@ -519,7 +520,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             "brier": float(_brier(y_va[m], p_va[m])),
         })
 
-    perf_hour: List[Dict[str, Any]] = []
+    perf_hour: list[dict[str, Any]] = []
     for h in range(24):
         m = hour_masks[str(h)]
         n = int(m.sum())
@@ -536,7 +537,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     # Per-group importance (permutation, stable + comparable)
     # We keep it permutation-based even if global uses SHAP, to have a single stability scale.
-    regime_imp: Dict[str, Dict[str, float]] = {}
+    regime_imp: dict[str, dict[str, float]] = {}
     for g, m in regime_masks.items():
         n = int(m.sum())
         if n < int(args.min_group_rows):
@@ -551,7 +552,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             seed=int(args.seed),
         )
 
-    hour_imp: Dict[int, Dict[str, float]] = {}
+    hour_imp: dict[int, dict[str, float]] = {}
     for h in range(24):
         m = hour_masks[str(h)]
         n = int(m.sum())
@@ -569,13 +570,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     # Tables
     # Global importance table
-    imp_global_rows: List[Dict[str, Any]] = []
+    imp_global_rows: list[dict[str, Any]] = []
     for rank, (fn, val) in enumerate(_topk(global_imp, k=len(global_imp)), start=1):
         imp_global_rows.append({"rank": rank, "feature": fn, "importance": float(val), "kind": global_imp_kind})
     _write_csv(os.path.join(out_dir, "importance_global.csv"), imp_global_rows, ["rank", "feature", "importance", "kind"])
 
     # Regime importance table
-    imp_regime_rows: List[Dict[str, Any]] = []
+    imp_regime_rows: list[dict[str, Any]] = []
     for g in ("trend", "range", "other"):
         d = regime_imp.get(g, {})
         for rank, (fn, val) in enumerate(_topk(d, k=len(d)), start=1):
@@ -583,7 +584,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     _write_csv(os.path.join(out_dir, "importance_by_regime.csv"), imp_regime_rows, ["group", "rank", "feature", "importance"])
 
     # Hour importance table
-    imp_hour_rows: List[Dict[str, Any]] = []
+    imp_hour_rows: list[dict[str, Any]] = []
     for h in sorted(hour_imp.keys()):
         d = hour_imp[h]
         for rank, (fn, val) in enumerate(_topk(d, k=len(d)), start=1):
@@ -591,8 +592,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     _write_csv(os.path.join(out_dir, "importance_by_hour.csv"), imp_hour_rows, ["hour", "rank", "feature", "importance"])
 
     # Stability table (mean/std/cv across available groups)
-    def _stats_over(keys: Sequence[str], mp: Dict[Any, Dict[str, float]]) -> Tuple[float, float, float]:
-        xs: List[float] = []
+    def _stats_over(keys: Sequence[str], mp: dict[Any, dict[str, float]]) -> tuple[float, float, float]:
+        xs: list[float] = []
         for k in keys:
             d = mp.get(k, {})
             if not d:
@@ -608,7 +609,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     regime_keys = [k for k in ("trend", "range", "other") if k in regime_imp]
     hour_keys = [int(h) for h in sorted(hour_imp.keys())]
 
-    stab_rows: List[Dict[str, Any]] = []
+    stab_rows: list[dict[str, Any]] = []
     # Choose global importance column (comparable units may differ; we keep both global and perm_mean)
     # For stability we always use permutation-based aggregates.
     perm_global = permutation_importance_auc_drop(
@@ -646,7 +647,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             "flag_strong": strong,
         })
 
-    stab_rows = sorted(stab_rows, key=lambda r: (-float(r.get("global_perm_auc_drop", 0.0)), -float(r.get("regime_mean", 0.0)), str(r.get("feature"))))
+    stab_rows = sorted(stab_rows, key=lambda r: (-float(r.get("global_perm_auc_drop", 0.0)), -float(r.get("regime_mean", 0.0)), (r.get("feature"))))
     _write_csv(
         os.path.join(out_dir, "stability_table.csv"),
         stab_rows,
@@ -674,8 +675,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         "ts": int(_now_ms()),
         "data_path": str(args.data_path),
         "meta_json": str(args.meta_json),
-        "schema_ver": str(meta.get("ver") or ""),
-        "schema_hash": str(meta.get("schema_hash") or ""),
+        "schema_ver": (meta.get("ver") or ""),
+        "schema_hash": (meta.get("schema_hash") or ""),
         "n_rows": int(len(df)),
         "n_train": int(len(split.train_idx)),
         "n_val": int(len(split.val_idx)),
@@ -698,7 +699,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     top = _topk(perm_global, k=25)
     noisy = [r for r in stab_rows if int(r.get("flag_noise", 0)) == 1][:25]
     with open(os.path.join(out_dir, "report.md"), "w", encoding="utf-8") as f:
-        f.write(f"# Feature selection loop v1\n\n")
+        f.write("# Feature selection loop v1\n\n")
         f.write(f"Schema: **{summary['schema_ver']}**  hash={summary['schema_hash'][:16]}…\n\n")
         f.write(f"Model: **{summary['model']}**  AUC(val)={summary['auc_val']:.4f}  Brier(val)={summary['brier_val']:.6f}\n\n")
         f.write("## Top features (perm AUC drop)\n\n")

@@ -1,7 +1,6 @@
-import os
-import pytest
 
 from handlers.confirmations.engine import ConfirmationsEngine
+
 
 class Ctx:
     # dataclass не нужен: setattr/read достаточно

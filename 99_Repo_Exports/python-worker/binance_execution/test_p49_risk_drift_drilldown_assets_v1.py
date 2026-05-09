@@ -1,5 +1,5 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 
 def test_drilldown_dashboard_contains_sid_and_decision_id_variables():

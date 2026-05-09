@@ -1,8 +1,7 @@
-import pytest
 
-from core.dq_observe_only import apply_observe_only_book_veto
-from core.dq_gate_v1 import eval_dq_gate
 import core.runtime_clock as runtime_clock
+from core.dq_gate_v1 import eval_dq_gate
+from core.dq_observe_only import apply_observe_only_book_veto
 
 
 def test_apply_observe_only_disabled():

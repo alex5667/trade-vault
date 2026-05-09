@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
 import uuid
-from typing import Any, Dict, Tuple, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -48,13 +49,13 @@ ONLY_SEVERITY = os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_INCIDEN
 
 POLL_INTERVAL_SEC = 5.0
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_incident_bundles_runs_total", "Runs", ("status", "trigger_type"))
@@ -67,23 +68,23 @@ LAST_RUN = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_incident_bundle
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
     }
 
-async def read_recent(r: Any, stream_name: str, count: int) -> List[Dict[str, Any]]:
+async def read_recent(r: Any, stream_name: str, count: int) -> list[dict[str, Any]]:
     res = await r.xrevrange(stream_name, max="+", min="-", count=count)
     if not res:
         return []
     return [decode_dict(fields) for _, fields in res]
 
 
-def find_unprocessed_triggers(last_times: Dict[str, int], current_data: Dict[str, List[Dict[str, Any]]]) -> List[Tuple[str, str, str, Dict[str, Any]]]:
+def find_unprocessed_triggers(last_times: dict[str, int], current_data: dict[str, list[dict[str, Any]]]) -> list[tuple[str, str, str, dict[str, Any]]]:
     # Looking for applies, rollbacks, and escalations as triggers
     triggers = []
-    
+
     # Check applies
     for a in current_data.get("applies", []):
         ts = int(a.get("ts_ms", "0"))
@@ -91,13 +92,13 @@ def find_unprocessed_triggers(last_times: Dict[str, int], current_data: Dict[str
             action = a.get("action", "")
             if action in TRIGGER_ON_APPLY_DECISIONS:
                 triggers.append(("apply", "warning", action, a))
-                
+
     # Check rollbacks
     for rb in current_data.get("rollbacks", []):
         ts = int(rb.get("ts_ms", "0"))
         if ts > last_times.get("rollbacks", 0):
             triggers.append(("rollback", "critical", rb.get("reason", "unknown"), rb))
-            
+
     # Check escalations
     for e in current_data.get("escalations", []):
         ts = int(e.get("ts_ms", "0"))
@@ -105,15 +106,15 @@ def find_unprocessed_triggers(last_times: Dict[str, int], current_data: Dict[str
             sev = e.get("severity", "info")
             if sev in ONLY_SEVERITY:
                 triggers.append(("escalation", sev, f"escalation_{sev}", e))
-                
+
     # Sort triggers by timestamp ascending
     triggers.sort(key=lambda x: int(x[3].get("ts_ms", "0")))
     return triggers
 
 
-def build_bundle(trigger_type: str, severity: str, desc: str, trigger_msg: Dict[str, Any], context: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
+def build_bundle(trigger_type: str, severity: str, desc: str, trigger_msg: dict[str, Any], context: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     bundle_id = f"bndl_wa_{uuid.uuid4().hex[:8]}"
-    
+
     bundle = {
         "bundle_id": bundle_id,
         "contour": "route_incident_rca_mirror_rca_winner_apply",
@@ -141,11 +142,11 @@ def build_bundle(trigger_type: str, severity: str, desc: str, trigger_msg: Dict[
             "slo_rollups": len(context.get("slo_rollups", []))
         }
     }
-    
+
     return bundle
 
 
-async def persist_bundle(db_url: str, bundle: Dict[str, Any]) -> None:
+async def persist_bundle(db_url: str, bundle: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -175,7 +176,7 @@ async def main() -> None:  # pragma: no cover
     start_http_server(PORT)
     if UP:
         UP.set(1)
-        
+
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     db_url = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
 
@@ -185,14 +186,14 @@ async def main() -> None:  # pragma: no cover
         "rollbacks": now_ms(),
         "escalations": now_ms()
     }
-    
+
     # We prime the times to not emit old bundles on startup
     applies_tmp = await read_recent(r, JOURNAL_STREAM, 1)
     if applies_tmp: last_times["applies"] = int(applies_tmp[0].get("ts_ms", last_times["applies"]))
-    
+
     rollbacks_tmp = await read_recent(r, ROLLBACK_STREAM, 1)
     if rollbacks_tmp: last_times["rollbacks"] = int(rollbacks_tmp[0].get("ts_ms", last_times["rollbacks"]))
-    
+
     escalations_tmp = await read_recent(r, ESCALATIONS_STREAM, 1)
     if escalations_tmp: last_times["escalations"] = int(escalations_tmp[0].get("ts_ms", last_times["escalations"]))
 
@@ -200,7 +201,7 @@ async def main() -> None:  # pragma: no cover
         started = time.perf_counter()
         status = "ok"
         trigger_type = "none"
-        
+
         try:
             # Poll context streams
             current_data = {
@@ -211,24 +212,24 @@ async def main() -> None:  # pragma: no cover
                 "escalations": await read_recent(r, ESCALATIONS_STREAM, LOOKBACK_COUNT),
                 "slo_rollups": await read_recent(r, SLO_ROLLUPS_STREAM, LOOKBACK_COUNT)
             }
-            
+
             triggers = find_unprocessed_triggers(last_times, current_data)
-            
+
             for t_type, severity, desc, t_msg in triggers:
                 trigger_type = t_type
                 ts = int(t_msg.get("ts_ms", "0"))
                 last_times[t_type + "s"] = max(last_times[t_type + "s"], ts)
-                
+
                 bundle = build_bundle(t_type, severity, desc, t_msg, current_data)
                 bundle_json = json.dumps(bundle)
-                
+
                 await persist_bundle(db_url, bundle)
-                
+
                 await r.xadd(BUNDLES_STREAM, {
                     "bundle_id": bundle["bundle_id"],
                     "bundle_json": bundle_json
                 }, maxlen=MAXLEN, approximate=True)
-                
+
                 await r.xadd(AUDIT_STREAM, {
                     "bundle_id": bundle["bundle_id"],
                     "action": "BUNDLE_BUILT",
@@ -236,21 +237,21 @@ async def main() -> None:  # pragma: no cover
                     "severity": severity,
                     "ts_ms": str(now_ms())
                 }, maxlen=MAXLEN, approximate=True)
-                
+
                 if TOTAL_BUNDLES:
                     TOTAL_BUNDLES.labels(severity=severity, trigger_type=t_type).inc()
-            
+
             if LAST_RUN:
                 LAST_RUN.set(time.time())
-                
-        except Exception as exc:
+
+        except Exception:
             status = "error"
         finally:
             if RUNS:
                 RUNS.labels(status=status, trigger_type=trigger_type).inc()
             if LAT:
                 LAT.observe(max(time.perf_counter() - started, 0.0))
-                
+
             await asyncio.sleep(POLL_INTERVAL_SEC)
 
 if __name__ == "__main__":  # pragma: no cover

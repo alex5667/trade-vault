@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """
 python-worker/tools/cfg_suggestions_lifecycle.py
@@ -18,11 +19,12 @@ Status determination:
    - n_approved >= min_approvals
 3. Applied: Found applied key for SID.
 """
-import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
+
 from common.redis_errors import retry_redis_operation
+
 
 def now_ms() -> int:
     return get_ny_time_millis()
@@ -43,22 +45,22 @@ def check_suggestions_health(
     r: redis.Redis,
     prefix: str,
     kind: str,
-    scopes: List[str],
+    scopes: list[str],
     max_created_age_ms: int = 3600000,   # 1h
     max_approved_age_ms: int = 600000,    # 10m
     strict: bool = False
-) -> Tuple[Dict[str, Any], List[str]]:
+) -> tuple[dict[str, Any], list[str]]:
     """
     Analyzes suggestions for given kind and scopes.
     Returns:
         (results_dict, alerts_list)
     """
     now = now_ms()
-    alerts: List[str] = []
-    
+    alerts: list[str] = []
+
     # Kind/Scope -> Latest SID
     # {prefix}:latest:{kind}:{scope} -> sid
-    
+
     summary = {
         "kind": kind,
         "scopes": scopes,
@@ -68,10 +70,10 @@ def check_suggestions_health(
         "oldest_pending_ms": 0,
         "stuck_sids": []
     }
-    
+
     all_sids = set()
     latest_sids = {}
-    
+
     for scope in scopes:
         key = f"{prefix}:latest:{kind}:{scope}"
         sid = retry_redis_operation(
@@ -82,35 +84,35 @@ def check_suggestions_health(
         if sid:
             latest_sids[scope] = sid
             all_sids.add(sid)
-            
-    # Also scan for all meta keys if possible, but let's stick to 'latest' pointers first 
+
+    # Also scan for all meta keys if possible, but let's stick to 'latest' pointers first
     # as per patch description which mentions 'latest pointer' keys.
     # If we need to find OLD pending ones, we might need SCAN on {prefix}:meta:*
     # But usually 'latest' is what we care about for 'current' lifecycle.
-    
+
     for sid in sorted(list(all_sids)):
         meta_key = f"{prefix}:meta:{sid}"
         meta_raw = r.get(meta_key)
         if not meta_raw:
             continue
-            
+
         try:
             meta = json.loads(meta_raw)
         except Exception:
             if strict:
                 alerts.append(f"cfg_sugg_err:meta_json_parse:{sid}:{str(e)}")
             continue
-            
+
         created_at = _i(meta.get("created_at_ms", meta.get("ts_ms", 0)))
         age_ms = now - created_at if created_at else 0
-        
+
         # Check applied
         applied_key = f"{prefix}:applied:{sid}"
         try:
             is_applied = bool(r.exists(applied_key))
         except Exception:
             is_applied = r.get(applied_key) is not None
-        
+
         # Check approved
         approvals_key = f"{prefix}:approvals:{sid}"
         approvals = {}
@@ -134,7 +136,7 @@ def check_suggestions_health(
 
         is_approved = False
         # Heuristics for discovery
-        status_in_meta = str(meta.get("status", "")).lower()
+        status_in_meta = (meta.get("status", "")).lower()
         if status_in_meta in ("approved", "ok", "ready"):
             is_approved = True
         elif approvals:

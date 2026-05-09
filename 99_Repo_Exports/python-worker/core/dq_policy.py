@@ -1,5 +1,5 @@
-from typing import Dict, Any, Tuple
 import os
+from typing import Any
 
 
 class TickDQPolicy:
@@ -37,9 +37,9 @@ class TickDQPolicy:
         self.max_future_skew_ms = int(os.getenv("TICK_DQ_MAX_SKEW_MS", str(max_future_skew_ms)))
         self.max_out_of_order_ms = int(os.getenv("TICK_DQ_MAX_OOO_MS", str(max_out_of_order_ms)))
 
-        self.last_ts_ms: Dict[str, int] = {}
+        self.last_ts_ms: dict[str, int] = {}
 
-    def validate(self, payload: Dict[str, Any], current_ts_ms: int) -> Tuple[bool, str]:
+    def validate(self, payload: dict[str, Any], current_ts_ms: int) -> tuple[bool, str]:
         """
         Validate tick or kline payload.
         Returns: (is_valid, reason)

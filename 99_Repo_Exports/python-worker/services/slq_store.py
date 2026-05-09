@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -17,10 +17,10 @@ def _sf(x: Any, default: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(default)
+        return default
 
 
-def fetch_slq(redis: Any, *, key: str) -> Optional[SlqSnapshot]:
+def fetch_slq(redis: Any, *, key: str) -> SlqSnapshot | None:
     """
     Redis GET -> SlqSnapshot
     Fail-open: returns None on any error or missing/invalid payload.

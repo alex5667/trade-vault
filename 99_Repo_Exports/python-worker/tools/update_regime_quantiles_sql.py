@@ -1,19 +1,20 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
+import json
 import os
 import sys
 import time
-import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import psycopg2
 import redis as redis_sync
 
+from utils.time_utils import get_ny_time_millis
+
 
 def _env(k: str, d: str) -> str:
-    return str(os.getenv(k, d))
+    return os.getenv(k, d)
 
 
 @dataclass
@@ -22,7 +23,7 @@ class JobCfg:
     dsn: str
     bars_table: str
     lookback_days: int
-    symbols: List[str]
+    symbols: list[str]
     timeframe: str
     # Column names in bars_table
     col_symbol: str = "symbol"
@@ -61,15 +62,15 @@ def _redis() -> Any:
     return redis_sync.from_url(url, decode_responses=True, socket_connect_timeout=5, socket_timeout=5)
 
 
-def _publish_row(r: Any, row: Dict[str, Any]) -> None:
+def _publish_row(r: Any, row: dict[str, Any]) -> None:
     """
     Publish quantiles to Redis for low-latency reads in tick loop.
     Key: regime:q:{symbol}:{timeframe}
     Value: JSON with quantiles + sampleSize + updatedAtMs
     TTL: 36h default (longer than update interval for safety)
     """
-    sym = str(row.get("symbol") or "").upper()
-    tf = str(row.get("timeframe") or "1m")
+    sym = (row.get("symbol") or "").upper()
+    tf = (row.get("timeframe") or "1m")
     if not sym:
         return
     ttl = int(_env("REGIME_Q_REDIS_TTL_SEC", "129600"))  # 36h default
@@ -104,7 +105,7 @@ ON CONFLICT(symbol,timeframe) DO UPDATE SET
 """
 
 
-def compute_for_symbol(conn, cfg: JobCfg, symbol: str) -> Dict[str, Any]:
+def compute_for_symbol(conn, cfg: JobCfg, symbol: str) -> dict[str, Any]:
     """
     Compute quantiles for a single symbol using SQL percentile_cont.
     Requires bars_table to contain adx14 and atrp14.
@@ -156,7 +157,7 @@ def main() -> int:
     conn = psycopg2.connect(cfg.dsn)
     conn.autocommit = True
     out = {"ts_ms": get_ny_time_millis(), "timeframe": cfg.timeframe, "rows": []}
-    
+
     # Redis publishing (optional, fail-open)
     pub_redis = bool(int(_env("REGIME_Q_PUBLISH_REDIS", "1")))
     r = None
@@ -165,24 +166,24 @@ def main() -> int:
             r = _redis()
         except Exception:
             r = None
-    
+
     try:
         for sym in cfg.symbols:
             st = compute_for_symbol(conn, cfg, sym)
             if int(st.get("sample_count", 0) or 0) <= 0:
                 continue
-            
+
             # Write to DB
             with conn.cursor() as cur:
                 cur.execute(UPSERT_SQL, st)
-            
+
             # Publish to Redis (best-effort, fail-open)
             if r is not None:
                 try:
                     _publish_row(r, st)
                 except Exception:
                     pass  # fail-open: continue even if Redis publish fails
-            
+
             out["rows"].append(st)
     finally:
         conn.close()
@@ -196,7 +197,7 @@ if __name__ == "__main__":
     ap.add_argument("--interval", type=int, default=int(os.getenv("REGIME_Q_INTERVAL_SEC", "21600")))
     ap.add_argument("--once", action="store_true")
     args = ap.parse_args()
-    
+
     if args.once:
         sys.exit(main())
     else:

@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
+
 from news_pipeline.feature_store_worker import NewsFeatureStoreWorker
+
 
 def test_feature_store_ref_is_key():
     r = MagicMock()

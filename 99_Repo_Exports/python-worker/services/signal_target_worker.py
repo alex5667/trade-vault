@@ -1,12 +1,11 @@
-from utils.time_utils import get_ny_time_millis
 import json
 import os
-import time
 import random
-from typing import Any, Dict, Optional
-
+import time
+from typing import Any
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("SignalTargetWorker")
 
@@ -234,7 +233,10 @@ class _Backoff:
 
 
 from core.redis_client import get_redis
-from core.redis_keys import RedisStreams as RS, RedisKeyPrefixes as RK
+from core.redis_keys import RedisKeyPrefixes as RK
+from core.redis_keys import RedisStreams as RS
+import contextlib
+
 
 class SignalTargetWorker:
     """
@@ -281,13 +283,13 @@ class SignalTargetWorker:
         # dlq
         self.dlq_stream = os.getenv("SIGNAL_DLQ_STREAM", RS.SIGNAL_DLQ)
 
-        self._sha_pop: Optional[str] = None
-        self._sha_xadd: Optional[str] = None
-        self._sha_setex: Optional[str] = None
-        self._sha_notify: Optional[str] = None
-        self._sha_requeue: Optional[str] = None
-        self._sha_retry: Optional[str] = None
-        self._sha_complete: Optional[str] = None
+        self._sha_pop: str | None = None
+        self._sha_xadd: str | None = None
+        self._sha_setex: str | None = None
+        self._sha_notify: str | None = None
+        self._sha_requeue: str | None = None
+        self._sha_retry: str | None = None
+        self._sha_complete: str | None = None
 
         self._backoff = _Backoff()
 
@@ -313,7 +315,7 @@ class SignalTargetWorker:
     def _inflight_key(self, sid: str) -> str:
         return f"deliver:inflight:{self.target}:{sid}"
 
-    def _schedule_retry(self, sid: str, task: Dict[str, Any], attempt: int, err: Exception) -> None:
+    def _schedule_retry(self, sid: str, task: dict[str, Any], attempt: int, err: Exception) -> None:
         # Atomic retry: update task payload + move inflight->due (no task loss).
         a = max(0, int(attempt))
         delay = min(self.retry_cap_ms, int(self.retry_base_ms * (2 ** min(a, 10)))) + random.randint(0, max(0, self.retry_jitter_ms))
@@ -349,7 +351,7 @@ class SignalTargetWorker:
                 payload,
             )
 
-    def _send_dlq(self, err_type: str, task: Dict[str, Any]) -> bool:
+    def _send_dlq(self, err_type: str, task: dict[str, Any]) -> bool:
         payload = {
             "ts": get_ny_time_millis(),
             "type": err_type,
@@ -362,7 +364,7 @@ class SignalTargetWorker:
             logger.error("DLQ write failed: %s", e, exc_info=True)
             return False
 
-    def _claim_due(self, now_ms: int) -> Optional[Dict[str, Any]]:
+    def _claim_due(self, now_ms: int) -> dict[str, Any] | None:
         self._ensure_scripts()
         try:
             res = self.redis.evalsha(
@@ -438,12 +440,10 @@ class SignalTargetWorker:
         try:
             self.redis.evalsha(self._sha_complete, 2, self.inflight_zset, tkey, sid)  # type: ignore
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 self.redis.eval(_LUA_COMPLETE, 2, self.inflight_zset, tkey, sid)
-            except Exception:
-                pass
 
-    def _deliver_xadd(self, sid: str, stream: str, fields: Dict[str, Any], maxlen: int, approx: bool) -> bool:
+    def _deliver_xadd(self, sid: str, stream: str, fields: dict[str, Any], maxlen: int, approx: bool) -> bool:
         self._ensure_scripts()
         done = self._done_key(sid)
         inflight = self._inflight_key(sid)
@@ -508,24 +508,24 @@ class SignalTargetWorker:
             return True
         return False
 
-    def _deliver_http_post(self, sid: str, url: str, headers: Dict[str, str], payload: str, timeout_sec: float) -> bool:
+    def _deliver_http_post(self, sid: str, url: str, headers: dict[str, str], payload: str, timeout_sec: float) -> bool:
         self._ensure_scripts()
         done = self._done_key(sid)
         inflight = self._inflight_key(sid)
-        
+
         if self.redis.exists(done):
             self._complete_cleanup(sid)
             return True
-            
+
         ok = self.redis.set(inflight, "1", nx=True, px=self.inflight_ttl_ms)
         if not ok:
             return False
-            
+
         import requests
         try:
             resp = requests.post(url, headers=headers, data=payload, timeout=timeout_sec)
             resp.raise_for_status()
-            
+
             # mark done
             self.redis.set(done, "1", nx=True, ex=self.task_ttl_sec)
             self.redis.delete(inflight)
@@ -536,7 +536,7 @@ class SignalTargetWorker:
             from redis.exceptions import TimeoutError
             raise TimeoutError(f"http_post_failed_transient: {str(e)}")
 
-    def _deliver_notify(self, sid: str, payload: Dict[str, Any]) -> bool:
+    def _deliver_notify(self, sid: str, payload: dict[str, Any]) -> bool:
         self._ensure_scripts()
         done = self._done_key(sid)
         inflight = self._inflight_key(sid)
@@ -579,9 +579,9 @@ class SignalTargetWorker:
             return True
         return False
 
-    def _process_one(self, task: Dict[str, Any]) -> None:
-        sid = str(task.get("sid") or "")
-        op = str(task.get("op") or "")
+    def _process_one(self, task: dict[str, Any]) -> None:
+        sid = (task.get("sid") or "")
+        op = (task.get("op") or "")
         attempt = int(task.get("attempt", 0) or 0)
         if not sid:
             self._send_dlq("missing_sid", task)
@@ -591,10 +591,8 @@ class SignalTargetWorker:
                 # DLQ unreachable, do not silently drop. Let it expire visibility and retry later.
                 return
             # mark done to avoid endless
-            try:
+            with contextlib.suppress(Exception):
                 self.redis.set(self._done_key(sid), "1", ex=self.task_ttl_sec, nx=True)
-            except Exception:
-                pass
             self._complete_cleanup(sid)
             return
 
@@ -604,7 +602,7 @@ class SignalTargetWorker:
             elif op == "xadd":
                 ok = self._deliver_xadd(
                     sid,
-                    str(task.get("stream") or ""),
+                    (task.get("stream") or ""),
                     task.get("fields") or {},
                     int(task.get("maxlen") or 1000),
                     bool(task.get("approx", True)),
@@ -612,16 +610,16 @@ class SignalTargetWorker:
             elif op == "setex":
                 ok = self._deliver_setex(
                     sid,
-                    str(task.get("key") or ""),
+                    (task.get("key") or ""),
                     int(task.get("ttl") or 3600),
-                    str(task.get("value") or ""),
+                    (task.get("value") or ""),
                 )
             elif op == "http_post":
                 ok = self._deliver_http_post(
                     sid,
-                    str(task.get("url") or ""),
+                    (task.get("url") or ""),
                     task.get("headers") or {},
-                    str(task.get("payload") or ""),
+                    (task.get("payload") or ""),
                     float(task.get("timeout_sec") or 10.0)
                 )
             else:
@@ -640,10 +638,8 @@ class SignalTargetWorker:
                 self._schedule_retry(sid, task, attempt + 1, e)
                 return
             self._send_dlq("non_transient", {"task": task, "err": str(e)})
-            try:
+            with contextlib.suppress(Exception):
                 self.redis.set(self._done_key(sid), "1", ex=self.task_ttl_sec, nx=True)
-            except Exception:
-                pass
             self._complete_cleanup(sid)
 
     def run(self) -> None:

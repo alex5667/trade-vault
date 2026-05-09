@@ -3,7 +3,6 @@
 
 Проверяем: аккумуляцию тиков, переход баров, вычисление ATR.
 """
-import pytest
 from signals.atr import ATR
 
 

@@ -1,19 +1,20 @@
 import asyncio
 import os
-import json
-import numpy as np
-import redis.asyncio as aioredis
+import sys
 from collections import defaultdict
 
+import numpy as np
+import redis.asyncio as aioredis
+
 from core.microbar_streams import read_microbars
-import sys
+
 sys.path.append("/app")
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 
 async def main():
     r = aioredis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
-    
+
     # Fetch per-symbol microbars (split-streams aware)
     count_per = int(os.getenv("MICROBAR_READ_COUNT", "10000"))
 
@@ -47,7 +48,7 @@ async def main():
             d = curr["cvd"] - prev["cvd"]
             val = abs(d) * curr["close"]
             deltas.append(val)
-            
+
         print(f"--- {sym} ---")
         if deltas:
             p50 = np.percentile(deltas, 50)
@@ -73,7 +74,7 @@ async def main():
                 print(f"rate_p10: {np.percentile(rates, 10):.1f}")
                 print(f"rate_p50: {np.percentile(rates, 50):.1f}")
                 print(f"rate_n: {len(rates)}")
-        except: pass
+        except Exception: pass
 
     await r.close()
 

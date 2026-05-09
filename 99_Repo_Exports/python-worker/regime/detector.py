@@ -3,7 +3,8 @@ from __future__ import annotations
 import math
 import time
 from collections import deque
-from typing import Any, Callable, Deque, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 from .types import RegimeFeatures, RegimeSample
 
@@ -31,9 +32,9 @@ class RegimeDetector:
         self,
         *,
         cfg: Any,
-        history: Dict[str, Deque[RegimeSample]],
+        history: dict[str, deque[RegimeSample]],
         get_htf_levels: Callable[[str], Any],
-        compute_daily_open_cross_freq: Callable[[str], Optional[float]],
+        compute_daily_open_cross_freq: Callable[[str], float | None],
         now_s: Callable[[], float] = time.time,
     ) -> None:
         self.cfg = cfg
@@ -49,7 +50,7 @@ class RegimeDetector:
             n = 240
         return max(10, n)  # guard tiny windows
 
-    def _hist(self, symbol: str) -> Deque[RegimeSample]:
+    def _hist(self, symbol: str) -> deque[RegimeSample]:
         h = self._history.get(symbol)
         want = self._maxlen()
         if h is None:
@@ -58,7 +59,7 @@ class RegimeDetector:
             return h
         # if existing deque has different maxlen (or None) -> rebuild to be stable
         if getattr(h, "maxlen", None) != want:
-            nh: Deque[RegimeSample] = deque(list(h)[-want:], maxlen=want)
+            nh: deque[RegimeSample] = deque(list(h)[-want:], maxlen=want)
             self._history[symbol] = nh
             return nh
         return h
@@ -113,7 +114,7 @@ class RegimeDetector:
                 elif diff_o < 0.0:
                     daily_open_side = -1
 
-        h = self._hist(str(symbol))
+        h = self._hist(symbol)
         h.append(
             RegimeSample(
                 ts=now_f,
@@ -165,7 +166,7 @@ class RegimeDetector:
         # 3) cross freq
         daily_open_cross_freq = None
         try:
-            daily_open_cross_freq = self._cross_freq(str(symbol))
+            daily_open_cross_freq = self._cross_freq(symbol)
         except Exception:
             daily_open_cross_freq = None
         if daily_open_cross_freq is not None:
@@ -179,7 +180,7 @@ class RegimeDetector:
         # 4) HTF nearest level dist (bps)
         htf_level_dist_bps = None
         try:
-            htf_levels = self._get_htf_levels(str(symbol))
+            htf_levels = self._get_htf_levels(symbol)
         except Exception:
             htf_levels = None
         if htf_levels is not None:
@@ -206,7 +207,7 @@ class RegimeDetector:
                 atr_bias = _clamp((atr_f - 50.0) / 50.0, -1.0, 1.0)
 
         delta_dir_bias = None
-        hist = self._history.get(str(symbol))
+        hist = self._history.get(symbol)
         if hist and len(hist) >= 3:
             recent = list(hist)[-10:]
             sides = [s.vwap_side for s in recent if s.vwap_side != 0]

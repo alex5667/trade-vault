@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """python-worker/core/horizon_metrics.py
 
 Phase 0 — Prometheus metrics для horizon-aware контракта.
@@ -9,7 +10,7 @@ Phase 0 — Prometheus metrics для horizon-aware контракта.
 
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -110,8 +111,8 @@ def emit_horizon_contract_metrics(
     try:
         _init_metrics()
 
-        sym = str(symbol or "unknown")
-        knd = str(kind or "unknown")
+        sym = (symbol or "unknown")
+        knd = (kind or "unknown")
 
         atr = getattr(risk_profile, "atr", None)
         hz = getattr(risk_profile, "horizon", None)
@@ -157,7 +158,7 @@ def emit_signal_too_old(symbol: str, kind: str) -> None:
     """Signal was rejected because ts exceeds max_signal_age_ms."""
     try:
         _init_metrics()
-        _safe_counter_inc("signal_too_old", symbol=str(symbol), kind=str(kind))
+        _safe_counter_inc("signal_too_old", symbol=symbol, kind=str(kind))
     except Exception:
         pass
 

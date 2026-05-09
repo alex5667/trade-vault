@@ -3,9 +3,10 @@ import os
 import tempfile
 import unittest
 
-from handlers.signal_scoring.isotonic import fit_isotonic_pav
 from handlers.signal_scoring.calibration_store import CalibStore
+from handlers.signal_scoring.isotonic import fit_isotonic_pav
 from handlers.signal_scoring.score_model import ScoreModel
+import contextlib
 
 
 class DummyCtx:
@@ -65,10 +66,8 @@ class TestCalibStore(unittest.TestCase):
             gg2 = st.get_group(kind="absorption", symbol="ETHUSDT", side="SHORT")
             self.assertIsNotNone(gg2)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 os.unlink(path)
-            except Exception:
-                pass
 
 
 class TestScoreModel(unittest.TestCase):
@@ -104,10 +103,8 @@ class TestScoreModel(unittest.TestCase):
             self.assertEqual(out_pos.parts.get("confidence_calibration_isotonic", 0.0), 1.0)
             self.assertGreater(out_pos.parts.get("confidence_calib_n", 0.0), 0.0)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 os.unlink(path)
-            except Exception:
-                pass
 
     def test_score_fallbacks_to_sigmoid_if_no_group(self):
         obj = {"version": 2, "trained_at": 1730000000, "groups": {"global": {"type": "isotonic", "x": [0.0, 1.0], "p": [0.5, 0.5], "n": 999}}}
@@ -128,7 +125,5 @@ class TestScoreModel(unittest.TestCase):
             self.assertGreaterEqual(out.confidence_pct, 0.0)
             self.assertLessEqual(out.confidence_pct, 99.0)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 os.unlink(path)
-            except Exception:
-                pass

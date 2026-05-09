@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Regression: Calibrator Redis Contracts
 
@@ -10,11 +10,11 @@ calibrators perfectly match the expected standard names.
 import json
 from dataclasses import asdict
 
+from core.adverse_gate_calibrator import AdverseGateCalibResult
 from core.dyn_cfg_keys import DynCfgKeys as DK
 from core.redis_keys import RedisStreams as RS
-from core.strong_gate_calibrator import StrongGateCalibResult
 from core.research_guard_calibrator import ResearchGuardCalibResult
-from core.adverse_gate_calibrator import AdverseGateCalibResult
+from core.strong_gate_calibrator import StrongGateCalibResult
 
 
 def test_strong_gate_dyn_cfg_keys() -> None:
@@ -53,7 +53,7 @@ def test_strong_gate_result_schema_snapshot() -> None:
     assert "rollback_streak" in d
     assert "veto_precision" in d
     assert "n_total" in d
-    
+
     js = json.dumps(d)
     assert "recommend" in js
 
@@ -71,7 +71,7 @@ def test_adverse_gate_result_schema_snapshot() -> None:
     assert "recommend" in d
     assert "reversal_veto_precision" in d
     assert "n_reversals" in d
-    
+
     js = json.dumps(d)
     assert "ETHUSDT" in js
 
@@ -86,6 +86,6 @@ def test_research_guard_result_schema_snapshot() -> None:
     assert "recommend" in d
     assert "latest_psr" in d
     assert "n_reports_passing" in d
-    
+
     js = json.dumps(d)
     assert "latest_psr" in js

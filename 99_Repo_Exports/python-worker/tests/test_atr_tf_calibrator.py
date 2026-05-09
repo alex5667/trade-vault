@@ -1,26 +1,25 @@
-from utils.time_utils import get_ny_time_millis
-import json
-import time
 
 import pytest
 
 from core.atr_tf_calibrator import ATRTfCalibrator
 from utils.atr_cache import ATRCache
+from utils.time_utils import get_ny_time_millis
+
 
 class FakePipeline:
     def __init__(self, db, hashes):
         self.db = db
         self.hashes = hashes
         self.cmds = []
-    
+
     def hgetall(self, key):
         self.cmds.append(("hgetall", key))
         return self
-        
+
     def get(self, key):
         self.cmds.append(("get", key))
         return self
-        
+
     def execute(self):
         results = []
         for cmd, key in self.cmds:
@@ -34,13 +33,13 @@ class MockRedis:
     def __init__(self):
         self.db = {}
         self.hashes = {}
-        
+
     def set(self, key, val, ex=None):
         self.db[key] = str(val)
-        
+
     def get(self, key):
         return self.db.get(key)
-        
+
     def hset(self, key, mapping=None, **kwargs):
         mappings = mapping or {}
         mappings.update(kwargs)
@@ -48,15 +47,15 @@ class MockRedis:
             self.hashes[key] = {}
         for k, v in mappings.items():
             self.hashes[key][k] = str(v)
-            
+
     def hmget(self, key, *args):
         # Implementation for hmget as used in get_with_meta
         h = self.hashes.get(key, {})
         return [h.get(k) for k in args]
-    
+
     def hgetall(self, key):
         return self.hashes.get(key, {})
-        
+
     def pipeline(self):
         return FakePipeline(self.db, self.hashes)
 

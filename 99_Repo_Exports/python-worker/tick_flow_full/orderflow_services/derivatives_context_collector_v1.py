@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Low-frequency collector for normalized derivatives context.
@@ -17,8 +18,6 @@ import asyncio
 import json
 import logging
 import os
-import time
-from typing import Dict, List
 
 import redis.asyncio as aioredis
 
@@ -30,12 +29,13 @@ from services.orderflow.derivatives_context import (
     build_snapshot,
 )
 from services.orderflow.metrics_derivatives_context import deriv_ctx_collector_errors_total, deriv_ctx_collector_up
+import contextlib
 
 logger = logging.getLogger("derivatives_context_collector_v1")
 
 
-def _split_csv(raw: str) -> List[str]:
-    return [s.strip().upper() for s in str(raw or "").split(",") if s.strip()]
+def _split_csv(raw: str) -> list[str]:
+    return [s.strip().upper() for s in (raw or "").split(",") if s.strip()]
 
 
 class DerivativesContextCollector:
@@ -50,7 +50,7 @@ class DerivativesContextCollector:
                 self.write_clients.append(aioredis.from_url(u_str, decode_responses=True))
         if not self.write_clients:
             self.write_clients.append(self.r)
-            
+
         self.public = BinanceFuturesPublicREST(
             base_url=(os.getenv("BINANCE_FUTURES_BASE_URL") or "https://fapi.binance.com").strip(),
             timeout_s=float(os.getenv("BINANCE_HTTP_TIMEOUT_S", "8.0") or 8.0),
@@ -67,12 +67,12 @@ class DerivativesContextCollector:
         self.concurrency_limit = int(os.getenv("DERIV_CTX_CONCURRENCY", "5") or 5)
         self.semaphore = asyncio.Semaphore(self.concurrency_limit)
 
-    async def _discover_symbols(self) -> List[str]:
+    async def _discover_symbols(self) -> list[str]:
         out = set(self.static_symbols)
         try:
             members = await self.r.smembers(self.symbols_key)
             for m in members or []:
-                s = str(m or "").strip().upper()
+                s = (m or "").strip().upper()
                 if s:
                     out.add(s)
         except Exception:
@@ -81,7 +81,7 @@ class DerivativesContextCollector:
             out = {"BTCUSDT", "ETHUSDT"}
         return sorted(out)
 
-    async def _read_funding_history(self, symbol: str) -> List[float]:
+    async def _read_funding_history(self, symbol: str) -> list[float]:
         key = f"ctx:deriv_hist:funding:{symbol}"
         try:
             vals = await self.r.lrange(key, 0, self.history_len - 1)
@@ -100,7 +100,7 @@ class DerivativesContextCollector:
         except Exception:
             pass
 
-    async def _get_partial_funding_payload(self, symbol: str) -> Dict:
+    async def _get_partial_funding_payload(self, symbol: str) -> dict:
         try:
             raw = await self.r.get(f"{self.partial_prefix}{symbol}")
             return json.loads(raw) if raw else {}
@@ -198,10 +198,8 @@ class DerivativesContextCollector:
             await self._collect_symbol(symbol)
         except Exception as exc:
             logger.exception("derivatives context collect failed for %s: %s", symbol, exc)
-            try:
+            with contextlib.suppress(Exception):
                 deriv_ctx_collector_errors_total.labels(where="collect_symbol").inc()
-            except Exception:
-                pass
 
     async def run_forever(self) -> None:
         while True:
@@ -211,10 +209,8 @@ class DerivativesContextCollector:
                 await self.run_once()
             except Exception as exc:
                 logger.exception("collector loop failed: %s", exc)
-                try:
+                with contextlib.suppress(Exception):
                     deriv_ctx_collector_errors_total.labels(where="loop").inc()
-                except Exception:
-                    pass
             await asyncio.sleep(self.interval_s)
 
 

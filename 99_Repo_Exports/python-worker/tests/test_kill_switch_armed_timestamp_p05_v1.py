@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P0-5: Kill-switch armed-timestamp gauge correctness tests.
 
 Verifies:
@@ -9,10 +10,9 @@ Verifies:
    and FSM_EMERGENCY_FLATTENED via a minimal executor-level integration smoke.
 """
 
-import time
 import importlib
+import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -117,7 +117,7 @@ class TestKillSwitchAlert:
     def test_alert_expr_uses_gauge(self):
         rule = self._get_alert("KillSwitchTimeoutExceeded")
         assert rule is not None
-        expr = str(rule.get("expr", ""))
+        expr = (rule.get("expr", ""))
         assert "kill_switch_armed_timestamp" in expr, (
             "Alert expr must reference kill_switch_armed_timestamp gauge"
         )
@@ -126,7 +126,7 @@ class TestKillSwitchAlert:
         """Expr must guard against gauge == 0 (cleared state) to avoid ghost alerts."""
         rule = self._get_alert("KillSwitchTimeoutExceeded")
         assert rule is not None
-        expr = str(rule.get("expr", ""))
+        expr = (rule.get("expr", ""))
         # Either "> 0" or "!= 0" pattern must be present
         assert "> 0" in expr or "!= 0" in expr, (
             "Alert expr must exclude armed_timestamp == 0 (cleared) to prevent false positives"
@@ -136,7 +136,7 @@ class TestKillSwitchAlert:
         """Expr must compute age relative to time() to detect timeout."""
         rule = self._get_alert("KillSwitchTimeoutExceeded")
         assert rule is not None
-        expr = str(rule.get("expr", ""))
+        expr = (rule.get("expr", ""))
         assert "time()" in expr, (
             "Alert expr must use time() to compute how long the arming has been active"
         )

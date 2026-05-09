@@ -7,7 +7,7 @@ from domain.handlers import create_position
 
 class _SpecStub:
     def risk_money(self, entry, sl, lot, direction):
-        return abs(float(entry) - float(sl)) * float(lot)
+        return abs(entry - sl) * lot
 
 
 def _mk_signal(payload):

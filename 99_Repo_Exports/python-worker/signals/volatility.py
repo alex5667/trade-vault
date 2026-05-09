@@ -9,18 +9,18 @@
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional
-from publisher.stream_publisher import publish_signal_to_stream
-from core.config import VOLATILITY_SPIKE_MIN_PCT, REDIS_CHANNEL_VOLATILITY, DEFAULT_INTERVAL
+from datetime import UTC, datetime
+
+from core.config import DEFAULT_INTERVAL, REDIS_CHANNEL_VOLATILITY, VOLATILITY_SPIKE_MIN_PCT
 from core.ticker_data import get_ticker_24h_metrics
+from publisher.stream_publisher import publish_signal_to_stream
 
 logger = logging.getLogger(__name__)
 
 
-def check_volatility_spike(symbol: str, high: float, low: float, open_price: float, volume: float, 
-                          high_24h: float, low_24h: float, price_change_percent: float, 
-                          volume_change_percent: float, open_time_ms: Optional[int] = None) -> Optional[dict]:
+def check_volatility_spike(symbol: str, high: float, low: float, open_price: float, volume: float,
+                          high_24h: float, low_24h: float, price_change_percent: float,
+                          volume_change_percent: float, open_time_ms: int | None = None) -> dict | None:
     """
     Проверяет волатильность цены и отправляет сигнал в Redis Stream, если обнаружен всплеск.
 
@@ -39,23 +39,23 @@ def check_volatility_spike(symbol: str, high: float, low: float, open_price: flo
     Возвращает:
         dict с данными сигнала или None, если порог не превышен/данные некорректны.
     """
-    
+
     # Защита от деления на ноль/некорректных данных
     if open_price <= 0:
         return None
-    
+
     # Рассчитываем текущую волатильность как процент от цены открытия
     current_volatility = ((high - low) / open_price) * 100
-    
+
     # Рассчитываем волатильность за 24 часа (для сопоставления и вспомогательной информации)
     volatility_24h = ((high_24h - low_24h) / open_price) * 100
-    
+
     # Рассчитываем изменение волатильности (разность между текущей и 24h)
     volatility_change = current_volatility - volatility_24h
-    
+
     # Используем порог из конфигурации
     volatility_threshold = VOLATILITY_SPIKE_MIN_PCT
-    
+
     if current_volatility > volatility_threshold:
         # Формируем данные сигнала (каждому полю дан комментарий)
         signal = {
@@ -71,7 +71,7 @@ def check_volatility_spike(symbol: str, high: float, low: float, open_price: flo
             'volume': volume,                          # объём за свечу
             'price_change_percent': price_change_percent,      # изменение цены (%) (зарезервировано)
             'volume_change_percent': volume_change_percent,    # изменение объёма (%) (зарезервировано)
-            'timestamp': datetime.now(timezone.utc).isoformat(),   # время формирования сигнала (ISO, UTC)
+            'timestamp': datetime.now(UTC).isoformat(),   # время формирования сигнала (ISO, UTC)
             'interval': DEFAULT_INTERVAL,              # интервал свечи (ожидается '1m')
             't': open_time_ms                          # время открытия свечи (мс) для дедупликации
         }
@@ -88,7 +88,7 @@ def check_volatility_spike(symbol: str, high: float, low: float, open_price: flo
             logger.error("Failed to send volatility signal for %s", symbol)
 
         return signal
-    
+
     return None
 
 
@@ -107,17 +107,17 @@ def handle_volatility(kline):
         is_closed = bool(kline.get('x'))
         if not is_closed:
             return
-        
+
         symbol = kline['s']
         high = float(kline['h'])
         low = float(kline['l'])
         open_price = float(kline['o'])
         volume = float(kline['v'])
         open_time_ms = int(kline.get('t') or 0)
-        
+
         # Получаем реальные 24h метрики из Redis Stream
         ticker_metrics = get_ticker_24h_metrics(symbol)
-        
+
         if ticker_metrics:
             # Используем реальные данные
             high_24h = ticker_metrics['high_24h']
@@ -131,7 +131,7 @@ def handle_volatility(kline):
             low_24h = 0.0
             price_change_percent = 0.0
             volume_change_percent = 0.0
-        
+
         # Вызываем проверку волатильности
         check_volatility_spike(
             symbol=symbol,
@@ -145,6 +145,6 @@ def handle_volatility(kline):
             volume_change_percent=volume_change_percent,
             open_time_ms=open_time_ms
         )
-        
+
     except Exception as e:
         logger.error("Error handling volatility for kline: %s", e)

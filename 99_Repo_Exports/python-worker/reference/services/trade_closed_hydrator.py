@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -17,12 +17,12 @@ def _env_bool(name: str, default: bool = False) -> bool:
 # Поэтому hydrate в compact режиме ВСЕГДА делает HGETALL (batch через pipeline).
 #
 
-def _norm_flat(d: Dict[str, Any]) -> Dict[str, str]:
+def _norm_flat(d: dict[str, Any]) -> dict[str, str]:
     # Redis (decode_responses=True) обычно уже отдаёт str, но нормализуем.
     return {str(k): str(v) for k, v in (d or {}).items() if v is not None}
 
 
-def _normalize_profile_aliases(d: Dict[str, str]) -> Dict[str, str]:
+def _normalize_profile_aliases(d: dict[str, str]) -> dict[str, str]:
     """
     trail_profile vs trailing_profile:
       - TradeClosed: trailing_profile (канон)
@@ -38,12 +38,12 @@ def _normalize_profile_aliases(d: Dict[str, str]) -> Dict[str, str]:
 
 def hydrate_trade_closed(
     redis,
-    fields: Dict[str, Any],
+    fields: dict[str, Any],
     *,
     compact_env: str = "TRADES_CLOSED_STREAM_COMPACT",
     require_closed: bool = True,
     merge_precedence: str = "hash",
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """
     Делает запись закрытой сделки "максимально полной".
 
@@ -104,12 +104,12 @@ def hydrate_trade_closed(
 
 def hydrate_trade_closed_batch(
     redis,
-    rows: List[Dict[str, Any]],
+    rows: list[dict[str, Any]],
     *,
     compact_env: str = "TRADES_CLOSED_STREAM_COMPACT",
     require_closed: bool = False,
     merge_precedence: str = "hash",
-) -> List[Dict[str, str]]:
+) -> list[dict[str, str]]:
     """
     Batch-версия для ускорения consumer'ов:
       - собираем order_id
@@ -118,8 +118,8 @@ def hydrate_trade_closed_batch(
     """
     compact = _env_bool(compact_env, default=False)
     # если compact выключен — batch всё равно полезен, но можно "умно" выбирать нужные
-    want: List[str] = []
-    base: List[Dict[str, str]] = []
+    want: list[str] = []
+    base: list[dict[str, str]] = []
     for r in rows:
         f = _norm_flat(r or {})
         oid = str(f.get("order_id") or f.get("id") or "").strip()
@@ -144,7 +144,7 @@ def hydrate_trade_closed_batch(
         want.append(oid if need else "")
 
     # pipeline hgetall for those we want
-    hashes: List[Dict[str, Any]] = []
+    hashes: list[dict[str, Any]] = []
     if any(want):
         try:
             pipe = redis.pipeline()
@@ -164,7 +164,7 @@ def hydrate_trade_closed_batch(
     else:
         hashes = [{} for _ in want]
 
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for f, oid, h in zip(base, want, hashes):
         if not oid:
             out.append(_normalize_profile_aliases(f))

@@ -30,7 +30,8 @@ import os
 import sys
 import time
 from threading import Lock
-from typing import Optional, Any
+from typing import Any
+import contextlib
 
 # redis-py is an optional dependency in unit-test environments. Importing it
 # unconditionally breaks tests that do not require Redis connectivity.
@@ -49,9 +50,9 @@ def get_env(key, default_value):
 # Main Redis client (existing behavior) - long timeouts
 # ---------------------------------------------------------------------------
 
-_redis_client: Optional[Any] = None
+_redis_client: Any | None = None
 _redis_lock = Lock()
-_connection_pool: Optional[Any] = None
+_connection_pool: Any | None = None
 
 
 def get_redis(retry_attempts=10, retry_delay=2):
@@ -188,17 +189,13 @@ def reset_redis_connection():
     global _redis_client, _connection_pool
     with _redis_lock:
         if _redis_client is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _redis_client.close()
-            except Exception:
-                pass
             _redis_client = None
 
         if _connection_pool is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _connection_pool.disconnect()
-            except Exception:
-                pass
             _connection_pool = None
 
 
@@ -210,9 +207,9 @@ def close_redis_connection():
 # Fast Redis client for tick-loop news enrichment (NEW)
 # ---------------------------------------------------------------------------
 
-_news_redis_client: Optional[Any] = None
+_news_redis_client: Any | None = None
 _news_redis_lock = Lock()
-_news_connection_pool: Optional[Any] = None
+_news_connection_pool: Any | None = None
 
 
 def get_redis_fast_news():
@@ -273,17 +270,13 @@ def reset_redis_fast_news():
     global _news_redis_client, _news_connection_pool
     with _news_redis_lock:
         if _news_redis_client is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _news_redis_client.close()
-            except Exception:
-                pass
             _news_redis_client = None
 
         if _news_connection_pool is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _news_connection_pool.disconnect()
-            except Exception:
-                pass
             _news_connection_pool = None
 
 
@@ -298,9 +291,9 @@ def reset_redis_fast_news():
 # ATR governance services. They do lightweight reads/writes, not blocking ops.
 # ---------------------------------------------------------------------------
 
-_atr_redis_client: Optional[Any] = None
+_atr_redis_client: Any | None = None
 _atr_redis_lock = Lock()
-_atr_connection_pool: Optional[Any] = None
+_atr_connection_pool: Any | None = None
 
 
 def get_atr_redis():
@@ -353,16 +346,12 @@ def reset_atr_redis():
     global _atr_redis_client, _atr_connection_pool
     with _atr_redis_lock:
         if _atr_redis_client is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _atr_redis_client.close()
-            except Exception:
-                pass
             _atr_redis_client = None
         if _atr_connection_pool is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _atr_connection_pool.disconnect()
-            except Exception:
-                pass
             _atr_connection_pool = None
 
 
@@ -372,6 +361,7 @@ async def wait_for_redis_async(client, max_retries: int = 30, delay: float = 10.
     Returns True if Redis is ready, False if still loading after max_retries.
     """
     import asyncio
+
     import redis.exceptions
     for attempt in range(max_retries):
         try:
@@ -416,7 +406,7 @@ def wait_for_redis(client, max_retries: int = 30, delay: float = 10.0) -> bool:
     return False
 
 # ---------------------------------------------------------------------------
-# Async Redis clients for crypto_orderflow_service and others 
+# Async Redis clients for crypto_orderflow_service and others
 # ---------------------------------------------------------------------------
 
 def normalize_redis_url(url: str) -> str:
@@ -429,7 +419,7 @@ def normalize_redis_url(url: str) -> str:
         path = parsed.path
         if not path or path == "/":
             path = "/0"
-        
+
         # netloc contains user:pass@host:port
         return urllib.parse.urlunparse((
             parsed.scheme,
@@ -468,12 +458,12 @@ def get_async_redis_client(
 
     # ✅ Normalize URL to prevent duplicate pools (redis-1 vs redis-1/0)
     url = normalize_redis_url(url or "")
-    
+
     key = (url, max_connections, socket_timeout, socket_connect_timeout, decode_responses, health_check_interval)
-    
+
     if key in _async_clients:
         return _async_clients[key]
-        
+
     with _async_lock:
         if key not in _async_clients:
             try:
@@ -515,7 +505,7 @@ def get_async_redis_client(
             else:
                 print(msg)
             sys.stdout.flush()
-            
+
         return _async_clients[key]
 
 
@@ -525,8 +515,6 @@ async def close_all_async_redis_clients():
     clients = list(_async_clients.values())
     _async_clients.clear()
     for client in clients:
-        try:
+        with contextlib.suppress(Exception):
             await client.close()
-        except:
-            pass
 

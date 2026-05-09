@@ -1,6 +1,6 @@
 import json
 import os
-import pytest
+
 
 # Assuming a simple parsing logic is usually standalone or we test the property
 def parse_is_virtual(redis_hash: dict) -> bool:
@@ -17,9 +17,9 @@ def test_is_virtual_redis_hash_contract():
     fixture_path = os.path.join(
         os.path.dirname(__file__), "fixtures", "orders_closed_hash_virtual_v1.json"
     )
-    with open(fixture_path, "r", encoding="utf-8") as f:
+    with open(fixture_path, encoding="utf-8") as f:
         payload = json.load(f)
-        
+
     assert parse_is_virtual(payload) is True
     assert payload["orderId"].endswith("_virtual")
 

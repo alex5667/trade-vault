@@ -5,14 +5,15 @@ Periodically captures the state of governance boards to maintain
 an immutable audit history over time.
 """
 
+import asyncio
+import json
+import logging
 import os
 import sys
 import time
 import uuid
-import json
-import asyncio
-import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import asyncpg
 
 logging.basicConfig(
@@ -40,12 +41,12 @@ async def capture_snapshot(pool: asyncpg.Pool, kind: str):
 
     try:
         async with pool.acquire() as conn:
-            # Note: We fetch all rows for a full board snapshot. 
-            # In massive installations, this might need time-bounding, but 
+            # Note: We fetch all rows for a full board snapshot.
+            # In massive installations, this might need time-bounding, but
             # active governance states are typically bounded.
             rows = await conn.fetch(f"SELECT * FROM {view_name} LIMIT 1000")
             data = [dict(row) for row in rows]
-            
+
             # Serialize dt/date to isoformat
             def json_default(obj):
                 if isinstance(obj, datetime):
@@ -61,7 +62,7 @@ async def capture_snapshot(pool: asyncpg.Pool, kind: str):
                 (snapshot_id, snapshot_kind, snapshot_json, created_at)
                 VALUES ($1, $2, $3, $4)
                 """,
-                snapshot_id, kind, json_val, datetime.now(timezone.utc)
+                snapshot_id, kind, json_val, datetime.now(UTC)
             )
             log.info(f"Captured {kind} snapshot: {snapshot_id} ({len(data)} rows)")
 
@@ -72,7 +73,7 @@ async def capture_snapshot(pool: asyncpg.Pool, kind: str):
 
 async def main_loop():
     log.info(f"Starting ATR Auditor Snapshot Service. Interval: {SNAPSHOT_INTERVAL_SEC}s")
-    
+
     # Simple retry for initial DB connection
     pool = None
     while pool is None:
@@ -86,9 +87,9 @@ async def main_loop():
     try:
         while True:
             # Perform snapshots
-            for kind in VIEWS.keys():
+            for kind in VIEWS:
                 await capture_snapshot(pool, kind)
-            
+
             # Wait for next interval
             await asyncio.sleep(SNAPSHOT_INTERVAL_SEC)
     except asyncio.CancelledError:

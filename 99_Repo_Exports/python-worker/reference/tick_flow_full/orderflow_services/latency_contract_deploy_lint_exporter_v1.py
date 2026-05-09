@@ -11,9 +11,10 @@ from typing import Any
 from prometheus_client import Gauge, start_http_server
 
 from services.observability.latency_deploy_contract import CONTRACTS
-from services.observability.latency_deploy_lint_state import state_key
 from services.observability.latency_deploy_lint_notify_state import state_key as notifier_state_key
-from services.observability.latency_deploy_lint_silence_state import parse_silence_state, state_key as silence_state_key
+from services.observability.latency_deploy_lint_silence_state import parse_silence_state
+from services.observability.latency_deploy_lint_silence_state import state_key as silence_state_key
+from services.observability.latency_deploy_lint_state import state_key
 
 
 def _env(name: str, default: str = '') -> str:
@@ -163,7 +164,7 @@ def main() -> int:
             r.hset(cfg.summary_key, mapping={'schema_version': '3', 'last_ts_ms': str(now_ms), 'fail_total': str(fail_total), 'gate_active_total': str(gate_total), 'silenced_gate_active_total': str(silenced_gate_total), 'unsilenced_gate_active_total': str(unsilenced_gate_total), 'expired_gate_active_total': str(expired_gate_total), 'policy_blocked_gate_active_total': str(policy_blocked_gate_total), 'policy_override_gate_active_total': str(policy_override_gate_total)})
             nraw = r.hgetall(notifier_state_key(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'))) or {}
             nlast_ms = _i(nraw.get('last_run_ts_ms'), 0)
-            nstatus = str(nraw.get('last_status', 'ok'))
+            nstatus = (nraw.get('last_status', 'ok'))
             G_NOTIFIER_STATE_PRESENT.set(1.0 if nraw else 0.0)
             G_NOTIFIER_LAST_RUN_AGE.set(max(0.0, now - (nlast_ms / 1000.0)) if nlast_ms > 0 else 0.0)
             G_NOTIFIER_ACTIVE.set(1.0 if nstatus == 'active' else 0.0)

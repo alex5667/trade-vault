@@ -1,23 +1,22 @@
-# -*- coding: utf-8 -*-
 import json
+
 import pytest
-import os
-from typing import List, Dict, Any, Optional
+
 
 class FakePipeline:
     def __init__(self, db, hashes):
         self.db = db
         self.hashes = hashes
         self.cmds = []
-    
+
     def hgetall(self, key):
         self.cmds.append(("hgetall", key))
         return self
-        
+
     def get(self, key):
         self.cmds.append(("get", key))
         return self
-        
+
     def execute(self):
         results = []
         for cmd, key in self.cmds:
@@ -31,13 +30,13 @@ class MockRedis:
     def __init__(self):
         self.db = {}
         self.hashes = {}
-        
+
     def set(self, key, val, ex=None):
         self.db[key] = str(val)
-        
+
     def get(self, key):
         return self.db.get(key)
-        
+
     def hset(self, key, mapping=None, **kwargs):
         if key not in self.hashes:
             self.hashes[key] = {}
@@ -46,10 +45,10 @@ class MockRedis:
                 self.hashes[key][k] = str(v)
         for k, v in kwargs.items():
             self.hashes[key][k] = str(v)
-            
+
     def hgetall(self, key):
         return self.hashes.get(key, {})
-        
+
     def pipeline(self):
         return FakePipeline(self.db, self.hashes)
 
@@ -77,7 +76,7 @@ def test_selects_tracker_when_fresh_and_consistent(fake_r):
     atr, meta = c.get_with_meta("BTCUSDT", "1m", now_ms=now)
     assert meta.get("candidates_n", 0) > 0
     assert atr is not None
-    assert abs(float(atr) - 42.0) < 1e-6
+    assert abs(atr - 42.0) < 1e-6
     assert meta.get("src") == "tracker"
     assert meta.get("tf") == "M1"
     assert int(meta.get("tf_match")) == 1
@@ -93,7 +92,7 @@ def test_prefers_atr_json_if_tracker_missing(fake_r):
 
     atr, meta = c.get_with_meta("ETHUSDT", "1m", now_ms=now)
     assert atr is not None
-    assert abs(float(atr) - 3.8) < 1e-6
+    assert abs(atr - 3.8) < 1e-6
     assert meta.get("src") == "atr_json"
 
 
@@ -137,5 +136,5 @@ def test_consistency_penalty_avoids_outlier(fake_r):
     atr, meta = c.get_with_meta("XRPUSDT", "1m", now_ms=now)
     assert atr is not None
     # Outlier (0.2) should be penalized enough for tracker (0.01) to win
-    assert float(atr) < 0.05
+    assert atr < 0.05
     assert meta.get("src") in ("tracker", "atr_json")

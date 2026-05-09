@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Golden replay runner for OFConfirmEngine.
 
 Purpose:
@@ -13,17 +14,16 @@ Output:
 
 
 import argparse
-import hashlib
 import json
+import math
 import os
 import sys
-import time
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
-import math
+from typing import Any
+import contextlib
 
 
-def _pctl(values: List[float], p: float) -> float:
+def _pctl(values: list[float], p: float) -> float:
     if not values:
         return 0.0
     xs = sorted(values)
@@ -41,9 +41,9 @@ def _pctl(values: List[float], p: float) -> float:
     return float(d0 + d1)
 
 
-def _read_ndjson(path: str, limit: int = 0) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    with open(path, "r", encoding="utf-8") as f:
+def _read_ndjson(path: str, limit: int = 0) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -58,9 +58,9 @@ def _read_ndjson(path: str, limit: int = 0) -> List[Dict[str, Any]]:
     return out
 
 
-def _bucket_key(row: Dict[str, Any], idx: int) -> Tuple[str, int, int, int]:
-    sym = str(row.get("symbol", "") or "").upper()
-    b = row.get("bucket_id", None)
+def _bucket_key(row: dict[str, Any], idx: int) -> tuple[str, int, int, int]:
+    sym = (row.get("symbol", "") or "").upper()
+    b = row.get("bucket_id")
     if b is None:
         try:
             b = (row.get("indicators") or {}).get("bucket_id", None)
@@ -78,16 +78,16 @@ def _bucket_key(row: Dict[str, Any], idx: int) -> Tuple[str, int, int, int]:
 
 
 class PressureReplay:
-    def __init__(self, is_hi: Optional[bool]) -> None:
+    def __init__(self, is_hi: bool | None) -> None:
         self._is_hi = is_hi
 
-    def is_pressure_hi(self, now_ms: int, config: Dict[str, Any]) -> bool:
+    def is_pressure_hi(self, now_ms: int, config: dict[str, Any]) -> bool:
         return bool(self._is_hi) if self._is_hi is not None else False
 
 
 class DictLikeNamespace(SimpleNamespace):
     """Namespace that supports both attribute access and .get() method"""
-    def __init__(self, d: Dict[str, Any]):
+    def __init__(self, d: dict[str, Any]):
         super().__init__(**d)
         self._dict = d
     def get(self, key: str, default: Any = None) -> Any:
@@ -97,7 +97,7 @@ class DictLikeNamespace(SimpleNamespace):
     def __contains__(self, key: str) -> bool:
         return key in self._dict
 
-def _ns_from_dict(d: Optional[Dict[str, Any]]) -> Optional[DictLikeNamespace]:
+def _ns_from_dict(d: dict[str, Any] | None) -> DictLikeNamespace | None:
     if not isinstance(d, dict):
         return None
     return DictLikeNamespace(d)
@@ -105,7 +105,7 @@ def _ns_from_dict(d: Optional[Dict[str, Any]]) -> Optional[DictLikeNamespace]:
 
 class ConfigProxy:
     """Dict-like wrapper that supports both attribute access and .get()"""
-    def __init__(self, d: Dict[str, Any]):
+    def __init__(self, d: dict[str, Any]):
         self._d = d or {}
     def get(self, key: str, default: Any = None) -> Any:
         return self._d.get(key, default)
@@ -122,11 +122,11 @@ class ConfigProxy:
 class RuntimeReplay(SimpleNamespace):
     """Minimal runtime proxy to satisfy getattr(runtime, ...) in OFConfirmEngine."""
 
-    def __init__(self, snap: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, snap: dict[str, Any], cfg: dict[str, Any] | None = None) -> None:
         super().__init__()
         self.cont_ctx_ts_ms = int(snap.get("cont_ctx_ts_ms") or 0)
-        self.liq_regime = str(snap.get("liq_regime") or "")
-        self.last_regime = str(snap.get("last_regime") or "")
+        self.liq_regime = (snap.get("liq_regime") or "")
+        self.last_regime = (snap.get("last_regime") or "")
         self.book_churn_hi = int(snap.get("book_churn_hi") or 0)
 
         # dynamic cfg (optional)
@@ -145,7 +145,7 @@ class RuntimeReplay(SimpleNamespace):
         self.last_wp = _ns_from_dict(snap.get("last_wp"))
         self.last_fp_edge = _ns_from_dict(snap.get("last_fp_edge"))
         self.last_div = _ns_from_dict(snap.get("last_div"))
-        
+
         # config proxy (supports .get() and attribute access)
         self.config = ConfigProxy(cfg or {})
 
@@ -159,17 +159,15 @@ def _runtime_from_snapshot(snap: Any) -> Any:
     rt = SimpleNamespace()
     if isinstance(snap, dict):
         for k, v in snap.items():
-            try:
+            with contextlib.suppress(Exception):
                 setattr(rt, str(k), v)
-            except Exception:
-                pass
     return rt
 
 
-def _decision_fingerprint(symbol: str, row: Dict[str, Any], ofc: Any) -> str:
+def _decision_fingerprint(symbol: str, row: dict[str, Any], ofc: Any) -> str:
     # Stable digest input: minimal set of decision-affecting fields
     ts = int(row.get("tick_ts_ms", 0) or 0)
-    direction = str(row.get("direction", "") or "")
+    direction = (row.get("direction", "") or "")
     ok = int(getattr(ofc, "ok", 0) or 0) if ofc is not None else 0
     have = int(getattr(ofc, "have", 0) or 0) if ofc is not None else 0
     need = int(getattr(ofc, "need", 0) or 0) if ofc is not None else 0
@@ -184,7 +182,7 @@ def _decision_fingerprint(symbol: str, row: Dict[str, Any], ofc: Any) -> str:
 def _iter_lines(path: str, max_lines: int) -> Any:
     """Iterate over ndjson lines."""
     n = 0
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -209,8 +207,8 @@ def _approx_equal(a: Any, b: Any, tol: float = 1e-9) -> bool:
     return False
 
 
-def _compare_dict(a: Dict[str, Any], b: Dict[str, Any]) -> List[str]:
-    diffs: List[str] = []
+def _compare_dict(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
+    diffs: list[str] = []
     keys = sorted(set(a.keys()) | set(b.keys()))
     for k in keys:
         if k not in a:
@@ -260,13 +258,13 @@ def main() -> None:
     n = 0
     n_ok = 0
     n_mismatch = 0
-    mismatches: List[Dict[str, Any]] = []
+    mismatches: list[dict[str, Any]] = []
 
     for row in _iter_lines(capture_path, max_lines):
         n += 1
-        symbol = str(row.get("symbol") or "")
-        tf = str(row.get("tf") or "")
-        direction = str(row.get("direction") or "")
+        symbol = (row.get("symbol") or "")
+        tf = (row.get("tf") or "")
+        direction = (row.get("direction") or "")
         tick_ts_ms = int(row.get("tick_ts_ms") or 0)
         price = float(row.get("price") or 0.0)
         delta_z = float(row.get("delta_z") or 0.0)
@@ -292,7 +290,7 @@ def main() -> None:
             runtime = SimpleNamespace()
             runtime.config = ConfigProxy(cfg or {})
         # Expose symbol for engine meta/model keys
-        setattr(runtime, "symbol", symbol)
+        runtime.symbol = symbol
 
         # Run engine
         try:
@@ -333,7 +331,7 @@ def main() -> None:
         expected_dec = row.get("expected_dec") if isinstance(row.get("expected_dec"), dict) else None
 
         if expected_ofc is not None or expected_dec is not None:
-            diffs: List[str] = []
+            diffs: list[str] = []
             if expected_ofc is not None:
                 diffs.extend([f"ofc:{d}" for d in _compare_dict(expected_ofc, ofc_d)])
             if expected_dec is not None:

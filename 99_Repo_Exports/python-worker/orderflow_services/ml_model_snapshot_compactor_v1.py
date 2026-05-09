@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+
 """Phase 0.2 compact unified model snapshots inside scanner_infra.
 
 Reads control-plane truth from Timescale/Postgres tables created in Phase 0/0.1:
@@ -22,10 +24,12 @@ Design goals:
 import json
 import os
 import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -82,7 +86,7 @@ class RegistryRow:
     created_at_ms: int
     promoted_at_ms: int
     artifact_exists: bool = False
-    artifact_age_sec: Optional[float] = None
+    artifact_age_sec: float | None = None
     mode: str = ""
     fail_policy: str = ""
     cfg_source: str = ""
@@ -93,20 +97,20 @@ class RuntimeRow:
     ts_ms: int
     symbol: str
     mode: str
-    latency_p50_ms: Optional[float]
-    latency_p95_ms: Optional[float]
-    latency_p99_ms: Optional[float]
-    allow_rate: Optional[float]
-    block_rate: Optional[float]
-    abstain_rate: Optional[float]
-    shadow_rate: Optional[float]
-    error_rate: Optional[float]
-    ece: Optional[float]
-    brier: Optional[float]
-    psi_top_json: List[str]
-    ks_top_json: List[str]
-    missing_critical_rate: Optional[float]
-    artifact_age_sec: Optional[float]
+    latency_p50_ms: float | None
+    latency_p95_ms: float | None
+    latency_p99_ms: float | None
+    allow_rate: float | None
+    block_rate: float | None
+    abstain_rate: float | None
+    shadow_rate: float | None
+    error_rate: float | None
+    ece: float | None
+    brier: float | None
+    psi_top_json: list[str]
+    ks_top_json: list[str]
+    missing_critical_rate: float | None
+    artifact_age_sec: float | None
 
 
 @dataclass
@@ -120,30 +124,30 @@ class Snapshot:
     owner_service: str
     artifact_uri: str
     artifact_exists: bool
-    artifact_age_sec: Optional[float]
+    artifact_age_sec: float | None
     schema_ver: str
     schema_hash: str
-    latest_runtime_ts_ms: Optional[int]
-    runtime_age_sec: Optional[float]
+    latest_runtime_ts_ms: int | None
+    runtime_age_sec: float | None
     symbols_seen_n: int
     mode_last: str
-    latency_p95_max_ms: Optional[float]
-    latency_p99_max_ms: Optional[float]
-    allow_rate_avg: Optional[float]
-    block_rate_avg: Optional[float]
-    abstain_rate_avg: Optional[float]
-    shadow_rate_avg: Optional[float]
-    error_rate_max: Optional[float]
-    ece_max: Optional[float]
-    brier_max: Optional[float]
-    missing_critical_rate_max: Optional[float]
-    psi_top_json: List[str]
-    ks_top_json: List[str]
+    latency_p95_max_ms: float | None
+    latency_p99_max_ms: float | None
+    allow_rate_avg: float | None
+    block_rate_avg: float | None
+    abstain_rate_avg: float | None
+    shadow_rate_avg: float | None
+    error_rate_max: float | None
+    ece_max: float | None
+    brier_max: float | None
+    missing_critical_rate_max: float | None
+    psi_top_json: list[str]
+    ks_top_json: list[str]
     status: str
-    reason_codes_json: List[str]
-    hot_symbols_json: List[str]
+    reason_codes_json: list[str]
+    hot_symbols_json: list[str]
 
-    def redis_hash(self) -> Dict[str, str]:
+    def redis_hash(self) -> dict[str, str]:
         return {
             "schema_version": "1",
             "ts_ms": str(self.ts_ms),
@@ -179,7 +183,7 @@ class Snapshot:
             "hot_symbols_json": json.dumps(self.hot_symbols_json, separators=(",", ":")),
         }
 
-    def stream_payload(self) -> Dict[str, str]:
+    def stream_payload(self) -> dict[str, str]:
         out = self.redis_hash().copy()
         out["event"] = "ml_model_snapshot_v1"
         return out
@@ -189,7 +193,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _fmt_float(v: Optional[float]) -> str:
+def _fmt_float(v: float | None) -> str:
     return "" if v is None else f"{float(v):.6f}"
 
 
@@ -213,7 +217,7 @@ def _as_int(v: Any, d: int = 0) -> int:
         return d
 
 
-def _as_float(v: Any, d: Optional[float] = None) -> Optional[float]:
+def _as_float(v: Any, d: float | None = None) -> float | None:
     try:
         if v is None or v == "":
             return d
@@ -223,8 +227,8 @@ def _as_float(v: Any, d: Optional[float] = None) -> Optional[float]:
         return d
 
 
-def _merge_top_lists(rows: Sequence[RuntimeRow], attr: str, limit: int = 5) -> List[str]:
-    seen: List[str] = []
+def _merge_top_lists(rows: Sequence[RuntimeRow], attr: str, limit: int = 5) -> list[str]:
+    seen: list[str] = []
     for row in rows:
         vals = getattr(row, attr, []) or []
         for v in vals:
@@ -235,22 +239,22 @@ def _merge_top_lists(rows: Sequence[RuntimeRow], attr: str, limit: int = 5) -> L
     return seen[:limit]
 
 
-def _avg(vals: Iterable[Optional[float]]) -> Optional[float]:
+def _avg(vals: Iterable[float | None]) -> float | None:
     xs = [float(v) for v in vals if v is not None]
     if not xs:
         return None
     return sum(xs) / float(len(xs))
 
 
-def _max(vals: Iterable[Optional[float]]) -> Optional[float]:
+def _max(vals: Iterable[float | None]) -> float | None:
     xs = [float(v) for v in vals if v is not None]
     if not xs:
         return None
     return max(xs)
 
 
-def _hot_symbols(rows: Sequence[RuntimeRow], limit: int = 3) -> List[str]:
-    scored: List[Tuple[float, str]] = []
+def _hot_symbols(rows: Sequence[RuntimeRow], limit: int = 3) -> list[str]:
+    scored: list[tuple[float, str]] = []
     for row in rows:
         score = 0.0
         score += float(row.error_rate or 0.0) * 1000.0
@@ -259,7 +263,7 @@ def _hot_symbols(rows: Sequence[RuntimeRow], limit: int = 3) -> List[str]:
         score += float(row.latency_p99_ms or 0.0) * 0.1
         scored.append((score, row.symbol))
     scored.sort(reverse=True)
-    out: List[str] = []
+    out: list[str] = []
     for _, sym in scored:
         if sym not in out:
             out.append(sym)
@@ -270,13 +274,13 @@ def _hot_symbols(rows: Sequence[RuntimeRow], limit: int = 3) -> List[str]:
 
 def classify_status(
     *,
-    runtime_age_sec: Optional[float],
-    error_rate_max: Optional[float],
-    missing_critical_rate_max: Optional[float],
-    latency_p95_max_ms: Optional[float],
+    runtime_age_sec: float | None,
+    error_rate_max: float | None,
+    missing_critical_rate_max: float | None,
+    latency_p95_max_ms: float | None,
     artifact_exists: bool,
-) -> Tuple[str, List[str]]:
-    reasons: List[str] = []
+) -> tuple[str, list[str]]:
+    reasons: list[str] = []
     status = "ok"
 
     if not artifact_exists:
@@ -378,7 +382,7 @@ def _connect_db() -> Any:
     return psycopg2.connect(DB_DSN)
 
 
-def _fetch_registry_rows(conn: Any) -> List[RegistryRow]:
+def _fetch_registry_rows(conn: Any) -> list[RegistryRow]:
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
             """,
@@ -404,7 +408,7 @@ def _fetch_registry_rows(conn: Any) -> List[RegistryRow]:
             """
         )
         rows = cur.fetchall() or []
-    out: List[RegistryRow] = []
+    out: list[RegistryRow] = []
     for row in rows:
         out.append(
             RegistryRow(
@@ -429,7 +433,7 @@ def _fetch_registry_rows(conn: Any) -> List[RegistryRow]:
     return out
 
 
-def _parse_json_list(v: Any) -> List[str]:
+def _parse_json_list(v: Any) -> list[str]:
     if v is None:
         return []
     if isinstance(v, list):
@@ -444,7 +448,7 @@ def _parse_json_list(v: Any) -> List[str]:
     return []
 
 
-def _fetch_runtime_rows(conn: Any, model_id: str, lookback_min: int) -> List[RuntimeRow]:
+def _fetch_runtime_rows(conn: Any, model_id: str, lookback_min: int) -> list[RuntimeRow]:
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
             """,
@@ -474,7 +478,7 @@ def _fetch_runtime_rows(conn: Any, model_id: str, lookback_min: int) -> List[Run
             (model_id, lookback_min),
         )
         rows = cur.fetchall() or []
-    out: List[RuntimeRow] = []
+    out: list[RuntimeRow] = []
     for row in rows:
         out.append(
             RuntimeRow(
@@ -501,11 +505,11 @@ def _fetch_runtime_rows(conn: Any, model_id: str, lookback_min: int) -> List[Run
     return out
 
 
-def run_once(rds: Any, conn: Any) -> Dict[str, int]:
+def run_once(rds: Any, conn: Any) -> dict[str, int]:
     now_ms = _now_ms()
     regs = _fetch_registry_rows(conn)
-    counts: Dict[str, int] = {"ok": 0, "warning": 0, "critical": 0}
-    family_status: Dict[Tuple[str, str], int] = {}
+    counts: dict[str, int] = {"ok": 0, "warning": 0, "critical": 0}
+    family_status: dict[tuple[str, str], int] = {}
     for reg in regs:
         rt_rows = _fetch_runtime_rows(conn, reg.model_id, LOOKBACK_MIN)
         snap = build_snapshot(reg, rt_rows, now_ms=now_ms)
@@ -526,9 +530,9 @@ def run_once(rds: Any, conn: Any) -> Dict[str, int]:
             "schema_version": "1",
             "ts_ms": str(now_ms),
             "models_total": str(len(regs)),
-            "ok_count": str(counts.get("ok", 0)),
-            "warning_count": str(counts.get("warning", 0)),
-            "critical_count": str(counts.get("critical", 0)),
+            "ok_count": (counts.get("ok", 0)),
+            "warning_count": (counts.get("warning", 0)),
+            "critical_count": (counts.get("critical", 0)),
         }
         rds.hset(OUT_SUMMARY_KEY, mapping=summary)
     except Exception:
@@ -554,10 +558,8 @@ def main() -> None:
             if conn is None or getattr(conn, "closed", 1):
                 conn = _connect_db()
             run_once(rds, conn)
-            try:
+            with contextlib.suppress(Exception):
                 conn.commit()
-            except Exception:
-                pass
             LAST_RUN_TS.set(time.time())
             UP.set(1)
         except Exception:

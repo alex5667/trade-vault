@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ml_analysis.calibration_extended import report, calibration_regression
+from ml_analysis.calibration_extended import calibration_regression, report
 
 
 def _gen_probs(seed: int = 7, n: int = 4000):

@@ -58,7 +58,7 @@ def test_attach_trade_levels_long(monkeypatch):
     symbol = "BTCUSDT"
     of = SimpleNamespace(price=100.0, atr=2.0, spread_bps=10.0)
     ctx = SimpleNamespace(symbol=symbol, of=of)
-    
+
     cfg = RiskCfgResolver().resolve(symbol)
 
     attach_trade_levels_to_ctx(ctx, side="LONG", symbol=symbol, cfg=cfg, overwrite=True)
@@ -86,7 +86,7 @@ def test_attach_trade_levels_short(monkeypatch):
     symbol = "BTCUSDT"
     of = SimpleNamespace(price=100.0, atr=2.0, spread_bps=10.0)
     ctx = SimpleNamespace(symbol=symbol, of=of)
-    
+
     cfg = RiskCfgResolver().resolve(symbol)
 
     attach_trade_levels_to_ctx(ctx, side="SHORT", symbol=symbol, cfg=cfg, overwrite=True)
@@ -120,7 +120,7 @@ def test_attach_trade_levels_fail_open_on_bad_entry():
     symbol = "BTCUSDT"
     of = SimpleNamespace(price=0.0, atr=2.0)  # invalid entry for bps computations
     ctx = SimpleNamespace(symbol=symbol, of=of)
-    
+
     cfg = RiskCfgResolver().resolve(symbol)
 
     # should not crash
@@ -148,7 +148,7 @@ def test_attach_trade_levels_idempotent():
         tp1_price=250.0,
         sl_price=150.0,
     )
-    
+
     cfg = RiskCfgResolver().resolve(symbol)
 
     # overwrite=False -> should not modify existing levels
@@ -184,7 +184,7 @@ def test_attach_trade_levels_overwrite():
         tp1_price=250.0,
         sl_price=150.0,
     )
-    
+
     cfg = RiskCfgResolver().resolve(symbol)
 
     # overwrite=True -> should recalculate based on of.price
@@ -193,5 +193,5 @@ def test_attach_trade_levels_overwrite():
     assert ctx.entry_price == 100.0  # recalculated from of.price
     assert ctx.tp1_price != 250.0  # changed
     assert ctx.sl_price != 150.0  # changed
-    
+
     monkeypatch.undo()

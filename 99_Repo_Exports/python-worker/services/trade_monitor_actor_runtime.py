@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Optional, Callable
+from collections.abc import Callable
 from concurrent.futures import Future
+from typing import Any
 
 from services.sharded_serial_executor import ShardedSerialExecutor
+import contextlib
 
 
 class TradeMonitorActorRuntime:
@@ -33,14 +35,12 @@ class TradeMonitorActorRuntime:
         self.cores = [core_factory(i) for i in range(self.shards)]
 
     def shutdown(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.exec.shutdown(join_timeout_s=2.0)
-        except Exception:
-            pass
 
-    def _route_key(self, *, symbol: Optional[str], sid: Optional[str]) -> str:
+    def _route_key(self, *, symbol: str | None, sid: str | None) -> str:
         if symbol:
-            return str(symbol).upper()
+            return symbol.upper()
         if sid:
             return f"sid:{sid}"
         return "unknown"
@@ -50,17 +50,17 @@ class TradeMonitorActorRuntime:
         sid = self.exec._pick_shard(key)  # intentionally uses executor routing
         return self.cores[int(sid)]
 
-    def submit_tick(self, *, symbol: str, raw_tick: Dict[str, Any]) -> Future:
+    def submit_tick(self, *, symbol: str, raw_tick: dict[str, Any]) -> Future:
         key = self._route_key(symbol=symbol, sid=None)
         core = self._core_for_key(key)
         return self.exec.submit(key, lambda: core.on_tick(raw_tick), name=f"tick:{symbol}")
 
-    def submit_signal(self, *, symbol: str, raw_signal: Dict[str, Any]) -> Future:
+    def submit_signal(self, *, symbol: str, raw_signal: dict[str, Any]) -> Future:
         key = self._route_key(symbol=symbol, sid=raw_signal.get("sid") or raw_signal.get("signal_id"))
         core = self._core_for_key(key)
         return self.exec.submit(key, lambda: core.on_signal(raw_signal), name=f"signal:{symbol}")
 
-    def submit_event(self, *, symbol: Optional[str], sid: Optional[str], fn_name: str, payload: Dict[str, Any]) -> Future:
+    def submit_event(self, *, symbol: str | None, sid: str | None, fn_name: str, payload: dict[str, Any]) -> Future:
         """
         fn_name: which TradeMonitorCore handler to call: 'sl_hit', 'trailing_started', 'tp_hit', ...
         """
@@ -71,7 +71,7 @@ class TradeMonitorActorRuntime:
             # dispatch by name (kept minimal; you can replace with explicit methods)
             if fn_name == "sl_hit":
                 return core.apply_external_sl_hit(
-                    signal_id=str(sid or ""),
+                    signal_id=(sid or ""),
                     price=float(payload.get("price") or 0.0),
                     timestamp=int(payload.get("ts") or 0),
                     source=payload.get("source"),
@@ -79,7 +79,7 @@ class TradeMonitorActorRuntime:
                 )
             if fn_name == "trailing_started":
                 return core.update_trailing_sl(
-                    signal_id=str(sid or ""),
+                    signal_id=(sid or ""),
                     new_sl=float(payload.get("new_sl") or 0.0),
                     source=payload.get("source"),
                     profile=payload.get("profile"),
@@ -88,7 +88,7 @@ class TradeMonitorActorRuntime:
                 )
             if fn_name == "tp_hit":
                 return core.apply_external_tp_hit(
-                    signal_id=str(sid or ""),
+                    signal_id=(sid or ""),
                     tp_level=int(payload.get("tp_level") or 0),
                     price=float(payload.get("price") or 0.0),
                     timestamp=int(payload.get("ts") or 0),

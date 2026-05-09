@@ -1,14 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -37,7 +37,7 @@ def _hash_payload(s: str) -> str:
 
 @dataclass
 class PubCfg:
-    symbols: List[str]
+    symbols: list[str]
     interval_sec: float
     ttl_sec: int
     key_prefix: str
@@ -45,7 +45,7 @@ class PubCfg:
     min_change_publish_sec: float
 
     @staticmethod
-    def from_env() -> "PubCfg":
+    def from_env() -> PubCfg:
         syms = [s.strip().upper() for s in (os.getenv("SYMBOLS", "") or "").split(",") if s.strip()]
         # allow alternative env
         if not syms:
@@ -54,8 +54,8 @@ class PubCfg:
             symbols=syms,
             interval_sec=float(os.getenv("HTF_ZONES_PUB_INTERVAL_SEC", "10")),
             ttl_sec=int(os.getenv("HTF_ZONES_TTL_SEC", "120")),
-            key_prefix=str(os.getenv("HTF_ZONES_KEY_PREFIX", "zones:htf:v1:")),
-            state_hash_prefix=str(os.getenv("HTF_ZONES_HASH_PREFIX", "zones:htf:hash:v1:")),
+            key_prefix=os.getenv("HTF_ZONES_KEY_PREFIX", "zones:htf:v1:"),
+            state_hash_prefix=os.getenv("HTF_ZONES_HASH_PREFIX", "zones:htf:hash:v1:"),
             min_change_publish_sec=float(os.getenv("HTF_ZONES_MIN_CHANGE_PUBLISH_SEC", "2")),
         )
 
@@ -81,7 +81,7 @@ class HTFZonesPublisher:
         self._init_htf_service()
 
         # last publish guard
-        self._last_pub_ts_ms: Dict[str, int] = {}
+        self._last_pub_ts_ms: dict[str, int] = {}
 
     def _init_htf_service(self) -> None:
         """
@@ -91,8 +91,9 @@ class HTFZonesPublisher:
             from geometry.htf_levels import HTFLevelsService
             # Try to import core provider
             try:
-                from core.htf_levels import RedisHTFLevelsProvider
                 import redis
+
+                from core.htf_levels import RedisHTFLevelsProvider
                 # Synchronous client for the provider
                 sync_r = redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
                 provider = RedisHTFLevelsProvider(sync_r)
@@ -104,7 +105,7 @@ class HTFZonesPublisher:
         except Exception:
             self._htf = None
 
-    def _levels_to_zones(self, levels: List[Any], symbol: str, ts_ms: int) -> Dict[str, Any]:
+    def _levels_to_zones(self, levels: list[Any], symbol: str, ts_ms: int) -> dict[str, Any]:
         zones = []
         for lv in levels:
             try:
@@ -148,7 +149,7 @@ class HTFZonesPublisher:
         out = {"v": 1, "symbol": symbol, "ts_ms": int(ts_ms), "zones": zones}
         return out
 
-    async def _compute_levels(self, symbol: str, ts_ms: int) -> List[Any]:
+    async def _compute_levels(self, symbol: str, ts_ms: int) -> list[Any]:
         """
         Compute HTF levels using HTFLevelsService.
         """
@@ -158,7 +159,7 @@ class HTFZonesPublisher:
             # 1. Try direct get_levels (if available)
             if hasattr(self._htf, "get_levels"):
                 return list(self._htf.get_levels(symbol, ts_ms))
-            
+
             # 2. Fallback to get_geometry (dummy price 0.0) -> levels
             if hasattr(self._htf, "get_geometry"):
                 # some implementations require price
@@ -167,7 +168,7 @@ class HTFZonesPublisher:
                 except TypeError:
                    # maybe it doesn't take price?
                    geo = self._htf.get_geometry(symbol, ts_ms)
-                
+
                 if geo and hasattr(geo, "levels"):
                     return list(geo.levels)
         except Exception:

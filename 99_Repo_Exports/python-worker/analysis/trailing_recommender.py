@@ -1,10 +1,9 @@
 # analysis/trailing_recommender.py
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple
-import math
 import statistics as stats
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 
 EPS = 1e-9
 
@@ -76,7 +75,7 @@ def _compute_confidence(
     giveback_ratio_win: Sequence[float],
     wins_count: int,
     min_trades_required: int,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Возвращает (confidence, std_mfe_r, std_giveback_ratio)
 
@@ -120,14 +119,14 @@ def recommend_trailing_size(
     symbol: str,
     stop_atr_mult: float,
     min_trades: int = 50,
-    min_wins: Optional[int] = None,
+    min_wins: int | None = None,
     winners_only: bool = True,
     mfe_quantile: float = 0.25,
     trailing_only: bool = False,
     # Escape hatch: allow high-confidence cases with fewer trades
     escape_min_wins: int = 20,
     escape_confidence: float = 0.90,
-) -> Optional[TrailingSizeRecommendation]:
+) -> TrailingSizeRecommendation | None:
     """
     Строит рекомендацию по lock_r и TRAILING_TP1_OFFSET_ATR на основе выборки сделок.
 
@@ -135,10 +134,10 @@ def recommend_trailing_size(
         False → используем все win-сделки (базовый теоретический edge входа),
         True  → только сделки, где трейлинг был запущен (t.trailing_started / active).
     """
-    r_win: List[float] = []
-    mfe_r_win: List[float] = []
-    giveback_r_win: List[float] = []
-    giveback_ratio_win: List[float] = []
+    r_win: list[float] = []
+    mfe_r_win: list[float] = []
+    giveback_r_win: list[float] = []
+    giveback_ratio_win: list[float] = []
 
     count_total = 0
     for t in trades:
@@ -162,7 +161,7 @@ def recommend_trailing_size(
         # r = pnl_net / one_r  <-- unused locally for stats, but keeping structure
         # mfe_r = mfe / one_r
         # giveback_r = giveback / one_r
-        
+
         # calculate normalized values
         current_mfe_r = mfe / one_r
         current_giveback_r = giveback / one_r
@@ -170,7 +169,7 @@ def recommend_trailing_size(
 
         if winners_only and pnl_net <= 0.0:
             continue
-        
+
         if current_mfe_r <= 0.0:
             continue
 
@@ -188,27 +187,27 @@ def recommend_trailing_size(
         giveback_ratio_win.append(g_ratio)
 
     wins = len(r_win)
-    
+
     # Gate A: Data Sufficiency
     # Expert recommendation: check both n_total and n_wins
     # Default min_wins to min_trades for backward compatibility (if not explicitly provided)
     # BUT logic implies min_wins is critical. We use safe defaults if None.
     effective_min_wins = min_wins if min_wins is not None else max(10, min_trades // 3)
-    
+
     # Primary gate: check both total trades and wins
     primary_gate_passed = (count_total >= min_trades) and (wins >= effective_min_wins)
-    
+
     if not primary_gate_passed:
         # Escape hatch: allow high-confidence cases with fewer data
         # (e.g., BTC with n_wins=20 but confidence=0.90)
         # We need at least escape_min_wins WINS to even consider computing confidence.
-        # BUT: if we have enough total trades OR enough wins (but not both), 
+        # BUT: if we have enough total trades OR enough wins (but not both),
         # we should still proceed if wins >= escape_min_wins.
         if wins < escape_min_wins:
             return None
-        # If escape hatch applies (wins >= escape_min_wins), we proceed to compute stats 
+        # If escape hatch applies (wins >= escape_min_wins), we proceed to compute stats
         # and checking confidence at the end.
-    
+
     # ... computation ...
     if wins == 0:
         return None
@@ -242,7 +241,7 @@ def recommend_trailing_size(
     # Sanity check: if std is suspiciously 0.0 with enough trades, likely garbage data (constant 500)
     if wins >= 5 and std_mfe_r < 1e-12:
         confidence = 0.0
-    
+
     # Escape hatch final check: if we failed the primary gate, we MUST match high confidence
     if not primary_gate_passed:
         if confidence < escape_confidence:

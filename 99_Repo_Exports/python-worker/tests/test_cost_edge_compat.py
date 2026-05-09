@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 
 from handlers.crypto_orderflow.utils.cost_edge_compat import (

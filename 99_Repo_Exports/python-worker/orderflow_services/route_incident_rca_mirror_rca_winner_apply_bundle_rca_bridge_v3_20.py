@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import hashlib
 import json
 import os
 import time
-from typing import Any, Dict, Tuple, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -46,13 +47,13 @@ MAX_BUNDLE_BYTES = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_
 
 POLL_INTERVAL_SEC = 2.0
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_rca_bridge_runs_total", "Runs", ("status", "decision"))
@@ -64,7 +65,7 @@ LAST_RUN = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_rca_bridge_last
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
@@ -75,7 +76,7 @@ async def read_vertex_health(r: Any) -> bool:
         health_data = await r.hgetall(VERTEX_HEALTH_METRIC)
         if not health_data:
             return True
-            
+
         decoded = decode_dict(health_data)
         status = decoded.get("status", "healthy")
         return status != "degraded"
@@ -93,16 +94,16 @@ def vertex_degraded_from_hash(bundle_id: str) -> bool:
 def decide_route(mode: str, vertex_is_healthy: bool, require_degraded: int, bundle_size: int, max_size: int) -> str:
     if mode == "DISABLED":
         return "REJECT"
-        
+
     if bundle_size > max_size:
         return "REJECT"
-        
+
     if mode == "VERTEX_ONLY":
         return "ROUTE_VERTEX"
-        
+
     if mode == "LOCAL_ONLY":
         return "ROUTE_LOCAL"
-        
+
     # AUTO mode
     if vertex_is_healthy:
         return "ROUTE_VERTEX"
@@ -111,7 +112,7 @@ def decide_route(mode: str, vertex_is_healthy: bool, require_degraded: int, bund
             return "ROUTE_LOCAL"
         return "ROUTE_VERTEX" # Fallback to vertex anyway? if require degraded is 0 and it's degraded, weird edge case
 
-def build_vertex_payload(bundle_json: str) -> Dict[str, str]:
+def build_vertex_payload(bundle_json: str) -> dict[str, str]:
     return {
         "task_family": "route_incident_rca_mirror_rca_winner_apply_rca",
         "task_type": "route_incident_rca_mirror_rca_winner_apply_rca",
@@ -119,7 +120,7 @@ def build_vertex_payload(bundle_json: str) -> Dict[str, str]:
         "ts_ms": str(now_ms())
     }
 
-def build_local_fallback_payload(bundle_json: str) -> Dict[str, str]:
+def build_local_fallback_payload(bundle_json: str) -> dict[str, str]:
     return {
         "task_family": "route_incident_rca_mirror_rca_winner_apply_rca",
         "task_type": "vertex_unavailable_fallback",
@@ -159,17 +160,17 @@ async def main() -> None:  # pragma: no cover
     start_http_server(PORT)
     if UP:
         UP.set(1)
-        
+
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     db_url = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
-    
+
     last_id = "0-0"
-    
+
     # Try to resume from audit stream if available to prevent re-processing
     try:
         last_audit = await r.xrevrange(AUDIT_STREAM, count=1)
         if last_audit:
-            # We don't have the original BUNDLES_STREAM ID in audit directly easily, 
+            # We don't have the original BUNDLES_STREAM ID in audit directly easily,
             # so we just poll from '$' going forward in a real production setup
             last_id = "$"
     except Exception:
@@ -179,46 +180,46 @@ async def main() -> None:  # pragma: no cover
         started = time.perf_counter()
         status = "ok"
         decision = "none"
-        
+
         try:
             vertex_is_healthy = await read_vertex_health(r)
-            
+
             res = await r.xread({BUNDLES_STREAM: last_id}, count=10, block=int(POLL_INTERVAL_SEC * 1000))
             if res:
                 for stream_name, messages in res:
                     for msg_id, fields in messages:
                         last_id = msg_id.decode() if isinstance(msg_id, bytes) else msg_id
-                        
+
                         decoded = decode_dict(fields)
                         bundle_id = decoded.get("bundle_id", "unknown")
                         bundle_json = decoded.get("bundle_json", "{}")
-                        
+
                         size = len(bundle_json.encode("utf-8"))
-                        
+
                         try:
                             parsed = json.loads(bundle_json)
                             severity = parsed.get("trigger", {}).get("severity", "unknown")
                         except Exception:
                             severity = "unknown"
-                            
+
                         decision = decide_route(BRIDGE_MODE, vertex_is_healthy, REQUIRE_VERTEX_DEGRADED, size, MAX_BUNDLE_BYTES)
-                        
+
                         if decision == "ROUTE_VERTEX":
                             payload = build_vertex_payload(bundle_json)
                             await r.xadd(VERTEX_RCA_REQUESTS_STREAM, payload, maxlen=MAXLEN, approximate=True)
                             if ROUTED_TOTAL: ROUTED_TOTAL.labels(route="vertex", severity=severity).inc()
-                            
+
                         elif decision == "ROUTE_LOCAL":
                             payload = build_local_fallback_payload(bundle_json)
                             await r.xadd(LOCAL_FALLBACK_STREAM, payload, maxlen=MAXLEN, approximate=True)
                             if ROUTED_TOTAL: ROUTED_TOTAL.labels(route="local", severity=severity).inc()
-                            
+
                         await r.xadd(DECISIONS_STREAM, {
                             "bundle_id": bundle_id,
                             "decision": decision,
                             "ts_ms": str(now_ms())
                         }, maxlen=MAXLEN, approximate=True)
-                        
+
                         await r.xadd(AUDIT_STREAM, {
                             "bundle_id": bundle_id,
                             "decision": decision,
@@ -226,20 +227,20 @@ async def main() -> None:  # pragma: no cover
                             "action": "BRIDGE_ROUTED",
                             "ts_ms": str(now_ms())
                         }, maxlen=MAXLEN, approximate=True)
-                        
+
                         await persist_decision(db_url, bundle_id, decision, bundle_json, severity)
-                
+
             if LAST_RUN:
                 LAST_RUN.set(time.time())
-                
-        except Exception as exc:
+
+        except Exception:
             status = "error"
         finally:
             if RUNS:
                 RUNS.labels(status=status, decision=decision).inc()
             if LAT:
                 LAT.observe(max(time.perf_counter() - started, 0.0))
-                
+
             # If we didn't block on xread, sleep
             if not res:
                 await asyncio.sleep(POLL_INTERVAL_SEC)

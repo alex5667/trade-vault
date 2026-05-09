@@ -10,18 +10,16 @@ Coverage:
 - reason_code derivation vs explicit override
 - Both common and tick_flow_full module paths export identical results
 """
-import pytest
 from common.of_gate_metrics_contract import (
-    enrich_schema_fields,
     OF_GATE_SCHEMA_NAME,
     OF_GATE_SCHEMA_VERSION,
+    enrich_schema_fields,
 )
 
 # also verify tick_flow_full path is consistent
 from common.of_gate_metrics_contract import (
     enrich_schema_fields as enrich_schema_fields_tf,
 )
-
 
 # ---------------------------------------------------------------------------
 # Backward compat: positional call (original signature)

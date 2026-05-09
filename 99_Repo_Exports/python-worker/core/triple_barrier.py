@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-from typing import List, Tuple
+from enum import StrEnum
 
 
-class BarrierOutcome(str, Enum):
+class BarrierOutcome(StrEnum):
     TP_HIT = "TP_HIT"
     SL_HIT = "SL_HIT"
     TIMEOUT = "TIMEOUT"
@@ -34,7 +33,7 @@ def _bps_move(px: float, ref: float) -> float:
     return (px - ref) / ref * 10_000.0
 
 
-def pick_entry_price(path: List[Tuple[int, float]]) -> float:
+def pick_entry_price(path: list[tuple[int, float]]) -> float:
     return float(path[0][1]) if path else 0.0
 
 
@@ -43,7 +42,7 @@ def label_path(
     ts0_ms: int,
     direction: str,
     entry_px: float,
-    path: List[Tuple[int, float]],  # ascending
+    path: list[tuple[int, float]],  # ascending
     spec: BarrierSpec,
 ) -> BarrierResult:
     if entry_px <= 1e-9 or not path:

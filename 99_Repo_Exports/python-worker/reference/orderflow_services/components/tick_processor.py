@@ -1,5 +1,9 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
+
+import asyncio
+import hashlib
+import json
+import logging
 
 # -----------------------------------------------------------------------------
 # MIRROR SYNC POLICY (A0)
@@ -17,7 +21,6 @@ from utils.time_utils import get_ny_time_millis
 #
 # Before committing functional edits, read: MIRROR_SYNC_POLICY.md
 # -----------------------------------------------------------------------------
-
 # -----------------------------------------------------------------------------
 # MIRROR SYNC POLICY (A0)
 #
@@ -34,28 +37,27 @@ from utils.time_utils import get_ny_time_millis
 #
 # Before committing functional edits, read: MIRROR_SYNC_POLICY.md
 # -----------------------------------------------------------------------------
-
 import os
 import time
-import json
-from common.time_utils import normalize_epoch_ms as normalize_epoch_ms_v2
+from typing import Any
+
 from common.of_gate_metrics_contract import enrich_schema_fields, validate_of_gate_row, why_label
-import logging
-import asyncio
-from utils.task_manager import safe_create_task
-
-import hashlib
-from typing import Any, Dict, List, Optional
-
+from common.time_utils import normalize_epoch_ms as normalize_epoch_ms_v2
+from domain.evidence_keys import CtxKeys, MetaKeys
 from services.orderflow.configuration import _safe_int
+from utils.task_manager import safe_create_task
+from utils.time_utils import get_ny_time_millis
+
 try:
     from services.orderflow.book_sanity import trade_outside_bbo as _trade_outside_bbo_fn
 except Exception:  # pragma: no cover
     _trade_outside_bbo_fn = None  # type: ignore
 try:
     from services.orderflow.metrics_book_sanity_p5 import (
-        trade_outside_bbo_total as _trade_outside_bbo_total,
         trade_outside_bbo_dist_bps as _trade_outside_bbo_dist_bps_hist,
+    )
+    from services.orderflow.metrics_book_sanity_p5 import (
+        trade_outside_bbo_total as _trade_outside_bbo_total,
     )
 except Exception:  # pragma: no cover
     _trade_outside_bbo_total = None  # type: ignore
@@ -70,91 +72,152 @@ if TYPE_CHECKING:  # pragma: no cover
     # Heavy import tree (runtime -> trackers -> redis/psql deps). Avoid importing at module
     # import time so unit tests that don't require runtime can run without optional deps.
     from services.orderflow.runtime import SymbolRuntime
-from services.orderflow.of_inputs_v3_circuit import (
-    refresh_disabled_state, record_downgrade_and_maybe_trip, call_with_timeout
-)
-from services.orderflow.utils import (
-    _should_sample,
-    session_utc,)
-from services.orderflow.metrics import (
-    ok_metrics_emitted_total, ok_metrics_skipped_total, ok_metrics_error_total,
-    of_gate_eligible_total, of_gate_ok_hard_total, of_gate_ok_soft_total, of_gate_quarantined_total,
-    log_silent_error, silent_errors_total,
-    tick_ts_missing_total, tick_ts_backwards_total, tick_ts_clamped_total, tick_ts_quarantined_total,
-    tick_ts_future_total, tick_age_ms_hist, tick_reorder_back_ms_hist, tick_time_action_total,
-    tick_time_decision_total,
-    tick_gap_p50_ms_gauge, tick_gap_p95_ms_gauge, dq_veto_total, dq_level_gauge, tick_gap_n_gauge,
-    liqmap_snapshot_age_ms_gauge, liqmap_snapshot_parse_errors_total,
-    liqmap_parse_errors_total,  # A1.1: per-(symbol, window, where) parse/compute error counter
-    book_missing_seq_ema_gauge, tick_missing_seq_ema_gauge, tick_missing_seq_events_total,
-    tick_id_gap_events_total, tick_id_dup_events_total, tick_id_reorder_events_total,
-    ticks_out_of_order_total, sweep_detected_total, strong_gate_veto_total, evidence_used_total, sweep_side_missing_total,
-    dn_gate_events_total, of_inputs_version_total, of_inputs_missing_lob_total, of_inputs_downgrade_total, of_inputs_quarantined_total, of_inputs_publish_error_total,
-    of_inputs_v3_forced_v2_total, of_inputs_v3_circuit_trip_total, of_inputs_v3_circuit_disabled, of_inputs_v3_circuit_disabled_until_ms, of_inputs_v3_circuit_hard_disabled_until_ms,
-    track_confirmations, record_evidence_used,
-    trade_vol_fast_bps, trade_vol_slow_bps, trade_vol_ratio, trade_vol_ratio_z,
-    trade_res_recovered, trade_res_recovery_ms, trade_res_speed_per_s,
-    trade_fill_prob, trade_eta_fill_sec, trade_exec_fill_pen,
-    trade_max_expected_slippage_bps_eff,
-    trade_taker_buy_rate_ema, trade_taker_sell_rate_ema,
-    trade_cancel_bid_rate_ema, trade_cancel_ask_rate_ema,
-    trade_cancel_to_trade_bid, trade_cancel_to_trade_ask,
-    trade_taker_flow_imb_z, trade_book_churn_score, trade_book_churn_hi,
-
-    # A8 observability gauges (microstructure extras)
-    trade_depth_total_10, trade_gini_depth_10,
-    trade_vwap_roll_diff_bps, trade_price_momentum_bps, trade_realized_vol_bps,
-    trade_pressure_per_min, trade_liquidity_pressure, trade_info_flow,
-    trade_flag_state,
-
-    trade_qi_mean, trade_qi_max_abs, trade_qi_slope,
-    trade_micro_mid_div_bps, trade_micro_shift_bps,
-    trade_depth_slope_bid, trade_depth_slope_ask, trade_depth_slope_imb, trade_depth_slope_imb_norm,
-    trade_depth_convexity_bid, trade_depth_convexity_ask, trade_depth_convexity_imb,
-    trade_dw_obi, trade_dw_obi_z, trade_dw_obi_stability_score, trade_dw_obi_stable_secs, trade_dw_obi_stable,
-
-    # world-practice: adverse realized drift
-    adverse_rd_eval_total,
-    trade_adverse_rd_mean_bps,
-    trade_adverse_rd_sigma_bps,
-    trade_adverse_rd_z,
-    trade_adverse_rd_bad_share,
-    trade_adverse_rd_n,
-    trade_adverse_rd_veto,
-)
-
-from services.orderflow.metrics_signal_quality_v1 import (
-    dq_level_gauge, dq_veto_total, tick_gap_n_gauge, sanitize_dq_bucket,
-)
-
-from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
-
 from common.tick_time import TickTimeGuard, TickTimePolicy
-from services.orderflow.tick_time_quarantine_integration import TickTimeQuarantineIntegration
-
-from core.strong_of_gate import hidden_trend_dir
-from core.of_evidence import compute_sweep_recent, compute_reclaim_recent
-from core.footprint_policy import fp_confirmations_from_microbar
-from core.data_health import compute_data_health, apply_book_evidence_policy, apply_shadow_only_policy
-from core.book_microstructure_v4 import compute_microstructure_v4
 from core.book_derivatives_v1 import compute_book_imbalance_rate_10
-from core.flow_derived_features_v1 import compute_liquidity_pressure_and_info_flow
-from core.confirmations_schema_v1 import parse_confirmations_v1
-from core.slippage_model import expected_slippage_bps
+from core.book_microstructure_v4 import compute_microstructure_v4
+from core.bucket2_v1 import derive_bucket2_label
 from core.bucket_allowlist_v1 import bucket_allowed
-from core.of_inputs_contract import OFInputsV1, OFInputsV2
+from core.calendar_flags import calendar_flags_utc
+from core.confirmations_schema_v1 import parse_confirmations_v1
+from core.data_health import apply_book_evidence_policy, apply_shadow_only_policy, compute_data_health
 from core.exec_regime_bucket_v1 import compute_exec_regime_bucket
 from core.fill_prob_proxy import compute_fill_prob_proxy
-from core.bucket2_v1 import derive_bucket2_label
-from core.calendar_flags import calendar_flags_utc
+from core.flow_derived_features_v1 import compute_liquidity_pressure_and_info_flow
+from core.footprint_policy import fp_confirmations_from_microbar
 from core.liqmap_features_v1 import (
     compute_liqmap_features,
+    liqmap_feature_keys,
     make_liqmap_default_features,
     parse_liqmap_snapshot_v1,
-    liqmap_feature_keys,
 )
-
-
+from core.of_evidence import compute_reclaim_recent, compute_sweep_recent
+from core.of_inputs_contract import OFInputsV1, OFInputsV2
+from core.slippage_model import expected_slippage_bps
+from core.strong_of_gate import hidden_trend_dir
+from services.orderflow.metrics import (
+    # world-practice: adverse realized drift
+    adverse_rd_eval_total,
+    book_missing_seq_ema_gauge,
+    dn_gate_events_total,
+    dq_level_gauge,
+    dq_veto_total,
+    evidence_used_total,
+    liqmap_parse_errors_total,  # A1.1: per-(symbol, window, where) parse/compute error counter
+    liqmap_snapshot_age_ms_gauge,
+    liqmap_snapshot_parse_errors_total,
+    log_silent_error,
+    of_gate_eligible_total,
+    of_gate_ok_hard_total,
+    of_gate_ok_soft_total,
+    of_gate_quarantined_total,
+    of_inputs_downgrade_total,
+    of_inputs_missing_lob_total,
+    of_inputs_publish_error_total,
+    of_inputs_quarantined_total,
+    of_inputs_v3_circuit_disabled,
+    of_inputs_v3_circuit_disabled_until_ms,
+    of_inputs_v3_circuit_hard_disabled_until_ms,
+    of_inputs_v3_circuit_trip_total,
+    of_inputs_v3_forced_v2_total,
+    of_inputs_version_total,
+    ok_metrics_emitted_total,
+    ok_metrics_error_total,
+    ok_metrics_skipped_total,
+    record_evidence_used,
+    silent_errors_total,
+    strong_gate_veto_total,
+    sweep_detected_total,
+    sweep_side_missing_total,
+    tick_age_ms_hist,
+    tick_gap_n_gauge,
+    tick_gap_p50_ms_gauge,
+    tick_gap_p95_ms_gauge,
+    tick_id_dup_events_total,
+    tick_id_gap_events_total,
+    tick_id_reorder_events_total,
+    tick_missing_seq_ema_gauge,
+    tick_missing_seq_events_total,
+    tick_reorder_back_ms_hist,
+    tick_time_action_total,
+    tick_time_decision_total,
+    tick_ts_backwards_total,
+    tick_ts_clamped_total,
+    tick_ts_future_total,
+    tick_ts_missing_total,
+    tick_ts_quarantined_total,
+    ticks_out_of_order_total,
+    track_confirmations,
+    trade_adverse_rd_bad_share,
+    trade_adverse_rd_mean_bps,
+    trade_adverse_rd_n,
+    trade_adverse_rd_sigma_bps,
+    trade_adverse_rd_veto,
+    trade_adverse_rd_z,
+    trade_book_churn_hi,
+    trade_book_churn_score,
+    trade_cancel_ask_rate_ema,
+    trade_cancel_bid_rate_ema,
+    trade_cancel_to_trade_ask,
+    trade_cancel_to_trade_bid,
+    trade_depth_convexity_ask,
+    trade_depth_convexity_bid,
+    trade_depth_convexity_imb,
+    trade_depth_slope_ask,
+    trade_depth_slope_bid,
+    trade_depth_slope_imb,
+    trade_depth_slope_imb_norm,
+    # A8 observability gauges (microstructure extras)
+    trade_depth_total_10,
+    trade_dw_obi,
+    trade_dw_obi_stability_score,
+    trade_dw_obi_stable,
+    trade_dw_obi_stable_secs,
+    trade_dw_obi_z,
+    trade_eta_fill_sec,
+    trade_exec_fill_pen,
+    trade_fill_prob,
+    trade_flag_state,
+    trade_gini_depth_10,
+    trade_info_flow,
+    trade_liquidity_pressure,
+    trade_max_expected_slippage_bps_eff,
+    trade_micro_mid_div_bps,
+    trade_micro_shift_bps,
+    trade_pressure_per_min,
+    trade_price_momentum_bps,
+    trade_qi_max_abs,
+    trade_qi_mean,
+    trade_qi_slope,
+    trade_realized_vol_bps,
+    trade_res_recovered,
+    trade_res_recovery_ms,
+    trade_res_speed_per_s,
+    trade_taker_buy_rate_ema,
+    trade_taker_flow_imb_z,
+    trade_taker_sell_rate_ema,
+    trade_vol_fast_bps,
+    trade_vol_ratio,
+    trade_vol_ratio_z,
+    trade_vol_slow_bps,
+    trade_vwap_roll_diff_bps,
+)
+from services.orderflow.metrics_signal_quality_v1 import (
+    dq_level_gauge,
+    dq_veto_total,
+    sanitize_dq_bucket,
+    tick_gap_n_gauge,
+)
+from services.orderflow.of_inputs_v3_circuit import (
+    call_with_timeout,
+    record_downgrade_and_maybe_trip,
+    refresh_disabled_state,
+)
+from services.orderflow.tick_time_quarantine_integration import TickTimeQuarantineIntegration
+from services.orderflow.utils import (
+    _should_sample,
+    session_utc,
+)
+from services.orderflow.world_practice.realized_drift_tracker_v1 import RealizedDriftTrackerV1
 
 try:
     import redis.asyncio as aioredis
@@ -162,16 +225,29 @@ except Exception:  # pragma: no cover
     aioredis = None  # type: ignore
 
 # P62: write Unified Decision Record even on early veto (before SignalPipeline)
-from services.orderflow.decision_record_v1 import DecisionRecordV1, write_decision_record, extract_fields_best_effort, deterministic_sample
+from services.async_signal_publisher import AsyncSignalPublisher, StreamSink
 from services.orderflow.decision_binding_v1 import BindingInput, recommend_binding
-from services.orderflow.metrics import decision_record_written_total, decision_record_error_total, decision_record_sampled_out_total
-# P68: circuit breaker policy (global dq/drift + quality KPIs -> effective overrides)
-from services.orderflow.policy.circuit_breaker_v1 import decide_circuit_breaker, apply_circuit_breaker_overrides, enforce_circuit_breaker_regime
+from services.orderflow.decision_record_v1 import (
+    DecisionRecordV1,
+    deterministic_sample,
+    extract_fields_best_effort,
+    write_decision_record,
+)
+from services.orderflow.metrics import (
+    decision_record_error_total,
+    decision_record_sampled_out_total,
+    decision_record_written_total,
+)
+
 # P69: hysteresis state
 from services.orderflow.policy.circuit_breaker_state_v1 import CircuitBreakerState
 
-
-from services.async_signal_publisher import AsyncSignalPublisher, StreamSink
+# P68: circuit breaker policy (global dq/drift + quality KPIs -> effective overrides)
+from services.orderflow.policy.circuit_breaker_v1 import (
+    apply_circuit_breaker_overrides,
+    decide_circuit_breaker,
+    enforce_circuit_breaker_regime,
+)
 
 # SRE metrics for gate decisions
 OF_GATE_METRICS_STREAM = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
@@ -201,14 +277,14 @@ class TickProcessor:
     4. Signal Generation
     5. Telemetry & Emission
     """
-    def __init__(self, 
-                 redis: aioredis.Redis, 
+    def __init__(self,
+                 redis: aioredis.Redis,
                  ticks: aioredis.Redis,
-                 publisher: AsyncSignalPublisher, 
-                 of_engine, 
+                 publisher: AsyncSignalPublisher,
+                 of_engine,
                  calib_svc,
                  atr_cache,
-                 atr_sanity, 
+                 atr_sanity,
                  conf_scorer=None):
         self.redis = redis
         self.ticks = ticks
@@ -219,7 +295,7 @@ class TickProcessor:
         self._atr_sanity = atr_sanity
         self.conf_scorer = conf_scorer
         self.logger = logging.getLogger("orderflow_tick_processor")
-        
+
         # State counters (moved from Strategy)
         self.low_conf_counters = {}
         self.strong_gate_counters = {}
@@ -227,7 +303,7 @@ class TickProcessor:
         self.dn_gate_proxy_relaxed_counters = {}
         self.conf_relax_counters = {}
         self.adverse_continuation_counters = {}
-        
+
         # Config constants (fail-open defaults)
         self.spread_bps_missing_default = float(os.getenv("SPREAD_BPS_MISSING_DEFAULT", "15.0"))
         self.slippage_bps_missing_default = float(os.getenv("SLIPPAGE_BPS_MISSING_DEFAULT", "4.0"))
@@ -246,7 +322,7 @@ class TickProcessor:
             ) or "").split(",")
             if s.strip()
         ]
-        
+
         self.of_gate_metrics_stream = os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate") or "metrics:of_gate"
         self.of_gate_metrics_enable = os.getenv("OF_GATE_METRICS_ENABLE", "1").strip().lower() in ("1", "true", "yes", "on")
         self.of_gate_metrics_sample = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.10") or 0.10)
@@ -262,8 +338,8 @@ class TickProcessor:
         self.tick_time_stream_maxlen = int(os.getenv("TICK_TIME_STREAM_MAXLEN", "200000") or 200000)
 
         self._enable_tick_time_quarantine = os.getenv("ENABLE_TICK_TIME_QUARANTINE", "1").strip().lower() in ("1", "true", "yes", "on")
-        self._tick_time_quarantine: Dict[str, TickTimeQuarantineIntegration] = {}
-        self._tick_time_guard: Dict[str, TickTimeGuard] = {}
+        self._tick_time_quarantine: dict[str, TickTimeQuarantineIntegration] = {}
+        self._tick_time_guard: dict[str, TickTimeGuard] = {}
 
         # Shared policy for non-quarantine guard (quarantine integration builds its own guard)
         self._tick_time_policy = TickTimePolicy(
@@ -274,7 +350,7 @@ class TickProcessor:
             allow_soft_reorder=os.getenv("TICK_TIME_ALLOW_SOFT_REORDER", "1").strip().lower() in ("1", "true", "yes", "on"),
         )
 
-        self._capture_queue: Optional[asyncio.Queue] = None
+        self._capture_queue: asyncio.Queue | None = None
         self._ofc_capture_enabled = os.getenv("OFC_CAPTURE", "0") == "1"
 
         # ------------------------------------------------------------------
@@ -330,9 +406,9 @@ class TickProcessor:
         # In-memory caches (per symbol+window) to keep Redis load bounded and preserve last-good feats.
         # Cache entry shape:
         #   {"fetch_ms": int, "good_ms": int, "snap_ts_ms": int, "feats": Dict[str, float]}
-        self._liqmap_cache: Dict[tuple, Dict[str, Any]] = {}
+        self._liqmap_cache: dict[tuple, dict[str, Any]] = {}
         # Per-(symbol, window) next-refresh wall-clock schedule (ms).
-        self._liqmap_next_refresh_ts_ms: Dict[tuple, int] = {}
+        self._liqmap_next_refresh_ts_ms: dict[tuple, int] = {}
 
         # ------------------------------------------------------------------
         # LiqMap feature injection (liquidation map snapshot -> indicators)
@@ -387,9 +463,9 @@ class TickProcessor:
         # In-memory caches (per symbol+window) to keep Redis load bounded and preserve last-good feats.
         # Cache entry shape:
         #   {"fetch_ms": int, "good_ms": int, "snap_ts_ms": int, "feats": Dict[str, float]}
-        self._liqmap_cache: Dict[tuple, Dict[str, Any]] = {}
+        self._liqmap_cache: dict[tuple, dict[str, Any]] = {}
         # Per-(symbol, window) next-refresh wall-clock schedule (ms).
-        self._liqmap_next_refresh_ts_ms: Dict[tuple, int] = {}
+        self._liqmap_next_refresh_ts_ms: dict[tuple, int] = {}
 
         # P69: Circuit Breaker State (Hysteresis)
         self.cb_state = CircuitBreakerState(
@@ -403,11 +479,11 @@ class TickProcessor:
     @staticmethod
     def _update_strict_dq_trackers(
         *,
-        runtime: "SymbolRuntime",
-        tick: Dict[str, Any],
+        runtime: SymbolRuntime,
+        tick: dict[str, Any],
         tick_ts_ms: int,
-        cfg_eff: Dict[str, Any],
-        indicators: Dict[str, Any],
+        cfg_eff: dict[str, Any],
+        indicators: dict[str, Any],
     ) -> None:
         """P2/F: Strict DQ signals for Train==Serve.
 
@@ -568,10 +644,10 @@ class TickProcessor:
     async def _inject_liqmap_features(
         self,
         *,
-        runtime: "SymbolRuntime",
+        runtime: SymbolRuntime,
         now_ms: int,
         price: float,
-        indicators: Dict[str, Any],
+        indicators: dict[str, Any],
     ) -> None:
         """Best-effort LiqMap snapshot -> indicator injection.
 
@@ -620,14 +696,14 @@ class TickProcessor:
                 except Exception:
                     next_ts = 0
 
-                if cached and refresh_ms > 0 and int(now_ms) < int(next_ts):
+                if cached and refresh_ms > 0 and now_ms < int(next_ts):
                     # Reuse cached feats (but refresh age_ms deterministically from snap ts).
                     feats = cached.get("feats") if isinstance(cached, dict) else None
                     if isinstance(feats, dict) and feats:
                         try:
                             snap_ts_ms = int(cached.get("snap_ts_ms", 0) or 0)
                             if snap_ts_ms > 0:
-                                feats[f"liqmap_{wnd}_age_ms"] = float(max(0, int(now_ms) - snap_ts_ms))
+                                feats[f"liqmap_{wnd}_age_ms"] = float(max(0, now_ms - snap_ts_ms))
                         except Exception:
                             pass
                         indicators.update(feats)
@@ -635,7 +711,7 @@ class TickProcessor:
 
                 # Schedule next refresh right away to keep Redis pressure bounded even if fetch fails.
                 try:
-                    self._liqmap_next_refresh_ts_ms[ck] = int(now_ms) + int(refresh_ms)
+                    self._liqmap_next_refresh_ts_ms[ck] = now_ms + int(refresh_ms)
                 except Exception:
                     pass
 
@@ -655,13 +731,13 @@ class TickProcessor:
                     if isinstance(cached, dict):
                         try:
                             good_ms = int(cached.get("good_ms", 0) or 0)
-                            if good_ms > 0 and stale_ms > 0 and (int(now_ms) - good_ms) <= int(stale_ms):
+                            if good_ms > 0 and stale_ms > 0 and (now_ms - good_ms) <= int(stale_ms):
                                 feats = cached.get("feats")
                                 if isinstance(feats, dict) and feats:
                                     try:
                                         snap_ts_ms = int(cached.get("snap_ts_ms", 0) or 0)
                                         if snap_ts_ms > 0:
-                                            feats[f"liqmap_{wnd}_age_ms"] = float(max(0, int(now_ms) - snap_ts_ms))
+                                            feats[f"liqmap_{wnd}_age_ms"] = float(max(0, now_ms - snap_ts_ms))
                                     except Exception:
                                         pass
                                     indicators.update(feats)
@@ -674,7 +750,7 @@ class TickProcessor:
                     indicators.update(defaults)
                     # Update cache: preserve good_ms/snap_ts_ms from prior entry if any.
                     self._liqmap_cache[ck] = {
-                        "fetch_ms": int(now_ms),
+                        "fetch_ms": now_ms,
                         "good_ms": int(cached.get("good_ms", 0) or 0) if isinstance(cached, dict) else 0,
                         "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if isinstance(cached, dict) else 0,
                         "feats": defaults,
@@ -702,7 +778,7 @@ class TickProcessor:
                         windows=(wnd,),
                         near_band_bps=float(near_band_bps),
                         peak_min_share=float(peak_min_share),
-                        now_ms=int(now_ms),
+                        now_ms=now_ms,
                     )
 
                     # Ensure stable key set for the window (defensive; no-op if already present).
@@ -711,8 +787,8 @@ class TickProcessor:
 
                     indicators.update(feats)
                     self._liqmap_cache[ck] = {
-                        "fetch_ms": int(now_ms),
-                        "good_ms": int(now_ms),
+                        "fetch_ms": now_ms,
+                        "good_ms": now_ms,
                         "snap_ts_ms": int(getattr(snap, "ts_ms", 0) or 0),
                         "feats": feats,
                     },
@@ -749,7 +825,7 @@ class TickProcessor:
                     defaults = make_liqmap_default_features([wnd])
                     indicators.update(defaults)
                     self._liqmap_cache[ck] = {
-                        "fetch_ms": int(now_ms),
+                        "fetch_ms": now_ms,
                         "good_ms": int(cached.get("good_ms", 0) or 0) if isinstance(cached, dict) else 0,
                         "snap_ts_ms": int(cached.get("snap_ts_ms", 0) or 0) if isinstance(cached, dict) else 0,
                         "feats": defaults,
@@ -768,10 +844,10 @@ class TickProcessor:
     async def _emit_early_veto_decision_record(
         self,
         *,
-        runtime: "SymbolRuntime",
+        runtime: SymbolRuntime,
         tick_ts_ms: int,
         direction: str,
-        indicators: Dict[str, Any],
+        indicators: dict[str, Any],
         reason_code: str,
         notes: str = "",
     ) -> None:
@@ -822,10 +898,10 @@ class TickProcessor:
                     rule_score=float(f.get("rule_score", 0.0)),
                     rule_ok=bool(f.get("rule_ok", False)),
                     rule_soft=bool(f.get("rule_soft", False)),
-                    ml_state=str(f.get("ml_state", "na")),
+                    ml_state=(f.get("ml_state", "na")),
                     ml_p_cal=f.get("ml_p_cal", None),
-                    dq_state=str(f.get("dq_state", "unknown")),
-                    drift_state=str(f.get("drift_state", "unknown")),
+                    dq_state=(f.get("dq_state", "unknown")),
+                    drift_state=(f.get("drift_state", "unknown")),
                 )
             )
 
@@ -839,28 +915,28 @@ class TickProcessor:
                 rule_score=float(f.get("rule_score", 0.0)),
                 rule_ok=bool(f.get("rule_ok", False)),
                 rule_soft=bool(f.get("rule_soft", False)),
-                rule_reason_code_top1=str(f.get("rule_reason_code_top1", "NA")),
+                rule_reason_code_top1=(f.get("rule_reason_code_top1", "NA")),
                 ml_enabled=bool(f.get("ml_enabled", False)),
-                ml_state=str(f.get("ml_state", "na")),
+                ml_state=(f.get("ml_state", "na")),
                 ml_p_cal=f.get("ml_p_cal", None),
-                ml_model_ver=str(f.get("ml_model_ver", "")),
+                ml_model_ver=(f.get("ml_model_ver", "")),
                 ml_latency_ms=f.get("ml_latency_ms", None),
-                ml_error=str(f.get("ml_error", "")),
-                dq_state=str(f.get("dq_state", "unknown")),
+                ml_error=(f.get("ml_error", "")),
+                dq_state=(f.get("dq_state", "unknown")),
                 dq_flags=list(f.get("dq_flags", []) or []),
-                drift_state=str(f.get("drift_state", "unknown")),
+                drift_state=(f.get("drift_state", "unknown")),
                 drift_flags=list(f.get("drift_flags", []) or []),
                 actual_action="veto",
                 actual_reason_code=str(reason_code),
-                recommended_action=str(bind.get("recommended_action", "deny")),
-                recommended_reason_code=str(bind.get("recommended_reason_code", "NA")),
-                meta_enforce_cov_bucket=str(f.get("meta_enforce_cov_bucket", "unknown")),
-                meta_enforce_applied=bool(f.get("meta_enforce_applied", False)),
+                recommended_action=(bind.get("recommended_action", "deny")),
+                recommended_reason_code=(bind.get("recommended_reason_code", "NA")),
+                meta_enforce_cov_bucket=(f.get(MetaKeys.ENFORCE_COV_BUCKET, "unknown")),
+                meta_enforce_applied=bool(f.get(MetaKeys.ENFORCE_APPLIED, False)),
                 payload_summary={
                     "stage": "tick_processor",
                     "direction": str(direction).upper(),
                     "tick_ts_ms": int(tick_ts_ms),
-                    "notes": str(notes or ""),
+                    "notes": (notes or ""),
                 },
             )
 
@@ -883,13 +959,13 @@ class TickProcessor:
         self,
         *,
         now_ms: int,
-        indicators: Dict[str, Any],
+        indicators: dict[str, Any],
         # Backward-compatible calling conventions:
         #  - new: symbol="BTCUSDT" (preferred)
         #  - old tests/callers: runtime=<obj with .symbol>, price=<float>
-        symbol: Optional[str] = None,
-        runtime: Optional[Any] = None,
-        price: Optional[float] = None,
+        symbol: str | None = None,
+        runtime: Any | None = None,
+        price: float | None = None,
     ) -> None:
         """A) Online liqmap → indicators (Train==Serve).
 
@@ -920,7 +996,7 @@ class TickProcessor:
                 symbol = str(getattr(runtime, "symbol", "") or "")
             except Exception:
                 symbol = None
-        sym = str(symbol or "").upper()
+        sym = (symbol or "").upper()
         if not sym:
             return
 
@@ -953,7 +1029,7 @@ class TickProcessor:
 
             # Hot-path schedule: only refresh when due.
             next_ms = int(self._liqmap_next_refresh_ts_ms.get(cache_key, 0) or 0)
-            if next_ms and int(now_ms) < next_ms:
+            if next_ms and now_ms < next_ms:
                 cached = self._liqmap_cache.get(cache_key) or {}
                 feats = cached.get("feats")
                 if isinstance(feats, dict) and feats:
@@ -963,7 +1039,7 @@ class TickProcessor:
                 continue
 
             # Schedule next refresh regardless of outcome (avoid tight retry loops on Redis outage).
-            self._liqmap_next_refresh_ts_ms[cache_key] = int(now_ms) + max(250, int(refresh_ms))
+            self._liqmap_next_refresh_ts_ms[cache_key] = now_ms + max(250, int(refresh_ms))
 
             key = f"{prefix}:{sym}:{w}"
             raw = None
@@ -976,7 +1052,7 @@ class TickProcessor:
                 # Missing snapshot → fail-open. Reuse last-good if not too stale.
                 cached = self._liqmap_cache.get(cache_key) or {}
                 good_ms = int(cached.get("good_ms", 0) or 0)
-                if good_ms and (int(now_ms) - good_ms) <= int(failopen_ms):
+                if good_ms and (now_ms - good_ms) <= int(failopen_ms):
                     feats = cached.get("feats")
                     if isinstance(feats, dict) and feats:
                         indicators.update(feats)
@@ -1004,7 +1080,7 @@ class TickProcessor:
                 snap = parse_liqmap_snapshot_v1(raw, expected_symbol=sym, expected_window=w)
                 snap_ts_ms = int(getattr(snap, "ts_ms", 0) or 0)
                 # Snapshot age is deterministic: now_ms is already normalized tick-time.
-                age_ms = (int(now_ms) - int(snap_ts_ms)) if snap_ts_ms > 0 else -2
+                age_ms = (now_ms - int(snap_ts_ms)) if snap_ts_ms > 0 else -2
                 try:
                     liqmap_snapshot_age_ms_gauge.labels(symbol=sym, window=w).set(float(age_ms))
                 except Exception:
@@ -1038,7 +1114,7 @@ class TickProcessor:
                     windows=[w],
                     near_band_bps=float(near_band_bps),
                     peak_min_share=float(peak_min_share),
-                    now_ms=int(now_ms),
+                    now_ms=now_ms,
                 )
                 # Ensure we never leak missing keys; maintain stable contract.
                 for k in liqmap_feature_keys(w):
@@ -1047,8 +1123,8 @@ class TickProcessor:
 
                 indicators.update(feats)
                 self._liqmap_cache[cache_key] = {
-                    "fetch_ms": int(now_ms),
-                    "good_ms": int(now_ms),
+                    "fetch_ms": now_ms,
+                    "good_ms": now_ms,
                     "snap_ts_ms": int(getattr(snap, "ts_ms", 0) or 0),
                     "feats": dict(feats),
                 },
@@ -1079,11 +1155,11 @@ class TickProcessor:
         except Exception:
             return False
 
-    def _get_tick_time_quarantine(self, symbol: str) -> Optional[TickTimeQuarantineIntegration]:
+    def _get_tick_time_quarantine(self, symbol: str) -> TickTimeQuarantineIntegration | None:
         """Lazy per-symbol TickTimeQuarantineIntegration."""
         if not self._enable_tick_time_quarantine:
             return None
-        sym = str(symbol or "").upper()
+        sym = (symbol or "").upper()
         if not sym:
             return None
         if sym not in self._tick_time_quarantine:
@@ -1100,12 +1176,12 @@ class TickProcessor:
 
     def _get_tick_time_guard(self, symbol: str) -> TickTimeGuard:
         """Fallback per-symbol TickTimeGuard when quarantine integration is disabled."""
-        sym = str(symbol or "").upper()
+        sym = (symbol or "").upper()
         if sym not in self._tick_time_guard:
             self._tick_time_guard[sym] = TickTimeGuard(self._tick_time_policy)
         return self._tick_time_guard[sym]
 
-    async def _emit_tick_time_stream(self, *, symbol: str, decision: str, meta: Dict[str, int]) -> None:
+    async def _emit_tick_time_stream(self, *, symbol: str, decision: str, meta: dict[str, int]) -> None:
         """Best-effort Redis stream for offline diagnostics (fail-open)."""
         try:
             if not self.tick_time_stream_enable:
@@ -1115,7 +1191,7 @@ class TickProcessor:
                 return
             fields = {
                 "ts_ms": str(int(meta.get("proc_wall_ms", meta.get("now_ms", 0)) or 0)),
-                "symbol": str(symbol),
+                "symbol": symbol,
                 "decision": str(decision),
                 "orig_ts_ms": str(int(meta.get("orig_ts_ms", 0) or 0)),
                 "norm_ts_ms": str(int(meta.get("norm_ts_ms", 0) or 0)),
@@ -1134,7 +1210,7 @@ class TickProcessor:
         except Exception as e:
             log_silent_error(e, "tick_time_stream", symbol, "TickProcessor")
 
-    async def _apply_tick_time_guard(self, runtime: SymbolRuntime, tick: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def _apply_tick_time_guard(self, runtime: SymbolRuntime, tick: dict[str, Any]) -> dict[str, Any] | None:
         """Apply tick time policy + quarantine. Returns dict with normalized ts/decision/meta.
 
         Fail-open: if anything goes wrong, keeps original ts.
@@ -1158,7 +1234,7 @@ class TickProcessor:
         ingest_now_ms = _safe_int(tick.get("written_at"), default=proc_wall_ms)
         prev_ts_ms = _safe_int(getattr(runtime, "last_ts_ms", 0) or 0)
 
-        meta: Dict[str, int] = {
+        meta: dict[str, int] = {
             "orig_ts_ms": int(raw_ts_ms),
             "prev_ts_ms": int(prev_ts_ms),
             "now_ms": int(ingest_now_ms),
@@ -1292,7 +1368,7 @@ class TickProcessor:
 
         return {"tick_ts_ms": int(norm_ts_ms), "decision": str(decision), "meta": meta}
 
-    async def process_tick(self, runtime: SymbolRuntime, tick: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def process_tick(self, runtime: SymbolRuntime, tick: dict[str, Any]) -> dict[str, Any] | None:
         t0_us = time.perf_counter_ns() // 1000  # Start measuring latency in microseconds
 
         # 1) Validation
@@ -1306,7 +1382,7 @@ class TickProcessor:
         if tt is None:
             return None
         tick_ts = int(tt["tick_ts_ms"])
-        tt_decision = str(tt.get("decision", "ok") or "ok")
+        tt_decision = (tt.get("decision", "ok") or "ok")
         tt_meta = tt.get("meta") or {}
 
         # 3) Parse remaining tick fields
@@ -1353,7 +1429,7 @@ class TickProcessor:
         now_ts = tick_ts
         runtime.last_tick_ts = tick_ts
         runtime.tick_count += 1
-        
+
         # P68: build effective cfg (static + dynamic) and apply circuit breaker overrides early.
         try:
             cfg = dict(runtime.config)
@@ -1371,29 +1447,29 @@ class TickProcessor:
         try:
             dq_state = indicators.get("dq_state", cfg.get("dq_state", "unknown"))
             drift_state = indicators.get("drift_state", cfg.get("drift_state", "unknown"))
-            
+
             # 1. Raw mode calculation (P68)
             raw_decision = decide_circuit_breaker(cfg=cfg, dq_state=dq_state, drift_state=drift_state)
-            
+
             # 2. Hysteresis check (P69)
             # FORCE string to avoid "Invalid input of type" error in Redis
             safe_regime = str(getattr(raw_decision, "regime", "ok") or "ok")
-            
+
             # Need to await? Yes, update is async due to Redis state fetch
             effective_regime, cb_debug = await self.cb_state.update(safe_regime, now_ts)
-            
+
             # 3. Construct EFFECTIVE decision object
             effective_decision = enforce_circuit_breaker_regime(raw_decision, effective_regime, cfg)
-            
+
             # 4. Apply overrides based on EFFECTIVE mode
             cb_overrides, cb_fields = apply_circuit_breaker_overrides(cfg=cfg, decision=effective_decision)
-            
+
             # Apply overrides into effective cfg used by downstream logic
             cfg.update(cb_overrides)
-            
+
             # Record policy fields for decision record / auditing
             indicators.update(cb_fields)
-            
+
             # P69 enrichment
             indicators.update({
                 "policy_raw_mode": raw_decision.regime,
@@ -1475,7 +1551,7 @@ class TickProcessor:
 
             _rdind = runtime.indicators if hasattr(runtime, "indicators") else indicators
             try:
-                _bkt = str(_rdind.get("exec_regime_bucket", "NORMAL") or "NORMAL")
+                _bkt = (_rdind.get("exec_regime_bucket", "NORMAL") or "NORMAL")
             except Exception:
                 _bkt = "NORMAL"
 
@@ -1497,7 +1573,7 @@ class TickProcessor:
         except Exception:
             pass
 
-        
+
 
         # ------------------------------------------------------------
         # A5: baselines for flags (cheap O(10), runs even when delta_event is absent)
@@ -1521,10 +1597,10 @@ class TickProcessor:
                     ts_ms=int(tick_ts),
                     tau_ms=tau_ms,
                 )
-                setattr(runtime, "_a5_trade_qty_ema", float(new_ema))
-                setattr(runtime, "_a5_trade_qty_ts_ms", int(new_ts))
+                runtime._a5_trade_qty_ema = float(new_ema)
+                runtime._a5_trade_qty_ts_ms = int(new_ts)
                 if bad_time:
-                    setattr(runtime, "_a5_bad_time_total", int(getattr(runtime, "_a5_bad_time_total", 0) or 0) + 1)
+                    runtime._a5_bad_time_total = int(getattr(runtime, "_a5_bad_time_total", 0) or 0) + 1
 
             # depth_total_10 EMA: update on new book snapshots (book_state.ts_ms)
             bs = getattr(runtime, "book_state", None)
@@ -1551,7 +1627,7 @@ class TickProcessor:
                         return float(s)
 
                     depth10 = _sum_top10(bids) + _sum_top10(asks)
-                    setattr(runtime, "_a5_depth_total10_last", float(depth10))
+                    runtime._a5_depth_total10_last = float(depth10)
 
                     prev_ema = float(getattr(runtime, "_a5_depth_total10_ema", 0.0) or 0.0)
                     prev_ts = int(getattr(runtime, "_a5_depth_ts_ms", 0) or 0)
@@ -1563,11 +1639,11 @@ class TickProcessor:
                         ts_ms=int(book_ts),
                         tau_ms=tau_ms,
                     )
-                    setattr(runtime, "_a5_depth_total10_ema", float(new_ema))
-                    setattr(runtime, "_a5_depth_ts_ms", int(new_ts))
-                    setattr(runtime, "_a5_depth_book_ts_ms", int(book_ts))
+                    runtime._a5_depth_total10_ema = float(new_ema)
+                    runtime._a5_depth_ts_ms = int(new_ts)
+                    runtime._a5_depth_book_ts_ms = int(book_ts)
                     if bad_time:
-                        setattr(runtime, "_a5_bad_time_total", int(getattr(runtime, "_a5_bad_time_total", 0) or 0) + 1)
+                        runtime._a5_bad_time_total = int(getattr(runtime, "_a5_bad_time_total", 0) or 0) + 1
         except Exception:
             # Never break tick path due to A5 bookkeeping.
             pass
@@ -1591,17 +1667,17 @@ class TickProcessor:
             default_t1=float(runtime.config.get("dn_tier1_usd", 350000.0)),
             default_t2=float(runtime.config.get("dn_tier2_usd", 750000.0)),
         )
-        
+
         runtime.dynamic_cfg["dn_tier0_usd"] = float(dn_tiers_decision.tier0_usd)
         runtime.dynamic_cfg["dn_tier1_usd"] = float(dn_tiers_decision.tier1_usd)
         runtime.dynamic_cfg["dn_tier2_usd"] = float(dn_tiers_decision.tier2_usd)
         runtime.dynamic_cfg["dn_src"] = str(dn_tiers_decision.src)
-        
+
         delta_usd = abs(float(delta_event.get("delta", 0.0))) * price
-        
+
         if delta_usd > 0:
              runtime.tick_dn_calib.update(regime=rg, dn_usd=delta_usd, ts_ms=int(tick_ts))
-             
+
              # Persist tick_dn_calib state periodically (e.g. every 60 seconds)
              persist_interval_ms = int(runtime.config.get("calib_persist_interval_ms", 60000))
              last_persist = int(getattr(runtime, "_tick_dn_calib_last_persist_ts_ms", 0) or 0)
@@ -1628,7 +1704,7 @@ class TickProcessor:
         # Gate Logic
         min_tier = int(runtime.config.get("delta_tier_min", 0))
         passed = (tier >= min_tier)
-        
+
         if not passed and min_tier == 0 and tier == -1:
             from core.instrument_config import symbol_env_prefix
             prefix = symbol_env_prefix(runtime.symbol)
@@ -1642,20 +1718,20 @@ class TickProcessor:
                     cnt = self.dn_gate_relaxed_counters.get(runtime.symbol, 0) + 1
                     self.dn_gate_relaxed_counters[runtime.symbol] = cnt
                     if cnt % 10000 == 0:
-                        self.logger.info("✅ [DN-GATE] (%s) RELAXED: delta_usd=$%.0f passed via 50%% tolerance (T0=$%.0f)", 
+                        self.logger.info("✅ [DN-GATE] (%s) RELAXED: delta_usd=$%.0f passed via 50%% tolerance (T0=$%.0f)",
                                     runtime.symbol, delta_usd, dn_tiers_decision.tier0_usd)
-        
+
         sess = indicators.get("session", "OFF")
         runtime.dn_passrate.update(tier=tier, session=sess, passed=passed)
-        
+
         res = "pass" if passed else "veto_tier"
         dn_gate_events_total.labels(symbol=runtime.symbol, tier=str(tier), session=sess, result=res).inc()
-        
+
         if not passed:
              if runtime.delta_log_sampler.should_log("dn_veto"):
                   self.logger.info(
                       "🛑 [DN-GATE] (%s) VETO: delta_usd=$%.0f < T%d=$%.0f (tier=%d < min=%d)",
-                      runtime.symbol, delta_usd, min_tier, 
+                      runtime.symbol, delta_usd, min_tier,
                       getattr(dn_tiers_decision, f"tier{min_tier}_usd", 0.0), tier, min_tier
                   )
 
@@ -1756,16 +1832,16 @@ class TickProcessor:
                 "delta_z": float(delta_event.get("z", 0.0))
             },
             if absorption_feat: spike_out["absorption"] = absorption_feat
-            
+
             now_ms = int(tick_ts)
             obi_ttl = int(runtime.config.get("obi_event_ttl_ms", 15000))
             if runtime.last_obi_event and (now_ms - runtime.last_obi_event.get("ts_ms", 0)) < obi_ttl:
                 spike_out["obi"] = runtime.last_obi_event
-            
+
             ice_ttl = int(runtime.config.get("iceberg_event_ttl_ms", 15000))
             if runtime.last_iceberg_event and (now_ms - runtime.last_iceberg_event.get("ts_ms", 0)) < ice_ttl:
                 spike_out["iceberg"] = runtime.last_iceberg_event
-            
+
             safe_create_task(
                 self.redis.xadd(
                     "events:delta_spike",
@@ -1807,7 +1883,7 @@ class TickProcessor:
                     "microbar_spread": float(b.spread_last) if b.spread_last is not None else None,
                     "microbar_ticks": int(b.tick_count),
                 })
-            
+
             if hasattr(runtime, "rsi_price") and runtime.rsi_price.value is not None:
                 indicators["rsi_price"] = float(runtime.rsi_price.value)
             if hasattr(runtime, "rsi_cvd") and runtime.rsi_cvd.value is not None:
@@ -1815,9 +1891,7 @@ class TickProcessor:
 
             rp = float(indicators.get("rsi_price", 50.0))
             rc = float(indicators.get("rsi_cvd", 50.0))
-            if direction == "LONG" and rp > 50 and rc > 50:
-                confirmations.append("rsi_agree=1")
-            elif direction == "SHORT" and rp < 50 and rc < 50:
+            if direction == "LONG" and rp > 50 and rc > 50 or direction == "SHORT" and rp < 50 and rc < 50:
                 confirmations.append("rsi_agree=1")
 
             if runtime.last_swing_high:
@@ -1843,7 +1917,7 @@ class TickProcessor:
                 elif ev.kind == "EQL_SWEEP":
                     confirmations.append("sweep_eql=1")
                     record_evidence_used(runtime.symbol, sess, "sweep_eql=1")
-                
+
                 # Generic sweep flag (always emit for backward compatibility)
                 confirmations.append("sweep=1")
                 record_evidence_used(runtime.symbol, sess, "sweep=1")
@@ -1871,7 +1945,7 @@ class TickProcessor:
                         confirmations.append("iceberg_strict=1")
                     elif c == "iceberg_strict=1":
                         confirmations.append("ice_strict=1")
-            
+
             wp = runtime.last_wp
             if wp is not None:
                 indicators.update({"weak_range_atr": wp.range_atr, "weak_body_atr": wp.body_atr, "weak_eff": wp.eff})
@@ -1916,7 +1990,7 @@ class TickProcessor:
             if spr <= 0 and runtime.last_book:
                 spr = float(runtime.last_book.spread_bps)
             indicators["spread_bps"] = spr
-            
+
             dh = compute_data_health(indicators=indicators, cfg=cfg)
             indicators["data_health"] = float(dh.score)
             indicators["data_health_reasons"] = ",".join(list(dh.reasons or [])[:5])
@@ -1951,30 +2025,26 @@ class TickProcessor:
 
                             if prev_book_ts_ms is None:
                                 # First observation: initialize derivative state.
-                                setattr(runtime, "_ms_v4_prev_book_ts_ms", int(book_ts))
-                                setattr(runtime, "_ms_v4_prev_depth_imbalance_10", float(cur_imb10))
+                                runtime._ms_v4_prev_book_ts_ms = int(book_ts)
+                                runtime._ms_v4_prev_depth_imbalance_10 = float(cur_imb10)
                             else:
                                 if bad_dt:
                                     # Out-of-order/non-monotonic book_ts_ms: do NOT advance prev state.
                                     # Count it for later SRE export (A8), but keep runtime deterministic.
-                                    setattr(
-                                        runtime,
-                                        "_ms_v4_book_deriv_bad_time_total",
-                                        int(getattr(runtime, "_ms_v4_book_deriv_bad_time_total", 0) or 0) + 1,
-                                    )
+                                    runtime._ms_v4_book_deriv_bad_time_total = int(getattr(runtime, "_ms_v4_book_deriv_bad_time_total", 0) or 0) + 1
                                 else:
                                     # Happy path: advance prev state.
-                                    setattr(runtime, "_ms_v4_prev_book_ts_ms", int(book_ts))
-                                    setattr(runtime, "_ms_v4_prev_depth_imbalance_10", float(cur_imb10))
+                                    runtime._ms_v4_prev_book_ts_ms = int(book_ts)
+                                    runtime._ms_v4_prev_depth_imbalance_10 = float(cur_imb10)
                         except Exception:
                             # Fail-open: keep feature present and bounded even on unexpected raw shapes.
                             try:
                                 ms.setdefault("book_imbalance_rate_10", 0.0)
                             except Exception:
                                 pass
-                        setattr(runtime, "_ms_v4_cache_book_ts", book_ts)
-                        setattr(runtime, "_ms_v4_prev_raw", bs.raw)
-                        setattr(runtime, "_ms_v4_cache", ms)
+                        runtime._ms_v4_cache_book_ts = book_ts
+                        runtime._ms_v4_prev_raw = bs.raw
+                        runtime._ms_v4_cache = ms
                     ms_cached = getattr(runtime, "_ms_v4_cache", None) or {}
                     if isinstance(ms_cached, dict) and ms_cached:
                         indicators.update(ms_cached)
@@ -2050,7 +2120,7 @@ class TickProcessor:
                 # Поддерживаем как dict-формат (Redis replay), так и object-формат (in-process)
                 if isinstance(ev_ofi, dict):
                     ts0 = int(ev_ofi.get("ts_ms", 0) or 0)
-                    dir0 = str(ev_ofi.get("direction", "") or "").upper()
+                    dir0 = (ev_ofi.get("direction", "") or "").upper()
                     ofi_ev = ev_ofi.get("ofi", 0.0)
                     ofi_z_ev = ev_ofi.get("ofi_z", 0.0)
                     stable_secs = ev_ofi.get("stable_secs", 0.0)
@@ -2073,9 +2143,9 @@ class TickProcessor:
                     def _f_ofi(x, d=0.0):
                         try:
                             v = float(x)
-                            return v if v == v and v not in (float('inf'), float('-inf')) else float(d)
+                            return v if v == v and v not in (float('inf'), float('-inf')) else d
                         except Exception:
-                            return float(d)
+                            return d
 
                     def _i_ofi(x, d=0):
                         try:
@@ -2084,7 +2154,7 @@ class TickProcessor:
                             try:
                                 return int(float(x))
                             except Exception:
-                                return int(d)
+                                return d
 
                     ofi_v = _f_ofi(ofi_ev, 0.0)
                     ofi_z_v = _f_ofi(ofi_z_ev, 0.0)
@@ -2130,29 +2200,29 @@ class TickProcessor:
             if book is not None:
                 # ... (OFI logic from strategy.py lines 1515-1559) ...
                 # Simplified reproduction assuming logic inside Strategy was mostly getting attrs
-                pass 
+                pass
                 # To save space, let's assume metrics and indicators updated elsewhere or we implement fully if critical
                 # Implementing minimal OFI logic for indicator population:
                 def _get(obj, k, d=0.0):
                     if obj is None: return d
                     if isinstance(obj, dict): return float(obj.get(k, d) or d)
                     return float(getattr(obj, k, d) or d)
-                
+
                 bbp, bbq = _get(book, 'best_bid_px'), _get(book, 'best_bid_qty')
                 bap, baq = _get(book, 'best_ask_px'), _get(book, 'best_ask_qty')
                 p_bbp, p_bbq = _get(prev, 'best_bid_px'), _get(prev, 'best_bid_qty')
                 p_bap, p_baq = _get(prev, 'best_ask_px'), _get(prev, 'best_ask_qty')
-                
+
                 ofi_bid = 0.0
                 if bbp > p_bbp and bbp > 0: ofi_bid = bbq
                 elif bbp < p_bbp and p_bbp > 0: ofi_bid = -p_bbq
                 elif bbp == p_bbp and bbp > 0: ofi_bid = (bbq - p_bbq)
-                
+
                 ofi_ask = 0.0
                 if bap < p_bap and bap > 0: ofi_ask = -baq
                 elif bap > p_bap and p_bap > 0: ofi_ask = p_baq
                 elif bap == p_bap and bap > 0: ofi_ask = -(baq - p_baq)
-                
+
                 ofi = ofi_bid + ofi_ask
                 norm = float(ofi / max(bbq+baq, 1e-9)) # approximate depth
                 indicators['ofi_best_qty'] = float(ofi)
@@ -2165,8 +2235,8 @@ class TickProcessor:
         try:
              atr_val, atr_meta = self.atr_cache.get_with_meta(symbol=runtime.symbol, timeframe=None)
              if atr_val is not None: indicators["atr"] = float(atr_val)
-             indicators["atr_src"] = str(atr_meta.get("picked_src") or "na")
-             indicators["atr_tf"] = str(atr_meta.get("picked_tf") or "na")
+             indicators["atr_src"] = (atr_meta.get("picked_src") or "na")
+             indicators["atr_tf"] = (atr_meta.get("picked_tf") or "na")
              indicators["atr_age_ms"] = int(atr_meta.get("age_ms") or 0)
         except Exception:
              pass
@@ -2181,7 +2251,7 @@ class TickProcessor:
                  px=float(px0),
                  age_ms=int(indicators.get("atr_age_ms", 0)),
                  now_ms=int(now_ts),
-                 tf=str(indicators.get("atr_tf", "1m"))
+                 tf=(indicators.get("atr_tf", "1m"))
              )
              indicators["atr"] = float(res.atr_used)
              indicators["atr_bad"] = int(res.bad)
@@ -2191,7 +2261,7 @@ class TickProcessor:
 
         # CVD Quarantine
         indicators["cvd_quarantine_active"] = int(getattr(runtime, "cvd_quarantine_active", 0) or 0)
-        
+
         # Volume-delta fallback
         delta_z_used = float(delta_event.get("z", 0.0))
         if int(indicators.get("cvd_quarantine_active", 0)) == 1:
@@ -2231,32 +2301,32 @@ class TickProcessor:
                     vrl = str(runtime.vol_regime.snapshot().get("vol_regime_label", "na"))
                 except Exception:
                     vrl = "na"
-            indicators["vol_regime_label"] = str(vrl or "na")
+            indicators["vol_regime_label"] = (vrl or "na")
         except Exception:
             indicators.setdefault("vol_regime_label", "na")
 
         # liq_regime_label — from liquidity guard (book_processor attaches runtime.last_liq_regime)
         try:
-            lrl = str(indicators.get("liq_regime_label", "") or "")
+            lrl = (indicators.get("liq_regime_label", "") or "")
             if not lrl:
                 lrl = str(getattr(runtime, "dynamic_cfg", {}).get("liq_regime", "") or "")
             if not lrl:
                 lrl = str(getattr(runtime, "last_liq_regime", "na") or "na")
-            indicators["liq_regime_label"] = str(lrl or "na")
+            indicators["liq_regime_label"] = (lrl or "na")
         except Exception:
             indicators.setdefault("liq_regime_label", "na")
 
         # Exec regime bucket: deterministic mapping (liq × vol)
         try:
             b = compute_exec_regime_bucket(
-                liq_regime_label=str(indicators.get("liq_regime_label", "na") or "na"),
-                vol_regime_label=str(indicators.get("vol_regime_label", "na") or "na"),
+                liq_regime_label=(indicators.get("liq_regime_label", "na") or "na"),
+                vol_regime_label=(indicators.get("vol_regime_label", "na") or "na"),
             )
             _bucket = str(b.bucket)
             indicators["exec_regime_bucket"] = _bucket
         except Exception:
             indicators.setdefault("exec_regime_bucket", "NORMAL")
-            _bucket = str(indicators.get("exec_regime_bucket", "NORMAL"))
+            _bucket = (indicators.get("exec_regime_bucket", "NORMAL"))
 
         # spread_bps_submit / mid_px_submit — snapshot at decision time
         try:
@@ -2295,15 +2365,17 @@ class TickProcessor:
             indicators["impact_proxy"]      = float(_ip)
             try:
                 from services.orderflow.metrics import (
-                    impact_proxy_hist, trade_impact_proxy, trade_taker_flow_imb_z_abs,
+                    impact_proxy_hist,
+                    trade_impact_proxy,
+                    trade_taker_flow_imb_z_abs,
                 )
                 impact_proxy_hist.labels(symbol=str(runtime.symbol)).observe(float(_ip))
                 trade_impact_proxy.labels(
-                    sym=str(runtime.symbol), bucket=str(indicators.get("exec_regime_bucket", "NORMAL"))
+                    sym=str(runtime.symbol), bucket=(indicators.get("exec_regime_bucket", "NORMAL"))
                 ).observe(float(_ip))
                 _imb_z = float(indicators.get("taker_flow_imb_z", 0.0) or 0.0)
                 trade_taker_flow_imb_z_abs.labels(
-                    sym=str(runtime.symbol), bucket=str(indicators.get("exec_regime_bucket", "NORMAL"))
+                    sym=str(runtime.symbol), bucket=(indicators.get("exec_regime_bucket", "NORMAL"))
                 ).observe(abs(_imb_z))
             except Exception:
                 pass
@@ -2311,11 +2383,13 @@ class TickProcessor:
             try:
                 from services.orderflow.metrics import (
                     trade_taker_flow_gate_shadow_veto_total as _tmgsvt,
+                )
+                from services.orderflow.metrics import (
                     trade_taker_flow_gate_veto_total as _tmgvt,
                 )
                 _sym  = str(runtime.symbol)
-                _bk   = str(indicators.get("exec_regime_bucket", "NORMAL"))
-                _rsn  = str(indicators.get("taker_flow_gate_reason", "") or "")[:40]
+                _bk   = (indicators.get("exec_regime_bucket", "NORMAL"))
+                _rsn  = (indicators.get("taker_flow_gate_reason", "") or "")[:40]
                 if int(indicators.get("taker_flow_gate_shadow_veto", 0) or 0) == 1:
                     _tmgsvt.labels(sym=_sym, bucket=_bk, reason=_rsn).inc()
                 if int(indicators.get("taker_flow_gate_veto", 0) or 0) == 1:
@@ -2337,7 +2411,7 @@ class TickProcessor:
                 _per_bucket_map = dict(runtime.dynamic_cfg.get("slippage_decomp_impact_coeff_bps") or {})
             except Exception:
                 pass
-            _bucket_now = str(indicators.get("exec_regime_bucket", "NORMAL"))
+            _bucket_now = (indicators.get("exec_regime_bucket", "NORMAL"))
             if _bucket_now in _per_bucket_map:
                 _decomp_cfg["slippage_decomp_impact_coeff_bps"] = float(_per_bucket_map[_bucket_now])
             _decomp_cfg["symbol"] = str(runtime.symbol)
@@ -2356,8 +2430,8 @@ class TickProcessor:
             # Optional strict max(model, decomp) (bucket-aware)
             do_enforce = int(cfg.get("slippage_decomp_enforce_max", 0) or 0) == 1
             if do_enforce:
-                buck = str(indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL").strip().upper()
-                raw = str(cfg.get("slippage_decomp_enforce_buckets", "HIGH_VOL_LOW_LIQ") or "HIGH_VOL_LOW_LIQ")
+                buck = (indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL").strip().upper()
+                raw = (cfg.get("slippage_decomp_enforce_buckets", "HIGH_VOL_LOW_LIQ") or "HIGH_VOL_LOW_LIQ")
                 do_bucket = bucket_allowed(buck, raw, default_bucket="HIGH_VOL_LOW_LIQ")
                 if do_bucket:
                     indicators["expected_slippage_bps"] = float(max(
@@ -2367,10 +2441,12 @@ class TickProcessor:
             # Prometheus observe (best-effort, low-cardinality)
             try:
                 from services.orderflow.metrics import (
-                    trade_expected_slippage_bps as _m_slip_bps,
-                    trade_slippage_decomp_coeff_bps,
                     expected_slippage_decomp_bps_hist,
                     trade_expected_slippage_limit_exceed_total,
+                    trade_slippage_decomp_coeff_bps,
+                )
+                from services.orderflow.metrics import (
+                    trade_expected_slippage_bps as _m_slip_bps,
                 )
                 _sym = str(runtime.symbol)
                 _bk  = str(_bucket_now)
@@ -3066,8 +3142,8 @@ class TickProcessor:
             indicators.setdefault("spread_momentum_no_data",   1.0)
             indicators.setdefault("realized_vol_bps",          0.0)
             indicators.setdefault("realized_vol_no_data",      1.0)
-        
-        # Delta Notional Tier Check already done? No, strictly DN Gate happens earlier. 
+
+        # Delta Notional Tier Check already done? No, strictly DN Gate happens earlier.
         # But we need indicators["dn_tier"] etc populated. Done above.
 
         # --- LOB pressure (P91) --- queue imbalance / microprice / slope / dw_obi ---
@@ -3131,7 +3207,7 @@ class TickProcessor:
             dq_level_gauge.labels(symbol=_sym).set(_lvl)
 
             if int(indicators.get("dq_veto", 0) or 0) == 1:
-                _bucket = sanitize_dq_bucket(str(indicators.get("dq_reason_bucket", "other") or "other"))
+                _bucket = sanitize_dq_bucket((indicators.get("dq_reason_bucket", "other") or "other"))
                 dq_veto_total.labels(symbol=_sym, bucket=_bucket).inc()
         except Exception:
             pass
@@ -3170,7 +3246,7 @@ class TickProcessor:
         # ---------------------------------------------------------------
         try:
             _sym = str(runtime.symbol)
-            _bk  = str(indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL")
+            _bk  = (indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL")
             trade_vol_fast_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vol_fast_bps", 0.0) or 0.0))
             trade_vol_slow_bps.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vol_slow_bps", 0.0) or 0.0))
             trade_vol_ratio.labels(sym=_sym, bucket=_bk).set(float(indicators.get("vol_ratio", 0.0) or 0.0))
@@ -3286,7 +3362,7 @@ class TickProcessor:
              ev = ofc.evidence
              indicators["of_confirm"] = ofc.to_dict()
              indicators["of_confirm_ok"] = int(ofc.ok)
-             
+
              # SRE metrics helper
              self._emit_gate_metrics(runtime, ofc, indicators, ev, tick_ts)
 
@@ -3329,15 +3405,15 @@ class TickProcessor:
                          indicators["ok"] = int(getattr(ofc, "ok", 0) or 0)
                          indicators["soft"] = int(ev.get("ok_soft", 0) or 0)
                          if hasattr(ofc, "score"):
-                             indicators["rule_score"] = float(getattr(ofc, "score") or 0.0)
+                             indicators["rule_score"] = float(ofc.score or 0.0)
                          if isinstance(indicators.get("of_confirm"), dict) and "score" in indicators["of_confirm"]:
                              indicators["rule_score"] = float(indicators["of_confirm"].get("score") or indicators.get("rule_score") or 0.0)
                          if "rule_reason_code_top1" not in indicators and isinstance(ev, dict):
                              indicators["rule_reason_code_top1"] = str(ev.get("reason_code_top1") or ev.get("reason_code") or "STRONG_GATE_VETO")
                          # meta coverage fields are used by downstream breakdowns
                          if isinstance(ev, dict):
-                             indicators["meta_enforce_cov_bucket"] = str(ev.get("meta_enforce_cov_bucket") or indicators.get("meta_enforce_cov_bucket") or "unknown")
-                             indicators["meta_enforce_applied"] = int(ev.get("meta_enforce_applied") or indicators.get("meta_enforce_applied") or 0)
+                             indicators[MetaKeys.ENFORCE_COV_BUCKET] = str(ev.get(MetaKeys.ENFORCE_COV_BUCKET) or indicators.get(MetaKeys.ENFORCE_COV_BUCKET) or "unknown")
+                             indicators[MetaKeys.ENFORCE_APPLIED] = int(ev.get(MetaKeys.ENFORCE_APPLIED) or indicators.get(MetaKeys.ENFORCE_APPLIED) or 0)
                      except Exception:
                          pass
 
@@ -3354,7 +3430,7 @@ class TickProcessor:
                          )
                      )
                      return None
-        
+
         # Audit Confirmations
         if ofc:
             ev = ofc.evidence
@@ -3376,19 +3452,19 @@ class TickProcessor:
                              bias = str(getattr(sw, "direction_bias", "") or "").upper()
                         if not bias and isinstance(ev, dict):
                              bias = str(ev.get("sweep_dir") or ev.get("sweep_bias") or ev.get("sweep_direction") or "").upper()
-                        
+
                         if bias == "SHORT": eq_kind = "eqh"
                         elif bias == "LONG": eq_kind = "eql"
                     except Exception:
                         pass
-                    
+
                     if eq_kind == "unknown":
                         sweep_side_missing_total.labels(symbol=runtime.symbol).inc()
 
                 # Always count sweeps with the best known kind.
                 sweep_detected_total.labels(symbol=runtime.symbol, eq_kind=eq_kind).inc()
                 indicators["sweep_eq_kind"] = eq_kind
-                
+
                 if eq_kind == "eqh":
                     confirmations.insert(0, "sweep_eqh=1")
                     indicators["sweep_eqh"] = 1
@@ -3464,7 +3540,7 @@ class TickProcessor:
                     c = int(indicators["weak_recent_count"] or 0)
                     ratio = float(c / w) if w > 0 else 0.0
                     indicators["weak_recent_ratio"] = ratio
-                    
+
                     min_weak = int(runtime.config.get("weak_recent_min_cnt", 3))
                     indicators["weak_progress"] = bool(ev.get("weak_progress") or (c >= min_weak))
                     if c >= min_weak:
@@ -3473,7 +3549,7 @@ class TickProcessor:
                 pass
         except Exception:
             pass
-            
+
         # Iceberg (Strict/Recent)
         if runtime.last_iceberg_event:
              ice_ts = int(runtime.last_iceberg_event.get("ts_ms") or 0)
@@ -3487,7 +3563,7 @@ class TickProcessor:
                       indicators["iceberg_strict"] = 1
                       confirmations.append("ice_strict=1")  # legacy
                       confirmations.append("iceberg_strict=1")  # canonical
-                      
+
         # Optional Redis Publication (v3 asychronous) of OFConfirm
         if bool(int(runtime.config.get("publish_of_confirm", 0))) and ofc:
             stream = str(runtime.config.get("of_confirm_stream", "signals:of:confirm"))
@@ -3513,7 +3589,7 @@ class TickProcessor:
         # Confidence Computation
         primary_reason = "delta_spike"
         if confirmations: primary_reason = confirmations[0].split("=", 1)[0]
-        
+
         # High-ROI: confirmations schema drift / coverage telemetry
         try:
             track_confirmations(
@@ -3532,13 +3608,13 @@ class TickProcessor:
         if self.conf_scorer:
             # ConfidenceScorer expects kwargs: score(kind=..., side=..., ctx=...)
             # ctx resolves: indicators -> runtime.config -> runtime attrs
-            
+
             # Phase 2: Structured Evidence Construction
             # 1. Start with explicit evidence from OFC if available
             ctx_evidence = {}
             if ofc and hasattr(ofc, "evidence") and isinstance(ofc.evidence, dict):
                  ctx_evidence.update(ofc.evidence)
-            
+
             # 2. Backfill from confirmations strings (legacy support)
             # This ensures that even if OFC structure is missing, we parse strings into dict
             for c in confirmations:
@@ -3564,9 +3640,9 @@ class TickProcessor:
             # (Regime-aware weighting & DataHealth calibration)
             ctx_evidence.setdefault("market_mode", str(getattr(runtime, "market_mode", "") or "neutral"))
             ctx_evidence.setdefault("data_health", float(indicators.get("data_health", 1.0) or 1.0))
-            
+
             class ConfCtx:
-                def __init__(self, ind: Dict[str, Any], confs: List[str], rt: Any, evidence: Dict[str, Any]):
+                def __init__(self, ind: dict[str, Any], confs: list[str], rt: Any, evidence: dict[str, Any]):
                     self.ind = ind
                     self.confirmations = confs
                     self.rt = rt
@@ -3600,12 +3676,12 @@ class TickProcessor:
                     confidence = float(out)
             except Exception as e:
                 log_silent_error(e, "confidence_score", symbol=str(getattr(runtime, "symbol", "unknown")))
-        
+
         indicators["confidence"] = confidence
 
         # Emit Decision Record (Success/Soft-Fail Path)
         # P62: Unified Decision Record for all finalized signals (sampled)
-        if str(os.getenv("DECISION_RECORD_ENABLE", "1")).lower() in ("1", "true", "yes", "on"):
+        if os.getenv("DECISION_RECORD_ENABLE", "1").lower() in ("1", "true", "yes", "on"):
              safe_create_task(
                  self._emit_decision_record(
                      runtime=runtime,
@@ -3645,7 +3721,7 @@ class TickProcessor:
                 ev = locals().get("ctx_evidence", {})
                 if not ev and ofc and hasattr(ofc, "evidence") and isinstance(ofc.evidence, dict):
                      ev = ofc.evidence
-                
+
                 for k in (self.confidence_evidence_keys or []):
                     if not k:
                         continue
@@ -3662,7 +3738,7 @@ class TickProcessor:
                     indicators["confidence_evidence"] = compact_ev
             except Exception:
                 pass
-        
+
         # Entry Pricing
         executable_entry = float(price) # Fallback
 
@@ -3685,7 +3761,7 @@ class TickProcessor:
             # User request: p = abs(delta_usd) / dn_tier0_usd with clamp 0.99
             p_d = min(0.99, d_usd_val / t0_val) if t0_val > 0 else 0.0
             indicators["p_delta"] = round(p_d, 2)
-            
+
             # p_speed: based on Z-score
             d_z_val = abs(float(indicators.get("delta_z", 0.0)))
             # typ. Z is 3..6. ratio / 6.0 gives 0.5..1.0
@@ -3710,7 +3786,7 @@ class TickProcessor:
             "entry_tag": str(primary_reason),
             "is_virtual": bool(int(indicators.get("is_virtual", 0) or 0)),
         },
-        
+
         # Attach Pressure Snapshot to Payload
         # ...
 
@@ -3723,7 +3799,7 @@ class TickProcessor:
             should_pub = bool(int(pub_val))
             if runtime.tick_count % 100 == 0:
                 self.logger.info(f"DEBUG: publish_of_inputs={pub_val} should_pub={should_pub} symbol={runtime.symbol}")
-            
+
             if should_pub:
                 tick_ts_ms = int(tick_ts) if int(tick_ts or 0) > 0 else 0
                 if tick_ts_ms <= 0:
@@ -3733,7 +3809,7 @@ class TickProcessor:
                     except Exception:
                         pass
                     should_pub = False
-                
+
                 if should_pub:
 
 
@@ -3762,16 +3838,16 @@ class TickProcessor:
                             try:
                                 return int(float(v))
                             except Exception:
-                                return int(d)
+                                return d
 
                     def _f(v, d=0.0) -> float:
                         try:
                             x = float(v)
                             if x != x or x == float("inf") or x == float("-inf"):
-                                return float(d)
+                                return d
                             return x
                         except Exception:
-                            return float(d)
+                            return d
 
                     def _s(v, d="na") -> str:
                         try:
@@ -3804,7 +3880,7 @@ class TickProcessor:
                                 cfg_safe[_k] = runtime.config.get(_k)
                     except Exception:
                         pass
-                    
+
                     emit_v2_cfg = runtime.config.get("of_inputs_emit_v2", 1)
                     emit_v3_cfg = runtime.config.get("of_inputs_emit_v3", 0)
 
@@ -3994,10 +4070,10 @@ class TickProcessor:
                                             until_ms = int(res2.get("disabled_until_ms") or 0)
                                             hard_until_ms = int(res2.get("hard_until_ms") or 0)
                                             if until_ms > 0:
-                                                setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
+                                                runtime.of_inputs_v3_disabled_until_ms = int(until_ms)
                                                 if hard_until_ms > 0:
-                                                    setattr(runtime, "of_inputs_v3_disabled_hard_until_ms", int(hard_until_ms))
-                                                setattr(runtime, "of_inputs_v3_disabled_reason", str(downgrade_reason))
+                                                    runtime.of_inputs_v3_disabled_hard_until_ms = int(hard_until_ms)
+                                                runtime.of_inputs_v3_disabled_reason = str(downgrade_reason)
                                                 try:
                                                     of_inputs_v3_circuit_disabled.labels(symbol=str(runtime.symbol)).set(1)
                                                     of_inputs_v3_circuit_disabled_until_ms.labels(symbol=str(runtime.symbol)).set(float(until_ms))
@@ -4033,7 +4109,7 @@ class TickProcessor:
                                     last_map = getattr(runtime, "_of_inputs_quarantine_last", None)
                                     if not isinstance(last_map, dict):
                                         last_map = {}
-                                        setattr(runtime, "_of_inputs_quarantine_last", last_map)
+                                        runtime._of_inputs_quarantine_last = last_map
                                     last_ts = int(last_map.get(downgrade_reason, 0) or 0)
                                     if tick_ts_ms - last_ts >= quarantine_cooldown_ms:
                                         last_map[downgrade_reason] = tick_ts_ms
@@ -4148,7 +4224,7 @@ class TickProcessor:
                                     "stream": str(stream),
                                     "attempt_version": int(attempt_v),
                                     "published_version": int(published_v),
-                                    "dq_code": str(downgrade_reason or ""),
+                                    "dq_code": (downgrade_reason or ""),
                                     "err_prefix": str(type(e).__name__),
                                     "err": str(e)[:512],
                                     "payload": payload_str,
@@ -4179,29 +4255,29 @@ class TickProcessor:
         env_var = f"ROCKET_TP1_ATR_MULT_{symbol.upper()}"
         val = os.getenv(env_var)
         source = env_var
-        
+
         if not val:
             val = os.getenv("ROCKET_TP1_ATR_MULT", "0.78")
             source = "ROCKET_TP1_ATR_MULT"
-            
+
         try:
             m = float(val)
         except (ValueError, TypeError):
             self.logger.warning("⚠️ Некорректное значение множителя %s=%r. Используем дефолт 0.78", source, val)
             return 0.78
-            
+
         # Clamp 0.5 .. 10.0
         if m < 0.5 or m > 10.0:
             self.logger.warning("⚠️ Множитель %s=%.2f вне диапазона (0.5..10.0). Применяем clamp.", source, m)
             m = max(0.5, min(10.0, m))
-            
+
         return m
 
-    def _normalize_trailing_flag(self, value: Any, symbol: Optional[str] = None) -> bool:
+    def _normalize_trailing_flag(self, value: Any, symbol: str | None = None) -> bool:
         """
         Возвращает финальный флаг трейлинга.
         """
-        explicit_flag: Optional[bool] = None
+        explicit_flag: bool | None = None
         if value is not None:
             try:
                 if isinstance(value, str):
@@ -4212,10 +4288,10 @@ class TickProcessor:
                 explicit_flag = False
 
         force_trail = os.getenv("FORCE_TRAIL_AFTER_TP1", "0").lower() in ("1", "true", "yes", "on")
-        
+
         if explicit_flag is not None:
             return explicit_flag
-        
+
         return force_trail
 
     def _calculate_levels(
@@ -4223,16 +4299,16 @@ class TickProcessor:
         runtime: SymbolRuntime,
         entry: float,
         side: str,
-        indicators: Dict[str, Any],
-        trail_profile: Optional[str] = None,
-    ) -> Tuple[float, List[float], float, float]:
+        indicators: dict[str, Any],
+        trail_profile: str | None = None,
+    ) -> Tuple[float, list[float], float, float]:
         cfg = runtime.config
         atr = float(indicators.get("atr", 0.0) or 0.0)
-        
+
         # Use canonical TF resolver (single source of truth)
         atr_tf = runtime.get_atr_tf_selected()
         indicators["atr_tf_used"] = atr_tf
-        
+
         # Prefer cache + sanity selection when atr not provided by signal
         if atr <= 0:
             try:
@@ -4248,7 +4324,7 @@ class TickProcessor:
                         prefer_src = str(runtime.dynamic_cfg.get("atr_src_pref", "") or "")
                 except Exception:
                     prefer_src = ""
-                
+
                 # Use injected ATR cache
                 if self.atr_cache:
                     atr, atr_meta = self.atr_cache.get_with_meta(symbol=runtime.symbol, timeframe=atr_tf, now_ms=(nm if nm > 0 else None), prefer_src=prefer_src)
@@ -4266,8 +4342,8 @@ class TickProcessor:
 
         # Always expose atr_bps_exec for unified gates/debug
         try:
-            if float(entry) > 0 and float(atr) > 0:
-                indicators["atr_bps_exec"] = float(10000.0 * (float(atr) / float(entry)))
+            if entry > 0 and atr > 0:
+                indicators["atr_bps_exec"] = float(10000.0 * (atr / entry))
         except Exception:
             pass
 
@@ -4287,17 +4363,17 @@ class TickProcessor:
         lot = indicators.get("lot")
         if lot is None:
             lot = indicators.get("tick_qty") or indicators.get("delta") or 1.0
-            lot = max(float(lot), cfg.get("min_lot", 0.01))
+            lot = max(lot, cfg.get("min_lot", 0.01))
 
-        def rr_levels(rr_str: str) -> List[float]:
+        def rr_levels(rr_str: str) -> list[float]:
             try:
                 return [float(x.strip()) for x in rr_str.split(",") if x.strip()]
             except Exception:
                 return [1.3, 2.0, 2.7]
 
-        if str(cfg.get("stop_mode", "ATR")).upper() == "ATR":
+        if (cfg.get("stop_mode", "ATR")).upper() == "ATR":
             stop_dist = atr * cfg.get("stop_atr_mult", 0.6)
-        elif str(cfg.get("stop_mode", "ATR")).upper() == "PCT":
+        elif (cfg.get("stop_mode", "ATR")).upper() == "PCT":
             stop_dist = entry * cfg.get("stop_pct", 0.2) / 100
         else:
             stop_dist = cfg.get("stop_points", 1.0)
@@ -4305,9 +4381,9 @@ class TickProcessor:
         # Проверяем, используется ли профиль rocket_v1
         if not trail_profile:
             trail_profile = cfg.get("trail_profile") or indicators.get("trail_profile") or cfg.get("default_trail_profile", "rocket_v1")
-        
+
         # Override SL multiplier with calibrated value if available
-        if trail_profile == "rocket_v1" and str(cfg.get("stop_mode", "ATR")).upper() == "ATR":
+        if trail_profile == "rocket_v1" and (cfg.get("stop_mode", "ATR")).upper() == "ATR":
             try:
                 calib_dist = runtime.calibrated_specs.get("trailing", {}).get("tp1_offset_atr")
                 if calib_dist is not None:
@@ -4323,28 +4399,28 @@ class TickProcessor:
         # Для rocket_v1: TP1 = MULT * ATR, остальные TP через RR
         rocket_mult = self._get_rocket_multiplier(runtime.symbol)
         is_rocket_v1 = (trail_profile == "rocket_v1")
-        
+
         if side.upper() == "LONG":
             sl = entry - stop_dist
             tp1_dist = atr * rocket_mult if is_rocket_v1 else stop_dist * rr_levels(cfg.get("tp_rr", "1.3,2.0,2.7"))[0]
-            
+
             # Base calculation
             if is_rocket_v1:
                 # TP1 = mult ATR
                 tp1 = entry + tp1_dist
                 rr_list = rr_levels(cfg.get("tp_rr", "1.3,2.0,2.7"))
-                
+
                 # Default RR-based potential TPs
                 tp2_potential = entry + stop_dist * (rr_list[1] if len(rr_list) > 1 else 2.0)
                 tp3_potential = entry + stop_dist * (rr_list[2] if len(rr_list) > 2 else 2.7)
-                
+
                 # Enforce monotonicity: TP2/TP3 must be significantly further than TP1
                 tp2_dist = max(tp2_potential - entry, tp1_dist * 1.5)
                 tp3_dist = max(tp3_potential - entry, tp1_dist * 2.0)
-                
+
                 tp2 = entry + tp2_dist
                 tp3 = entry + tp3_dist
-                
+
                 tps = [tp1, tp2, tp3]
             else:
                 # Standard RR logic
@@ -4353,53 +4429,53 @@ class TickProcessor:
         else: # SHORT
             sl = entry + stop_dist
             tp1_dist = atr * rocket_mult if is_rocket_v1 else stop_dist * rr_levels(cfg.get("tp_rr", "1.3,2.0,2.7"))[0]
-            
+
             if is_rocket_v1:
                 # TP1 = mult ATR
                 tp1 = entry - tp1_dist
                 rr_list = rr_levels(cfg.get("tp_rr", "1.3,2.0,2.7"))
-                
+
                 # Default RR-based potential TPs
                 tp2_potential = entry - stop_dist * (rr_list[1] if len(rr_list) > 1 else 2.0)
                 tp3_potential = entry - stop_dist * (rr_list[2] if len(rr_list) > 2 else 2.7)
-                
+
                 # Enforce monotonicity for SHORT (distances are positive)
                 tp2_dist = max(entry - tp2_potential, tp1_dist * 1.5)
                 tp3_dist = max(entry - tp3_potential, tp1_dist * 2.0)
-                
+
                 tp2 = entry - tp2_dist
                 tp3 = entry - tp3_dist
-                
+
                 tps = [tp1, tp2, tp3]
             else:
                 # Standard RR logic
                 tps = [entry - stop_dist * rr for rr in rr_levels(cfg.get("tp_rr", "1.3,2.0,2.7"))]
-        
+
         # FINAL SAFETY: Sort TPs by distance from entry to guarantee order 1 < 2 < 3
         # abs(tp - entry) makes it direction-agnostic
         tps.sort(key=lambda x: abs(x - entry))
 
-        return sl, tps, float(lot), float(atr)
+        return sl, tps, lot, atr
 
-    async def _emit_payload(self, runtime: SymbolRuntime, payload: Dict[str, Any], tick_ts: int) -> Dict[str, Any]:
+    async def _emit_payload(self, runtime: SymbolRuntime, payload: dict[str, Any], tick_ts: int) -> dict[str, Any]:
         """
         Emits the signal payload to the configured streams.
         """
         # 0. Calculate Risk Levels
         entry = float(payload.get("entry") or 0.0)
-        direction = str(payload.get("direction") or "").upper()
+        direction = (payload.get("direction") or "").upper()
         indicators = payload.get("indicators") or {}
-        
+
         trail_profile = payload.get("trail_profile") or runtime.config.get("trail_profile") or "rocket_v1"
-        
+
         sl, tp_levels, lot, atr = self._calculate_levels(
             runtime, entry, direction, indicators, trail_profile=trail_profile
         )
-        
-        payload["sl"] = float(sl)
+
+        payload["sl"] = sl
         payload["tp_levels"] = [float(x) for x in tp_levels]
-        payload["lot"] = float(lot)
-        payload["atr"] = float(atr)
+        payload["lot"] = lot
+        payload["atr"] = atr
         payload["trail_profile"] = trail_profile
         payload["trail_after_tp1"] = self._normalize_trailing_flag(payload.get("trail_after_tp1"), runtime.symbol)
 
@@ -4411,13 +4487,13 @@ class TickProcessor:
             rd = getattr(runtime, "adverse_rd_tracker", None)
             if rd is not None:
                 _rdind2 = runtime.indicators if hasattr(runtime, "indicators") else {}
-                bkt = str(_rdind2.get("exec_regime_bucket", "NORMAL") or "NORMAL")
+                bkt = (_rdind2.get("exec_regime_bucket", "NORMAL") or "NORMAL")
                 px0 = float(_rdind2.get("mid_px_submit") or entry or 0.0)
                 if px0 > 0:
                     rd.on_signal(ts_ms=int(tick_ts), direction=str(direction), px0=float(px0), bucket=bkt)
         except Exception:
             pass
-        
+
         # 2. Publish to RAW stream
         raw_stream = runtime.config.get("raw_signal_stream", "signals:crypto:raw")
         await self.publisher.xadd_json(
@@ -4425,13 +4501,13 @@ class TickProcessor:
             payload=payload,
             symbol=runtime.symbol
         )
-        
+
         # 3. Publish to NOTIFY stream if applicable (handled by downstream or SignalDispatcher usually)
-        # But legacy strategy might have sent it directly. 
-        # For now, we mirror to notify stream if min_conf is met, 
+        # But legacy strategy might have sent it directly.
+        # For now, we mirror to notify stream if min_conf is met,
         # OR we rely on SignalDispatcher to pick up from RAW?
         # Context from crypto_orderflow_service.py: "Публикует сигналы в notify:telegram, signals:crypto:raw"
-        
+
         # Let's emit to notify stream as well for now to match legacy likely behavior
         min_conf = float(runtime.config.get("signal_min_conf", 70.0))
         if float(payload.get("confidence", 0) * 100) >= min_conf:
@@ -4455,7 +4531,7 @@ class TickProcessor:
           - telemetry about emission itself (emitted/skipped/error counters)
         """
         try:
-            enable = str(os.getenv("OF_GATE_METRICS_ENABLE", "1") or "1").strip()
+            enable = (os.getenv("OF_GATE_METRICS_ENABLE", "1") or "1").strip()
             if enable not in ("1", "true", "True", "yes", "YES"):
                 ok_metrics_skipped_total.labels(src="tick_gate", why=why_label("disabled")).inc()
                 return
@@ -4465,7 +4541,7 @@ class TickProcessor:
             sample = float(os.getenv("OF_GATE_METRICS_SAMPLE", "0.10") or 0.10)
 
             # Optional DQ quarantine for invalid rows (keeps denominator clean).
-            dq_enable = str(os.getenv("OF_GATE_DQ_QUARANTINE_ENABLE", "0") or "0").strip() in ("1", "true", "True", "yes", "YES")
+            dq_enable = (os.getenv("OF_GATE_DQ_QUARANTINE_ENABLE", "0") or "0").strip() in ("1", "true", "True", "yes", "YES")
             dq_stream = os.getenv("OF_GATE_DQ_QUARANTINE_STREAM", "quarantine:metrics:of_gate")
             dq_maxlen = int(float(os.getenv("OF_GATE_DQ_QUARANTINE_MAXLEN", "50000") or 50000))
 
@@ -4477,7 +4553,7 @@ class TickProcessor:
 
             # Sampling: keep cost bounded. Ratio SLIs remain unbiased if sampling is independent of ok/ok_soft.
             if sample < 1.0:
-                key = f"{symbol}:{sid}".encode("utf-8")
+                key = f"{symbol}:{sid}".encode()
                 if not _should_sample(key, sample):
                     ok_metrics_skipped_total.labels(src="tick_gate", why=why_label("sampled_out")).inc()
                     return
@@ -4494,9 +4570,9 @@ class TickProcessor:
             ok = int(_oget(ofc, "ok", 0) or 0)
             ok_soft = int(ev.get("ok_soft", 0) or 0)
             scenario_v4 = str(ev.get("scenario_v4") or ev.get("scenario") or _oget(ofc, "scenario", None) or "na")
-            meta_cov = float(ev.get("meta_feature_coverage", 0.0) or 0.0)
-            meta_enforce = str(ev.get("meta_enforce_mode", "") or "")
-            meta_rec = str(ev.get("meta_recommended", "") or "")
+            meta_cov = float(ev.get(MetaKeys.FEATURE_COVERAGE, 0.0) or 0.0)
+            meta_enforce = (ev.get("meta_enforce_mode", "") or "")
+            meta_rec = (ev.get("meta_recommended", "") or "")
             meta_rec_soft = int(ev.get("meta_recommended_soft", 0) or 0)
             ml_state = str((ev.get("ml") or {}).get("state", "") or (ev.get("ml_state") or ""))
             missing_legs = ev.get("missing_legs") if isinstance(ev.get("missing_legs"), list) else []
@@ -4513,12 +4589,12 @@ class TickProcessor:
                     reason_top1 = "ok_soft"
                 else:
                     dq = str(indicators.get("dq_state") or ev.get("dq_state") or ev.get("dq") or "").lower()
-                    drift = str(ev.get("drift_state") or "").lower()
+                    drift = (ev.get("drift_state") or "").lower()
                     if dq and dq not in ("ok", "na"):
                         reason_top1 = "dq_fail"
                     elif drift in ("block", "fail", "veto"):
                         reason_top1 = "drift_block"
-                    elif int(ev.get("meta_veto", 0) or 0) == 1 or str((ev.get("ml") or {}).get("state", "") or "").lower() in ("veto", "block", "fail"):
+                    elif int(ev.get(MetaKeys.VETO, 0) or 0) == 1 or str((ev.get("ml") or {}).get("state", "") or "").lower() in ("veto", "block", "fail"):
                         reason_top1 = "meta_veto"
                     elif int(ev.get("liq_pressure_veto", 0) or 0) == 1:
                         reason_top1 = "liq_pressure"
@@ -4540,9 +4616,9 @@ class TickProcessor:
                 "ok_soft": str(int(ok_soft)),
                 "missing_legs": json.dumps(missing_legs, separators=(",", ":")),
                 "scenario_v4": scenario_v4,
-                "exec_regime_bucket": str(indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL"),
-                "vol_regime_label": str(indicators.get("vol_regime_label", "na") or "na"),
-                "liq_regime_label": str(indicators.get("liq_regime_label", "na") or "na"),
+                "exec_regime_bucket": (indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL"),
+                "vol_regime_label": (indicators.get("vol_regime_label", "na") or "na"),
+                "liq_regime_label": (indicators.get("liq_regime_label", "na") or "na"),
                 "vol_fast_bps": str(float(indicators.get("vol_fast_bps", 0.0) or 0.0)),
                 "vol_slow_bps": str(float(indicators.get("vol_slow_bps", 0.0) or 0.0)),
                 "vol_ratio": str(float(indicators.get("vol_ratio", 0.0) or 0.0)),
@@ -4644,7 +4720,7 @@ class TickProcessor:
         runtime,
         tick_ts_ms: int,
         direction: str,
-        indicators: Dict[str, Any],
+        indicators: dict[str, Any],
         ofc: Any,
         confidence: float,
     ) -> None:
@@ -4681,34 +4757,34 @@ class TickProcessor:
                 "score": float(getattr(ofc, "score", 0.0) or 0.0),
                 "evidence": ev,
             },
-            
+
             # Use shared extraction logic
             f = extract_fields_best_effort(stub)
-            
+
             # Determine actual action
             # If we are here, we passed strong gate (hard pass or soft pass).
-            # Soft pass means ok=0 but sent as virtual? 
+            # Soft pass means ok=0 but sent as virtual?
             # In process_tick, if ofc.ok==0 and soft_pass==1 -> is_virtual=1.
             is_virtual = bool(int(indicators.get("is_virtual", 0) or 0))
             is_ok = bool(int(getattr(ofc, "ok", 0) or 0))
-            
+
             actual_action = "pass"
             if is_virtual:
                 actual_action = "soft_pass"
             elif not is_ok:
                 # Should not reach here typically if emitted, unless emit=debug
                 actual_action = "veto" # but we emitted?
-            
+
             # Binding recommendation (What should we have done?)
             bind = recommend_binding(
                 BindingInput(
                     rule_score=float(f.get("rule_score", 0.0)),
                     rule_ok=bool(f.get("rule_ok", False)),
                     rule_soft=bool(f.get("rule_soft", False)),
-                    ml_state=str(f.get("ml_state", "na")),
+                    ml_state=(f.get("ml_state", "na")),
                     ml_p_cal=f.get("ml_p_cal", None),
-                    dq_state=str(f.get("dq_state", "unknown")),
-                    drift_state=str(f.get("drift_state", "unknown")),
+                    dq_state=(f.get("dq_state", "unknown")),
+                    drift_state=(f.get("drift_state", "unknown")),
                 )
             )
 
@@ -4722,52 +4798,52 @@ class TickProcessor:
                 rule_score=float(f.get("rule_score", 0.0)),
                 rule_ok=bool(f.get("rule_ok", False)),
                 rule_soft=bool(f.get("rule_soft", False)),
-                rule_reason_code_top1=str(f.get("rule_reason_code_top1", "NA")),
+                rule_reason_code_top1=(f.get("rule_reason_code_top1", "NA")),
                 ml_enabled=bool(f.get("ml_enabled", False)),
-                ml_state=str(f.get("ml_state", "na")),
+                ml_state=(f.get("ml_state", "na")),
                 ml_p_cal=f.get("ml_p_cal", None),
-                ml_model_ver=str(f.get("ml_model_ver", "")),
+                ml_model_ver=(f.get("ml_model_ver", "")),
                 ml_latency_ms=f.get("ml_latency_ms", None),
-                ml_error=str(f.get("ml_error", "")),
-                dq_state=str(f.get("dq_state", "unknown")),
+                ml_error=(f.get("ml_error", "")),
+                dq_state=(f.get("dq_state", "unknown")),
                 dq_flags=list(f.get("dq_flags", []) or []),
-                drift_state=str(f.get("drift_state", "unknown")),
+                drift_state=(f.get("drift_state", "unknown")),
                 drift_flags=list(f.get("drift_flags", []) or []),
                 actual_action=actual_action,
                 actual_reason_code=str(getattr(ofc, "reason", "OK")),
-                recommended_action=str(bind.get("recommended_action", "pass")),
-                recommended_reason_code=str(bind.get("recommended_reason_code", "NA")),
-                meta_enforce_cov_bucket=str(f.get("meta_enforce_cov_bucket", "unknown")),
-                meta_enforce_applied=bool(f.get("meta_enforce_applied", False)),
-                policy_raw_mode=str(f.get("policy_raw_mode", "")),
-                policy_effective_mode=str(f.get("policy_effective_mode", "")),
-                policy_hysteresis_debug=str(f.get("policy_hysteresis_debug", "")),
+                recommended_action=(bind.get("recommended_action", "pass")),
+                recommended_reason_code=(bind.get("recommended_reason_code", "NA")),
+                meta_enforce_cov_bucket=(f.get(MetaKeys.ENFORCE_COV_BUCKET, "unknown")),
+                meta_enforce_applied=bool(f.get(MetaKeys.ENFORCE_APPLIED, False)),
+                policy_raw_mode=(f.get("policy_raw_mode", "")),
+                policy_effective_mode=(f.get("policy_effective_mode", "")),
+                policy_hysteresis_debug=(f.get("policy_hysteresis_debug", "")),
                 policy_changed=bool(f.get("policy_changed", False)),
                 ctx_enabled=bool(f.get("ctx_enabled", False)),
-                ctx_mode=str(f.get("ctx_mode", "off")),
-                ctx_key=str(f.get("ctx_key", "")),
-                ctx_bundle_ver=str(f.get("ctx_bundle_ver", "")),
-                ctx_exec_model_ver=str(f.get("ctx_exec_model_ver", "")),
-                ctx_rule_model_ver=str(f.get("ctx_rule_model_ver", "")),
-                ctx_p_rule_raw=f.get("ctx_p_rule_raw", None),
-                ctx_p_rule_cal=f.get("ctx_p_rule_cal", None),
-                ctx_cost_p50_bps=f.get("ctx_cost_p50_bps", None),
-                ctx_cost_p90_bps=f.get("ctx_cost_p90_bps", None),
-                ctx_exec_risk_ref_bps=f.get("ctx_exec_risk_ref_bps", None),
-                ctx_edge_net_p50_bps=f.get("ctx_edge_net_p50_bps", None),
-                ctx_edge_net_p90_bps=f.get("ctx_edge_net_p90_bps", None),
-                ctx_reason=str(f.get("ctx_reason", "")),
-                ctx_fallback_level=str(f.get("ctx_fallback_level", "")),
-                ctx_shadow_disagree=bool(f.get("ctx_shadow_disagree", False)),
-                ctx_infer_latency_us=f.get("ctx_infer_latency_us", None),
+                ctx_mode=(f.get(CtxKeys.MODE, "off")),
+                ctx_key=(f.get(CtxKeys.KEY, "")),
+                ctx_bundle_ver=(f.get(CtxKeys.BUNDLE_VER, "")),
+                ctx_exec_model_ver=(f.get(CtxKeys.EXEC_MODEL_VER, "")),
+                ctx_rule_model_ver=(f.get(CtxKeys.RULE_MODEL_VER, "")),
+                ctx_p_rule_raw=f.get(CtxKeys.P_RULE_RAW, None),
+                ctx_p_rule_cal=f.get(CtxKeys.P_RULE_CAL, None),
+                ctx_cost_p50_bps=f.get(CtxKeys.COST_P50_BPS, None),
+                ctx_cost_p90_bps=f.get(CtxKeys.COST_P90_BPS, None),
+                ctx_exec_risk_ref_bps=f.get(CtxKeys.EXEC_RISK_REF_BPS, None),
+                ctx_edge_net_p50_bps=f.get(CtxKeys.EDGE_NET_P50_BPS, None),
+                ctx_edge_net_p90_bps=f.get(CtxKeys.EDGE_NET_P90_BPS, None),
+                ctx_reason=(f.get(CtxKeys.REASON, "")),
+                ctx_fallback_level=(f.get(CtxKeys.FALLBACK_LEVEL, "")),
+                ctx_shadow_disagree=bool(f.get(CtxKeys.SHADOW_DISAGREE, False)),
+                ctx_infer_latency_us=f.get(CtxKeys.INFER_LATENCY_US, None),
                 payload_summary={
                     "stage": "tick_processor_emit",
                     "direction": str(direction).upper(),
                     "conf": float(confidence),
                     "p_delta": float(indicators.get("p_delta", 0.0)),
-                    "ctx_reason": str(f.get("ctx_reason", "")),
-                    "ctx_edge_net_p50_bps": f.get("ctx_edge_net_p50_bps", None),
-                    "ctx_shadow_disagree": int(bool(f.get("ctx_shadow_disagree", False))),
+                    "ctx_reason": (f.get(CtxKeys.REASON, "")),
+                    "ctx_edge_net_p50_bps": f.get(CtxKeys.EDGE_NET_P50_BPS, None),
+                    "ctx_shadow_disagree": int(bool(f.get(CtxKeys.SHADOW_DISAGREE, False))),
                 },
             )
 

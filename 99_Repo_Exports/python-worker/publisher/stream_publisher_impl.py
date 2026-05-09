@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Публикатор сообщений в Redis Streams (с дублированием на два Redis).
 
@@ -10,34 +11,33 @@ from utils.time_utils import get_ny_time_millis
 
 import json
 import logging
-import os
-from typing import Dict, Any, Optional
-import time
+from datetime import UTC, datetime
+from typing import Any
 
+import redis
+
+from core.config import SIGNAL_DEDUP_TTL_SEC, STREAM_MAPPING, STREAM_MAX_LENGTH
 from core.dual_redis_client import get_dual_signals_redis
 from core.redis_client import get_redis
-import redis
-from core.config import STREAM_MAPPING, STREAM_MAX_LENGTH, SIGNAL_DEDUP_TTL_SEC
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 
 class StreamPublisher:
     """Класс для публикации сообщений в два Redis Streams одновременно."""
-    
+
     def __init__(self):
         # Инициализируется лениво при первом вызовом publish_to_stream
         self._redis_client = None
         self.stream_mapping = STREAM_MAPPING
-    
+
     @property
     def redis_client(self):
         if self._redis_client is None:
             self._redis_client = get_dual_signals_redis()
         return self._redis_client
-    
-    def publish_to_stream(self, stream_name: str, data: Dict[str, Any], max_length: int = STREAM_MAX_LENGTH) -> Optional[str]:
+
+    def publish_to_stream(self, stream_name: str, data: dict[str, Any], max_length: int = STREAM_MAX_LENGTH) -> str | None:
         """
         Публикует сообщение в оба Redis Stream.
         
@@ -53,7 +53,7 @@ class StreamPublisher:
             # Проверяем соединение с Redis
             if not self._check_connection():
                 return None
-            
+
             # Добавляем метаданные
             message_data = {
                 'data': json.dumps(data),
@@ -62,7 +62,7 @@ class StreamPublisher:
                 'type': data.get('type', 'unknown'),
                 'symbol': data.get('symbol', 'unknown')
             }
-            
+
             # Публикуем в оба стрима
             message_id_1, message_id_2 = self.redis_client.xadd(
                 stream_name,
@@ -70,12 +70,12 @@ class StreamPublisher:
                 maxlen=max_length,
                 approximate=True
             )
-            
+
             if message_id_1 or message_id_2:
                 logger.debug("✅ Message published to stream %s (r1=%s r2=%s)", stream_name, message_id_1, message_id_2)
-            
+
             return message_id_1 or message_id_2
-            
+
         except redis.exceptions.ConnectionError as e:
             logger.error("Redis connection error publishing to %s: %s", stream_name, e)
             return None
@@ -85,7 +85,7 @@ class StreamPublisher:
         except Exception as e:
             logger.error("Unexpected error publishing to stream %s: %s", stream_name, e)
             return None
-    
+
     def _check_connection(self) -> bool:
         """Проверяет доступность хотя бы одного Redis."""
         try:
@@ -97,8 +97,8 @@ class StreamPublisher:
         except Exception as e:
             logger.warning("Redis connection check failed: %s", e)
             return False
-    
-    def get_stream_info(self, stream_name: str) -> Optional[Dict]:
+
+    def get_stream_info(self, stream_name: str) -> dict | None:
         """Возвращает информацию о стриме Redis (XINFO STREAM)."""
         # Используем первый доступный клиент
         if hasattr(self.redis_client, 'client_1') and self.redis_client.client_1:
@@ -108,11 +108,11 @@ class StreamPublisher:
             except Exception as e:
                 logger.error("Error getting stream info for %s: %s", stream_name, e)
         return None
-    
+
     def create_consumer_group(self, stream_name: str, group_name: str, start_id: str = '$') -> bool:
         """Создаёт consumer group для указанного стрима в обоих Redis."""
         success = False
-        
+
         # Создаем в первом Redis
         if hasattr(self.redis_client, 'client_1') and self.redis_client.client_1:
             try:
@@ -127,7 +127,7 @@ class StreamPublisher:
                     logger.error("Error creating consumer group %s in Redis-1: %s", group_name, e)
             except Exception as e:
                 logger.error("Unexpected error creating consumer group %s in Redis-1: %s", group_name, e)
-        
+
         # Создаем во втором Redis
         if hasattr(self.redis_client, 'client_2') and self.redis_client.client_2:
             try:
@@ -142,7 +142,7 @@ class StreamPublisher:
                     logger.error("Error creating consumer group %s in Redis-2: %s", group_name, e)
             except Exception as e:
                 logger.error("Unexpected error creating consumer group %s in Redis-2: %s", group_name, e)
-        
+
         return success
 
 
@@ -152,8 +152,7 @@ def _build_dedup_key(data: dict) -> str:
     signal_type = data.get('type', 'unknown')
     candle_open_ms = data.get('t') or data.get('openTime')
     if candle_open_ms is None:
-        from datetime import timezone
-        minute_bucket = datetime.now(timezone.utc).strftime('%Y%m%d%H%M')
+        minute_bucket = datetime.now(UTC).strftime('%Y%m%d%H%M')
         return f"dedup:signal:{signal_type}:{symbol}:{minute_bucket}"
     return f"dedup:signal:{signal_type}:{symbol}:{candle_open_ms}"
 
@@ -171,13 +170,13 @@ def publish_signal_to_stream(channel: str, data: dict) -> bool:
     """
     try:
         publisher = StreamPublisher()
-        
+
         # Преобразуем имя канала в имя стрима
         stream_name = publisher.stream_mapping.get(
-            channel, 
+            channel,
             f"stream:{channel.replace('signal:', '').replace('trigger:', '').replace('top:', '')}"
         )
-        
+
         # Дедупликация (используем основной Redis)
         try:
             main_redis = get_redis()
@@ -187,11 +186,11 @@ def publish_signal_to_stream(channel: str, data: dict) -> bool:
                 return False
         except Exception as dedup_err:
             logger.warning("Signal dedup error: %s", dedup_err)
-        
+
         # Валидация данных
         if data.get('type') == 'volatilityRange':
             logger.debug("Signal data: range=%s avgRange=%s", data.get('range'), data.get('avgRange'))
-            
+
             if 'volatility' in data and (data['volatility'] == 0 or data['volatility'] is None):
                 old_vol = data['volatility']
                 if 'range' in data and 'avgRange' in data and data['avgRange'] > 0:
@@ -199,7 +198,7 @@ def publish_signal_to_stream(channel: str, data: dict) -> bool:
                 else:
                     data['volatility'] = 100.0
                 logger.debug("Corrected volatility from %s to %s", old_vol, data['volatility'])
-        
+
         elif data.get('type') == 'volatilitySpike':
             if 'volatility' in data and (data['volatility'] == 0 or data['volatility'] is None):
                 if 'high' in data and 'low' in data and 'open' in data:
@@ -207,18 +206,18 @@ def publish_signal_to_stream(channel: str, data: dict) -> bool:
                     low = float(data['low'])
                     open_price = float(data['open'])
                     data['volatility'] = round(((high - low) / open_price) * 100, 2)
-        
+
         # Публикуем данные в оба Redis Stream
         logger.info("Publishing signal %s to stream %s", data.get('type', 'unknown'), stream_name)
-        
+
         message_id = publisher.publish_to_stream(stream_name, data)
-        
+
         if message_id:
             logger.info("Signal %s sent to stream %s", data.get('type', 'unknown'), stream_name)
             return True
         else:
             return False
-            
+
     except Exception as e:
         logger.error("Error publishing signal to stream: %s", e)
         return False

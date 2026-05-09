@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ML feature schema v7 (OrderFlow).
 
 v7_of = v6_of + execution/LOB extras already present + *new* Hawkes-like intensity splits and VPIN-like toxicity.
@@ -13,7 +14,6 @@ All features must already be present in `indicators` at runtime.
 
 
 from dataclasses import dataclass
-from typing import List
 
 from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF
 
@@ -51,7 +51,7 @@ class MLFeatureSchemaV7OF(MLFeatureSchemaV6OF):
     def __post_init__(self) -> None:  # noqa: D401
         super().__post_init__()
 
-        extra_num: List[str] = [
+        extra_num: list[str] = [
             # L3 additions rates
             "added_bid_rate_ema",
             "added_ask_rate_ema",

@@ -1,15 +1,13 @@
-from utils.time_utils import get_ny_time_millis
-import time
 from types import SimpleNamespace
-
-import pytest
 
 from handlers.crypto_orderflow.utils.quality_gates import (
     DataQualityGate,
-    SignalConsistencyGate,
     LiquidityGate,
     RegimeGate,
+    SignalConsistencyGate,
 )
+from utils.time_utils import get_ny_time_millis
+
 
 def _ctx(**kwargs):
     ctx = SimpleNamespace()
@@ -237,7 +235,7 @@ def test_data_quality_gate_veto_touch_stale(monkeypatch):
     monkeypatch.setenv("DATA_QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("DATA_TOUCH_STALE_VETO", "1")
     monkeypatch.setenv("DATA_TOUCH_STALE_APPLY_KINDS", "breakout,absorption")
-    
+
     gate = DataQualityGate.from_env()
     now = get_ny_time_millis()
     ctx = _ctx(
@@ -252,7 +250,7 @@ def test_data_quality_gate_allow_touch_stale_disabled(monkeypatch):
     monkeypatch.setenv("DATA_QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("DATA_TOUCH_STALE_VETO", "0")
     monkeypatch.setenv("DATA_TOUCH_STALE_APPLY_KINDS", "breakout,absorption")
-    
+
     gate = DataQualityGate.from_env()
     now = get_ny_time_millis()
     ctx = _ctx(
@@ -267,7 +265,7 @@ def test_data_quality_gate_allow_touch_stale_wrong_kind(monkeypatch):
     monkeypatch.setenv("DATA_QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("DATA_TOUCH_STALE_VETO", "1")
     monkeypatch.setenv("DATA_TOUCH_STALE_APPLY_KINDS", "absorption")
-    
+
     gate = DataQualityGate.from_env()
     now = get_ny_time_millis()
     ctx = _ctx(
@@ -283,7 +281,7 @@ def test_data_quality_gate_allow_touch_fresh(monkeypatch):
     monkeypatch.setenv("DATA_QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("DATA_TOUCH_STALE_VETO", "1")
     monkeypatch.setenv("DATA_TOUCH_STALE_APPLY_KINDS", "breakout,absorption")
-    
+
     gate = DataQualityGate.from_env()
     now = get_ny_time_millis()
     ctx = _ctx(

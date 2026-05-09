@@ -15,14 +15,13 @@ Profiles
 """
 
 from dataclasses import dataclass
-from typing import List
 
 
 @dataclass
 class DerivativesContextDecision:
     hit: bool
     mode: str
-    flags: List[str]
+    flags: list[str]
     crowding_score: float
     tighten_add_bps: float
     veto: bool
@@ -31,7 +30,7 @@ class DerivativesContextDecision:
 
 
 def _map_profile(profile: str) -> str:
-    p = str(profile or "default").strip().lower()
+    p = (profile or "default").strip().lower()
     if p in {"default", "soft", "monitor"}:
         return "monitor"
     if p in {"strict", "tighten"}:
@@ -65,7 +64,7 @@ def evaluate_derivatives_context(
     thr_fz = float(thr_funding_z or 0.0)
     thr_bb = float(thr_basis_bps or 0.0)
 
-    flags: List[str] = []
+    flags: list[str] = []
     if fx or (thr_fz > 0.0 and fz >= thr_fz):
         flags.append("funding_extreme")
     if bx or (thr_bb > 0.0 and abs(bb) >= thr_bb):
@@ -91,7 +90,7 @@ def evaluate_derivatives_context(
     veto_reason = ""
     if mode == "veto" and hit:
         if require_oi_for_veto:
-            veto = bool(("funding_extreme" in flags and "basis_extreme" in flags and "oi_accel" in flags))
+            veto = bool("funding_extreme" in flags and "basis_extreme" in flags and "oi_accel" in flags)
         else:
             veto = bool(len(flags) >= 2)
         if veto:

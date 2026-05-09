@@ -1,8 +1,7 @@
-import pytest
 from types import SimpleNamespace
 
+from contexts import L2Level, LiquidityPattern, SimpleL2Snapshot
 from handlers.geometry_service import GeometryLiquidityService
-from contexts import SimpleL2Snapshot, L2Level, LiquidityPattern
 
 
 def _cfg(**kwargs):

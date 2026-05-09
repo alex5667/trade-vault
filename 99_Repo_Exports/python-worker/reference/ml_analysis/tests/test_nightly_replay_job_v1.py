@@ -1,10 +1,7 @@
 """Unit tests for nightly_golden_replay_job_v1: prune_old and _iter_policy_dirs."""
 
-import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-
-import pytest
 
 
 def _make_dated_dir(base: Path, name: str) -> Path:
@@ -20,7 +17,7 @@ def _make_dated_dir(base: Path, name: str) -> Path:
 def test_prune_old_removes_stale_dirs(tmp_path: Path):
     from ml_analysis.tools.nightly_golden_replay_job_v1 import prune_old
 
-    now_utc = datetime.now(tz=timezone.utc)
+    now_utc = datetime.now(tz=UTC)
 
     # Create old dir (15d ago) and recent dir (2d ago)
     old_name = (now_utc - timedelta(days=15)).strftime("%Y%m%d")
@@ -38,7 +35,7 @@ def test_prune_old_removes_stale_dirs(tmp_path: Path):
 def test_prune_old_keep_days_zero_is_noop(tmp_path: Path):
     from ml_analysis.tools.nightly_golden_replay_job_v1 import prune_old
 
-    now_utc = datetime.now(tz=timezone.utc)
+    now_utc = datetime.now(tz=UTC)
     old_name = (now_utc - timedelta(days=30)).strftime("%Y%m%d")
     old_dir = _make_dated_dir(tmp_path, old_name)
 

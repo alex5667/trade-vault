@@ -3,7 +3,8 @@ import asyncio
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import redis.asyncio as aioredis
 
 # Configuration
@@ -52,7 +53,7 @@ def _make_stream_keys(symbols: list[str]) -> list[str]:
     return [STREAM_TEMPLATE.format(sym=s) for s in symbols]
 
 async def main():
-    print(f"[{datetime.now(timezone.utc)}] Starting capture...")
+    print(f"[{datetime.now(UTC)}] Starting capture...")
     print(f"Target Symbols: {TARGET_SYMBOLS}")
     print(f"Stream Template: {STREAM_TEMPLATE}")
     print(f"Symbols Set: {SYMBOLS_SET}")
@@ -93,36 +94,36 @@ async def main():
 
     start_time = time.time()
     count = 0
-    
+
     # Ensure logs dir exists (it should)
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-    
+
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         while True:
             elapsed = time.time() - start_time
             if elapsed >= DURATION_SEC:
                 print(f"Time limit reached ({DURATION_SEC}s).")
                 break
-                
+
             remaining = max(0.1, DURATION_SEC - elapsed)
             block_ms = min(1000, int(remaining * 1000))
-            
+
             try:
                 # Read from all streams
                 streams = await r.xread(last_ids, count=100, block=block_ms)
-                
+
                 if not streams:
                     continue
-                    
+
                 for stream_name, messages in streams:
                     sym_from_stream = stream_keys.get(stream_name)
                     for message_id, data in messages:
                         last_ids[stream_name] = message_id
-                        
+
                         payload_str = data.get("payload")
                         if not payload_str:
                             continue
-                            
+
                         try:
                             payload = json.loads(payload_str)
                             # Extract symbol from payload if not from stream key
@@ -136,7 +137,7 @@ async def main():
                                     print(f"Captured {count} events... (last: {sym} @ {payload.get('ts_ms')})")
                         except Exception:
                             continue
-                            
+
             except Exception as e:
                 print(f"Error reading stream: {e}")
                 await asyncio.sleep(1)

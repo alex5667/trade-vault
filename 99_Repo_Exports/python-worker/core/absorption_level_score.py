@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict
 import math
+from dataclasses import dataclass
+from typing import Any
 
 
 def _clamp01(x: float) -> float:
@@ -46,7 +46,7 @@ class AbsLevel:
     ladder_len: int
     poc_on_edge: int
     eff_delta: float
-    parts: Dict[str, float]
+    parts: dict[str, float]
 
 
 def compute_absorption_level_score(
@@ -57,7 +57,7 @@ def compute_absorption_level_score(
     weak_progress: bool,
     iceberg_strict: bool,
     reclaim_recent: bool,
-    cfg: Dict[str, Any],
+    cfg: dict[str, Any],
 ) -> AbsLevel:
     """
     Absorption-on-level score v2 (modular).

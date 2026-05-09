@@ -1,13 +1,15 @@
 from __future__ import annotations
+
 """
 test_exec_health_slo_autoguard_exporter_v1.py
 Unit tests for the P5 AutoGuard Prometheus exporter.
 Uses mock Redis client — no real Redis connection required.
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from orderflow_services import exec_health_slo_autoguard_exporter_v1 as exp
+import contextlib
 
 
 def test_exec_health_slo_autoguard_exporter_sets_gauges() -> None:
@@ -28,10 +30,8 @@ def test_exec_health_slo_autoguard_exporter_sets_gauges() -> None:
     with patch("orderflow_services.exec_health_slo_autoguard_exporter_v1.redis", mock_redis_mod), \
          patch("orderflow_services.exec_health_slo_autoguard_exporter_v1.start_http_server"), \
          patch("orderflow_services.exec_health_slo_autoguard_exporter_v1.time.sleep", side_effect=KeyboardInterrupt):
-        try:
+        with contextlib.suppress(KeyboardInterrupt):
             exp.main()
-        except KeyboardInterrupt:
-            pass
     assert exp.FREEZE_ACTIVE._value.get() == 1.0
     assert exp.MODE_MISMATCH_ACTIVE._value.get() == 1.0
     assert exp.ROLLBACK_TOTAL._value.get() == 2.0
@@ -46,8 +46,6 @@ def test_exec_health_slo_autoguard_exporter_sets_up_zero_on_error() -> None:
     with patch("orderflow_services.exec_health_slo_autoguard_exporter_v1.redis", mock_redis_mod), \
          patch("orderflow_services.exec_health_slo_autoguard_exporter_v1.start_http_server"), \
          patch("orderflow_services.exec_health_slo_autoguard_exporter_v1.time.sleep", side_effect=KeyboardInterrupt):
-        try:
+        with contextlib.suppress(KeyboardInterrupt):
             exp.main()
-        except KeyboardInterrupt:
-            pass
     assert exp.UP._value.get() == 0.0

@@ -2,7 +2,7 @@ from .bucketing import make_feature_bucket
 
 # Import database-dependent modules only if available
 try:
-    from .estimator import SignalQualityEstimator, QualityEstimate
+    from .estimator import QualityEstimate, SignalQualityEstimator
     from .offline_job import run_offline_quality_job
     from .online_job import run_online_quality_job
     __all__ = [

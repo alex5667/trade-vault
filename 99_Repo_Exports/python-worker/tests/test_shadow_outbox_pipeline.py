@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Shadow Outbox Pipeline Tests
 ============================
@@ -11,24 +13,21 @@ Shadow Outbox Pipeline Tests
 4. Dispatcher dedup: same signal_id не дублируется
 5. Dispatcher DLQ: envelope без sid попадает в DLQ
 """
-from utils.time_utils import get_ny_time_millis
-
-import asyncio
 import json
 import os
-import time
-import uuid
-from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 # ---------------------------------------------------------------------------
 # Path setup (run from python-worker root)
 # ---------------------------------------------------------------------------
 import sys
+import uuid
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
+
+import pytest
+
+from utils.time_utils import get_ny_time_millis
 
 _PW = Path(__file__).parent.parent
 if str(_PW) not in sys.path:
@@ -42,17 +41,17 @@ if str(_PW) not in sys.path:
 class FakeSyncRedis:
     """Sync Redis stub для dispatcher tests."""
     def __init__(self) -> None:
-        self.kv: Dict[str, str] = {}
-        self.streams: Dict[str, List[Tuple[str, Dict[str, str]]]] = {}
+        self.kv: dict[str, str] = {}
+        self.streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
         self._seq = 0
-        self.xack_calls: List[Tuple[str, str, str]] = []
+        self.xack_calls: list[tuple[str, str, str]] = []
 
     def _next_id(self) -> str:
         self._seq += 1
         return f"{get_ny_time_millis()}-{self._seq}"
 
     def set(self, key: str, value: str, *, nx: bool = False, xx: bool = False,
-            ex: Optional[int] = None, px: Optional[int] = None) -> bool:
+            ex: int | None = None, px: int | None = None) -> bool:
         exists = key in self.kv
         if nx and exists:
             return False
@@ -61,7 +60,7 @@ class FakeSyncRedis:
         self.kv[key] = str(value)
         return True
 
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         return self.kv.get(key)
 
     def delete(self, *keys: str) -> int:
@@ -75,8 +74,8 @@ class FakeSyncRedis:
     def expire(self, key: str, ttl: int) -> bool:
         return key in self.kv
 
-    def xadd(self, stream: str, fields: Dict[str, Any], *args: Any,
-              maxlen: Optional[int] = None, approximate: bool = False, **kw: Any) -> str:
+    def xadd(self, stream: str, fields: dict[str, Any], *args: Any,
+              maxlen: int | None = None, approximate: bool = False, **kw: Any) -> str:
         entry_id = self._next_id()
         d = {str(k): str(v) for k, v in (fields or {}).items()}
         self.streams.setdefault(stream, []).append((entry_id, d))
@@ -86,7 +85,7 @@ class FakeSyncRedis:
         self.xack_calls.extend((stream, group, mid) for mid in msg_ids)
         return len(msg_ids)
 
-    def last_stream_entry(self, stream: str) -> Dict[str, str]:
+    def last_stream_entry(self, stream: str) -> dict[str, str]:
         items = self.streams.get(stream, [])
         assert items, f"Stream '{stream}' is empty"
         return items[-1][1]
@@ -98,11 +97,11 @@ class FakeSyncRedis:
 class FakeAsyncRedis:
     """Async Redis stub для atomic_xadd_async calls."""
     def __init__(self) -> None:
-        self.eval_calls: List[Tuple] = []
+        self.eval_calls: list[tuple] = []
         self._return_code = 1      # 1 = success
         self._entry_id = "1700000000001-1"
 
-    async def eval(self, script: str, num_keys: int, *args: Any) -> List[Any]:
+    async def eval(self, script: str, num_keys: int, *args: Any) -> list[Any]:
         self.eval_calls.append((script, num_keys, args))
         return [self._return_code, self._entry_id]
 
@@ -123,7 +122,7 @@ def test_build_outbox_envelope_structure():
         notify_payload={"text": "LONG 95000", "symbol": "BTCUSDT"},
         audit_payload={"payload": json.dumps({"entry": 95000.0, "direction": "LONG"})},
         signal_stream_payload={"data": json.dumps({"entry": 95000.0})},
-        audit_stream="signals:crypto:raw",
+        audit_stream=RS.CRYPTO_RAW,
         signal_stream="signals:cryptoorderflow:BTCUSDT",
     )
 
@@ -139,7 +138,7 @@ def test_build_outbox_envelope_structure():
     assert "signal_stream_payload" in targets, "targets must have 'signal_stream_payload'"
 
     meta = env["meta"]
-    assert meta.get("audit_stream") == "signals:crypto:raw", "meta.audit_stream mismatch"
+    assert meta.get("audit_stream") == RS.CRYPTO_RAW, "meta.audit_stream mismatch"
     assert meta.get("signal_stream") == "signals:cryptoorderflow:BTCUSDT", "meta.signal_stream mismatch"
 
 
@@ -153,7 +152,7 @@ def test_build_outbox_envelope_no_debug_print(capsys):
         kind="crypto_orderflow",
         notify_payload={"text": "test"},
         audit_payload={"payload": "{}"},
-        audit_stream="signals:crypto:raw",
+        audit_stream=RS.CRYPTO_RAW,
     )
     captured = capsys.readouterr()
     assert "DEBUG_BUILD_OUTBOX_ENV" not in captured.out, (
@@ -168,8 +167,8 @@ def test_build_outbox_envelope_no_debug_print(capsys):
 @pytest.mark.asyncio
 async def test_atomic_xadd_async_called_with_outbox_stream():
     """Shadow mode: atomic_xadd_async пишет в stream:signals:outbox с корректным envelope."""
-    from services.outbox.envelope_builder import build_outbox_envelope
     from services.outbox.atomic_outbox import atomic_xadd_async
+    from services.outbox.envelope_builder import build_outbox_envelope
 
     fake_redis = FakeAsyncRedis()
     sid = f"shadow-test-{uuid.uuid4().hex[:8]}"
@@ -180,11 +179,11 @@ async def test_atomic_xadd_async_called_with_outbox_stream():
         kind="crypto_orderflow",
         notify_payload={"text": "LONG"},
         audit_payload={"payload": '{"entry": 95000}'},
-        audit_stream="signals:crypto:raw",
+        audit_stream=RS.CRYPTO_RAW,
     )
     env_json = json.dumps(env)
 
-    outbox_stream = "stream:signals:outbox"
+    outbox_stream = RS.SIGNAL_OUTBOX
     os.environ["OUTBOX_EVENT_STREAM_ENABLE"] = "0"  # keep it simple for unit test
 
     entry_id = await atomic_xadd_async(
@@ -194,7 +193,7 @@ async def test_atomic_xadd_async_called_with_outbox_stream():
         payload_obj=env,
         kind="crypto_orderflow",
         symbol="BTCUSDT",
-        ts=str(env.get("ts_ms", "")),
+        ts=(env.get("ts_ms", "")),
     )
 
     assert entry_id is not None, "Must return entry_id on success"
@@ -227,7 +226,7 @@ async def test_atomic_xadd_async_called_with_outbox_stream():
 class MinimalSyncHelper:
     """Minimal stub for SyncRedisStreamHelper used by _handle_one."""
     def __init__(self) -> None:
-        self.acked: List[str] = []
+        self.acked: list[str] = []
 
     def ack(self, stream: str, msg_id: str) -> None:
         self.acked.append(msg_id)
@@ -241,8 +240,8 @@ class MinimalDelivery:
     def marker_key(self, target: str, sid: str) -> str:
         return f"sig:delivery:{target}:{sid}"
 
-    def xadd_once(self, *, marker_key: str, stream: str, payload: Dict, maxlen: int = 1000
-                  ) -> Tuple[bool, str]:
+    def xadd_once(self, *, marker_key: str, stream: str, payload: dict, maxlen: int = 1000
+                  ) -> tuple[bool, str]:
         entry_id = self._redis.xadd(stream, payload)
         return True, entry_id
 
@@ -260,17 +259,17 @@ def _make_dispatcher_for_test(redis: FakeSyncRedis):
     d.dual_redis = redis
     d.simple_redis = redis
 
-    d.outbox_stream = "stream:signals:outbox"
-    d.dlq_stream = "stream:signals:dlq"
+    d.outbox_stream = RS.SIGNAL_OUTBOX
+    d.dlq_stream = RS.SIGNAL_DLQ
     d.group = "test-group"
     d.consumer = "test-consumer"
-    d.mt5_plans_stream = "stream:signals:plans"
-    d.signal_notify_stream = "notify:telegram"
-    d.signal_manual_stream = "stream:signals:manual"
+    d.mt5_plans_stream = RS.SIGNAL_PLANS
+    d.signal_notify_stream = RS.NOTIFY_TELEGRAM
+    d.signal_manual_stream = RS.SIGNAL_MANUAL
     d.signal_notify_maxlen = 10000
     d.signal_manual_maxlen = 10000
-    d.notify_stream = "notify:telegram"
-    d.notify_signal_counter_key = "notify:telegram:signal_counter"
+    d.notify_stream = RS.NOTIFY_TELEGRAM
+    d.notify_signal_counter_key = RS.NOTIFY_SIGNAL_COUNTER
     d.max_attempts = 7
     d.retry_base_ms = 250
     d.retry_max_ms = 30000
@@ -327,7 +326,7 @@ def test_dispatcher_handle_one_routes_to_audit_stream():
     helper = MinimalSyncHelper()
 
     sid = f"dispatch-test-{uuid.uuid4().hex[:8]}"
-    audit_stream = "signals:crypto:raw"
+    audit_stream = RS.CRYPTO_RAW
 
     env = build_outbox_envelope(
         sid=sid,
@@ -367,7 +366,7 @@ def test_dispatcher_dedup_same_sid():
     helper = MinimalSyncHelper()
 
     sid = f"dedup-test-{uuid.uuid4().hex[:8]}"
-    audit_stream = "signals:crypto:raw"
+    audit_stream = RS.CRYPTO_RAW
 
     env = build_outbox_envelope(
         sid=sid,

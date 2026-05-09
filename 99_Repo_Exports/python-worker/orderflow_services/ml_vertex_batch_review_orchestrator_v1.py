@@ -1,19 +1,19 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import redis.asyncio as redis
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
+from core.redis_stream_consumer import AsyncRedisStreamHelper
 from orderflow_services.llm_recommendation_guard_v1 import guard_recommendations
 from orderflow_services.providers.vertex_genai_provider_v1_2 import VertexGenAIProviderV12, VertexProviderError
 from orderflow_services.vertex_cost_accounting_v1 import CostRecord, record_cost
-
+from utils.time_utils import get_ny_time_millis
 
 REQUESTS_STREAM = os.getenv("ML_ANALYSIS_BATCH_REQUESTS_STREAM", "stream:ml:analysis_batch_requests")
 RESULTS_STREAM = os.getenv("ML_ANALYSIS_RESULTS_STREAM", "stream:ml:analysis_results")
@@ -38,7 +38,7 @@ def _s(x: Any) -> str:
     return str(x)
 
 
-async def _write_result_db_if_possible(payload: Dict[str, Any]) -> None:
+async def _write_result_db_if_possible(payload: dict[str, Any]) -> None:
     db_url = os.getenv("DATABASE_URL", "").strip()
     if not db_url:
         return
@@ -74,13 +74,22 @@ async def main() -> None:
     start_http_server(int(os.getenv("ML_VERTEX_BATCH_REVIEW_METRICS_PORT", "9863")))
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
     provider = VertexGenAIProviderV12()
-    try:
-        await r.xgroup_create(REQUESTS_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
+
+    helper = AsyncRedisStreamHelper(client=r, group=GROUP, consumer=CONSUMER)
+    await helper.ensure_groups([REQUESTS_STREAM], start_id="0")
+
     UP.set(1.0)
+    pel_start_id = "0-0"
     while True:
-        rows = await r.xreadgroup(GROUP, CONSUMER, {REQUESTS_STREAM: ">"}, count=10, block=5000)
+        pel_start_id, pending_msgs = await helper.claim_pending(
+            REQUESTS_STREAM, min_idle_ms=5000, count=10, start_id=pel_start_id
+        )
+        pending_formatted = [(m.msg_id, m.fields) for m in pending_msgs]
+        if pending_formatted:
+            rows = [[REQUESTS_STREAM, pending_formatted]]
+        else:
+            rows = await helper.read({REQUESTS_STREAM: ">"}, count=10, block=5000)
+
         if not rows:
             await asyncio.sleep(1.0)
             continue
@@ -185,7 +194,7 @@ async def main() -> None:
                     })
                     LAT.labels(provider="vertex").observe(max(0.0, time.perf_counter() - t0))
                     LAST_RUN_TS.set(time.time())
-                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
+                    await helper.ack(REQUESTS_STREAM, msg_id)
                 except VertexProviderError as exc:
                     REQS.labels(provider="vertex", status="err_provider").inc()
                     await r.xadd(DLQ_STREAM, {
@@ -197,7 +206,7 @@ async def main() -> None:
                         "payload_json": json.dumps(data, ensure_ascii=False),
                         "ts_ms": get_ny_time_millis(),
                     }, maxlen=int(os.getenv("ML_ANALYSIS_DLQ_STREAM_MAXLEN", "50000") or 50000), approximate=True)
-                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
+                    await helper.ack(REQUESTS_STREAM, msg_id)
                 except Exception as exc:
                     REQS.labels(provider="vertex", status="err_runtime").inc()
                     await r.xadd(DLQ_STREAM, {
@@ -209,7 +218,7 @@ async def main() -> None:
                         "payload_json": json.dumps(data, ensure_ascii=False),
                         "ts_ms": get_ny_time_millis(),
                     }, maxlen=int(os.getenv("ML_ANALYSIS_DLQ_STREAM_MAXLEN", "50000") or 50000), approximate=True)
-                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
+                    await helper.ack(REQUESTS_STREAM, msg_id)
 
 
 if __name__ == "__main__":

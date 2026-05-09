@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Deep trailing vs baseline analyzer for trades_closed in Redis Stream.
 
@@ -14,17 +14,15 @@ Deep trailing vs baseline analyzer for trades_closed in Redis Stream.
 Если имена другие — поправьте маппинг в load_trades.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
-import statistics as stats
-import time
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
-
 import os
+import statistics as stats
+from dataclasses import dataclass
+from typing import Any
+
 import redis
 
+from utils.time_utils import get_ny_time_millis
 
 EPS = 1e-9
 
@@ -134,24 +132,24 @@ class TradeRow:
         return not self.is_win_fixed and not self.is_loss_fixed
 
 
-def mean(values: List[float]) -> float:
+def mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
-def stddev(values: List[float]) -> float:
+def stddev(values: list[float]) -> float:
     if len(values) < 2:
         return 0.0
     return float(stats.pstdev(values))
 
 
-def downside_std(values: List[float]) -> float:
+def downside_std(values: list[float]) -> float:
     negatives = [value for value in values if value < 0]
     if len(negatives) < 2:
         return 0.0
     return float(stats.pstdev(negatives))
 
 
-def max_drawdown(equity: List[float]) -> float:
+def max_drawdown(equity: list[float]) -> float:
     if not equity:
         return 0.0
     peak = equity[0]
@@ -164,9 +162,9 @@ def max_drawdown(equity: List[float]) -> float:
     return mdd
 
 
-def compute_equity_curve(trades: List[TradeRow], use_net: bool = True) -> List[float]:
+def compute_equity_curve(trades: list[TradeRow], use_net: bool = True) -> list[float]:
     equity = 0.0
-    curve: List[float] = []
+    curve: list[float] = []
     for trade in sorted(trades, key=lambda x: x.exit_ts_ms):
         equity += trade.pnl_net if use_net else trade.pnl_fixed
         curve.append(equity)
@@ -204,19 +202,19 @@ def load_trades(
     source: str,
     symbol: str,
     limit: int = 200,
-    since_days: Optional[int] = None,
-) -> List[TradeRow]:
-    threshold_ms: Optional[int] = None
+    since_days: int | None = None,
+) -> list[TradeRow]:
+    threshold_ms: int | None = None
     if since_days is not None and since_days > 0:
         threshold_ms = int(get_ny_time_millis() - since_days * 86400 * 1000)
 
     # Берем с запасом, чтобы отфильтровать по source/symbol.
     entries = redis_client.xrevrange(stream, max="+", min="-", count=limit * 4)
-    trades: List[TradeRow] = []
+    trades: list[TradeRow] = []
 
     for _stream_id, fields in entries:
-        s_source = str(fields.get("source") or "")
-        s_symbol = str(fields.get("symbol") or "")
+        s_source = (fields.get("source") or "")
+        s_symbol = (fields.get("symbol") or "")
         if source and s_source != source:
             continue
         if symbol and s_symbol != symbol:
@@ -229,7 +227,7 @@ def load_trades(
         trade = TradeRow(
             source=s_source,
             symbol=s_symbol,
-            entry_tag=str(fields.get("entry_tag") or ""),
+            entry_tag=(fields.get("entry_tag") or ""),
             pnl_net=_to_float(fields.get("pnl_net")),
             pnl_fixed=_to_float(fields.get("pnl_if_fixed_exit")),
             one_r=_to_float(fields.get("one_r_money")),
@@ -239,9 +237,9 @@ def load_trades(
             missed_profit=_to_float(fields.get("missed_profit")),
             trailing_started=_to_bool(fields.get("trailing_started")),
             trailing_active=_to_bool(fields.get("trailing_active")),
-            close_reason=str(fields.get("close_reason") or ""),
-            close_reason_raw=str(fields.get("close_reason_raw") or ""),
-            close_reason_detail=str(fields.get("close_reason_detail") or ""),
+            close_reason=(fields.get("close_reason") or ""),
+            close_reason_raw=(fields.get("close_reason_raw") or ""),
+            close_reason_detail=(fields.get("close_reason_detail") or ""),
             notional_usd=_to_float(fields.get("notional_usd")),
             exit_ts_ms=exit_ts_ms,
         )
@@ -257,9 +255,9 @@ def load_trades(
 @dataclass
 class TagStats:
     tag: str
-    trades: List[TradeRow]
+    trades: list[TradeRow]
 
-    def finalize(self) -> Dict[str, Any]:
+    def finalize(self) -> dict[str, Any]:
         total = len(self.trades)
         if total == 0:
             return {"n": 0}
@@ -345,7 +343,7 @@ class TagStats:
         }
 
 
-def analyze_global(trades: List[TradeRow]) -> Dict[str, Any]:
+def analyze_global(trades: list[TradeRow]) -> dict[str, Any]:
     stats_tag = TagStats(tag="__ALL__", trades=trades).finalize()
 
     r_m = [trade.r_managed for trade in trades]
@@ -360,7 +358,7 @@ def analyze_global(trades: List[TradeRow]) -> Dict[str, Any]:
     mdd_net = max_drawdown(eq_net)
     mdd_baseline = max_drawdown(eq_baseline)
 
-    out: Dict[str, Any] = dict(stats_tag)
+    out: dict[str, Any] = dict(stats_tag)
     out.update(
         {
             "sharpe_r": sharpe,
@@ -372,13 +370,13 @@ def analyze_global(trades: List[TradeRow]) -> Dict[str, Any]:
     return out
 
 
-def analyze_by_tag(trades: List[TradeRow], min_trades: int = 10) -> List[Dict[str, Any]]:
-    by_tag: Dict[str, List[TradeRow]] = {}
+def analyze_by_tag(trades: list[TradeRow], min_trades: int = 10) -> list[dict[str, Any]]:
+    by_tag: dict[str, list[TradeRow]] = {}
     for trade in trades:
         tag = trade.entry_tag or "__EMPTY__"
         by_tag.setdefault(tag, []).append(trade)
 
-    stats_list: List[Dict[str, Any]] = []
+    stats_list: list[dict[str, Any]] = []
     for tag, tagged_trades in by_tag.items():
         if len(tagged_trades) < min_trades:
             continue
@@ -388,7 +386,7 @@ def analyze_by_tag(trades: List[TradeRow], min_trades: int = 10) -> List[Dict[st
     return stats_list
 
 
-def print_global_report(symbol: str, source: str, stats_glob: Dict[str, Any]) -> None:
+def print_global_report(symbol: str, source: str, stats_glob: dict[str, Any]) -> None:
     print("========================================")
     print(f"Global stats: source={source}, symbol={symbol}")
     print(f"Сделок: {stats_glob['n']}")
@@ -453,7 +451,7 @@ def print_global_report(symbol: str, source: str, stats_glob: Dict[str, Any]) ->
     print()
 
 
-def print_tag_report(tag_stats: List[Dict[str, Any]], max_tags: int = 15) -> None:
+def print_tag_report(tag_stats: list[dict[str, Any]], max_tags: int = 15) -> None:
     if not tag_stats:
         print("Нет тегов с достаточным числом сделок.")
         return

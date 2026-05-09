@@ -1,7 +1,8 @@
 import os
-import pytest
 
 from stream_consumer_impl import StreamConsumer
+import contextlib
+
 
 class DummyStats:
     def update_stats(self, *a, **k): pass
@@ -14,10 +15,8 @@ class DummyHandler:
         self.calls += 1
 
 def _ensure_group(r, stream, group):
-    try:
+    with contextlib.suppress(Exception):
         r.xgroup_create(stream, group, id="0-0", mkstream=True)
-    except Exception:
-        pass
 
 def test_ack_fail_then_recover_ack_only(r, redis_url, monkeypatch):
     os.environ["TEST_REDIS_URL"] = redis_url

@@ -2,15 +2,13 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+import math
+import os
+import sys
+from datetime import UTC, datetime
 
 import psycopg2  # pip install psycopg2-binary
-import math
 
-import sys
-import os
 # Try to find the root by looking for 'analytics' directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # Check if we are in 'scripts' directory relative to the root
@@ -19,28 +17,28 @@ if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
 try:
-    from analytics.tag_stats import Trade, TagStats
+    from analytics.tag_stats import TagStats, Trade
 except ImportError:
     # If not found, maybe we are in a different structure
     # Fallback to current dir's parent
     if current_dir not in sys.path:
         sys.path.insert(0, current_dir)
-    from analytics.tag_stats import Trade, TagStats
+    from analytics.tag_stats import TagStats, Trade
 
 # Compatibility aliases
 TradeRow = Trade
 
-def mean(data: List[float]) -> float:
+def mean(data: list[float]) -> float:
     if not data: return 0.0
     return sum(data) / len(data)
 
-def stddev(data: List[float]) -> float:
+def stddev(data: list[float]) -> float:
     if len(data) < 2: return 0.0
     mu = mean(data)
     var = sum((x - mu)**2 for x in data) / (len(data) - 1)
     return math.sqrt(max(0.0, var))
 
-def max_drawdown(equity: List[float]) -> float:
+def max_drawdown(equity: list[float]) -> float:
     if not equity: return 0.0
     peak = equity[0]
     mdd = 0.0
@@ -88,7 +86,7 @@ def _to_bool(v) -> bool:
     return s in ("1", "t", "true", "yes", "y")
 
 
-def parse_ts_arg(val: Optional[str]) -> Optional[int]:
+def parse_ts_arg(val: str | None) -> int | None:
     """
     Парсер для --from / --to:
     - если только цифры → считаем это exit_ts_ms (ms от эпохи),
@@ -112,14 +110,14 @@ def parse_ts_arg(val: Optional[str]) -> Optional[int]:
         # только дата
         if len(s) == 10 and s[4] == "-" and s[7] == "-":
             dt = datetime.strptime(s, "%Y-%m-%d")
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         else:
             # обобщённый ISO-формат
             dt = datetime.fromisoformat(s)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             else:
-                dt = dt.astimezone(timezone.utc)
+                dt = dt.astimezone(UTC)
         return int(dt.timestamp() * 1000)
     except Exception as e:
         raise ValueError(f"Не могу разобрать значение времени '{s}': {e}") from e
@@ -134,8 +132,8 @@ def load_trades_from_postgres(
     source: str,
     symbol: str,
     limit: int = 200,
-    since_days: Optional[int] = None,
-) -> List[Trade]:
+    since_days: int | None = None,
+) -> list[Trade]:
     """
     Загружает сделки из PostgreSQL для анализа trailing vs baseline.
     """
@@ -168,7 +166,7 @@ def load_trades_from_postgres(
 
     # Добавляем фильтр по времени, если указан
     if since_days is not None and since_days > 0:
-        cutoff_ts = int((datetime.now(timezone.utc).timestamp() - since_days * 24 * 3600) * 1000)
+        cutoff_ts = int((datetime.now(UTC).timestamp() - since_days * 24 * 3600) * 1000)
         sql += " AND exit_ts_ms >= %s"
         params.append(cutoff_ts)
 
@@ -178,7 +176,7 @@ def load_trades_from_postgres(
     cur.execute(sql, params)
     rows = cur.fetchall()
 
-    trades: List[Trade] = []
+    trades: list[Trade] = []
 
     for row in rows:
         (
@@ -233,7 +231,7 @@ def load_trades_from_postgres(
 # Анализ функций
 # ----------------------------
 
-def analyze_global(trades: List[Trade]) -> Dict[str, float]:
+def analyze_global(trades: list[Trade]) -> dict[str, float]:
     """
     Глобальный анализ trailing vs baseline по всем сделкам.
     """
@@ -249,11 +247,11 @@ def analyze_global(trades: List[Trade]) -> Dict[str, float]:
     return result
 
 
-def analyze_by_tag(trades: List[Trade], min_trades: int = 5) -> List[Dict[str, float]]:
+def analyze_by_tag(trades: list[Trade], min_trades: int = 5) -> list[dict[str, float]]:
     """
     Анализ по entry_tag с фильтрацией по минимальному количеству сделок.
     """
-    tag_stats: Dict[str, TagStats] = {}
+    tag_stats: dict[str, TagStats] = {}
 
     for trade in trades:
         tag = trade.entry_tag or "<untagged>"
@@ -273,16 +271,16 @@ def analyze_by_tag(trades: List[Trade], min_trades: int = 5) -> List[Dict[str, f
     return results
 
 
-def analyze_by_strong_gate(trades: List[Trade], min_trades: int = 5) -> List[Dict[str, float]]:
+def analyze_by_strong_gate(trades: list[Trade], min_trades: int = 5) -> list[dict[str, float]]:
     """
     Анализ по strong_gate_ok (сильные vs слабые сигналы) с фильтрацией по минимальному количеству сделок.
     """
-    gate_stats: Dict[str, TagStats] = {}
+    gate_stats: dict[str, TagStats] = {}
 
     for trade in trades:
         # Определяем категорию сигнала
         gate_label = "Strong" if getattr(trade, "strong_gate_ok", False) else "Weak"
-        
+
         if gate_label not in gate_stats:
             gate_stats[gate_label] = TagStats(tag=gate_label)
         gate_stats[gate_label].add_trade(trade)

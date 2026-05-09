@@ -1,6 +1,6 @@
 import unittest
 
-from tools.tick_gate_group_reaper import _env_int, _env_float
+from tools.tick_gate_group_reaper import _env_float, _env_int
 
 
 class TestTickGateGroupReaper(unittest.TestCase):

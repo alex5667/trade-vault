@@ -1,13 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import logging
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore,
@@ -62,14 +63,14 @@ def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _dual_control_approved_freshness_s() -> float:
     return max(60.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_DUAL_CONTROL_APPROVED_FRESHNESS_S', '1800'), 1800.0))
 
 
-def _read_hash(client: Any, key: str) -> Dict[str, str]:
+def _read_hash(client: Any, key: str) -> dict[str, str]:
     if client is None or not key:
         return {}
     try:
@@ -115,15 +116,15 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Dict[str, Any]:
+def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> dict[str, Any]:
     raw = _read_hash(client, _override_key(purpose, family))
     if not raw:
         return {'present': 0.0, 'active': 0.0, 'created_ts_ms': 0, 'expire_ts_ms': 0, 'remaining_s': 0.0}
     created_ts_ms = int(_to_float(raw.get('created_ts_ms'), 0.0))
     expire_ts_ms = int(_to_float(raw.get('expire_ts_ms'), 0.0))
-    has_ticket = 1.0 if str(raw.get('ticket') or '').strip() else 0.0
-    has_operator = 1.0 if str(raw.get('operator') or '').strip() else 0.0
-    has_reason = 1.0 if str(raw.get('reason') or '').strip() else 0.0
+    has_ticket = 1.0 if (raw.get('ticket') or '').strip() else 0.0
+    has_operator = 1.0 if (raw.get('operator') or '').strip() else 0.0
+    has_reason = 1.0 if (raw.get('reason') or '').strip() else 0.0
     if expire_ts_ms <= now_ms:
         try:
             client.delete(_override_key(purpose, family))
@@ -186,7 +187,7 @@ def _override_limits_key(purpose: str) -> str:
     return f'{prefix}:{purpose}'
 
 
-def _resolve_override_limits(client: Any, purpose: str, family: str) -> Dict[str, float]:
+def _resolve_override_limits(client: Any, purpose: str, family: str) -> dict[str, float]:
     defaults_hash = _read_hash(client, _override_limits_defaults_key())
     purpose_hash = _read_hash(client, _override_limits_key(purpose))
     values = {
@@ -215,7 +216,7 @@ def _expired_recent_window_s() -> float:
     return max(60.0, _to_float(_env('STRATEGY_RESEARCH_STATS_ALERT_POLICY_OVERRIDE_EXPIRED_RECENT_WINDOW_S', '21600'), 21600.0))
 
 
-def _emit_event(client: Any, kind: str, payload: Dict[str, Any]) -> None:
+def _emit_event(client: Any, kind: str, payload: dict[str, Any]) -> None:
     if client is None:
         return
     fields = {
@@ -238,8 +239,8 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _sweep_stale_dual_control_approval(client: Any, purpose: str, family: str, state_key: str, state: Dict[str, str], now_ms: int) -> Dict[str, str]:
-    if not state or str(state.get('dual_control_approval_state') or '') != 'approved':
+def _sweep_stale_dual_control_approval(client: Any, purpose: str, family: str, state_key: str, state: dict[str, str], now_ms: int) -> dict[str, str]:
+    if not state or (state.get('dual_control_approval_state') or '') != 'approved':
         return state
     approved_ts_ms = int(_to_float(state.get('dual_control_approved_ts_ms'), 0.0))
     if approved_ts_ms <= 0:
@@ -283,8 +284,8 @@ def _sweep_stale_dual_control_approval(client: Any, purpose: str, family: str, s
             'family': family,
             'reason': 'approval_freshness_expired',
             'stage': 'exporter',
-            'approval_ticket': str(state.get('dual_control_approved_ticket') or ''),
-            'approver': str(state.get('dual_control_approved_operator') or ''),
+            'approval_ticket': (state.get('dual_control_approved_ticket') or ''),
+            'approver': (state.get('dual_control_approved_operator') or ''),
             'approved_ts_ms': approved_ts_ms,
             'deadline_ts_ms': deadline_ts_ms,
             'freshness_s': int(freshness_s),
@@ -293,7 +294,7 @@ def _sweep_stale_dual_control_approval(client: Any, purpose: str, family: str, s
     return updated
 
 
-def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Dict[str, Any]:
+def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> dict[str, Any]:
     raw = _read_hash(client, _override_key(purpose, family))
     state_key = _override_state_key(purpose, family)
     state = _read_hash(client, state_key)
@@ -302,9 +303,9 @@ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Di
         state = {
             'purpose': purpose,
             'family': family,
-            'ticket': str(raw.get('ticket') or ''),
-            'operator': str(raw.get('operator') or ''),
-            'reason': str(raw.get('reason') or ''),
+            'ticket': (raw.get('ticket') or ''),
+            'operator': (raw.get('operator') or ''),
+            'reason': (raw.get('reason') or ''),
             'created_ts_ms': str(int(_to_float(raw.get('created_ts_ms'), 0.0))),
             'expire_ts_ms': str(int(_to_float(raw.get('expire_ts_ms'), 0.0))),
             'active': '1',
@@ -323,7 +324,7 @@ def _resolve_override(client: Any, purpose: str, family: str, now_ms: int) -> Di
     expire_ts_ms = int(_to_float((raw or state).get('expire_ts_ms') if (raw or state) else 0, 0.0))
     reminder_ts_ms = int(_to_float(state.get('last_reminder_ts_ms'), 0.0)) if state else 0
     expired_ts_ms = int(_to_float(state.get('expired_ts_ms'), 0.0)) if state else 0
-    lifecycle_state = str(state.get('lifecycle_state') or 'none') if state else 'none'
+    lifecycle_state = (state.get('lifecycle_state') or 'none') if state else 'none'
     if lifecycle_state == 'active' and expire_ts_ms and expire_ts_ms <= now_ms:
         lifecycle_state = 'expired'
         expired_ts_ms = now_ms
@@ -477,7 +478,7 @@ def _family_default(family: str, field: str) -> float:
     return base
 
 
-def resolve_family_policy(family: str, defaults_hash: Dict[str, str], purpose_hash: Dict[str, str]) -> Dict[str, float]:
+def resolve_family_policy(family: str, defaults_hash: dict[str, str], purpose_hash: dict[str, str]) -> dict[str, float]:
     base = {
         'enabled': _family_default(family, 'enabled'),
         'suppress_active': _family_default(family, 'suppress_active'),
@@ -551,7 +552,7 @@ def publish(client: Any | None = None) -> None:
     REDIS_READ_OK.set(1.0)
     defaults_hash = _read_hash(client, _defaults_key())
     POLICY_DEFAULTS_PRESENT.set(1.0 if defaults_hash else 0.0)
-    active_totals = {family: 0.0 for family in FAMILIES}
+    active_totals = dict.fromkeys(FAMILIES, 0.0)
     now_ms = _now_ms()
     for purpose in _purposes():
         purpose_hash = _read_hash(client, _purpose_key(purpose))

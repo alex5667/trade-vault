@@ -1,11 +1,12 @@
 from __future__ import annotations
+
 """Tests for ml_metrics_agg_v3 module."""
 
 from tools.ml_metrics_agg_v3 import (
     agg_health_ml_confirm,
     agg_selected,
-    pick_threshold,
     pctl,
+    pick_threshold,
 )
 
 

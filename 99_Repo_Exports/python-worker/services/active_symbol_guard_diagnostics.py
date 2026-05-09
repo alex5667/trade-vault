@@ -1,28 +1,29 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import math
 import os
-import time
 from collections import Counter
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover,
     from services.active_symbol_guard_semantics import guard_view
     from services.active_symbol_guard_store import ActiveSymbolGuardStore
     from services.execution_metrics import (
-        EXECUTION_ACTIVE_SYMBOL_GUARD_SNAPSHOT_TOTAL,
         EXECUTION_ACTIVE_SYMBOL_GUARD_RACE_CHAIN_TOTAL,
         EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_STATE_TOTAL,
+        EXECUTION_ACTIVE_SYMBOL_GUARD_SNAPSHOT_TOTAL,
     )
 except Exception:  # pragma: no cover,
     from active_symbol_guard_semantics import guard_view  # type: ignore
     from active_symbol_guard_store import ActiveSymbolGuardStore  # type: ignore
     from execution_metrics import (  # type: ignore
-        EXECUTION_ACTIVE_SYMBOL_GUARD_SNAPSHOT_TOTAL,
         EXECUTION_ACTIVE_SYMBOL_GUARD_RACE_CHAIN_TOTAL,
         EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_STATE_TOTAL,
+        EXECUTION_ACTIVE_SYMBOL_GUARD_SNAPSHOT_TOTAL,
     )
 
 
@@ -34,14 +35,14 @@ def _f(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _i(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _normalize(obj: Any) -> Any:
@@ -81,8 +82,8 @@ class ActiveSymbolGuardDiagnostics:
     ) -> None:
         self.r = redis_client
         self.client = client
-        self.active_symbol_key_prefix = str(active_symbol_key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
-        self.state_key_prefix = str(state_key_prefix or 'orders:state:').rstrip(':') + ':'
+        self.active_symbol_key_prefix = (active_symbol_key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
+        self.state_key_prefix = (state_key_prefix or 'orders:state:').rstrip(':') + ':'
         self.state_ttl_sec = max(int(state_ttl_sec or 86400), 1)
         self.tombstone_ttl_sec = max(int(tombstone_ttl_sec or 120), 1)
         self.stale_tombstone_ms = max(int(stale_tombstone_ms or os.getenv('ACTIVE_SYMBOL_GUARD_STALE_TOMBSTONE_MS', '600000')), 1)
@@ -90,9 +91,9 @@ class ActiveSymbolGuardDiagnostics:
         self.window_5m_ms = int(os.getenv('ACTIVE_SYMBOL_GUARD_HEATMAP_5M_MS', '300000'))
         self.window_1h_ms = int(os.getenv('ACTIVE_SYMBOL_GUARD_HEATMAP_1H_MS', '3600000'))
         self.timeline_limit = max(int(os.getenv('ACTIVE_SYMBOL_GUARD_TIMELINE_LIMIT', '20')), 1)
-        self.hold_key_prefix = str(hold_key_prefix or 'orders:active_symbol_guard:hold:symbol:')
-        self.escalation_key_prefix = str(escalation_key_prefix or 'orders:active_symbol_guard:incident:ack:')
-        self.audit_stream = str(audit_stream or 'orders:active_symbol_guard:audit')
+        self.hold_key_prefix = (hold_key_prefix or 'orders:active_symbol_guard:hold:symbol:')
+        self.escalation_key_prefix = (escalation_key_prefix or 'orders:active_symbol_guard:incident:ack:')
+        self.audit_stream = (audit_stream or 'orders:active_symbol_guard:audit')
         self.store = ActiveSymbolGuardStore(
             self.r,
             key_prefix=self.active_symbol_key_prefix,
@@ -100,7 +101,7 @@ class ActiveSymbolGuardDiagnostics:
             tombstone_ttl_sec=self.tombstone_ttl_sec,
         )
 
-    def _load_json(self, key: str) -> Dict[str, Any]:
+    def _load_json(self, key: str) -> dict[str, Any]:
         try:
             raw = self.r.get(key)
             doc = json.loads(raw) if raw else {}
@@ -108,12 +109,12 @@ class ActiveSymbolGuardDiagnostics:
         except Exception:
             return {}
 
-    def _iter_symbols(self) -> List[str]:
+    def _iter_symbols(self) -> list[str]:
         return sorted(self.store.list_symbols())
 
-    def _iter_prefix_keys(self, prefix: str) -> List[str]:
+    def _iter_prefix_keys(self, prefix: str) -> list[str]:
         """Scan Redis keys matching prefix*, return sorted unique list."""
-        out: List[str] = []
+        out: list[str] = []
         pattern = f"{prefix}*"
         try:
             if hasattr(self.r, 'scan_iter'):
@@ -124,7 +125,7 @@ class ActiveSymbolGuardDiagnostics:
             pass
         return sorted(set([k for k in out if k.startswith(prefix)]))
 
-    def _stream_entries(self, *, limit: int = 50) -> List[Dict[str, Any]]:
+    def _stream_entries(self, *, limit: int = 50) -> list[dict[str, Any]]:
         """Return the most recent audit stream entries as normalized dicts."""
         items: Iterable[Any] = []
         try:
@@ -135,7 +136,7 @@ class ActiveSymbolGuardDiagnostics:
                 items = list(reversed(raw))
         except Exception:
             items = []
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for item in items:
             try:
                 entry_id, fields = item
@@ -154,7 +155,7 @@ class ActiveSymbolGuardDiagnostics:
                 continue
         return out
 
-    def _classify(self, view: Dict[str, Any]) -> str:
+    def _classify(self, view: dict[str, Any]) -> str:
         if view.get('is_released'):
             if int(view.get('tombstone_age_ms') or 0) >= int(self.stale_tombstone_ms):
                 return 'stale_tombstone'
@@ -165,27 +166,27 @@ class ActiveSymbolGuardDiagnostics:
             return 'active'
         return 'unknown'
 
-    def _compact_doc(self, raw: Dict[str, Any], view: Dict[str, Any]) -> Dict[str, Any]:
+    def _compact_doc(self, raw: dict[str, Any], view: dict[str, Any]) -> dict[str, Any]:
         return {
-            'symbol': str(view.get('symbol') or ''),
-            'sid': str(view.get('sid') or ''),
+            'symbol': (view.get('symbol') or ''),
+            'sid': (view.get('sid') or ''),
             'classification': self._classify(view),
-            'status': str(view.get('status') or ''),
+            'status': (view.get('status') or ''),
             'is_blocking': bool(view.get('is_blocking')),
             'guard_release_pending': bool(view.get('guard_release_pending')),
             'state_terminalish': bool(view.get('state_terminalish')),
             'guard_version': int(view.get('guard_version') or 0),
-            'guard_writer': str(view.get('guard_writer') or ''),
-            'guard_release_reason': str(view.get('guard_release_reason') or ''),
-            'exchange_guard_reason': str(raw.get('exchange_guard_reason') or ''),
+            'guard_writer': (view.get('guard_writer') or ''),
+            'guard_release_reason': (view.get('guard_release_reason') or ''),
+            'exchange_guard_reason': (raw.get('exchange_guard_reason') or ''),
             'updated_at_ms': int(view.get('updated_at_ms') or 0),
             'released_at_ms': int(view.get('released_at_ms') or 0),
             'tombstone_age_ms': int(view.get('tombstone_age_ms') or 0),
         }
 
-    def _read_exchange_truth(self, symbol: str) -> Dict[str, Any]:
-        symbol = str(symbol or '').strip().upper()
-        out: Dict[str, Any] = {
+    def _read_exchange_truth(self, symbol: str) -> dict[str, Any]:
+        symbol = (symbol or '').strip().upper()
+        out: dict[str, Any] = {
             'symbol': symbol,
             'checked_at_ms': _ms_now(),
             'position_amt': 0.0,
@@ -200,7 +201,7 @@ class ActiveSymbolGuardDiagnostics:
         if client is None:
             out['errors'] = ['client_unavailable']
             return out
-        errors: List[str] = []
+        errors: list[str] = []
         try:
             for pos in client.get_position_risk() or []:
                 if str((pos or {}).get('symbol') or '').upper() != symbol:
@@ -225,10 +226,10 @@ class ActiveSymbolGuardDiagnostics:
         out['is_flat'] = bool(out['is_reliable'] and not out['has_live_position'] and not out['has_open_orders'])
         return out
 
-    def _timeline(self, symbol: str, *, limit: int | None = None) -> List[Dict[str, Any]]:
+    def _timeline(self, symbol: str, *, limit: int | None = None) -> list[dict[str, Any]]:
         return self.store.get_symbol_timeline(symbol, limit=int(limit or self.timeline_limit))
 
-    def _windowed_hot_symbols(self) -> Dict[str, List[Dict[str, Any]]]:
+    def _windowed_hot_symbols(self) -> dict[str, list[dict[str, Any]]]:
         symbols = self._iter_symbols()
         self.store.reset_window_hot_metric(window_label='5m', symbols=symbols)
         self.store.reset_window_hot_metric(window_label='1h', symbols=symbols)
@@ -239,17 +240,17 @@ class ActiveSymbolGuardDiagnostics:
             '1h': hot_1h,
         }
 
-    def _detect_race_chains(self, symbol: str, *, limit: int = 6) -> List[Dict[str, Any]]:
+    def _detect_race_chains(self, symbol: str, *, limit: int = 6) -> list[dict[str, Any]]:
         timeline = self._timeline(symbol, limit=max(int(limit or 6) * 3, 12))
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for idx in range(1, len(timeline)):
             prev = timeline[idx - 1]
             cur = timeline[idx]
-            prev_writer = str(prev.get('writer') or '')
-            cur_writer = str(cur.get('writer') or '')
-            prev_type = str(prev.get('event_type') or '')
-            cur_type = str(cur.get('event_type') or '')
-            same_symbol = str(prev.get('symbol') or '').upper() == str(cur.get('symbol') or '').upper()
+            prev_writer = (prev.get('writer') or '')
+            cur_writer = (cur.get('writer') or '')
+            prev_type = (prev.get('event_type') or '')
+            cur_type = (cur.get('event_type') or '')
+            same_symbol = (prev.get('symbol') or '').upper() == (cur.get('symbol') or '').upper()
             if not same_symbol:
                 continue
             chain_type = ''
@@ -271,33 +272,33 @@ class ActiveSymbolGuardDiagnostics:
             }
             out.append(chain)
         chains = out[-max(int(limit or 6), 1):]
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
         for chain in chains:
             ctype = str((chain or {}).get('chain_type') or '')
             counts[ctype] = int(counts.get(ctype) or 0) + 1
         try:
             if EXECUTION_ACTIVE_SYMBOL_GUARD_RACE_CHAIN_TOTAL is not None:
                 for ctype, count in counts.items():
-                    EXECUTION_ACTIVE_SYMBOL_GUARD_RACE_CHAIN_TOTAL.labels(symbol=str(symbol or '').upper(), chain_type=ctype).set(int(count))
+                    EXECUTION_ACTIVE_SYMBOL_GUARD_RACE_CHAIN_TOTAL.labels(symbol=(symbol or '').upper(), chain_type=ctype).set(int(count))
         except Exception:
             pass
         return chains
 
-    def _runbook_hold_state(self, symbol: str) -> Dict[str, Any]:
+    def _runbook_hold_state(self, symbol: str) -> dict[str, Any]:
         """Load current manual hold state for a symbol (read-only helper for diagnostics)."""
-        symbol = str(symbol or '').strip().upper()
+        symbol = (symbol or '').strip().upper()
         if not symbol:
             return {}
         doc = self._load_json(f'{self.hold_key_prefix}{symbol}')
         if not doc:
             return {}
         exp = _i(doc.get('expires_at_ms'), 0)
-        doc['is_active'] = bool(str(doc.get('hold_status') or 'active') == 'active' and (exp <= 0 or exp > _ms_now()))
+        doc['is_active'] = bool((doc.get('hold_status') or 'active') == 'active' and (exp <= 0 or exp > _ms_now()))
         return doc
 
-    def _runbook_ack_state(self, fingerprint: str) -> Dict[str, Any]:
+    def _runbook_ack_state(self, fingerprint: str) -> dict[str, Any]:
         """Load current escalation ack state for a fingerprint (read-only helper for diagnostics)."""
-        fingerprint = str(fingerprint or '').strip()
+        fingerprint = (fingerprint or '').strip()
         if not fingerprint:
             return {}
         doc = self._load_json(f'{self.escalation_key_prefix}{fingerprint}')
@@ -307,13 +308,13 @@ class ActiveSymbolGuardDiagnostics:
         doc['is_active'] = bool(exp <= 0 or exp > _ms_now())
         return doc
 
-    def runbook_history(self, *, symbol: str = '', sid: str = '', ticket: str = '', operator: str = '', limit: int = 50) -> List[Dict[str, Any]]:
+    def runbook_history(self, *, symbol: str = '', sid: str = '', ticket: str = '', operator: str = '', limit: int = 50) -> list[dict[str, Any]]:
         """Return filtered audit stream entries for the runbook audit history."""
-        symbol = str(symbol or '').strip().upper()
-        sid = str(sid or '').strip()
-        ticket = str(ticket or '').strip()
-        operator = str(operator or '').strip()
-        out: List[Dict[str, Any]] = []
+        symbol = (symbol or '').strip().upper()
+        sid = (sid or '').strip()
+        ticket = (ticket or '').strip()
+        operator = (operator or '').strip()
+        out: list[dict[str, Any]] = []
         for doc in self._stream_entries(limit=max(int(limit or 50) * 5, 50)):
             payload_json = dict(doc.get('payload_json') or {})
             doc_symbol = str(doc.get('symbol') or payload_json.get('symbol') or '').strip().upper()
@@ -340,19 +341,19 @@ class ActiveSymbolGuardDiagnostics:
                 break
         return out
 
-    def linked_tickets(self, *, symbol: str = '', sid: str = '', limit: int = 20) -> List[Dict[str, Any]]:
+    def linked_tickets(self, *, symbol: str = '', sid: str = '', limit: int = 20) -> list[dict[str, Any]]:
         """Return tickets referenced in runbook audit history for a symbol/sid, with occurrence counts."""
         counts: Counter[str] = Counter()
-        latest: Dict[str, Dict[str, Any]] = {}
+        latest: dict[str, dict[str, Any]] = {}
         for doc in self.runbook_history(symbol=symbol, sid=sid, limit=max(int(limit or 20) * 5, 50)):
-            ticket = str(doc.get('ticket') or '').strip()
+            ticket = (doc.get('ticket') or '').strip()
             if not ticket:
                 continue
             counts[ticket] += 1
             latest[ticket] = {
                 'ticket': ticket,
-                'last_action': str(doc.get('action') or ''),
-                'last_operator': str(doc.get('operator') or ''),
+                'last_action': (doc.get('action') or ''),
+                'last_operator': (doc.get('operator') or ''),
                 'last_ts_ms': _i(doc.get('ts_ms'), 0),
             }
         out = []
@@ -362,19 +363,19 @@ class ActiveSymbolGuardDiagnostics:
             out.append(item)
         return out
 
-    def operator_dashboard(self, *, limit: int = 50) -> Dict[str, Any]:
+    def operator_dashboard(self, *, limit: int = 50) -> dict[str, Any]:
         """Operator audit dashboard: active holds, active acks, recent runbook history, top operators."""
-        holds: List[Dict[str, Any]] = []
+        holds: list[dict[str, Any]] = []
         for key in self._iter_prefix_keys(self.hold_key_prefix):
             doc = self._load_json(key)
             if not doc:
                 continue
             doc['symbol'] = str(doc.get('symbol') or key[len(self.hold_key_prefix):] or '').strip().upper()
             exp = _i(doc.get('expires_at_ms'), 0)
-            doc['is_active'] = bool(str(doc.get('hold_status') or 'active') == 'active' and (exp <= 0 or exp > _ms_now()))
+            doc['is_active'] = bool((doc.get('hold_status') or 'active') == 'active' and (exp <= 0 or exp > _ms_now()))
             if doc['is_active']:
                 holds.append(doc)
-        acks: List[Dict[str, Any]] = []
+        acks: list[dict[str, Any]] = []
         for key in self._iter_prefix_keys(self.escalation_key_prefix):
             doc = self._load_json(key)
             if not doc:
@@ -383,14 +384,14 @@ class ActiveSymbolGuardDiagnostics:
             doc['is_active'] = bool(exp <= 0 or exp > _ms_now())
             if doc['is_active']:
                 acks.append(doc)
-        holds.sort(key=lambda d: (-_i(d.get('updated_at_ms') or d.get('applied_at_ms'), 0), str(d.get('symbol') or '')))
-        acks.sort(key=lambda d: (-_i(d.get('updated_at_ms') or d.get('acked_at_ms'), 0), str(d.get('symbol') or '')))
+        holds.sort(key=lambda d: (-_i(d.get('updated_at_ms') or d.get('applied_at_ms'), 0), (d.get('symbol') or '')))
+        acks.sort(key=lambda d: (-_i(d.get('updated_at_ms') or d.get('acked_at_ms'), 0), (d.get('symbol') or '')))
         history = self.runbook_history(limit=limit)
         op_counts: Counter[str] = Counter()
         ticket_counts: Counter[str] = Counter()
         for doc in history:
-            op = str(doc.get('operator') or '').strip()
-            tk = str(doc.get('ticket') or '').strip()
+            op = (doc.get('operator') or '').strip()
+            tk = (doc.get('ticket') or '').strip()
             if op:
                 op_counts[op] += 1
             if tk:
@@ -410,7 +411,7 @@ class ActiveSymbolGuardDiagnostics:
             'top_tickets': [{'ticket': tk, 'count': cnt} for tk, cnt in ticket_counts.most_common(10)],
         }
 
-    def _telegram_text(self, *, symbol: str, classification: str, hotness_5m: int, hotness_1h: int, race_chains: List[Dict[str, Any]], exchange_truth: Optional[Dict[str, Any]], hold: Optional[Dict[str, Any]] = None, ack: Optional[Dict[str, Any]] = None) -> str:
+    def _telegram_text(self, *, symbol: str, classification: str, hotness_5m: int, hotness_1h: int, race_chains: list[dict[str, Any]], exchange_truth: dict[str, Any] | None, hold: dict[str, Any] | None = None, ack: dict[str, Any] | None = None) -> str:
         exchange_part = ''
         if isinstance(exchange_truth, dict) and exchange_truth:
             exchange_part = (
@@ -428,27 +429,27 @@ class ActiveSymbolGuardDiagnostics:
             f"{exchange_part}{hold_part}{ack_part}"
         )
 
-    def incident_bundle_symbol(self, symbol: str, *, include_exchange: bool = False) -> Dict[str, Any]:
-        symbol = str(symbol or '').strip().upper()
+    def incident_bundle_symbol(self, symbol: str, *, include_exchange: bool = False) -> dict[str, Any]:
+        symbol = (symbol or '').strip().upper()
         base = self.debug_symbol(symbol, include_exchange=include_exchange)
         timeline = self._timeline(symbol)
         race_chains = self._detect_race_chains(symbol)
         hot = self._windowed_hot_symbols()
-        hot_5m = next((int(item.get('count') or 0) for item in hot.get('5m', []) if str(item.get('symbol') or '') == symbol), 0)
-        hot_1h = next((int(item.get('count') or 0) for item in hot.get('1h', []) if str(item.get('symbol') or '') == symbol), 0)
+        hot_5m = next((int(item.get('count') or 0) for item in hot.get('5m', []) if (item.get('symbol') or '') == symbol), 0)
+        hot_1h = next((int(item.get('count') or 0) for item in hot.get('1h', []) if (item.get('symbol') or '') == symbol), 0)
         severity = 'info'
         if race_chains or hot_5m >= 3:
             severity = 'warning'
         if hot_5m >= 5 or any(str((c or {}).get('chain_type') or '') == 'resurrection_attempt' for c in race_chains):
             severity = 'critical'
         exchange_truth = base.get('exchange_truth') if include_exchange else None
-        runbook = dict((base.get('runbook') or {}))
-        hold = dict((runbook.get('hold') or {}))
-        ack = dict((runbook.get('ack') or {}))
+        runbook = dict(base.get('runbook') or {})
+        hold = dict(runbook.get('hold') or {})
+        ack = dict(runbook.get('ack') or {})
         summary = {
             'symbol': symbol,
             'sid': str(base.get('guard_view', {}).get('sid') or ''),
-            'classification': str(base.get('classification') or ''),
+            'classification': (base.get('classification') or ''),
             'severity': severity,
             'hotness': {'5m': int(hot_5m), '1h': int(hot_1h)},
             'race_chain_count': len(race_chains),
@@ -462,10 +463,10 @@ class ActiveSymbolGuardDiagnostics:
             'last_writer_timeline': timeline,
             'suspicious_writer_race_chains': race_chains,
             'runbook': runbook,
-            'ticket_linked_history': list((runbook.get('ticket_history') or [])),
+            'ticket_linked_history': list(runbook.get('ticket_history') or []),
             'telegram_text': self._telegram_text(
                 symbol=symbol,
-                classification=str(base.get('classification') or ''),
+                classification=(base.get('classification') or ''),
                 hotness_5m=hot_5m,
                 hotness_1h=hot_1h,
                 race_chains=race_chains,
@@ -491,25 +492,25 @@ class ActiveSymbolGuardDiagnostics:
         }
         return bundle
 
-    def incident_bundle_sid(self, sid: str, *, include_exchange: bool = False) -> Dict[str, Any]:
+    def incident_bundle_sid(self, sid: str, *, include_exchange: bool = False) -> dict[str, Any]:
         base = self.debug_sid(sid, include_exchange=include_exchange)
-        symbol = str(base.get('symbol') or '').strip().upper()
+        symbol = (base.get('symbol') or '').strip().upper()
         if symbol:
             bundle = self.incident_bundle_symbol(symbol, include_exchange=include_exchange)
         else:
             bundle = {
-                'summary': {'symbol': '', 'sid': str(sid or ''), 'classification': 'missing_symbol', 'severity': 'warning', 'hotness': {'5m': 0, '1h': 0}, 'race_chain_count': 0},
+                'summary': {'symbol': '', 'sid': (sid or ''), 'classification': 'missing_symbol', 'severity': 'warning', 'hotness': {'5m': 0, '1h': 0}, 'race_chain_count': 0},
                 'guard': {}, 'state': base.get('state') or {}, 'exchange_truth': {},
                 'last_writer_timeline': [], 'suspicious_writer_race_chains': [],
                 'runbook': base.get('runbook') or {},
-                'ticket_linked_history': list(((base.get('runbook') or {}).get('ticket_history') or [])),
+                'ticket_linked_history': list((base.get('runbook') or {}).get('ticket_history') or []),
                 'telegram_text': f'[active_symbol incident] sid={sid} symbol=missing',
                 'http_payload': base, 'ui_payload': base,
             }
-        bundle['summary']['sid'] = str(sid or '')
+        bundle['summary']['sid'] = (sid or '')
         return bundle
 
-    def heatmap(self) -> Dict[str, Any]:
+    def heatmap(self) -> dict[str, Any]:
         hot = self._windowed_hot_symbols()
         return {
             'generated_at_ms': _ms_now(),
@@ -520,9 +521,9 @@ class ActiveSymbolGuardDiagnostics:
             'top_hot_symbols': hot,
         }
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         now_ms = _ms_now()
-        docs: List[Dict[str, Any]] = []
+        docs: list[dict[str, Any]] = []
         breakdown = {
             'active': 0,
             'pending_release': 0,
@@ -531,7 +532,7 @@ class ActiveSymbolGuardDiagnostics:
             'unknown': 0,
         }
         ok = True
-        errors: List[str] = []
+        errors: list[str] = []
         try:
             symbols = self._iter_symbols()
         except Exception as exc:
@@ -575,8 +576,8 @@ class ActiveSymbolGuardDiagnostics:
             'guards': docs,
         }
 
-    def debug_symbol(self, symbol: str, *, include_exchange: bool = False) -> Dict[str, Any]:
-        symbol = str(symbol or '').strip().upper()
+    def debug_symbol(self, symbol: str, *, include_exchange: bool = False) -> dict[str, Any]:
+        symbol = (symbol or '').strip().upper()
         raw = self.store.load_raw(symbol)
         view = guard_view(raw)
         sid = str(view.get('sid') or raw.get('sid') or '').strip()
@@ -588,7 +589,7 @@ class ActiveSymbolGuardDiagnostics:
             'ticket_history': ticket_history,
             'history': self.runbook_history(symbol=symbol, limit=50),
         }
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             'symbol': symbol,
             'guard_raw': raw,
             'guard_view': view,
@@ -604,15 +605,15 @@ class ActiveSymbolGuardDiagnostics:
             payload['exchange_truth'] = self._read_exchange_truth(symbol)
         return payload
 
-    def debug_sid(self, sid: str, *, include_exchange: bool = False) -> Dict[str, Any]:
-        sid = str(sid or '').strip()
+    def debug_sid(self, sid: str, *, include_exchange: bool = False) -> dict[str, Any]:
+        sid = (sid or '').strip()
         state = self._load_json(f'{self.state_key_prefix}{sid}') if sid else {}
-        symbol = str(state.get('symbol') or '').strip().upper()
-        guard_raw: Dict[str, Any] = {}
+        symbol = (state.get('symbol') or '').strip().upper()
+        guard_raw: dict[str, Any] = {}
         if not symbol:
             for sym in self._iter_symbols():
                 raw = self.store.load_raw(sym)
-                if str(raw.get('sid') or '').strip() == sid:
+                if (raw.get('sid') or '').strip() == sid:
                     symbol = sym
                     guard_raw = raw
                     break

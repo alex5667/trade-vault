@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """
 Демонстрация полной L3-Lite системы с новыми метриками.
@@ -10,12 +11,16 @@ from utils.time_utils import get_ny_time_millis
 4. Мониторинг качества
 """
 
-import time
 import logging
+import time
+
 from regime import (
-    L3LiteMetricsAggregator, L3LiteEvent, BookSnapshot,
-    CryptoConfScorer, CryptoConfScorerConfig,
-    SignalQualityMonitor
+    BookSnapshot,
+    CryptoConfScorer,
+    CryptoConfScorerConfig,
+    L3LiteEvent,
+    L3LiteMetricsAggregator,
+    SignalQualityMonitor,
 )
 
 # Настройка логирования

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 RedisDeduper - защита от повторной обработки сообщений.
 
@@ -15,6 +16,7 @@ Senior Developer + Trading Analyst (40 years exp)
 """
 
 import os
+
 import redis
 
 
@@ -24,7 +26,7 @@ class RedisDeduper:
     - True  => "первый раз", можно выполнять сайд-эффекты
     - False => дубликат, сайд-эффекты запрещены, но msg нужно ACK-нуть
     """
-    
+
     def __init__(self, r: redis.Redis, prefix: str = "dedup"):
         """
         Инициализация deduper.

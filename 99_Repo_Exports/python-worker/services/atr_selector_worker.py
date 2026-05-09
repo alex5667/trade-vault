@@ -1,11 +1,11 @@
 import os
 import time
-import redis
-import logging
-from prometheus_client import start_http_server, Counter, Gauge, Histogram
 
-from core.atr_source_selector_v2 import ATRSourceSelector
+import redis
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
 from common.log import setup_logger
+from core.atr_source_selector_v2 import ATRSourceSelector
 
 logger = setup_logger("ATRSelectorWorker")
 
@@ -64,7 +64,7 @@ def main() -> None:
             try:
                 syms = list(r.smembers(sym_set) or [])
                 ATR_SEL_SYMBOLS_PROCESSED.set(len(syms))
-                
+
                 for s in syms:
                     sym = s.decode("utf-8", "ignore") if isinstance(s, bytes) else str(s)
                     px_raw = r.get(price_prefix + sym)
@@ -72,21 +72,21 @@ def main() -> None:
                         px = float(px_raw.decode("utf-8", "ignore") if isinstance(px_raw, bytes) else px_raw or 0.0)
                     except Exception:
                         px = 0.0
-                    
+
                     if px > 0:
                         res = sel.select(sym, px=px)
                         if res:
                             # Update metrics for current selection
                             ATR_SEL_AGE_MS.labels(symbol=sym, tf=res.tf, src=res.src).set(res.age_ms)
                             ATR_SEL_BPS.labels(symbol=sym, tf=res.tf, src=res.src).set(res.atr_bps)
-                            
+
                             # Check for switch (we can use sel._persist_choice logic or just track locally if needed)
-                            # For simplicity, we rely on the counter incremented inside sel._persist_choice 
+                            # For simplicity, we rely on the counter incremented inside sel._persist_choice
                             # if we want exact match, but here we can add another label-based counter.
             except Exception as e:
                 logger.error(f"Error in selector loop: {e}")
                 ATR_SEL_ERROR_TOTAL.labels(type="loop").inc()
-        
+
         dt = time.time() - t0
         ATR_SEL_RUN_DURATION.observe(dt)
         time.sleep(max(1, period - int(dt)))

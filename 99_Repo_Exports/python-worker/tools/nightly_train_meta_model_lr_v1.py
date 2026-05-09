@@ -1,18 +1,17 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import redis
 
-from common.model_registry import ensure_dir, promote_version, write_json_atomic, write_versioned_model
+from common.model_registry import ensure_dir, promote_version, write_versioned_model
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:
@@ -43,13 +42,13 @@ def _run(cmd: list[str]) -> None:
         raise RuntimeError(f"cmd_failed rc={p.returncode} cmd={' '.join(cmd)}\n{p.stdout}")
 
 
-def _write_redis_status(r: redis.Redis, key: str, obj: Dict[str, Any], ttl_sec: int = 7 * 86400) -> None:
+def _write_redis_status(r: redis.Redis, key: str, obj: dict[str, Any], ttl_sec: int = 7 * 86400) -> None:
     r.set(key, json.dumps(obj, ensure_ascii=False, sort_keys=True))
     if ttl_sec > 0:
         r.expire(key, ttl_sec)
 
 
-def _select_paths(args: argparse.Namespace) -> Tuple[str, str, str]:
+def _select_paths(args: argparse.Namespace) -> tuple[str, str, str]:
     out_dir = ensure_dir(args.out_dir)
     ds_path = str(Path(out_dir) / "meta_model_ds.jsonl")
     model_path = str(Path(out_dir) / "meta_lr.json")
@@ -128,12 +127,12 @@ def train_meta_lr(args: argparse.Namespace, ds_path: str, model_path: str, repor
     _run(cmd)
 
 
-def _load_report(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def _load_report(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
-def _passes_gates(report: Dict[str, Any], args: argparse.Namespace) -> Tuple[bool, str]:
+def _passes_gates(report: dict[str, Any], args: argparse.Namespace) -> tuple[bool, str]:
     n = int(report.get("n", 0) or 0)
     auc = float(report.get("auc", 0.0) or 0.0)
     brier = float(report.get("brier", 1.0) or 1.0)
@@ -191,7 +190,7 @@ def main() -> None:
     t0 = now_ms()
     ds_path, model_path, report_path = _select_paths(args)
 
-    status: Dict[str, Any] = {
+    status: dict[str, Any] = {
         "ts_ms": t0,
         "label_source": args.label_source,
         "symbol": args.symbol or "ALL",
@@ -209,7 +208,7 @@ def main() -> None:
         line_count = 0
         labels = set()
         if os.path.exists(ds_path):
-            with open(ds_path, "r", encoding="utf-8") as f:
+            with open(ds_path, encoding="utf-8") as f:
                 for line in f:
                     try:
                         line_count += 1

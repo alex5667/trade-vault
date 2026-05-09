@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Staged auto-unclamp v2: dual-window health check (30min + 2h), AUTO/PROPOSE modes.
 
 This is the next level above auto-clamp: when hard-stop disappears and health holds,
@@ -33,20 +35,19 @@ Environment Variables:
   - Rec/bot: NOTIFY_TELEGRAM_STREAM, RECS_TTL_SEC, RECS_HMAC_SECRET
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import os
-import time
-import json
-import hmac
 import hashlib
+import hmac
+import json
+import os
 import secrets
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis
 
 from common.log import setup_logger
 from core.redis_client import get_redis
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 logger = setup_logger("OfGateHardstopCapUnclampV2")
 
@@ -58,7 +59,7 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Computes percentile q (0.0-1.0) from sorted list xs."""
     if not xs:
         return 0.0
@@ -73,7 +74,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -81,7 +82,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def sign(bundle_id: str, secret: str) -> str:
@@ -90,18 +91,18 @@ def sign(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def _notify(r: redis.Redis, text: str, buttons: Optional[List[List[Dict[str, str]]]] = None) -> None:
+def _notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Sends notification to Telegram stream with optional buttons."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    notify_stream = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    notify_stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     r.xadd(notify_stream, fields, maxlen=200000, approximate=True)
 
 
 # ---------------- metrics read ----------------
 
-def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
+def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
     """
     Reads metrics from Redis stream within time window.
     
@@ -114,7 +115,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     Returns:
         List of metric records (dict with fields + _ts_ms)
     """
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -146,7 +147,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     return rows
 
 
-def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+def summarize_health(rows: list[dict[str, Any]]) -> dict[str, float]:
     """
     Summarizes health metrics from metric rows.
     
@@ -180,7 +181,7 @@ def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def is_unhealthy(health: Dict[str, float], *, prefix: str) -> Tuple[bool, List[str]]:
+def is_unhealthy(health: dict[str, float], *, prefix: str) -> tuple[bool, list[str]]:
     """
     Same thresholds as clamp/hard-stop. fail-closed if low_n.
     prefix is just label for reasons: 'w30' or 'w120'.
@@ -223,7 +224,7 @@ def is_unhealthy(health: Dict[str, float], *, prefix: str) -> Tuple[bool, List[s
 
 # ---------------- clamp audit read ----------------
 
-def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
+def _read_audit_list(r: redis.Redis, bundle_id: str) -> list[dict[str, Any]]:
     """
     Reads audit log from Redis list.
     
@@ -241,10 +242,8 @@ def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
         s = r.lindex(key, i)
         if not s:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(json.loads(s))
-        except Exception:
-            pass
     return out
 
 
@@ -255,8 +254,8 @@ def _apply_restores_direct(
     *,
     who: str,
     ttl_sec: int,
-    restores: List[Dict[str, Any]],
-) -> Tuple[str, str]:
+    restores: list[dict[str, Any]],
+) -> tuple[str, str]:
     """
     AUTO mode: apply now, write recs:bundle + recs:audit so rollback works.
     restores: list of {"op":"HSET"/"HDEL", "key":..., "field":..., "value":... optional}
@@ -298,7 +297,7 @@ def _apply_restores_direct(
             pipe.hdel(k, f)
             ops_out.append({"op": "HDEL", "key": k, "field": f})
         else:
-            v = str(op.get("value", ""))
+            v = (op.get("value", ""))
             pipe.hset(k, f, v)
             ops_out.append({"op": "HSET", "key": k, "field": f, "value": v})
 
@@ -325,9 +324,9 @@ def _create_proposal_bundle(
     *,
     who: str,
     ttl_sec: int,
-    ops: List[Dict[str, Any]],
-    meta: Dict[str, Any],
-) -> Tuple[str, str]:
+    ops: list[dict[str, Any]],
+    meta: dict[str, Any],
+) -> tuple[str, str]:
     """
     PROPOSE mode: create recs:bundle, status=PENDING, return id+sig (for buttons).
     
@@ -382,7 +381,7 @@ def _mode(r: redis.Redis) -> str:
 
 # ---------------- restore builders ----------------
 
-def build_relax_ops_from_clamp_audit(clamp_audit: List[Dict[str, Any]], relax_caps: Dict[str, float]) -> List[Dict[str, Any]]:
+def build_relax_ops_from_clamp_audit(clamp_audit: list[dict[str, Any]], relax_caps: dict[str, float]) -> list[dict[str, Any]]:
     """
     Use pre-clamp old values, capped by relax caps.
     Only for fields that existed pre-clamp (old_null==0).
@@ -396,9 +395,9 @@ def build_relax_ops_from_clamp_audit(clamp_audit: List[Dict[str, Any]], relax_ca
     """
     ops = []
     for a in clamp_audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        field = str(a.get("field", ""))
+        field = (a.get("field", ""))
         if field not in relax_caps:
             continue
         old_null = int(a.get("old_null", 0) or 0)
@@ -410,11 +409,11 @@ def build_relax_ops_from_clamp_audit(clamp_audit: List[Dict[str, Any]], relax_ca
             oldf = 0.0
         cap = float(relax_caps[field])
         target = min(oldf, cap)
-        ops.append({"op": "HSET", "key": str(a.get("key", "")), "field": field, "value": f"{target:.2f}"})
+        ops.append({"op": "HSET", "key": (a.get("key", "")), "field": field, "value": f"{target:.2f}"})
     return ops
 
 
-def build_full_restore_ops_from_clamp_audit(clamp_audit: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def build_full_restore_ops_from_clamp_audit(clamp_audit: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Restore exact pre-clamp: if old_null==1 -> HDEL, else HSET old.
     
@@ -426,15 +425,15 @@ def build_full_restore_ops_from_clamp_audit(clamp_audit: List[Dict[str, Any]]) -
     """
     ops = []
     for a in clamp_audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        key = str(a.get("key", ""))
-        field = str(a.get("field", ""))
+        key = (a.get("key", ""))
+        field = (a.get("field", ""))
         old_null = int(a.get("old_null", 0) or 0)
         if old_null == 1:
             ops.append({"op": "HDEL", "key": key, "field": field})
         else:
-            ops.append({"op": "HSET", "key": key, "field": field, "value": ("" if a.get("old") is None else str(a.get("old", "")))})
+            ops.append({"op": "HSET", "key": key, "field": field, "value": ("" if a.get("old") is None else (a.get("old", "")))})
     return ops
 
 
@@ -476,7 +475,7 @@ def main() -> None:
             pend = None
         if isinstance(pend, dict) and pend.get("bundle_id"):
             bid = str(pend["bundle_id"])
-            action = str(pend.get("action", "")).upper()
+            action = (pend.get("action", "")).upper()
             st = (r.get(f"recs:status:{bid}") or "").strip().upper()
 
             if st == "APPLIED":

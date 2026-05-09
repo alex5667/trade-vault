@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Prometheus rules bundle health check (nightly/orchestration).
@@ -30,7 +31,6 @@ import argparse
 import json
 import os
 import shutil
-import time
 from pathlib import Path
 
 try:

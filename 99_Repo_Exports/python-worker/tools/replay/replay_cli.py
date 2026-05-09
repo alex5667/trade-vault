@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 CLI для record & replay.
 
@@ -14,7 +15,6 @@ CLI для record & replay.
 import argparse
 import logging
 import sys
-from typing import Any
 
 from tools.replay.replay_runner import run_replay
 

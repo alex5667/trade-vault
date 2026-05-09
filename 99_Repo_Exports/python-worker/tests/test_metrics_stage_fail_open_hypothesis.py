@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import math
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-import pytest
-from hypothesis import given, settings, strategies as st
-
-from common.metrics_stage import candidates_total, veto_total, emit_ok_total, stage_ms_hist, dist
+from common.metrics_stage import candidates_total, dist, emit_ok_total, stage_ms_hist, veto_total
 
 
 class ExplodingMetrics:

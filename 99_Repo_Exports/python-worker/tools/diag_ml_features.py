@@ -1,5 +1,6 @@
-import joblib
 import os
+
+import joblib
 
 model_path = "/var/lib/trade/ml_models/edge_stack_v13_of/champions/edge_stack_v1_candidate.joblib"
 if os.path.exists(model_path):

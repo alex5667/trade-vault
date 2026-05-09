@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 test_nightly_meta_stage2_optimize_share_bundle_v3.py
 
@@ -17,30 +17,26 @@ Unit tests for nightly_meta_stage2_optimize_share_bundle_v3.py:
 """
 
 
-import json
 import os
 import sys
-import time
-from unittest.mock import MagicMock, patch, Mock
 
 import pytest
 
 # Import the module functions
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from tools.nightly_meta_stage2_optimize_share_bundle_v3 import (
-    now_ms,
-    sign,
-    _f,
-    _i,
     _event_ts_ms,
-    regime_bucket,
+    _f,
     _hash01,
-    pctl,
-    stats,
-    simulate_share,
-    objective,
+    _i,
     build_options,
+    objective,
+    pctl,
     pick_combo_under_budget,
+    regime_bucket,
+    sign,
+    simulate_share,
+    stats,
 )
 
 
@@ -49,21 +45,21 @@ def test_regime_bucket():
     # News
     assert regime_bucket({"regime_group": "news_fomc"}) == "news"
     assert regime_bucket({"regime": "news_cpi_release"}) == "news"
-    
+
     # Trend
     assert regime_bucket({"regime_group": "trend_bull"}) == "trend"
     assert regime_bucket({"regime": "bear_market"}) == "trend"
     assert regime_bucket({"regime": "bull"}) == "trend"
-    
+
     # Range
     assert regime_bucket({"regime_group": "range_bound"}) == "range"
     assert regime_bucket({"regime": "chop"}) == "range"
     assert regime_bucket({"regime": "meanrev"}) == "range"
-    
+
     # Thin
     assert regime_bucket({"regime": "thin_liquidity"}) == "thin"
     assert regime_bucket({"regime": "illiquid"}) == "thin"
-    
+
     # Other (default)
     assert regime_bucket({"regime": "unknown"}) == "other"
     assert regime_bucket({}) == "other"
@@ -74,7 +70,7 @@ def test_stats():
     # Empty list
     s0 = stats([])
     assert s0["n"] == 0.0
-    
+
     # Normal case
     rs = [0.5, -0.3, -1.5, 0.2, -2.0, 0.1]
     s = stats(rs)
@@ -107,7 +103,7 @@ def test_hash01():
     assert abs(h1 - h2) < 1e-10  # Deterministic
     assert 0.0 <= h1 < 1.0
     assert 0.0 <= h2 < 1.0
-    
+
     h3 = _hash01("different_key")
     assert abs(h1 - h3) > 1e-6  # Different keys produce different hashes
 
@@ -121,9 +117,9 @@ def test_simulate_share():
         {"meta_enforce_key": "key3", "meta_veto": 1, "r_mult": -0.3},   # Would be blocked
         {"meta_enforce_key": "key4", "meta_veto": 0, "r_mult": 0.2},   # Would pass
     ]
-    
+
     salt = "test_salt"
-    
+
     # Test with share=0.0 (no blocking)
     rep0 = simulate_share(rows, share=0.0, salt=salt)
     assert rep0["share"] == 0.0
@@ -133,7 +129,7 @@ def test_simulate_share():
     assert "meanR" in rep0["opp"]
     assert "meanR" in rep0["exec"]
     assert isinstance(rep0["opp"]["meanR"], (int, float))
-    
+
     # Test with share=1.0 (all vetoed trades blocked)
     rep1 = simulate_share(rows, share=1.0, salt=salt)
     assert rep1["share"] == 1.0
@@ -150,10 +146,10 @@ def test_simulate_share_missing_key():
         {"meta_enforce_key": "", "meta_veto": 1, "r_mult": -0.5},  # Missing key
         {"meta_veto": 0, "r_mult": 0.3},  # Missing key
     ]
-    
+
     salt = "test_salt"
     rep = simulate_share(rows, share=1.0, salt=salt)
-    
+
     # Only first row should be processed
     assert rep["used"] == 1  # Only rows with keys are counted
 
@@ -165,11 +161,11 @@ def test_objective():
         "exec": {"tail_rate": 0.15},
         "exec_rate": 0.5,
     }
-    
+
     exec_rate_ref = 0.6
     cur_share = 0.25
     share = 0.35
-    
+
     obj = objective(
         rep,
         exec_rate_ref=exec_rate_ref,
@@ -180,10 +176,10 @@ def test_objective():
         lam_turn=0.30,
         lam_step=0.05,
     )
-    
+
     # Should be a float
     assert isinstance(obj, (int, float))
-    
+
     # Components:
     # opp_mean = 0.2
     # exec_tail = 0.15, penalty = 0.50 * 0.15 = 0.075
@@ -208,7 +204,7 @@ def test_build_options():
             "meta_veto": veto,
             "r_mult": r_mult,
         })
-    
+
     salt = "test_salt"
     cur_share = 0.10
     grid = [0.10, 0.25, 0.35, 0.50]
@@ -222,7 +218,7 @@ def test_build_options():
     lam_p05 = 0.10
     lam_turn = 0.30
     lam_step = 0.05
-    
+
     opts = build_options(
         rows,
         salt=salt,
@@ -239,11 +235,11 @@ def test_build_options():
         lam_turn=lam_turn,
         lam_step=lam_step,
     )
-    
+
     # Should return at least cur_share option
     assert len(opts) >= 1
     assert any(o["is_cur"] for o in opts)
-    
+
     # All options should have required fields
     for o in opts:
         assert "share" in o
@@ -252,7 +248,7 @@ def test_build_options():
         assert "obj" in o
         assert "rep" in o
         assert "is_cur" in o
-    
+
     # Current share option should have drop=0.0
     cur_opt = next((o for o in opts if o["is_cur"]), None)
     assert cur_opt is not None
@@ -269,12 +265,12 @@ def test_build_options_share_cap():
             "meta_veto": 0,
             "r_mult": 0.3,
         })
-    
+
     salt = "test_salt"
     cur_share = 0.10
     grid = [0.10, 0.25, 0.50, 0.75, 1.00]  # Grid includes values > cap
     share_cap = 0.50  # Cap at 0.50
-    
+
     opts = build_options(
         rows,
         salt=salt,
@@ -291,7 +287,7 @@ def test_build_options_share_cap():
         lam_turn=0.30,
         lam_step=0.05,
     )
-    
+
     # All options should respect share_cap
     for o in opts:
         assert o["share"] <= share_cap + 1e-9
@@ -305,15 +301,15 @@ def test_pick_combo_under_budget():
         {"share": 0.35, "exec_rate_drop": 0.15, "obj": 0.20, "rep": None, "is_cur": False},
         {"share": 0.10, "exec_rate_drop": 0.0, "obj": 0.10, "rep": None, "is_cur": True},
     ]
-    
+
     range_opts = [
         {"share": 0.25, "exec_rate_drop": 0.08, "obj": 0.12, "rep": None, "is_cur": False},
         {"share": 0.35, "exec_rate_drop": 0.12, "obj": 0.18, "rep": None, "is_cur": False},
         {"share": 0.10, "exec_rate_drop": 0.0, "obj": 0.08, "rep": None, "is_cur": True},
     ]
-    
+
     budget = 0.25  # Max total drop = 0.25
-    
+
     combo = pick_combo_under_budget(
         trend_opts,
         range_opts,
@@ -321,16 +317,16 @@ def test_pick_combo_under_budget():
         range_cap_when_trend_lt=None,
         trend_threshold=None,
     )
-    
+
     # Should return a valid combo
     assert "trend" in combo
     assert "range" in combo
     assert "sum_drop" in combo
     assert "sum_obj" in combo
-    
+
     # Sum drop should be within budget
     assert combo["sum_drop"] <= budget + 1e-9
-    
+
     # Should pick best combo (highest sum_obj)
     # Best combo: trend=0.35 (drop=0.15, obj=0.20) + range=0.25 (drop=0.08, obj=0.12)
     # Total: drop=0.23, obj=0.32
@@ -342,13 +338,13 @@ def test_pick_combo_under_budget_exceeds_budget():
     trend_opts = [
         {"share": 0.50, "exec_rate_drop": 0.20, "obj": 0.25, "rep": None, "is_cur": False},
     ]
-    
+
     range_opts = [
         {"share": 0.50, "exec_rate_drop": 0.20, "obj": 0.25, "rep": None, "is_cur": False},
     ]
-    
+
     budget = 0.25  # Max total drop = 0.25, but combo has 0.20 + 0.20 = 0.40
-    
+
     combo = pick_combo_under_budget(
         trend_opts,
         range_opts,
@@ -356,7 +352,7 @@ def test_pick_combo_under_budget_exceeds_budget():
         range_cap_when_trend_lt=None,
         trend_threshold=None,
     )
-    
+
     # Should fallback to current shares (drop=0.0)
     assert "fallback" in combo or combo["sum_drop"] <= budget + 1e-9
 
@@ -367,16 +363,16 @@ def test_pick_combo_under_budget_coupling():
         {"share": 0.20, "exec_rate_drop": 0.05, "obj": 0.10, "rep": None, "is_cur": False},  # trend < 0.25
         {"share": 0.30, "exec_rate_drop": 0.10, "obj": 0.15, "rep": None, "is_cur": False},  # trend >= 0.25
     ]
-    
+
     range_opts = [
         {"share": 0.40, "exec_rate_drop": 0.08, "obj": 0.12, "rep": None, "is_cur": False},  # range > 0.35
         {"share": 0.30, "exec_rate_drop": 0.06, "obj": 0.10, "rep": None, "is_cur": False},  # range <= 0.35
     ]
-    
+
     budget = 0.25
     trend_threshold = 0.25
     range_cap_when_trend_lt = 0.35
-    
+
     combo = pick_combo_under_budget(
         trend_opts,
         range_opts,
@@ -384,13 +380,13 @@ def test_pick_combo_under_budget_coupling():
         range_cap_when_trend_lt=range_cap_when_trend_lt,
         trend_threshold=trend_threshold,
     )
-    
+
     # If trend=0.20 (< 0.25), then range must be <= 0.35
     # So combo (trend=0.20, range=0.40) should be rejected
     # Valid combos: (trend=0.20, range=0.30) or (trend=0.30, range=0.40)
     trend_share = combo["trend"]["share"]
     range_share = combo["range"]["share"]
-    
+
     if trend_share is not None and range_share is not None:
         if float(trend_share) < trend_threshold:
             assert float(range_share) <= range_cap_when_trend_lt + 1e-9
@@ -401,7 +397,7 @@ def test_pick_combo_under_budget_none_opts():
     # Both None
     combo = pick_combo_under_budget(None, None, budget=0.25, range_cap_when_trend_lt=None, trend_threshold=None)
     assert "ok" in combo and not combo["ok"]
-    
+
     # One None
     range_opts = [
         {"share": 0.25, "exec_rate_drop": 0.10, "obj": 0.12, "rep": None, "is_cur": True},
@@ -415,13 +411,13 @@ def test_event_ts_ms():
     """Test event timestamp extraction."""
     # Test exit_ts_ms (milliseconds)
     assert _event_ts_ms({"exit_ts_ms": 1609459200000}) == 1609459200000
-    
+
     # Test ts_ms (milliseconds)
     assert _event_ts_ms({"ts_ms": 1609459200000}) == 1609459200000
-    
+
     # Test ts (seconds) - should be converted to milliseconds
     assert _event_ts_ms({"ts": 1609459200}) == 1609459200000
-    
+
     # Test missing timestamp
     assert _event_ts_ms({}) == 0
 
@@ -432,7 +428,7 @@ def test_safe_conversions():
     assert _f(1.5) == 1.5
     assert _f(None, 0.0) == 0.0
     assert _f("invalid", 0.0) == 0.0
-    
+
     assert _i("42") == 42
     assert _i(42) == 42
     assert _i(None, 0) == 0
@@ -443,10 +439,10 @@ def test_sign():
     """Test HMAC signature generation."""
     bid = "test_bundle_id"
     secret = "test_secret"
-    
+
     sig1 = sign(bid, secret)
     sig2 = sign(bid, secret)
-    
+
     assert sig1 == sig2  # Deterministic
     assert len(sig1) == 8  # 8 hex characters
     assert all(c in "0123456789abcdef" for c in sig1)

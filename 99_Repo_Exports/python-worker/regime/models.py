@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 
 @dataclass
@@ -18,13 +17,13 @@ class SignalExecRow:
 @dataclass
 class BaselineQuantiles:
     """Квантили для одной метрики"""
-    p05: Optional[float]
-    p10: Optional[float]
-    p25: Optional[float]
-    p50: Optional[float]
-    p75: Optional[float]
-    p90: Optional[float]
-    p95: Optional[float]
+    p05: float | None
+    p10: float | None
+    p25: float | None
+    p50: float | None
+    p75: float | None
+    p90: float | None
+    p95: float | None
     sample_size: int  # сколько окон
 
 

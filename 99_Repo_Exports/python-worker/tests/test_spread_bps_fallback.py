@@ -5,6 +5,7 @@ last_spread_bps_l2, then BBO computation, instead of returning 0 (which
 triggers of_confirm_engine fallback to 15.0 bps).
 """
 import types
+
 import pytest
 
 

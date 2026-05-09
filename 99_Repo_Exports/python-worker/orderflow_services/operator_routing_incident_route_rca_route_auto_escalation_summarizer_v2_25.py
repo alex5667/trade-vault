@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
-import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -42,7 +42,7 @@ LAT = _hist("ml_operator_routing_incident_route_rca_route_escalations_latency_se
 LAST_RUN = _gauge("ml_operator_routing_incident_route_rca_route_escalations_last_run_ts_seconds", "Last timestamp")
 
 def now_ms() -> int: return get_ny_time_millis()
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 async def ensure_group(r: Any, stream: str, group: str) -> None:

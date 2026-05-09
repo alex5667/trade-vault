@@ -12,7 +12,6 @@ TickProcessor instance. We isolate the mathematical contracts and edge-cases:
 """
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers – replicate the indicator computation logic from tick_processor
 # (inline so tests don't depend on async / redis / SymbolRuntime)

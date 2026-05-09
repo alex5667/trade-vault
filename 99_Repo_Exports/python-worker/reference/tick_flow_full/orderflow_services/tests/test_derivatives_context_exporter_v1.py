@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import sys
-from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 import orderflow_services.derivatives_context_exporter_v1 as mod

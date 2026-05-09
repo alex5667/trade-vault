@@ -1,10 +1,16 @@
-import urllib.request, json, urllib.parse, math, os, sys, socket, html as _html
-from typing import Optional
+import html as _html
+import json
+import math
+import os
+import socket
+import sys
+import urllib.parse
+import urllib.request
 
 # Попытка загрузить переменные окружения для cron на minik
 for env_path in ['/opt/trade-agent/compose/.env', '/home/alex/front/trade/scanner_infra/.env']:
     try:
-        with open(env_path, 'r') as f:
+        with open(env_path) as f:
             for line in f:
                 if line.strip() and not line.startswith('#'):
                     k, v = line.strip().split('=', 1)
@@ -200,7 +206,7 @@ def _discover_prometheus() -> tuple[str, str]:
         p_c = [PROMETHEUS_ADDR_OVERRIDE]
     else:
         p_c = _PROMETHEUS_CANDIDATES
-    
+
     for base in p_c:
         import urllib.parse as _up
         parsed = _up.urlparse(base)
@@ -288,7 +294,7 @@ def check_go_gateway_healthy() -> bool:
         return True
 
 
-def get_metric(query: str) -> Optional[float]:
+def get_metric(query: str) -> float | None:
     """
     Запрашивает одно значение из Prometheus.
     Возвращает:
@@ -313,7 +319,7 @@ def get_metric(query: str) -> Optional[float]:
         return None
 
 
-def fmt(v: Optional[float], fmt_str: str = ".2f", fallback: str = "N/A") -> str:
+def fmt(v: float | None, fmt_str: str = ".2f", fallback: str = "N/A") -> str:
     """Форматирует Optional[float], возвращая fallback если None."""
     if v is None:
         return fallback
@@ -376,7 +382,7 @@ def run_cycle() -> None:
 
     print(f"  ✅ Prometheus доступен: {PROMETHEUS_BASE}")
 
-    m: dict[str, Optional[float]] = {k: get_metric(v) for k, v in QUERIES.items()}
+    m: dict[str, float | None] = {k: get_metric(v) for k, v in QUERIES.items()}
 
     # Подсчёт покрытия метрик
     total = len(m)
@@ -470,7 +476,7 @@ def run_cycle() -> None:
     if m['tm_loop_lag'] is not None and m['tm_loop_lag'] > 60:
         alerts.append(f"🔴 КРИТИЧНО: TradeMonitor завис (lag {m['tm_loop_lag']:.0f}s) — обновление жизненного цикла сделок заблокировано!")
     if m['freezer_block'] is not None and m['freezer_block'] > 0:
-        alerts.append(f"🔴 КРИТИЧНО: SLO Freezer заблокировал применение Execution бакетов!")
+        alerts.append("🔴 КРИТИЧНО: SLO Freezer заблокировал применение Execution бакетов!")
     if m['of_gate_ok'] is not None and m['of_gate_ok'] < 50:
         alerts.append(f"🟠 ВНИМАНИЕ: Крайне низкий OF Gate Success Rate ({m['of_gate_ok']:.1f}%).")
     if m['exec_cost'] is not None and m['exec_cost'] > 5.0:
@@ -561,9 +567,9 @@ def run_cycle() -> None:
     if m.get('phase2_manip_penalty') is not None and m['phase2_manip_penalty'] > 0:
         alerts.append(f"⚪ ИНФО: MANIP Gate активен, макс штраф: {m['phase2_manip_penalty']:.1f} bps.")
     if m.get('phase2_strong_gate_stressed') is not None and m['phase2_strong_gate_stressed'] > 0:
-        alerts.append(f"⚪ ИНФО: Сработал динамический Strong Gate (Stressed Liquidity).")
+        alerts.append("⚪ ИНФО: Сработал динамический Strong Gate (Stressed Liquidity).")
     if m.get('phase2_drift_tighten') is not None and m['phase2_drift_tighten'] > 0:
-        alerts.append(f"⚪ ИНФО: Защита Feature Drift активна, порог ML конфиденса поднят до 90%.")
+        alerts.append("⚪ ИНФО: Защита Feature Drift активна, порог ML конфиденса поднят до 90%.")
 
     # 18. CoinGecko API Health
     if m.get('cg_429') is not None and m['cg_429'] > 0:
@@ -581,13 +587,13 @@ def run_cycle() -> None:
     alerts_text = "\n".join(alerts) if alerts else "✅ Дрейф, DQ и наблюдаемость в норме."
 
     # ── Форматирование метрик ─────────────────────────────────────────────────────
-    def pct(v: Optional[float], fallback: str = "N/A") -> str:
+    def pct(v: float | None, fallback: str = "N/A") -> str:
         return f"{v*100:.1f}%" if v is not None else fallback
 
-    def sec_to_h(v: Optional[float], fallback: str = "N/A") -> str:
+    def sec_to_h(v: float | None, fallback: str = "N/A") -> str:
         return f"{v/3600:.1f}h" if v is not None else fallback
 
-    def ms(v: Optional[float], fallback: str = "N/A") -> str:
+    def ms(v: float | None, fallback: str = "N/A") -> str:
         return f"{v:.0f}ms" if v is not None else fallback
 
 
@@ -670,12 +676,14 @@ def run_cycle() -> None:
 
     # ── AIOps Анамалии (TimescaleDB) ──────────────────────────────────────────────
     try:
-        import sys, os
+        import os
+
         from sqlalchemy import create_engine
-# [AUTOGRAVITY CLEANUP]         sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+        # [AUTOGRAVITY CLEANUP]         sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
         from services.aiops_anomaly_extractor import AIOpsAnomalyExtractor
         from services.analytics_db import TRADES_DB_DSN
-        
+
         _engine = create_engine(TRADES_DB_DSN)
         _extractor = AIOpsAnomalyExtractor(db_engine=_engine, top_n=50, mad_threshold=3.0)
         _anomaly_payload = _extractor.get_llm_payload()

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """OF-Gate DLQ drilldown tool (P83).
 
 Purpose
@@ -31,16 +32,14 @@ Examples
   python -m orderflow_services.of_gate_dlq_drilldown_p83 purge --source stream:dlq:of_gate_metrics \
     --ids 1700000000000-0,1700000000001-0 --yes,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import sys
-import time
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def env(name: str, default: str) -> str:
@@ -79,14 +78,14 @@ def _json_loads_maybe(s: Any) -> Any:
 @dataclass
 class DlqMsg:
     dlq_id: str
-    fields: Dict[str, Any]
+    fields: dict[str, Any]
     src_stream: str
     src_stream_id: str
     err: str
     payload: Any
 
 
-def _parse_dlq_msg(dlq_id: str, fields: Dict[str, Any]) -> DlqMsg:
+def _parse_dlq_msg(dlq_id: str, fields: dict[str, Any]) -> DlqMsg:
     f = {str(_decode(k)): _decode(v) for k, v in (fields or {}).items()}
     src_stream = str(f.get("stream") or f.get("src_stream") or "")
     src_stream_id = str(f.get("stream_id") or f.get("src_stream_id") or "")
@@ -125,7 +124,7 @@ def _xlen(r, stream: str) -> int:
         return 0
 
 
-def _xrevrange(r, stream: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+def _xrevrange(r, stream: str, count: int) -> list[tuple[str, dict[str, Any]]]:
     # newest first
     try:
         return [(str(_decode(mid)), fields) for mid, fields in r.xrevrange(stream, max="+", min="-", count=count)]
@@ -133,21 +132,21 @@ def _xrevrange(r, stream: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
         return []
 
 
-def _xrange(r, stream: str, start: str, end: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+def _xrange(r, stream: str, start: str, end: str, count: int) -> list[tuple[str, dict[str, Any]]]:
     try:
         return [(str(_decode(mid)), fields) for mid, fields in r.xrange(stream, min=start, max=end, count=count)]
     except Exception:
         return []
 
 
-def _ts_ms_from_stream_id(sid: str) -> Optional[int]:
+def _ts_ms_from_stream_id(sid: str) -> int | None:
     try:
         return int(str(sid).split("-", 1)[0])
     except Exception:
         return None
 
 
-def _extract_keys(msg: DlqMsg) -> Dict[str, Any]:
+def _extract_keys(msg: DlqMsg) -> dict[str, Any]:
     p = msg.payload if isinstance(msg.payload, dict) else {}
     out = {
         "dq_code": p.get("dq_code") or p.get("why") or "",
@@ -208,11 +207,11 @@ def cmd_top(args: argparse.Namespace) -> int:
                 c_err[keys["err_prefix"] or "(empty)"] += 1
             if m.src_stream:
                 c_src[m.src_stream] += 1
-            dq = str(keys.get("dq_code") or "").strip() or "(empty)"
+            dq = (keys.get("dq_code") or "").strip() or "(empty)"
             c_dq[dq] += 1
-            rc = str(keys.get("reason_code") or "").strip() or "(empty)"
+            rc = (keys.get("reason_code") or "").strip() or "(empty)"
             c_reason[rc] += 1
-            sv = str(keys.get("schema_version") or "").strip() or "(empty)"
+            sv = (keys.get("schema_version") or "").strip() or "(empty)"
             c_schema[sv] += 1
 
     def show(title: str, counter: Counter, k: int = 15):
@@ -238,15 +237,15 @@ def cmd_sample(args: argparse.Namespace) -> int:
     limit = int(args.limit)
 
     items = _xrevrange(r, stream, limit)
-    out: List[DlqMsg] = []
+    out: list[DlqMsg] = []
     for mid, fields in items:
         m = _parse_dlq_msg(mid, fields)
         keys = _extract_keys(m)
-        if args.dq_code and str(keys.get("dq_code") or "") != args.dq_code:
+        if args.dq_code and (keys.get("dq_code") or "") != args.dq_code:
             continue
-        if args.reason_code and str(keys.get("reason_code") or "") != args.reason_code:
+        if args.reason_code and (keys.get("reason_code") or "") != args.reason_code:
             continue
-        if args.err_prefix and str(keys.get("err_prefix") or "") != args.err_prefix:
+        if args.err_prefix and (keys.get("err_prefix") or "") != args.err_prefix:
             continue
         out.append(m)
         if len(out) >= n:
@@ -264,7 +263,7 @@ def cmd_sample(args: argparse.Namespace) -> int:
     return 0
 
 
-def _infer_replay_fields(msg: DlqMsg, add_meta: bool = True) -> Dict[str, str]:
+def _infer_replay_fields(msg: DlqMsg, add_meta: bool = True) -> dict[str, str]:
     p = msg.payload
     if isinstance(p, dict):
         # if it already looks like a flat row (has schema_name/ts_ms/symbol), emit flat fields
@@ -310,13 +309,13 @@ def cmd_replay(args: argparse.Namespace) -> int:
         for mid, fields in batch:
             m = _parse_dlq_msg(mid, fields)
             keys = _extract_keys(m)
-            if args.dq_code and str(keys.get("dq_code") or "") != args.dq_code:
+            if args.dq_code and (keys.get("dq_code") or "") != args.dq_code:
                 cursor = mid
                 continue
-            if args.reason_code and str(keys.get("reason_code") or "") != args.reason_code:
+            if args.reason_code and (keys.get("reason_code") or "") != args.reason_code:
                 cursor = mid
                 continue
-            if args.err_prefix and str(keys.get("err_prefix") or "") != args.err_prefix:
+            if args.err_prefix and (keys.get("err_prefix") or "") != args.err_prefix:
                 cursor = mid
                 continue
 
@@ -417,7 +416,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = build_parser()
     args = ap.parse_args(argv)
 

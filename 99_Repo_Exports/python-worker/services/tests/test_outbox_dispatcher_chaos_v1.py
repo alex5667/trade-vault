@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 P3-#21: Chaos / fault-injection tests for services/signal_outbox_dispatcher.py
 
@@ -14,23 +15,17 @@ Covers Redis failure modes that must not crash or silently lose data:
 """
 
 
-import sys
 import json
-import time
-import uuid
-from typing import Any, Dict
-from unittest.mock import MagicMock, patch, PropertyMock
+from collections import defaultdict
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, "/home/alex/front/trade/scanner_infra/python-worker")
-
-import pytest
 import redis as redis_mod
-from collections import defaultdict
-
 
 # ── Minimal stubs ─────────────────────────────────────────────────────────────
 
-def _make_fields(sid: str = "SID-001", schema_version: str = "1") -> Dict[str, str]:
+def _make_fields(sid: str = "SID-001", schema_version: str = "1") -> dict[str, str]:
     """Build a minimal outbox stream fields dict (data=JSON envelope)."""
     envelope = {
         "sid": sid,
@@ -52,10 +47,10 @@ class _FakeRedis:
     """Minimal in-memory Redis stub for unit testing (no network)."""
 
     def __init__(self):
-        self._streams: Dict[str, list] = defaultdict(list)
-        self._pending: Dict[str, Dict[str, Dict[str, Any]]] = defaultdict(dict)  # stream -> group -> {id: fields}
-        self._keys: Dict[str, Any] = {}
-        self._incr_map: Dict[str, int] = {}
+        self._streams: dict[str, list] = defaultdict(list)
+        self._pending: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)  # stream -> group -> {id: fields}
+        self._keys: dict[str, Any] = {}
+        self._incr_map: dict[str, int] = {}
         self.xack_calls: list = []
         self.xadd_calls: list = []
         self._next_id = 1700000000000
@@ -286,7 +281,6 @@ class TestNoScriptError:
 
     def test_noscript_treated_as_transient(self):
         """NOSCRIPT ResponseError must be classified as transient and retried."""
-        from services.signal_outbox_dispatcher import SignalDispatcher
 
         # is_transient_error must recognize NOSCRIPT
         noscript_exc = redis_mod.exceptions.ResponseError("NOSCRIPT No matching script")

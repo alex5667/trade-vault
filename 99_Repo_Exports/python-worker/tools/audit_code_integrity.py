@@ -6,8 +6,6 @@ import ast
 import json
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
-
 
 EXCLUDE_DIRS = {
     ".git", ".venv", "venv", "__pycache__", "node_modules", "dist", "build", ".mypy_cache", ".pytest_cache"
@@ -21,13 +19,13 @@ class DefInfo:
     lineno: int
 
 
-def scan_file(path: str) -> Dict[str, object]:
+def scan_file(path: str) -> dict[str, object]:
     """
     Detect duplicate top-level defs/classes in a single file.
     Also reports unusually high import duplication signals (heuristic).
     """
     try:
-        src = open(path, "r", encoding="utf-8").read()
+        src = open(path, encoding="utf-8").read()
     except Exception as e:
         return {"path": path, "error": f"read_error:{e}"}
 
@@ -36,8 +34,8 @@ def scan_file(path: str) -> Dict[str, object]:
     except Exception as e:
         return {"path": path, "error": f"parse_error:{e}"}
 
-    defs: List[DefInfo] = []
-    imports: List[Tuple[str, int]] = []
+    defs: list[DefInfo] = []
+    imports: list[tuple[str, int]] = []
 
     for node in mod.body:
         if isinstance(node, ast.FunctionDef):
@@ -58,13 +56,13 @@ def scan_file(path: str) -> Dict[str, object]:
             imports.append((sig, getattr(node, "lineno", 0) or 0))
 
     # duplicates
-    by_name: Dict[str, List[DefInfo]] = {}
+    by_name: dict[str, list[DefInfo]] = {}
     for d in defs:
         by_name.setdefault(d.name, []).append(d)
     dup_defs = {k: v for k, v in by_name.items() if len(v) > 1}
 
     # import dup heuristic
-    imp_map: Dict[str, List[int]] = {}
+    imp_map: dict[str, list[int]] = {}
     for sig, ln in imports:
         imp_map.setdefault(sig, []).append(ln)
     dup_imports = {k: v for k, v in imp_map.items() if len(v) > 1}
@@ -84,8 +82,8 @@ def scan_file(path: str) -> Dict[str, object]:
     return out
 
 
-def walk_py(root: str) -> List[str]:
-    out: List[str] = []
+def walk_py(root: str) -> list[str]:
+    out: list[str] = []
     for base, dirs, files in os.walk(root):
         # prune
         dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]

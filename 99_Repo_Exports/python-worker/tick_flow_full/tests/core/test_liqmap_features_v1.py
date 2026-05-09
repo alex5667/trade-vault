@@ -1,4 +1,5 @@
 import json
+
 import pytest
 
 from core.liqmap_features_v1 import (

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 # NOTE: zoneinfo is stdlib in Python 3.9+.
 # If it's missing for any reason (exotic runtime), we fall back to UTC buckets.
@@ -72,7 +72,7 @@ def session_from_ts_ms(ts_ms: Any) -> str:
     # If zoneinfo isn't available, fall back to a simple UTC partitioning.
     if ZoneInfo is None:  # pragma: no cover
         try:
-            dt = datetime.fromtimestamp(t / 1000.0, tz=timezone.utc)
+            dt = datetime.fromtimestamp(t / 1000.0, tz=UTC)
             h = int(dt.hour)
             if 0 <= h < 7:
                 return "asian"
@@ -86,7 +86,7 @@ def session_from_ts_ms(ts_ms: Any) -> str:
 
     try:
         # Prefer explicit TZ windows to match your session_service semantics.
-        dt_utc = datetime.fromtimestamp(t / 1000.0, tz=timezone.utc)
+        dt_utc = datetime.fromtimestamp(t / 1000.0, tz=UTC)
 
         dt_us = dt_utc.astimezone(ZoneInfo("America/New_York"))
         mus = _minutes_of_day(dt_us)

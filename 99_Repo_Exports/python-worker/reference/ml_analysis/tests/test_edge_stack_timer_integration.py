@@ -9,7 +9,6 @@ Tests verify:
 import json
 import os
 import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -110,7 +109,7 @@ def test_quarantine_jsonl_structure():
         q.close()
 
         # Validate structure
-        with open(q_path, "r", encoding="utf-8") as f:
+        with open(q_path, encoding="utf-8") as f:
             lines = f.readlines()
             assert len(lines) == 2
 

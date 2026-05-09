@@ -1,5 +1,5 @@
-import pytest
-from core.meta_features_v1 import build_meta_features_v1, META_FEAT_V1_COLS, META_FEAT_V1_NAME, META_FEAT_V1_VERSION
+from core.meta_features_v1 import META_FEAT_V1_COLS, META_FEAT_V1_NAME, META_FEAT_V1_VERSION, build_meta_features_v1
+
 
 def test_build_meta_features_v1_all_present():
     evidence = {
@@ -61,10 +61,10 @@ def test_build_meta_features_v1_missing_critical():
     evidence = {}
     indicators = {}
     feat, missing = build_meta_features_v1(evidence, indicators)
-    
+
     assert "age_ms" in missing
     assert feat["age_ms"] == 0.0
-    
+
     # Check all columns present in output even if missing in input
     for col in META_FEAT_V1_COLS:
         assert col in feat
@@ -72,12 +72,12 @@ def test_build_meta_features_v1_missing_critical():
 def test_build_meta_features_v1_nan_handling():
     evidence = {"meta_context": {"age_ms": float("nan")}}
     indicators = {"spread_bps": float("inf")}
-    
+
     feat, missing = build_meta_features_v1(evidence, indicators)
-    
+
     assert "age_ms" in missing
     assert feat["age_ms"] == 0.0
-    
+
     assert "spread_bps" in missing
     assert feat["spread_bps"] == 0.0
 

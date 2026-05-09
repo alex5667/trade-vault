@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis  # type: ignore
@@ -18,7 +19,7 @@ except Exception:  # pragma: no cover
     psycopg = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
-
+import contextlib
 
 VERIFY_RUNS = Counter(
     "ml_post_commit_verifier_runs_total",
@@ -54,8 +55,8 @@ class CommitResult:
     ts_ms: int
     apply_status: str
     executor_mode: str
-    previous_value: Optional[str]
-    new_value: Optional[str]
+    previous_value: str | None
+    new_value: str | None
     replay_status: str
     reason_codes_json: str
 
@@ -85,24 +86,24 @@ def _j(x: Any, d: Any) -> Any:
         return d
 
 
-def parse_commit_result(fields: Dict[Any, Any]) -> CommitResult:
+def parse_commit_result(fields: dict[Any, Any]) -> CommitResult:
     d = {str(k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v) for k, v in fields.items()}
     return CommitResult(
-        recommendation_id=str(d.get("recommendation_id", "")),
-        action_type=str(d.get("action_type", "unknown")),
-        target_kind=str(d.get("target_kind", "unknown")),
-        target_ref=str(d.get("target_ref", "")),
+        recommendation_id=(d.get("recommendation_id", "")),
+        action_type=(d.get("action_type", "unknown")),
+        target_kind=(d.get("target_kind", "unknown")),
+        target_ref=(d.get("target_ref", "")),
         ts_ms=_i(d.get("ts_ms", 0), 0),
-        apply_status=str(d.get("apply_status", "UNKNOWN")),
-        executor_mode=str(d.get("executor_mode", "DRY_RUN")),
-        previous_value=None if d.get("previous_value") in (None, "", "null") else str(d.get("previous_value")),
-        new_value=None if d.get("new_value") in (None, "", "null") else str(d.get("new_value")),
-        replay_status=str(d.get("replay_status", "UNKNOWN")),
-        reason_codes_json=str(d.get("reason_codes_json", "[]")),
+        apply_status=(d.get("apply_status", "UNKNOWN")),
+        executor_mode=(d.get("executor_mode", "DRY_RUN")),
+        previous_value=None if d.get("previous_value") in (None, "", "null") else (d.get("previous_value")),
+        new_value=None if d.get("new_value") in (None, "", "null") else (d.get("new_value")),
+        replay_status=(d.get("replay_status", "UNKNOWN")),
+        reason_codes_json=(d.get("reason_codes_json", "[]")),
     )
 
 
-def build_verification_policy(action_type: str) -> Dict[str, Any]:
+def build_verification_policy(action_type: str) -> dict[str, Any]:
     base = {
         "verify_delay_sec": _i(os.getenv("ML_POST_COMMIT_VERIFY_DELAY_SEC", "300"), 300),
         "max_negative_delta": _f(os.getenv("ML_POST_COMMIT_MAX_NEG_DELTA", "0.05"), 0.05),
@@ -133,11 +134,11 @@ def build_verification_policy(action_type: str) -> Dict[str, Any]:
 def evaluate_post_commit(
     *,
     action_type: str,
-    before_snapshot: Dict[str, Any],
-    after_snapshot: Dict[str, Any],
-    policy: Dict[str, Any],
-) -> Tuple[str, List[str]]:
-    reasons: List[str] = []
+    before_snapshot: dict[str, Any],
+    after_snapshot: dict[str, Any],
+    policy: dict[str, Any],
+) -> tuple[str, list[str]]:
+    reasons: list[str] = []
     before_allow = _f(before_snapshot.get("allow_rate_avg"), 0.0)
     after_allow = _f(after_snapshot.get("allow_rate_avg"), 0.0)
     after_err = _f(after_snapshot.get("error_rate_max"), 0.0)
@@ -163,7 +164,7 @@ def evaluate_post_commit(
     return "PASS", []
 
 
-async def fetch_snapshot(conn: Any, model_id: str, since_ts_ms: int) -> Dict[str, Any]:
+async def fetch_snapshot(conn: Any, model_id: str, since_ts_ms: int) -> dict[str, Any]:
     sql = """,
         SELECT
             COALESCE(MAX(latency_p95_max_ms), 0.0) AS latency_p95_max_ms,
@@ -183,7 +184,7 @@ async def fetch_snapshot(conn: Any, model_id: str, since_ts_ms: int) -> Dict[str
         return {cols[i]: row[i] for i in range(len(cols))}
 
 
-async def write_verification_result(conn: Any, rec: CommitResult, verification_status: str, reasons: List[str]) -> None:
+async def write_verification_result(conn: Any, rec: CommitResult, verification_status: str, reasons: list[str]) -> None:
     sql = """
 
         INSERT INTO llm_post_commit_verifications (
@@ -214,7 +215,7 @@ async def write_verification_result(conn: Any, rec: CommitResult, verification_s
         )
 
 
-async def maybe_emit_rollback(redis_cli: Any, rec: CommitResult, reasons: List[str], verification_status: str) -> None:
+async def maybe_emit_rollback(redis_cli: Any, rec: CommitResult, reasons: list[str], verification_status: str) -> None:
     if verification_status != "ROLLBACK_REQUIRED":
         return
     payload = {
@@ -250,10 +251,8 @@ async def run_once() -> None:
         raise RuntimeError("DATABASE_URL is required")
 
     redis_cli = redis.from_url(redis_url, decode_responses=False)
-    try:
+    with contextlib.suppress(Exception):
         await redis_cli.xgroup_create(stream, group, id="0", mkstream=True)
-    except Exception:
-        pass
 
     async with await psycopg.AsyncConnection.connect(dsn) as conn:
         rows = await redis_cli.xreadgroup(group, consumer, {stream: ">"}, count=100, block=1000)

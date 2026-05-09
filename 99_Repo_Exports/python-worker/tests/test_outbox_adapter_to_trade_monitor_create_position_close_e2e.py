@@ -1,17 +1,15 @@
-import json
 from types import SimpleNamespace
-
-from handlers.emitter.outbox_publisher_adapter import OutboxPublisherAdapter
-from services.trade_monitor import TradeMonitorService
 
 # create_position is used in your existing e2e tests
 from domain.handlers import create_position
+from handlers.emitter.outbox_publisher_adapter import OutboxPublisherAdapter
+from services.trade_monitor import TradeMonitorService
 
 
 class _SpecStub:
     trailing_profile_default = "rocket_v1"
     def risk_money(self, entry, sl, lot, direction):
-        return abs(float(entry) - float(sl)) * float(lot)
+        return abs(entry - sl) * lot
 
 
 def _mk_trade_monitor_like() -> TradeMonitorService:

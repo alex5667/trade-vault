@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
+
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
 
 from .result import ConfirmResult
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot, L2Level
 
 
-def _f(x: Any) -> Optional[float]:
+def _f(x: Any) -> float | None:
     try:
         v = float(x)
     except Exception:
@@ -31,10 +32,10 @@ class L2ConfirmBreakout:
     Returns structured flags; kind_rules.py consumes flags for fake-breakout heuristics.
     """
 
-    def __init__(self, cfg: Optional[BreakoutConfirmCfg] = None) -> None:
+    def __init__(self, cfg: BreakoutConfirmCfg | None = None) -> None:
         self.cfg = cfg or BreakoutConfirmCfg()
 
-    def _get_l2(self, ctx: Any) -> Optional[L2Snapshot]:
+    def _get_l2(self, ctx: Any) -> L2Snapshot | None:
         return getattr(ctx, "l2", None) or getattr(ctx, "l2_snapshot", None) or getattr(ctx, "book", None)
 
     def _is_stale(self, ctx: Any) -> bool:

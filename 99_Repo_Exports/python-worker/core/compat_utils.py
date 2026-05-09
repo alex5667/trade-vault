@@ -1,7 +1,9 @@
 import inspect
-from typing import Any, Callable, Dict
+from collections.abc import Callable
+from typing import Any
 
-def _filter_kwargs_for_callable(func: Callable, **kwargs) -> Dict[str, Any]:
+
+def _filter_kwargs_for_callable(func: Callable, **kwargs) -> dict[str, Any]:
     """
     Returns a subset of kwargs that are accepted by func (positional_or_keyword or keyword_only).
     Handles functions, bound methods, and callables gracefully.
@@ -17,16 +19,16 @@ def _filter_kwargs_for_callable(func: Callable, **kwargs) -> Dict[str, Any]:
 
     filtered = {}
     has_varkw = False
-    
+
     for param in sig.parameters.values():
         if param.kind == inspect.Parameter.VAR_KEYWORD:
             has_varkw = True
             break
         if param.name in kwargs:
             filtered[param.name] = kwargs[param.name]
-            
+
     if has_varkw:
         return kwargs
-        
+
     return filtered
 

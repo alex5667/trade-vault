@@ -1,6 +1,7 @@
 from common.contracts.registry import SignalV1
-from common.normalization import normalize_side_3, generate_signal_id
 from common.enums.trading import Direction, Side
+from common.normalization import generate_signal_id, normalize_side_3
+
 
 def test_p0_compliance():
     # 1. Side Normalization
@@ -17,7 +18,7 @@ def test_p0_compliance():
     # 2. Signal ID Generation
     sid = generate_signal_id(kind="iceberg", symbol="BTCUSDT", ts_ms=1714238000000, direction=Direction.LONG)
     assert sid == "iceberg:BTCUSDT:1714238000000:L"
-    
+
     # 3. SignalV1 Validation
     sig = SignalV1(
         signal_id=sid,
@@ -37,7 +38,7 @@ def test_p0_compliance():
     assert dump["signal_id"] == sid
     assert dump["side_int"] == 1
     assert dump["direction"] == "LONG"
-    
+
     print("✅ P0 Compliance Test Passed!")
 
 if __name__ == "__main__":

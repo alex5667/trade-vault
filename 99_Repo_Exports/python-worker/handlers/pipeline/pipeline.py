@@ -4,21 +4,24 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
-from common.decision_trace import trace_gate, Span
+from common.decision_trace import Span, trace_gate
 from common.qf_codes import QF
 from handlers.confirmations.engine import ConfirmationsEngine, Validation
-from handlers.signal_scoring.score_model import ScoreModel
 from handlers.labeling.outcome_labeler import OutcomeLabeler
 from handlers.pipeline.candidate import Candidate
+from handlers.signal_scoring.score_model import ScoreModel
+
 
 @dataclass(frozen=True)
 class PipelineResult:
     veto: bool
     quality_codes: list[int] = field(default_factory=list)  # uint16
     parts: dict[str, float] = field(default_factory=dict)
-from handlers.pipeline.validators import BreakoutValidator, AbsorptionValidator, OBISpikeValidator
-from handlers.confirmations.l2_confirm_breakout import L2ConfirmBreakout
 from handlers.confirmations.l2_confirm_absorption import L2ConfirmAbsorption
+from handlers.confirmations.l2_confirm_breakout import L2ConfirmBreakout
+from handlers.pipeline.validators import AbsorptionValidator, BreakoutValidator, OBISpikeValidator
+import contextlib
+
 
 class SignalPipeline:
     def __init__(self) -> None:
@@ -49,8 +52,8 @@ class SignalPipeline:
         # 1) Base confirmations
         with Span() as sp_val:
             v: Validation = self._conf.validate(kind=cand.kind, ctx=ctx, l2=l2, l3=l3, level_price=cand.level_price)
-            
-        try:
+
+        with contextlib.suppress(Exception):
             trace_gate(
                 ctx,
                 stage="gates",
@@ -61,8 +64,6 @@ class SignalPipeline:
                 metrics=dict(getattr(v, "parts", {}) or {}),
                 duration_ms=sp_val.ms,
             )
-        except Exception:
-            pass
 
         flags_list = list(v.flags or [])
         parts_dict = dict(v.parts)
@@ -105,7 +106,7 @@ class SignalPipeline:
                 ctx=ctx,
                 parts_in=parts_dict,
             )
-        try:
+        with contextlib.suppress(Exception):
             trace_gate(
                 ctx,
                 stage="scoring",
@@ -116,8 +117,6 @@ class SignalPipeline:
                 metrics=dict(getattr(out, "parts", {}) or {}),
                 duration_ms=sp_score.ms,
             )
-        except Exception:
-            pass
 
         return PipelineResult(False, quality_codes=flags_list, parts=dict(out.parts))
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 ExecutionPlanner: Risk-based execution planning for signals.
 
@@ -12,13 +13,11 @@ Production-ready for scanner_infra integration.
 """
 
 
-from datetime import datetime, timezone
-from typing import Mapping, Tuple
+from collections.abc import Mapping
+from datetime import UTC, datetime
 
 from .context import SignalContext
 from .models import ExecutionPlan, Side, SymbolSetupConfig
-
-
 
 
 class ExecutionPlanner:
@@ -30,7 +29,7 @@ class ExecutionPlanner:
     - TTD-aware expiry bars
     """
 
-    def __init__(self, setup_configs: Mapping[Tuple[str, str], SymbolSetupConfig]):
+    def __init__(self, setup_configs: Mapping[tuple[str, str], SymbolSetupConfig]):
         self._configs = setup_configs
 
     # --- Public API ---
@@ -112,7 +111,7 @@ class ExecutionPlanner:
             risk_usd=risk_usd,
             position_size=position_size,
             expiry_bars=expiry_bars,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             meta={},
         )
         return plan
@@ -258,7 +257,7 @@ class ExecutionPlanner:
         side: Side,
         stop_price: float,
         entry_price: float,
-        tp_Rs: Tuple[float, float, float],
+        tp_Rs: tuple[float, float, float],
         atr: float,
     ) -> list[float]:
         """

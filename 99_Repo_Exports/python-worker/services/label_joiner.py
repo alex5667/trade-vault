@@ -1,16 +1,15 @@
-from utils.time_utils import get_ny_time_millis
-
 import json
 import logging
-import time
-from typing import Dict, Any
+from typing import Any
 
-from core.decision_store import DecisionStore
+from common.trace_context import new_trace_id
 from core.decision_record import DecisionRecord
+from core.decision_store import DecisionStore
 from core.redis_client import get_redis
 from core.redis_keys import RedisStreams as RS
-from common.trace_context import get_trace_id_from_env, new_trace_id
 from services.stream_worker import StreamWorker, WorkerPolicy
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +21,14 @@ class LabelJoinerService:
     def __init__(self):
         self.redis = get_redis()
         self.decision_store = DecisionStore(redis_client=self.redis)
-        
+
         self.policy = WorkerPolicy(
             ack_mode="lossless",
             read_count=50,
             block_ms=2000,
             dlq_stream="dlq:label_joiner"
         )
-        
+
         self.worker = StreamWorker(
             name="label-joiner",
             client=self.redis,
@@ -46,7 +45,7 @@ class LabelJoinerService:
         # Simple running flag, in real app might be a signal handler
         self.worker.run_loop(lambda: True)
 
-    def process_trade_event(self, stream: str, msg_id: str, fields: Dict[str, Any]) -> bool:
+    def process_trade_event(self, stream: str, msg_id: str, fields: dict[str, Any]) -> bool:
         """
         Callback for StreamWorker.
         Returns True if processed (ACK), False if failed (Retry).
@@ -60,7 +59,7 @@ class LabelJoinerService:
             data_str = fields.get("data")
             if not data_str:
                 return True
-                
+
             if isinstance(data_str, str):
                 try:
                     payload = json.loads(data_str)
@@ -77,15 +76,15 @@ class LabelJoinerService:
             # Propagate or mint trace_id for end-to-end observability.
             # Priority: fields[trace_id] → payload[trace_id] → new uuid.
             trace_id = (
-                str(fields.get("trace_id") or "")
-                or str(payload.get("trace_id") or "")
+                (fields.get("trace_id") or "")
+                or (payload.get("trace_id") or "")
                 or new_trace_id()
             )
 
             # 1. Fetch Decision
             decision = self.decision_store.load_decision(sid)
             if not decision:
-                # Decision might be expired or missing. 
+                # Decision might be expired or missing.
                 # If we want to retry later, return False.
                 # But if it's gone, it's gone. Let's log warn and ACK.
                 # Or maybe it's just slow to appear? Unlikely if trade is closed.
@@ -98,14 +97,14 @@ class LabelJoinerService:
             # 3. Join & Publish
             self._publish_closed_trade(decision, metrics, payload, trace_id=trace_id)
             self._publish_ml_replay(decision, metrics, payload, trace_id=trace_id)
-            
+
             return True
 
         except Exception as e:
             logger.exception(f"Error processing message {msg_id}: {e}")
             return False # Retry
 
-    def _calculate_metrics(self, trade: Dict[str, Any], decision: DecisionRecord) -> Dict[str, Any]:
+    def _calculate_metrics(self, trade: dict[str, Any], decision: DecisionRecord) -> dict[str, Any]:
         """
         Calculates R-multiple, MFE/MDD ratios, result label.
         """
@@ -113,12 +112,12 @@ class LabelJoinerService:
         exit_price = float(trade.get("exit_price", 0.0))
         pnl = float(trade.get("total_pnl", 0.0))
         side = trade.get("direction", "").upper()
-        
+
         # SL/Risk
         sl = float(trade.get("sl", 0.0))
-        
+
         r_mult = 0.0
-        
+
         if side == "LONG":
             risk = entry - sl
             if risk > 1e-9:
@@ -127,7 +126,7 @@ class LabelJoinerService:
             risk = sl - entry
             if risk > 1e-9:
                 r_mult = (entry - exit_price) / risk
-                
+
         # Result Class
         if pnl > 0:
             result = "WIN"
@@ -135,7 +134,7 @@ class LabelJoinerService:
             result = "LOSS"
         else:
             result = "BE"
-            
+
         return {
             "result": result,
             "r_multiple": r_mult,
@@ -148,8 +147,8 @@ class LabelJoinerService:
     def _publish_closed_trade(
         self,
         decision: DecisionRecord,
-        metrics: Dict[str, Any],
-        trade: Dict[str, Any],
+        metrics: dict[str, Any],
+        trade: dict[str, Any],
         *,
         trace_id: str = "",
     ) -> None:
@@ -171,13 +170,13 @@ class LabelJoinerService:
             "ts_close": str(metrics["close_ts"]),
             "trace_id": trace_id,
         }
-        self.redis.xadd(RS.TRADES_CLOSED, out, maxlen=10000)
+        self.redis.xadd(RS.TRADES_CLOSED, out, maxlen=10000, approximate=True)
 
     def _publish_ml_replay(
         self,
         decision: DecisionRecord,
-        metrics: Dict[str, Any],
-        trade: Dict[str, Any],
+        metrics: dict[str, Any],
+        trade: dict[str, Any],
         *,
         trace_id: str = "",
     ) -> None:
@@ -191,12 +190,10 @@ class LabelJoinerService:
             "label": metrics,
             "trace_id": trace_id,
         }
-        self.redis.xadd("ml_replay_inputs_v1", {"json": json.dumps(data)}, maxlen=200000)
+        self.redis.xadd("ml_replay_inputs_v1", {"json": json.dumps(data)}, maxlen=200000, approximate=True)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     service = LabelJoinerService()
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         service.run()
-    except KeyboardInterrupt:
-        pass

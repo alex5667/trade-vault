@@ -1,15 +1,17 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
 import subprocess
-import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def run(cmd: list[str]) -> int:
@@ -23,13 +25,13 @@ def run(cmd: list[str]) -> int:
     return int(p.returncode)
 
 
-def _safe_load_json(path: str) -> Dict[str, Any]:
+def _safe_load_json(path: str) -> dict[str, Any]:
     """
     Безопасно загружает JSON файл.
     Возвращает пустой dict при ошибке.
     """
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             d = json.load(f)
             return d if isinstance(d, dict) else {}
     except Exception:
@@ -71,7 +73,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--out-dir", required=True)
-    ap.add_argument("--stream", default=os.getenv("OF_INPUTS_STREAM", "signals:of:inputs"))
+    ap.add_argument("--stream", default=os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS))
     ap.add_argument("--field", default=os.getenv("OF_INPUTS_STREAM_FIELD", "payload"))
     ap.add_argument("--since-hours", type=float, default=float(os.getenv("OF_INPUTS_SINCE_HOURS", "24")))
     ap.add_argument("--max-records", type=int, default=int(os.getenv("OF_INPUTS_MAX_RECORDS", "250000")))
@@ -80,7 +82,7 @@ def main() -> None:
     ap.add_argument("--state-file", default=os.getenv("OF_INPUTS_STATE_FILE", ""))
     ap.add_argument("--resume", type=int, default=int(os.getenv("OF_INPUTS_RESUME", "1")))
     ap.add_argument("--notify", type=int, default=int(os.getenv("OF_REPLAY_NOTIFY", "1")))
-    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"))
+    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM))
     args = ap.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -118,7 +120,7 @@ def main() -> None:
 
     # Шаг 3: Diff (всегда генерируем, если baseline указан; wrapper сам решает, падать ли)
     failed = False
-    report: Dict[str, Any] = {}
+    report: dict[str, Any] = {}
     if str(args.baseline or "").strip():
         # Запускаем diff с fail-on-mismatch=0, чтобы всегда получить JSON
         rc = run([
@@ -131,7 +133,7 @@ def main() -> None:
         if rc != 0:
             # diff tool failure — это инфраструктурная ошибка
             raise SystemExit(rc)
-        
+
         # Загружаем report и анализируем
         report = _safe_load_json(diff_path)
         miss_b = int(report.get("missing_in_baseline", 0) or 0)
@@ -145,10 +147,8 @@ def main() -> None:
             samples = report.get("samples", []) if isinstance(report.get("samples", []), list) else []
             sample_keys = []
             for s in samples[:3]:
-                try:
-                    sample_keys.append(str(s.get("k", "")))
-                except Exception:
-                    pass
+                with contextlib.suppress(Exception):
+                    sample_keys.append((s.get("k", "")))
             msg = (
                 "OF CONFIRM GOLDEN REPLAY MISMATCH\n"
                 f"baseline={args.baseline}\n"
@@ -171,7 +171,7 @@ def main() -> None:
         "debug": dbg_path,
         "failed": failed,
     }, ensure_ascii=False, indent=2))
-    
+
     # Падаем только если fail_on_mismatch=1 и есть mismatches
     if failed and int(args.fail_on_mismatch) == 1:
         raise SystemExit(2)

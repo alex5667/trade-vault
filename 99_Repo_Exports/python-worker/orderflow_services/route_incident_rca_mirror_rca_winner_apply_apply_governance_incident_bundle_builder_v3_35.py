@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -76,15 +77,15 @@ TRIGGER_ON_APPLY_DECISIONS = os.getenv(
 )
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -127,8 +128,8 @@ def parse_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -167,12 +168,12 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
+async def xr_recent(client: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await client.xrevrange(stream_key, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -184,16 +185,16 @@ def within_recent_window(ts_ms: int) -> bool:
     return ts_ms >= now_ms() - RECENT_WINDOW_MIN * 60 * 1000
 
 
-def normalize_trigger(source: str, row: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_trigger(source: str, row: dict[str, Any]) -> dict[str, Any]:
     ts_ms = parse_int(row.get("ts_ms"), 0)
     if source == "apply_journal":
-        decision = str(row.get("decision") or "UNKNOWN").upper()
+        decision = (row.get("decision") or "UNKNOWN").upper()
         severity = "warning"
         return {
             "trigger_type": "apply_transition",
             "transition_type": decision,
             "severity": severity,
-            "reason_code": str(row.get("reason_code") or "UNKNOWN"),
+            "reason_code": (row.get("reason_code") or "UNKNOWN"),
             "ts_ms": ts_ms,
             "row": row,
         }
@@ -202,7 +203,7 @@ def normalize_trigger(source: str, row: Dict[str, Any]) -> Dict[str, Any]:
             "trigger_type": "rollback",
             "transition_type": "ROLLBACK",
             "severity": "critical",
-            "reason_code": str(row.get("reason_code") or "UNKNOWN"),
+            "reason_code": (row.get("reason_code") or "UNKNOWN"),
             "ts_ms": ts_ms,
             "row": row,
         }
@@ -219,7 +220,7 @@ def normalize_trigger(source: str, row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def should_trigger_bundle(trigger: Dict[str, Any]) -> bool:
+def should_trigger_bundle(trigger: dict[str, Any]) -> bool:
     if not within_recent_window(trigger["ts_ms"]):
         return False
     if trigger["trigger_type"] == "apply_transition":
@@ -229,8 +230,8 @@ def should_trigger_bundle(trigger: Dict[str, Any]) -> bool:
     return trigger["severity"] in allowed_severities()
 
 
-def summarize_rows(rows: List[Dict[str, Any]], fields: List[str]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def summarize_rows(rows: list[dict[str, Any]], fields: list[str]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for row in rows[:LOOKBACK_COUNT]:
         item = {}
         for f in fields:
@@ -240,7 +241,7 @@ def summarize_rows(rows: List[Dict[str, Any]], fields: List[str]) -> List[Dict[s
     return out
 
 
-async def build_bundle(r: Any, trigger: Dict[str, Any]) -> Dict[str, Any]:
+async def build_bundle(r: Any, trigger: dict[str, Any]) -> dict[str, Any]:
     apply_rows = await xr_recent(r, APPLY_JOURNAL_STREAM, LOOKBACK_COUNT)
     verification_rows = await xr_recent(r, VERIFICATION_STREAM, LOOKBACK_COUNT)
     retry_rows = await xr_recent(r, RETRY_STREAM, LOOKBACK_COUNT)
@@ -256,29 +257,29 @@ async def build_bundle(r: Any, trigger: Dict[str, Any]) -> Dict[str, Any]:
     recent_slo = [r0 for r0 in slo_rows if within_recent_window(parse_int(r0.get("ts_ms"), 0))]
 
     verification_reason_codes = sorted({
-        str(r0.get("reason_code") or "")
+        (r0.get("reason_code") or "")
         for r0 in recent_verification
-        if str(r0.get("reason_code") or "")
+        if (r0.get("reason_code") or "")
     })
     retry_reason_codes = sorted({
-        str(r0.get("reason_code") or "")
+        (r0.get("reason_code") or "")
         for r0 in recent_retry
-        if str(r0.get("reason_code") or "")
+        if (r0.get("reason_code") or "")
     })
     rollback_reason_codes = sorted({
-        str(r0.get("reason_code") or "")
+        (r0.get("reason_code") or "")
         for r0 in recent_rollback
-        if str(r0.get("reason_code") or "")
+        if (r0.get("reason_code") or "")
     })
     escalation_severities = sorted({
-        str(r0.get("severity") or "")
+        (r0.get("severity") or "")
         for r0 in recent_escalation
-        if str(r0.get("severity") or "")
+        if (r0.get("severity") or "")
     })
     apply_decisions = sorted({
-        str(r0.get("decision") or "")
+        (r0.get("decision") or "")
         for r0 in recent_apply
-        if str(r0.get("decision") or "")
+        if (r0.get("decision") or "")
     })
 
     bundle_id = f"winner-apply-apply-governance-bundle:{trigger['trigger_type']}:{trigger['ts_ms']}"
@@ -347,7 +348,7 @@ async def build_bundle(r: Any, trigger: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def persist_if_configured(db_url: str, bundle: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, bundle: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -386,7 +387,7 @@ async def persist_if_configured(db_url: str, bundle: Dict[str, Any]) -> None:
             conn.commit()
 
 
-async def process_trigger(r: Any, db_url: str, source: str, row: Dict[str, Any]) -> Tuple[str, str]:
+async def process_trigger(r: Any, db_url: str, source: str, row: dict[str, Any]) -> tuple[str, str]:
     trigger = normalize_trigger(source, row)
     if not should_trigger_bundle(trigger):
         return "SKIP", trigger["trigger_type"]

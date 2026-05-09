@@ -1,5 +1,6 @@
 import types
 
+
 class DummyGate:
     def __init__(self): self.n = 0
     def evaluate(self, *, ctx, symbol, kind, side):

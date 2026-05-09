@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from core.eq_pools import EQPoolTracker
+from core.microbar import MicroBar
 from core.sweep_detector import SweepDetector
 from core.swing_detector import SwingPoint
-from core.microbar import MicroBar
 
 
 def _sp(kind: str, ts: int, price: float, cvd: float = 0.0) -> SwingPoint:

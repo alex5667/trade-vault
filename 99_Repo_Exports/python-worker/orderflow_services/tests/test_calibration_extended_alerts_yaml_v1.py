@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 import os
-import yaml
+
 import pytest
+import yaml
 
 
 def _path(tick_flow_full: bool = False) -> str:

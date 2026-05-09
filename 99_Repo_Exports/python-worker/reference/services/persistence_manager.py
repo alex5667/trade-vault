@@ -1,11 +1,11 @@
-import os
-import json
-import time
-import logging
 import asyncio
-from utils.task_manager import safe_create_task
+import json
+import logging
+import os
+import time
+from typing import Any
 
-from typing import Any, Dict, List, Optional
+from utils.task_manager import safe_create_task
 
 # NOTE: asyncpg is an optional dependency for unit-test environments.
 # Importing it at module import time makes unrelated unit tests fail.
@@ -21,15 +21,15 @@ class PersistenceManager:
     """
     Handles redundant storage and restoration of calibration states and microbar history in PostgreSQL.
     """
-    def __init__(self, dsn: Optional[str] = None):
+    def __init__(self, dsn: str | None = None):
         self.dsn = dsn or (os.getenv("ANALYTICS_DB_DSN") or os.getenv("TRADES_DB_DSN")) or (os.getenv("ANALYTICS_DB_DSN") or os.getenv("PG_DSN")) or "postgresql://postgres:12345@scanner-postgres:5432/scanner_analytics"
-        self._pool: Optional[asyncpg.Pool] = None
-        
+        self._pool: asyncpg.Pool | None = None
+
         # Batching state
-        self._microbar_buffer: List[tuple] = []
-        self._microbar_lock: Optional[asyncio.Lock] = None
+        self._microbar_buffer: list[tuple] = []
+        self._microbar_lock: asyncio.Lock | None = None
         self._last_flush_time = 0.0
-        self._flush_task: Optional[asyncio.Task] = None
+        self._flush_task: asyncio.Task | None = None
 
     async def _get_pool(self) -> asyncpg.Pool:
         """Lazy initialization of the high-concurrency connection pool."""
@@ -65,12 +65,12 @@ class PersistenceManager:
         async with self._microbar_lock:
             if not self._microbar_buffer:
                 return
-            
+
             # Flush if enough items OR enough time has passed OR forced
             current_time = time.time()
             if not force and len(self._microbar_buffer) < 500 and (current_time - self._last_flush_time < 0.5):
                 return
-                
+
             batch = self._microbar_buffer[:]
             self._microbar_buffer.clear()
             self._last_flush_time = current_time
@@ -85,9 +85,9 @@ class PersistenceManager:
         for row in batch:
             k = (row[0], row[1])
             dedup_map[k] = row
-            
+
         unique_batch = list(dedup_map.values())
-        
+
         # 2. Sort by symbol, then by time to heavily prevent Postgres deadlocks
         unique_batch.sort(key=lambda x: (x[0], x[1]))
 
@@ -96,7 +96,7 @@ class PersistenceManager:
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
         ON CONFLICT (symbol, ts_ms) DO NOTHING;
         """
-        
+
         chunk_size = 2000
         chunks = [unique_batch[i:i + chunk_size] for i in range(0, len(unique_batch), chunk_size)]
 
@@ -107,7 +107,7 @@ class PersistenceManager:
                     async with pool.acquire(timeout=5.0) as conn:
                         await asyncio.wait_for(conn.executemany(sql, chunk), timeout=15.0)
                     break # Success for this chunk
-                except (asyncio.TimeoutError, asyncpg.exceptions.PostgresError) as e:
+                except (TimeoutError, asyncpg.exceptions.PostgresError) as e:
                     logger.warning(f"⚠️ Pool timeout/error saving microbar chunk of size {len(chunk)} (attempt {attempt}/3): {e}")
                     if attempt < 3:
                          await asyncio.sleep(attempt * 0.5)
@@ -118,7 +118,7 @@ class PersistenceManager:
             else:
                 # Fallback to direct connection if pool fails consistently for this chunk
                 try:
-                     logger.warning(f"🔄 Falling back to direct connection for microbar chunk")
+                     logger.warning("🔄 Falling back to direct connection for microbar chunk")
                      # We use a 10s connection timeout for fallback
                      conn = await asyncpg.connect(self.dsn, timeout=10.0)
                      try:
@@ -129,7 +129,7 @@ class PersistenceManager:
                 except Exception as e:
                      logger.error(f"❌ Final explicit failure saving microbar chunk: {type(e).__name__} - {e}")
 
-    async def save_calibration_state(self, symbol: str, regime: str, kind: str, ts_ms: int, state: Dict[str, Any]) -> bool:
+    async def save_calibration_state(self, symbol: str, regime: str, kind: str, ts_ms: int, state: dict[str, Any]) -> bool:
         """Saves or updates calibration state in PG."""
         try:
             pool = await self._get_pool()
@@ -147,7 +147,7 @@ class PersistenceManager:
             logger.error(f"❌ Failed to save calibration state for {symbol}:{regime}:{kind}: {e}")
             return False
 
-    async def load_calibration_states(self, symbol: str) -> List[Dict[str, Any]]:
+    async def load_calibration_states(self, symbol: str) -> list[dict[str, Any]]:
         """Loads all calibration states for a symbol from PG."""
         try:
             pool = await self._get_pool()
@@ -164,7 +164,7 @@ class PersistenceManager:
             logger.error(f"❌ Failed to load calibration states for {symbol}: {e}")
             return []
 
-    async def save_microbar(self, symbol: str, bar_data: Dict[str, Any]) -> bool:
+    async def save_microbar(self, symbol: str, bar_data: dict[str, Any]) -> bool:
         """Queues a closed microbar for batched saving to PG."""
         if self._microbar_lock is None:
             self._microbar_lock = asyncio.Lock()
@@ -182,17 +182,17 @@ class PersistenceManager:
             float(bar_data['vol']),
             float(bar_data['cvd'])
         )
-        
+
         async with self._microbar_lock:
             self._microbar_buffer.append(args)
-            
+
             # If buffer is getting too large, force flush without waiting
             if len(self._microbar_buffer) >= 2000:
                 safe_create_task(self._flush_microbars(force=True))
-                
+
         return True
 
-    async def load_microbar_history(self, symbol: str, limit: int = 300) -> List[Dict[str, Any]]:
+    async def load_microbar_history(self, symbol: str, limit: int = 300) -> list[dict[str, Any]]:
         """Loads historical microbars for a symbol from PG, sorted by time."""
         try:
             pool = await self._get_pool()
@@ -231,7 +231,7 @@ class PersistenceManager:
             logger.error(f"❌ Failed to save daily OHLC for {symbol} at {date}: {e}")
             return False
 
-    async def get_latest_daily_ohlc(self, symbol: str) -> Optional[Dict[str, Any]]:
+    async def get_latest_daily_ohlc(self, symbol: str) -> dict[str, Any] | None:
         """Loads the most recent daily OHLC candle for a symbol from PG."""
         try:
             pool = await self._get_pool()
@@ -257,7 +257,7 @@ class PersistenceManager:
             logger.error(f"❌ Failed to load latest daily OHLC for {symbol}: {e}")
             return None
 
-    def get_latest_daily_ohlc_sync(self, symbol: str) -> Optional[Dict[str, Any]]:
+    def get_latest_daily_ohlc_sync(self, symbol: str) -> dict[str, Any] | None:
         """
         Synchronous version of get_latest_daily_ohlc for legacy sync services.
         WARNING: This uses a temporary connection and is NOT efficient.
@@ -265,26 +265,25 @@ class PersistenceManager:
         import psycopg2
         from psycopg2.extras import RealDictCursor
         try:
-            with psycopg2.connect(self.dsn) as conn:
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    sql = """
+            with psycopg2.connect(self.dsn) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+                sql = """
                     SELECT date, open, high, low, close, volume
                     FROM market_daily_ohlc 
                     WHERE symbol = %s 
                     ORDER BY date DESC 
                     LIMIT 1
                     """
-                    cur.execute(sql, (symbol,))
-                    row = cur.fetchone()
-                    if row:
-                        row['date'] = str(row['date'])
-                        row['high'] = float(row['high'])
-                        row['low'] = float(row['low'])
-                        row['close'] = float(row['close'])
-                        if row.get('open') is not None: row['open'] = float(row['open'])
-                        if row.get('volume') is not None: row['volume'] = float(row['volume'])
-                        return dict(row)
-                    return None
+                cur.execute(sql, (symbol,))
+                row = cur.fetchone()
+                if row:
+                    row['date'] = str(row['date'])
+                    row['high'] = float(row['high'])
+                    row['low'] = float(row['low'])
+                    row['close'] = float(row['close'])
+                    if row.get('open') is not None: row['open'] = float(row['open'])
+                    if row.get('volume') is not None: row['volume'] = float(row['volume'])
+                    return dict(row)
+                return None
         except Exception as e:
             logger.error(f"❌ Failed to load latest daily OHLC (sync) for {symbol}: {e}")
             return None

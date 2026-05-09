@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 EntryPolicyGate: spread shock / burst flip / cancel-to-trade + feature drift alarm.
 
@@ -18,16 +19,14 @@ Feature drift alarm:
   - designed fail-open: never breaks signal publishing if Redis is down
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import math
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from domain.time_utils import normalize_ts_ms, session_from_ts_ms
+from utils.time_utils import get_ny_time_millis
 
 
 @dataclass(frozen=True)
@@ -52,13 +51,13 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
-def _hset_compat(redis_client: Any, key: str, mapping: Dict[str, Any]) -> None:
+def _hset_compat(redis_client: Any, key: str, mapping: dict[str, Any]) -> None:
     """
     Compatibility wrapper:
       - real redis-py: hset(name, mapping={...})
@@ -112,7 +111,7 @@ class _FeatureDriftTracker:
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
 
-    def update_and_score(self, *, key: str, x: float, alpha: float, eps: float, now_ms: int) -> Tuple[float, Dict[str, float]]:
+    def update_and_score(self, *, key: str, x: float, alpha: float, eps: float, now_ms: int) -> tuple[float, dict[str, float]]:
         if self.redis is None:
             return 0.0, {}
         try:
@@ -125,7 +124,7 @@ class _FeatureDriftTracker:
                 return v.decode("utf-8", errors="ignore")
             return str(v)
 
-        dd: Dict[str, str] = {}
+        dd: dict[str, str] = {}
         try:
             for k, v in dict(d).items():
                 dd[_b2s(k)] = _b2s(v)
@@ -162,7 +161,7 @@ class _FeatureDriftTracker:
 
 class EntryPolicyGate:
     @staticmethod
-    def from_env() -> "EntryPolicyGate":
+    def from_env() -> EntryPolicyGate:
         return EntryPolicyGate()
 
     def __init__(self) -> None:
@@ -182,7 +181,7 @@ class EntryPolicyGate:
         self.drift_eps = _safe_float(os.getenv("FEATURE_DRIFT_EPS", "1e-6"), 1e-6)
 
         # Optional diagnostics stream (audit)
-        self.diag_stream = str(os.getenv("ENTRY_POLICY_DIAG_STREAM", "") or "")
+        self.diag_stream = (os.getenv("ENTRY_POLICY_DIAG_STREAM", "") or "")
 
     def evaluate(self, *, ctx: Any, symbol: str, kind: str) -> GateDecision:
         if not self.enabled:
@@ -235,8 +234,8 @@ class EntryPolicyGate:
 
                 venue = str(getattr(ctx, "venue", None) or "na").lower()
                 tf = str(getattr(ctx, "tf", None) or getattr(ctx, "timeframe", None) or "na").lower()
-                knd = str(kind or "na").lower()
-                dims = f"{str(symbol).upper()}:{venue}:{sess}:{tf}:{knd}"
+                knd = (kind or "na").lower()
+                dims = f"{symbol.upper()}:{venue}:{sess}:{tf}:{knd}"
 
                 # mentioned: obi, z_delta, spread_bps, depth_*
                 obi = _safe_float(getattr(ctx, "obi", None) or getattr(ctx, "obi_total", None), 0.0)
@@ -262,13 +261,13 @@ class EntryPolicyGate:
         # Annotate ctx for downstream tightening (EdgeCostGate multiplies K)
         try:
             if soft_flags:
-                setattr(ctx, "entry_policy_flags", list(soft_flags))
+                ctx.entry_policy_flags = list(soft_flags)
                 # Mild in default/soft; stronger in strict/hard.
-                setattr(ctx, "entry_policy_tighten_k", 1.10 if profile in {"default", "soft"} else 1.25)
+                ctx.entry_policy_tighten_k = 1.1 if profile in {"default", "soft"} else 1.25
             if drift_hit:
-                setattr(ctx, "feature_drift_alarm", 1)
-                setattr(ctx, "feature_drift_notes", drift_notes[:256])
-                setattr(ctx, "feature_drift_tighten_k", 1.15 if profile in {"default", "soft"} else 1.35)
+                ctx.feature_drift_alarm = 1
+                ctx.feature_drift_notes = drift_notes[:256]
+                ctx.feature_drift_tighten_k = 1.15 if profile in {"default", "soft"} else 1.35
         except Exception:
             pass
 
@@ -279,7 +278,7 @@ class EntryPolicyGate:
                 if redis_client is not None and (soft_flags or drift_hit):
                     ev = {
                         "ts_ms": get_ny_time_millis(),
-                        "symbol": str(symbol),
+                        "symbol": symbol,
                         "kind": str(kind),
                         "session": str(sess),
                         "spread_bps": float(spread_bps),
@@ -313,7 +312,7 @@ class EntryPolicyGate:
         return GateDecision(True, False, "OK", "pass")
 
 
-def write_entry_policy_diag(redis_client: Any, *, stream: str, maxlen: int, event: Dict[str, Any]) -> None:
+def write_entry_policy_diag(redis_client: Any, *, stream: str, maxlen: int, event: dict[str, Any]) -> None:
     """
     Standalone diagnostic helper for out-of-band entry policy logging.
     Used by CryptoOrderFlowHandler to log veto/delay decisions to a dedicated stream.

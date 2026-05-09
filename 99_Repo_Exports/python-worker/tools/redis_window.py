@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
 
 from common.redis_errors import retry_redis_operation
 
 
-def _safe_json_loads(x: Any) -> Optional[Any]:
+def _safe_json_loads(x: Any) -> Any | None:
     """Return parsed JSON or None. Accepts already-parsed dict/list."""
     if x is None:
         return None
@@ -25,7 +25,7 @@ def _safe_json_loads(x: Any) -> Optional[Any]:
         return None
 
 
-def _merge_payload_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_payload_fields(fields: dict[str, Any]) -> dict[str, Any]:
     """Best-effort: merge nested JSON payload/indicators into flat fields.
 
     Many producers write a compact flat schema (p_edge, p_min, ...) and optionally
@@ -38,12 +38,12 @@ def _merge_payload_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
     - Only merge scalar values (str/int/float/bool/None).
     - Merge order: payload.* then payload.indicators.* then fields.indicators.*.
     """
-    out: Dict[str, Any] = dict(fields)
+    out: dict[str, Any] = dict(fields)
 
     def _is_scalar(v: Any) -> bool:
         return isinstance(v, (str, int, float, bool)) or v is None
 
-    def _merge_from_dict(d: Dict[str, Any]) -> None:
+    def _merge_from_dict(d: dict[str, Any]) -> None:
         # payload top-level
         for k, v in d.items():
             if k == "indicators":
@@ -77,7 +77,7 @@ def _merge_payload_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def read_recent_stream(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
+def read_recent_stream(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
     """Read recent messages from Redis stream within a time window.
 
     Scans stream backwards from latest, stopping when timestamp < since_ms.
@@ -93,7 +93,7 @@ def read_recent_stream(r: redis.Redis, stream: str, since_ms: int, max_scan: int
         List of message field dicts (chronological order), with payload/indicators
         merged into the flat dict when present.
     """
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:

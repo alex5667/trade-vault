@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Wrapper: enforce tick-gate auto-apply block before running a command.
 
 Usage:

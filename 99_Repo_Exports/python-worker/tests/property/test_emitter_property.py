@@ -4,7 +4,8 @@ import pytest
 
 try:
     hyp = pytest.importorskip("hypothesis")
-    from hypothesis import given, strategies as st
+    from hypothesis import given
+    from hypothesis import strategies as st
     HAS_HYPOTHESIS = True
 except pytest.skip.Exception:
     # hypothesis not available, skip these tests

@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -16,14 +17,13 @@ Usage:
 """
 
 import argparse
+import datetime
 import logging
 import os
-import sys
-import time
-import tempfile
-import datetime
 import subprocess
-from typing import Optional
+import sys
+import tempfile
+import time
 
 import requests
 
@@ -62,7 +62,7 @@ def send_telegram_markdown(title: str, text: str):
 
     chat_ids = [c.strip() for c in str(chat_id_raw).split(",") if c.strip()]
     full_text = f"*{title}*\n\n{text}"
-    
+
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     chunks = _split_message(full_text)
 
@@ -88,7 +88,7 @@ def send_telegram_markdown(title: str, text: str):
 def run_export(lookback_hours: int, output_path: str, max_records: int = 50000):
     now_ms = get_ny_time_millis()
     since_ms = now_ms - (lookback_hours * 3600 * 1000)
-    
+
     cmd = [
         sys.executable,
         os.path.join(os.path.dirname(__file__), "export_closed_trades_ndjson.py"),
@@ -97,7 +97,7 @@ def run_export(lookback_hours: int, output_path: str, max_records: int = 50000):
         "--max", str(max_records)
     ]
     logger.info(f"Running export: {' '.join(cmd)}")
-    
+
     # Capture output to avoid noise unless error
     try:
         subprocess.check_output(cmd, stderr=subprocess.STDOUT)
@@ -132,23 +132,23 @@ def task_operational():
             ndjson_6h = os.path.join(tmpdir, "trades_6h.ndjson")
             md_6h = os.path.join(tmpdir, "report_6h.md")
             run_export(6, ndjson_6h)
-            run_tune(ndjson_6h, md_6h, min_n=10) 
+            run_tune(ndjson_6h, md_6h, min_n=10)
 
             # 24h
             ndjson_24h = os.path.join(tmpdir, "trades_24h.ndjson")
             md_24h = os.path.join(tmpdir, "report_24h.md")
             run_export(24, ndjson_24h)
             run_tune(ndjson_24h, md_24h, min_n=30)
-            
+
             final_md = "Operational Report\n\n"
             final_md += "--- 6H LOOKBACK ---\n"
             if os.path.exists(md_6h):
-                with open(md_6h, 'r') as f:
+                with open(md_6h) as f:
                     final_md += f.read()
-            
+
             final_md += "\n\n--- 24H LOOKBACK ---\n"
             if os.path.exists(md_24h):
-                with open(md_24h, 'r') as f:
+                with open(md_24h) as f:
                     final_md += f.read()
 
             send_telegram_markdown("📡 TM Operational Report", final_md)
@@ -165,7 +165,7 @@ def task_decisive():
             ndjson_7d = os.path.join(tmpdir, "trades_7d.ndjson")
             md_7d = os.path.join(tmpdir, "report_7d.md")
             run_export(24*7, ndjson_7d, max_records=500000)
-            run_tune(ndjson_7d, md_7d, min_n=80) 
+            run_tune(ndjson_7d, md_7d, min_n=80)
 
             # 3d
             ndjson_3d = os.path.join(tmpdir, "trades_3d.ndjson")
@@ -176,14 +176,14 @@ def task_decisive():
             final_md = "Decisive Policy Report (Suggestions)\n\n"
             final_md += "--- 7 DAYS (Primary) ---\n"
             if os.path.exists(md_7d):
-                with open(md_7d, 'r') as f:
+                with open(md_7d) as f:
                     final_md += f.read()
 
             final_md += "\n\n--- 3 DAYS (Freshness) ---\n"
             if os.path.exists(md_3d):
-                with open(md_3d, 'r') as f:
+                with open(md_3d) as f:
                     final_md += f.read()
-            
+
             send_telegram_markdown("⚖️ TM Decisive Report", final_md)
             logger.info("Decisive report sent.")
 
@@ -193,22 +193,22 @@ def task_decisive():
 
 def run_periodically():
     logger.info("Starting scheduler loop (custom simple scheduler)...")
-    
+
     last_op_run = 0.0
     last_dec_run = 0.0
-    
+
     while True:
         now = time.time()
-        
+
         # Operational: Every 60 minutes
         if now - last_op_run >= 3600:
             task_operational()
             last_op_run = time.time()
-        
+
         # Decisive: Every day at 00:10 UTC (approx check)
         # Check if current time is 00:10 UTC +/- 1 minute and we haven't run today
         # But simple loop logic is safer: just check if > 24h passed OR check UTC time.
-        
+
         # Robust daily approach:
         # Check if "today's decisive" is done.
         # We can store last_dec_run date.
@@ -220,7 +220,7 @@ def run_periodically():
             if last_dt.date() < dt_now.date():
                 task_decisive()
                 last_dec_run = time.time()
-        
+
         time.sleep(60)
 
 

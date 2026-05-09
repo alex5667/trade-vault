@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Union, Dict, Any
+from typing import Any
 
 import redis
 
 
 def make_fast_redis(
-    config: Optional[Dict[str, Any]] = None,
+    config: dict[str, Any] | None = None,
     *,
     redis_url: str = "",
     socket_timeout_ms: int = 50,
@@ -62,7 +62,7 @@ def load_fast_config() -> dict:
     }
 
 
-def make_fast_redis_from_env(*, redis_url: Optional[str] = None) -> redis.Redis:
+def make_fast_redis_from_env(*, redis_url: str | None = None) -> redis.Redis:
     redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
     return make_fast_redis(
         redis_url=redis_url,

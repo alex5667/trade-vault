@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Shadow/Calibration metadata field definitions — single source of truth.
 
@@ -11,13 +12,13 @@ Fail-open: extraction helpers never raise; missing fields are silently skipped.
 """
 
 
-from typing import Any, Dict, Sequence, Tuple
+from typing import Any
 
 # -----------------------------------------------------------------------
 # Canonical field whitelist
 # -----------------------------------------------------------------------
 # Ordered tuple so iteration is deterministic.
-CALIB_FIELDS: Tuple[str, ...] = (
+CALIB_FIELDS: tuple[str, ...] = (
     "paper_only",
     "shadow_only",
     "is_virtual",
@@ -32,7 +33,7 @@ CALIB_FIELDS: Tuple[str, ...] = (
 )
 
 
-def extract_calib_fields(source: Any) -> Dict[str, Any]:
+def extract_calib_fields(source: Any) -> dict[str, Any]:
     """Extract calibration fields from *source* dict (or dict-like).
 
     Returns a dict containing only the fields that are present and not-None.
@@ -40,7 +41,7 @@ def extract_calib_fields(source: Any) -> Dict[str, Any]:
     """
     if not isinstance(source, dict):
         return {}
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for key in CALIB_FIELDS:
         val = source.get(key)
         if val is not None:
@@ -49,7 +50,7 @@ def extract_calib_fields(source: Any) -> Dict[str, Any]:
 
 
 def merge_calib_fields(
-    target: Dict[str, Any],
+    target: dict[str, Any],
     *sources: Any,
     overwrite: bool = False,
 ) -> None:
@@ -74,7 +75,7 @@ def merge_calib_fields(
                 break
 
 
-def stamp_virtual_if_calib(payload: Dict[str, Any]) -> None:
+def stamp_virtual_if_calib(payload: dict[str, Any]) -> None:
     """If payload carries calib=1, ensure is_virtual=1.
 
     Paper/shadow calibration signals MUST never reach the prod execution path.

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import Deque, Optional, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
 
-def ensure_bounded_deque(d: Optional[Deque[T]], maxlen: int) -> Deque[T]:
+def ensure_bounded_deque[T](d: deque[T] | None, maxlen: int) -> deque[T]:
     """
     Ensure deque has a fixed maxlen.
 

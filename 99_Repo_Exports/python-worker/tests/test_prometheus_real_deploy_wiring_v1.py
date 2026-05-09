@@ -10,7 +10,7 @@ Validates:
 5. CI lint script contains the promtool check config step
 """
 import os
-import re
+
 import pytest
 import yaml
 
@@ -25,12 +25,12 @@ CI_LINT_SCRIPT = os.path.join(ROOT, "scripts", "ci_prometheus_lint.sh")
 # ── Load helpers ────────────────────────────────────────────────────────────────
 
 def load_yaml(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 
 def read_text(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         return fh.read()
 
 

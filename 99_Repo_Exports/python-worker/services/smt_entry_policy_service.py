@@ -1,37 +1,45 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
-import redis.asyncio as aioredis # type: ignore
-from services.entry_policy_ab_gate import regime_group, decide_active_arm, norm_arm
+import redis.asyncio as aioredis  # type: ignore
+
+from core.active_arm_stabilizer import ActiveArmStabilizer
 from core.entry_policy_freeze import EntryPolicyFreezeV1
 from core.entry_policy_overrides_v1 import EntryPolicyOverridesV1
-from core.active_arm_stabilizer import ActiveArmStabilizer
+from services.entry_policy_ab_gate import decide_active_arm, norm_arm, regime_group
 
-# P6: execution health (TCA rollups) for entry policy
-from services.orderflow.utils import session_utc
-from services.orderflow.exec_health_rollups import aread_exec_health_rollups, decide_exec_health_from_env
-from services.orderflow.exec_health_observability import record_exec_health_observability, record_exec_health_reader_error
-# P4: SLO contract state writer (fail-open, rate-limited flush)
-from services.orderflow.exec_health_slo_contract import (
-    record_exec_health_contract_state,
-    record_exec_health_contract_reader_error,
-    flush_exec_health_contract_state_async,
-)
+# P0: normalized derivatives context (funding/basis/OI crowding) overlay
+from services.orderflow.derivatives_context import aread_derivatives_context
+from services.orderflow.derivatives_context_gate import evaluate_derivatives_context
+
 # P6: hard consumer hook — convert P5 autoguard freeze key into real entry-path stop
 from services.orderflow.exec_health_freeze_hook import (
     aread_exec_health_auto_freeze,
     build_exec_health_auto_freeze_decision,
 )
-# P0: normalized derivatives context (funding/basis/OI crowding) overlay
-from services.orderflow.derivatives_context import aread_derivatives_context
-from services.orderflow.derivatives_context_gate import evaluate_derivatives_context
+from services.orderflow.exec_health_observability import (
+    record_exec_health_observability,
+    record_exec_health_reader_error,
+)
+from services.orderflow.exec_health_rollups import aread_exec_health_rollups, decide_exec_health_from_env
+
+# P4: SLO contract state writer (fail-open, rate-limited flush)
+from services.orderflow.exec_health_slo_contract import (
+    flush_exec_health_contract_state_async,
+    record_exec_health_contract_reader_error,
+    record_exec_health_contract_state,
+)
+
+# P6: execution health (TCA rollups) for entry policy
+from services.orderflow.utils import session_utc
+from utils.time_utils import get_ny_time_millis
+import contextlib
+
 
 def _now_ms() -> int:
     return get_ny_time_millis()
@@ -56,15 +64,15 @@ def _sha1(s: str) -> str:
     import hashlib
     return hashlib.sha1(s.encode("utf-8", errors="ignore")).hexdigest()
 
-def _entry_id(cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> str:
+def _entry_id(cand: dict[str, Any], snap: dict[str, Any], bundle: dict[str, Any]) -> str:
     base = {
-        "sym": str(cand.get("symbol", "")).upper(),
-        "side": str(cand.get("side", "")).upper(),
-        "bundle": str(cand.get("bundle", "")),
+        "sym": (cand.get("symbol", "")).upper(),
+        "side": (cand.get("side", "")).upper(),
+        "bundle": (cand.get("bundle", "")),
         "setup_ts_ms": int(cand.get("setup_ts_ms", 0) or 0),
-        "zone_id": str(snap.get("zone_id", cand.get("zone_id", "")) or ""),
-        "ab_key": str(cand.get("ab_key", "") or ""),
-        "kind": str(bundle.get("decision", "") or ""),
+        "zone_id": (snap.get("zone_id", cand.get("zone_id", "")) or ""),
+        "ab_key": (cand.get("ab_key", "") or ""),
+        "kind": (bundle.get("decision", "") or ""),
     }
     return _sha1(json.dumps(base, sort_keys=True, separators=(",", ":")))
 
@@ -93,7 +101,7 @@ class PolicyCfg:
     out_stream_maxlen: int
 
     @staticmethod
-    def from_env() -> "PolicyCfg":
+    def from_env() -> PolicyCfg:
         return PolicyCfg(
             in_stream=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate"),
             out_stream=os.getenv("TRADE_ENTRY_STREAM", "stream:trade:entry"),
@@ -123,18 +131,18 @@ class EntryPolicyService:
         redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.r: aioredis.Redis = aioredis.from_url(redis_url, decode_responses=True)
         self.cfg = PolicyCfg.from_env()
-        self._dedup: Dict[str, int] = {}
+        self._dedup: dict[str, int] = {}
         self.use_event_ts = bool(int(os.getenv("ENTRY_POLICY_USE_EVENT_TS", "0")))
-        
+
         # === Overrides V1 (strict) ===
         self._ovr_prefix = os.getenv("ENTRY_POLICY_OVR_PREFIX", "cfg:entry_policy:overrides:v1")
-        self._ovr_group: Dict[str, EntryPolicyOverridesV1] = {} # effective overrides per group
-        self._ovr_loaded_ts_ms: Dict[str, int] = {}            # per group: last loaded updated_ts_ms
-        self._ovr_last_apply_ts_ms: Dict[str, int] = {}        # per group: last effective application wall-time
-        self._ovr_last_seen_hash: Dict[str, str] = {}          # per group: applied raw hash
-        self._ovr_cand_hash: Dict[str, str] = {}               # per group: candidate hash
-        self._ovr_cand_first_ts: Dict[str, int] = {}           # per group: first seen ts
-        self._ovr_cand_raw: Dict[str, str] = {}                # per group: raw json staged
+        self._ovr_group: dict[str, EntryPolicyOverridesV1] = {} # effective overrides per group
+        self._ovr_loaded_ts_ms: dict[str, int] = {}            # per group: last loaded updated_ts_ms
+        self._ovr_last_apply_ts_ms: dict[str, int] = {}        # per group: last effective application wall-time
+        self._ovr_last_seen_hash: dict[str, str] = {}          # per group: applied raw hash
+        self._ovr_cand_hash: dict[str, str] = {}               # per group: candidate hash
+        self._ovr_cand_first_ts: dict[str, int] = {}           # per group: first seen ts
+        self._ovr_cand_raw: dict[str, str] = {}                # per group: raw json staged
 
         # === Active arm stabilizer ===
         self._arm_stab = ActiveArmStabilizer(
@@ -163,13 +171,13 @@ class EntryPolicyService:
 
         # P6: execution health (TCA rollups) configuration
         self._exec_entry_policy_enable = bool(int(os.getenv("EXEC_HEALTH_ENTRY_POLICY_ENABLED", "1") or 1))
-        self._exec_venue = str(os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").lower()
-        self._exec_tf = str(os.getenv("EXEC_HEALTH_TF", "all") or "all").lower()
+        self._exec_venue = (os.getenv("EXEC_HEALTH_VENUE", "binance") or "binance").lower()
+        self._exec_tf = (os.getenv("EXEC_HEALTH_TF", "all") or "all").lower()
 
     async def _get_active_arm(self, *, symbol: str, regime: str, group: str, scenario: str, raw_only: bool = False) -> str:
         sym, rg, g, scn = symbol.upper(), regime.lower(), group.lower(), (scenario or "").lower()
         now = _now_ms()
-        
+
         # Build key candidates (most specific -> fallback)
         keys = []
         if sym and scn in ("continuation", "reversal"):
@@ -181,12 +189,12 @@ class EntryPolicyService:
         raw_v = ""
         for k in keys:
             v = await self.r.get(k)
-            raw_v = str(v or "").strip().upper()
+            raw_v = (v or "").strip().upper()
             if raw_v: break
-            
+
         if raw_only:
             return raw_v
-            
+
         # apply hold-down + gap using stabilizer
         # Stability key should be specific if we found a specific key, but generally tracking per scenario intent is good
         # If we fell back to group, do we stabilize on group key?
@@ -195,7 +203,7 @@ class EntryPolicyService:
         arm_key = f"{sym}:{rg}:{g}:{scn}"
         return self._arm_stab.update(key=arm_key, raw=raw_v, now_ms=now)
 
-    async def _get_freeze(self, *, symbol: str, group: str, scenario: str, now_ms: int) -> Tuple[int, int, str, str]:
+    async def _get_freeze(self, *, symbol: str, group: str, scenario: str, now_ms: int) -> tuple[int, int, str, str]:
         sym, grp, scn = symbol.upper(), group.lower(), scenario.lower()
         if scn not in ("reversal", "continuation"): return 0, 0, "", ""
         ck = f"{sym}:{grp}:{scn}"
@@ -204,20 +212,20 @@ class EntryPolicyService:
             if v:
                 obj, _ = EntryPolicyFreezeV1.from_json(v)
                 if obj and obj.is_active(now_ms): return 1, int(obj.until_ts_ms), str(obj.mode), str(obj.reason_code)
-        
+
         raw = await self.r.get(f"cfg:entry_policy:freeze:v1:{sym}:{grp}:{scn}")
-        self._freeze_cache[ck], self._freeze_cache_ts[ck] = str(raw or ""), now_ms
+        self._freeze_cache[ck], self._freeze_cache_ts[ck] = (raw or ""), now_ms
         if raw:
             obj, _ = EntryPolicyFreezeV1.from_json(str(raw))
             if obj and obj.is_active(now_ms): return 1, int(obj.until_ts_ms), str(obj.mode), str(obj.reason_code)
         return 0, 0, "", ""
 
-    async def _get_context(self, cand: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    async def _get_context(self, cand: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         snap = await self._get_snap(cand["symbol"])
         bundle = await self._get_bundle(cand["bundle"])
         return snap, bundle
 
-    async def _get_snap(self, sym: str) -> Dict[str, Any]:
+    async def _get_snap(self, sym: str) -> dict[str, Any]:
         # Merge base SMT snapshot + optional sidecar fields.
         # Sidecar is used for evolving metrics without breaking SymbolSnapshot schema.
         base_key = f"{self.cfg.snap_prefix}{sym.upper()}"
@@ -240,11 +248,11 @@ class EntryPolicyService:
                 pass
         return snap
 
-    async def _get_bundle(self, bid: str) -> Dict[str, Any]:
+    async def _get_bundle(self, bid: str) -> dict[str, Any]:
         d = await self.r.hgetall(f"{self.cfg.bundle_prefix}{bid}")
         return d or {}
 
-    async def _maybe_attach_exec_health(self, *, now_ms: int, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> Tuple[bool, str, str]:
+    async def _maybe_attach_exec_health(self, *, now_ms: int, cand: dict[str, Any], snap: dict[str, Any], bundle: dict[str, Any]) -> tuple[bool, str, str]:
         """Apply the canonical execution-health overlay to entry policy.
 
         Behaviour is intentionally fail-open:
@@ -257,11 +265,11 @@ class EntryPolicyService:
             return True, "", ""
 
         try:
-            sym = str(cand.get("symbol") or "").upper()
-            side = str(cand.get("side") or "NA").upper()
+            sym = (cand.get("symbol") or "").upper()
+            side = (cand.get("side") or "NA").upper()
             kind = str(bundle.get("decision") or cand.get("scenario") or "all").lower()
             sess = str(session_utc(int(now_ms)))
-            profile = str(os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default")) or "default").strip().lower()
+            profile = os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
 
             try:
                 roll = await aread_exec_health_rollups(
@@ -337,8 +345,8 @@ class EntryPolicyService:
             return True, "", ""
 
     async def _maybe_enforce_exec_health_auto_freeze(
-        self, *, now_ms: int, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]
-    ) -> Tuple[bool, str, str]:
+        self, *, now_ms: int, cand: dict[str, Any], snap: dict[str, Any], bundle: dict[str, Any]
+    ) -> tuple[bool, str, str]:
         """P6 hard hook: turn autoguard freeze key into real entry-path deny.
 
         Fail-open on Redis/read errors. This is the consumer-side enforcement for the
@@ -367,7 +375,7 @@ class EntryPolicyService:
             # Fail-open: never block entry on hook errors
             return True, "", ""
 
-    async def _maybe_poll_overrides(self, now_ms: int, *, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> None:
+    async def _maybe_poll_overrides(self, now_ms: int, *, cand: dict[str, Any], snap: dict[str, Any], bundle: dict[str, Any]) -> None:
         """
         Poll overrides using strict schema + hold-down + hysteresis.
         Key precedence (most specific first):
@@ -377,10 +385,10 @@ class EntryPolicyService:
           4) cfg:entry_policy:overrides:v1
         Deterministic: apply only if updated_ts_ms increases.
         """
-        sym = str(cand.get("symbol") or "").strip().upper()
-        rg = str(snap.get("regime", cand.get("regime", "na")) or "na").strip().lower()
-        grp = str(cand.get("ab_group") or "default").strip().lower()
-        scn = str(bundle.get("decision", cand.get("scenario", "")) or "").strip().lower()
+        sym = (cand.get("symbol") or "").strip().upper()
+        rg = (snap.get("regime", cand.get("regime", "na")) or "na").strip().lower()
+        grp = (cand.get("ab_group") or "default").strip().lower()
+        scn = (bundle.get("decision", cand.get("scenario", "")) or "").strip().lower()
         prefix = "cfg:entry_policy:overrides:v1"
         keys = [
             f"{prefix}:{sym}:{rg}:{scn}:{grp}" if (sym and rg and scn) else "",
@@ -416,15 +424,15 @@ class EntryPolicyService:
         self._ovr_loaded_ts_ms[grp] = int(o.updated_ts_ms or now_ms)
         self._ovr_last_apply_ts_ms[grp] = int(now_ms)
 
-    async def _audit(self, *, now_ms: int, cand: Dict[str, Any], ok: bool, reason_code: str, notes: str, snap: Dict[str, Any], bundle: Dict[str, Any], arm: str = "NA", ovr: EntryPolicyOverridesV1 = None) -> None:
+    async def _audit(self, *, now_ms: int, cand: dict[str, Any], ok: bool, reason_code: str, notes: str, snap: dict[str, Any], bundle: dict[str, Any], arm: str = "NA", ovr: EntryPolicyOverridesV1 = None) -> None:
         try:
             o = ovr or EntryPolicyOverridesV1()
             eid = _entry_id(cand, snap, bundle)
             payload = {
                 "ts_ms": now_ms, "entry_id": eid, "ok": 1 if ok else 0, "reason_code": str(reason_code), "notes": str(notes),
-                "regime": str(snap.get("regime", cand.get("regime", "na"))), "ab_arm": str(cand.get("ab_arm", arm)),
-                "ab_group": str(cand.get("ab_group", "default")), "symbol": cand.get("symbol"), "side": cand.get("side"),
-                "ab_split_reason": str(cand.get("ab_split_reason","") or ""),
+                "regime": (snap.get("regime", cand.get("regime", "na"))), "ab_arm": (cand.get("ab_arm", arm)),
+                "ab_group": (cand.get("ab_group", "default")), "symbol": cand.get("symbol"), "side": cand.get("side"),
+                "ab_split_reason": (cand.get("ab_split_reason","") or ""),
                 "ab_split_a": float(cand.get("ab_split_a", 0.0) or 0.0),
                 "ab_split_b": float(cand.get("ab_split_b", 0.0) or 0.0),
                 "ab_split_c": float(cand.get("ab_split_c", 0.0) or 0.0),
@@ -448,16 +456,16 @@ class EntryPolicyService:
                     # These fields are *best-effort* and may be missing depending on
                     # how SMT snapshots are produced.
                     "liq_geom": {
-                        "profile": str(snap.get("liq_geom_profile", "")),
-                        "flags": str(snap.get("liq_geom_flags", "")),
+                        "profile": (snap.get("liq_geom_profile", "")),
+                        "flags": (snap.get("liq_geom_flags", "")),
                         "slope_min": float(snap.get("liq_geom_slope_min", 0.0) or 0.0),
                         "dws_bps": float(snap.get("liq_geom_dws_bps", 0.0) or 0.0),
                         "recovery_time_ms": int(snap.get("liq_geom_recovery_time_ms", 0) or 0),
                         "tighten_add_bps": float(snap.get("liq_geom_tighten_add_bps", 0.0) or 0.0),
                     },
                     "flow_toxic": {
-                        "profile": str(snap.get("flow_toxic_profile", "")),
-                        "flags": str(snap.get("flow_toxic_flags", "")),
+                        "profile": (snap.get("flow_toxic_profile", "")),
+                        "flags": (snap.get("flow_toxic_flags", "")),
                         "ofi_norm_z": float(snap.get("ofi_norm_z", snap.get("flow_toxic_ofi_norm_z", 0.0)) or 0.0),
                         "vpin_cdf": float(snap.get("vpin_cdf", snap.get("flow_toxic_vpin_cdf", 0.0)) or 0.0),
                         "tighten_add_bps": float(snap.get("flow_toxic_tighten_add_bps", 0.0) or 0.0),
@@ -468,7 +476,7 @@ class EntryPolicyService:
             await self.r.xadd(self.cfg.audit_stream, {"data": json.dumps(payload)}, maxlen=self.cfg.audit_stream_maxlen, approximate=True)
         except Exception: pass
 
-    def _apply_liq_geom_policy(self, *, cand: Dict[str, Any], snap: Dict[str, Any]) -> Tuple[bool, str, str]:
+    def _apply_liq_geom_policy(self, *, cand: dict[str, Any], snap: dict[str, Any]) -> tuple[bool, str, str]:
         """Phase C (P2): Liquidity geometry/resiliency policy for EntryPolicy.
 
         Requirements from product:
@@ -479,7 +487,7 @@ class EntryPolicyService:
         This gate is fail-open: missing fields => no action.
         """
         try:
-            profile = str(os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default")) or "default").strip().lower()
+            profile = os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
             if profile not in {"default", "soft", "strict", "hard"}:
                 profile = "default"
 
@@ -541,7 +549,7 @@ class EntryPolicyService:
             # Fail-open: never block entry on missing/invalid geometry data
             return True, "", ""
 
-    def _apply_flow_toxicity_policy(self, *, cand: Dict[str, Any], snap: Dict[str, Any]) -> Tuple[bool, str, str]:
+    def _apply_flow_toxicity_policy(self, *, cand: dict[str, Any], snap: dict[str, Any]) -> tuple[bool, str, str]:
         """Phase D (P3): Flow toxicity overlay for EntryPolicy.
 
         Inputs (expected in `snap`, possibly via sidecar `smt:snap_extra:*`):
@@ -558,7 +566,7 @@ class EntryPolicyService:
         try:
             from services.orderflow.flow_toxicity import evaluate_flow_toxicity
 
-            profile = str(os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default")) or "default").strip().lower()
+            profile = os.getenv("ENTRY_POLICY_PROFILE", os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
             if profile not in {"default", "soft", "strict", "hard"}:
                 profile = "default"
 
@@ -613,7 +621,7 @@ class EntryPolicyService:
         except Exception:
             return True, "", ""
 
-    def _apply_manip_gate(self, *, cand: Dict[str, Any], snap: Dict[str, Any]) -> Tuple[bool, str, str]:
+    def _apply_manip_gate(self, *, cand: dict[str, Any], snap: dict[str, Any]) -> tuple[bool, str, str]:
         """Phase E (P4): Manipulation patterns overlay for EntryPolicy.
 
         Reads quote_stuffing_score / layering_score / otr_z from merged snap
@@ -627,8 +635,8 @@ class EntryPolicyService:
         Fail-open: missing metrics => allow.
         """
         try:
-            profile = str(os.getenv("MANIP_GATE_PROFILE", os.getenv("GATE_PROFILE", "default")) or "default").strip().lower()
-            manip_mode_ov = str(os.getenv("MANIP_MODE", "") or "").strip().lower()
+            profile = os.getenv("MANIP_GATE_PROFILE", os.getenv("GATE_PROFILE", "default") or "default").strip().lower()
+            manip_mode_ov = (os.getenv("MANIP_MODE", "") or "").strip().lower()
             if manip_mode_ov in {"monitor", "tighten", "veto"}:
                 profile = manip_mode_ov
             if profile not in {"default", "soft", "strict", "hard", "monitor", "tighten", "veto"}:
@@ -644,7 +652,7 @@ class EntryPolicyService:
             qs_score = float(snap.get("quote_stuffing_score", 0.0) or 0.0)
             lay_score = float(snap.get("layering_score", 0.0) or 0.0)
             otr_z_val = float(snap.get("otr_z", 0.0) or 0.0)
-            manip_flags_val = str(snap.get("manip_flags", "") or "")
+            manip_flags_val = (snap.get("manip_flags", "") or "")
 
             # Annotate snap (for audit)
             snap["manip_gate_profile"] = profile
@@ -692,8 +700,8 @@ class EntryPolicyService:
             return True, "", ""
 
     async def _apply_derivatives_context_policy(
-        self, *, cand: Dict[str, Any], snap: Dict[str, Any]
-    ) -> Tuple[bool, str, str]:
+        self, *, cand: dict[str, Any], snap: dict[str, Any]
+    ) -> tuple[bool, str, str]:
         """P0: normalized derivatives context overlay for EntryPolicy.
 
         Requirements from product:
@@ -711,7 +719,7 @@ class EntryPolicyService:
             if profile not in {"default", "soft", "strict", "hard", "monitor", "tighten", "veto"}:
                 profile = "default"
 
-            sym = str(cand.get("symbol") or "").upper()
+            sym = (cand.get("symbol") or "").upper()
             ctx_snap = await aread_derivatives_context(self.r, symbol=sym)
             if ctx_snap is None:
                 return True, "", ""
@@ -767,7 +775,7 @@ class EntryPolicyService:
         except Exception:
             return True, "", ""
 
-    async def _emit_entry(self, *, now_ms: int, cand: Dict[str, Any], snap: Dict[str, Any], bundle: Dict[str, Any]) -> bool:
+    async def _emit_entry(self, *, now_ms: int, cand: dict[str, Any], snap: dict[str, Any], bundle: dict[str, Any]) -> bool:
         """Publish the approved trade entry to the output stream.
 
         Returns True if emitted, False if blocked (P6 final safety freeze check)
@@ -797,9 +805,9 @@ class EntryPolicyService:
                 "side": cand["side"],
                 "bundle": cand.get("bundle", ""),
                 # --- AB routing (must survive into PositionState.signal_payload) ---
-                "ab_arm": str(cand.get("ab_arm") or "A"),
-                "ab_group": str(cand.get("ab_group") or "default"),
-                "ab_key": str(cand.get("ab_key") or ""),
+                "ab_arm": (cand.get("ab_arm") or "A"),
+                "ab_group": (cand.get("ab_group") or "default"),
+                "ab_key": (cand.get("ab_key") or ""),
                 "ab_ver": _i(cand.get("arm_ver", 0), 0),
                 "leader": _s(bundle.get("leader", "")),
                 "decision": _s(bundle.get("decision", "")),  # scenario taxonomy: continuation|reversal
@@ -888,39 +896,39 @@ class EntryPolicyService:
         except Exception:
             pass  # fail-open: never block entry on counter write failure
 
-    def _parse_candidate(self, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_candidate(self, fields: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            if str(fields.get("type")) != "entry_candidate": return None
+            if (fields.get("type")) != "entry_candidate": return None
             pl = json.loads(fields.get("payload", "{}"))
             return {
                 "symbol": _s(fields.get("symbol")).upper(), "ts_ms": _i(fields.get("ts_ms")), "side": _s(fields.get("side")).upper(),
                 "bundle": _s(fields.get("bundle")), "ab_arm": _s(pl.get("ab_arm", "A")).upper(), "ab_group": _s(pl.get("ab_group", "default")).lower(),
                 "ab_key": _s(pl.get("ab_key", "")),
                 "regime": _s(pl.get("regime", "na")).lower(), "payload": pl,
-                "ab_split_reason": str(pl.get("ab_split_reason", "")),
+                "ab_split_reason": (pl.get("ab_split_reason", "")),
                 "ab_split_a": _f(pl.get("ab_split_a", 0.0)),
                 "ab_split_b": _f(pl.get("ab_split_b", 0.0)),
                 "ab_split_c": _f(pl.get("ab_split_c", 0.0)),
             }
         except Exception: return None
 
-    async def process_one(self, fields: Dict[str, Any]) -> None:
+    async def process_one(self, fields: dict[str, Any]) -> None:
         cand = self._parse_candidate(fields)
         if not cand: return
         now = _now_ms()
-        
+
         # Expert recommendation: Auto-assign ab_group based on regime if missing
         if not cand.get("payload", {}).get("ab_group"):
              cand["ab_group"] = regime_group(cand.get("regime", "na"))
-        
+
         # Normalize arm from candidate if present
         if cand.get("ab_arm"):
             cand["ab_arm"] = norm_arm(cand["ab_arm"])
 
-        grp = str(cand.get("ab_group") or "default").lower()
+        grp = (cand.get("ab_group") or "default").lower()
         snap, bundle = await self._get_context(cand)
-        scn = str(bundle.get("decision", "na")).lower()
-        
+        scn = (bundle.get("decision", "na")).lower()
+
         await self._maybe_poll_overrides(now, cand=cand, snap=snap, bundle=bundle)
         ovr = self._ovr_group.get(grp) or EntryPolicyOverridesV1()
         ovr, _ = ovr.validate()
@@ -930,7 +938,7 @@ class EntryPolicyService:
         # ------------------------------------------------------------
         try:
             req_tier = -1
-            reg = str(snap.get("regime", "na")).lower()
+            reg = (snap.get("regime", "na")).lower()
             if reg == "trend": req_tier = int(ovr.abs_lvl_tier_trend)
             elif reg == "range": req_tier = int(ovr.abs_lvl_tier_range)
             elif reg == "thin": req_tier = int(ovr.abs_lvl_tier_thin)
@@ -943,11 +951,11 @@ class EntryPolicyService:
                     if obs_tier != req_tier: deny = True
                 else: # "min"
                     if obs_tier < req_tier: deny = True
-                
+
                 if deny:
                     await self._audit(
-                        now_ms=_now_ms(), cand=cand, ok=False, 
-                        reason_code="DENY_ABS_LVL_TIER_POLICY", 
+                        now_ms=_now_ms(), cand=cand, ok=False,
+                        reason_code="DENY_ABS_LVL_TIER_POLICY",
                         notes=f"req={req_tier} obs={obs_tier} mode={mode}",
                         snap=snap, bundle=bundle, ovr=ovr
                     )
@@ -958,12 +966,12 @@ class EntryPolicyService:
         # Apply policy knobs into core_cfg (safe / optional)
         try:
             if float(getattr(ovr, "coh_thr", 0.0) or 0.0) > 0:
-                self.core_cfg.coh_thr = float(getattr(ovr, "coh_thr"))
+                self.core_cfg.coh_thr = float(ovr.coh_thr)
         except Exception:
             pass
 
         frz_active, frz_until, frz_mode, frz_reason = 0, 0, "", ""
-        
+
         try:
             if ovr.enabled:
                 # 1) Force active arm (hard override)
@@ -982,7 +990,7 @@ class EntryPolicyService:
         except Exception: pass
 
 
-        
+
         active_val_raw = await self._get_active_arm(
             symbol=cand["symbol"],
             regime=snap.get("regime", "na"),
@@ -990,28 +998,26 @@ class EntryPolicyService:
             scenario=scn,
             raw_only=True
         )
-        
+
         # apply hold-down + gap using overrides values
         try:
             self._arm_stab.hold_down_ms = int(getattr(ovr, "active_arm_hold_down_ms", self._arm_stab.hold_down_ms) or self._arm_stab.hold_down_ms)
             self._arm_stab.min_switch_gap_ms = int(getattr(ovr, "active_arm_min_switch_gap_ms", self._arm_stab.min_switch_gap_ms) or self._arm_stab.min_switch_gap_ms)
         except Exception:
             pass
-            
+
         arm_key = f"{cand.get('symbol','')}:{snap.get('regime','na')}:{grp}:{scn}"
-        active_val = self._arm_stab.update(key=arm_key, raw=str(active_val_raw or ""), now_ms=now)
-        
+        active_val = self._arm_stab.update(key=arm_key, raw=(active_val_raw or ""), now_ms=now)
+
         act = decide_active_arm(cand_arm=cand["ab_arm"], active_arm_value=active_val)
-        
+
         # Shadow mode: arm shadow or forced-shadow due to spread guard
         arm_shadow = not act.is_active
-        
+
         if not act.is_active:
             # audit includes raw/effective active arm and stabilizer snapshot
-            try:
-                setattr(self, "_last_active_arm_dbg", {"raw": active_val_raw, "eff": active_val, "key": arm_key, "ovr": ovr, "stab": self._arm_stab.snapshot(arm_key)})
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                self._last_active_arm_dbg = {"raw": active_val_raw, "eff": active_val, "key": arm_key, "ovr": ovr, "stab": self._arm_stab.snapshot(arm_key)}
             await self._audit(now_ms=_now_ms(), cand=cand, ok=True, reason_code="ALLOW_SHADOW_AB_ARM", notes=f"Shadow (active_raw={active_val_raw} active_eff={active_val})", snap=snap, bundle=bundle, ovr=ovr)
             return
 
@@ -1091,12 +1097,12 @@ class EntryPolicyService:
 
         from services.entry_policy_core import evaluate_entry_policy
         dec = evaluate_entry_policy(now_ms=_now_ms(), cand=cand, snap=snap, bundle=bundle, cfg=self.core_cfg, dedup_state=self._dedup)
-        
+
         if dec.ok and dec.emit:
             # Extra strict gates from overrides (deterministic from snap fields)
             try:
                 if int(getattr(ovr, "enabled", 1) or 1) == 1:
-                    rg = str(snap.get("regime", "na") or "na")
+                    rg = (snap.get("regime", "na") or "na")
                     min_of = float(ovr.min_of_score(rg))
                     of_score = float(snap.get("of_confirm_score", 0.0) or 0.0)
                     if of_score < min_of:
@@ -1122,8 +1128,7 @@ class EntryPolicyService:
             await self._audit(now_ms=_now_ms(), cand=cand, ok=False, reason_code=dec.reason_code, notes=dec.notes, snap=snap, bundle=bundle, ovr=ovr)
 
     async def run_forever(self) -> None:
-        try: await self.r.xgroup_create(self.cfg.in_stream, self.cfg.group, id="0", mkstream=True)
-        except Exception: pass
+        with contextlib.suppress(Exception): await self.r.xgroup_create(self.cfg.in_stream, self.cfg.group, id="0", mkstream=True)
         while True:
             try:
                 msgs = await self.r.xreadgroup(self.cfg.group, self.cfg.consumer, {self.cfg.in_stream: ">"}, count=100, block=1000)

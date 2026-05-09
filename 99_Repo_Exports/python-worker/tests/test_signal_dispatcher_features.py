@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import pytest
-from unittest.mock import Mock, MagicMock
 import time
+from unittest.mock import Mock
 
 from services.signal_dispatcher import SignalDispatcher
 

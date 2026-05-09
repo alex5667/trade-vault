@@ -16,7 +16,7 @@ All values are stored as strings (Redis convention), TTL bounded.
 
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ class TcaKeyDims:
     kind: str
     side: str
 
-    def norm(self) -> "TcaKeyDims":
+    def norm(self) -> TcaKeyDims:
         return TcaKeyDims(
             sym=str(self.sym).upper(),
             venue=str(self.venue).lower(),
@@ -39,7 +39,7 @@ class TcaKeyDims:
         )
 
 
-def make_key(metric: str, stat: str, dims: TcaKeyDims, *, delta_sec: Optional[int] = None) -> str:
+def make_key(metric: str, stat: str, dims: TcaKeyDims, *, delta_sec: int | None = None) -> str:
     d = dims.norm()
     if delta_sec is None:
         return f"tca:{metric}_{stat}_bps:{d.sym}:{d.venue}:{d.session}:{d.tf}:{d.kind}:{d.side}"
@@ -50,9 +50,9 @@ async def write_rollups(
     *,
     redis: Any,
     dims: TcaKeyDims,
-    rollups: Dict[str, float],
+    rollups: dict[str, float],
     ttl_sec: int,
-    delta_sec: Optional[int] = None,
+    delta_sec: int | None = None,
 ) -> None:
     """Write a small set of rollups into Redis.
 

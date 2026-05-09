@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 core/v12_of_features.py
 =======================
@@ -12,9 +13,8 @@ Design principles:
 """
 
 
-import math
-import time as _time
-from typing import Any, Dict, Optional
+from typing import Any
+import contextlib
 
 # ---------------------------------------------------------------------------
 # Group MA — Microstructure / Trade-by-trade
@@ -22,7 +22,7 @@ from typing import Any, Dict, Optional
 #       trade_size_entropy
 # ---------------------------------------------------------------------------
 
-def compute_group_ma(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_ma(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group MA: per-tick microstructure features derived from rolling trade stats
     stored in SymbolRuntime.
@@ -36,7 +36,7 @@ def compute_group_ma(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
     These attributes are populated by the runtime's rolling trackers
     (see SymbolRuntime tick sequence counters + rolling stats).
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     try:
         out["trade_arrival_rate_hz"] = float(
@@ -79,7 +79,7 @@ def compute_group_ma(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
 # Both are available.
 # ---------------------------------------------------------------------------
 
-def compute_group_mb(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_mb(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group MB: order book dynamics.
 
@@ -89,7 +89,7 @@ def compute_group_mb(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
       - level2_wap_divergence  : float — WAP(5L) - mid_price in bps
       - bid_ask_queue_imbalance: float — (best_bid_qty - best_ask_qty) / total_best_qty
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     for key in (
         "quote_stuffing_score",
@@ -139,7 +139,7 @@ def _is_session_overlap(now_ms: int) -> float:
     return 0.0
 
 
-def compute_group_mc(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_mc(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group MC: temporal/seasonality features.
 
@@ -147,7 +147,7 @@ def compute_group_mc(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
     session_overlap_flag— derived from UTC hour (Train==Serve ✓)
     time_since_last_liq_ms — runtime.liq_last_ts_ms (updated when liq_usd>0)
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     # minutes_to_funding (always computable)
     try:
@@ -183,12 +183,12 @@ def compute_group_mc(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
 # Fail-open to 0.0.
 # ---------------------------------------------------------------------------
 
-def compute_group_md(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_md(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group MD: cross-asset macro features loaded from go-worker → Redis hash.
     SymbolRuntime.maybe_load_crossasset() populates the runtime attributes every ~5s.
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     for key in (
         "eth_btc_corr_5m",
@@ -208,7 +208,7 @@ def compute_group_md(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
 # Keys: signal_frequency_1h, last_trade_outcome_raw, calibration_age_ms
 # ---------------------------------------------------------------------------
 
-def compute_group_me(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_me(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group ME: meta-signal / self-referential features.
 
@@ -216,7 +216,7 @@ def compute_group_me(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
     last_trade_outcome_raw— runtime.last_trade_pnl_bps (last closed trade P&L in bps)
     calibration_age_ms    — now_ms - runtime.abs_lvl_calib_last_ts_ms
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     # signal_frequency_1h
     try:
@@ -253,7 +253,7 @@ def compute_group_me(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
 #       order_imbalance_momentum, atr_percentile_rank_30d
 # ---------------------------------------------------------------------------
 
-def compute_group_mx(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_mx(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group MX: derived features computed from runtime rolling state + indicators.
 
@@ -262,7 +262,7 @@ def compute_group_mx(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
     order_imbalance_momentum   — delta of ofi over last N ticks (first derivative of OFI)
     atr_percentile_rank_30d    — runtime.atr_bps_rank_30d  [0.0, 1.0]
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     # spread_percentile_rank_1d
     try:
@@ -290,10 +290,8 @@ def compute_group_mx(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
         ofi_prev = float(getattr(runtime, "ofi_prev_tick", 0.0) or 0.0)
         out["order_imbalance_momentum"] = ofi_now - ofi_prev
         # Update runtime for next tick (best-effort, fail-silent)
-        try:
+        with contextlib.suppress(Exception):
             runtime.ofi_prev_tick = ofi_now
-        except Exception:
-            pass
     except Exception:
         out["order_imbalance_momentum"] = 0.0
 
@@ -316,7 +314,7 @@ def inject_v12_of_features(
     *,
     runtime: Any,
     now_ms: int,
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
 ) -> None:
     """
     Compute and inject all 21 v12_of new indicator keys into `indicators`.
@@ -332,7 +330,7 @@ def inject_v12_of_features(
       ME — Meta-Signal / Self-referential   (3 keys)
       MX — Derived interaction              (4 keys)
     """
-    _DEFAULTS: Dict[str, float] = {
+    _DEFAULTS: dict[str, float] = {
         # MA
         "trade_arrival_rate_hz": 0.0,
         "large_trade_ratio": 0.0,

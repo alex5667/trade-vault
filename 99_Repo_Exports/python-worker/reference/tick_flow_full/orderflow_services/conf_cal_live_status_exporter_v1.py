@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 conf_cal_live_status_exporter_v1.py
 
@@ -12,11 +11,12 @@ Metrics:
 + status_age
 """
 
-import os
-import time
 import json
 import logging
-from prometheus_client import start_http_server, Gauge
+import os
+import time
+
+from prometheus_client import Gauge, start_http_server
 
 # ---------------------------------------------------------------------------
 # Config
@@ -50,7 +50,7 @@ STATUS_AGE = Gauge("conf_cal_status_age_seconds", "Age of the status file")
 def main():
     logger.info(f"Starting Exporter on port {EXPORTER_PORT}. Watching {STATUS_PATH}")
     start_http_server(EXPORTER_PORT)
-    
+
     symbol_label = "GLOBAL" # The health loop aggregates globally (or could be per-symbol input)
 
     while True:
@@ -60,31 +60,31 @@ def main():
                 mtime = os.path.getmtime(STATUS_PATH)
                 age = time.time() - mtime
                 STATUS_AGE.set(age)
-                
+
                 # Read
-                with open(STATUS_PATH, "r") as f:
+                with open(STATUS_PATH) as f:
                     data = json.load(f)
-                
+
                 # Update Metrics
                 ROLLBACK_TOTAL.labels(symbol=symbol_label).set(float(data.get("rollback_total", 0)))
-                
+
                 LIVE_ECE_RAW.labels(symbol=symbol_label).set(float(data.get("live_ece_raw", 0)))
                 LIVE_ECE_CAL.labels(symbol=symbol_label).set(float(data.get("live_ece_cal", 0)))
-                
+
                 LIVE_BRIER_RAW.labels(symbol=symbol_label).set(float(data.get("live_brier_raw", 0)))
                 LIVE_BRIER_CAL.labels(symbol=symbol_label).set(float(data.get("live_brier_cal", 0)))
-                
+
                 is_bad = 1 if data.get("status") == "degraded" else 0
                 LIVE_DEGRADE.labels(symbol=symbol_label).set(is_bad)
-                
+
                 LIVE_EXACT_RATE.labels(symbol=symbol_label).set(float(data.get("exact_rate", 0)))
-                
+
             else:
                 STATUS_AGE.set(9999)
-                
+
         except Exception as e:
             logger.error(f"Export error: {e}")
-            
+
         time.sleep(5)
 
 if __name__ == "__main__":

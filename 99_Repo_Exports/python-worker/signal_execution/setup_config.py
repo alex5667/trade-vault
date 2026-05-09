@@ -4,7 +4,7 @@ Centralized configuration for different symbols and setup types.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Any, Tuple
+from typing import Any
 
 from .models import SymbolSetupConfig
 
@@ -19,12 +19,12 @@ class SetupConfig:
     tp_r: float
     sl_r: float
     # Additional raw config for custom parameters
-    raw: Dict[str, Any]
+    raw: dict[str, Any]
 
 
 # Centralized setup configurations
 # Key: (symbol, setup_type)
-SETUP_CONFIGS: Dict[Tuple[str, str], SymbolSetupConfig] = {
+SETUP_CONFIGS: dict[tuple[str, str], SymbolSetupConfig] = {
     "breakout_R1": SymbolSetupConfig(
         symbol="",
         setup_type="breakout_R1",

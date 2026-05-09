@@ -1,13 +1,14 @@
 
-import unittest
-from unittest.mock import MagicMock, call
-import sys
 import os
+import sys
+import unittest
+from unittest.mock import MagicMock
 
 # Add path to services
 sys.path.append(os.path.join(os.getcwd(), "python-worker"))
 
-from services.recs_callback_worker_v2 import apply_ops, rollback_ops, op_preview_diff
+from services.recs_callback_worker_v2 import apply_ops, op_preview_diff, rollback_ops
+
 
 class TestRecsSetOp(unittest.TestCase):
     def setUp(self):
@@ -60,7 +61,7 @@ class TestRecsSetOp(unittest.TestCase):
 
         self.assertEqual(applied, 1)
         self.mock_pipeline.set.assert_called_with("mykey", "newval")
-        
+
         args, _ = self.mock_redis.rpush.call_args
         import json
         audit_entry = json.loads(args[1])
@@ -76,7 +77,7 @@ class TestRecsSetOp(unittest.TestCase):
             ]
         }
         self.mock_redis.get.return_value = "old_v1"
-        
+
         preview = op_preview_diff(self.mock_redis, bundle)
         self.assertIn("SET k1: old_v1 -> v1", preview)
 
@@ -84,7 +85,7 @@ class TestRecsSetOp(unittest.TestCase):
         bundle_id = "b1"
         ttl = 60
         actor = "tester"
-        
+
         # Mock audit log response
         audit_entry = {
             "op": "SET",
@@ -99,7 +100,7 @@ class TestRecsSetOp(unittest.TestCase):
         self.mock_redis.lindex.return_value = json.dumps(audit_entry)
 
         rollback_ops(self.mock_redis, bundle_id, ttl, actor)
-        
+
         # Should delete k1 because old_null was 1
         self.mock_pipeline.delete.assert_called_with("k1")
 
@@ -107,7 +108,7 @@ class TestRecsSetOp(unittest.TestCase):
         bundle_id = "b1"
         ttl = 60
         actor = "tester"
-        
+
         audit_entry = {
             "op": "SET",
             "key": "k1",
@@ -121,7 +122,7 @@ class TestRecsSetOp(unittest.TestCase):
         self.mock_redis.lindex.return_value = json.dumps(audit_entry)
 
         rollback_ops(self.mock_redis, bundle_id, ttl, actor)
-        
+
         # Should set k1 to old_val
         self.mock_pipeline.set.assert_called_with("k1", "old_val")
 

@@ -1,30 +1,26 @@
 from __future__ import annotations
+
 """
 Tests for tools/cron_demo_reconcile.py  —  SL/TP coverage + reconcile logic.
 """
 
-import pytest
-from typing import Any, Dict, List
+from typing import Any
 
 from tools.cron_demo_reconcile import (
-    TestnetAccount,
     ReconcileResult,
-    SymbolPnlRow,
-    ClosedPnlSummary,
+    TestnetAccount,
+    build_reconcile_text,
     classify_sl_tp_coverage,
     compare_closed_pnl,
     reconcile,
-    build_reconcile_text,
-    _SymbolCoverage,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _pos(symbol: str, amt: float = 1.0, entry: float = 100.0,
-         mark: float = 105.0, upnl: float = 5.0) -> Dict[str, Any]:
+         mark: float = 105.0, upnl: float = 5.0) -> dict[str, Any]:
     return {
         "symbol": symbol,
         "positionAmt": amt,
@@ -36,7 +32,7 @@ def _pos(symbol: str, amt: float = 1.0, entry: float = 100.0,
 
 
 def _order(symbol: str, otype: str, stop_price: float = 0.0,
-           price: float = 0.0, price_rate: float = 0.0) -> Dict[str, Any]:
+           price: float = 0.0, price_rate: float = 0.0) -> dict[str, Any]:
     return {
         "symbol": symbol,
         "type": otype,
@@ -231,7 +227,7 @@ class TestBuildReconcileTextSlTp:
 # ---------------------------------------------------------------------------
 
 def _sql_row(symbol: str, n_trades: int = 5, wins: int = 3,
-             pnl_net_sum: float = 10.0, fees_sum: float = 0.5) -> Dict[str, Any]:
+             pnl_net_sum: float = 10.0, fees_sum: float = 0.5) -> dict[str, Any]:
     return {
         "symbol": symbol,
         "n_trades": n_trades,
@@ -241,7 +237,7 @@ def _sql_row(symbol: str, n_trades: int = 5, wins: int = 3,
     }
 
 
-def _income(symbol: str, income: float) -> Dict[str, Any]:
+def _income(symbol: str, income: float) -> dict[str, Any]:
     return {"symbol": symbol, "income": str(income), "incomeType": "REALIZED_PNL"}
 
 
@@ -283,7 +279,7 @@ class TestComparePnl:
 
     def test_symbol_in_testnet_only(self):
         """Income exists but no SQL row → proj=0, delta=-tn_pnl."""
-        sql: List[Dict[str, Any]] = []
+        sql: list[dict[str, Any]] = []
         inc = [_income("BNBUSDT", 5.0)]
         cp = compare_closed_pnl(sql, inc)
         assert len(cp.rows) == 1
@@ -296,7 +292,7 @@ class TestComparePnl:
     def test_symbol_in_sql_only(self):
         """SQL row exists but no income → tn_pnl=0, delta=proj_pnl."""
         sql = [_sql_row("XRPUSDT", pnl_net_sum=7.0)]
-        inc: List[Dict[str, Any]] = []
+        inc: list[dict[str, Any]] = []
         cp = compare_closed_pnl(sql, inc)
         r = cp.rows[0]
         assert abs(r.tn_pnl) < 1e-8

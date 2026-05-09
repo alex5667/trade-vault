@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import os
-from typing import Any, Dict
+from typing import Any
 
 from services.outbox.envelope_builder import build_outbox_envelope
 from tests._helpers.json_contract import assert_json_safe
@@ -25,7 +24,7 @@ def test_build_outbox_envelope_trace_is_summary_only():
     """
     sid = "sid_test_1"
 
-    trace: Dict[str, Any] = {
+    trace: dict[str, Any] = {
         "trace_id": "trace-123",
         "events": [
             {"type": "gate", "name": "regime_gate", "passed": True, "veto": False, "duration_ms": 0.1},

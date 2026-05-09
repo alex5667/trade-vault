@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Regression: Signal Ensemble — pure-math weighted voting invariants (merge-blocker).
 
@@ -15,16 +15,12 @@ Run:
     cd python-worker && python -m pytest tests/test_signal_ensemble_math.py -v
 """
 
-import json
 import pytest
-from unittest.mock import MagicMock
 
 from services.signal_ensemble import (
-    SignalVote,
-    EnsembleDecision,
     SignalEnsemble,
+    SignalVote,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """ML drift monitor v1.
 
 Reads:
@@ -25,18 +26,16 @@ Environment:
 
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import asyncio
 import json
 import math
 import os
-import time
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import redis.asyncio as redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -47,20 +46,20 @@ def _f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
 def _i(x: Any, default: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(default)
+        return default
 
 
-def _bucket_from_payload(p: Dict[str, Any]) -> str:
+def _bucket_from_payload(p: dict[str, Any]) -> str:
     b = str(p.get("bucket") or p.get("regime_group") or p.get("regime") or "").lower()
     if "range" in b or "chop" in b or "meanrev" in b:
         return "range"
@@ -69,7 +68,7 @@ def _bucket_from_payload(p: Dict[str, Any]) -> str:
     return "other"
 
 
-def _parse_stream_row(fields: Dict[str, Any]) -> Dict[str, Any]:
+def _parse_stream_row(fields: dict[str, Any]) -> dict[str, Any]:
     if "payload" in fields:
         try:
             return json.loads(fields.get("payload") or "{}") or {}
@@ -79,7 +78,7 @@ def _parse_stream_row(fields: Dict[str, Any]) -> Dict[str, Any]:
     return dict(fields)
 
 
-def ks_stat(a: List[float], b: List[float]) -> float:
+def ks_stat(a: list[float], b: list[float]) -> float:
     """Two-sample KS statistic (no p-value)."""
     if not a or not b:
         return 0.0
@@ -100,21 +99,21 @@ def ks_stat(a: List[float], b: List[float]) -> float:
         fa = ia / na
         fb = ib / nb
         d = max(d, abs(fa - fb))
-    return float(d)
+    return d
 
 
-def psi(a: List[float], b: List[float], *, bins: int = 10) -> float:
+def psi(a: list[float], b: list[float], *, bins: int = 10) -> float:
     """Population Stability Index with bins derived from baseline quantiles."""
     if not a or not b:
         return 0.0
     a_sorted = sorted(a)
     # quantile cutpoints
-    cuts: List[float] = []
+    cuts: list[float] = []
     for k in range(1, bins):
         q_idx = int(round((k / bins) * (len(a_sorted) - 1)))
         cuts.append(a_sorted[q_idx])
     # build hist
-    def hist(xs: List[float]) -> List[int]:
+    def hist(xs: list[float]) -> list[int]:
         h = [0] * bins
         for v in xs:
             j = 0
@@ -136,10 +135,10 @@ def psi(a: List[float], b: List[float], *, bins: int = 10) -> float:
     return float(out)
 
 
-def calibration_bins(p: List[float], y: List[int], *, n_bins: int = 10) -> Dict[str, Any]:
+def calibration_bins(p: list[float], y: list[int], *, n_bins: int = 10) -> dict[str, Any]:
     """Return per-bin calibration stats and ECE."""
     assert len(p) == len(y)
-    bins: List[Dict[str, Any]] = []
+    bins: list[dict[str, Any]] = []
     ece = 0.0
     n = len(p)
     if n == 0:
@@ -167,9 +166,9 @@ async def _read_stream_window(
     *,
     min_ts_ms: int,
     max_scan: int,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Read newest->oldest, stop when ts_ms < min_ts_ms or scan limit reached."""
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     # Read chunks from the tail using XREVRANGE
     last_id = "+"
     scanned = 0
@@ -195,16 +194,16 @@ async def _read_stream_window(
     return out
 
 
-def _join_by_sid(pred_rows: List[Dict[str, Any]], trade_rows: List[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
-    trades_by_sid: Dict[str, Dict[str, Any]] = {}
+def _join_by_sid(pred_rows: list[dict[str, Any]], trade_rows: list[dict[str, Any]]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    trades_by_sid: dict[str, dict[str, Any]] = {}
     for tr in trade_rows:
-        sid = str(tr.get("sid") or "").strip()
+        sid = (tr.get("sid") or "").strip()
         if not sid:
             continue
         trades_by_sid[sid] = tr
-    out: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    out: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for pr in pred_rows:
-        sid = str(pr.get("sid") or "").strip()
+        sid = (pr.get("sid") or "").strip()
         if not sid:
             continue
         tr = trades_by_sid.get(sid)
@@ -252,7 +251,7 @@ async def main() -> int:
 
     # per-bucket distributions
     buckets = ["trend", "range", "other"]
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ts_ms": now,
         "window_hours": args.window_hours,
         "baseline_hours": args.baseline_hours,

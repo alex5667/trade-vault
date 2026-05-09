@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from contextlib import contextmanager
 
 from orderflow_services.exec_health_freeze_acl_policy_v1 import (
@@ -128,9 +127,9 @@ def test_policy_check_match_after_apply() -> None:
             apply()
             res = check()
             print(res)
-            
-            # Since check() doesn't substitute passwords for the "expected" side 
-            # (it just compares against EXPECTED_ACL_PROFILES directly), 
+
+            # Since check() doesn't substitute passwords for the "expected" side
+            # (it just compares against EXPECTED_ACL_PROFILES directly),
             # we need to make sure the tokens match.
             assert res["ok"] is True, f"Violations: {res['violations']}, Raw ACL: {res['raw_acl_list']}"
             assert res["drift"] is False

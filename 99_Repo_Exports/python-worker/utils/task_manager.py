@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import time
-from typing import Coroutine, Set, Optional
+from collections.abc import Coroutine
+import contextlib
 
 logger = logging.getLogger("task_manager")
 
@@ -20,7 +21,7 @@ class BackgroundTaskManager:
     """
     def __init__(self, limit: int = 10000):
         self.limit = limit
-        self._tasks: Set[asyncio.Task] = set()
+        self._tasks: set[asyncio.Task] = set()
         self._dropped_count = 0
         self._last_log_ts = 0
 
@@ -36,31 +37,25 @@ class BackgroundTaskManager:
                     coro_name = getattr(task.get_coro(), '__qualname__', str(task.get_coro()))
                     logger.warning(f"Background task '{name}' ({coro_name}) failed with Redis timeout/connection error: {exc}")
                     if task_error_total:
-                        try:
+                        with contextlib.suppress(Exception):
                             task_error_total.labels(name_prefix=name_prefix, exc_type=type(exc).__name__).inc()
-                        except Exception:
-                            pass
                 elif isinstance(exc, TypeError) and "'NoneType' object is not callable" in str(exc):
                     coro_name = getattr(task.get_coro(), '__qualname__', str(task.get_coro()))
                     logger.warning(f"Background task '{name}' ({coro_name}) failed with asyncio closed transport error (TypeError): {exc}")
                     if task_error_total:
-                        try:
+                        with contextlib.suppress(Exception):
                             task_error_total.labels(name_prefix=name_prefix, exc_type="ClosedTransportError").inc()
-                        except Exception:
-                            pass
                 elif not isinstance(exc, asyncio.CancelledError):
                     logger.error(f"Background task '{name}' raised an exception: {exc}", exc_info=exc)
                     if task_error_total:
-                        try:
+                        with contextlib.suppress(Exception):
                             task_error_total.labels(name_prefix=name_prefix, exc_type=type(exc).__name__).inc()
-                        except Exception:
-                            pass
         except asyncio.CancelledError:
             pass
         except Exception:
             pass
 
-    def submit(self, coro: Coroutine, name: Optional[str] = None) -> Optional[asyncio.Task]:
+    def submit(self, coro: Coroutine, name: str | None = None) -> asyncio.Task | None:
         """
         Submits a coroutine as a background task. 
         If the internal queue limit is reached, the task is dropped and NOT executed.
@@ -85,10 +80,10 @@ class BackgroundTaskManager:
 
         # Schedule execution
         task = asyncio.create_task(coro, name=name)
-        
+
         # Keep a strong reference
         self._tasks.add(task)
-        
+
         # Remove reference when done and retrieve exceptions safely
         task.add_done_callback(self._task_done_callback)
         return task
@@ -96,7 +91,7 @@ class BackgroundTaskManager:
 # Singleton instance to be used across the worker
 background_tasks = BackgroundTaskManager(limit=10000)
 
-def safe_create_task(coro: Coroutine, name: Optional[str] = None) -> Optional[asyncio.Task]:
+def safe_create_task(coro: Coroutine, name: str | None = None) -> asyncio.Task | None:
     """
     A drop-in replacement for asyncio.create_task for fire-and-forget operations.
     Bounds maximum concurrent tasks to avoid OOM issues.

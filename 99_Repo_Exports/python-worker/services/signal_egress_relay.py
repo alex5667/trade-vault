@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, Dict, Optional, List
+from typing import Any
 
 import redis
 
-from core.redis_stream_consumer import SyncRedisStreamHelper
-from core.redis_keys import RedisStreams as RS
-from core.dual_redis_client import get_dual_signals_redis
-from core.redis_safe_connect import apply_redis_connection_patches
 from common.log import setup_logger
 from common.transient import is_transient_error
+from core.dual_redis_client import get_dual_signals_redis
+from core.redis_keys import RedisStreams as RS
+from core.redis_safe_connect import apply_redis_connection_patches
+from core.redis_stream_consumer import SyncRedisStreamHelper
 
 logger = setup_logger("SignalEgressRelay")
 apply_redis_connection_patches()
@@ -120,11 +120,11 @@ class SignalEgressRelay:
         self.env_state_ttl_sec = int(os.getenv("SIGNAL_ENV_STATE_TTL_SEC", "172800"))
         self.marker_prefix = os.getenv("DELIVER_MARKER_PREFIX", "deliver:v2")  # use same namespace on dual
 
-        self._sha_notify: Optional[str] = None
-        self._sha_data: Optional[str] = None
-        self._sha_finalize: Optional[str] = None
+        self._sha_notify: str | None = None
+        self._sha_data: str | None = None
+        self._sha_finalize: str | None = None
 
-        self._pending_start: Dict[str, str] = {
+        self._pending_start: dict[str, str] = {
             self.egress_notify_stream: "0-0",
             self.egress_manual_stream: "0-0",
         }
@@ -193,14 +193,14 @@ class SignalEgressRelay:
             return False
 
     # ---------- deliveries ----------
-    def _deliver_notify(self, msg: Dict[str, Any]) -> None:
+    def _deliver_notify(self, msg: dict[str, Any]) -> None:
         assert self.dual is not None
 
-        sid = str(msg.get("sid") or "")
+        sid = (msg.get("sid") or "")
         dest_stream = str(msg.get("dest_stream") or os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM))
         payload = msg.get("payload") or {}
         every_n = int(msg.get("every_n") or 1)
-        counter_key = str(msg.get("counter_key") or os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", "notify:telegram:signal_counter"))
+        counter_key = str(msg.get("counter_key") or os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", RS.NOTIFY_SIGNAL_COUNTER))
 
         if not sid:
             raise ValueError("missing sid")
@@ -214,7 +214,7 @@ class SignalEgressRelay:
         sha = self._ensure_sha("notify")
 
         # Build ARGV: marker_ttl, maxlen, every_n, use_counter, field/value...
-        argv: List[str] = [
+        argv: list[str] = [
             str(self.marker_ttl_sec),
             "500",
             str(max(1, every_n)),
@@ -234,11 +234,11 @@ class SignalEgressRelay:
         self.main.setex(self._env_done_target_key(sid, "notify"), self.env_state_ttl_sec, "1")
         self._try_finalize(sid)
 
-    def _deliver_manual(self, msg: Dict[str, Any]) -> None:
+    def _deliver_manual(self, msg: dict[str, Any]) -> None:
         assert self.dual is not None
 
-        sid = str(msg.get("sid") or "")
-        dest_stream = str(msg.get("dest_stream") or "")
+        sid = (msg.get("sid") or "")
+        dest_stream = (msg.get("dest_stream") or "")
         payload = msg.get("payload")
         if not sid or not dest_stream:
             raise ValueError("missing sid/dest_stream")
@@ -256,7 +256,7 @@ class SignalEgressRelay:
         self._try_finalize(sid)
 
     # ---------- loop ----------
-    def _parse(self, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse(self, fields: dict[str, Any]) -> dict[str, Any] | None:
         raw = fields.get("data")
         if not raw:
             return None
@@ -341,7 +341,7 @@ class SignalEgressRelay:
                 logger.error("Relay loop error: %s", e, exc_info=True)
                 time.sleep(1)
 
-    def _handle_one(self, stream_name: str, msg_id: str, fields: Dict[str, Any]) -> None:
+    def _handle_one(self, stream_name: str, msg_id: str, fields: dict[str, Any]) -> None:
         msg = self._parse(fields)
         if not msg:
             logger.warning("bad egress msg stream=%s id=%s fields=%s", stream_name, msg_id, fields)

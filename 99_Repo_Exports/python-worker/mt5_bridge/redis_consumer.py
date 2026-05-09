@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Redis Stream Consumer for MT5 Bridge
 
@@ -8,11 +10,10 @@ Redis Stream Consumer for MT5 Bridge
 
 
 import json
-from typing import List
 
 import redis
 
-from .models import plan_from_dict, Mt5ExecutionPlan
+from .models import Mt5ExecutionPlan, plan_from_dict
 
 
 class PlansStreamConsumer:
@@ -39,7 +40,7 @@ class PlansStreamConsumer:
     }
     """
 
-    def __init__(self, redis_dsn: str, stream_key: str = "stream:signals:plans"):
+    def __init__(self, redis_dsn: str, stream_key: str = RS.SIGNAL_PLANS):
         """
         Args:
             redis_dsn: Redis connection string, e.g. "redis://localhost:6379/0"
@@ -50,7 +51,7 @@ class PlansStreamConsumer:
         # Начинаем с '$' - только новые сообщения после подключения
         self._last_id = "$"
 
-    def poll(self, block_ms: int = 500, count: int = 10) -> List[Mt5ExecutionPlan]:
+    def poll(self, block_ms: int = 500, count: int = 10) -> list[Mt5ExecutionPlan]:
         """
         Читает новые сообщения из stream (блокирующе).
 
@@ -68,7 +69,7 @@ class PlansStreamConsumer:
             count=count,
         )
 
-        plans: List[Mt5ExecutionPlan] = []
+        plans: list[Mt5ExecutionPlan] = []
 
         if not resp:
             return plans

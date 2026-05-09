@@ -1,6 +1,8 @@
 
 import os
+
 from services.ml_confirm_gate import MLConfirmGate
+
 
 def test_ml_gate_off_allows():
     os.environ["ML_CONFIRM_MODE"] = "OFF"

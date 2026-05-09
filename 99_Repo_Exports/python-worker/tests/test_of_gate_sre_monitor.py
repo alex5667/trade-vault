@@ -1,8 +1,10 @@
 from __future__ import annotations
+
 """Tests for of_gate_sre_monitor.py (NoData vs 0% semantics)"""
 
 import pytest
-from tools.of_gate_sre_monitor import compute_stats, build_alerts, pctl, _f, _i
+
+from tools.of_gate_sre_monitor import _f, _i, build_alerts, compute_stats, pctl
 
 
 def test_pctl_empty():
@@ -77,7 +79,7 @@ def test_compute_stats_basic():
         },
     ]
     result = compute_stats(rows, None, dh_bad_th=0.70)
-    
+
     assert result["n"] == 3
     assert result["ok_rate"] == pytest.approx(2.0 / 3.0, abs=0.01)
     assert result["soft_rate"] == pytest.approx(1.0 / 3.0, abs=0.01)
@@ -125,7 +127,7 @@ def test_compute_stats_missing_legs():
         },
     ]
     result = compute_stats(rows, None, dh_bad_th=0.70)
-    
+
     assert result["n"] == 2
     top_missing = result["top_missing_legs"]
     assert len(top_missing) > 0
@@ -171,7 +173,7 @@ def test_compute_stats_scenario_drift():
         },
     ]
     result = compute_stats(cur_rows, prev, dh_bad_th=0.70)
-    
+
     assert result["scenario_l1"] >= 0.0
     assert "scenario_dist" in result
     assert "scenario_max_share" in result

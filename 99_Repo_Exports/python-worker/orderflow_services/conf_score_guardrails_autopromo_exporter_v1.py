@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """conf_score_guardrails_autopromo_exporter_v1.py
 
 Prometheus exporter for the autopromo controller state.
@@ -12,31 +13,31 @@ Env:
   CONF_SCORE_GUARD_AUTOPROMO_STATE_PATH
   CONF_SCORE_GUARD_AUTOPROMO_EXPORTER_PORT,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server  # type: ignore
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _load_json(path: str) -> Dict[str, Any]:
+def _load_json(path: str) -> dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         return obj if isinstance(obj, dict) else {}
     except Exception:
         return {}
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -90,9 +91,9 @@ def main() -> int:
     while True:
         st = _load_json(args.state_path)
         # phase
-        phase = str(st.get("phase") or "idle")
+        phase = (st.get("phase") or "idle")
         # publish one-hot phase gauges
-        for p in PHASES.keys():
+        for p in PHASES:
             g_phase.labels(phase=p).set(1.0 if p == phase else 0.0)
 
         g_blocked.set(1.0 if phase == "blocked" else 0.0)
@@ -113,7 +114,7 @@ def main() -> int:
 
         # candidate version (low churn)
         cand = st.get("candidate") or {}
-        ver = str(cand.get("version") or "none")
+        ver = (cand.get("version") or "none")
         # wipe previous labels if version changes (simple approach)
         g_candidate.labels(version=ver).set(1.0)
 

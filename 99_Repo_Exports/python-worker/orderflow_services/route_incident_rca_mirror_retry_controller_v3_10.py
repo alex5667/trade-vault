@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -59,15 +60,15 @@ BACKOFF_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RETRY_BACKOFF_SEC", "1
 STATE_TTL_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RETRY_STATE_TTL_SEC", "86400"))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -88,8 +89,8 @@ def parse_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -117,7 +118,7 @@ def maybe_json(v: Any, default: Any = None) -> Any:
         return default
 
 
-async def xr_recent(client: Any, stream_key: str, count: int) -> list[Dict[str, Any]]:
+async def xr_recent(client: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await client.xrevrange(stream_key, count=count)
     except Exception:
@@ -130,15 +131,15 @@ async def xr_recent(client: Any, stream_key: str, count: int) -> list[Dict[str, 
     return out
 
 
-def actionable_decision(row: Dict[str, Any]) -> bool:
-    return str(row.get("controller_decision") or "") in {"PROMOTE", "ROLLBACK"}
+def actionable_decision(row: dict[str, Any]) -> bool:
+    return (row.get("controller_decision") or "") in {"PROMOTE", "ROLLBACK"}
 
 
-def event_key(row: Dict[str, Any]) -> str:
+def event_key(row: dict[str, Any]) -> str:
     return f"{row.get('source','?')}:{row.get('transition_type','NONE')}:{row.get('ts_ms','0')}"
 
 
-async def persist_if_configured(db_url: str, result: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, result: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -188,7 +189,7 @@ async def main() -> None:  # pragma: no cover
             snapshot = maybe_json(target.get("snapshot_json"), {})
             policy = snapshot.get("policy", {}) if isinstance(snapshot, dict) else {}
             advisory_only = parse_int(policy.get("advisory_only"), 1)
-            executor_mode = str(policy.get("executor_mode") or "DRY_RUN").upper()
+            executor_mode = (policy.get("executor_mode") or "DRY_RUN").upper()
             current_mode_live = str((await r.hget(SHADOW_POLICY_KEY, "mode")) or b"AUDIT_ONLY")
             if isinstance(current_mode_live, (bytes, bytearray)):
                 current_mode_live = current_mode_live.decode()

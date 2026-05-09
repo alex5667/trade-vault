@@ -1,7 +1,8 @@
-from utils.time_utils import get_ny_time_millis
 import unittest
-import time
-from services.post_sl_analyzer import _norm_side, _norm_regime, PostSlAnalyzer, TrackState
+
+from services.post_sl_analyzer import TrackState, _norm_regime, _norm_side
+from utils.time_utils import get_ny_time_millis
+
 
 class TestPostSlAnalyzerNormalization(unittest.TestCase):
 
@@ -25,10 +26,10 @@ class TestPostSlAnalyzerNormalization(unittest.TestCase):
              # User snippet: if int(x) > 0 else "SHORT".
              # I will test what I implemented.
         ]
-        
+
         for inp, expected in cases:
             # For 0 it returns SHORT based on code
-            if inp == 0: continue 
+            if inp == 0: continue
             with self.subTest(inp=inp):
                 self.assertEqual(_norm_side(inp), expected)
 
@@ -59,7 +60,7 @@ class TestPostSlAnalyzerNormalization(unittest.TestCase):
             regime="Bullish"
         )
         track.bars_seen = 10
-        
+
         # Simulate calculations
         mfe_r = 1.5
         mfe_atr = 2.0
@@ -67,11 +68,11 @@ class TestPostSlAnalyzerNormalization(unittest.TestCase):
         tp1_hit = True
         time_to_tp1 = 60000
         reason = "tp1_hit"
-        
-        # Logic from _finish_track (copied for verification or I can expose a static helper, 
+
+        # Logic from _finish_track (copied for verification or I can expose a static helper,
         # but since I modified the method in-place, I can't easily import just that chunk without the whole class instance.
         # I will replicate the transformation here to prove the concept matches the user requirement).
-        
+
         now_ms = get_ny_time_millis()
         result = {
             "trade_id": str(track.trade_id),
@@ -80,7 +81,7 @@ class TestPostSlAnalyzerNormalization(unittest.TestCase):
             "regime": _norm_regime(track.regime),
             "post_sl_tp1_hit": int(tp1_hit),
             "post_sl_tp1_time_ms": int(time_to_tp1) if time_to_tp1 is not None else -1,
-            "post_sl_end_reason": str(reason or ""),
+            "post_sl_end_reason": (reason or ""),
             "post_sl_bars_observed": int(track.bars_seen),
             "post_sl_mfe_r": float(mfe_r),
             "post_sl_mfe_atr": float(mfe_atr),
@@ -89,7 +90,7 @@ class TestPostSlAnalyzerNormalization(unittest.TestCase):
             "ingest_ts_ms": now_ms,
             "ts": now_ms
         }
-        
+
         # Verify types
         self.assertIsInstance(result["post_sl_mfe_r"], float)
         self.assertIsInstance(result["post_sl_mfe_atr"], float)

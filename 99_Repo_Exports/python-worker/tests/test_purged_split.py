@@ -1,5 +1,7 @@
 import numpy as np
+
 from core.purged_embargo_split import PurgedEmbargoTimeSeriesSplit
+
 
 def test_purged_embargo_split_basic():
     ts = np.arange(0, 1_000_000, 1000, dtype=np.int64)

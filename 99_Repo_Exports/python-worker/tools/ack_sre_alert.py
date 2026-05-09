@@ -14,10 +14,11 @@ Usage:
   # Set receipt (stop retries)
   python ack_sre_alert.py --receipt_id "rcpt:xxxxxxxxxxxxxxxx" --ttl_sec 3600
 """
-import os
-import sys
 import argparse
 import logging
+import os
+import sys
+
 from redis import Redis
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')

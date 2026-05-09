@@ -1,11 +1,11 @@
 """P0.2 — signal side field must be BUY/SELL (execution), not LONG/SHORT."""
 from __future__ import annotations
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import pytest
 from services.signal_preprocess import preprocess_signal_for_publish
 
 

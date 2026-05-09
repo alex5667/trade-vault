@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from domain.time_utils import ctx_epoch_ms
 from services.session_service import session_key_from_epoch_ms
@@ -36,7 +36,7 @@ class SlippageModelConfig:
     key_prefix: str = os.getenv("SLIPPAGE_EMA_KEY_PREFIX", "slipema")
 
 
-def spread_bps_from_tick(tick: Any, mid: Optional[float] = None) -> Optional[float]:
+def spread_bps_from_tick(tick: Any, mid: float | None = None) -> float | None:
     """
     Compute spread bps from a tick-like object.
     Supported fields (per your tick_parser):
@@ -88,7 +88,7 @@ def estimate_slippage_bps(
     tf: str,
     kind: str,
     redis_client: Any = None,
-    mid: Optional[float] = None,
+    mid: float | None = None,
 ) -> float:
     """
     Uses strict ts normalization:
@@ -113,10 +113,10 @@ def estimate_slippage_bps(
 
     key = _ema_key(
         cfg,
-        symbol=str(symbol),
-        venue=str(venue or "na"),
+        symbol=symbol,
+        venue=(venue or "na"),
         session=str(session),
-        tf=str(tf or "na"),
+        tf=(tf or "na"),
         kind=str(kind),
     )
 

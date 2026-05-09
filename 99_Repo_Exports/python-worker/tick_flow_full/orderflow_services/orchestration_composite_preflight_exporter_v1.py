@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Prometheus exporter for composite orchestration preflight state (P5.4 / P6.4).
@@ -20,8 +21,9 @@ normalized into a finite reason-code family set; unknown values collapse into
 import logging
 import os
 import time
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Mapping
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server
 
@@ -96,11 +98,11 @@ def _f(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
     except Exception:
-        return float(default)
+        return default
 
 
 def _parse_purposes(raw: str) -> list[str]:
-    values = [v.strip() for v in str(raw or '').split(',') if v.strip()]
+    values = [v.strip() for v in (raw or '').split(',') if v.strip()]
     if not values:
         return list(ALLOWED_PURPOSES)
     out: list[str] = []
@@ -122,7 +124,7 @@ def _redis_client():
         return None
 
 
-def _read_hash(client: Any, key: str) -> Dict[str, str]:
+def _read_hash(client: Any, key: str) -> dict[str, str]:
     if client is None or not key:
         return {}
     try:
@@ -212,10 +214,10 @@ def compute_purpose_state(purpose: str, raw: Mapping[str, str], now_ms: int | No
     if updated_ts_ms > 0:
         age_seconds = max(0.0, (now_ms - updated_ts_ms) / 1000.0)
 
-    status = str(raw.get('status') or 'invalid').strip() or 'invalid'
+    status = (raw.get('status') or 'invalid').strip() or 'invalid'
     if status not in KNOWN_STATUSES:
         status = 'invalid'
-    source = str(raw.get('selected_source') or 'none').strip() or 'none'
+    source = (raw.get('selected_source') or 'none').strip() or 'none'
     if source not in KNOWN_SOURCES:
         source = 'none'
 
@@ -234,11 +236,11 @@ def compute_purpose_state(purpose: str, raw: Mapping[str, str], now_ms: int | No
         decision_status=status,
         selected_source=source,
         selected_reason_code=normalize_reason_code(source, str(raw.get('selected_reason_code') or raw.get('selected_reason') or '')),
-        deploy_lint_status=str(raw.get('deploy_lint_status') or 'unknown'),
-        latency_contract_status=str(raw.get('latency_contract_status') or 'unknown'),
+        deploy_lint_status=(raw.get('deploy_lint_status') or 'unknown'),
+        latency_contract_status=(raw.get('latency_contract_status') or 'unknown'),
         strategy_research_stats_status=str(raw.get('strategy_research_stats_status') or raw.get('research_stats_status') or 'unknown'),
         strategy_research_stats_reason_family=research_stats_reason_family(strategy_reason_raw),
-        research_guard_status=str(raw.get('research_guard_status') or 'unknown'),
+        research_guard_status=(raw.get('research_guard_status') or 'unknown'),
     )
 
 
@@ -302,7 +304,7 @@ def export_states(states: list[PurposeState]) -> None:
     SUMMARY_SOFT.set(summary.soft_total)  # P6.4
 
     # P6.4: accumulate family totals across all purposes in a single pass
-    family_totals = {family: 0.0 for family in STRATEGY_RESEARCH_STATS_REASON_FAMILIES}
+    family_totals = dict.fromkeys(STRATEGY_RESEARCH_STATS_REASON_FAMILIES, 0.0)
     active_reason_codes = {state.purpose: state.selected_reason_code for state in states}
     for state in states:
         PURPOSE_PRESENT.labels(purpose=state.purpose).set(state.present)

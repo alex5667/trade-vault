@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-import pytest
 
+import pytest
 
 _THIS_DIR = os.path.dirname(__file__)
 _DASHBOARD_JSON = os.path.abspath(os.path.join(_THIS_DIR, "..", "grafana", "derivatives_context_v1.json"))

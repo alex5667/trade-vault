@@ -1,20 +1,18 @@
-import json
 import logging
-import time
 
-from services.atr_postmortem_control_service import change_postmortem_status, verify_action, get_postmortem, get_open_actions, get_active_postmortems
+from services.atr_postmortem_control_service import change_postmortem_status, get_open_actions, verify_action
 
 logger = logging.getLogger("atr_postmortem_telegram_surface")
 
 def handle_postmortem_callback(payload: dict, actor: str) -> dict:
     action = payload.get("action")
     pm_id = payload.get("postmortem_id")
-    
+
     if not pm_id or not action:
         return {"ok": False, "message": "Missing arguments"}
-        
+
     logger.info(f"Operator {actor} clicked {action} on postmortem {pm_id}")
-    
+
     try:
         if action == "mark_in_progress":
             ok = change_postmortem_status(pm_id, "corrective_open", actor)
@@ -41,7 +39,7 @@ def handle_postmortem_callback(payload: dict, actor: str) -> dict:
             return {"ok": ok, "message": "Postmortem closed" if ok else "Validation failed. Ensure all actions verified."}
         else:
             return {"ok": False, "message": "Unknown action"}
-            
+
     except Exception as e:
         logger.error(f"Error handling postmortem callback: {e}")
         return {"ok": False, "message": "Internal error"}
@@ -55,13 +53,13 @@ def format_postmortem_alert_html(payload: dict) -> str:
     pm_id = payload.get("postmortem_id", "???")
     status = payload.get("status", "draft")
     sev = payload.get("severity", "SEV-4")
-    
-    html = f"📋 <b>ATR Postmortem</b>\n\n"
+
+    html = "📋 <b>ATR Postmortem</b>\n\n"
     html += f"<b>ID:</b> <code>{pm_id}</code>\n"
     html += f"<b>Status:</b> {status.upper().replace('_', ' ')}\n"
     html += f"<b>Severity:</b> {sev}\n\n"
     html += "<i>Ensure all corrective actions are assigned and verified.</i>"
-    
+
     return html
 
 def create_postmortem_inline_keyboard(payload: dict) -> dict:

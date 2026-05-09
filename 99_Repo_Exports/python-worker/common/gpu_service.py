@@ -4,7 +4,7 @@ GPU service utilities for the scanner infrastructure.
 Provides GPU detection and service management for CUDA-enabled operations.
 """
 
-from typing import Optional, Dict, Any
+from typing import Any
 
 
 class GPUService:
@@ -54,7 +54,7 @@ class GPUService:
         except Exception:
             return 0
 
-    def get_device_info(self) -> Dict[str, Any]:
+    def get_device_info(self) -> dict[str, Any]:
         """Get information about current GPU device."""
         if not self.available or self.device_count == 0:
             return {"available": False, "device_count": 0}
@@ -84,7 +84,7 @@ class GPUService:
         """
         if not self.available:
             return
-        
+
         try:
             import cupy as cp
             # Simple kernel compilation + execution check
@@ -103,14 +103,13 @@ class GPUService:
         """EMA batch on GPU with CPU fallback."""
         if self.available and self.use_gpu:
             try:
-                import cupy as cp
                 # Custom JIT or iterative approach is needed for EMA on GPU.
                 # For now, we use a simple fallback if specialized kernel is not yet optimized.
                 # But to avoid AttributeError, the method MUST exist.
-                pass 
+                pass
             except Exception:
                 pass
-        
+
         # Fallback to NumPy
         import numpy as np
         prices_np = np.asarray(prices)
@@ -341,7 +340,7 @@ class GPUService:
 
 
 # Global GPU service instance
-_gpu_service: Optional[GPUService] = None
+_gpu_service: GPUService | None = None
 
 
 def get_gpu_service() -> GPUService:

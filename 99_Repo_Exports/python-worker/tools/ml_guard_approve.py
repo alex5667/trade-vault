@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Утилита для подтверждения/отклонения предложений ML rollout guard.
 
@@ -10,17 +12,16 @@ from __future__ import annotations
 Можно использовать для автоматизации или ручного управления.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
-import hmac
 import hashlib
+import hmac
 import json
 import os
-import time
-from typing import Any, Dict
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def sign(bundle_id: str, secret: str) -> str:
@@ -29,7 +30,7 @@ def sign(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def find_pending_bundles(r: redis.Redis, *, limit: int = 100) -> list[Dict[str, Any]]:
+def find_pending_bundles(r: redis.Redis, *, limit: int = 100) -> list[dict[str, Any]]:
     """Find pending bundles from recs:status keys."""
     bundles = []
     for key in r.scan_iter(match="recs:status:*", count=limit):
@@ -50,7 +51,7 @@ def find_pending_bundles(r: redis.Redis, *, limit: int = 100) -> list[Dict[str, 
 def preview_bundle(r: redis.Redis, bundle_id: str, sig: str) -> None:
     """Preview bundle changes."""
     callback = f"recs:preview2:{bundle_id}:{sig}"
-    r.xadd("notify:telegram", {
+    r.xadd(RS.NOTIFY_TELEGRAM, {
         "type": "callback",
         "callback": callback,
         "ts": str(get_ny_time_millis())
@@ -61,7 +62,7 @@ def preview_bundle(r: redis.Redis, bundle_id: str, sig: str) -> None:
 def confirm_bundle(r: redis.Redis, bundle_id: str, sig: str) -> None:
     """Confirm bundle changes."""
     callback = f"recs:confirm:{bundle_id}:{sig}"
-    r.xadd("notify:telegram", {
+    r.xadd(RS.NOTIFY_TELEGRAM, {
         "type": "callback",
         "callback": callback,
         "ts": str(get_ny_time_millis())
@@ -72,7 +73,7 @@ def confirm_bundle(r: redis.Redis, bundle_id: str, sig: str) -> None:
 def reject_bundle(r: redis.Redis, bundle_id: str, sig: str) -> None:
     """Reject bundle changes."""
     callback = f"recs:reject:{bundle_id}:{sig}"
-    r.xadd("notify:telegram", {
+    r.xadd(RS.NOTIFY_TELEGRAM, {
         "type": "callback",
         "callback": callback,
         "ts": str(get_ny_time_millis())
@@ -108,17 +109,17 @@ def main() -> None:
             title = meta.get("title", "unknown")
             details = meta.get("details", {})
             created_ms = bundle.get("created_ms", 0)
-            
+
             import time
             if created_ms:
                 ts_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(created_ms / 1000))
             else:
                 ts_str = "unknown"
-            
+
             print(f"\n{i}. [{ts_str}] {title}")
             print(f"   Bundle ID: {bundle_id}")
             if details:
-                print(f"   Детали:")
+                print("   Детали:")
                 for k, v in details.items():
                     if isinstance(v, dict):
                         print(f"     {k}:")
@@ -126,19 +127,19 @@ def main() -> None:
                             print(f"       {k2}: {v2}")
                     else:
                         print(f"     {k}: {v}")
-            
+
             ops = bundle.get("ops", [])
             if ops:
-                print(f"   Изменения:")
+                print("   Изменения:")
                 for op in ops:
                     if op.get("op") == "HSET":
                         print(f"     {op.get('field')}: {op.get('value')}")
 
         print(f"\n{'='*80}\n")
         print("Использование:")
-        print(f"  python ml_guard_approve.py --action preview --bundle-id <ID>")
-        print(f"  python ml_guard_approve.py --action confirm --bundle-id <ID>")
-        print(f"  python ml_guard_approve.py --action reject --bundle-id <ID>")
+        print("  python ml_guard_approve.py --action preview --bundle-id <ID>")
+        print("  python ml_guard_approve.py --action confirm --bundle-id <ID>")
+        print("  python ml_guard_approve.py --action reject --bundle-id <ID>")
 
     elif args.action in ("preview", "confirm", "reject"):
         if not args.bundle_id:
@@ -181,7 +182,7 @@ def main() -> None:
             b for b in bundles
             if "FREEZE" in b.get("meta", {}).get("title", "").upper()
         ]
-        
+
         if not freeze_bundles:
             print("Нет pending FREEZE предложений")
             return

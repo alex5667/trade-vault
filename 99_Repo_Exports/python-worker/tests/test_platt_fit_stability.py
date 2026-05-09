@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 test_platt_fit_stability.py
 
@@ -14,7 +14,7 @@ test_platt_fit_stability.py
 import numpy as np
 import pytest
 
-from services.ml_calibration import fit_platt_logit, PlattLogitCalibrator
+from services.ml_calibration import PlattLogitCalibrator, fit_platt_logit
 
 
 def test_platt_fit_no_nan():
@@ -26,10 +26,10 @@ def test_platt_fit_no_nan():
 
     cal = fit_platt_logit(probs, y, l2=1e-3, max_iter=50)
 
-    assert not np.isnan(cal.a), f"cal.a is NaN"
-    assert not np.isnan(cal.b), f"cal.b is NaN"
-    assert not np.isinf(cal.a), f"cal.a is Inf"
-    assert not np.isinf(cal.b), f"cal.b is Inf"
+    assert not np.isnan(cal.a), "cal.a is NaN"
+    assert not np.isnan(cal.b), "cal.b is NaN"
+    assert not np.isinf(cal.a), "cal.a is Inf"
+    assert not np.isinf(cal.b), "cal.b is Inf"
 
 
 def test_platt_apply_one_monotonic():

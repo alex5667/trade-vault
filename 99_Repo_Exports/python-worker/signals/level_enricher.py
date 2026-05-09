@@ -1,24 +1,25 @@
 from __future__ import annotations
 
-import os
-import math
-import json
 import hashlib
-from typing import Any, Dict, Optional, List, Tuple
+import json
+import math
+import os
+from typing import Any
 
-from signals.risk_levels import compute_levels
 from signals.empirical_levels import EmpiricalLevels
 from signals.empirical_time_levels import EmpiricalTimeLevelsConfig, RedisEmpiricalTimeLevelsProvider
+from signals.risk_levels import compute_levels
+import contextlib
 
 
 def _env_float(name: str, default: float) -> float:
     try:
         v = os.getenv(name, "")
         if v is None or str(v).strip() == "":
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _norm_symbol(sym: str) -> str:
@@ -41,7 +42,7 @@ def _sym_env_float(prefix: str, symbol: str, default: float) -> float:
     return _env_float(prefix, default)
 
 
-def _parse_csv_floats(s: Any) -> List[float]:
+def _parse_csv_floats(s: Any) -> list[float]:
     """
     Парсит scalar/list/tuple/строку в список float.
     """
@@ -50,10 +51,8 @@ def _parse_csv_floats(s: Any) -> List[float]:
     if isinstance(s, (list, tuple)):
         out = []
         for x in s:
-            try:
+            with contextlib.suppress(Exception):
                 out.append(float(x))
-            except Exception:
-                pass
         return out
     if isinstance(s, str):
         out = []
@@ -61,10 +60,8 @@ def _parse_csv_floats(s: Any) -> List[float]:
             p = part.strip()
             if not p:
                 continue
-            try:
+            with contextlib.suppress(Exception):
                 out.append(float(p))
-            except Exception:
-                pass
         return out
     try:
         return [float(s)]
@@ -97,7 +94,7 @@ def _side_to_str(side: Any) -> str:
     return "LONG"
 
 
-def _cfg_hash(cfg: Dict[str, Any]) -> str:
+def _cfg_hash(cfg: dict[str, Any]) -> str:
     """
     Stable hash for cfg. Deterministic across dict ordering.
     Used ONLY for per-ctx caching; not a global identifier.
@@ -109,7 +106,7 @@ def _cfg_hash(cfg: Dict[str, Any]) -> str:
         return "cfg:err"
 
 
-def _levels_cache(ctx: Any) -> Optional[Dict[Tuple[Any, ...], Dict[str, Any]]]:
+def _levels_cache(ctx: Any) -> dict[tuple[Any, ...], dict[str, Any]] | None:
     """
     Per-ctx cache:
       key -> {"status": "attached"|"skipped", "reason": "..."}
@@ -122,7 +119,7 @@ def _levels_cache(ctx: Any) -> Optional[Dict[Tuple[Any, ...], Dict[str, Any]]]:
         if isinstance(c, dict):
             return c
         c = {}
-        setattr(ctx, "_levels_attach_cache", c)
+        ctx._levels_attach_cache = c
         return c
     except Exception:
         return None
@@ -133,12 +130,12 @@ def attach_trade_levels_to_ctx(
     *,
     side: str,
     symbol: str,
-    cfg: Dict[str, Any],
-    kind: Optional[str] = None,
+    cfg: dict[str, Any],
+    kind: str | None = None,
     regime: Any = None,
-    empirical: Optional[EmpiricalLevels] = None,
+    empirical: EmpiricalLevels | None = None,
     overwrite: bool = False,
-    logger: Optional[Any] = None,
+    logger: Any | None = None,
 ) -> None:
     """
     Обогатить SignalContext детерминированными торговыми уровнями (SL/TP) для фильтров ниже по потоку.
@@ -187,7 +184,7 @@ def attach_trade_levels_to_ctx(
         regime_s = str(getattr(regime, "name", None) or getattr(regime, "value", None) or regime or "")
     except Exception:
         regime_s = ""
-    cfgd: Dict[str, Any]
+    cfgd: dict[str, Any]
     try:
         cfgd = dict(cfg or {})
     except Exception:
@@ -195,7 +192,7 @@ def attach_trade_levels_to_ctx(
 
     # 2) Собрать entry & atr из ctx/of с консервативными фоллбэками.
     of = getattr(ctx, "of", None)
-    
+
     # Inject spread and slippage into cfgd for adaptive SL floor
     cfgd["spread_bps"] = float(getattr(ctx, "spread_bps", None) or getattr(of, "spread_bps", 0.0) or 0.0)
     cfgd["slippage_ema_bps"] = float(getattr(ctx, "slippage_ema_bps", None) or getattr(of, "slippage_ema_bps", 0.0) or 0.0)
@@ -214,8 +211,8 @@ def attach_trade_levels_to_ctx(
     )
 
     try:
-        entry_f = float(entry)
-        atr_f = float(atr) if atr is not None else 0.0
+        entry_f = entry
+        atr_f = atr if atr is not None else 0.0
     except Exception:
         return
 
@@ -229,7 +226,7 @@ def attach_trade_levels_to_ctx(
     cache = _levels_cache(ctx)
     key = (
         "levels_v1",
-        str(symbol),
+        symbol,
         str(side_norm),
         str(kind_s),
         str(regime_s)[:64],
@@ -241,7 +238,7 @@ def attach_trade_levels_to_ctx(
     if (not overwrite) and isinstance(cache, dict):
         hit = cache.get(key)
         if isinstance(hit, dict):
-            st = str(hit.get("status") or "")
+            st = (hit.get("status") or "")
             if st == "attached":
                 # Ensure fields still exist; if not, fall through and recompute.
                 try:
@@ -273,7 +270,7 @@ def attach_trade_levels_to_ctx(
         sug = None
         if empirical is not None and kind is not None:
             sug = empirical.suggest(
-                symbol=str(symbol),
+                symbol=symbol,
                 kind=str(kind),
                 regime=regime,
                 entry=float(entry_f),
@@ -292,17 +289,15 @@ def attach_trade_levels_to_ctx(
                 tp1_dist_override=float(sug.tp1_dist),
             )
             try:
-                setattr(ctx, "levels_source", str(sug.source))
-                setattr(ctx, "levels_samples", int(sug.samples))
-                setattr(ctx, "levels_ttd_tp1_ms", int(sug.ttd_tp1_ms))
+                ctx.levels_source = str(sug.source)
+                ctx.levels_samples = int(sug.samples)
+                ctx.levels_ttd_tp1_ms = int(sug.ttd_tp1_ms)
             except Exception:
                 pass
         else:
             levels = baseline
-            try:
-                setattr(ctx, "levels_source", "baseline_cfg")
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                ctx.levels_source = "baseline_cfg"
     except Exception:
         return
 
@@ -318,82 +313,76 @@ def attach_trade_levels_to_ctx(
 
     # 3.1) Sanity floors в bps (поддерживается специфика символа).
     try:
-        stop_bps = (float(stop_dist) / float(entry_f)) * 10_000.0
+        stop_bps = (stop_dist / float(entry_f)) * 10_000.0
         tp1_bps = (abs(float(tps[0]) - float(entry_f)) / float(entry_f)) * 10_000.0
     except Exception:
         return
 
-    min_stop_bps = _sym_env_float("EDGE_LEVELS_MIN_STOP_BPS", str(symbol), 0.0)
-    min_tp1_bps = _sym_env_float("EDGE_LEVELS_MIN_TP1_BPS", str(symbol), 0.0)
+    min_stop_bps = _sym_env_float("EDGE_LEVELS_MIN_STOP_BPS", symbol, 0.0)
+    min_tp1_bps = _sym_env_float("EDGE_LEVELS_MIN_TP1_BPS", symbol, 0.0)
     if math.isfinite(min_stop_bps) and float(min_stop_bps) > 0.0:
         if not math.isfinite(stop_bps) or float(stop_bps) < float(min_stop_bps):
             if logger is not None:
-                try:
+                with contextlib.suppress(Exception):
                     logger.debug(
                         "attach_trade_levels_to_ctx: skip micro-stop: %s %s stop_bps=%.2f < min=%.2f",
-                        str(symbol), str(side), float(stop_bps), float(min_stop_bps),
+                        symbol, side, float(stop_bps), float(min_stop_bps),
                     )
-                except Exception:
-                    pass
             if (not overwrite) and isinstance(cache, dict):
                 cache[key] = {"status": "skipped", "reason": "floor_micro_stop"}
             return
     if math.isfinite(min_tp1_bps) and float(min_tp1_bps) > 0.0:
         if not math.isfinite(tp1_bps) or float(tp1_bps) < float(min_tp1_bps):
             if logger is not None:
-                try:
+                with contextlib.suppress(Exception):
                     logger.debug(
                         "attach_trade_levels_to_ctx: skip tiny-tp1: %s %s tp1_bps=%.2f < min=%.2f",
-                        str(symbol), str(side), float(tp1_bps), float(min_tp1_bps),
+                        symbol, side, float(tp1_bps), float(min_tp1_bps),
                     )
-                except Exception:
-                    pass
             if (not overwrite) and isinstance(cache, dict):
                 cache[key] = {"status": "skipped", "reason": "floor_tiny_tp1"}
             return
 
     # 4) Записать нормализованные поля, используемые гейтами/форматтерами.
     try:
-        setattr(ctx, "entry_price", float(entry_f))
-        setattr(ctx, "sl_price", float(sl))
-        setattr(ctx, "tp_levels", [float(x) for x in tps])
-        setattr(ctx, "tp1_price", float(tps[0]))
+        ctx.entry_price = float(entry_f)
+        ctx.sl_price = sl
+        ctx.tp_levels = [float(x) for x in tps]
+        ctx.tp1_price = float(tps[0])
         if stop_dist is not None:
-            setattr(ctx, "stop_dist", float(stop_dist))
-        
+            ctx.stop_dist = stop_dist
+
         # Mode for telemetry
         tp_mode_used = levels.get("tp_mode_used", "ATR_LEGACY")
-        setattr(ctx, "tp_mode_used", tp_mode_used)
-        setattr(ctx, "tp_mode", str(levels.get("mode", {}).get("tp", "ATR")).upper())
+        ctx.tp_mode_used = tp_mode_used
+        ctx.tp_mode = str(levels.get("mode", {}).get("tp", "ATR")).upper()
 
         # Опционально: единое значение RR (первый TP RR) помогает rr-mode fallback в гейтах.
         if isinstance(rrs, list) and len(rrs) > 0:
-            try:
-                setattr(ctx, "tp_rr", float(rrs[0]))
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                ctx.tp_rr = float(rrs[0])
 
         # Backward-compat aliases (часто встречаются в старом коде)
-        setattr(ctx, "entry", float(entry_f))
-        setattr(ctx, "sl", float(sl))
-        setattr(ctx, "tp1", float(tps[0]))
+        ctx.entry = float(entry_f)
+        ctx.sl = sl
+        ctx.tp1 = float(tps[0])
 
         # atr-mode support (если когда-то включите EDGE_EXPECTED_MOVE_MODE=atr)
         ms = _parse_csv_floats(cfg.get("TP_ATR_MULTS"))
         if ms:
             try:
-                setattr(ctx, "tp_atr_mults", ms)
-                setattr(ctx, "tp1_atr_mult", ms[0])
+                ctx.tp_atr_mults = ms
+                ctx.tp1_atr_mult = ms[0]
             except Exception:
                 pass
 
         # 8) Trailing Profile & Locks (for payload)
-        setattr(ctx, "trail_profile", _cfg_str(cfg, "trail_profile", "TRAIL_PROFILE", default=""))
-        setattr(ctx, "trailing_min_lock_r", float(_cfg_get(cfg, "trailing_min_lock_r", "TRAILING_MIN_LOCK_R", default=0.0) or 0.0))
+        ctx.trail_profile = _cfg_str(cfg, "trail_profile", "TRAIL_PROFILE", default="")
+        ctx.trailing_min_lock_r = float(_cfg_get(cfg, "trailing_min_lock_r", "TRAILING_MIN_LOCK_R", default=0.0) or 0.0)
 
         # Опционально: сохранить symbol/side для отладки в логах ниже по потоку
-        setattr(ctx, "symbol", getattr(ctx, "symbol", None) or str(symbol))
-        setattr(ctx, "side", getattr(ctx, "side", None) or str(side))
+        ctx.symbol = getattr(ctx, "symbol", None) or symbol
+        ctx.side = getattr(ctx, "side", None) or side
     except Exception:
         # fail-open: никогда не прерывать публикацию сигналов
         if (not overwrite) and isinstance(cache, dict):
@@ -416,7 +405,7 @@ def maybe_override_levels_from_empirical_time(
     regime: str,
     redis_client: Any,
     overwrite: bool = True,
-    logger: Optional[Any] = None,
+    logger: Any | None = None,
 ) -> None:
     """
     Optional strict empirical override:
@@ -439,7 +428,7 @@ def maybe_override_levels_from_empirical_time(
     # need entry
     try:
         entry = getattr(ctx, "entry_price", None) or getattr(ctx, "entry", None) or getattr(ctx, "price", None)
-        entry_f = float(entry)
+        entry_f = entry
         if entry_f <= 0:
             return
     except Exception:
@@ -447,7 +436,7 @@ def maybe_override_levels_from_empirical_time(
 
     try:
         prov = RedisEmpiricalTimeLevelsProvider(redis_client, cfg)
-        res = prov.get_levels(kind=str(kind), symbol=str(symbol), tf=str(tf or "1m"), regime=str(regime))
+        res = prov.get_levels(kind=str(kind), symbol=symbol, tf=(tf or "1m"), regime=str(regime))
         if not res.ok:
             return
         tp1_bps = float(res.tp1_bps)
@@ -457,7 +446,7 @@ def maybe_override_levels_from_empirical_time(
     except Exception:
         return
 
-    s = str(side or "").strip().upper()
+    s = (side or "").strip().upper()
     if s not in {"LONG", "SHORT"}:
         # keep compatible with existing _side_to_str
         s = "LONG" if s in {"BUY"} else ("SHORT" if s in {"SELL"} else "LONG")
@@ -473,36 +462,32 @@ def maybe_override_levels_from_empirical_time(
             tp1_price = entry_f - tp_off
             sl_price = entry_f + sl_off
         if overwrite or getattr(ctx, "tp1_price", None) is None:
-            setattr(ctx, "tp1_price", float(tp1_price))
+            ctx.tp1_price = float(tp1_price)
         if overwrite or getattr(ctx, "sl_price", None) is None:
-            setattr(ctx, "sl_price", float(sl_price))
+            ctx.sl_price = float(sl_price)
         # ensure tp_levels exists for other code paths
         try:
             tps = getattr(ctx, "tp_levels", None)
             if not isinstance(tps, list) or len(tps) == 0:
-                setattr(ctx, "tp_levels", [float(tp1_price)])
+                ctx.tp_levels = [float(tp1_price)]
             else:
                 tps[0] = float(tp1_price)
         except Exception:
-            setattr(ctx, "tp_levels", [float(tp1_price)])
-        try:
-            setattr(ctx, "stop_dist", float(abs(entry_f - float(sl_price))))
-        except Exception:
-            pass
+            ctx.tp_levels = [float(tp1_price)]
+        with contextlib.suppress(Exception):
+            ctx.stop_dist = float(abs(entry_f - float(sl_price)))
         # useful for debugging / telemetry
-        setattr(ctx, "emp_time_bucket_ms", int(res.bucket_ms))
-        setattr(ctx, "emp_time_ttd_median_ms", int(res.ttd_median_ms))
-        setattr(ctx, "emp_time_n_alive", int(res.n_alive))
+        ctx.emp_time_bucket_ms = int(res.bucket_ms)
+        ctx.emp_time_ttd_median_ms = int(res.ttd_median_ms)
+        ctx.emp_time_n_alive = int(res.n_alive)
         if logger is not None:
-            try:
+            with contextlib.suppress(Exception):
                 logger.debug(
                     "empirical_time_levels: %s %s kind=%s tf=%s regime=%s Tmed=%dms bucket=%dms n=%d tp1=%.2fbps sl=%.2fbps",
-                    str(symbol), str(side), str(kind), str(tf), str(regime),
+                    symbol, side, str(kind), tf, str(regime),
                     int(res.ttd_median_ms), int(res.bucket_ms), int(res.n_alive),
                     float(tp1_bps), float(sl_bps),
                 )
-            except Exception:
-                pass
     except Exception:
         return
 

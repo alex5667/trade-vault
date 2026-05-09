@@ -7,9 +7,9 @@
 
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from typing import Dict, Optional, Any, Callable, TypeVar
-
+from typing import Any, Optional, TypeVar
 
 _T = TypeVar("_T")
 
@@ -97,11 +97,11 @@ def get_default_obi_settings(symbol: str) -> dict:
       Memes:   Same threshold (or 0.5 default), but stricter duration 2.0-3.0s
     """
     s = normalize_symbol(symbol)
-    
+
     # Defaults
     th = 0.5   # Conservative default
     dur = 2.0  # Conservative default
-    
+
     if "BTC" in s:
         th, dur = 0.25, 1.5
     elif "ETH" in s:
@@ -110,10 +110,10 @@ def get_default_obi_settings(symbol: str) -> dict:
         th, dur = 0.30, 1.4
     elif "XRP" in s:
         th, dur = 0.32, 1.5
-    elif symbol_env_prefix(s) in ("PEPE", "SHIB", "DOGE", "BONK", "FLOKI", "WIF"): 
+    elif symbol_env_prefix(s) in ("PEPE", "SHIB", "DOGE", "BONK", "FLOKI", "WIF"):
         # Memes: stricter duration, standard threshold
         th, dur = 0.35, 2.5
-    
+
     return {"obi_threshold": th, "obi_min_duration": dur}
 
 def get_default_dist_bp_threshold(symbol: str) -> float:
@@ -134,7 +134,7 @@ def get_default_dist_bp_threshold(symbol: str) -> float:
         return 12.0
     if s.startswith("XAG"):
         return 15.0
-    
+
     return 20.0  # Memes/Others: 20 bp default
 
 
@@ -154,19 +154,19 @@ def get_default_delta_tiers(symbol: str) -> dict:
     These are bootstrap values; runtime calibrator will refine them based on live data.
     """
     s = normalize_symbol(symbol)
-    
+
     # 1. BTCUSDT - Real spikes ~260k USD
     if "BTC" in s:
         t0, t1, t2 = 250_000.0, 400_000.0, 750_000.0
-        
-    # 2. ETHUSDT - Real spikes ~132k USD  
+
+    # 2. ETHUSDT - Real spikes ~132k USD
     elif "ETH" in s:
         t0, t1, t2 = 100_000.0, 150_000.0, 300_000.0
 
     # 3. SOLUSDT - Real spikes ~27k USD
     elif "SOL" in s:
         t0, t1, t2 = 20_000.0, 35_000.0, 80_000.0
-    
+
     # 4. BNB - Similar to SOL
     elif "BNB" in s:
         t0, t1, t2 = 25_000.0, 45_000.0, 100_000.0
@@ -174,7 +174,7 @@ def get_default_delta_tiers(symbol: str) -> dict:
     # 5. XRP - Lower liquidity
     elif "XRP" in s:
         t0, t1, t2 = 8_000.0, 15_000.0, 35_000.0
-    
+
     # 6. DOGE - Meme tier
     elif "DOGE" in s:
         t0, t1, t2 = 5_000.0, 10_000.0, 25_000.0
@@ -190,27 +190,27 @@ def get_default_delta_tiers(symbol: str) -> dict:
     # 9. Memes (1000* or PEPE/SHIB/FLOKI/BONK)
     elif "1000" in s or any(x in s for x in ["PEPE", "SHIB", "FLOKI", "BONK"]):
         t0, t1, t2 = 1_500.0, 3_000.0, 8_000.0
-    
+
     # 10. Default / Fallback - Conservative
     else:
         t0, t1, t2 = 5_000.0, 10_000.0, 25_000.0
-    
+
     # Metals (bootstrap): start mid-range, calibrator will refine
     if s.startswith("XAU"):
         t0, t1, t2 = 25_000.0, 45_000.0, 90_000.0
     if s.startswith("XAG"):
         t0, t1, t2 = 10_000.0, 20_000.0, 50_000.0
-        
+
     return {"tier0": t0, "tier1": t1, "tier2": t2}
 
 
 def get_default_book_rate_settings(symbol: str) -> dict:
     s = normalize_symbol(symbol)
-    
+
     # Base defaults (Small caps / Unknown)
     min_hz = 5.0
     warn_hz = 3.0
-    
+
     # 1. Majors
     if "BTC" in s:
         return {"book_rate_min_hz": 50.0, "book_rate_warn_hz": 30.0}
@@ -234,7 +234,7 @@ def get_default_book_rate_settings(symbol: str) -> dict:
     # 5. Memes / 1000*
     if "1000" in s or any(x in s for x in ["PEPE", "SHIB", "FLOKI", "BONK"]):
         return {"book_rate_min_hz": 8.0, "book_rate_warn_hz": 4.0}
-        
+
     return {"book_rate_min_hz": min_hz, "book_rate_warn_hz": warn_hz}
 
 
@@ -274,7 +274,7 @@ def get_default_cancel_spike_settings(symbol: str) -> dict:
     MEMES: Veto mode, pull_without_aggr disabled (min_taker_rate=0), stricter spike.
     """
     s = normalize_symbol(symbol)
-    
+
     # Global Defaults (from request)
     base = {
         "cancel_spike_enable": 1,
@@ -382,7 +382,7 @@ def get_default_cancel_spike_settings(symbol: str) -> dict:
             "cancel_spike_min_baseline": 0.0
         })
     # XAUUSDT (Metals perp) - start with monitor mode, bootstrap settings
-    elif s.startswith("XAU"):
+    elif s.startswith("XAU") or s.startswith("XAG"):
         base.update({
             "cancel_spike_mode": "monitor",
             "cancel_spike_min_taker_rate": 0.0,
@@ -392,18 +392,7 @@ def get_default_cancel_spike_settings(symbol: str) -> dict:
             "cancel_spike_abs_th": 0.0,
             "cancel_spike_min_baseline": 0.0
         })
-    # XAGUSDT (Silver perp) - similar to XAU
-    elif s.startswith("XAG"):
-        base.update({
-            "cancel_spike_mode": "monitor",
-            "cancel_spike_min_taker_rate": 0.0,
-            "cancel_spike_ratio_th": 3.0,
-            "cancel_spike_z_th": 3.5,
-            "cancel_spike_min_samples": 30,
-            "cancel_spike_abs_th": 0.0,
-            "cancel_spike_min_baseline": 0.0
-        })
-        
+
     return base
 
 
@@ -416,7 +405,7 @@ def symbol_env_prefix(symbol: str) -> str:
     sym = normalize_symbol(symbol)
     if sym in ENV_PREFIX_OVERRIDE:
         return ENV_PREFIX_OVERRIDE[sym]
-        
+
     p = symbol_prefix(sym)
     # Safety fallback: if prefix starts with digit (e.g. 1000PEPE), strip digits
     if p and p[0].isdigit():
@@ -513,18 +502,18 @@ class OrderFlowConfig:
 
     # === Конфигурация ликвидности ===
     liquidity: LiquidityConfig = field(default_factory=LiquidityConfig)
-    
+
     # === Параметры Delta и Z-score ===
     delta_window_ticks: int = 120          # Размер окна для Delta (количество тиков)
-    delta_z_threshold: Optional[float] = None  # Порог Z-score для delta spike (None => take from specs)
-    
+    delta_z_threshold: float | None = None  # Порог Z-score для delta spike (None => take from specs)
+
     # NEW: Absolute delta thresholds (prevents filtering on low volatility)
     delta_abs_min: float = 0.5             # Минимальная абсолютная дельта для сигнала
     # B1: Normalize delta threshold to USD
-    delta_abs_min_usd: Optional[float] = None # Если задано, приоритет выше чем delta_abs_min (coin volume)
-    
+    delta_abs_min_usd: float | None = None # Если задано, приоритет выше чем delta_abs_min (coin volume)
+
     delta_abs_min_confirm: float = 0.5     # Минимальная дельта для подтверждения
-    
+
     # === Staleness & TTL ===
     sweep_valid_ms: int = 120_000
     reclaim_signal_valid_ms: int = 120_000
@@ -545,7 +534,7 @@ class OrderFlowConfig:
     w_ice: float = 0.15
     w_abs: float = 0.05
     of_score_min: float = 0.65
-    
+
     # === Publishing ===
     publish_of_confirm: bool = False
     of_confirm_stream: str = "signals:of:confirm"
@@ -553,12 +542,12 @@ class OrderFlowConfig:
     # === Параметры Weak Progress (Absorption) ===
     # Legacy generic threshold (kept for backward compatibility or simplistic views)
     weak_progress_atr: float = 0.10
-    
+
     # NEW: Dual thresholds (Range/ATR and Body/ATR)
     # Range is usually larger (wicks included). Body is tighter.
     weak_progress_range_atr: float = 0.35  # Max Range/ATR for weak progress
     weak_progress_body_atr: float = 0.25   # Max Body/ATR for weak progress
-    
+
     absorption_min_volume: float = 15.0    # Минимальный объем (в лотах/к-ве) для absorption
     absorption_price_tolerance: float = 5.0 # Толерантность цены (пункты/тиков)
     absorption_window_sec: float = 8.0     # Окно времени для накопления
@@ -580,44 +569,44 @@ class OrderFlowConfig:
     cooldown_spread_hi_bp: float = 10.0
     cooldown_mul_wide_spread: float = 1.0
     cooldown_mul_pressure_hi: float = 1.0
-    
+
     pressure_window_ms: int = 60000
     burst_window_ms: int = 2500
     burst_max_age_ms: int = 8000
-    
+
     spread_stats_window: int = 300
     book_rate_stats_window: int = 300
     book_rate_min_hz: float = 5.0
     book_rate_warn_hz: float = 3.0
-    
+
     # === CVD & Microstructure ===
     cvd_reset_mode: str = "day"
     cvd_ema_period_delta: int = 10
     cvd_ema_period_cvd: int = 20
     cvd_robust_w: int = 500
-    
+
     microbar_mode: str = "time"
     microbar_tf_ms: int = 1000
     microbar_volume_target: float = 0.0
-    
+
     delta_bucket_ms: int = 1000
-    
+
     # === Structure Detectors (Swing, Div) ===
     swing_left: int = 3
     swing_right: int = 3
     swing_min_bp: float = 5.0
     swing_min_range_bp: float = 1.0
-    
+
     div_strength_min: float = 2.5
     div_min_price_bp: float = 5.0
     div_require_bias_hidden: bool = True
-    
+
     # === Strong Gate Configuration ===
     strong_z_min: float = 3.0
     strong_use_iceberg: bool = False
     strong_need_reversal: int = 0
     strong_need_continuation: int = 0
-    
+
     # === Calibration Settings ===
     calib_key_prefix: str = "calib:usps:v2"
     calib_regimes_set_prefix: str = "regimes:usps:v2"
@@ -625,85 +614,85 @@ class OrderFlowConfig:
     calib_audit_enable: bool = False
     calib_audit_stream: str = "audit:calibration"
     calib_audit_stream_maxlen: int = 10000
-    
+
     # Expert Calib Settings
     calib_atr_floor_mult: float = 0.5
     calib_dn_tier_fallback_usd: float = 100_000.0
-    
+
     dn_tier0_usd: float = 0.0
     dn_tier1_usd: float = 0.0
     dn_tier2_usd: float = 0.0
-    
+
     # NEW Round 7: Veto & Scenario V4 control
     exec_risk_ref_bps: float = 12.0        # Reference BPS for normalization (12-15 crypto)
     scenario_v4_enable: bool = False       # Enable Range/Trend V4 logic
-    of_score_min_range: Optional[float] = None
+    of_score_min_range: float | None = None
     strong_need_range: int = 3             # Required legs for range scenarios
     strong_need_escalated: int = 3         # Escalate to this many legs when thin/unstables
     of_score_agg: str = "weighted_mean"    # weighted_mean | sum
-    
+
     # === Helper Fields ===
     tick_buffer: int = 500
     fallback_atr: float = 1.0
-    
+
     # === Параметры Iceberg Detection ===
     iceberg_refresh_count: int = 2         # Количество refresh-ей для iceberg
     iceberg_min_duration: float = 1.5      # Минимальная длительность (секунды)
     iceberg_refresh_min_abs: float = 1.0   # Минимальный абсолютный объем refresh
     # B2: Iceberg refresh in USD
-    iceberg_refresh_min_notional_usd: Optional[float] = None
-    
+    iceberg_refresh_min_notional_usd: float | None = None
+
     # === Параметры уровней (Pivot Points) ===
     dist_atr_threshold: float = 0.5        # Расстояние до уровня (в ATR)
-    
+
     # NEW: proximity in basis points (disabled by default -> no prod behavior change)
-    dist_bp_threshold: Optional[float] = None
+    dist_bp_threshold: float | None = None
 
     # NEW: how to combine ATR and BPS proximity if dist_bp_threshold is enabled:
     # - "or"  -> pass if near_atr OR near_bps (recommended default)
     # - "and" -> pass only if both (stricter)
     dist_mode: str = "or"
-    
+
     # === Параметры генерации сигналов ===
     min_signal_interval_sec: int = 60      # Минимальный интервал между сигналами
     read_count: int = 100                  # Количество сообщений для чтения из stream
     read_block_ms: int = 1000              # Таймаут блокировки при чтении (мс)
-    
+
     # === Risk Management ===
     stop_mode: str = "ATR"                 # Режим Stop Loss: ATR | PCT | POINTS
     stop_atr_mult: float = 0.6             # Множитель ATR для SL
     stop_pct: float = 0.2                  # Процент для SL (если mode=PCT)
     stop_points: float = 1.0               # Количество пунктов для SL (если mode=POINTS)
-    
+
     tp_mode: str = "RR"                    # Режим Take Profit: RR | ATR | PCT
     tp_rr: str = "1,2,3"                   # Risk/Reward ratios для TP
     tp_atr_mults: str = "0.6,1.0,1.5"      # Множители ATR для TP (если mode=ATR)
-    
-    
+
+
     # === Orders Queue ===
     orders_queue_enabled: bool = False
     orders_queue_type: str = "market"
     orders_queue_profile: str = ""
-    
+
     # === Confidence Scoring ===
-    confidence_weights: Dict[str, float] = field(default_factory=lambda: {
+    confidence_weights: dict[str, float] = field(default_factory=lambda: {
         "delta": 0.5, "speed": 0.2, "cluster": 0.2, "confirm": 0.1
     })
     confidence_floor: float = 0.15
     confidence_cap: float = 0.95
     confidence_speed_scale: float = 2.0
-    confidence_confirm_bonus: Dict[str, float] = field(default_factory=lambda: {
+    confidence_confirm_bonus: dict[str, float] = field(default_factory=lambda: {
         "obi": 0.35, "absorption": 0.3, "iceberg_refresh": 0.35, "generic": 0.2
     })
-    
+
     # === Global/Expert Flags ===
     require_strong_confirmation: bool = False
     strong_gate_shadow: bool = False
-    
+
     # ATR Gate
     atr_bps_min_static: float = 0.0
     atr_gate_audit_only: bool = False
-    
+
     # === ATR Sanity Calibrator ===
     atr_sanity_enable: bool = True
     atr_sanity_lo_bps: float = 0.50
@@ -714,7 +703,7 @@ class OrderFlowConfig:
     atr_sanity_persist_min_interval_ms: int = 60_000
     atr_sanity_max_bps_abs: float = 500.0
     atr_sanity_fallback_pct: float = 0.0003
-    
+
     # === Calibration Persistence ===
     calib_persist_enable: bool = True
     calib_persist_min_bars: int = 120
@@ -722,19 +711,19 @@ class OrderFlowConfig:
 
     # === Strong Dynamic Need ===
     strong_dynamic_need_enable: bool = False
-    
+
     # === ATR Floor / Delta Notional Tiers / Abs Levels (Dynamic) ===
     # ATR Floor Tiers (bps)
     atr_floor_t0_bps: float = 3.0
     atr_floor_t1_bps: float = 5.0
     atr_floor_t2_bps: float = 8.0
-    
+
     # Default Tiers (0=Trend, 1=Range, 2=Thin)
     atr_floor_tier_default: int = 1
     atr_floor_tier_trend: int = 0
     atr_floor_tier_thin: int = 2
     atr_floor_tier_range: int = 1
-    
+
     # Delta Notional Tiers (USD) - Dynamic overrides
     dn_tier_default: int = 1
     dn_tier_trend: int = 0
@@ -747,7 +736,7 @@ class OrderFlowConfig:
     abs_lvl_tier_range: int = 1
     abs_lvl_tier_trend: int = 0
     abs_lvl_tier_thin: int = 2
-    
+
     abs_lvl_eff_quote_th: float = 0.0020
     abs_lvl_min_quote_delta: float = 0.0
     abs_lvl_th_drift_max: float = 0.35
@@ -769,10 +758,10 @@ class OrderFlowConfig:
     atr_tf_calib_refresh_ms: int = 60_000
     atr_tf_calib_persist_gap_ms: int = 300_000
     eq_atr_refresh_ms: int = 15_000
-    
+
     # === Microbars ===
     micro_tf: str = "1s"
-    
+
     # === Book Rate ===
     book_rate_crit_hz: float = 2.0
 
@@ -793,8 +782,8 @@ class OrderFlowConfig:
     gpu_offload_enabled: bool = False
 
     # === Специфичные параметры для разных типов инструментов ===
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
+    metadata: dict[str, Any] = field(default_factory=dict)
+
     def __post_init__(self) -> None:
         """Нормализует символ и выполняет базовые проверки."""
         self.symbol = normalize_symbol(self.symbol)
@@ -808,7 +797,7 @@ class OrderFlowConfig:
         # Logic modes
         if self.dist_mode not in ("or", "and"):
             raise ValueError(f"Invalid dist_mode='{self.dist_mode}'. Must be 'or' or 'and'.")
-        
+
         valid_stop_modes = {"ATR", "PCT", "POINTS"}
         if self.stop_mode not in valid_stop_modes:
             raise ValueError(f"Invalid stop_mode='{self.stop_mode}'. Must be one of {valid_stop_modes}")
@@ -822,7 +811,7 @@ class OrderFlowConfig:
             # 1.0 is technically possible but unlikely, >1 is definitely wrong for probability-like score
             if self.obi_threshold > 1.0:
                 raise ValueError(f"obi_threshold={self.obi_threshold} is too high (max 1.0)")
-        
+
         if self.weak_progress_atr > 2.0:
             raise ValueError(f"weak_progress_atr={self.weak_progress_atr} seems extremely large (>2.0)")
 
@@ -831,7 +820,7 @@ class OrderFlowConfig:
 
         if self.min_bucket_trades < 1:
             raise ValueError(f"min_bucket_trades={self.min_bucket_trades} must be >= 1")
-    
+
     @classmethod
     def from_env(cls, symbol: str, base: Optional["OrderFlowConfig"] = None) -> "OrderFlowConfig":
         """
@@ -855,26 +844,26 @@ class OrderFlowConfig:
         """
         sym = normalize_symbol(symbol)
         base_cfg = base or cls(symbol=sym)
-        
+
         prefix = symbol_env_prefix(sym)
-        
+
         obi_defaults = get_default_obi_settings(sym)
         dn_tiers = get_default_delta_tiers(sym)
-        
-        # V4 / Logic 
+
+        # V4 / Logic
         is_meme = prefix in ("PEPE", "SHIB", "DOGE", "BONK", "FLOKI", "WIF") or "1000" in sym
-        
+
         def_exec_ref = 25.0 if is_meme else 12.0
         def_v4_en = True if is_meme else False
         def_need_range = 3 if is_meme else 3
         def_need_escalated = 3 if is_meme else 3
         def_score_range = 0.45 if is_meme else 0.65
         def_agg = "weighted_mean" if is_meme else "weighted_mean"
-        
+
         cfg = cls(
             symbol=sym,
-            
-            exec_risk_ref_bps=_env_one(f"{prefix}_EXEC_RISK_REF_BPS", float, 
+
+            exec_risk_ref_bps=_env_one(f"{prefix}_EXEC_RISK_REF_BPS", float,
                                       _env_one("EXEC_RISK_REF_BPS", float, def_exec_ref)),
             scenario_v4_enable=_to_bool(_env_one(f"{prefix}_SCENARIO_V4_ENABLE", str,
                                       _env_one("SCENARIO_V4_ENABLE", str, str(def_v4_en)))),
@@ -886,29 +875,29 @@ class OrderFlowConfig:
                                       _env_one("OF_SCORE_MIN_RANGE", float, def_score_range)),
             of_score_agg=_env_one(f"{prefix}_OF_SCORE_AGG", str,
                                  _env_one("OF_SCORE_AGG", str, def_agg)),
-            
+
             delta_window_ticks=_env_one(f"{prefix}_DELTA_WINDOW", int, base_cfg.delta_window_ticks),
             delta_z_threshold=_env_one(f"{prefix}_DELTA_Z_THRESHOLD", float, base_cfg.delta_z_threshold),
-            
+
             delta_abs_min=_env_one(f"{prefix}_DELTA_ABS_MIN", float, base_cfg.delta_abs_min),
             delta_abs_min_usd=_env_one(f"{prefix}_DELTA_ABS_MIN_USD", float, base_cfg.delta_abs_min_usd if base_cfg.delta_abs_min_usd is not None else get_default_usd_threshold(sym)),
             delta_abs_min_confirm=_env_one(f"{prefix}_DELTA_ABS_MIN_CONFIRM", float, base_cfg.delta_abs_min_confirm),
-            
+
             weak_progress_atr=_env_one(f"{prefix}_WEAK_PROGRESS_ATR", float, base_cfg.weak_progress_atr),
             weak_progress_range_atr=_env_one(f"{prefix}_WEAK_PROGRESS_RANGE_ATR", float, base_cfg.weak_progress_range_atr),
             weak_progress_body_atr=_env_one(f"{prefix}_WEAK_PROGRESS_BODY_ATR", float, base_cfg.weak_progress_body_atr),
-            
+
             absorption_min_volume=_env_one(f"{prefix}_ABSORPTION_MIN_VOLUME", float, base_cfg.absorption_min_volume),
             absorption_price_tolerance=_env_one(f"{prefix}_ABSORPTION_PRICE_TOLERANCE", float, base_cfg.absorption_price_tolerance),
             absorption_window_sec=_env_one(f"{prefix}_ABSORPTION_WINDOW_SEC", float, base_cfg.absorption_window_sec),
             abs_lvl_enable=_env_one(f"{prefix}_ABS_LVL_ENABLE", _to_bool, base_cfg.abs_lvl_enable),
             abs_lvl_counts_as=_env_one(f"{prefix}_ABS_LVL_COUNTS_AS", str, base_cfg.abs_lvl_counts_as),
-            
+
             obi_threshold=_env_one(f"{prefix}_OBI_THRESHOLD", float, base_cfg.obi_threshold if base_cfg.obi_threshold != 0.5 else obi_defaults["obi_threshold"]),
             obi_min_duration=_env_one(f"{prefix}_OBI_MIN_DURATION", float, base_cfg.obi_min_duration if base_cfg.obi_min_duration != 2.0 else obi_defaults["obi_min_duration"]),
             obi_depth=_env_one(f"{prefix}_OBI_DEPTH", int, base_cfg.obi_depth),
             obi_hold_secs=_env_one(f"{prefix}_OBI_HOLD_SECS", float, base_cfg.obi_hold_secs),
-            
+
             iceberg_refresh_count=_env_one(f"{prefix}_ICEBERG_REFRESH", int, base_cfg.iceberg_refresh_count),
             iceberg_min_duration=_env_one(f"{prefix}_ICEBERG_DURATION", float, base_cfg.iceberg_min_duration),
             iceberg_refresh_min_abs=_env_one(
@@ -917,8 +906,8 @@ class OrderFlowConfig:
                 base_cfg.iceberg_refresh_min_abs
             ),
             iceberg_refresh_min_notional_usd=_env_one(
-                f"{prefix}_ICEBERG_REFRESH_MIN_NOTIONAL_USD", 
-                float, 
+                f"{prefix}_ICEBERG_REFRESH_MIN_NOTIONAL_USD",
+                float,
                 base_cfg.iceberg_refresh_min_notional_usd
             ),
 
@@ -935,15 +924,15 @@ class OrderFlowConfig:
             burst_max_age_ms=_env_one(f"{prefix}_BURST_MAX_AGE_MS", int, base_cfg.burst_max_age_ms),
             spread_stats_window=_env_one(f"{prefix}_SPREAD_STATS_WINDOW", int, base_cfg.spread_stats_window),
             book_rate_stats_window=_env_one(f"{prefix}_BOOK_RATE_STATS_WINDOW", int, base_cfg.book_rate_stats_window),
-            
+
             book_rate_min_hz=_env_one(
-                f"{prefix}_BOOK_RATE_MIN_HZ", 
-                float, 
+                f"{prefix}_BOOK_RATE_MIN_HZ",
+                float,
                 base_cfg.book_rate_min_hz if base_cfg.book_rate_min_hz != 5.0 else get_default_book_rate_settings(sym).get("book_rate_min_hz", 5.0),
             ),
             book_rate_warn_hz=_env_one(
-                f"{prefix}_BOOK_RATE_WARN_HZ", 
-                float, 
+                f"{prefix}_BOOK_RATE_WARN_HZ",
+                float,
                 base_cfg.book_rate_warn_hz if base_cfg.book_rate_warn_hz != 3.0 else get_default_book_rate_settings(sym).get("book_rate_warn_hz", 3.0),
             ),
 
@@ -974,24 +963,24 @@ class OrderFlowConfig:
             calib_audit_enable=_env_one(f"{prefix}_CALIB_AUDIT_ENABLE", _to_bool, base_cfg.calib_audit_enable),
             calib_audit_stream=_env_one(f"{prefix}_CALIB_AUDIT_STREAM", str, base_cfg.calib_audit_stream),
             calib_audit_stream_maxlen=_env_one(f"{prefix}_CALIB_AUDIT_STREAM_MAXLEN", int, base_cfg.calib_audit_stream_maxlen),
-            
+
             dn_tier0_usd=_env_one(f"{prefix}_DN_TIER0_USD", float, base_cfg.dn_tier0_usd if base_cfg.dn_tier0_usd != 0.0 else dn_tiers["tier0"]),
             dn_tier1_usd=_env_one(f"{prefix}_DN_TIER1_USD", float, base_cfg.dn_tier1_usd if base_cfg.dn_tier1_usd != 0.0 else dn_tiers["tier1"]),
             dn_tier2_usd=_env_one(f"{prefix}_DN_TIER2_USD", float, base_cfg.dn_tier2_usd if base_cfg.dn_tier2_usd != 0.0 else dn_tiers["tier2"]),
-            
-            delta_bucket_ms=_env_one(f"{prefix}_DELTA_BUCKET_MS", int, base_cfg.delta_bucket_ms),    
+
+            delta_bucket_ms=_env_one(f"{prefix}_DELTA_BUCKET_MS", int, base_cfg.delta_bucket_ms),
             # === Параметры уровней (Pivot Points) ===
             dist_atr_threshold=_env_one(f"{prefix}_DIST_ATR_THRESHOLD", float, base_cfg.dist_atr_threshold),
-            
+
             # Use symbol-specific default for dist_bp if not explicitly overridden
             dist_bp_threshold=_env_one(
-                f"{prefix}_DIST_BP_THRESHOLD", 
-                float, 
+                f"{prefix}_DIST_BP_THRESHOLD",
+                float,
                 base_cfg.dist_bp_threshold if base_cfg.dist_bp_threshold is not None else get_default_dist_bp_threshold(sym),
             ),
-            
+
             dist_mode=_env_one(f"{prefix}_DIST_MODE", str, base_cfg.dist_mode),
-            
+
             min_signal_interval_sec=_env_one(f"{prefix}_MIN_SIGNAL_INTERVAL", int, base_cfg.min_signal_interval_sec),
             tick_buffer=_env_one(f"{prefix}_TICK_BUFFER", int, base_cfg.tick_buffer),
             read_count=_env_one(f"{prefix}_READ_COUNT", int, base_cfg.read_count),
@@ -1001,11 +990,11 @@ class OrderFlowConfig:
             orders_queue_enabled=_env_one(f"{prefix}_ORDERS_QUEUE_ENABLED", _to_bool, base_cfg.orders_queue_enabled),
             orders_queue_type=_env_one(f"{prefix}_ORDERS_QUEUE_TYPE", str, base_cfg.orders_queue_type),
             orders_queue_profile=_env_one(f"{prefix}_ORDERS_QUEUE_PROFILE", str, base_cfg.orders_queue_profile),
-            
+
             confidence_floor=_env_one(f"{prefix}_CONFIDENCE_FLOOR", float, base_cfg.confidence_floor),
             confidence_cap=_env_one(f"{prefix}_CONFIDENCE_CAP", float, base_cfg.confidence_cap),
             confidence_speed_scale=_env_one(f"{prefix}_CONFIDENCE_SPEED_SCALE", float, base_cfg.confidence_speed_scale),
-            
+
             require_strong_confirmation=_env_one(f"{prefix}_REQUIRE_STRONG_CONFIRMATION", _to_bool, base_cfg.require_strong_confirmation),
             strong_gate_shadow=_env_one(f"{prefix}_STRONG_GATE_SHADOW", _to_bool, base_cfg.strong_gate_shadow),
 
@@ -1033,24 +1022,24 @@ class OrderFlowConfig:
 
             publish_of_confirm=_env_one(f"{prefix}_PUBLISH_OF_CONFIRM", _to_bool, base_cfg.publish_of_confirm),
             of_confirm_stream=_env_one(f"{prefix}_OF_CONFIRM_STREAM", str, base_cfg.of_confirm_stream),
-            
+
             # Risk: сначала per-instrument, затем глобальные, затем base
             stop_mode=_env_first([f"{prefix}_STOP_MODE", "STOP_MODE"], str, base_cfg.stop_mode),
             stop_atr_mult=_env_first([f"{prefix}_STOP_ATR_MULT", "STOP_ATR_MULT"], float, base_cfg.stop_atr_mult),
             stop_pct=_env_first([f"{prefix}_STOP_PCT", "STOP_PCT"], float, base_cfg.stop_pct),
             stop_points=_env_first([f"{prefix}_STOP_POINTS", "STOP_POINTS"], float, base_cfg.stop_points),
-            
+
             tp_mode=_env_first([f"{prefix}_TP_MODE", "TP_MODE"], str, base_cfg.tp_mode),
             tp_rr=_env_first([f"{prefix}_TP_RR", "TP_RR"], str, base_cfg.tp_rr),
             tp_atr_mults=_env_first([f"{prefix}_TP_ATR_MULTS", "TP_ATR_MULTS"], str, base_cfg.tp_atr_mults),
-            
+
 
 
             # ATR Sanity
             atr_sanity_enable=_env_one(f"{prefix}_ATR_SANITY_ENABLE", _to_bool, base_cfg.atr_sanity_enable),
             atr_sanity_lo_bps=_env_one(f"{prefix}_ATR_SANITY_LO_BPS", float, base_cfg.atr_sanity_lo_bps),
             atr_sanity_hi_bps=_env_one(f"{prefix}_ATR_SANITY_HI_BPS", float, base_cfg.atr_sanity_hi_bps),
-            
+
             # === Cancellation Spike Gate ===
             cancel_spike_enable=_env_one(f"{prefix}_CANCEL_SPIKE_ENABLE", _to_bool, get_default_cancel_spike_settings(sym)["cancel_spike_enable"]),
             cancel_spike_mode=_env_one(f"{prefix}_CANCEL_SPIKE_MODE", str, get_default_cancel_spike_settings(sym)["cancel_spike_mode"]),
@@ -1082,7 +1071,7 @@ class OrderFlowConfig:
             atr_floor_t0_bps=_env_one(f"{prefix}_ATR_FLOOR_T0_BPS", float, base_cfg.atr_floor_t0_bps),
             atr_floor_t1_bps=_env_one(f"{prefix}_ATR_FLOOR_T1_BPS", float, base_cfg.atr_floor_t1_bps),
             atr_floor_t2_bps=_env_one(f"{prefix}_ATR_FLOOR_T2_BPS", float, base_cfg.atr_floor_t2_bps),
-            
+
             atr_floor_tier_default=_env_one(f"{prefix}_ATR_FLOOR_TIER_DEFAULT", int, base_cfg.atr_floor_tier_default),
             atr_floor_tier_trend=_env_one(f"{prefix}_ATR_FLOOR_TIER_TREND", int, base_cfg.atr_floor_tier_trend),
             atr_floor_tier_thin=_env_one(f"{prefix}_ATR_FLOOR_TIER_THIN", int, base_cfg.atr_floor_tier_thin),
@@ -1094,13 +1083,13 @@ class OrderFlowConfig:
             dn_tier_range=_env_one(f"{prefix}_DN_TIER_RANGE", int, base_cfg.dn_tier_range),
             dn_tier_thin=_env_one(f"{prefix}_DN_TIER_THIN", int, base_cfg.dn_tier_thin),
             dn_persist_min_interval_ms=_env_one(f"{prefix}_DN_PERSIST_MIN_INTERVAL_MS", int, base_cfg.dn_persist_min_interval_ms),
-            
+
             # Abs Level Tiers
             abs_lvl_tier_default=_env_one(f"{prefix}_ABS_LVL_TIER_DEFAULT", int, base_cfg.abs_lvl_tier_default),
             abs_lvl_tier_range=_env_one(f"{prefix}_ABS_LVL_TIER_RANGE", int, base_cfg.abs_lvl_tier_range),
             abs_lvl_tier_trend=_env_one(f"{prefix}_ABS_LVL_TIER_TREND", int, base_cfg.abs_lvl_tier_trend),
             abs_lvl_tier_thin=_env_one(f"{prefix}_ABS_LVL_TIER_THIN", int, base_cfg.abs_lvl_tier_thin),
-            
+
             abs_lvl_eff_quote_th=_env_one(f"{prefix}_ABS_LVL_EFF_QUOTE_TH", float, base_cfg.abs_lvl_eff_quote_th),
             abs_lvl_min_quote_delta=_env_one(f"{prefix}_ABS_LVL_MIN_QUOTE_DELTA", float, base_cfg.abs_lvl_min_quote_delta),
             abs_lvl_th_drift_max=_env_one(f"{prefix}_ABS_LVL_TH_DRIFT_MAX", float, base_cfg.abs_lvl_th_drift_max),
@@ -1125,7 +1114,7 @@ class OrderFlowConfig:
 
             # Microbars
             micro_tf=_env_one(f"{prefix}_MICRO_TF", str, base_cfg.micro_tf),
-            
+
             # Book Rate
             book_rate_crit_hz=_env_one(f"{prefix}_BOOK_RATE_CRIT_HZ", float, base_cfg.book_rate_crit_hz),
 
@@ -1133,7 +1122,7 @@ class OrderFlowConfig:
 
             metadata=dict(base_cfg.metadata or {}),
         )
-        
+
         return cfg
 
 
@@ -1196,7 +1185,7 @@ XAUUSDT_CONFIG = OrderFlowConfig(
     dist_bp_threshold=12.0,
     min_signal_interval_sec=30,
     stop_mode="ATR",
-    stop_atr_mult=0.70,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     # Start with non-veto to avoid overblocking until L3-lite is validated
@@ -1243,7 +1232,7 @@ BTCUSD_CONFIG = OrderFlowConfig(
     dist_atr_threshold=0.4,
     min_signal_interval_sec=20,     # BTC_MIN_SIGNAL_INTERVAL=20
     stop_mode="ATR",                # BTC_STOP_MODE=ATR
-    stop_atr_mult=0.8,              # BTC_STOP_ATR_MULT=0.8
+    stop_atr_mult=1.2,              # BTC_STOP_ATR_MULT=0.8
     tp_mode="RR",
     tp_rr="1,1.5,2.5",              # BTC_TP_RR=1,1.5,2.5
     tp_atr_mults="0.6,1.0,1.5",
@@ -1334,7 +1323,7 @@ BNBUSD_CONFIG = OrderFlowConfig(
     dist_atr_threshold=0.42,
     min_signal_interval_sec=18,
     stop_mode="ATR",
-    stop_atr_mult=0.9,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.65,1.05,1.6",
@@ -1378,7 +1367,7 @@ SOLUSD_CONFIG = OrderFlowConfig(
     dist_atr_threshold=0.45,
     min_signal_interval_sec=15,
     stop_mode="ATR",
-    stop_atr_mult=1.0,              # SOL волатильнее -> стоп чуть шире
+    stop_atr_mult=1.2,              # SOL волатильнее -> стоп чуть шире
     tp_mode="RR",
     tp_rr="1,1.6,2.6",
     tp_atr_mults="0.7,1.1,1.7",
@@ -1422,7 +1411,7 @@ XRPUSD_CONFIG = OrderFlowConfig(
     dist_atr_threshold=0.50,
     min_signal_interval_sec=12,
     stop_mode="ATR",
-    stop_atr_mult=1.1,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.3",
     tp_atr_mults="0.8,1.2,1.8",
@@ -1466,7 +1455,7 @@ PEPEUSDT_CONFIG = OrderFlowConfig(
     read_count=150,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.10,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1498,7 +1487,7 @@ DOGEUSDT_CONFIG = OrderFlowConfig(
     read_count=120,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=0.90,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1528,7 +1517,7 @@ SHIBUSDT_CONFIG = OrderFlowConfig(
     read_count=150,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.10,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1560,7 +1549,7 @@ FLOKIUSDT_CONFIG = OrderFlowConfig(
     read_count=150,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.15,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1592,7 +1581,7 @@ BONKUSDT_CONFIG = OrderFlowConfig(
     read_count=150,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.20,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1624,7 +1613,7 @@ WIFUSDT_CONFIG = OrderFlowConfig(
     read_count=140,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.05,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1656,7 +1645,7 @@ SUIUSDT_CONFIG = OrderFlowConfig(
     read_count=120,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=0.90,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1688,7 +1677,7 @@ APTUSDT_CONFIG = OrderFlowConfig(
     read_count=120,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=0.90,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1720,7 +1709,7 @@ ARBUSDT_CONFIG = OrderFlowConfig(
     read_count=120,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=0.90,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1793,7 +1782,7 @@ ONDOUSDT_CONFIG = OrderFlowConfig(
     read_count=125,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=0.95,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1827,7 +1816,7 @@ OPUSDT_CONFIG = OrderFlowConfig(
     read_count=120,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=0.95,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1861,7 +1850,7 @@ HBARUSDT_CONFIG = OrderFlowConfig(
     read_count=120,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=0.90,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1895,7 +1884,7 @@ SEIUSDT_CONFIG = OrderFlowConfig(
     read_count=130,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.00,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1929,7 +1918,7 @@ RENDERUSDT_CONFIG = OrderFlowConfig(
     read_count=130,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.00,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -1963,7 +1952,7 @@ AAVEUSDT_CONFIG = OrderFlowConfig(
     read_count=125,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.00,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.6",
     tp_atr_mults="0.6,1.0,1.6",
@@ -1997,7 +1986,7 @@ TRBUSDT_CONFIG = OrderFlowConfig(
     read_count=140,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.15,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.7",
     tp_atr_mults="0.7,1.1,1.8",
@@ -2031,7 +2020,7 @@ NEARUSDT_CONFIG = OrderFlowConfig(
     read_count=120,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=0.95,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -2052,7 +2041,7 @@ NEARUSDT_SPECS = SymbolSpecs(
 
 
 
-INSTRUMENT_CONFIGS: Dict[str, OrderFlowConfig] = {
+INSTRUMENT_CONFIGS: dict[str, OrderFlowConfig] = {
     "XAUUSD": XAUUSD_CONFIG,
     "XAUUSDT": XAUUSDT_CONFIG,
     "XAGUSD": XAGUSD_CONFIG,
@@ -2078,7 +2067,7 @@ INSTRUMENT_CONFIGS: Dict[str, OrderFlowConfig] = {
     "ARBUSDT": ARBUSDT_CONFIG,
 }
 
-INSTRUMENT_SPECS: Dict[str, SymbolSpecs] = {
+INSTRUMENT_SPECS: dict[str, SymbolSpecs] = {
     "XAUUSD": XAUUSD_SPECS,
     "XAUUSDT": XAUUSDT_SPECS,
     "XAGUSD": XAGUSD_SPECS,
@@ -2132,7 +2121,7 @@ def get_config(symbol: str, use_env: bool = True) -> OrderFlowConfig:
     if use_env:
         # Fallback to Env/Defaults (Priority 3)
         return OrderFlowConfig.from_env(sym)
-    
+
     raise ValueError(f"Unknown symbol: {sym}. Add to INSTRUMENT_CONFIGS or use use_env=True")
 
 
@@ -2155,7 +2144,7 @@ ONDOUSDT_CONFIG = OrderFlowConfig(
     read_count=125,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=0.95,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -2189,7 +2178,7 @@ OPUSDT_CONFIG = OrderFlowConfig(
     read_count=120,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=0.95,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -2223,7 +2212,7 @@ HBARUSDT_CONFIG = OrderFlowConfig(
     read_count=120,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=0.90,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -2257,7 +2246,7 @@ SEIUSDT_CONFIG = OrderFlowConfig(
     read_count=130,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.00,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -2291,7 +2280,7 @@ RENDERUSDT_CONFIG = OrderFlowConfig(
     read_count=130,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.00,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.5",
     tp_atr_mults="0.6,1.0,1.5",
@@ -2325,7 +2314,7 @@ AAVEUSDT_CONFIG = OrderFlowConfig(
     read_count=125,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.00,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.6",
     tp_atr_mults="0.6,1.0,1.6",
@@ -2359,7 +2348,7 @@ TRBUSDT_CONFIG = OrderFlowConfig(
     read_count=140,
     read_block_ms=1000,
     stop_mode="ATR",
-    stop_atr_mult=1.15,
+    stop_atr_mult=1.2,
     tp_mode="RR",
     tp_rr="1,1.5,2.7",
     tp_atr_mults="0.7,1.1,1.8",
@@ -2390,10 +2379,10 @@ def get_specs(symbol: str) -> SymbolSpecs:
         ValueError: Если символ не найден в реестре
     """
     sym = normalize_symbol(symbol)
-    
+
     if sym in INSTRUMENT_SPECS:
         return INSTRUMENT_SPECS[sym]
-    
+
     raise ValueError(f"Unknown symbol: {sym}. Add to INSTRUMENT_SPECS")
 
 

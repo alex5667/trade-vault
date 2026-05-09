@@ -5,10 +5,10 @@
 для hit_rate и expectancy_R по каждому семейству сигналов.
 """
 
+import math
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Dict, Iterable, Sequence, Optional
-import math
 
 
 @dataclass
@@ -24,13 +24,13 @@ class SignalExecRow:
 @dataclass
 class BaselineQuantiles:
     """Квантили для одной метрики"""
-    p05: Optional[float]
-    p10: Optional[float]
-    p25: Optional[float]
-    p50: Optional[float]
-    p75: Optional[float]
-    p90: Optional[float]
-    p95: Optional[float]
+    p05: float | None
+    p10: float | None
+    p25: float | None
+    p50: float | None
+    p75: float | None
+    p90: float | None
+    p95: float | None
     sample_size: int  # сколько окон
 
 
@@ -46,7 +46,7 @@ def sliding_windows(seq: Sequence[SignalExecRow], window_size: int) -> Iterable[
         yield seq[start:start + window_size]
 
 
-def _quantile(values: List[float], q: float) -> float:
+def _quantile(values: list[float], q: float) -> float:
     """
     Вычисляет q-квантиль с линейной интерполяцией между соседними значениями.
     q в [0,1]
@@ -66,7 +66,7 @@ def _quantile(values: List[float], q: float) -> float:
     return xs[lo] * (1.0 - w) + xs[hi] * w
 
 
-def compute_quantiles(values: List[float]) -> BaselineQuantiles:
+def compute_quantiles(values: list[float]) -> BaselineQuantiles:
     """Вычисляет все квантили для списка значений"""
     if not values:
         return BaselineQuantiles(
@@ -93,9 +93,9 @@ def compute_quantiles(values: List[float]) -> BaselineQuantiles:
 
 
 def compute_family_baseline(
-    rows: List[SignalExecRow],
+    rows: list[SignalExecRow],
     window_size: int,
-) -> Dict[str, BaselineQuantiles]:
+) -> dict[str, BaselineQuantiles]:
     """
     Рассчитывает baseline для одного семейства сигналов (symbol + family).
 
@@ -109,8 +109,8 @@ def compute_family_baseline(
     # Сортируем по времени открытия (на всякий случай)
     rows = sorted(rows, key=lambda r: r.opened_at)
 
-    hit_rates: List[float] = []
-    expectancies: List[float] = []
+    hit_rates: list[float] = []
+    expectancies: list[float] = []
 
     # Проходим по всем скользящим окнам
     for win in sliding_windows(rows, window_size):

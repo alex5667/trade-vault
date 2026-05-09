@@ -1,4 +1,3 @@
-import os
 import redis
 
 from news_pipeline.redis_fast import load_fast_config, make_fast_redis

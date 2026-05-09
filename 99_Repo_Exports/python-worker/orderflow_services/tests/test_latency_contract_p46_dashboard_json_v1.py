@@ -1,5 +1,5 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 
 def test_p46_dashboard_has_notifier_panels() -> None:

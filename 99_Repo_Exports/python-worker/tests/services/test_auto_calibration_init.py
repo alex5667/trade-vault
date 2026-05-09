@@ -1,6 +1,5 @@
-import os
 
-from services.auto_calibration_service import init_auto_calibration, get_auto_calibration_service
+from services.auto_calibration_service import get_auto_calibration_service, init_auto_calibration
 
 
 def test_init_auto_calibration_builds_singleton(monkeypatch):

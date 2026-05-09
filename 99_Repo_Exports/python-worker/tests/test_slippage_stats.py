@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
-import pytest
-
-from services.slippage_stats import SlippageEmaConfig, update_slippage_ema, read_slippage_ema
+from services.slippage_stats import SlippageEmaConfig, read_slippage_ema, update_slippage_ema
 
 
 class FakePipe:
-    def __init__(self, r: "FakeRedis"):
+    def __init__(self, r: FakeRedis):
         self.r = r
         self.ops = []
 
-    def hset(self, key: str, mapping: Dict[str, Any]):
+    def hset(self, key: str, mapping: dict[str, Any]):
         self.ops.append(("hset", key, dict(mapping)))
         return self
 
@@ -36,7 +33,7 @@ class FakePipe:
 
 class FakeRedis:
     def __init__(self):
-        self.h: Dict[str, Dict[str, str]] = {}
+        self.h: dict[str, dict[str, str]] = {}
 
     def pipeline(self, transaction: bool = False):
         return FakePipe(self)
@@ -44,7 +41,7 @@ class FakeRedis:
     def hgetall(self, key: str):
         return dict(self.h.get(key, {}))
 
-    def hset(self, key: str, mapping: Dict[str, Any]):
+    def hset(self, key: str, mapping: dict[str, Any]):
         cur = self.h.get(key) or {}
         for k, v in mapping.items():
             cur[str(k)] = str(v)

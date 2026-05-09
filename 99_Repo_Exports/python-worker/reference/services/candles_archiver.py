@@ -12,17 +12,17 @@ Features:
 - Metadata tracking in `archive_metadata` table
 """
 
+import json
+import logging
 import os
+import signal
 import sys
 import time
-import json
-import signal
-import logging
-from datetime import datetime, timezone
-from typing import Dict, Any
+from datetime import UTC, datetime
+from typing import Any
 
-import redis
 import psycopg2
+import redis
 from psycopg2.extras import execute_batch
 
 # Configuration
@@ -58,16 +58,16 @@ def get_redis_client():
 def get_pg_connection():
     return psycopg2.connect(PG_DSN)
 
-def parse_candle(data: Dict[bytes, bytes]) -> Dict[str, Any]:
+def parse_candle(data: dict[bytes, bytes]) -> dict[str, Any]:
     """Parse candle data from Redis stream format."""
     try:
         # Decode bytes keys/values
         d = {k.decode('utf-8'): v.decode('utf-8') for k, v in data.items()}
-        
+
         # Determine source format (JSON or fields)
         if d.get('type') == 'init':
             return None
-            
+
         json_data = d.get('data') or d.get('payload')
         if json_data:
             # JSON format
@@ -75,8 +75,8 @@ def parse_candle(data: Dict[bytes, bytes]) -> Dict[str, Any]:
             return {
                 'symbol': raw.get('s') or raw.get('symbol') or d.get('symbol') or d.get('s'),
                 'timeframe': raw.get('tf') or raw.get('timeframe') or raw.get('i') or d.get('tf') or d.get('timeframe') or d.get('i'),
-                'open_time': datetime.fromtimestamp(int(raw.get('k_t') or raw.get('t') or raw.get('open_time') or raw.get('openTime')) / 1000.0, timezone.utc),
-                'close_time': datetime.fromtimestamp(int(raw.get('k_Tw') or raw.get('T') or raw.get('close_time') or raw.get('closeTime')) / 1000.0, timezone.utc),
+                'open_time': datetime.fromtimestamp(int(raw.get('k_t') or raw.get('t') or raw.get('open_time') or raw.get('openTime')) / 1000.0, UTC),
+                'close_time': datetime.fromtimestamp(int(raw.get('k_Tw') or raw.get('T') or raw.get('close_time') or raw.get('closeTime')) / 1000.0, UTC),
                 'open': float(raw.get('o') or raw.get('open')),
                 'high': float(raw.get('h') or raw.get('high')),
                 'low': float(raw.get('l') or raw.get('low')),
@@ -94,8 +94,8 @@ def parse_candle(data: Dict[bytes, bytes]) -> Dict[str, Any]:
             return {
                 'symbol': d.get('s') or d.get('symbol'),
                 'timeframe': d.get('i') or d.get('tf') or d.get('timeframe'),
-                'open_time': datetime.fromtimestamp(int(d.get('t') or d.get('open_time')) / 1000.0, timezone.utc),
-                'close_time': datetime.fromtimestamp(int(d.get('T') or d.get('close_time')) / 1000.0, timezone.utc),
+                'open_time': datetime.fromtimestamp(int(d.get('t') or d.get('open_time')) / 1000.0, UTC),
+                'close_time': datetime.fromtimestamp(int(d.get('T') or d.get('close_time')) / 1000.0, UTC),
                 'open': float(d.get('o') or d.get('open')),
                 'high': float(d.get('h') or d.get('high')),
                 'low': float(d.get('l') or d.get('low')),
@@ -106,7 +106,7 @@ def parse_candle(data: Dict[bytes, bytes]) -> Dict[str, Any]:
                 'taker_buy_base': float(d.get('V') or d.get('taker_buy_base')),
                 'taker_buy_quote': float(d.get('Q') or d.get('taker_buy_quote')),
             }
-            
+
     except Exception as e:
         logger.error(f"Failed to parse candle data: {e} - Data: {data}")
         return None
@@ -125,19 +125,19 @@ def ensure_consumer_group(r, stream, group):
 def main():
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
-    
+
     logger.info("Starting Candles Archiver Service...")
     logger.info(f"Stream: {CANDLES_STREAM}, Group: {ARCHIVE_GROUP}, Batch: {BATCH_SIZE}")
-    
+
     r = get_redis_client()
-    
+
     # Ensure consumer group exists
     try:
         ensure_consumer_group(r, CANDLES_STREAM, ARCHIVE_GROUP)
     except Exception as e:
         logger.error(f"Startup error: {e}")
         sys.exit(1)
-            
+
     while running:
         try:
             # Read batch from Redis
@@ -147,14 +147,14 @@ def main():
                 count=BATCH_SIZE,
                 block=BLOCK_MS
             )
-            
+
             if not messages:
                 continue
-                
+
             batch_data = []
             msg_ids = []
             last_id = ""
-            
+
             # Process messages
             for stream, msgs in messages:
                 for msg_id, data in msgs:
@@ -177,18 +177,17 @@ def main():
                         ))
                     msg_ids.append(msg_id)
                     last_id = msg_id.decode('utf-8')
-            
+
             if not batch_data:
                 # Still ACK if we got messages but couldn't parse them (to skip bad data)
                 if msg_ids:
                     r.xack(CANDLES_STREAM, ARCHIVE_GROUP, *msg_ids)
                 continue
-                
+
             # Insert into Postgres
             pg = get_pg_connection()
-            with pg:
-                with pg.cursor() as cur:
-                    execute_batch(cur, """
+            with pg, pg.cursor() as cur:
+                execute_batch(cur, """
                         INSERT INTO candles_archive (
                             symbol, timeframe, open_time, close_time,
                             open, high, low, close,
@@ -197,26 +196,26 @@ def main():
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (symbol, timeframe, open_time) DO NOTHING
                     """, batch_data, page_size=1000)
-                    
-                    # Update metadata
-                    cur.execute("""
+
+                # Update metadata
+                cur.execute("""
                         UPDATE archive_metadata 
                         SET last_archived_id = %s,
                             last_archived_at = NOW(),
                             records_archived = records_archived + %s
                         WHERE stream_name = %s
                     """, (last_id, len(batch_data), CANDLES_STREAM))
-            
+
             pg.close()
-            
+
             # ACK messages in Redis
             r.xack(CANDLES_STREAM, ARCHIVE_GROUP, *msg_ids)
-            
+
             global _archive_log_counter
             _archive_log_counter += 1
             if _archive_log_counter % 10000 == 0:
                 logger.info(f"✅ Archived {len(batch_data)} candles. Last ID: {last_id}")
-            
+
         except redis.exceptions.ResponseError as e:
             if 'NOGROUP' in str(e):
                 logger.warning(f"Consumer group missing (NOGROUP), attempting to recreate: {e}")

@@ -1,15 +1,14 @@
 from __future__ import annotations
-import os
+
 import json
+import os
 import time
-from dataclasses import dataclass
-from typing import Any, Optional, Dict, List, Tuple, Sequence
+from contextlib import contextmanager
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
 from psycopg2.pool import SimpleConnectionPool
-from contextlib import contextmanager
-
 
 DDL_NEWS_ANALYSIS = """
 CREATE TABLE IF NOT EXISTS news_analysis (
@@ -88,7 +87,7 @@ class NewsPostgresWriter:
         self._init_pool()
 
     @staticmethod
-    def from_env() -> "NewsPostgresWriter":
+    def from_env() -> NewsPostgresWriter:
         trading_pw = os.getenv("TRADING_PASSWORD", "trading_password")
         dsn = (
             (os.getenv("ANALYTICS_DB_DSN") or os.getenv("PG_DSN"))
@@ -111,7 +110,7 @@ class NewsPostgresWriter:
                 if i == max_retries - 1:
                     print(f"ERROR: Failed to connect after {max_retries} attempts. DSN: {self.dsn}", flush=True)
                     raise e
-                
+
                 sleep_time = min(2 * (2 ** i), 30)
                 print(f"WARN: Retrying in {sleep_time}s...", flush=True)
                 time.sleep(sleep_time)
@@ -149,7 +148,7 @@ class NewsPostgresWriter:
         surprise: float,
         tags_mask: int,
         primary_tag: int,
-        payload_json: str | Dict[str, Any],
+        payload_json: str | dict[str, Any],
     ) -> None:
         obj = payload_json
         if isinstance(payload_json, str):
@@ -213,7 +212,7 @@ class NewsPostgresWriter:
         previous: str,
         unit: str,
         source: str,
-        payload_json: str | Dict[str, Any],
+        payload_json: str | dict[str, Any],
     ) -> None:
         if isinstance(payload_json, str):
             try:

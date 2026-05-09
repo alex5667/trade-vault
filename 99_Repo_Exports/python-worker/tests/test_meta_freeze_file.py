@@ -1,9 +1,10 @@
 import json
 import os
-import time
 import unittest
 from tempfile import NamedTemporaryFile
+
 from core.meta_freeze_file import MetaFreezeFile
+
 
 class TestMetaFreezeFile(unittest.TestCase):
     def setUp(self):
@@ -31,7 +32,7 @@ class TestMetaFreezeFile(unittest.TestCase):
                 "enforce_share_cap": 0.2,
                 "comment": "test_guard"
             }, f)
-        
+
         guard = MetaFreezeFile(self.tmp_path, ttl_sec=0) # No TTL for testing
         state = guard.get_guard_state()
         self.assertEqual(state["freeze"], 1)
@@ -43,20 +44,20 @@ class TestMetaFreezeFile(unittest.TestCase):
         # 1. Write initial state
         with open(self.tmp_path, "w") as f:
             json.dump({"freeze": 1}, f)
-        
+
         guard = MetaFreezeFile(self.tmp_path, ttl_sec=60) # Long TTL
         state1 = guard.get_guard_state()
         self.assertEqual(state1["freeze"], 1)
-        
+
         # 2. Modify file
         with open(self.tmp_path, "w") as f:
             json.dump({"freeze": 0}, f)
-            
+
         # 3. Should still return cached value
         state2 = guard.get_guard_state()
         self.assertEqual(state2["freeze"], 1)
-        
-        # 4. Force TTL bypass (by manually resetting shared stats if we were testing internal state, 
+
+        # 4. Force TTL bypass (by manually resetting shared stats if we were testing internal state,
         # but here we just test that it DOES cache)
         # To truly test expiration we'd need to mock time or wait, but simple cache check is enough.
 
@@ -64,15 +65,15 @@ class TestMetaFreezeFile(unittest.TestCase):
         # 1. Start with good state
         with open(self.tmp_path, "w") as f:
             json.dump({"freeze": 1}, f)
-        
+
         guard = MetaFreezeFile(self.tmp_path, ttl_sec=0)
         state1 = guard.get_guard_state()
         self.assertEqual(state1["freeze"], 1)
-        
+
         # 2. Corrupt file
         with open(self.tmp_path, "w") as f:
             f.write("{invalid_json:")
-            
+
         # 3. Should return previous cache (fail-open)
         state2 = guard.get_guard_state()
         self.assertEqual(state2["freeze"], 1)

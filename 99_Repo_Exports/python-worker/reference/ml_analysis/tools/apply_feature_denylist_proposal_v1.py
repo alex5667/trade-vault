@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Apply an *approved* feature denylist proposal to the active denylist json.
 
 Safety properties:
@@ -14,30 +15,30 @@ import argparse
 import json
 import os
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _sha256_short(s: str, n: int = 8) -> str:
     return sha256(s.encode("utf-8")).hexdigest()[:n]
 
 
-def _stable_sorted_unique(xs: List[str]) -> List[str]:
+def _stable_sorted_unique(xs: list[str]) -> list[str]:
     # stable deterministic ordering for diffs
     return sorted(set(xs))
 
 
-def _load_json(path: Path) -> Dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _atomic_write_json(path: Path, obj: Dict[str, Any]) -> None:
+def _atomic_write_json(path: Path, obj: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     os.replace(tmp, path)
@@ -47,7 +48,7 @@ def _resolve_default_denylist_path() -> Path:
     return Path("tick_flow_full/core/feature_denylist_v1.json").resolve()
 
 
-def _extract_after(m: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+def _extract_after(m: dict[str, Any]) -> tuple[list[str], list[str]]:
     after = m.get("denylist_after") or {}
     dn = after.get("deny_num") or []
     db = after.get("deny_bool") or []
@@ -117,7 +118,7 @@ def main() -> int:
         return 0
 
     # Backup
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     bak = denylist_path.with_suffix(denylist_path.suffix + f".bak.{ts}")
     shutil.copy2(denylist_path, bak)
 
@@ -127,7 +128,7 @@ def main() -> int:
     _atomic_write_json(denylist_path, active)
 
     # Audit record
-    ph = str(m.get("proposal_hash") or "")
+    ph = (m.get("proposal_hash") or "")
     ph8 = _sha256_short(ph or mp.as_posix(), 8)
     audit = {
         "kind": "feature_denylist_apply_record_v1",

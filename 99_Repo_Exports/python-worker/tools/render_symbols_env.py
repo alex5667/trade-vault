@@ -1,4 +1,5 @@
 import os
+
 import yaml
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../config/symbols.yml")
@@ -9,18 +10,18 @@ def render():
         print(f"Error: {CONFIG_PATH} not found.")
         return
 
-    with open(CONFIG_PATH, "r") as f:
+    with open(CONFIG_PATH) as f:
         config = yaml.safe_load(f) or {}
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
 
     with open(OUTPUT_PATH, "w") as f:
         f.write("# GENERATED FILE - DO NOT EDIT DIRECTLY\n")
-        f.write(f"# Source: config/symbols.yml\n\n")
+        f.write("# Source: config/symbols.yml\n\n")
 
         universe = ",".join(config.get("universe", []))
         f.write(f"TRADE_SYMBOLS_UNIVERSE={universe}\n")
-        
+
         # Legacy compat
         f.write(f"CRYPTO_SYMBOLS={universe}\n\n")
 
@@ -31,12 +32,12 @@ def render():
             val = ",".join(symbols)
             f.write(f"{env_key}={val}\n")
             f.write(f"{legacy_key}={val}\n")
-            
+
         f.write("\n")
         allowlist = ",".join(config.get("execution", {}).get("binance_allowlist", []))
         f.write(f"TRADE_BINANCE_ALLOWLIST={allowlist}\n")
         f.write(f"BINANCE_SYMBOL_ALLOWLIST={allowlist}\n")
-        
+
         f.write("\n")
         canary = ",".join(config.get("metrics", {}).get("canary_symbols", []))
         f.write(f"TRADE_CANARY_SYMBOLS={canary}\n")

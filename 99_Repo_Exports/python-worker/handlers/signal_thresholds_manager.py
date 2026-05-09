@@ -1,20 +1,20 @@
 # signal_thresholds_manager.py
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections import defaultdict, deque
-from typing import Deque, Dict, Hashable, Optional, Tuple
+from collections.abc import Hashable
+from dataclasses import dataclass
 
 from .signal_types import SignalKind, SignalTypeConf
 
 
 @dataclass
 class ObservedScores:
-    raw_scores: Deque[float]
-    final_scores: Deque[float]
-    regime_scores: Deque[float]
-    geo_scores: Deque[float]
-    liq_scores: Deque[float]
+    raw_scores: deque[float]
+    final_scores: deque[float]
+    regime_scores: deque[float]
+    geo_scores: deque[float]
+    liq_scores: deque[float]
 
 
 @dataclass
@@ -51,7 +51,7 @@ class SignalThresholdsManager:
         self._final_q = final_quantile
         self._golden_q = golden_quantile
 
-        self._store: Dict[Tuple[Hashable, SignalKind], ObservedScores] = defaultdict(
+        self._store: dict[tuple[Hashable, SignalKind], ObservedScores] = defaultdict(
             lambda: ObservedScores(
                 raw_scores=deque(maxlen=self._history_size),
                 final_scores=deque(maxlen=self._history_size),
@@ -102,7 +102,7 @@ class SignalThresholdsManager:
         symbol: Hashable,
         kind: SignalKind,
         base_conf: SignalTypeConf,
-    ) -> Optional[DynamicThresholds]:
+    ) -> DynamicThresholds | None:
         key = (symbol, kind)
         bucket = self._store.get(key)
         if bucket is None or len(bucket.raw_scores) < self._warmup_min_samples:

@@ -1,20 +1,20 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
+import html
 import json
 import os
 import time
-import html
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis.asyncio as aioredis
 
 from services.entry_policy_core import EntryPolicyCfg, evaluate_entry_policy
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -60,7 +60,7 @@ class AlertCfg:
     enable_direct_notify: bool = True
 
     @staticmethod
-    def from_env() -> "AlertCfg":
+    def from_env() -> AlertCfg:
         return AlertCfg(
             duration_sec=int(os.getenv("EP_CAPTURE_DURATION_SEC", "900")),
             stream=os.getenv("SMT_ENTRY_STREAM", "stream:trade:entry_candidate"),
@@ -95,7 +95,7 @@ def _core_cfg_from_env() -> EntryPolicyCfg:
     )
 
 
-def compute_summary(recs: List[Dict[str, Any]]) -> Dict[str, Any]:
+def compute_summary(recs: list[dict[str, Any]]) -> dict[str, Any]:
     total = len(recs)
     allow = sum(1 for r in recs if int(r.get("ok", 0)) == 1)
     deny = total - allow
@@ -107,10 +107,10 @@ def compute_summary(recs: List[Dict[str, Any]]) -> Dict[str, Any]:
     by_zone_src = Counter()
 
     for r in recs:
-        by_reason[str(r.get("reason_code", "na"))] += 1
-        by_regime[str(r.get("regime", "na"))] += 1
-        by_symbol[str(r.get("symbol", ""))] += 1
-        by_zone_src[str(r.get("zone_src", "na"))] += 1
+        by_reason[(r.get("reason_code", "na"))] += 1
+        by_regime[(r.get("regime", "na"))] += 1
+        by_symbol[(r.get("symbol", ""))] += 1
+        by_zone_src[(r.get("zone_src", "na"))] += 1
 
     top_reason = by_reason.most_common(10)
     top_regime = by_regime.most_common(10)
@@ -129,7 +129,7 @@ def compute_summary(recs: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def should_alert(today: Dict[str, Any], prev: Dict[str, Any], cfg: AlertCfg) -> Tuple[bool, str]:
+def should_alert(today: dict[str, Any], prev: dict[str, Any], cfg: AlertCfg) -> tuple[bool, str]:
     t = int(today.get("total", 0) or 0)
     if t < int(cfg.min_total):
         return True, f"NO_DATA total={t} (min={cfg.min_total})"
@@ -149,7 +149,7 @@ def should_alert(today: Dict[str, Any], prev: Dict[str, Any], cfg: AlertCfg) -> 
     return False, "OK"
 
 
-def render_markdown(day: str, summary: Dict[str, Any], prev: Dict[str, Any], alert: Tuple[bool, str]) -> str:
+def render_markdown(day: str, summary: dict[str, Any], prev: dict[str, Any], alert: tuple[bool, str]) -> str:
     total = int(summary.get("total", 0) or 0)
     allow = int(summary.get("allow", 0) or 0)
     deny = int(summary.get("deny", 0) or 0)
@@ -169,7 +169,7 @@ def render_markdown(day: str, summary: Dict[str, Any], prev: Dict[str, Any], ale
     lines.append(f"- alert: **{int(alert[0])}** — {alert[1]}")
     lines.append("")
 
-    def _tbl(title: str, items: List[Tuple[str, int]]) -> None:
+    def _tbl(title: str, items: list[tuple[str, int]]) -> None:
         lines.append(f"## {title}")
         lines.append("| key | count |")
         lines.append("|---|---:|")
@@ -185,14 +185,14 @@ def render_markdown(day: str, summary: Dict[str, Any], prev: Dict[str, Any], ale
     return "\n".join(lines)
 
 
-async def capture_and_replay(*, r: aioredis.Redis, cfg: AlertCfg, core_cfg: EntryPolicyCfg) -> List[Dict[str, Any]]:
+async def capture_and_replay(*, r: aioredis.Redis, cfg: AlertCfg, core_cfg: EntryPolicyCfg) -> list[dict[str, Any]]:
     """
     Capture for duration_sec and run deterministic policy evaluation on captured snapshots.
     """
     t_end = _now_ms() + int(cfg.duration_sec) * 1000
     cur = str(cfg.start_id)
-    dedup_state: Dict[str, int] = {}
-    out: List[Dict[str, Any]] = []
+    dedup_state: dict[str, int] = {}
+    out: list[dict[str, Any]] = []
 
     print(f"[{_now_ms()}] Starting capture for {cfg.duration_sec}s...")
 
@@ -208,10 +208,10 @@ async def capture_and_replay(*, r: aioredis.Redis, cfg: AlertCfg, core_cfg: Entr
             for msg_id, fields in entries:
                 cur = msg_id
                 try:
-                    if str(fields.get("type", "")) != "entry_candidate":
+                    if (fields.get("type", "")) != "entry_candidate":
                         continue
-                    sym = str(fields.get("symbol", "") or "").upper()
-                    bundle_id = str(fields.get("bundle", "") or "")
+                    sym = (fields.get("symbol", "") or "").upper()
+                    bundle_id = (fields.get("bundle", "") or "")
                     if not sym or not bundle_id:
                         continue
 
@@ -241,18 +241,18 @@ async def capture_and_replay(*, r: aioredis.Redis, cfg: AlertCfg, core_cfg: Entr
                             "ok": 1 if dec.ok else 0,
                             "reason_code": dec.reason_code,
                             "notes": dec.notes,
-                            "regime": str(snap.get("regime", "na") or "na"),
-                            "zone_id": str(snap.get("zone_id", "") or ""),
-                            "zone_src": str(snap.get("zone_src", "na") or "na"),
-                            "zone_side": str(snap.get("zone_side", "NA") or "NA"),
+                            "regime": (snap.get("regime", "na") or "na"),
+                            "zone_id": (snap.get("zone_id", "") or ""),
+                            "zone_src": (snap.get("zone_src", "na") or "na"),
+                            "zone_side": (snap.get("zone_side", "NA") or "NA"),
                             "zone_dist_bp": float(snap.get("zone_dist_bp", 0.0) or 0.0),
                             "obi_stable_sec": float(snap.get("obi_stable_sec", 0.0) or 0.0),
                             "iceberg_strict": int(snap.get("iceberg_strict", 0) or 0),
                             "of_confirm_score": float(snap.get("of_confirm_score", 0.0) or 0.0),
                             "coh": float(bundle.get("coh", 0.0) or 0.0),
                             "leader_conf_score": float(bundle.get("leader_conf_score", 0.0) or 0.0),
-                            "decision": str(bundle.get("decision", "") or ""),
-                            "pick": str(bundle.get("pick", "") or ""),
+                            "decision": (bundle.get("decision", "") or ""),
+                            "pick": (bundle.get("pick", "") or ""),
                         }
                     )
                 except Exception:
@@ -262,7 +262,7 @@ async def capture_and_replay(*, r: aioredis.Redis, cfg: AlertCfg, core_cfg: Entr
     return out
 
 
-def _load_prev_summary(path: Path) -> Dict[str, Any]:
+def _load_prev_summary(path: Path) -> dict[str, Any]:
     try:
         if not path.exists():
             return {}
@@ -285,12 +285,12 @@ def _prune_reports(dirp: Path, keep_days: int) -> None:
         return
 
 
-def render_telegram_html(day: str, summary: Dict[str, Any], alert: Tuple[bool, str]) -> str:
+def render_telegram_html(day: str, summary: dict[str, Any], alert: tuple[bool, str]) -> str:
     total = int(summary.get("total", 0) or 0)
     allow = int(summary.get("allow", 0) or 0)
     deny = int(summary.get("deny", 0) or 0)
     ar = float(summary.get("allow_rate", 0.0) or 0.0)
-    
+
     emoji = "⚠️" if alert[0] else "✅"
     lines = [
         f"{emoji} <b>Entry Policy Regression Check</b>",
@@ -298,21 +298,21 @@ def render_telegram_html(day: str, summary: Dict[str, Any], alert: Tuple[bool, s
         "",
         f"<b>Status:</b> {html.escape(str(alert[1]))}",
         "",
-        f"<b>Stats:</b>",
+        "<b>Stats:</b>",
         f"• Total: {total}",
         f"• Allow: {allow} ({ar:.2f}%)",
         f"• Deny: {deny}",
         "",
         "<b>Top Reasons:</b>"
     ]
-    
+
     for r, c in summary.get("top_reason", [])[:3]:
         lines.append(f"• <code>{html.escape(str(r))}</code>: {c}")
-        
+
     return "\n".join(lines)
 
 
-async def publish_alert(*, r: aioredis.Redis, cfg: AlertCfg, day: str, summary: Dict[str, Any], reason: str) -> None:
+async def publish_alert(*, r: aioredis.Redis, cfg: AlertCfg, day: str, summary: dict[str, Any], reason: str) -> None:
     # 1. Publish to internal alert stream (structured)
     payload = {
         "day": day,
@@ -323,7 +323,7 @@ async def publish_alert(*, r: aioredis.Redis, cfg: AlertCfg, day: str, summary: 
         "type": "entry_policy_regression",
         "ts_ms": str(_now_ms()),
         "day": str(day),
-        "reason": str(reason),
+        "reason": reason,
         "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         "hash": _sha1(json.dumps({"day": day, "reason": reason}, separators=(",", ":"))),
     }
@@ -356,7 +356,7 @@ async def publish_alert(*, r: aioredis.Redis, cfg: AlertCfg, day: str, summary: 
 
 class EntryPolicyRegressionService:
     def __init__(self):
-        self.r: Optional[aioredis.Redis] = None
+        self.r: aioredis.Redis | None = None
         self.acfg = AlertCfg.from_env()
         self.core_cfg = _core_cfg_from_env()
 
@@ -403,9 +403,9 @@ class EntryPolicyRegressionService:
 
         # --- Tuner suggestions (non-invasive) ---
         try:
-            from tools.entry_policy_tuner_suggest import suggest_from_records, TunerCfg
+            from tools.entry_policy_tuner_suggest import TunerCfg, suggest_from_records
             tcfg = TunerCfg.from_env()
-            
+
             # feed current effective config to tuner, so "from/to" are correct even with overrides
             cur_env = {
                 "SMT_COH_THRESHOLD": float(self.core_cfg.coh_thr),
@@ -415,13 +415,13 @@ class EntryPolicyRegressionService:
                 "SMT_ENTRY_OBI_MIN_SEC": float(self.core_cfg.obi_min_sec),
             }
             sugg = suggest_from_records(records=recs, tuner=tcfg, current_env=cur_env)
-            
+
             sugg_path = out_dir / f"entry_policy_suggestions_{day}.json"
             sugg_latest = out_dir / "entry_policy_suggestions.json"
-            
+
             sugg_path.write_text(json.dumps(sugg, ensure_ascii=False, indent=2), encoding="utf-8")
             sugg_latest.write_text(json.dumps(sugg, ensure_ascii=False, indent=2), encoding="utf-8")
-            
+
             # Publish suggestions as info alert (optional)
             if int(sugg.get("safe_to_apply", 0) or 0) == 1 and bool(int(os.getenv("EP_TUNER_PUBLISH", "1"))):
                 payload = {"day": day, "suggestions": sugg}
@@ -436,7 +436,7 @@ class EntryPolicyRegressionService:
                     await self.r.xadd(self.acfg.alerts_stream, msg, maxlen=20000, approximate=True)
                 except Exception:
                     pass
-                    
+
             # Store latest suggestions into Redis for approval workflow
             if bool(int(os.getenv("EP_SUGGESTIONS_STORE_REDIS", "1"))):
                 key = os.getenv("EP_SUGGESTIONS_REDIS_KEY", "cfg:suggestions:entry_policy:latest")
@@ -452,7 +452,7 @@ class EntryPolicyRegressionService:
             print(f"Regression Check OK: {summary['allow_rate']:.2f}% allow rate")
 
     def _seconds_until_run(self) -> float:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         target = now.replace(hour=self.acfg.run_at_hour, minute=self.acfg.run_at_minute, second=0, microsecond=0)
         if target <= now:
             target += timedelta(days=1)

@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Auto-Apply Job Entrypoint (Hard-Guard).
 
 This module is intended to be used by the timer container/service that runs the
@@ -58,8 +60,6 @@ Exit codes
   - custom for skipped can be set via AUTO_APPLY_SKIP_EXIT_CODE
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import re
@@ -69,9 +69,12 @@ import sys
 import time
 import traceback
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, Pattern
+from re import Pattern
+from typing import Any
 
 import redis  # type: ignore
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -92,11 +95,11 @@ def _b2s(x: Any) -> str:
 def _env_int(name: str, default: int) -> int:
     v = os.getenv(name, "")
     if not v:
-        return int(default)
+        return default
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -107,10 +110,10 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return v in ("1", "true", "yes", "y", "on")
 
 
-def _split_csv(v: str) -> List[str]:
+def _split_csv(v: str) -> list[str]:
     if not v:
         return []
-    out: List[str] = []
+    out: list[str] = []
     for s in v.split(","):
         s = (s or "").strip()
         if s:
@@ -118,7 +121,7 @@ def _split_csv(v: str) -> List[str]:
     return out
 
 
-def _compile_regex(pat: str) -> Optional[Pattern]:
+def _compile_regex(pat: str) -> Pattern | None:
     pat = (pat or "").strip()
     if not pat:
         return None
@@ -144,11 +147,11 @@ def _redis() -> redis.Redis:
 
 def _scan_block_keys(
     r: redis.Redis, prefix: str, scan_count: int = 200, max_keys: int = 2000
-) -> List[bytes]:
+) -> list[bytes]:
     # Match any suffix after prefix with colon separator
     pat = f"{prefix}:*"
     cursor = 0
-    keys: List[bytes] = []
+    keys: list[bytes] = []
     while True:
         cursor, batch = r.scan(cursor=cursor, match=pat, count=scan_count)
         if batch:
@@ -159,7 +162,7 @@ def _scan_block_keys(
             return keys
 
 
-def _read_block_state(r: redis.Redis, key: bytes, existence_blocks: bool) -> Tuple[bool, str, str]:
+def _read_block_state(r: redis.Redis, key: bytes, existence_blocks: bool) -> tuple[bool, str, str]:
     """
     Returns (blocked, reason, raw_repr).
 
@@ -207,7 +210,7 @@ def _read_block_state(r: redis.Redis, key: bytes, existence_blocks: bool) -> Tup
             v = r.get(key)
             v_s = _b2s(v)
             raw = f"string value={v_s[:200]}"
-            
+
             v_stripped = v_s.strip()
             if v_stripped.startswith("{") and v_stripped.endswith("}"):
                 try:
@@ -245,10 +248,10 @@ def _read_block_state(r: redis.Redis, key: bytes, existence_blocks: bool) -> Tup
 
 
 def _xadd_best_effort(
-    r: redis.Redis, stream: str, fields: Dict[str, Any], maxlen: int = 20000
+    r: redis.Redis, stream: str, fields: dict[str, Any], maxlen: int = 20000
 ) -> None:
     try:
-        flat: Dict[str, str] = {}
+        flat: dict[str, str] = {}
         for k, v in fields.items():
             if v is None:
                 continue
@@ -307,9 +310,9 @@ def _emit_guard_metrics_best_effort(
         _hincrby_with_ttl_best_effort(r, hk, "run_err_total", 1, win_ttl_sec)
 
 
-def _notify_best_effort(r: redis.Redis, stream: str, payload: Dict[str, Any]) -> None:
+def _notify_best_effort(r: redis.Redis, stream: str, payload: dict[str, Any]) -> None:
     try:
-        flat: Dict[str, str] = {}
+        flat: dict[str, str] = {}
         for k, v in payload.items():
             if v is None:
                 continue
@@ -322,7 +325,7 @@ def _notify_best_effort(r: redis.Redis, stream: str, payload: Dict[str, Any]) ->
         pass
 
 
-def _run_cmd(cmd: str, workdir: str, timeout_s: int, out_lim: int, err_lim: int) -> Tuple[int, str, str, int]:
+def _run_cmd(cmd: str, workdir: str, timeout_s: int, out_lim: int, err_lim: int) -> tuple[int, str, str, int]:
     argv = shlex.split(cmd)
     t0 = time.time()
     p = subprocess.run(
@@ -362,7 +365,7 @@ def main() -> int:
 
     ignore_keys_re = _compile_regex(os.getenv("AUTO_APPLY_BLOCK_IGNORE_KEYS_REGEX", ""))
     ignore_reasons_re = _compile_regex(os.getenv("AUTO_APPLY_BLOCK_IGNORE_REASONS_REGEX", ""))
-    
+
     # Default ignore common telemetry suffixes used by tick_gate
     default_ignore = ":meta,:state,:ts_ms"
     ignore_suffixes = _split_csv(os.getenv("AUTO_APPLY_BLOCK_IGNORE_KEY_SUFFIXES", default_ignore))
@@ -374,7 +377,7 @@ def main() -> int:
     guard_metrics_win_ttl_sec = _env_int("AUTO_APPLY_GUARD_METRICS_WIN_TTL_SEC", 10800)
 
     notify_on_skip = _env_bool("AUTO_APPLY_NOTIFY_ON_SKIP", True)
-    notify_stream = os.getenv("AUTO_APPLY_NOTIFY_STREAM", "notify:telegram") or "notify:telegram"
+    notify_stream = os.getenv("AUTO_APPLY_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM) or RS.NOTIFY_TELEGRAM
     notify_level = (os.getenv("AUTO_APPLY_NOTIFY_LEVEL", "warn") or "warn").strip().lower()
     notify_mirror_base = _env_bool("AUTO_APPLY_NOTIFY_MIRROR_BASE", True)
 
@@ -383,14 +386,14 @@ def main() -> int:
     block_key = ""
     block_reason = ""
     block_raw = ""
-    rc: Optional[int] = None
-    dur_ms: Optional[int] = None
+    rc: int | None = None
+    dur_ms: int | None = None
     out_tail = ""
     err_tail = ""
     guard_error = ""
 
     # Connect Redis
-    r: Optional[redis.Redis] = None
+    r: redis.Redis | None = None
     try:
         r = _redis()
         # ping to fail fast if URL is wrong
@@ -458,7 +461,7 @@ def main() -> int:
 
     # Audit record (best-effort)
     if r is not None:
-        fields: Dict[str, Any] = {
+        fields: dict[str, Any] = {
             "ts_ms": ts_ms,
             "rid": rid,
             "run_id": run_id,
@@ -504,8 +507,8 @@ def main() -> int:
             _notify_best_effort(r, notify_stream, payload)
 
             # Mirror to base stream if configured and stream is not base
-            if notify_mirror_base and notify_stream != "notify:telegram":
-                _notify_best_effort(r, "notify:telegram", payload)
+            if notify_mirror_base and notify_stream != RS.NOTIFY_TELEGRAM:
+                _notify_best_effort(r, RS.NOTIFY_TELEGRAM, payload)
 
     # Exit code policy
     if decision == "SKIPPED_FROZEN":

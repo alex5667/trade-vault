@@ -1,9 +1,8 @@
 import unittest
-import sys
-import os
-# [AUTOGRAVITY CLEANUP] sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+# [AUTOGRAVITY CLEANUP] sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from core.dq_gate_v1 import eval_dq_gate
+
 
 class TestDQGateV1(unittest.TestCase):
 

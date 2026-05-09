@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Signal confidence scorer (0..1) for BaseOrderFlowHandler / CryptoOrderFlowHandler.
 
@@ -7,9 +7,9 @@ Confidence = качество сигнала * согласованность п
 Работает даже при частично отсутствующих полях (getattr с дефолтами).
 """
 
-from dataclasses import dataclass
-from typing import Any, Dict, Tuple
 import math
+from dataclasses import dataclass
+from typing import Any
 
 _conf_debug_counter = 0
 
@@ -17,11 +17,11 @@ def _f(obj: Any, name: str, default: float = 0.0) -> float:
     try:
         v = getattr(obj, name, default)
         if v is None:
-            return float(default)
+            return default
         x = float(v)
-        return x if math.isfinite(x) else float(default)
+        return x if math.isfinite(x) else default
     except Exception:
-        return float(default)
+        return default
 
 
 def _b(obj: Any, name: str, default: bool = False) -> bool:
@@ -46,7 +46,7 @@ def _f_any(obj: Any, *names: str, default: float = 0.0) -> float:
                 return x
         except Exception:
             continue
-    return float(default)
+    return default
 
 
 def _b_any(obj: Any, *names: str, default: bool = False) -> bool:
@@ -273,7 +273,7 @@ class ConfidenceScorer:
         quality = s_rate * (1.0 - 0.75 * pen_ctr) * (1.0 - 0.45 * pen_eta)
         return _clamp(quality, 0.0, 1.0)
 
-    def _penalties(self, ctx: Any) -> Dict[str, float]:
+    def _penalties(self, ctx: Any) -> dict[str, float]:
         l2_age = _f(ctx, "l2_age_ms", 0.0)
         l2_is_stale = _b(ctx, "l2_is_stale", False) or (l2_age > 0 and l2_age >= self.cfg.l2_stale_soft_ms)
         pen_l2 = _ramp(l2_age, float(self.cfg.l2_stale_soft_ms), float(self.cfg.l2_stale_hard_ms)) if l2_is_stale else 0.0
@@ -291,7 +291,7 @@ class ConfidenceScorer:
         }
 
     # ---------- public ----------
-    def score(self, *args, kind: str = None, side: str = None, ctx: Any = None, **kwargs) -> Tuple[float, Dict[str, float]]:
+    def score(self, *args, kind: str = None, side: str = None, ctx: Any = None, **kwargs) -> tuple[float, dict[str, float]]:
         # Fallback for positional arguments
         if args:
             import logging
@@ -307,30 +307,30 @@ class ConfidenceScorer:
         kind = (kind or "custom").lower()
         dir_sign = _dir_sign_from_side(side)
 
-        parts: Dict[str, Any] = {"kind": kind, "side": side}
-        
+        parts: dict[str, Any] = {"kind": kind, "side": side}
+
         # Helper for safer float access (allows 0.0)
         def _get_f(name, default):
             try:
                 val = getattr(ctx, name, None)
-                if val is None: return float(default)
+                if val is None: return default
                 return float(val)
             except Exception:
-                return float(default)
+                return default
 
         # Helper for safer string access
         def _get_s(name, default):
             try:
                 val = getattr(ctx, name, None)
-                if val is None: return str(default)
+                if val is None: return default
                 return str(val)
             except Exception:
-                return str(default)
+                return default
 
         z = _f_any(ctx, "delta_z", "z_delta", default=0.0)
         z_abs = abs(z)
         impulse_sign = _sign(z)
-        
+
         # Phase 3: Regime-Awareness
         # Normalize market mode to trend/range/mixed
         raw_mode = _get_s("market_mode", "mixed").lower()
@@ -341,14 +341,14 @@ class ConfidenceScorer:
         else:
             regime = "mixed"
         parts["regime_class_raw"] = regime
-        
+
         freeze = bool(int(_get_f("confidence_score_freeze", 0)))
         parts["confidence_score_freeze"] = 1 if freeze else 0
-        
+
         if freeze:
             # Fail-closed: disable regime shaping when guardrails request freeze
             regime = "mixed"
-            
+
         parts["regime"] = regime
 
         if kind == "breakout":
@@ -485,7 +485,7 @@ class ConfidenceScorer:
             obi_avg = _f_any(ctx, "obi_avg", "obi", default=0.0)
             obi_sustained = _b(ctx, "obi_sustained", False)
             s_obi = self._obi_score(obi_avg, obi_sustained, dir_sign, self.obi_thr)
-            
+
             base = 0.80 * s_z + 0.10 * s_mode + 0.10 * s_obi
             parts.update({"s_z": s_z, "s_mode": s_mode, "s_obi": s_obi, "base": _clamp(base)})
 
@@ -532,7 +532,7 @@ class ConfidenceScorer:
             div_val = _ctx_confirm_value(ctx, "div")
             if div_val > 0:
                  bonus_gen += (0.04 * div_mult) * _clamp(div_val, 0, 1)
-            
+
             # Phase 3: Counter-Trend Divergence Penalty
             # (only penalize if NO divergence confirmation but divergence signal exists in wrong direction)
             # Actually, the requirement says "add penalty for counter-trend divergence".
@@ -545,7 +545,7 @@ class ConfidenceScorer:
                 is_counter = False
                 if dir_sign > 0 and "bear" in div_kind: is_counter = True
                 if dir_sign < 0 and "bull" in div_kind: is_counter = True
-                
+
                 if is_counter:
                     # Configurable penalty strength
                     pen_w = _get_f("div_countertrend_pen", 0.04)
@@ -561,21 +561,21 @@ class ConfidenceScorer:
                 s_sweep = 0.8
             elif _ctx_confirm_value(ctx, "sweep") > 0:
                 s_sweep = _get_f("sweep_simple_strength", 0.5)
-            
+
             if s_sweep > 0:
                 bonus_gen += (0.03 * sweep_mult) * _clamp(s_sweep, 0, 1)
-            
+
             # Apply generic bonuses/penalties to base
             if bonus_gen > 0:
                 bonus_gen = min(bonus_gen, cap_e)
                 base += bonus_gen
                 parts["bonus_generic"] = float(bonus_gen)
-            
+
             if pen_div_ct > 0:
                 base -= pen_div_ct
 
             base = _clamp(base, 0.0, 1.0)
-            
+
         except Exception:
             pass
 
@@ -624,7 +624,7 @@ class ConfidenceScorer:
 
         ofi_aligned = True
         try:
-            ofi_dir_ok = getattr(ctx, "ofi_dir_ok")
+            ofi_dir_ok = ctx.ofi_dir_ok
             ofi_aligned = bool(int(ofi_dir_ok))
         except Exception:
             ofi_val = _f_any(ctx, "ofi", "ofi_best_norm", default=0.0)
@@ -693,7 +693,7 @@ class ConfidenceScorer:
         mult = _clamp(mult, 0.20, 1.00)
         parts["pen_total"] = pen_total
         parts["mult"] = mult
-        
+
         # ------------------------------------------------------------
         # Phase 3: DataHealth Calibration
         # conf01 = base * mult * data_health_mult
@@ -703,7 +703,7 @@ class ConfidenceScorer:
             dh = _get_f("data_health", 1.0)
             dh_power = _get_f("data_health_power", 1.0)
             dh_floor = _get_f("data_health_floor", 0.0)
-            
+
             # Formula: (dh^power + floor) clamped 0..1
             data_health_mult = _clamp((dh ** dh_power) + dh_floor, 0.0, 1.0)
             parts["data_health"] = dh
@@ -717,7 +717,7 @@ class ConfidenceScorer:
         scale = float(_get_f("confidence_score_scale", 1.0))
         scale = _clamp(scale, 0.05, 1.50)
         parts["confidence_score_scale"] = scale
-        
+
         conf01_scaled = _clamp(conf01 * scale, 0.0, 1.0)
         parts["confidence01_scaled"] = conf01_scaled
 
@@ -738,14 +738,14 @@ class ConfidenceScorer:
                 thr_val = self.absorption_z_thr
             elif kind == "extreme":
                 thr_val = self.extreme_z_thr
-            
+
             s_z_val = parts.get("s_z", "???")
             # For logging:
             if isinstance(s_z_val, float):
                 s_z_str = f"{s_z_val:.3f}"
             else:
                 s_z_str = str(s_z_val)
-                
+
             global _conf_debug_counter
             _conf_debug_counter += 1
             if _conf_debug_counter % 1000 == 0:

@@ -11,7 +11,6 @@ Environment variables:
 
 import os
 import sys
-from collections import defaultdict
 
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,7 +26,7 @@ def check_calibration_results():
     """Check calibration results in the database."""
     pg_dsn = os.getenv("PG_DSN", "postgresql://user:pass@localhost:5432/trade")
 
-    print(f"🔍 Checking calibration results in database...")
+    print("🔍 Checking calibration results in database...")
     print(f"📊 PG_DSN: {pg_dsn}")
     print()
 

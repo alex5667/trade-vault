@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import time
 import threading
+import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 # ВАЖНО:
 # - tick-loop НЕ делает Redis calls вообще
@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover
     append_dq_flag = None  # type: ignore
 
 from contexts import NewsFeatures, OrderflowSignalContext  # ваш пакетный импорт
+import contextlib
 
 
 def _f(v: Any, default: float = 0.0) -> float:
@@ -95,16 +96,16 @@ class NewsAggCache:
         self.stale_warn_ms = int(stale_warn_ms)
         self.stale_drop_ms = int(stale_drop_ms)
 
-        self._symbols: Set[str] = set(["GLOBAL"])
-        self._asset_classes: Set[str] = set()
+        self._symbols: set[str] = set(["GLOBAL"])
+        self._asset_classes: set[str] = set()
 
         # snapshot maps
-        self._news_snap: Dict[str, NewsFeatures] = {}
-        self._cal_snap: Dict[str, Tuple[int, int]] = {}  # asset_class -> (tminus, grade)
+        self._news_snap: dict[str, NewsFeatures] = {}
+        self._cal_snap: dict[str, tuple[int, int]] = {}  # asset_class -> (tminus, grade)
 
         self._stats = _CacheStats()
         self._stop = threading.Event()
-        self._th: Optional[threading.Thread] = None
+        self._th: threading.Thread | None = None
 
         # "circuit breaker" чтобы не молотить Redis при серии ошибок
         self._backoff_ms = 0
@@ -143,7 +144,7 @@ class NewsAggCache:
     def stats(self) -> _CacheStats:
         return self._stats
 
-    def get_features(self, symbol: str, asset_class: str = "") -> Optional[NewsFeatures]:
+    def get_features(self, symbol: str, asset_class: str = "") -> NewsFeatures | None:
         """
         Tick-loop API: get compact NewsFeatures from snapshot.
         - never touches Redis
@@ -212,7 +213,7 @@ class NewsAggCache:
             res = pipe.execute()
 
             # parse
-            new_news: Dict[str, NewsFeatures] = {}
+            new_news: dict[str, NewsFeatures] = {}
             idx = 0
             for s in symbols:
                 vals = res[idx] or []
@@ -222,7 +223,7 @@ class NewsAggCache:
 
                 m = dict(zip(self.NEWS_FIELDS, vals))
                 nf = NewsFeatures(
-                    ref=str(m.get("ref") or ""),
+                    ref=(m.get("ref") or ""),
                     news_risk=_f(m.get("risk_ema"), 0.0),
                     surprise_score=_f(m.get("surprise_ema"), 0.0),
                     news_grade_id=_i(m.get("news_grade_id"), 0),
@@ -234,7 +235,7 @@ class NewsAggCache:
                 )
                 new_news[s] = nf
 
-            new_cal: Dict[str, Tuple[int, int]] = {}
+            new_cal: dict[str, tuple[int, int]] = {}
             if self.enable_calendar:
                 for ac in asset_classes:
                     vals = res[idx] if idx < len(res) else []
@@ -298,10 +299,8 @@ class NewsEnricherZeroRTT:
             if nf is None:
                 # dq markers (optional)
                 if append_dq_flag:
-                    try:
+                    with contextlib.suppress(Exception):
                         append_dq_flag(ctx, "news_cache_miss")
-                    except Exception:
-                        pass
                 ctx.news = None
                 return
 
@@ -309,16 +308,12 @@ class NewsEnricherZeroRTT:
             now_ms = get_ny_time_millis()
             age_ms = now_ms - int(nf.asof_ts_ms or 0)
             if age_ms > self.cache.stale_warn_ms and append_dq_flag:
-                try:
+                with contextlib.suppress(Exception):
                     append_dq_flag(ctx, "news_cache_stale")
-                except Exception:
-                    pass
 
             ctx.news = nf
 
         except Exception:
             # fail-open
-            try:
+            with contextlib.suppress(Exception):
                 ctx.news = None
-            except Exception:
-                pass

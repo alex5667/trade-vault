@@ -5,7 +5,7 @@ Golden Pattern Service
 и применяет соответствующие бусты к финальному скору.
 """
 
-from typing import Tuple, List
+
 from signals.types import SignalContext
 
 
@@ -21,7 +21,7 @@ class GoldenPatternService:
         self.golden_liquidity_min = 0.7
         self.golden_score_multiplier = 1.2  # 20% boost for golden patterns
 
-    def apply(self, ctx: SignalContext) -> Tuple[float, List[str]]:
+    def apply(self, ctx: SignalContext) -> tuple[float, list[str]]:
         """
         Определяет, является ли паттерн золотым, и возвращает буст скора + теги.
 

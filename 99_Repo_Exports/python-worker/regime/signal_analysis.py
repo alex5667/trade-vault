@@ -9,15 +9,15 @@
 import os
 import sys
 from datetime import datetime, timedelta
-from typing import Dict, List
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from regime.signal_logger import SignalLogger
 from common.log import setup_logger
+from regime.signal_logger import SignalLogger
 
 
 class SignalAnalyzer:
@@ -92,7 +92,7 @@ class SignalAnalyzer:
         self.logger.info(f"Generated synthetic results for {len(df)} signals")
         return df
 
-    def analyze_l3_correlations(self, df: pd.DataFrame) -> Dict[str, float]:
+    def analyze_l3_correlations(self, df: pd.DataFrame) -> dict[str, float]:
         """
         Анализировать корреляции L3-метрик с результатами.
         """
@@ -122,7 +122,7 @@ class SignalAnalyzer:
 
         return correlations
 
-    def analyze_by_quantiles(self, df: pd.DataFrame, metric: str, n_quantiles: int = 3) -> Dict:
+    def analyze_by_quantiles(self, df: pd.DataFrame, metric: str, n_quantiles: int = 3) -> dict:
         """
         Анализ результатов по квантилям L3-метрики.
         """
@@ -150,7 +150,7 @@ class SignalAnalyzer:
 
         return results
 
-    def generate_recommendations(self, df: pd.DataFrame) -> List[str]:
+    def generate_recommendations(self, df: pd.DataFrame) -> list[str]:
         """
         Генерировать рекомендации по оптимизации на основе анализа.
         """
@@ -163,11 +163,7 @@ class SignalAnalyzer:
 
         # Анализ persistence score
         persistence_corr = correlations.get('l3_obi_persistence_score_vs_win', 0)
-        if persistence_corr > 0.1:
-            recommendations.append(
-                ".2f"
-            )
-        elif persistence_corr < -0.1:
+        if persistence_corr > 0.1 or persistence_corr < -0.1:
             recommendations.append(
                 ".2f"
             )
@@ -201,7 +197,7 @@ class SignalAnalyzer:
 
         return recommendations
 
-    def run_full_analysis(self, days: int = 30) -> Dict:
+    def run_full_analysis(self, days: int = 30) -> dict:
         """
         Запустить полный анализ сигналов.
         """

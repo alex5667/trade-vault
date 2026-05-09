@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """OFC_CAPTURE v1: deterministic sampling + NDJSON capture to stable storage.
 
 Why this exists (Train==Serve / golden replay):
@@ -20,17 +21,17 @@ Security note:
     on trusted machines only and apply retention policies.
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import hashlib
 import json
 import os
 import socket
 import time
-import hashlib
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 # ---------------------------------------------------------------------------
 # B7: observability sidecar
@@ -65,9 +66,9 @@ def _env_str(name: str, default: str) -> str:
 
 def _utc_yyyymmdd(ts_ms: int) -> str:
     try:
-        dt = datetime.fromtimestamp(max(0, int(ts_ms)) / 1000.0, tz=timezone.utc)
+        dt = datetime.fromtimestamp(max(0, int(ts_ms)) / 1000.0, tz=UTC)
     except Exception:
-        dt = datetime.now(tz=timezone.utc)
+        dt = datetime.now(tz=UTC)
     return dt.strftime("%Y%m%d")
 
 
@@ -86,7 +87,7 @@ def _json_safe(obj: Any) -> Any:
         except Exception:
             return str(obj)
     if isinstance(obj, dict):
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         for k, v in obj.items():
             try:
                 kk = str(k)
@@ -161,10 +162,8 @@ class NDJSONRotatingWriter:
 
         # ---- B7 local stats sidecar (best-effort)
         self._stats_dir = os.path.join(self.base_dir, "_state")
-        try:
+        with contextlib.suppress(Exception):
             os.makedirs(self._stats_dir, exist_ok=True)
-        except Exception:
-            pass
         self._stats_path = os.path.join(self._stats_dir, f"ofc_capture_stats_{self._host}-{self._pid}.json")
         self._stats = {
             "schema": "ofc_capture_stats_v1",
@@ -241,10 +240,8 @@ class NDJSONRotatingWriter:
 
         # ---- B7 local stats sidecar (best-effort)
         self._stats_dir = os.path.join(self.base_dir, "_state")
-        try:
+        with contextlib.suppress(Exception):
             os.makedirs(self._stats_dir, exist_ok=True)
-        except Exception:
-            pass
         self._stats_path = os.path.join(self._stats_dir, f"ofc_capture_stats_{self._host}-{self._pid}.json")
         self._stats = {
             "schema": "ofc_capture_stats_v1",
@@ -264,7 +261,7 @@ class NDJSONRotatingWriter:
         self._stats_flush_sec = 0
         self._stats_last_flush = 0.0
 
-    def write(self, *, day: str, policy_hash: str, record: Dict[str, Any]) -> Optional[str]:
+    def write(self, *, day: str, policy_hash: str, record: dict[str, Any]) -> str | None:
         path = self._mk_path(day=day, policy_hash=policy_hash)
         if self._need_rotate(path=path):
             # rotate by incrementing seq only when the day+policy stays same
@@ -315,10 +312,10 @@ class NDJSONRotatingWriter:
             return None
 
 
-_WRITER: Optional[NDJSONRotatingWriter] = None
+_WRITER: NDJSONRotatingWriter | None = None
 
 
-def _get_writer(cfg2: Dict[str, Any]) -> NDJSONRotatingWriter:
+def _get_writer(cfg2: dict[str, Any]) -> NDJSONRotatingWriter:
     global _WRITER
     if _WRITER is not None:
         return _WRITER
@@ -337,7 +334,7 @@ def _get_writer(cfg2: Dict[str, Any]) -> NDJSONRotatingWriter:
     return _WRITER
 
 
-def capture_enabled(cfg2: Dict[str, Any]) -> bool:
+def capture_enabled(cfg2: dict[str, Any]) -> bool:
     # Backward compatible env name: OFC_CAPTURE
     if int(cfg2.get("ofc_capture_enable", 0) or 0) == 1:
         return True
@@ -352,12 +349,12 @@ def maybe_capture_ofc_v1(
     *,
     engine: Any,
     runtime: Any,
-    indicators: Dict[str, Any],
-    cfg2: Dict[str, Any],
+    indicators: dict[str, Any],
+    cfg2: dict[str, Any],
     ofc: Any,
     dec: Any,
     now_ts_ms: int,
-) -> Optional[str]:
+) -> str | None:
     """Capture one decision record (fail-open). Returns path if written."""
 
     if not capture_enabled(cfg2):
@@ -383,8 +380,8 @@ def maybe_capture_ofc_v1(
         return None
 
     # group by policy hash if available (B4)
-    policy_hash = str(indicators.get("dq_policy_hash", "") or "unknown")
-    manifest_hash = str(indicators.get("dq_policy_feature_manifest_hash_v1", "") or "")
+    policy_hash = (indicators.get("dq_policy_hash", "") or "unknown")
+    manifest_hash = (indicators.get("dq_policy_feature_manifest_hash_v1", "") or "")
 
     # runtime + gate state for deterministic replay
     try:
@@ -398,7 +395,7 @@ def maybe_capture_ofc_v1(
         gate_state = {}
 
     # minimal dec snapshot (best-effort)
-    dec_snap: Dict[str, Any] = {}
+    dec_snap: dict[str, Any] = {}
     try:
         if dec is not None:
             for k in ("scenario", "need", "have", "score", "gate_bits"):

@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 EntryPolicy ApplyRunner (v2)
 
@@ -13,20 +13,18 @@ This patch adds:
  - scenario-aware active_arm keys (already in your _apply_one signature)
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import asyncio
 import json
 import os
-import time
-from typing import Dict, Any, Optional, List
+from typing import Any
 
-import asyncio
 import redis.asyncio as aioredis
 
 from common.log import setup_logger
 from core.redis_keys import RedisStreams as RS
 from core.redis_lock import RedisLock
 from services.orderflow.auto_apply_guard import assert_auto_apply_not_blocked
+from utils.time_utils import get_ny_time_millis
 
 log = setup_logger("entry_policy_apply_runner_v2")
 
@@ -36,24 +34,24 @@ def _now_ms() -> int:
 
 
 def _sym(x: Any) -> str:
-    return str(x or "").strip().upper()
+    return (x or "").strip().upper()
 
 
 def _rg(x: Any) -> str:
-    return str(x or "na").strip().lower()
+    return (x or "na").strip().lower()
 
 
 def _grp(x: Any) -> str:
-    return str(x or "default").strip().lower()
+    return (x or "default").strip().lower()
 
 
 def _scn(x: Any) -> str:
-    v = str(x or "").strip().lower()
+    v = (x or "").strip().lower()
     return v if v in ("continuation", "reversal") else "na"
 
 
 def _arm(x: Any) -> str:
-    v = str(x or "A").strip().upper()
+    v = (x or "A").strip().upper()
     return v if v in ("A", "B", "C") else "A"
 
 
@@ -97,7 +95,7 @@ class EntryPolicyApplyRunnerV2:
     async def _unlock(self) -> None:
         await self.lock.release(self.r)
 
-    async def _load_meta(self, sid: str) -> Optional[Dict[str, Any]]:
+    async def _load_meta(self, sid: str) -> dict[str, Any] | None:
         try:
             raw = await self.r.get(f"{self.meta_prefix}:{sid}")
             if not raw:
@@ -107,7 +105,7 @@ class EntryPolicyApplyRunnerV2:
         except Exception:
             return None
 
-    async def _approvers(self, sid: str) -> List[str]:
+    async def _approvers(self, sid: str) -> list[str]:
         """
         Approvals are stored as a Redis SET:
           cfg:suggestions:entry_policy:approvals:{sid} = {"alice","bob"}
@@ -130,15 +128,15 @@ class EntryPolicyApplyRunnerV2:
     async def _active_key_ts(self, active_key: str) -> int:
         try:
             v = await self.r.get(f"{self.active_ts_prefix}:{active_key[len(self.active_prefix)+1:]}")
-            # fallback to exact key if prefix construction logic differs? 
-            # Actually better to construct full key from components in caller logic 
+            # fallback to exact key if prefix construction logic differs?
+            # Actually better to construct full key from components in caller logic
             # BUT here we are inside helper. Let's use the explicit TS key constructed in _apply_one.
             # Wait, _set_active_arm uses a constructed key.
             return int(v or 0)
         except Exception:
             return 0
 
-    async def _apply_one(self, sid: str, meta: Dict[str, Any], appliers: List[str]) -> bool:
+    async def _apply_one(self, sid: str, meta: dict[str, Any], appliers: list[str]) -> bool:
         """
         Apply suggestions produced by autopilot.
 
@@ -156,10 +154,10 @@ class EntryPolicyApplyRunnerV2:
                 return False
             pipe = self.r.pipeline()
             for op in ops:
-                cmd = str(op.get("op", "")).upper()
-                key = str(op.get("key", ""))
-                val = str(op.get("value", ""))
-                field = str(op.get("field", ""))
+                cmd = (op.get("op", "")).upper()
+                key = (op.get("key", ""))
+                val = (op.get("value", ""))
+                field = (op.get("field", ""))
                 if cmd == "HSET" and key and field:
                     pipe.hset(key, field, val)
                 elif cmd == "SET" and key:
@@ -210,7 +208,7 @@ class EntryPolicyApplyRunnerV2:
         """
         # Step 26: Guard — block apply if tick-quality gate is blocking
         assert_auto_apply_not_blocked()
-        
+
         if not await self._try_lock():
             return 0
 
@@ -230,12 +228,12 @@ class EntryPolicyApplyRunnerV2:
                 while True:
                     cur, keys = await self.r.scan(cur, match="cfg:suggestions:entry_policy:latest:*", count=10000)
                     for k in keys or []:
-                        # Skip overrides keys if we are in default mode (though pattern matches them? 
+                        # Skip overrides keys if we are in default mode (though pattern matches them?
                         # actually "latest:*" matches "latest:overrides_v1:orderflow".
-                        # So we might need to be careful. 
+                        # So we might need to be careful.
                         # But existing code expected "latest:{sid}" -> sid.
                         # Wait, the structure for active_arm was "latest" -> sid ??
-                        # No, conventionally "latest" was a pointer. Here we scan "latest:*". 
+                        # No, conventionally "latest" was a pointer. Here we scan "latest:*".
                         # Let's assume standard behavior is just processing sids found.
                         try:
                             sid = str(await self.r.get(k) or "")
@@ -252,7 +250,7 @@ class EntryPolicyApplyRunnerV2:
             pass
         finally:
             await self._unlock()
-        
+
         return applied_count
 
     async def run_custom_sid(self, sid: str, kind: str) -> bool:
@@ -261,9 +259,9 @@ class EntryPolicyApplyRunnerV2:
         meta = await self._load_meta(sid)
         if not meta:
             return False
-        
+
         # Filter by kind if needed
-        meta_kind = str(meta.get("kind", "") or "active_arm").strip().lower()
+        meta_kind = (meta.get("kind", "") or "active_arm").strip().lower()
         if kind == "overrides_v1" and meta_kind != "overrides_v1":
             return False
         if kind == "active_arm" and meta_kind == "overrides_v1":
@@ -273,7 +271,7 @@ class EntryPolicyApplyRunnerV2:
         req = self.default_approvals_required
         if "approvals_required" in meta:
              req = int(meta["approvals_required"])
-             
+
         if len(appliers) < req:
             return False
         return await self._apply_one(sid, meta, appliers)
@@ -292,26 +290,26 @@ async def _main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--kind", type=str, default="active_arm", help="active_arm or overrides_v1")
     args = ap.parse_args()
-    
+
     svc = EntryPolicyApplyRunnerV2()
     # If run as CLI tool (likely cron/one-off), we run once and exit
     # But if we want forever loop, we need a flag?
     # The requirement says: "python -m services.entry_policy_apply_runner_v2 --kind overrides_v1"
     # and usually runners run once in this context (triggered by autopilot service).
-    
+
     # We'll treat it as run_once if kind is provided/default.
     # The existing run_forever was for the service mode.
     # If we want to preserve service mode, we can add --loop.
-    
+
     # However, for this task, we are asked to "ApplyRunner: добавить режим --kind overrides_v1".
     # And the Autopilot calls it as a one-shot command.
-    
+
     # Let's support both.
-    
+
     if args.kind == "active_arm" and os.getenv("RUN_AS_SERVICE", "0") == "1":
         await svc.run_forever()
         return 0
-    
+
     cnt = await svc.run_once(kind=args.kind)
     print(f"Applied {cnt} proposals (kind={args.kind})")
     return 0

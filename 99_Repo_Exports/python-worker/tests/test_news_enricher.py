@@ -1,8 +1,11 @@
-import fakeredis
 import json
 from types import SimpleNamespace
+
+import fakeredis
+
 from news_pipeline.enricher_sync import NewsEnricherSync
 from news_pipeline.models import NewsFeatures
+
 
 def test_enricher_attach_ok():
     r = fakeredis.FakeRedis(decode_responses=True)

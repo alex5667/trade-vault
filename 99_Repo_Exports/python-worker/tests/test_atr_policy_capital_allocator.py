@@ -1,15 +1,7 @@
 from __future__ import annotations
 
-import os
-from contextlib import contextmanager
+from services.atr_policy_capital_allocator import _cert_mult, _clip, _relu, _rollout_mult, _scope_key
 
-from services.atr_policy_capital_allocator import (
-    _cert_mult,
-    _rollout_mult,
-    _relu,
-    _clip,
-    _scope_key
-)
 
 def test_cert_mult():
     assert _cert_mult("passed") == 1.0

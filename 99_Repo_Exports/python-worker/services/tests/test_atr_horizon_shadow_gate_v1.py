@@ -1,13 +1,11 @@
 from __future__ import annotations
+
 """Phase 2.2 — unit tests for horizon-aware shadow DQ gate."""
 
 import time
 from types import SimpleNamespace
 
-import pytest
-
 from services.atr_horizon_shadow_gate import compute_horizon_dq_shadow
-
 
 # ---------------------------------------------------------------------------
 # Helpers

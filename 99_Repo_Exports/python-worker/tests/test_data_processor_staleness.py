@@ -1,11 +1,7 @@
-import pytest
-from contexts import BucketState
-import sys
-import os
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from handlers.data_processor import OrderFlowDataProcessor
 from contexts import Tick
+from handlers.data_processor import OrderFlowDataProcessor
 
 
 class MockConfig:

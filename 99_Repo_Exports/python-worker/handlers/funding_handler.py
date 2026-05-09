@@ -11,4 +11,4 @@ from .funding_handler_impl import FundingDataHandler
 
 __all__ = [
     'FundingDataHandler',
-] 
+]

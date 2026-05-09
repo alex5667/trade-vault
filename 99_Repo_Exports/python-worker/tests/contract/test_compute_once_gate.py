@@ -1,7 +1,5 @@
 from types import SimpleNamespace
 
-import pytest
-
 from common.ctx_cache import cached_on_ctx
 
 

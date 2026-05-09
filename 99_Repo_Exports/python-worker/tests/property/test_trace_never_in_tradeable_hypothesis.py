@@ -1,5 +1,5 @@
-import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from services.outbox.envelope_builder import build_outbox_envelope
 

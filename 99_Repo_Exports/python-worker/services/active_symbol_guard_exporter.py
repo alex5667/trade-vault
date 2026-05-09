@@ -125,15 +125,15 @@ class _Handler(BaseHTTPRequestHandler):  # pragma: no cover
         runbook = self._runbook()
         try:
             if path == '/api/active-symbol-guard/actions/hold/apply':
-                out = runbook.apply_hold_symbol(symbol=str(payload.get('symbol') or ''), operator=str(payload.get('operator') or ''), ticket=str(payload.get('ticket') or ''), reason=str(payload.get('reason') or ''), ttl_sec=payload.get('ttl_sec'))
+                out = runbook.apply_hold_symbol(symbol=(payload.get('symbol') or ''), operator=(payload.get('operator') or ''), ticket=(payload.get('ticket') or ''), reason=(payload.get('reason') or ''), ttl_sec=payload.get('ttl_sec'))
             elif path == '/api/active-symbol-guard/actions/hold/revoke':
-                out = runbook.revoke_hold_symbol(symbol=str(payload.get('symbol') or ''), operator=str(payload.get('operator') or ''), ticket=str(payload.get('ticket') or ''), reason=str(payload.get('reason') or ''))
+                out = runbook.revoke_hold_symbol(symbol=(payload.get('symbol') or ''), operator=(payload.get('operator') or ''), ticket=(payload.get('ticket') or ''), reason=(payload.get('reason') or ''))
             elif path == '/api/active-symbol-guard/actions/force-release':
-                out = runbook.guarded_force_release(symbol=str(payload.get('symbol') or ''), operator=str(payload.get('operator') or ''), ticket=str(payload.get('ticket') or ''), expected_sid=str(payload.get('expected_sid') or ''), reason=str(payload.get('reason') or ''), dry_run=bool(payload.get('dry_run')))
+                out = runbook.guarded_force_release(symbol=(payload.get('symbol') or ''), operator=(payload.get('operator') or ''), ticket=(payload.get('ticket') or ''), expected_sid=(payload.get('expected_sid') or ''), reason=(payload.get('reason') or ''), dry_run=bool(payload.get('dry_run')))
             elif path == '/api/active-symbol-guard/actions/escalation/ack':
-                out = runbook.escalation_ack(symbol=str(payload.get('symbol') or ''), sid=str(payload.get('sid') or ''), fingerprint=str(payload.get('fingerprint') or ''), operator=str(payload.get('operator') or ''), ticket=str(payload.get('ticket') or ''), reason=str(payload.get('reason') or ''), ttl_sec=payload.get('ttl_sec'))
+                out = runbook.escalation_ack(symbol=(payload.get('symbol') or ''), sid=(payload.get('sid') or ''), fingerprint=(payload.get('fingerprint') or ''), operator=(payload.get('operator') or ''), ticket=(payload.get('ticket') or ''), reason=(payload.get('reason') or ''), ttl_sec=payload.get('ttl_sec'))
             elif path == '/api/active-symbol-guard/actions/escalation/renew':
-                out = runbook.escalation_renew(symbol=str(payload.get('symbol') or ''), sid=str(payload.get('sid') or ''), fingerprint=str(payload.get('fingerprint') or ''), operator=str(payload.get('operator') or ''), ticket=str(payload.get('ticket') or ''), reason=str(payload.get('reason') or ''), ttl_sec=payload.get('ttl_sec'))
+                out = runbook.escalation_renew(symbol=(payload.get('symbol') or ''), sid=(payload.get('sid') or ''), fingerprint=(payload.get('fingerprint') or ''), operator=(payload.get('operator') or ''), ticket=(payload.get('ticket') or ''), reason=(payload.get('reason') or ''), ttl_sec=payload.get('ttl_sec'))
             else:
                 self._write_json(status=404, payload={'ok': False, 'error': 'not_found'})
                 return

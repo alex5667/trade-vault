@@ -1,11 +1,12 @@
 
-import os
 import json
-import pytest
+from unittest.mock import patch
+
 import pandas as pd
-import numpy as np
-from unittest.mock import patch, MagicMock
+import pytest
+
 from tools.train_meta_model_lr_v2 import main
+
 
 @pytest.fixture
 def mock_parquet_file(tmp_path):
@@ -26,7 +27,7 @@ def mock_parquet_file(tmp_path):
 def test_train_meta_model_lr_v2_end_to_end(mock_parquet_file, tmp_path):
     out_json = tmp_path / "model.json"
     out_joblib = tmp_path / "model.joblib"
-    
+
     # Mock sys.argv
     with patch("sys.argv", [
         "train_meta_model_lr_v2.py",
@@ -36,13 +37,13 @@ def test_train_meta_model_lr_v2_end_to_end(mock_parquet_file, tmp_path):
         "--threshold", "0.6"
     ]):
         main()
-        
+
     assert out_json.exists()
     assert out_joblib.exists()
-    
+
     with open(out_json) as f:
         model = json.load(f)
-        
+
     assert "features" in model
     assert "coef" in model
     assert "intercept" in model
@@ -53,11 +54,10 @@ def test_train_meta_model_lr_v2_end_to_end(mock_parquet_file, tmp_path):
 def test_train_meta_model_lr_v2_missing_y(tmp_path):
     path = tmp_path / "bad_data.parquet"
     pd.DataFrame({"x": [1, 2]}).to_parquet(path)
-    
+
     with patch("sys.argv", [
         "train_meta_model_lr_v2.py",
         "--parquet", str(path),
         "--out_json", str(tmp_path / "out.json")
-    ]):
-        with pytest.raises(SystemExit, match="missing column y"):
-            main()
+    ]), pytest.raises(SystemExit, match="missing column y"):
+        main()

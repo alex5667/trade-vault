@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """export_replay_inputs_ndjson_v1.py
 
 Phase2 helper: export a time-window slice of replay inputs archive into a single NDJSON.
@@ -28,7 +29,7 @@ import argparse
 import gzip
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ml_analysis.tools.replay_inputs_reader_v1 import ReplayInputsReader
 
@@ -39,7 +40,7 @@ def _open_out(path: str):
     return open(path, "w", encoding="utf-8")
 
 
-def _as_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
+def _as_payload(obj: dict[str, Any]) -> dict[str, Any]:
     # Archive reader already parses JSON lines.
     # Some variants may store payload as a JSON string.
     v = obj.get("payload")
@@ -54,8 +55,8 @@ def _as_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
     return obj
 
 
-def _sym_from_payload(p: Dict[str, Any]) -> str:
-    s = str(p.get("symbol") or "").upper().strip()
+def _sym_from_payload(p: dict[str, Any]) -> str:
+    s = (p.get("symbol") or "").upper().strip()
     return s
 
 

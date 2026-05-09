@@ -1,5 +1,7 @@
 import types
+
 from common.ctx_cache import cached_on_ctx
+
 
 class DummyConsistencyGate:
     def __init__(self):
@@ -42,7 +44,7 @@ class MiniHandler:
         c = getattr(ctx, "_gate_cache", None)
         if not isinstance(c, dict):
             c = {}
-            setattr(ctx, "_gate_cache", c)
+            ctx._gate_cache = c
         return c
 
     @staticmethod

@@ -1,6 +1,6 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple
-import math
+
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -19,7 +19,7 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Compute percentile of sorted list.
     
     Args:
@@ -37,7 +37,7 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def agg_health_ml_confirm(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def agg_health_ml_confirm(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate health metrics from metrics:ml_confirm stream.
     
     Computes:
@@ -60,7 +60,7 @@ def agg_health_ml_confirm(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     lat = []
     for r in rows:
         missing += 1 if _i(r.get("missing", 0), 0) == 1 else 0
-        err += 1 if (str(r.get("err", "")) or "").strip() != "" else 0
+        err += 1 if ((r.get("err", "")) or "").strip() != "" else 0
         lat.append(_f(r.get("latency_ms", 0.0), 0.0))
     return {
         "n": n,
@@ -70,7 +70,7 @@ def agg_health_ml_confirm(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def agg_exec_risk(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def agg_exec_risk(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate exec_risk_norm metrics.
     
     Args:
@@ -83,7 +83,7 @@ def agg_exec_risk(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {"n": len(xs), "exec_p90": pctl(xs, 0.90) if xs else 0.0}
 
 
-def agg_selected(rows: List[Dict[str, Any]], t: float) -> Dict[str, Any]:
+def agg_selected(rows: list[dict[str, Any]], t: float) -> dict[str, Any]:
     """Aggregate metrics for rows with p_edge >= threshold.
     
     Computes:
@@ -126,16 +126,16 @@ def agg_selected(rows: List[Dict[str, Any]], t: float) -> Dict[str, Any]:
 
 
 def pick_threshold(
-    rows_short: List[Dict[str, Any]],
-    rows_long: List[Dict[str, Any]],
+    rows_short: list[dict[str, Any]],
+    rows_long: list[dict[str, Any]],
     *,
-    grid: List[float],
+    grid: list[float],
     min_n_short: int,
     min_n_long: int,
     tail_max: float,
     meanR_min: float,
     es05_min: float,
-) -> Tuple[float, Dict[str, Any], Dict[str, Any]]:
+) -> tuple[float, dict[str, Any], dict[str, Any]]:
     """Pick smallest threshold that satisfies constraints on both windows.
     
     Primary strategy: find smallest threshold where both windows satisfy:

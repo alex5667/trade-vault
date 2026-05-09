@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 news_pipeline/p6_metrics.py — Extended Prometheus metrics for P6.
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Unit tests for liqmap TP/SL overlay (D1).
 
 Focus:
@@ -12,7 +11,6 @@ These tests are pure and do not touch Redis or time.
 
 import sys
 from pathlib import Path
-
 
 # Ensure we import the SoT copy (tick_flow_full/services/...) first.
 _PW_ROOT = Path(__file__).resolve().parents[4]

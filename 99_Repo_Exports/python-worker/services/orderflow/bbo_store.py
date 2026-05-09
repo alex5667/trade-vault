@@ -32,18 +32,20 @@ import json
 import math
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 # Import is optional to keep unit tests runnable in minimal environments.
 if TYPE_CHECKING:  # pragma: no cover
-    from services.async_signal_publisher import AsyncSignalPublisher  # noqa: F401
-    from services.async_signal_publisher import StreamSink  # noqa: F401
+    from services.async_signal_publisher import (
+        AsyncSignalPublisher,  # noqa: F401
+        StreamSink,  # noqa: F401
+    )
 
 
 _bbo_semaphore = None
 
 
-def _safe_float(v: Any) -> Optional[float]:
+def _safe_float(v: Any) -> float | None:
     try:
         f = float(v)
     except Exception:
@@ -53,7 +55,7 @@ def _safe_float(v: Any) -> Optional[float]:
     return float(f)
 
 
-def _safe_int(v: Any) -> Optional[int]:
+def _safe_int(v: Any) -> int | None:
     try:
         i = int(float(v))
     except Exception:
@@ -61,7 +63,7 @@ def _safe_int(v: Any) -> Optional[int]:
     return int(i)
 
 
-def _calc_mid(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
+def _calc_mid(bid: float | None, ask: float | None) -> float | None:
     if bid is None or ask is None:
         return None
     if bid <= 0 or ask <= 0:
@@ -81,7 +83,7 @@ class BBOStoreCfg:
     venue_default: str
 
     @staticmethod
-    def from_env() -> "BBOStoreCfg":
+    def from_env() -> BBOStoreCfg:
         enabled = bool(int(os.getenv("BBO_TS_PUBLISH_ENABLED", "1") or 1))
         stream = os.getenv("BBO_TS_STREAM", "events:bbo_ts")
         stream_maxlen = int(os.getenv("BBO_TS_STREAM_MAXLEN", "5000") or 5000)
@@ -170,9 +172,9 @@ async def maybe_publish_bbo(
         venue = ""
     venue = (venue or cfg.venue_default or "binance").strip().lower()
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "schema_version": int(cfg.schema_version),
-        "producer": str(os.getenv("SERVICE_NAME", "python-worker")),
+        "producer": os.getenv("SERVICE_NAME", "python-worker"),
         "ts_ms": int(ts_ms),
         "symbol": symbol,
         "venue": venue,

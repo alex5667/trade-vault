@@ -1,7 +1,7 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 from orderflow_services.exec_health_freeze_tamper_guard_v1 import Guard, should_refreeze
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:
@@ -110,7 +110,6 @@ def test_guard_respects_cooldown() -> None:
     """Если cooldown ещё активен → повторная заморозка не выполняется, даже при tamper."""
     g = _guard()
     # Установить cooldown_until_ts_ms в будущем
-    import time
     future_ts = get_ny_time_millis() + 999_000
     g.r.hashes['metrics:exec_health:freeze_tamper_guard:last'] = {
         'cooldown_until_ts_ms': str(future_ts),

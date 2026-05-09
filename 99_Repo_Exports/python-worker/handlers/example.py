@@ -4,6 +4,7 @@
 """
 
 import time
+
 from handlers import SignalProcessor
 
 
@@ -20,22 +21,22 @@ def sample_ws_callback(symbols):
 def main():
     """Пример запуска обработчиков сигналов"""
     print("🚀 Запуск примера использования handlers модуля")
-    
+
     # Создаем обработчик сигналов
     signal_processor = SignalProcessor(sample_ws_callback)
-    
+
     try:
         # Запускаем все обработчики
         signal_processor.start_all()
-        
+
         # Демонстрируем работу в течение 30 секунд
         print("⏰ Демонстрация работы в течение 30 секунд...")
         time.sleep(30)
-        
+
         # Показываем статистику
         histories = signal_processor.get_kline_histories()
         print(f"📊 Количество торговых пар в истории: {len(histories)}")
-        
+
     except KeyboardInterrupt:
         print("⛔ Получен сигнал завершения")
     finally:
@@ -45,4 +46,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

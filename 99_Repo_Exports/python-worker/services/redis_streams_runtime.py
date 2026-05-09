@@ -1,20 +1,18 @@
 # services/redis_streams_runtime.py
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
-
-import redis
-from prometheus_client import Counter
-
 import logging
 import os
-import sys
+import time
+from dataclasses import dataclass
 
-# Wrap in a registry check to avoid "Duplicated timeseries" during test collection 
+import redis
+
+# Wrap in a registry check to avoid "Duplicated timeseries" during test collection
 # if the module is loaded multiple times (e.g. under different paths)
-from prometheus_client import REGISTRY
+from prometheus_client import REGISTRY, Counter
+import contextlib
+
 _metric_name = "consumer_group_recovery_attempts"
 if _metric_name in REGISTRY._names_to_collectors:
     CONSUMER_GROUP_RECOVERY_ATTEMPTS = REGISTRY._names_to_collectors[_metric_name]
@@ -32,7 +30,7 @@ else:
 class StreamMsg:
     stream: str
     msg_id: str
-    fields: Dict[str, str]
+    fields: dict[str, str]
 
 
 def ensure_group(r: redis.Redis, stream: str, group: str, start_id: str = "$") -> None:
@@ -47,18 +45,18 @@ def ensure_group(r: redis.Redis, stream: str, group: str, start_id: str = "$") -
 
 # ── Stream-discovery cache ────────────────────────────────────────────────────
 # Keyed by (redis connection id, frozenset of patterns) → (timestamp, sorted list)
-_discover_cache: Dict[Tuple, Tuple[float, List[str]]] = {}
+_discover_cache: dict[tuple, tuple[float, list[str]]] = {}
 _DISCOVER_CACHE_TTL_SEC: float = float(os.getenv("TM_DISCOVER_CACHE_TTL_SEC", "120"))
 
 
-def redis_keys_safe(r: redis.Redis, pattern: str, scan_count: int = 100) -> List[str]:
+def redis_keys_safe(r: redis.Redis, pattern: str, scan_count: int = 100) -> list[str]:
     """Non-blocking KEYS replacement using SCAN iteration.
 
     Uses a small scan_count (default 100) to release the Redis event-loop
     between batches and avoid the 41ms+ blocking seen with KEYS on large
     keyspaces.
     """
-    found: List[str] = []
+    found: list[str] = []
     cursor = 0
     while True:
         cursor, keys = r.scan(cursor=cursor, match=pattern, count=scan_count)
@@ -72,10 +70,10 @@ def redis_keys_safe(r: redis.Redis, pattern: str, scan_count: int = 100) -> List
 
 def discover_streams(
     r: redis.Redis,
-    patterns: List[str],
+    patterns: list[str],
     scan_count: int = 100,
     use_cache: bool = True,
-) -> List[str]:
+) -> list[str]:
     """Discover stream keys matching patterns.
 
     P3 fix: scan_count default 5000 → 100 to avoid multi-millisecond Redis
@@ -83,7 +81,7 @@ def discover_streams(
     (TM_DISCOVER_CACHE_TTL_SEC, default 120s) prevents repeated full-keyspace
     scans on every RESCAN_EVERY_SEC tick.
     """
-    cache_key: Tuple = (id(r), frozenset(patterns))
+    cache_key: tuple = (id(r), frozenset(patterns))
     now = time.monotonic()
 
     if use_cache and cache_key in _discover_cache:
@@ -91,7 +89,7 @@ def discover_streams(
         if now - ts < _DISCOVER_CACHE_TTL_SEC:
             return cached
 
-    streams: Set[str] = set()
+    streams: set[str] = set()
     for pat in patterns:
         cursor = 0
         while True:
@@ -121,7 +119,7 @@ def discover_streams(
     return result
 
 
-def invalidate_discover_cache(r: Optional[redis.Redis] = None) -> None:
+def invalidate_discover_cache(r: redis.Redis | None = None) -> None:
     """Invalidate the discover-streams cache (e.g. after a new stream is created)."""
     if r is None:
         _discover_cache.clear()
@@ -142,16 +140,16 @@ def xreadgroup_multi(
     r: redis.Redis,
     group: str,
     consumer: str,
-    streams: List[str],
+    streams: list[str],
     count: int = 200,
     block_ms: int = 1000,
-) -> List[StreamMsg]:
+) -> list[StreamMsg]:
     if not streams:
         time.sleep(block_ms / 1000.0)
         return []
 
-    stream_dict = {s: ">" for s in streams}
-    last_err: Optional[Exception] = None
+    stream_dict = dict.fromkeys(streams, ">")
+    last_err: Exception | None = None
 
     for attempt in range(_XREADGROUP_MAX_RETRIES + 1):
         try:
@@ -163,10 +161,8 @@ def xreadgroup_multi(
         except redis.ResponseError as e:
             if "NOGROUP" in str(e):
                 for s in streams:
-                    try:
+                    with contextlib.suppress(Exception):
                         CONSUMER_GROUP_RECOVERY_ATTEMPTS.labels(stream=s).inc()
-                    except Exception:
-                        pass
                     ensure_group(r, s, group, start_id="$")
                 # Retry once after group creation
                 resp = r.xreadgroup(
@@ -192,12 +188,12 @@ def xreadgroup_multi(
                 )
                 return []
 
-    out: List[StreamMsg] = []
+    out: list[StreamMsg] = []
     for stream_name, items in resp:
         s = stream_name if isinstance(stream_name, str) else stream_name.decode("utf-8", errors="ignore")
         for msg_id, fields in items:
             mid = msg_id if isinstance(msg_id, str) else msg_id.decode("utf-8", errors="ignore")
-            f2: Dict[str, str] = {}
+            f2: dict[str, str] = {}
             for k, v in (fields or {}).items():
                 ks = k if isinstance(k, str) else k.decode("utf-8", errors="ignore")
                 vs = v if isinstance(v, str) else v.decode("utf-8", errors="ignore")
@@ -214,7 +210,7 @@ def autoclaim_stale(
     min_idle_ms: int,
     start_id: str = "0-0",
     count: int = 50,
-) -> List[StreamMsg]:
+) -> list[StreamMsg]:
     """
     Перехватывает зависшие pending (после падения воркера, сетевых проблем и т.п.).
     """
@@ -222,10 +218,8 @@ def autoclaim_stale(
         next_id, msgs, _deleted = r.xautoclaim(stream, group, consumer, min_idle_ms, start_id, count=count)
     except redis.ResponseError as e:
         if "NOGROUP" in str(e):
-             try:
+             with contextlib.suppress(Exception):
                  CONSUMER_GROUP_RECOVERY_ATTEMPTS.labels(stream=stream).inc()
-             except Exception:
-                 pass
              ensure_group(r, stream, group, start_id="0")
              next_id, msgs, _deleted = r.xautoclaim(stream, group, consumer, min_idle_ms, start_id, count=count)
         else:
@@ -233,10 +227,10 @@ def autoclaim_stale(
     except Exception:
         return []
 
-    out: List[StreamMsg] = []
+    out: list[StreamMsg] = []
     for msg_id, fields in (msgs or []):
         mid = msg_id if isinstance(msg_id, str) else msg_id.decode("utf-8", errors="ignore")
-        f2: Dict[str, str] = {}
+        f2: dict[str, str] = {}
         for k, v in (fields or {}).items():
             ks = k if isinstance(k, str) else k.decode("utf-8", errors="ignore")
             vs = v if isinstance(v, str) else v.decode("utf-8", errors="ignore")

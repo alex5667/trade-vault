@@ -1,11 +1,11 @@
 from __future__ import annotations
+
 """P4.14 tests: verify alerts YAML and dashboard JSON contain required metrics."""
 
 import json
 import os
 
 import yaml
-import pytest
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

@@ -1,7 +1,9 @@
 import fakeredis
+
+from news_pipeline import config
 from news_pipeline.feature_store_service import NewsFeatureStoreService
 from news_pipeline.models import NewsAnalysisCompact
-from news_pipeline import config
+
 
 def test_feature_store_updates_hash():
     r = fakeredis.FakeRedis(decode_responses=True)

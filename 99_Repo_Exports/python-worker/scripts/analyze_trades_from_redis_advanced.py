@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 analyze_trades_from_redis_advanced.py
 
@@ -23,10 +24,8 @@ analyze_trades_from_redis_advanced.py
 import argparse
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 import redis  # pip install redis
-
 
 # ----------------------------
 # Модели и утилиты
@@ -262,11 +261,11 @@ class TagStats:
         if dd > self.mdd:
             self.mdd = dd
 
-    def finalize(self) -> Dict[str, float]:
+    def finalize(self) -> dict[str, float]:
         if self.n == 0:
             return {"tag": self.tag, "n": 0}
 
-        res: Dict[str, float] = {"tag": self.tag, "n": float(self.n)}
+        res: dict[str, float] = {"tag": self.tag, "n": float(self.n)}
 
         # Базовые суммы
         res["pnl_net_sum"] = self.sum_pnl_net
@@ -361,13 +360,13 @@ def load_trades_from_redis(
     redis_url: str,
     stream_key: str,
     count: int,
-    source_filter: Optional[str] = None,
-    symbol_filter: Optional[str] = None,
-) -> List[Trade]:
+    source_filter: str | None = None,
+    symbol_filter: str | None = None,
+) -> list[Trade]:
     r = redis.from_url(redis_url, decode_responses=True)
     entries = r.xrevrange(stream_key, max="+", min="-", count=count)
 
-    trades: List[Trade] = []
+    trades: list[Trade] = []
 
     for entry_id, fields in entries:
         source = fields.get("source") or fields.get("strategy_source") or "Unknown"
@@ -447,9 +446,9 @@ def print_global_report(source: str, symbol: str, stats: TagStats) -> None:
     )
 
 
-def print_entry_tag_report(stats_by_tag: Dict[str, TagStats], min_trades: int = 5) -> None:
+def print_entry_tag_report(stats_by_tag: dict[str, TagStats], min_trades: int = 5) -> None:
     print(f"\n=== Entry-tag metrics (only tags with n >= {min_trades}) ===")
-    rows: List[Tuple[str, Dict[str, float]]] = []
+    rows: list[tuple[str, dict[str, float]]] = []
     for tag, s in stats_by_tag.items():
         m = s.finalize()
         if m["n"] >= min_trades:
@@ -520,7 +519,7 @@ def main() -> None:
     symbol = trades[0].symbol
 
     stats_global = TagStats(tag="__ALL__")
-    stats_by_tag: Dict[str, TagStats] = {}
+    stats_by_tag: dict[str, TagStats] = {}
 
     for t in trades:
         stats_global.add_trade(t)

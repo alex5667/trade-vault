@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any
 
 
 def _clamp01(x: float) -> float:
@@ -19,7 +19,7 @@ DEFAULT_GEOMETRY_SCORE_NEUTRAL = 0.1  # "HTF levels missing" -> neutral-but-low,
 DEFAULT_L2_STALE_MS = 1500
 
 
-def _ensure_list_attr(obj: Any, name: str) -> List[str]:
+def _ensure_list_attr(obj: Any, name: str) -> list[str]:
     cur = getattr(obj, name, None)
     if isinstance(cur, list):
         return cur
@@ -28,7 +28,7 @@ def _ensure_list_attr(obj: Any, name: str) -> List[str]:
     return cur
 
 
-def get_l2_ts_ms(ctx: Any) -> Optional[int]:
+def get_l2_ts_ms(ctx: Any) -> int | None:
     """
     Унифицированно достаём timestamp книги:
       - ctx.l2_ts_ms
@@ -55,20 +55,20 @@ def ensure_dependency_defaults(ctx: Any) -> None:
     # L3: если нет данных — не veto, но помечаем и ставим нейтраль
     l3_score = getattr(ctx, "l3_score", None)
     if l3_score is None:
-        setattr(ctx, "l3_score", DEFAULT_L3_SCORE_NEUTRAL)
+        ctx.l3_score = DEFAULT_L3_SCORE_NEUTRAL
         if "l3_missing" not in flags:
             flags.append("l3_missing")
     else:
-        setattr(ctx, "l3_score", _clamp01(float(l3_score)))
+        ctx.l3_score = _clamp01(float(l3_score))
 
     # HTF/Geometry: если геометрия/уровни недоступны — не veto, ставим нейтраль и помечаем
     geo_score = getattr(ctx, "geometry_score", None)
     if geo_score is None:
-        setattr(ctx, "geometry_score", DEFAULT_GEOMETRY_SCORE_NEUTRAL)
+        ctx.geometry_score = DEFAULT_GEOMETRY_SCORE_NEUTRAL
         if "htf_missing" not in flags:
             flags.append("htf_missing")
     else:
-        setattr(ctx, "geometry_score", _clamp01(float(geo_score)))
+        ctx.geometry_score = _clamp01(float(geo_score))
 
     # Candles/HLC fallback: только маркируем (само использование зависит от вашего ATR/HLC fallback)
     if bool(getattr(ctx, "hlc_fallback_used", False)):
@@ -80,13 +80,13 @@ def ensure_dependency_defaults(ctx: Any) -> None:
 class DependencyDecision:
     veto: bool
     conf_multiplier: float = 1.0
-    parts: Dict[str, Any] = field(default_factory=dict)
+    parts: dict[str, Any] = field(default_factory=dict)
 
 
 def dependency_decision_for_kind(
     kind: str,
     ctx: Any,
-    now_ms: Optional[int] = None,
+    now_ms: int | None = None,
     l2_stale_ms: int = DEFAULT_L2_STALE_MS,
 ) -> DependencyDecision:
     """
@@ -129,7 +129,7 @@ def dependency_decision_for_kind(
     if l2_stale and "l2_stale" not in flags:
         flags.append("l2_stale")
 
-    parts: Dict[str, Any] = {
+    parts: dict[str, Any] = {
         "l2": {"ts_ms": l2_ts, "age_ms": l2_age, "stale": l2_stale},
         "l3_score": float(getattr(ctx, "l3_score", DEFAULT_L3_SCORE_NEUTRAL)),
         "geometry_score": float(getattr(ctx, "geometry_score", DEFAULT_GEOMETRY_SCORE_NEUTRAL)),

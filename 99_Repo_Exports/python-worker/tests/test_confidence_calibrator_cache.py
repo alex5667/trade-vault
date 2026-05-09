@@ -1,9 +1,10 @@
-import os
 import json
-import time
+import os
 import unittest
 from types import SimpleNamespace
-from orderflow_services.confidence_calibrator import get_cached_calibrator, ConfidenceCalibrator
+
+from orderflow_services.confidence_calibrator import get_cached_calibrator
+
 
 class TestConfidenceCalibratorCache(unittest.TestCase):
     def setUp(self):
@@ -40,7 +41,7 @@ class TestConfidenceCalibratorCache(unittest.TestCase):
         # Even if we change the file, it shouldn't see it because of check_every_ms=5000
         with open(self.test_path, "w") as f:
             json.dump({"type": "temp_logit", "t": 2.0, "schema_version": 1}, f)
-        
+
         cal2 = get_cached_calibrator(self.runtime, self.test_path, check_every_ms=5000)
         self.assertEqual(cal2.t, 1.5) # Still 1.5
 
@@ -52,7 +53,7 @@ class TestConfidenceCalibratorCache(unittest.TestCase):
         # Create valid file
         with open(self.test_path, "w") as f:
             json.dump({"type": "temp_logit", "t": 1.5, "schema_version": 1}, f)
-        
+
         cal = get_cached_calibrator(self.runtime, self.test_path)
         self.assertIsNotNone(cal)
 

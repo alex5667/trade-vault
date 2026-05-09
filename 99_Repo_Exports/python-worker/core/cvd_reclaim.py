@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 
 def _dir_sign(side: Any) -> int:
-    s = str(side or "").upper()
+    s = (side or "").upper()
     if s == "LONG":
         return 1
     if s == "SHORT":
@@ -64,9 +64,9 @@ def compute_cvd_reclaim(
     dc = float(cvd_reclaim) - float(cvd_sweep)
     sgn = 1 if dc > 0 else (-1 if dc < 0 else 0)
     want = _dir_sign(effective_bias)
-    
+
     ok = 1 if (want != 0 and sgn == want and abs(dc) >= float(effective_min_abs)) else 0
-    
+
     # Calculate score (optional)
     score = 0.0
     if want != 0 and sgn == want:
@@ -77,7 +77,7 @@ def compute_cvd_reclaim(
 
     return CVDReclaimEvent(
         ts_ms=int(ts_ms),
-        bias=str(effective_bias or "NONE").upper(),
+        bias=(effective_bias or "NONE").upper(),
         sweep_ts_ms=int(sweep_ts_ms),
         reclaim_ts_ms=int(reclaim_ts_ms),
         cvd_sweep=float(cvd_sweep),

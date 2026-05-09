@@ -1,9 +1,8 @@
-import unittest
 import json
 import os
-import tempfile
 import sys
-import math
+import tempfile
+import unittest
 
 # Add python-worker to path to import runtime
 # Assuming running from scanner_infra root
@@ -17,11 +16,11 @@ except ImportError:
     from orderflow_services.confidence_calibrator_bundle_runtime import ConfidenceCalibratorBundleRuntime
 
 class TestConfidenceCalibratorBundleRuntimeHier(unittest.TestCase):
-    
+
     def setUp(self):
         self.tmp_fd, self.tmp_path = tempfile.mkstemp(suffix=".json"),
         os.close(self.tmp_fd),
-        
+
         # Create a V3 Bundle
         self.bundle = {
             "schema_version": 3,
@@ -48,7 +47,7 @@ class TestConfidenceCalibratorBundleRuntimeHier(unittest.TestCase):
                 },
                 # Fallback: Symbol Any
                 "BTCUSDT|any|any": {
-                    "method": "platt_logit", 
+                    "method": "platt_logit",
                     "params": {"a": 0.5, "b": 0.0} # flatter sigmoid
                 },
                 # Global Regimes
@@ -58,10 +57,10 @@ class TestConfidenceCalibratorBundleRuntimeHier(unittest.TestCase):
                 }
             }
         }
-        
+
         with open(self.tmp_path, "w") as f:
             json.dump(self.bundle, f)
-            
+
         self.runtime = ConfidenceCalibratorBundleRuntime(self.tmp_path)
         self.runtime._load_bundle() # Force load
 
@@ -77,14 +76,14 @@ class TestConfidenceCalibratorBundleRuntimeHier(unittest.TestCase):
 
     def test_exact_match(self):
         # BTCUSDT|ASIA|trend_up -> a=2.0
-        # logit(0.5) = 0. 2*0 + 0 = 0. sigmoid(0) = 0.5. 
+        # logit(0.5) = 0. 2*0 + 0 = 0. sigmoid(0) = 0.5.
         # let's try 0.731 (logit ~ 1.0)
         # raw=0.731 -> logit=1.0. cal_logit = 2*1+0 = 2.0. sigmoid(2.0) = 0.88
-        
+
         ctx = {"symbol": "BTCUSDT", "session": "ASIA", "regime": "trend_up"}
         raw = 0.731058 # sigmoid(1)
         res = self.runtime.get_calibrated_confidence(raw, ctx)
-        
+
         self.assertEqual(res["bucket_key"], "BTCUSDT|ASIA|trend_up")
         self.assertAlmostEqual(res["result"], 0.880797, places=4)
 
@@ -93,7 +92,7 @@ class TestConfidenceCalibratorBundleRuntimeHier(unittest.TestCase):
         ctx = {"symbol": "BTCUSDT", "session": "ASIA", "regime": "neutral"}
         raw = 0.731058 # mid high
         res = self.runtime.get_calibrated_confidence(raw, ctx)
-        
+
         self.assertEqual(res["bucket_key"], "BTCUSDT|ASIA|any")
         # a=1.0 -> cal_logit = 1.0. sigmoid(1.0) = raw
         self.assertAlmostEqual(res["result"], raw, places=4)
@@ -103,9 +102,9 @@ class TestConfidenceCalibratorBundleRuntimeHier(unittest.TestCase):
         ctx = {"symbol": "BTCUSDT", "session": "LONDON", "regime": "neutral"}
         raw = 0.880797 # sigmoid(2) = raw. logit=2.
         # cal_logit = 0.5 * 2 = 1.0. sigmoid(1.0) = 0.731...
-        
+
         res = self.runtime.get_calibrated_confidence(raw, ctx)
-        
+
         self.assertEqual(res["bucket_key"], "BTCUSDT|any|any")
         self.assertAlmostEqual(res["result"], 0.731058, places=4)
 
@@ -115,11 +114,11 @@ class TestConfidenceCalibratorBundleRuntimeHier(unittest.TestCase):
         ctx = {"symbol": "ETHUSDT", "session": "LONDON", "regime": "trend_down"}
         raw = 0.99 # logit ~ 4.6
         # cal_logit = 0.1 * 4.6 = 0.46. sigmoid(0.46) ~ 0.613
-        
+
         res = self.runtime.get_calibrated_confidence(raw, ctx)
-        
+
         self.assertEqual(res["bucket_key"], "GLOBAL|any|trend_down")
-        self.assertTrue(res["result"] < raw) 
+        self.assertTrue(res["result"] < raw)
 
     def test_fallback_global_catchall(self):
         # ETHUSDT|LONDON|neutral -> matches global (identity)

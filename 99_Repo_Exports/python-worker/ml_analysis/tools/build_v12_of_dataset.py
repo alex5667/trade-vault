@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 tools/build_v12_of_dataset.py
 ==============================
@@ -26,16 +28,23 @@ import argparse
 import json
 import math
 import os
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # -- Import base builder utilities -----------------------------------------------
 try:
     from ml_analysis.tools.build_edge_stack_dataset_from_redis import (
-        _as_float, _as_int, _as_str, _safe_json_loads, _now_ms,
-        _xrevrange_recent, _read_archive_items, _filter_by_time,
-        parse_replay_signal, parse_trade_closed,
-        SignalRow, CloseRow,
+        CloseRow,
+        SignalRow,
+        _as_float,
+        _as_int,
+        _as_str,
+        _filter_by_time,
+        _now_ms,
+        _read_archive_items,
+        _safe_json_loads,
+        _xrevrange_recent,
+        parse_replay_signal,
+        parse_trade_closed,
     )
 except ImportError:
     raise ImportError(
@@ -46,8 +55,10 @@ except ImportError:
 # -- v12_of schema ----------------------------------------------------------------
 from core.ml_feature_schema_v12_of import V12_OF_NUMERIC_KEYS
 from core.v12_of_features import (
-    _next_funding_ts_ms, _is_session_overlap,
+    _is_session_overlap,
+    _next_funding_ts_ms,
 )
+import contextlib
 
 V12_OF_KEYS_SET = frozenset(V12_OF_NUMERIC_KEYS)
 V12_OF_KEY_COUNT = len(V12_OF_NUMERIC_KEYS)
@@ -71,11 +82,11 @@ _GOWORKER_MD = frozenset([
 # ---------------------------------------------------------------------------
 
 def vectorise_v12_of(
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     *,
     ts_ms: int,
     backfill_mc: bool = True,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Produce a {key: float} dict for all V12_OF_NUMERIC_KEYS.
 
@@ -83,7 +94,7 @@ def vectorise_v12_of(
     - Group MC keys (minutes_to_funding, session_overlap_flag) are recomputed
       from ts_ms when backfill_mc=True, ensuring Train==Serve for temporal features.
     """
-    row: Dict[str, float] = {}
+    row: dict[str, float] = {}
 
     for k in V12_OF_NUMERIC_KEYS:
         raw = indicators.get(k, 0.0)
@@ -99,19 +110,17 @@ def vectorise_v12_of(
             row["minutes_to_funding"] = float(max(0.0, next_fund - ts_ms) / 60_000.0)
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             row["session_overlap_flag"] = _is_session_overlap(ts_ms)
-        except Exception:
-            pass
 
     return row
 
 
-def _nan_count(row: Dict[str, float]) -> int:
+def _nan_count(row: dict[str, float]) -> int:
     return sum(1 for v in row.values() if v is None or (isinstance(v, float) and math.isnan(v)))
 
 
-def _zero_count(row: Dict[str, float], keys: frozenset) -> int:
+def _zero_count(row: dict[str, float], keys: frozenset) -> int:
     return sum(1 for k in keys if row.get(k, 0.0) == 0.0)
 
 
@@ -122,19 +131,19 @@ def _zero_count(row: Dict[str, float], keys: frozenset) -> int:
 def build_dataset(
     *,
     redis_url: str,
-    signal_stream: str = "signals:of:inputs",
+    signal_stream: str = RS.OF_INPUTS,
     outcome_stream: str = "trades:closed",
     signal_count: int = 500_000,
     outcome_count: int = 200_000,
     out_jsonl: str = "v12_of_train.jsonl",
-    out_report_json: Optional[str] = None,
-    out_quarantine_jsonl: Optional[str] = None,
+    out_report_json: str | None = None,
+    out_quarantine_jsonl: str | None = None,
     lookback_days: int = 30,
     y_min_r: float = 0.0,
     join_window_ms: int = 5_000,
-    archive_signal_dir: Optional[str] = None,
-    archive_outcome_dir: Optional[str] = None,
-) -> Dict[str, Any]:
+    archive_signal_dir: str | None = None,
+    archive_outcome_dir: str | None = None,
+) -> dict[str, Any]:
     """
     Core dataset building pipeline.
 
@@ -166,7 +175,7 @@ def build_dataset(
     print(f"[v12_of] Raw signal entries: {len(raw_signals)}")
 
     # Parse + index by sid
-    signals: Dict[str, SignalRow] = {}
+    signals: dict[str, SignalRow] = {}
     parse_errors = 0
     for _msg_id, fields in raw_signals:
         try:
@@ -198,7 +207,7 @@ def build_dataset(
         print(f"[v12_of] Archive outcomes: {arc_stats2}")
     print(f"[v12_of] Raw outcome entries: {len(raw_outcomes)}")
 
-    outcomes: Dict[str, CloseRow] = {}
+    outcomes: dict[str, CloseRow] = {}
     outcome_errors = 0
     for _msg_id, fields in raw_outcomes:
         try:
@@ -216,7 +225,7 @@ def build_dataset(
     # ------------------------------------------------------------------
     # 3. Join on SID
     # ------------------------------------------------------------------
-    joined: List[Dict[str, Any]] = []
+    joined: list[dict[str, Any]] = []
     missing_outcome = 0
     zero_risk = 0
     md_zero_rows = 0
@@ -295,7 +304,7 @@ def build_dataset(
     # 5. Report
     # ------------------------------------------------------------------
     y_pos = sum(1 for r in joined if r["y"] == 1)
-    stats: Dict[str, Any] = {
+    stats: dict[str, Any] = {
         "schema_ver": "v12_of",
         "numeric_key_count": V12_OF_KEY_COUNT,
         "ts_built_ms": _now_ms(),
@@ -331,7 +340,7 @@ def build_dataset(
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Build v12_of training dataset from Redis streams")
     p.add_argument("--redis_url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    p.add_argument("--signal_stream", default="signals:of:inputs")
+    p.add_argument("--signal_stream", default=RS.OF_INPUTS)
     p.add_argument("--outcome_stream", default="trades:closed")
     p.add_argument("--signal_count", type=int, default=500_000)
     p.add_argument("--outcome_count", type=int, default=200_000)

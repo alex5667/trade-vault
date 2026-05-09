@@ -2,6 +2,7 @@
 from orderflow_services import orchestration_composite_preflight_history_textfile_exporter_v1 as mod
 from orderflow_services.orchestration_composite_preflight_history_rollup_v1 import encode_field
 
+
 class FakePipeline:
     def __init__(self, r):
         self.r = r

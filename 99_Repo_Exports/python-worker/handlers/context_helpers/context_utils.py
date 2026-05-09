@@ -6,7 +6,8 @@ Provides fail-open utilities for working with signal contexts and type conversio
 """
 
 import math
-from typing import Any, Optional
+from typing import Any
+import contextlib
 
 
 def get_attr(ctx: Any, name: str, default: Any = None) -> Any:
@@ -48,7 +49,7 @@ def set_attr(ctx: Any, name: str, value: Any) -> bool:
         return False
 
 
-def safe_float_pos(x: Any) -> Optional[float]:
+def safe_float_pos(x: Any) -> float | None:
     """
     Return finite float>0 else None (best-effort, never raises).
     
@@ -82,7 +83,7 @@ def first_item(x: Any) -> Any:
     return x
 
 
-def normalize_side_int(side: Any) -> Optional[int]:
+def normalize_side_int(side: Any) -> int | None:
     """
     Standardize side to internal format (+1/-1).
     
@@ -99,7 +100,7 @@ def normalize_side_int(side: Any) -> Optional[int]:
     """
     if side is None:
         return None
-    
+
     # numbers
     try:
         if isinstance(side, (int, float)):
@@ -111,7 +112,7 @@ def normalize_side_int(side: Any) -> Optional[int]:
             return None
     except Exception:
         pass
-    
+
     # objects/enums
     for attr in ("value", "name"):
         try:
@@ -122,25 +123,25 @@ def normalize_side_int(side: Any) -> Optional[int]:
                     return r
         except Exception:
             pass
-    
+
     # strings
     try:
-        s = str(side).strip().lower()
+        s = side.strip().lower()
     except Exception:
         return None
-    
+
     if not s:
         return None
-    
+
     if s in {"1", "+1", "long", "buy", "bid", "b", "l"}:
         return 1
     if s in {"-1", "short", "sell", "ask", "s"}:
         return -1
-    
+
     return None
 
 
-def side_int_to_payload(side_int: Optional[int]) -> Optional[str]:
+def side_int_to_payload(side_int: int | None) -> str | None:
     """
     Convert internal (+1/-1) to payload string (LONG/SHORT).
     
@@ -199,8 +200,8 @@ def ensure_levels(ctx: Any, *, side: Any = None) -> None:
     # ---- side normalization (internal) ----
     try:
         si = normalize_side_int(
-            side if side is not None 
-            else get_attr(ctx, "side_int", None) 
+            side if side is not None
+            else get_attr(ctx, "side_int", None)
             or get_attr(ctx, "side", None)
         )
         if si in (1, -1):
@@ -226,10 +227,10 @@ def ensure_levels(ctx: Any, *, side: Any = None) -> None:
         if entry is None:
             of = get_attr(ctx, "of", None)
             if of is not None:
-                entry = (safe_float_pos(get_attr(of, "price", None)) 
+                entry = (safe_float_pos(get_attr(of, "price", None))
                         or safe_float_pos(get_attr(of, "last_price", None)))
         if entry is not None:
-            set_attr(ctx, "entry_price", float(entry))
+            set_attr(ctx, "entry_price", entry)
         else:
             append_dq_flag(ctx, "levels_missing_entry_price")
     except Exception:
@@ -237,7 +238,7 @@ def ensure_levels(ctx: Any, *, side: Any = None) -> None:
 
     # ---- price (audit-friendly) ----
     try:
-        price = (safe_float_pos(get_attr(ctx, "price", None)) 
+        price = (safe_float_pos(get_attr(ctx, "price", None))
                 or safe_float_pos(get_attr(ctx, "last_price", None)))
         if price is None:
             price = safe_float_pos(get_attr(ctx, "entry_price", None))
@@ -251,7 +252,7 @@ def ensure_levels(ctx: Any, *, side: Any = None) -> None:
 
     # ---- tp1_price ----
     try:
-        tp1 = (safe_float_pos(get_attr(ctx, "tp1_price", None)) 
+        tp1 = (safe_float_pos(get_attr(ctx, "tp1_price", None))
               or safe_float_pos(get_attr(ctx, "tp1", None)))
         if tp1 is None:
             for name in ("tp_levels", "tp_prices", "targets", "take_profits"):
@@ -261,7 +262,7 @@ def ensure_levels(ctx: Any, *, side: Any = None) -> None:
                 if tp1 is not None:
                     break
         if tp1 is not None:
-            set_attr(ctx, "tp1_price", float(tp1))
+            set_attr(ctx, "tp1_price", tp1)
         else:
             append_dq_flag(ctx, "levels_missing_tp1_price")
     except Exception:
@@ -269,7 +270,7 @@ def ensure_levels(ctx: Any, *, side: Any = None) -> None:
 
     # ---- sl_price ----
     try:
-        sl = (safe_float_pos(get_attr(ctx, "sl_price", None)) 
+        sl = (safe_float_pos(get_attr(ctx, "sl_price", None))
              or safe_float_pos(get_attr(ctx, "sl", None)))
         if sl is None:
             for name in ("stop_price", "stop", "sl_level", "stop_level"):
@@ -278,17 +279,15 @@ def ensure_levels(ctx: Any, *, side: Any = None) -> None:
                 if sl is not None:
                     break
         if sl is not None:
-            set_attr(ctx, "sl_price", float(sl))
+            set_attr(ctx, "sl_price", sl)
         else:
             append_dq_flag(ctx, "levels_missing_sl_price")
     except Exception:
         append_dq_flag(ctx, "levels_sl_extract_failed")
 
     # Mark as attached
-    try:
-        setattr(ctx, "_levels_attached", True)
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        ctx._levels_attached = True
 
 
 def to_float_or_nan(x: Any) -> float:
@@ -310,7 +309,7 @@ def to_float_or_nan(x: Any) -> float:
         return float("nan")
 
 
-def to_opt_float(x: Any) -> Optional[float]:
+def to_opt_float(x: Any) -> float | None:
     """
     Convert to optional float (never raises).
     

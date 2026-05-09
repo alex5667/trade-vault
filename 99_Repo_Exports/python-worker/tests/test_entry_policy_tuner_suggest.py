@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tools.entry_policy_tuner_suggest import suggest_from_records, TunerCfg
+from tools.entry_policy_tuner_suggest import TunerCfg, suggest_from_records
 
 
 def test_tuner_insufficient_samples_no_change():

@@ -1,5 +1,6 @@
 """Tests for Prometheus alerts YAML for world-practice adverse realized drift v1 - tick_flow_full."""
 import os
+
 import yaml
 
 
@@ -9,7 +10,7 @@ def test_adverse_rd_alerts_yaml_parses():
         "..",
         "prometheus_alerts_world_practice_adverse_rd_v1.yml",
     )
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         doc = yaml.safe_load(f)
 
     assert "groups" in doc

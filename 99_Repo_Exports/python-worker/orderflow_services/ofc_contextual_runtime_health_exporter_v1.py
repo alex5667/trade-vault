@@ -1,13 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -25,14 +26,14 @@ def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _to_int(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 
@@ -46,7 +47,7 @@ def _redis_client(redis_url: str):
         return None
 
 
-def _read_hash(client: Any, key: str) -> Dict[str, Any]:
+def _read_hash(client: Any, key: str) -> dict[str, Any]:
     if client is None or not key:
         return {}
     try:
@@ -55,11 +56,11 @@ def _read_hash(client: Any, key: str) -> Dict[str, Any]:
     except Exception:
         return {}
 
-def _read_json(path: str) -> Dict[str, Any]:
+def _read_json(path: str) -> dict[str, Any]:
     if not path or not os.path.exists(path):
         return {}
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         return data if isinstance(data, dict) else {}
     except Exception:
@@ -92,7 +93,7 @@ def _cooldown_remaining_seconds(cooldown_until_ts_ms: Any) -> float:
 
 
 def _str(v: Any) -> str:
-    return str(v or "").strip()
+    return (v or "").strip()
 
 
 UP = Gauge('ofc_ctx_runtime_reloader_exporter_up', '1 if runtime reloader exporter loop is running')
@@ -110,10 +111,10 @@ DEFER_UNTIL_SECONDS = Gauge('ofc_ctx_runtime_reloader_defer_until_seconds', 'Sec
 INFO = Gauge('ofc_ctx_runtime_reloader_info', 'One-hot info for runtime reloader state', ['active_overlay_fingerprint', 'last_restart_reason_kind', 'defer_reason'])
 SOURCE = Gauge('ofc_ctx_runtime_reloader_summary_source', 'One-hot source of runtime summary', ['source'])
 
-_LAST_INFO: Optional[tuple[str, str, str]] = None
+_LAST_INFO: tuple[str, str, str] | None = None
 
 
-def _resolve_data(state_path: str, redis_url: str = '', summary_key: str = '') -> Dict[str, Any]:
+def _resolve_data(state_path: str, redis_url: str = '', summary_key: str = '') -> dict[str, Any]:
     if summary_key:
         client = _redis_client(redis_url)
         summary = _read_hash(client, summary_key)
@@ -126,7 +127,7 @@ def _resolve_data(state_path: str, redis_url: str = '', summary_key: str = '') -
     return data
 
 
-def export_once(state_path: str, redis_url: str = '', summary_key: str = '') -> Dict[str, Any]:
+def export_once(state_path: str, redis_url: str = '', summary_key: str = '') -> dict[str, Any]:
     global _LAST_INFO
     data = _read_json(state_path)
     UP.set(1.0)
@@ -177,7 +178,7 @@ def export_once(state_path: str, redis_url: str = '', summary_key: str = '') -> 
         _str(data.get('last_restart_reason_kind', 'unknown'))[:64],
         _str(data.get('defer_reason', ''))[:64],
     )
-    if _LAST_INFO is not None and _LAST_INFO != labels:
+    if _LAST_INFO is not None and labels != _LAST_INFO:
         INFO.labels(*_LAST_INFO).set(0.0)
     INFO.labels(*labels).set(1.0)
     _LAST_INFO = labels

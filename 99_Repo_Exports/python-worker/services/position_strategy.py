@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Position Strategy resolver — single ENV enum controls the system mode.
 
 Strategies:

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from tests.fake_redis import FakeRedis
-
 from services.reliability_adjuster import maybe_adjust_confidence
 from services.reliability_curves import make_reliability_key_v4
+from tests.fake_redis import FakeRedis
 
 
 def _set_bucket(r: FakeRedis, *, key: str, bucket: int, n: int, h: int) -> None:
@@ -27,7 +26,7 @@ def test_adjuster_soft_tp2_applies(monkeypatch: pytest.MonkeyPatch) -> None:
     os.environ["RELIABILITY_BUCKET_STEP"] = "5"
     os.environ["RELIABILITY_ADJ_ALPHA"] = "0.5"
     os.environ["RELIABILITY_ADJ_MIN_BUCKET_SAMPLES"] = "10"
-    
+
     r = FakeRedis()
 
     # Envelope with SMT context (align=1)

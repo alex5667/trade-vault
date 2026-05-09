@@ -11,16 +11,13 @@ Covers:
 """
 from __future__ import annotations
 
-import pytest
-
-from services.signal_preprocess import preprocess_signal_for_publish
 from services.horizon_contract import (
     attach_phase0_contract,
-    extract_horizon_contract_from_payload,
-    extract_horizon_bucket,
     extract_atr_tf_ms,
+    extract_horizon_bucket,
+    extract_horizon_contract_from_payload,
 )
-
+from services.signal_preprocess import preprocess_signal_for_publish
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -251,7 +248,6 @@ def test_build_main_row_accepts_horizon_fields():
     row = _build_main_row(_FakeClosed())
     assert isinstance(row, tuple)
     # Verify config_json contains _horizon_contract embedded
-    import json
     config_json_idx = 50  # position after all the standard fields
     # Just verify we have a valid tuple of the right length
     assert len(row) >= 53  # original 50 + 3 new horizon columns

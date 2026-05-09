@@ -1,5 +1,6 @@
 # python-worker/tests/test_tags.py
-from news_pipeline.tags import tags_to_mask, pick_primary_tag
+from news_pipeline.tags import pick_primary_tag, tags_to_mask
+
 
 def test_tags_to_mask():
     m = tags_to_mask(["cpi", "fomc", "CPI", "unknown"])

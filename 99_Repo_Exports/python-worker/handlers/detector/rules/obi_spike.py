@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any
-import os
 
+from handlers.detector.rules._util import f, infer_side, nz
 from handlers.pipeline.candidate import Candidate
-from handlers.detector.rules._util import f, nz, infer_side
 
 
 @dataclass

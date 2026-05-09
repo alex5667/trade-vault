@@ -1,10 +1,9 @@
-import json
 
-from core.signal_outbox import SignalOutboxPublisher, OutboxSettings
+from core.signal_outbox import OutboxSettings, SignalOutboxPublisher
+from domain.handlers import create_position
 from handlers.emitter.outbox_publisher_adapter import OutboxPublisherAdapter
 from runners.trade_monitor_runner import _parse_signal
 from services.trade_monitor import TradeMonitorService
-from domain.handlers import create_position
 
 
 class FakeRedisLuaOutbox:
@@ -49,7 +48,7 @@ class DummySpec:
     rr_levels = [1.0, 2.0, 3.0]
     def risk_money(self, entry_price, sl, lot, direction):
         # simplistic: abs(entry-sl)*lot
-        return abs(float(entry_price) - float(sl)) * float(lot)
+        return abs(float(entry_price) - sl) * lot
 
 
 def _make_tm_for_test():

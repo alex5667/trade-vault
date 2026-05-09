@@ -1,11 +1,13 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 """
 Integration tests for SignalDispatcher exactly-once delivery semantics.
 Tests the critical invariants for delivery markers and idempotent operations.
 """
 import json
 import time
-import pytest
+
 from services.signal_dispatcher import SignalDispatcher
 
 
@@ -17,7 +19,7 @@ class TestDispatcherExactlyOnce:
         # Создаем dispatcher (адаптируйте под вашу реализацию)
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="test-group",
             delivery_marker_ttl_sec=3600,
         )
@@ -58,7 +60,7 @@ class TestDispatcherExactlyOnce:
         """Partial failure одного target не должен портить маркеры других."""
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="test-group",
         )
 

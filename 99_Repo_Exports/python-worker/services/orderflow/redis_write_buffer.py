@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Redis Write-Behind Buffer and Local TTL Cache for hot-path optimization.
 
@@ -28,7 +29,7 @@ Usage:
 import asyncio
 import logging
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("redis_write_buffer")
 
@@ -51,11 +52,11 @@ class WriteBehindBuffer:
         self._redis = redis_client
         self._flush_sec = flush_interval_sec
         self._last_flush_ns = time.monotonic_ns()
-        self._pending_set: Dict[str, Tuple[str, Optional[int]]] = {}  # key → (value, ex_sec|None)
-        self._pending_incr: Dict[Tuple[str, str], int] = {}  # (hash_key, field) → delta
-        self._pending_sadd: Dict[str, set] = {}  # key → set of members
-        self._pending_expire: Dict[str, int] = {}  # key → ttl_sec (last wins)
-        self._flush_task: Optional[asyncio.Task] = None
+        self._pending_set: dict[str, tuple[str, int | None]] = {}  # key → (value, ex_sec|None)
+        self._pending_incr: dict[tuple[str, str], int] = {}  # (hash_key, field) → delta
+        self._pending_sadd: dict[str, set] = {}  # key → set of members
+        self._pending_expire: dict[str, int] = {}  # key → ttl_sec (last wins)
+        self._flush_task: asyncio.Task | None = None
         self._closed = False
 
     def set(self, key: str, value: str, ex: int = 0) -> None:
@@ -179,11 +180,11 @@ class LocalTTLCache:
     __slots__ = ('_cache', '_ttl_ms', '_max_size')
 
     def __init__(self, ttl_ms: int = 500, max_size: int = 256):
-        self._cache: Dict[str, Tuple[int, Any]] = {}
+        self._cache: dict[str, tuple[int, Any]] = {}
         self._ttl_ms = ttl_ms
         self._max_size = max_size
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Return cached value if TTL is still valid, else None."""
         entry = self._cache.get(key)
         if entry is None:

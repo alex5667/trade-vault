@@ -1,14 +1,15 @@
 # regime_service.py
 from __future__ import annotations
+
 """
 Market regime service for orderflow handler.
 """
 
 
-from typing import Dict, Any
-from dataclasses import dataclass, field
-import time
 import math
+import time
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -24,11 +25,11 @@ class RegimeConfig:
     # feature normalization scales
     atr_q_hi: float = 0.70      # high ATR quantile => supports trend
     atr_q_lo: float = 0.35      # low ATR quantile => supports range
-    
+
     # ADX quantile thresholds (trend strength)
     adx_q_hi: float = 0.75      # high ADX => trending
     adx_q_lo: float = 0.40      # low ADX => chop/range
-    
+
     ping_scale: float = 0.20    # vwap_cross_rate normalization
     delta_scale: float = 1.0    # if your delta_ema is already normalized, keep 1.0
 
@@ -38,7 +39,7 @@ class RegimeConfig:
     w_delta: float = 0.25
     w_hold: float = 0.25
     w_ping: float = 0.15
-    
+
     # trend direction decision
     trend_dir_hold_min: float = 0.10  # min |hold_side_score| to use for direction
 
@@ -70,7 +71,7 @@ class RegimeFeatures:
     # optional extras
     vwap: float = 0.0
     open_day: float = 0.0
-    volume_profile: Dict[str, float] = field(default_factory=dict)
+    volume_profile: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -79,7 +80,7 @@ class RegimeUpdatePayload:
     symbol: str
     regime: str
     confidence: float
-    features: Dict[str, Any]
+    features: dict[str, Any]
     timestamp: float
 
 
@@ -186,7 +187,7 @@ class MarketRegimeService:
 
 def regime_label_to_enum(label: str) -> str:
     """Convert regime label to enum value."""
-    from common.market_mode import normalize_regime, is_range_regime, is_trend_regime
+    from common.market_mode import is_range_regime, is_trend_regime
     s = (label or "").strip().lower()
     if is_trend_regime(s):
         return "TREND"

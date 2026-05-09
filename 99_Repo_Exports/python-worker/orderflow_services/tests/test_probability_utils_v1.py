@@ -8,10 +8,10 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from services.orderflow.probability_utils_v1 import extract_prob_with_source as extract_main
 from services.orderflow.probability_utils_v1 import extract_prob as extract_prob_main
-from tick_flow_full.services.orderflow.probability_utils_v1 import extract_prob_with_source as extract_tick
+from services.orderflow.probability_utils_v1 import extract_prob_with_source as extract_main
 from tick_flow_full.services.orderflow.probability_utils_v1 import extract_prob as extract_prob_tick
+from tick_flow_full.services.orderflow.probability_utils_v1 import extract_prob_with_source as extract_tick
 
 
 @pytest.mark.parametrize(

@@ -1,9 +1,9 @@
-from utils.time_utils import get_ny_time_millis
-import os
-import time
 from types import SimpleNamespace
+
 from domain.time_utils import session_from_ts_ms
 from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
+from utils.time_utils import get_ny_time_millis
+
 
 class FakeRedis:
     def __init__(self):

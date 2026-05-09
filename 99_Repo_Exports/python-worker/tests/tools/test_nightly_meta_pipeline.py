@@ -1,20 +1,18 @@
 
-import unittest
-import pandas as pd
-import numpy as np
 import json
 import os
-import sys
 import shutil
-import tempfile
 import subprocess
-from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+import numpy as np
+import pandas as pd
 
 # Add python-worker to path
 # [AUTOGRAVITY CLEANUP] sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
-from tools import meta_model_quality_report_v1
-from tools import meta_auto_ramp_v1
 
 class TestNightlyMetaPipeline(unittest.TestCase):
     def setUp(self):
@@ -64,14 +62,14 @@ class TestNightlyMetaPipeline(unittest.TestCase):
         subprocess.run(cmd, check=True)
 
         # 3. Verify structure
-        with open(self.report_json_path, "r") as f:
+        with open(self.report_json_path) as f:
             report = json.load(f)
-        
+
         self.assertIn("metrics", report)
         self.assertIn("counts", report)
         self.assertIn("brier", report) # Flat compatibility
         self.assertIn("n", report)     # Flat compatibility
-        
+
         # Check nested matches flat
         self.assertEqual(report["metrics"]["brier"], report["brier"])
         self.assertEqual(report["counts"]["n"], report["n"])
@@ -122,18 +120,18 @@ class TestNightlyMetaPipeline(unittest.TestCase):
             "--ramp-state", self.ramp_state_path,
             "--ramp-dry-run" # Don't write to redis
         ]
-        
-        # We need to make sure train_meta_model_lr_v4 exists. 
+
+        # We need to make sure train_meta_model_lr_v4 exists.
         # If it doesn't, this test will fail, which is expected as we need to fix it or use available one.
         # Assuming v4 exists as per context.
-        
+
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode != 0:
             print("STDOUT:", res.stdout)
             print("STDERR:", res.stderr)
-        
+
         self.assertEqual(res.returncode, 0)
-        
+
         self.assertTrue(os.path.exists(self.model_json_path))
         self.assertTrue(os.path.exists(self.report_json_path))
         self.assertTrue(os.path.exists(self.ramp_state_path))

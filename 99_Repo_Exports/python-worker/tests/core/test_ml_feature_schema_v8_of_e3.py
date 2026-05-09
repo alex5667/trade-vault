@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """E3: Tests for MLFeatureSchemaV8OF.
 
 Goals

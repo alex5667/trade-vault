@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import bisect
 import math
-from collections import deque, defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
-from typing import Any, Deque, Dict, Tuple, Optional
+from typing import Any
 
 
 def _is_finite(x: float) -> bool:
@@ -54,21 +54,21 @@ class RollingPercentileCalibrator:
 
     def __init__(self, cfg: ConfidenceCalibratorCfg) -> None:
         self.cfg = cfg
-        self._hist: Dict[Tuple[str, str], Deque[float]] = defaultdict(lambda: deque(maxlen=int(cfg.window)))
+        self._hist: dict[tuple[str, str], deque[float]] = defaultdict(lambda: deque(maxlen=int(cfg.window)))
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         """Serialisable snapshot of current history for Redis persistence.
 
         Format: {"sym:kind": [float, ...], ...}
         Only entries with >= 1 sample are included to keep snapshot compact.
         """
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         for (sym, kind), dq in self._hist.items():
             if dq:
                 out[f"{sym}:{kind}"] = list(dq)
         return out
 
-    def restore(self, snapshot: Dict[str, Any]) -> int:
+    def restore(self, snapshot: dict[str, Any]) -> int:
         """Populate history from a snapshot dict (returned by snapshot()).
 
         Silently ignores malformed entries. Returns count of restored entries.
@@ -147,7 +147,7 @@ def _seed_history_for_tests(self: Any, *, kind: str, symbol: str, abs_scores: li
     Сидируем искусственную историю abs(final_score) для (symbol, kind),
     чтобы golden-тест был 100% детерминированным и не зависел от внутренних структур.
     """
-    k = (str(symbol or ""), str(kind or ""))
+    k = ((symbol or ""), (kind or ""))
     xs: list[float] = []
     for v in abs_scores or []:
         try:
@@ -160,11 +160,11 @@ def _seed_history_for_tests(self: Any, *, kind: str, symbol: str, abs_scores: li
     d = getattr(self, "_test_hist", None)
     if not isinstance(d, dict):
         d = {}
-        setattr(self, "_test_hist", d)
+        self._test_hist = d
     d[k] = xs
 
 
-def _pct_from_seeded_history(self: Any, *, kind: str, symbol: str, value: float) -> Optional[float]:
+def _pct_from_seeded_history(self: Any, *, kind: str, symbol: str, value: float) -> float | None:
     """
     Путь ТОЛЬКО ДЛЯ ТЕСТОВ:
       pct = 100 * (count(abs_hist) <= abs(value)) / n
@@ -172,7 +172,7 @@ def _pct_from_seeded_history(self: Any, *, kind: str, symbol: str, value: float)
     d = getattr(self, "_test_hist", None)
     if not isinstance(d, dict):
         return None
-    xs = d.get((str(symbol or ""), str(kind or "")))
+    xs = d.get(((symbol or ""), (kind or "")))
     if not isinstance(xs, list) or not xs:
         return None
     try:
@@ -205,13 +205,13 @@ if not hasattr(RollingPercentileCalibrator, "confidence_pct"):
         m = getattr(self, "pct", None)
         if callable(m):
             try:
-                return float(m(kind=str(kind or ""), symbol=str(symbol or ""), value=float(final_score)))
+                return float(m(kind=(kind or ""), symbol=(symbol or ""), value=float(final_score)))
             except Exception:
                 return 0.0
         m = getattr(self, "score_to_pct", None)
         if callable(m):
             try:
-                return float(m(kind=str(kind or ""), symbol=str(symbol or ""), score=float(final_score)))
+                return float(m(kind=(kind or ""), symbol=(symbol or ""), score=float(final_score)))
             except Exception:
                 return 0.0
         return 0.0

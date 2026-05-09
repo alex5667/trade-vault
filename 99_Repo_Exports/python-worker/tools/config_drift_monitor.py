@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Monitor config drift: detect unexpected changes in config:orderflow:<SYMBOL> keys.
 
 Snapshots critical config keys and compares with previous snapshot.
@@ -8,16 +10,13 @@ Usage:
   python -m tools.config_drift_monitor --symbols BTCUSDT,ETHUSDT
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import time
-from typing import Dict, List
 
 import redis
 
+from utils.time_utils import get_ny_time_millis
 
 # Critical config keys to monitor for drift
 KEYS = [
@@ -47,7 +46,7 @@ def main() -> None:
     syms = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
 
     # Snapshot current configs
-    snap: Dict[str, Dict[str, str]] = {}
+    snap: dict[str, dict[str, str]] = {}
     for sym in syms:
         hkey = f"{args.prefix}{sym}"
         vals = r.hmget(hkey, KEYS)
@@ -63,8 +62,8 @@ def main() -> None:
         p = (prev.get(sym) or {}) if isinstance(prev, dict) else {}
         c = snap.get(sym) or {}
         for k in KEYS:
-            if str(p.get(k, "")) != str(c.get(k, "")):
-                changes.append((sym, k, str(p.get(k, "")), str(c.get(k, ""))))
+            if (p.get(k, "")) != (c.get(k, "")):
+                changes.append((sym, k, (p.get(k, "")), (c.get(k, ""))))
 
     # Save current snapshot (TTL 14 days)
     r.set(args.state_key, json.dumps(snap, ensure_ascii=False, separators=(",", ":")), ex=14 * 86400)
@@ -83,7 +82,7 @@ def main() -> None:
             msg.append(f"... and {len(changes) - 25} more")
         try:
             r.xadd(
-                os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"),
+                os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM),
                 {"type": "report", "text": "\n".join(msg), "ts": str(get_ny_time_millis())},
                 maxlen=200000,
                 approximate=True

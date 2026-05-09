@@ -14,16 +14,15 @@ Rules:
 - list is comma/semicolon separated
 """
 
-from typing import Set
 
 
 def _norm_bucket(b: str) -> str:
-    return str(b or "").strip().upper() or "NORMAL"
+    return (b or "").strip().upper() or "NORMAL"
 
 
-def _parse_allowlist(raw: str) -> Set[str]:
-    out: Set[str] = set()
-    for part in str(raw or "").replace(";", ",").split(","):
+def _parse_allowlist(raw: str) -> set[str]:
+    out: set[str] = set()
+    for part in (raw or "").replace(";", ",").split(","):
         x = part.strip().upper()
         if x:
             out.add(x)
@@ -32,7 +31,7 @@ def _parse_allowlist(raw: str) -> Set[str]:
 
 def bucket_allowed(bucket: str, allow: str, *, default_bucket: str = "HIGH_VOL_LOW_LIQ") -> bool:
     b = _norm_bucket(bucket)
-    s = str(allow or "").strip().lower()
+    s = (allow or "").strip().lower()
     if s in ("all", "*", "any"):
         return True
     if s in ("none", "0", "off", "false"):

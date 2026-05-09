@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Offline signal quality computation job.
 
@@ -8,8 +9,8 @@ by feature clusters and stores results in the database.
 
 
 import logging
+from collections.abc import Iterator
 from statistics import fmean
-from typing import Iterator
 
 import psycopg2
 from psycopg2.extras import DictCursor, execute_values

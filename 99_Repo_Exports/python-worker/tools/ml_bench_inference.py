@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Benchmark ML confirm inference latency (p50/p95/p99).
 
 This is part of Step 6 (SRE/latency budgets).
@@ -10,7 +10,7 @@ This is part of Step 6 (SRE/latency budgets).
 import argparse
 import json
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 import joblib
 import numpy as np
@@ -29,8 +29,8 @@ def main() -> None:
     clf = bundle["model"]
 
     # load feature dicts
-    Xs: List[Dict[str, Any]] = []
-    with open(args.rows, "r", encoding="utf-8") as f:
+    Xs: list[dict[str, Any]] = []
+    with open(args.rows, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -54,7 +54,7 @@ def main() -> None:
         _ = clf.predict_proba(A)[:, 1]
 
     # measure
-    lat_us: List[int] = []
+    lat_us: list[int] = []
     n = min(args.n, len(Xs))
     t0 = time.perf_counter()
     for i in range(n):

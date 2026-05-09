@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import math
 import os
 import sys
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -17,39 +16,60 @@ from sklearn.linear_model import LogisticRegression
 pd.set_option('future.no_silent_downcasting', True)
 
 from core.feature_engineering import apply_transform
-from core.meta_model_lr import MetaModelLR
 
 # Feature Schema Imports
 from core.meta_features_v1 import (
-    META_FEAT_V1_COLS, META_FEAT_V1_HASH, META_FEAT_V1_NAME,
-    META_FEAT_V1_TRANSFORMS, META_FEAT_V1_VERSION,
-    build_meta_features_v1
+    META_FEAT_V1_COLS,
+    META_FEAT_V1_HASH,
+    META_FEAT_V1_NAME,
+    META_FEAT_V1_TRANSFORMS,
+    META_FEAT_V1_VERSION,
+    build_meta_features_v1,
 )
 from core.meta_features_v2 import (
-    META_FEAT_V2_COLS, META_FEAT_V2_HASH, META_FEAT_V2_NAME,
-    META_FEAT_V2_TRANSFORMS, META_FEAT_V2_VERSION, META_FEAT_V2_NEW_COLS,
-    build_meta_features_v2
+    META_FEAT_V2_COLS,
+    META_FEAT_V2_HASH,
+    META_FEAT_V2_NAME,
+    META_FEAT_V2_NEW_COLS,
+    META_FEAT_V2_TRANSFORMS,
+    META_FEAT_V2_VERSION,
+    build_meta_features_v2,
 )
 from core.meta_features_v3 import (
-    META_FEAT_V3_COLS, META_FEAT_V3_HASH, META_FEAT_V3_NAME,
-    META_FEAT_V3_TRANSFORMS, META_FEAT_V3_VERSION, META_FEAT_V3_NEW_COLS,
-    build_meta_features_v3
+    META_FEAT_V3_COLS,
+    META_FEAT_V3_HASH,
+    META_FEAT_V3_NAME,
+    META_FEAT_V3_NEW_COLS,
+    META_FEAT_V3_TRANSFORMS,
+    META_FEAT_V3_VERSION,
+    build_meta_features_v3,
 )
 from core.meta_features_v4 import (
-    META_FEAT_V4_COLS, META_FEAT_V4_HASH, META_FEAT_V4_NAME,
-    META_FEAT_V4_TRANSFORMS, META_FEAT_V4_VERSION, META_FEAT_V4_NEW_COLS,
-    build_meta_features_v4
+    META_FEAT_V4_COLS,
+    META_FEAT_V4_HASH,
+    META_FEAT_V4_NAME,
+    META_FEAT_V4_NEW_COLS,
+    META_FEAT_V4_TRANSFORMS,
+    META_FEAT_V4_VERSION,
+    build_meta_features_v4,
 )
 from core.meta_features_v5 import (
-    META_FEAT_V5_COLS, META_FEAT_V5_HASH, META_FEAT_V5_NAME,
-    META_FEAT_V5_TRANSFORMS, META_FEAT_V5_VERSION, META_FEAT_V5_NEW_COLS,
-    build_meta_features_v5
+    META_FEAT_V5_COLS,
+    META_FEAT_V5_HASH,
+    META_FEAT_V5_NAME,
+    META_FEAT_V5_TRANSFORMS,
+    META_FEAT_V5_VERSION,
+    build_meta_features_v5,
 )
 from core.meta_features_v6 import (
-    META_FEAT_V6_COLS, META_FEAT_V6_HASH, META_FEAT_V6_NAME,
-    META_FEAT_V6_TRANSFORMS, META_FEAT_V6_VERSION, META_FEAT_V6_NEW_COLS,
-    build_meta_features_v6
+    META_FEAT_V6_COLS,
+    META_FEAT_V6_HASH,
+    META_FEAT_V6_NAME,
+    META_FEAT_V6_TRANSFORMS,
+    META_FEAT_V6_VERSION,
+    build_meta_features_v6,
 )
+from core.meta_model_lr import MetaModelLR
 
 # Schema Registry
 SCHEMAS = {
@@ -100,7 +120,7 @@ SCHEMAS = {
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("train_meta")
 
-def robust_center_scale(x: np.ndarray) -> Tuple[float, float]:
+def robust_center_scale(x: np.ndarray) -> tuple[float, float]:
     """Compute robust center (median) and scale (MAD)."""
     # median / MAD (scaled)
     med = float(np.nanmedian(x))
@@ -113,9 +133,9 @@ def robust_center_scale(x: np.ndarray) -> Tuple[float, float]:
     return med, scale
 
 def build_row_features(
-    row: Dict[str, Any], 
+    row: dict[str, Any],
     builder_func: Any
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Constructs features from a dictionary row (parquet record).
     Note: 'row' is acting as evidence, indicators, etc.
@@ -126,14 +146,14 @@ def build_row_features(
     rule_score = float(row.get("score_final_01", row.get("rule_score", 0.0)) or 0.0)
     exec_risk_norm = float(row.get("exec_risk_norm", 0.0) or 0.0)
     exec_risk_bps = float(row.get("exec_risk_bps", 0.0) or 0.0)
-    ml_scenario = str(row.get("scenario_v4", row.get("ml_scenario", "")) or "")
+    ml_scenario = (row.get("scenario_v4", row.get("ml_scenario", "")) or "")
 
-    feat: Dict[str, float] = {}
-    
+    feat: dict[str, float] = {}
+
     # We simply invoke the builder. The builder for V2 signatures handles the specific args if we pass correctly.
     # But here we invoke strictly by what the function expects or generic args.
     # Since V1 and V2 have different signatures in my implementation, I need to branch.
-    
+
     if builder_func == build_meta_features_v2:
         feat, _ = builder_func(
             evidence=row,
@@ -181,23 +201,7 @@ def build_row_features(
             exec_risk_bps=exec_risk_bps,
             ml_scenario=ml_scenario,
         )
-    elif builder_func == build_meta_features_v4:
-        feat, _ = builder_func(
-            evidence=row,
-            indicators=row,
-            runtime_snap=None, # Not available in simple parquet
-            runtime_prev_snap=None,
-            indicators_with_v4=row,
-            legs=row,
-            have=have,
-            need=need,
-            ok_soft=ok_soft,
-            rule_score=rule_score,
-            exec_risk_norm=exec_risk_norm,
-            exec_risk_bps=exec_risk_bps,
-            ml_scenario=ml_scenario,
-        )
-    elif builder_func == build_meta_features_v5:
+    elif builder_func == build_meta_features_v4 or builder_func == build_meta_features_v5:
         feat, _ = builder_func(
             evidence=row,
             indicators=row,
@@ -244,7 +248,7 @@ def build_row_features(
             exec_risk_bps=exec_risk_bps,
             ml_scenario=ml_scenario,
         )
-            
+
     return feat
 
 def main() -> int:
@@ -265,7 +269,7 @@ def main() -> int:
     cols = schema_cfg["cols"]
     transforms = schema_cfg["transforms"]
     builder = schema_cfg["builder"]
-    
+
     print(f"Training with schema: {args.schema} (v{schema_cfg['version']})")
     print(f"Features: {len(cols)}")
 
@@ -279,7 +283,7 @@ def main() -> int:
     if args.label_col not in df.columns:
         print(f"Error: label_col '{args.label_col}' not found in dataframe")
         return 1
-    
+
     if df.empty:
          print("Error: Input dataframe is empty")
          return 1
@@ -294,7 +298,7 @@ def main() -> int:
     # Build Features matrix X
     # Vectorized Feature Construction
     print("Building features (Vectorized)...")
-    
+
     # 1. Base dataframe operations
     # Helper to safely get column or zeros
     def get_col(name, default=0.0):
@@ -309,7 +313,7 @@ def main() -> int:
         required_from_ind = [c for c in cols if c not in df.columns]
         if "score" in cols and "score" not in df.columns: # mapping for rule_score
              required_from_ind.append("score")
-             
+
         if required_from_ind:
             valid_mask = df["indicators"].notna()
             if valid_mask.any():
@@ -317,7 +321,7 @@ def main() -> int:
                     for c in set(required_from_ind):
                         # Use .apply(get) for selective extraction
                         df[c] = df.loc[valid_mask, "indicators"].apply(lambda d: d.get(c) if isinstance(d, dict) else None)
-                    # No need to drop original indicators yet if other parts use it, 
+                    # No need to drop original indicators yet if other parts use it,
                     # but we've avoided full expansion.
                 except Exception as e:
                     logger.warning(f"Failed to extract features from indicators: {e}")
@@ -335,7 +339,7 @@ def main() -> int:
                 sb_df = pd.json_normalize(df.loc[valid_mask, "score_breakdown"])
                 # align index
                 sb_df.index = df.index[valid_mask]
-                
+
                 for k in ["base_score", "final_score_raw", "final_score_01", "exec_pen", "agg"]:
                      if k in sb_df:
                          sb_cols[k] = sb_df[k].reindex(df.index)
@@ -345,7 +349,7 @@ def main() -> int:
     # Baseline mapping for common inconsistent names
     if "score" in df and "rule_score" not in df:
         df["rule_score"] = df["score"]
-    
+
     # 3. Construct Feature Columns
     X_dict = {}
 
@@ -353,14 +357,14 @@ def main() -> int:
     # From score_breakdown or fallback
     X_dict["base_score"] = sb_cols.get("base_score", get_col("base_score")).fillna(0.0).astype(float)
     X_dict["score_final_raw"] = sb_cols.get("final_score_raw", get_col("score_final_raw")).fillna(0.0).astype(float)
-    
+
     # rule_score / score_final_01 alignment
     # Serve logic: row.get("score_final_01", row.get("rule_score", 0.0))
     # We must prioritize score_final_01 for the "rule_score" feature column.
     sf01_col = get_col("score_final_01", np.nan)
     rs_col = get_col("rule_score", 0.0)
     X_dict["rule_score"] = sf01_col.fillna(rs_col).fillna(0.0).astype(float)
-    
+
     # Also provide score_final_01 if schema needs it (though it maps to rule_score usually)
     X_dict["score_final_01"] = X_dict["rule_score"]
 
@@ -368,8 +372,8 @@ def main() -> int:
     # Serve logic (v6) looks in evidence/indicators, NOT score_breakdown (unless nested indicators has it).
     # To match Serve, we should rely on get_col("exec_pen") which mimics fetching from evidence/indicators logic if flattened.
     # If we pull from sb_cols["exec_pen"] and Serve doesn't, we get mismatch.
-    # We will prioritize flattened column to ensure alignment, but fallback to sb_cols if needed 
-    # PROVIDED we know Serve can find it. 
+    # We will prioritize flattened column to ensure alignment, but fallback to sb_cols if needed
+    # PROVIDED we know Serve can find it.
     # actually, since mismatch is the error, we must match Serve's limitations.
     X_dict["exec_pen"] = get_col("exec_pen").fillna(0.0).astype(float)
 
@@ -377,14 +381,14 @@ def main() -> int:
     need = get_col("need").astype(float)
     X_dict["have"] = have
     X_dict["need"] = need
-    
+
     # have_need_ratio alignment
     # Serve logic (v6): float(have) / float(need) if need > 0 else 0.0
     numerator = have
     denominator = need
     # Vectorized: where(need > 0, have/need, 0.0)
     X_dict["have_need_ratio"] = np.where(denominator > 0, numerator / denominator, 0.0)
-    
+
     X_dict["ok_soft"] = get_col("ok_soft").astype(float)
     X_dict["exec_risk_norm"] = get_col("exec_risk_norm").astype(float)
     X_dict["exec_risk_bps"] = get_col("exec_risk_bps").astype(float)
@@ -411,7 +415,7 @@ def main() -> int:
     # f["fp_edge_ok"] = indicators_with_v4.get("fp_edge_ok", legs.get("fp_edge_absorb", 0.0))
     # both are in df (row)
     fp_ok = get_col("fp_edge_ok", np.nan)
-    fp_abs = get_col("fp_edge_absorb", 0.0) # leg name in df is same as evidence name usually? 
+    fp_abs = get_col("fp_edge_absorb", 0.0) # leg name in df is same as evidence name usually?
     # V1: legs.get("fp_edge_absorb")
     # In flat df, likely "fp_edge_absorb" is the column.
     X_dict["fp_edge_ok"] = fp_ok.fillna(fp_abs).astype(float)
@@ -424,14 +428,14 @@ def main() -> int:
     X_dict["cvd_quarantine_active"] = get_col("cvd_quarantine_active", 0.0).astype(bool).astype(float)
 
     # Ages
-    for c in ["book_staleness_ms", "obi_age_ms", "iceberg_age_ms", "ofi_age_ms", 
+    for c in ["book_staleness_ms", "obi_age_ms", "iceberg_age_ms", "ofi_age_ms",
               "sweep_age_ms", "reclaim_age_ms", "fp_edge_age_ms"]:
         X_dict[c] = get_col(c, -1.0).astype(float)
 
     # --- Scenarios ---
     scenario_col = get_col("scenario_v4", "").astype(str).str.lower()
     # Fallback to ml_scenario if scenario_v4 empty?
-    # V1: scn_v4 = str(indicators_with_v4.get("scenario_v4", "")).lower()
+    # V1: scn_v4 = (indicators_with_v4.get("scenario_v4", "")).lower()
     # row mapping: ml_scenario = row.get("scenario_v4", row.get("ml_scenario"))
     if "ml_scenario" in df:
         scenario_col = np.where(scenario_col == "", df["ml_scenario"].fillna("").astype(str).str.lower(), scenario_col)
@@ -446,8 +450,8 @@ def main() -> int:
     leg_map = {
         "leg_ofi_leg": "ofi_leg",
         "leg_fp_edge_absorb": "fp_edge_absorb", # duplicate of above? V1 uses legs.get("fp_edge_absorb")
-        "leg_obi_stable": "obi_stable", # note: collision with evidence "obi_stable". 
-        # But 'row' has ONE value for 'obi_stable'. 
+        "leg_obi_stable": "obi_stable", # note: collision with evidence "obi_stable".
+        # But 'row' has ONE value for 'obi_stable'.
         # In V1 build_meta_features: f["obi_stable"] = evidence.get("obi_stable"). f["leg_obi_stable"] = legs.get("obi_stable").
         # If 'row' is passed as EVERYTHING, then they are satisfied by the SAME column 'obi_stable'.
         "leg_iceberg_strict": "iceberg_strict",
@@ -483,7 +487,7 @@ def main() -> int:
 
     # Assemble X_raw
     X_raw = np.column_stack([X_dict[c] for c in cols])
-    
+
     # Fill remaining NaNs (if any slipped through) with 0.0
     X_raw = np.nan_to_num(X_raw, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -502,7 +506,7 @@ def main() -> int:
         c, s = robust_center_scale(X_tf[:, j])
         centers[j] = c
         scales[j] = s
-    
+
     # Normalize X
     X = (X_tf - centers) / scales
 
@@ -548,7 +552,7 @@ def main() -> int:
         schema_hash=str(schema_cfg["hash"]),
         feature_cols_hash=str(schema_cfg["hash"]),
     )
-    
+
     os.makedirs(os.path.dirname(os.path.abspath(args.out_json)), exist_ok=True)
     mm.dump(args.out_json)
     print(f"Model saved to {args.out_json}")
@@ -558,12 +562,12 @@ def main() -> int:
         print("Running Train==Serve self-check...")
         mm_loaded = MetaModelLR.load(args.out_json)
         k = min(int(args.self_check_n), n)
-        
+
         # Reconstruct feat_dicts only for the check subset (slow path, but limited to k)
         val_dicts = []
         for i in range(k):
             val_dicts.append(build_row_features(records[i], builder))
-            
+
         p_rt = np.array([mm_loaded.predict_proba(val_dicts[i]) for i in range(k)], dtype=float)
         p_sk = lr.predict_proba(X[:k])[:, 1]
         err = float(np.max(np.abs(p_rt - p_sk)))

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Confidence calibration (production-safe).
 
 Purpose
@@ -14,14 +15,13 @@ Notes
   - Training is done offline (see ml_analysis/tools/train_confidence_calibrator.py).
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import os
 import json
 import math
-import time
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _clamp01(x: float) -> float:
@@ -87,8 +87,8 @@ class ConfidenceCalibrator:
             return float('nan')
 
 
-def load_calibrator_from_dict(d: Dict[str, Any]) -> ConfidenceCalibrator:
-    typ = str(d.get("type") or "identity").lower()
+def load_calibrator_from_dict(d: dict[str, Any]) -> ConfidenceCalibrator:
+    typ = (d.get("type") or "identity").lower()
     eps = float(d.get("eps", 1e-6) or 1e-6)
     if eps <= 0:
         eps = 1e-6
@@ -120,12 +120,12 @@ def _symbol_from_runtime(runtime: Any) -> str:
         return "unknown"
 
 
-def load_calibrator_payload(path: str) -> Optional[Dict[str, Any]]:
+def load_calibrator_payload(path: str) -> dict[str, Any] | None:
     """Load and schema-guard a calibrator JSON payload."""
     if not path:
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             d = json.load(f)
         sv = int(d.get("schema_version", 1) or 1)
         if sv != 1:
@@ -135,8 +135,8 @@ def load_calibrator_payload(path: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def load_calibrator_from_dict(d: Dict[str, Any]) -> ConfidenceCalibrator:
-    typ = str(d.get("type") or "identity").lower()
+def load_calibrator_from_dict(d: dict[str, Any]) -> ConfidenceCalibrator:
+    typ = (d.get("type") or "identity").lower()
     eps = float(d.get("eps", 1e-6) or 1e-6)
     if eps <= 0:
         eps = 1e-6
@@ -153,7 +153,7 @@ def load_calibrator_from_dict(d: Dict[str, Any]) -> ConfidenceCalibrator:
     return ConfidenceCalibrator(type="identity", eps=eps)
 
 
-def load_calibrator_from_path(path: str) -> Optional[ConfidenceCalibrator]:
+def load_calibrator_from_path(path: str) -> ConfidenceCalibrator | None:
     if not path:
         return None
     try:
@@ -172,7 +172,7 @@ def get_cached_calibrator(
     check_every_ms: int = 5000,
     max_age_ms: int = 0,
     disable_if_stale: int = 0,
-) -> Optional[ConfidenceCalibrator]:
+) -> ConfidenceCalibrator | None:
     """
     Fast path for production: keep calibrator cached in runtime and only
     re-check file mtime periodically.
@@ -191,7 +191,7 @@ def get_cached_calibrator(
       }
     """
     try:
-        p = str(path or "").strip()
+        p = (path or "").strip()
         if not p:
             return None
 
@@ -219,7 +219,7 @@ def get_cached_calibrator(
             cache["mtime_ns"] = 0
             cache["cal"] = None
             cache["meta"] = None
-            setattr(runtime, "_confidence_cal_cache", cache)
+            runtime._confidence_cal_cache = cache
             if emit_file_state is not None:
                 emit_file_state(sym, present=0, age_ms=0, stale=0)
             return None
@@ -232,7 +232,7 @@ def get_cached_calibrator(
             cache["mtime_ns"] = mtime_ns
             cache["cal"] = None
             cache["meta"] = None
-            setattr(runtime, "_confidence_cal_cache", cache)
+            runtime._confidence_cal_cache = cache
             return None
 
         if int(cache.get("mtime_ns", 0) or 0) != mtime_ns or cache.get("cal") is None:
@@ -241,7 +241,7 @@ def get_cached_calibrator(
             cache["mtime_ns"] = mtime_ns
             cache["cal"] = cal
             cache["meta"] = payload
-            setattr(runtime, "_confidence_cal_cache", cache)
+            runtime._confidence_cal_cache = cache
             if inc_reload is not None:
                 inc_reload(sym, "ok" if cal is not None else "fail")
             # Emit train-time metrics if present
@@ -252,7 +252,7 @@ def get_cached_calibrator(
                     cc = rep.get("cal") or {}
                     emit_train_report(
                         sym,
-                        cal_type=str(payload.get("type") or "unknown"),
+                        cal_type=(payload.get("type") or "unknown"),
                         schema_version=int(payload.get("schema_version", 1) or 1),
                         raw_ece=float(raw.get("ece", 0.0) or 0.0),
                         cal_ece=float(cc.get("ece", 0.0) or 0.0),
@@ -263,7 +263,7 @@ def get_cached_calibrator(
                     pass
             return cal
 
-        setattr(runtime, "_confidence_cal_cache", cache)
+        runtime._confidence_cal_cache = cache
         return cache.get("cal")
     except Exception:
         return None

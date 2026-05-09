@@ -1,12 +1,14 @@
 """
 P0 sanity tests for decision_trace.py (unified, no duplicates).
 """
-import pytest
 from common.decision_trace import (
-    DecisionTrace, trace_enabled, should_sample,
-    ensure_trace, serialize_trace_from_ctx, to_dict_bounded,
-    build_trace_summary, build_sidecar_meta, patch_trace_sidecar_best_effort,
-    trace_gate, trace_target, trace_event, Span
+    DecisionTrace,
+    Span,
+    ensure_trace,
+    should_sample,
+    to_dict_bounded,
+    trace_gate,
+    trace_target,
 )
 
 
@@ -93,6 +95,7 @@ def test_trace_target():
 def test_no_duplicates():
     """Test that there are no duplicate function definitions (F811)."""
     import inspect
+
     from common import decision_trace
     funcs = [name for name, obj in inspect.getmembers(decision_trace, inspect.isfunction)]
     # Check for duplicates

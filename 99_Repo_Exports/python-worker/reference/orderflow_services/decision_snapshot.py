@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 import math
-from typing import Any, Dict, Optional, Tuple, List
+import os
+from typing import Any
 
 try:
     # Used by publish_decision_snapshot (optional)
@@ -11,7 +11,7 @@ except Exception:  # pragma: no cover
     StreamSink = None  # type: ignore
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         f = float(x)
     except Exception:
@@ -21,7 +21,7 @@ def _safe_float(x: Any) -> Optional[float]:
     return float(f)
 
 
-def _safe_int(x: Any) -> Optional[int]:
+def _safe_int(x: Any) -> int | None:
     try:
         i = int(float(x))
     except Exception:
@@ -29,7 +29,7 @@ def _safe_int(x: Any) -> Optional[int]:
     return int(i)
 
 
-def _extract_bbo(signal: Dict[str, Any], runtime: Any | None) -> Tuple[Optional[float], Optional[float]]:
+def _extract_bbo(signal: dict[str, Any], runtime: Any | None) -> tuple[float | None, float | None]:
     # Prefer decision_* if already frozen by A1.
     bid = _safe_float(signal.get("decision_bid"))
     ask = _safe_float(signal.get("decision_ask"))
@@ -63,8 +63,8 @@ def _extract_bbo(signal: Dict[str, Any], runtime: Any | None) -> Tuple[Optional[
     return bid, ask
 
 
-def _calc_mid_spread_bps(bid: Optional[float], ask: Optional[float]) -> Tuple[Optional[float], Optional[float], List[str]]:
-    flags: List[str] = []
+def _calc_mid_spread_bps(bid: float | None, ask: float | None) -> tuple[float | None, float | None, list[str]]:
+    flags: list[str] = []
     if bid is None or ask is None:
         flags.append("missing_bbo")
         return None, None, flags
@@ -85,7 +85,7 @@ def _calc_mid_spread_bps(bid: Optional[float], ask: Optional[float]) -> Tuple[Op
     return float(mid), (float(spread_bps) if spread_bps is not None else None), flags
 
 
-def _depth_sum_levels(book_side: Any, n: int) -> Optional[float]:
+def _depth_sum_levels(book_side: Any, n: int) -> float | None:
     # book_side expected list[[px, qty], ...]
     try:
         arr = book_side or []
@@ -108,12 +108,12 @@ def _depth_sum_levels(book_side: Any, n: int) -> Optional[float]:
 
 def build_decision_snapshot_event(
     *,
-    signal: Dict[str, Any],
-    indicators: Dict[str, Any] | None,
+    signal: dict[str, Any],
+    indicators: dict[str, Any] | None,
     runtime: Any | None,
     schema_version: int = 1,
     include_indicators: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a compact decision_snapshot event for Redis Stream.
 
     Contract goals:
@@ -140,7 +140,7 @@ def build_decision_snapshot_event(
     tf = str(signal.get("tf") or indicators.get("tf") or "na")
     kind = str(signal.get("kind") or indicators.get("kind") or signal.get("entry_tag") or "na")
 
-    direction = str(signal.get("direction") or "").upper().strip()
+    direction = (signal.get("direction") or "").upper().strip()
     side = str(signal.get("side") or direction.lower() or "na")
 
     bid, ask = _extract_bbo(signal, runtime)
@@ -180,7 +180,7 @@ def build_decision_snapshot_event(
     sanity_flags = [str(x) for x in sanity_flags if x is not None]
 
     # Merge flags (A1 + derived)
-    merged_flags: List[str] = []
+    merged_flags: list[str] = []
     seen = set()
     for x in (sanity_flags + flags):
         s = str(x).strip()
@@ -193,9 +193,9 @@ def build_decision_snapshot_event(
     if signal.get("tca_ready") is None:
         tca_ready = bool(sid and ts_decision_ms and mid is not None and (bid is not None and ask is not None) and ("crossed_bbo" not in merged_flags))
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "schema_version": int(schema_version),
-        "producer": str(os.getenv("SERVICE_NAME", "python-worker")),
+        "producer": os.getenv("SERVICE_NAME", "python-worker"),
         "sid": sid,
         "signal_id": signal_id,
         "symbol": symbol,
@@ -237,13 +237,13 @@ def build_decision_snapshot_event(
 
 
 def build_decision_snapshot(
-    signal: Dict[str, Any],
+    signal: dict[str, Any],
     *,
     runtime: Any | None,
-    indicators: Dict[str, Any] | None,
+    indicators: dict[str, Any] | None,
     schema_version: int = 1,
     include_indicators: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Backward-compatible wrapper used by SignalPipeline.
 
     Some runtime paths already import ``build_decision_snapshot(...)`` while the
@@ -265,8 +265,8 @@ async def publish_decision_snapshot(
     stream: str,
     maxlen: int,
     symbol: str,
-    evt: Dict[str, Any] | None = None,
-    snapshot: Dict[str, Any] | None = None,
+    evt: dict[str, Any] | None = None,
+    snapshot: dict[str, Any] | None = None,
 ) -> None:
     """Smoke-test friendly wrapper: publish decision snapshot using AsyncSignalPublisher.xadd_json.
 
@@ -280,5 +280,5 @@ async def publish_decision_snapshot(
     await publisher.xadd_json(
         sink=StreamSink(name=str(stream), field="payload", maxlen=int(maxlen)),
         payload=payload,
-        symbol=str(symbol),
+        symbol=symbol,
     )

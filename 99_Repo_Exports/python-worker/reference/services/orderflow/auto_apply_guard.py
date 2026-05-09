@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Auto-apply block guard.
 
 Intended usage inside any ApplyRunner / auto-apply entrypoint:
@@ -17,14 +18,12 @@ Default reasons (AUTO_APPLY_BLOCK_REASONS):
   tick_gate,enforce_bucket_promoter,meta_cov,prom_rules_bundle_smoke,prom_rules_loaded_probe,of_inputs_v3,of_inputs_exporters_smoke
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import sys
-import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
 
 DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
 OF_INPUTS_V3_GLOBAL_PREFIX = "cfg:of_inputs_v3:auto_apply_block_global"
@@ -49,7 +48,7 @@ def _connect_redis(redis_url: str):
     return redis.Redis.from_url(redis_url, decode_responses=True)
 
 
-def _load_json(s: Optional[str]) -> Dict[str, Any]:
+def _load_json(s: str | None) -> dict[str, Any]:
     if not s:
         return {}
     try:
@@ -60,10 +59,10 @@ def _load_json(s: Optional[str]) -> Dict[str, Any]:
 
 
 def get_block_state(
-    redis_url: Optional[str] = None,
-    prefix: Optional[str] = None,
+    redis_url: str | None = None,
+    prefix: str | None = None,
     max_meta_age_ms: int = 15 * 60 * 1000,
-) -> Tuple[bool, Dict[str, Any]]:
+) -> tuple[bool, dict[str, Any]]:
     """Return (blocked, meta).
 
     Supports multiple reasons via AUTO_APPLY_BLOCK_REASONS env var.
@@ -73,7 +72,7 @@ def get_block_state(
     rurl = redis_url or os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or ""
     if not rurl:
         return (False, {"status": "no_redis_url"})
-    
+
     reasons_str = _get_env("AUTO_APPLY_BLOCK_REASONS", DEFAULT_REASONS)
     pfx = prefix or _get_env("AUTO_APPLY_BLOCK_PREFIX", DEFAULT_PREFIX)
     reasons_str = _get_env("AUTO_APPLY_BLOCK_REASONS", DEFAULT_REASONS)
@@ -106,9 +105,9 @@ def get_block_state(
 
     results = cli.mget(keys) if keys else []
     now_ms = _now_ms()
-    
-    combined_meta: Dict[str, Any] = {"reasons_checked": reasons}
-    
+
+    combined_meta: dict[str, Any] = {"reasons_checked": reasons}
+
     for rsn in reasons:
         j = idx.get(rsn) or {}
 
@@ -140,9 +139,9 @@ def get_block_state(
         meta_raw = results[j.get("legacy_meta", -1)] if j.get("legacy_meta", -1) >= 0 else None
         ts_raw = results[j.get("legacy_ts", -1)] if j.get("legacy_ts", -1) >= 0 else None
 
-        
+
         meta = _load_json(meta_raw)
-        
+
         # 1. Hard block via key existance
         if block_val is not None:
              meta.setdefault("status", "blocked")
@@ -151,15 +150,15 @@ def get_block_state(
              # Merge into combined
              combined_meta.update(meta)
              return (True, combined_meta)
-        
+
         # 2. Soft block via fresh meta
         try:
             ts_ms = int(ts_raw) if ts_raw is not None else int(meta.get("ts_ms") or 0)
         except Exception:
             ts_ms = int(meta.get("ts_ms") or 0)
-            
+
         if ts_ms > 0 and (now_ms - ts_ms) <= int(max_meta_age_ms):
-            if str(meta.get("blocked") or "0") in ("1", "true", "True"):
+            if (meta.get("blocked") or "0") in ("1", "true", "True"):
                 meta["reason"] = rsn
                 combined_meta.update(meta)
                 return (True, combined_meta)
@@ -168,8 +167,8 @@ def get_block_state(
 
 
 def assert_auto_apply_not_blocked(
-    redis_url: Optional[str] = None,
-    prefix: Optional[str] = None,
+    redis_url: str | None = None,
+    prefix: str | None = None,
     max_meta_age_ms: int = 15 * 60 * 1000,
     exit_code: int = 20,
 ) -> None:

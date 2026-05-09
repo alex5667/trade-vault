@@ -1,11 +1,10 @@
 # handlers/experiment_manager.py
 
-import time
-import random
 import hashlib
 import os
+import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Literal, Any
+from typing import Any, Literal
 
 try:
     import psycopg2
@@ -36,9 +35,9 @@ class ExperimentSpec:
     direction: int        # +1/-1/0
     status: ExperimentStatus
     start_at_ms: int
-    end_at_ms: Optional[int]
+    end_at_ms: int | None
     target_metric: str
-    config: Dict[str, Any]
+    config: dict[str, Any]
 
     def is_active_for(self, now_ms: int, signal_family: str, direction: int) -> bool:
         """
@@ -68,7 +67,7 @@ class ExperimentManager:
 
     def __init__(
         self,
-        pg_dsn: Optional[str] = None,
+        pg_dsn: str | None = None,
         reload_interval_sec: int = 30,
         logger=None,
     ) -> None:
@@ -84,7 +83,7 @@ class ExperimentManager:
         self.logger = logger
 
         self._last_reload_ts = 0.0
-        self._experiments: Dict[str, ExperimentSpec] = {}
+        self._experiments: dict[str, ExperimentSpec] = {}
 
         # Первая загрузка
         self._reload(force=True)
@@ -99,7 +98,7 @@ class ExperimentManager:
         signal_family: str,
         direction: int,
         signal_id: int,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Назначает вариант эксперимента для сигнала.
 
@@ -144,7 +143,7 @@ class ExperimentManager:
             "config": exp.config or {},
         }
 
-    def get_active_experiments(self) -> List[ExperimentSpec]:
+    def get_active_experiments(self) -> list[ExperimentSpec]:
         """
         Возвращает список всех активных экспериментов (для отладки)
         """
@@ -210,7 +209,7 @@ class ExperimentManager:
                 )
                 rows = cur.fetchall()
 
-            new_map: Dict[str, ExperimentSpec] = {}
+            new_map: dict[str, ExperimentSpec] = {}
             for r in rows:
                 new_map[r["experiment_id"]] = ExperimentSpec(
                     experiment_id=r["experiment_id"],
@@ -238,7 +237,7 @@ class ExperimentManager:
 
 
 # Глобальный инстанс для использования в handlers
-_experiment_manager_instance: Optional[ExperimentManager] = None
+_experiment_manager_instance: ExperimentManager | None = None
 
 
 def get_experiment_manager() -> ExperimentManager:

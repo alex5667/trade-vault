@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 tests/test_signal_scoring_core.py
 ==================================
@@ -8,9 +9,8 @@ All tests are self-contained, deterministic, and free of networking/DB dependenc
 """
 
 import math
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 
@@ -62,7 +62,7 @@ class TestHelpers:
 
     def test_private_aliases_exist(self):
         """Private aliases must be backward-compatible."""
-        from signal_scoring._helpers import _is_finite, _safe_float, _clamp, _clamp01
+        from signal_scoring._helpers import _clamp, _clamp01, _is_finite, _safe_float
         assert _is_finite(1.0) is True
         assert _safe_float("x", 0.0) == pytest.approx(0.0)
         assert _clamp(5.0, 0.0, 1.0) == pytest.approx(1.0)
@@ -151,7 +151,7 @@ class TestScoringConfig:
         assert cfg.get_min_confidence("BTCUSDT", None) == pytest.approx(80.0)
 
     def test_get_min_confidence_pattern_override(self):
-        from signal_scoring.config import ScoringConfig, PatternScoringConfig
+        from signal_scoring.config import PatternScoringConfig, ScoringConfig
         cfg = ScoringConfig(
             min_confidence_default=80.0,
             pattern_config={"breakout_r1": PatternScoringConfig(min_confidence=90)},
@@ -165,7 +165,7 @@ class TestScoringConfig:
         assert cfg.get_pattern_weight("unknown_pattern") == pytest.approx(1.0)
 
     def test_get_pattern_weight_override(self):
-        from signal_scoring.config import ScoringConfig, PatternScoringConfig
+        from signal_scoring.config import PatternScoringConfig, ScoringConfig
         cfg = ScoringConfig(
             pattern_config={"breakout_r1": PatternScoringConfig(weight=1.5)},
         )
@@ -344,7 +344,7 @@ class TestKindRules:
         assert res.veto is False
 
     def test_spread_scale(self):
-        from signal_scoring.kind_rules import apply_kind_rules, SPREAD_SCALE_BPS
+        from signal_scoring.kind_rules import SPREAD_SCALE_BPS, apply_kind_rules
         ctx = self._FakeCtx(spread_bps=SPREAD_SCALE_BPS * 0.5)
         res = apply_kind_rules("unknown_kind", ctx)
         assert res.conf_mult01 < 1.0  # spread penalty applied
@@ -372,15 +372,15 @@ class TestReasonCodes:
         assert ReasonCode.OK.value == "OK"
 
     def test_legacy_reason_to_code_known(self):
-        from signal_scoring.reason_codes import legacy_reason_to_code, ReasonCode
+        from signal_scoring.reason_codes import ReasonCode, legacy_reason_to_code
         assert legacy_reason_to_code("bo_l2_stale") == ReasonCode.VETO_L2_STALE
 
     def test_legacy_reason_to_code_unknown(self):
-        from signal_scoring.reason_codes import legacy_reason_to_code, ReasonCode
+        from signal_scoring.reason_codes import ReasonCode, legacy_reason_to_code
         assert legacy_reason_to_code("totally_unknown_reason") == ReasonCode.VETO_UNKNOWN
 
     def test_legacy_reason_to_code_empty(self):
-        from signal_scoring.reason_codes import legacy_reason_to_code, ReasonCode
+        from signal_scoring.reason_codes import ReasonCode, legacy_reason_to_code
         assert legacy_reason_to_code(None) == ReasonCode.VETO_UNKNOWN
         assert legacy_reason_to_code("") == ReasonCode.VETO_UNKNOWN
 
@@ -398,7 +398,6 @@ class TestReasonCodes:
 class TestReasonRegistry:
     def test_no_duplicate_u16_except_allowed(self):
         """Registry itself validates this at import time — just assert no ValueError was raised."""
-        import signal_scoring.reason_registry  # would raise ValueError if there are bad dups
 
     def test_reason_code_to_u16_known(self):
         from signal_scoring.reason_registry import reason_code_to_u16
@@ -416,7 +415,7 @@ class TestReasonRegistry:
             reason_code_to_u16("TOTALLY_MADE_UP", strict=True)
 
     def test_u16_to_reason_code_round_trip(self):
-        from signal_scoring.reason_registry import reason_code_to_u16, u16_to_reason_code, _REASON_CODE_U16
+        from signal_scoring.reason_registry import _REASON_CODE_U16, reason_code_to_u16, u16_to_reason_code
         for rc in list(_REASON_CODE_U16.keys())[:10]:
             u = reason_code_to_u16(rc)
             if u == 0:
@@ -578,32 +577,32 @@ class TestWeakProgressScorer:
         return SignalContext(**defaults)
 
     def test_compute_progress_score_continuation_strong(self):
-        from signal_scoring.weak_progress.scorer import compute_progress_score
         from signal_scoring.weak_progress.config import WeakProgressConfig
+        from signal_scoring.weak_progress.scorer import compute_progress_score
         cfg = WeakProgressConfig(family="continuation", cont_strong_min=0.7, bonus_cont_strong=12)
         ctx = self._make_ctx(weak_progress=0.9)
         delta = compute_progress_score(ctx, cfg)
         assert delta == 12
 
     def test_compute_progress_score_continuation_weak(self):
-        from signal_scoring.weak_progress.scorer import compute_progress_score
         from signal_scoring.weak_progress.config import WeakProgressConfig
+        from signal_scoring.weak_progress.scorer import compute_progress_score
         cfg = WeakProgressConfig(family="continuation", cont_weak_max=0.3, penalty_cont_weak=15)
         ctx = self._make_ctx(weak_progress=0.1)
         delta = compute_progress_score(ctx, cfg)
         assert delta == -15
 
     def test_compute_progress_score_none_wp(self):
-        from signal_scoring.weak_progress.scorer import compute_progress_score
         from signal_scoring.weak_progress.config import WeakProgressConfig
+        from signal_scoring.weak_progress.scorer import compute_progress_score
         cfg = WeakProgressConfig(family="continuation", missing_wp_penalty=10)
         ctx = self._make_ctx(weak_progress=None)
         delta = compute_progress_score(ctx, cfg)
         assert delta == -10
 
     def test_apply_weak_progress_continuation_ok(self):
-        from signal_scoring.weak_progress.scorer import apply_weak_progress_and_fade_filters
         from signal_scoring.weak_progress.config import WeakProgressConfig
+        from signal_scoring.weak_progress.scorer import apply_weak_progress_and_fade_filters
         cfg = WeakProgressConfig(family="continuation", cont_strong_min=0.7, bonus_cont_strong=10)
         ctx = self._make_ctx(weak_progress=0.8)
         result = apply_weak_progress_and_fade_filters(ctx, cfg, base_conf=70)
@@ -611,8 +610,8 @@ class TestWeakProgressScorer:
 
     def test_apply_weak_progress_fade_precondition_fail(self):
         """Fade pattern with wp too high -> rejection (returns 0)."""
-        from signal_scoring.weak_progress.scorer import apply_weak_progress_and_fade_filters
         from signal_scoring.weak_progress.config import WeakProgressConfig
+        from signal_scoring.weak_progress.scorer import apply_weak_progress_and_fade_filters
         cfg = WeakProgressConfig(family="fade", fade_weak_max=0.3, fade_min_delta_z=1.5)
         ctx = self._make_ctx(weak_progress=0.9, delta_spike_z=2.0, volume_z=None)
         # wp=0.9 > fade_weak_max=0.3 -> preconditions fail
@@ -743,8 +742,8 @@ class TestReasonPolicy:
         assert rc == "VETO_SPREAD_WIDE"
 
     def test_normalize_reason_mismatch(self):
-        from signal_scoring.reason_policy import normalize_reason_for_kind
         from signal_scoring.reason_codes import ReasonCode
+        from signal_scoring.reason_policy import normalize_reason_for_kind
         parts: dict = {}
         rc, sev = normalize_reason_for_kind(
             reason_code="VETO_REGIME_RANGE_BREAKOUT",

@@ -1,16 +1,16 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
+import json
 import os
 import time
-import json
-from typing import Any, Optional, Dict
+from typing import Any
 
+from common.decision_trace import serialize_trace_from_ctx, trace_enabled
+from common.dq_flags import append_dq_flag
 from common.json_fast import dumps1
 from common.math_safe import finite_or
-from common.decision_trace import trace_enabled, serialize_trace_from_ctx
-from common.dq_flags import append_dq_flag
 from signal_scoring.reason_registry import normalize_reason
+from utils.time_utils import get_ny_time_millis
 
 # Global state for sampled debug (moved from handler)
 _CDBG_LAST: dict[str, float] = {}
@@ -43,7 +43,7 @@ def emit_veto_metric_dual(*, emit_veto_metric, kind: str, ctx: Any, reason_code:
         except Exception:
             _c_sampled_debug(None, "veto_metric_emit_error", "veto metric emit failed err=%r", e)
 
-    if str(os.getenv("EDGE_DUAL_EMIT_LEGACY_THIN_COST", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}:
+    if (os.getenv("EDGE_DUAL_EMIT_LEGACY_THIN_COST", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}:
         try:
             emit_veto_metric(kind=kind, ctx=ctx, reason_code="VETO_EDGE_THIN_COST")
         except Exception as e:
@@ -74,7 +74,7 @@ class CryptoObservability:
         except Exception:
             return ""
 
-    def maybe_log_candidate(self, *, ctx: Any, cand: Any, parts: dict[str, Any], now_ms: Optional[int] = None) -> None:
+    def maybe_log_candidate(self, *, ctx: Any, cand: Any, parts: dict[str, Any], now_ms: int | None = None) -> None:
         """
         Systematic sampled candidate logging.
         """
@@ -86,7 +86,7 @@ class CryptoObservability:
             if reg and reg != self._last_regime_label:
                 self._last_regime_label = reg
                 self._candidate_log_sampler.force()
-            
+
             if not self._candidate_log_sampler.maybe(now_ms):
                 return
 
@@ -115,7 +115,7 @@ class CryptoObservability:
         try:
             if not os.getenv("DECISION_TRACE_DIAG_STREAM"):
                 return
-            
+
             # Redis client passed explicitly (resolving dependency)
             if redis_client is None:
                 return
@@ -123,19 +123,19 @@ class CryptoObservability:
             tr = serialize_trace_from_ctx(ctx)
             if not isinstance(tr, dict):
                 return
-                
+
             payload = {
                 "type": "diagnostic",
                 "tradeable": False,
-                "reason": str(reason or ""),
+                "reason": (reason or ""),
                 "trace_id": str(getattr(ctx, "trace_id", "") or tr.get("trace_id") or ""),
                 "sid": str(tr.get("sid") or getattr(ctx, "sid", "") or ""),
                 "symbol": str(tr.get("symbol") or getattr(ctx, "symbol", "") or ""),
-                "kind": str(tr.get("kind") or ""),
+                "kind": (tr.get("kind") or ""),
                 "trace": tr,
                 "ts_ms": get_ny_time_millis(),
             }
-            stream = str(os.getenv("DECISION_TRACE_DIAG_STREAM") or "stream:signals:diagnostics")
+            stream = (os.getenv("DECISION_TRACE_DIAG_STREAM") or "stream:signals:diagnostics")
             redis_client.xadd(stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=50000, approximate=True)
         except Exception:
             return
@@ -150,7 +150,7 @@ class CryptoObservability:
         try:
             sym = str(getattr(ctx, "symbol", "") or "")
             rc = normalize_reason(reason_code or "VETO_UNKNOWN")
-            m.inc("signals_veto_total", 1, tags={"reason": rc, "kind": str(kind or ""), "symbol": sym})
+            m.inc("signals_veto_total", 1, tags={"reason": rc, "kind": (kind or ""), "symbol": sym})
         except Exception:
             return
 

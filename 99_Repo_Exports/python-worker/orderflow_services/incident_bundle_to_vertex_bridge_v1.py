@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -13,7 +14,7 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
-
+import contextlib
 
 INCIDENT_BUNDLE_STREAM = os.getenv("ML_INCIDENT_BUNDLE_STREAM", "stream:ml:incident_bundle_results")
 RCA_REQUEST_STREAM = os.getenv("ML_OPERATOR_RCA_REQUEST_STREAM", "stream:ml:operator_rca_requests")
@@ -56,15 +57,15 @@ class IncidentBundle:
     model_id: str
     family: str
     severity: str
-    primary_reason_codes: List[str]
+    primary_reason_codes: list[str]
     summary: str
-    snapshot_before: Dict[str, Any]
-    snapshot_after: Dict[str, Any]
-    snapshot_diff: Dict[str, Any]
-    timeline: List[Dict[str, Any]]
+    snapshot_before: dict[str, Any]
+    snapshot_after: dict[str, Any]
+    snapshot_diff: dict[str, Any]
+    timeline: list[dict[str, Any]]
 
 
-def parse_bundle(fields: Dict[Any, Any]) -> IncidentBundle:
+def parse_bundle(fields: dict[Any, Any]) -> IncidentBundle:
     d = {_b2s(k): v for k, v in fields.items()}
     return IncidentBundle(
         recommendation_id=_b2s(d.get("recommendation_id", "")),
@@ -81,7 +82,7 @@ def parse_bundle(fields: Dict[Any, Any]) -> IncidentBundle:
     )
 
 
-def should_bridge(bundle: IncidentBundle) -> Tuple[bool, str]:
+def should_bridge(bundle: IncidentBundle) -> tuple[bool, str]:
     if not bundle.recommendation_id:
         return False, "missing_recommendation_id"
     if bundle.severity.lower() not in {"warning", "critical"}:
@@ -93,8 +94,8 @@ def should_bridge(bundle: IncidentBundle) -> Tuple[bool, str]:
     return True, "ok"
 
 
-def _top_diff_items(snapshot_diff: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
-    items: List[Dict[str, Any]] = []
+def _top_diff_items(snapshot_diff: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
     if not isinstance(snapshot_diff, dict):
         return items
     for k, v in snapshot_diff.items():
@@ -105,19 +106,19 @@ def _top_diff_items(snapshot_diff: Dict[str, Any], limit: int) -> List[Dict[str,
         else:
             items.append({"field": k, "value": v})
 
-    def _key(x: Dict[str, Any]) -> Tuple[float, str]:
+    def _key(x: dict[str, Any]) -> tuple[float, str]:
         dv = x.get("delta")
         try:
             score = abs(float(dv))
         except Exception:
             score = -1.0
-        return (-score, str(x.get("field", "")))
+        return (-score, (x.get("field", "")))
 
     items.sort(key=_key)
     return items[:limit]
 
 
-def build_rca_input_pack(bundle: IncidentBundle, *, prompt_version: str, policy_version: str, diff_limit: int = 12) -> Dict[str, Any]:
+def build_rca_input_pack(bundle: IncidentBundle, *, prompt_version: str, policy_version: str, diff_limit: int = 12) -> dict[str, Any]:
     compact_timeline = []
     for item in bundle.timeline[:50]:
         if not isinstance(item, dict):
@@ -164,10 +165,8 @@ def build_rca_input_pack(bundle: IncidentBundle, *, prompt_version: str, policy_
 
 
 async def _ensure_group(r: Any) -> None:
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(INCIDENT_BUNDLE_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
 
 
 async def run_forever() -> None:
@@ -222,10 +221,8 @@ async def run_forever() -> None:
                     }
                 )
                 REQUESTS.labels(severity=bundle.severity.lower()).inc()
-                try:
+                with contextlib.suppress(Exception):
                     QUEUE_LAG_MS.set(max(0, _now_ms() - bundle.ts_ms))
-                except Exception:
-                    pass
                 await r.xack(INCIDENT_BUNDLE_STREAM, GROUP, msg_id)
         LAST_RUN_TS.set(time.time())
         LOOP_SECONDS.observe(time.perf_counter() - t0)

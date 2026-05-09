@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 P1-7 — MetaModelRegistry: shadow-first promotion gate tests.
 
@@ -13,17 +14,12 @@ Verifies:
   8. maybe_auto_promote() respects auto_promote=False gate
 """
 
-import os
-import sys
 import tempfile
-import time
 
 import pytest
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from core.meta_model_registry import MetaModelRegistry, PromotionPolicy, _BrierTracker
-
 
 # ---------------------------------------------------------------------------
 # Helpers

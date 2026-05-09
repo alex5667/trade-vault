@@ -9,24 +9,21 @@ Coverage:
   * evaluate(): integration path where slip_bps increases due to inline health
 """
 
-import math
 import unittest
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
-
 
 # ---------------------------------------------------------------------------
 # Fake sync Redis for rollup read
 # ---------------------------------------------------------------------------
 
 class _FakeSyncRedis:
-    def __init__(self, data: Dict[str, Dict[str, str]]):
+    def __init__(self, data: dict[str, dict[str, str]]):
         self._data = data
 
-    def hgetall(self, name: str) -> Dict[str, str]:
+    def hgetall(self, name: str) -> dict[str, str]:
         return dict(self._data.get(name, {}))
 
-    def get(self, name: str) -> Optional[str]:
+    def get(self, name: str) -> str | None:
         return self._data.get(name, {}).get("__str__")
 
 
@@ -37,10 +34,7 @@ class _FakeSyncRedis:
 try:
     from services.orderflow.inline_exec_health import (
         InlineExecDims,
-        decide_inline_exec_health,
         make_rollup_key,
-        read_inline_exec_rollup_sync,
-        resolve_mode,
     )
     INLINE_IMPORT_OK = True
 except Exception:
@@ -67,7 +61,7 @@ def _build_gate(
     inline_exec_min_count: int = 1,
     inline_exec_tighten_add_mult: float = 1.0,
     inline_exec_tighten_add_cap_bps: float = 8.0,
-) -> "EdgeCostGate":
+) -> EdgeCostGate:
     """Build a minimal EdgeCostGate with P1 fields configured."""
     from tick_flow_full.handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
     return EdgeCostGate(
@@ -116,7 +110,7 @@ class TestInlineExecFeedbackDirect(unittest.TestCase):
     def _dims(self):
         return InlineExecDims(symbol="BTCUSDT", side="LONG", session="london", kind="breakout", tf="5m")
 
-    def _rollup_redis(self, p95: float, count: int = 10, perm_impact: Optional[float] = None) -> _FakeSyncRedis:
+    def _rollup_redis(self, p95: float, count: int = 10, perm_impact: float | None = None) -> _FakeSyncRedis:
         dims = self._dims().norm()
         rkey = make_rollup_key(dims, include_session=True)
         data = {
@@ -178,7 +172,7 @@ class TestInlineExecFeedbackDirect(unittest.TestCase):
         ),
         dims = self._dims().norm(),
         rkey = make_rollup_key(dims, include_session=True),
-        perm_key = f"tca:perm_impact_p95_bps:1:BTCUSDT:binance:london:5m:breakout:LONG",
+        perm_key = "tca:perm_impact_p95_bps:1:BTCUSDT:binance:london:5m:breakout:LONG",
         data = {
             rkey: {
                 "p95_bps": "12.0",
@@ -190,7 +184,7 @@ class TestInlineExecFeedbackDirect(unittest.TestCase):
         # To make perm_impact actually readable we need get() on FakeSyncRedis
         # Use monkeypatching or a custom stub:
         class _CustomRedis(_FakeSyncRedis):
-            def get(self, name: str) -> Optional[str]:
+            def get(self, name: str) -> str | None:
                 d = self._data.get(name)
                 if d is not None and "__str__" in d:
                     return d["__str__"]

@@ -1,5 +1,6 @@
 from services.orderflow.sentiment_context_gate import evaluate_sentiment_context
 
+
 def test_extreme_greed_reduces_risk_no_veto():
     dec = evaluate_sentiment_context(
         profile="strict",

@@ -9,7 +9,7 @@ Provides validation for:
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 
 class InvalidSymbolError(Exception):
@@ -37,8 +37,8 @@ class ConfigValidator:
     - Validate infrastructure components
     - Check logical consistency
     """
-    
-    def __init__(self, logger: Optional[logging.Logger] = None):
+
+    def __init__(self, logger: logging.Logger | None = None):
         """
         Initialize config validator.
         
@@ -46,7 +46,7 @@ class ConfigValidator:
             logger: Optional logger for warnings
         """
         self.logger = logger or logging.getLogger(__name__)
-    
+
     def validate_symbol(self, symbol: str) -> None:
         """
         Validate symbol name.
@@ -61,7 +61,7 @@ class ConfigValidator:
             raise InvalidSymbolError(
                 f"Invalid symbol: '{symbol}'. Must be non-empty string."
             )
-    
+
     def validate_source_name(self, source_name: str) -> None:
         """
         Validate source name.
@@ -76,7 +76,7 @@ class ConfigValidator:
             raise ValueError(
                 f"Invalid source_name: '{source_name}'. Must be non-empty string."
             )
-    
+
     def validate_signal_stream_prefix(self, signal_stream_prefix: str) -> None:
         """
         Validate signal stream prefix.
@@ -92,7 +92,7 @@ class ConfigValidator:
                 f"Invalid signal_stream_prefix: '{signal_stream_prefix}'. "
                 "Must be non-empty string."
             )
-    
+
     def validate_config(self, config: Any) -> None:
         """
         Validate configuration object for logical consistency.
@@ -106,7 +106,7 @@ class ConfigValidator:
         """
         if not hasattr(config, 'symbol') or not config.symbol:
             raise MissingConfigError("Config must have valid 'symbol' attribute.")
-        
+
         # Validate critical thresholds
         required_attrs = [
             'main_z_threshold',
@@ -114,11 +114,11 @@ class ConfigValidator:
             'obi_threshold',
             'delta_bucket_ms'
         ]
-        
+
         for attr in required_attrs:
             if hasattr(config, attr):
                 value = getattr(config, attr)
-                
+
                 if attr.endswith('_threshold'):
                     if not isinstance(value, (int, float)) or value < 0:
                         raise ValueError(
@@ -129,22 +129,22 @@ class ConfigValidator:
                         raise ValueError(
                             f"Config.{attr} must be positive integer, got: {value}"
                         )
-        
+
         # Validate logical consistency
         if hasattr(config, 'main_z_threshold') and hasattr(config, 'breakout_z_threshold'):
             main_z = getattr(config, 'main_z_threshold', 0)
             breakout_z = getattr(config, 'breakout_z_threshold', 0)
-            
+
             if breakout_z <= main_z:
                 self.logger.warning(
                     "Breakout Z threshold should be higher than main Z threshold: "
                     f"main={main_z}, breakout={breakout_z}"
                 )
-    
+
     def validate_inputs(
         self,
         symbol: str,
-        config: Optional[Any],
+        config: Any | None,
         source_name: str,
         signal_stream_prefix: str
     ) -> None:
@@ -165,10 +165,10 @@ class ConfigValidator:
         self.validate_symbol(symbol)
         self.validate_source_name(source_name)
         self.validate_signal_stream_prefix(signal_stream_prefix)
-        
+
         if config is not None:
             self.validate_config(config)
-    
+
     def validate_redis(self, redis: Any) -> None:
         """
         Validate Redis connection.
@@ -181,7 +181,7 @@ class ConfigValidator:
         """
         if redis is None:
             raise DependencyError("Redis not initialized")
-    
+
     def validate_stream(self, stream_name: str, stream_value: Any) -> None:
         """
         Validate stream configuration.
@@ -195,7 +195,7 @@ class ConfigValidator:
         """
         if not stream_value:
             raise DependencyError(f"{stream_name} not configured")
-    
+
     def validate_infrastructure(
         self,
         redis: Any,
@@ -218,6 +218,6 @@ class ConfigValidator:
         self.validate_redis(redis)
         self.validate_stream("tick_stream", tick_stream)
         self.validate_stream("book_stream", book_stream)
-        
+
         if cache_service is None:
             raise DependencyError("CacheService not initialized")

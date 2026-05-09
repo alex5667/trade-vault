@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _coerce_hash_cfg(h: dict) -> dict:
@@ -19,7 +20,7 @@ def _coerce_hash_cfg(h: dict) -> dict:
     return cfg
 
 
-def _safe_loads(s: Any) -> Dict[str, Any]:
+def _safe_loads(s: Any) -> dict[str, Any]:
     """Safely load JSON from string/bytes/dict."""
     try:
         if s is None:
@@ -33,10 +34,10 @@ def _safe_loads(s: Any) -> Dict[str, Any]:
         return {}
 
 
-def _is_valid_cfg(cfg: Dict[str, Any]) -> bool:
+def _is_valid_cfg(cfg: dict[str, Any]) -> bool:
     if not isinstance(cfg, dict) or not cfg:
         return False
-    rid = str(cfg.get("run_id", "") or "")
+    rid = (cfg.get("run_id", "") or "")
     return bool(rid)
 
 
@@ -113,11 +114,11 @@ def main() -> None:
                         pass
                     continue
 
-                cb = str(fields.get("callback", "") or "")
+                cb = (fields.get("callback", "") or "")
                 if cb.startswith("approve:ml_tb_v10_4:"):
                     run_id = cb.split(":", 2)[2]
                     chal = _safe_loads(r.get(challenger_key))
-                    if _is_valid_cfg(chal) and str(chal.get("run_id", "")) == run_id:
+                    if _is_valid_cfg(chal) and (chal.get("run_id", "")) == run_id:
                         chal.setdefault("promoted_ms", get_ny_time_millis())
                         chal.setdefault("mode", "SHADOW")
                         chal.setdefault("fail_policy", "OPEN")
@@ -132,7 +133,7 @@ def main() -> None:
                 elif cb.startswith("reject:ml_tb_v10_4:"):
                     run_id = cb.split(":", 2)[2]
                     chal = _safe_loads(r.get(challenger_key))
-                    if _is_valid_cfg(chal) and str(chal.get("run_id", "")) == run_id:
+                    if _is_valid_cfg(chal) and (chal.get("run_id", "")) == run_id:
                         chal["rejected_ms"] = get_ny_time_millis()
                         r.set(challenger_key + ":rejected:" + run_id, json.dumps(chal, ensure_ascii=False, separators=(",", ":")), ex=7*24*3600)
                         r.delete(challenger_key)

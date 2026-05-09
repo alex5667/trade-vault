@@ -4,9 +4,9 @@ Robust statistical utilities for the scanner infrastructure.
 Provides robust statistical calculations including rolling MAD-based z-score.
 """
 
-import numpy as np
-from typing import Optional, List, Tuple
 from collections import deque
+
+import numpy as np
 
 
 class RobustZscoreMADRolling:
@@ -29,12 +29,12 @@ class RobustZscoreMADRolling:
         """
         self.window_size = window_size
         self.threshold = threshold
-        
+
         # GPU Acceleration Logic
         self.gpu_backend = None
         try:
             from config.gpu_config import GPU_ENABLE, GPU_MIN_N
-            
+
             # Check if GPU is enabled and window size justifies overhead
             if GPU_ENABLE and window_size >= GPU_MIN_N:
                 try:
@@ -52,7 +52,7 @@ class RobustZscoreMADRolling:
             self.values = deque(maxlen=window_size)
             self.mad_values = deque(maxlen=window_size)
 
-    def update(self, value: float) -> Tuple[float, bool]:
+    def update(self, value: float) -> tuple[float, bool]:
         """
         Update with new value and return z-score and outlier flag.
 
@@ -115,7 +115,7 @@ class RobustZscoreMADRolling:
         }
 
 
-def rolling_median(values: List[float], window_size: int) -> List[float]:
+def rolling_median(values: list[float], window_size: int) -> list[float]:
     """
     Calculate rolling median.
 
@@ -138,7 +138,7 @@ def rolling_median(values: List[float], window_size: int) -> List[float]:
     return result
 
 
-def rolling_mad(values: List[float], window_size: int) -> List[float]:
+def rolling_mad(values: list[float], window_size: int) -> list[float]:
     """
     Calculate rolling MAD (Median Absolute Deviation).
 
@@ -167,7 +167,7 @@ def rolling_mad(values: List[float], window_size: int) -> List[float]:
     return result
 
 
-def robust_zscore(values: List[float], window_size: int = 20) -> List[float]:
+def robust_zscore(values: list[float], window_size: int = 20) -> list[float]:
     """
     Calculate robust z-scores using rolling MAD.
 

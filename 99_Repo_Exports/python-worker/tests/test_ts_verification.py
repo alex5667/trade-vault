@@ -1,5 +1,5 @@
-import pytest
 from common.tick_time import verify_bucketed_ts
+
 
 def test_verify_bucketed_ts_ok():
     # Identical buckets: diff=0, tol=5

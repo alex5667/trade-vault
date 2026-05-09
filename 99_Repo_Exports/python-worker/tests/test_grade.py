@@ -1,5 +1,5 @@
-import pytest
-from news_pipeline.grade import compute_news_grade_id, compute_horizon_sec
+from news_pipeline.grade import compute_horizon_sec, compute_news_grade_id
+
 
 def test_grade_basic():
     assert compute_news_grade_id(news_risk=0.0, confidence=0.0, primary_tag_id=0) == 0

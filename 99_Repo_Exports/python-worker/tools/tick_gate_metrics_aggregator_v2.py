@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tick Gate Metrics Aggregator (v2)
 
 Consumes Redis Stream entries produced by the tick-quality gate wrapper (Step 19)
@@ -30,11 +31,11 @@ Env:
 
 import os
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+from wsgiref.simple_server import WSGIRequestHandler, make_server
 
 from prometheus_client import Counter, Gauge
 from prometheus_client.exposition import make_wsgi_app
-from wsgiref.simple_server import make_server, WSGIServer, WSGIRequestHandler
 
 try:
     import redis  # type: ignore
@@ -79,12 +80,15 @@ REASON_ALLOWLIST = set(
 )
 
 
-def _get_redis() -> "redis.Redis":
+def _get_redis() -> redis.Redis:
     url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     return redis.Redis.from_url(url, decode_responses=True)
 
 
 from prometheus_client import REGISTRY
+import contextlib
+
+
 def _get_or_create_metric(collector_type, name, documentation, labelnames=()):
     # Check for name or name_total (Prometheus appends _total for Counters)
     for n in [name, name + "_total"]:
@@ -143,7 +147,7 @@ tick_gate_last_diag_ts_seconds = _get_or_create_metric(
 )
 
 
-def _extract_reason(fields: Dict[str, Any]) -> Optional[str]:
+def _extract_reason(fields: dict[str, Any]) -> str | None:
     raw = (str(fields.get("fail_reason") or fields.get("reason") or "") or "").strip()
     if not raw:
         return None
@@ -154,7 +158,7 @@ def _extract_reason(fields: Dict[str, Any]) -> Optional[str]:
     return raw or None
 
 
-def _guard_reason(reason: Optional[str]) -> Optional[str]:
+def _guard_reason(reason: str | None) -> str | None:
     if not reason:
         return None
     r = reason.strip()
@@ -170,14 +174,12 @@ def _guard_reason(reason: Optional[str]) -> Optional[str]:
     return "__other__"
 
 
-def _ensure_group(r: "redis.Redis") -> None:
-    try:
+def _ensure_group(r: redis.Redis) -> None:
+    with contextlib.suppress(Exception):
         r.xgroup_create(TICK_GATE_REDIS_STREAM, TICK_GATE_CONSUMER_GROUP, id="0-0", mkstream=True)
-    except Exception:
-        pass
 
 
-def _self_diag(r: "redis.Redis") -> None:
+def _self_diag(r: redis.Redis) -> None:
     # Export group pending + consumer idle (best-effort)
     ok = False
     try:
@@ -192,7 +194,7 @@ def _self_diag(r: "redis.Redis") -> None:
         consumers = r.xinfo_consumers(TICK_GATE_REDIS_STREAM, TICK_GATE_CONSUMER_GROUP)
         if isinstance(consumers, list):
             for c in consumers:
-                if str(c.get("name")) == TICK_GATE_CONSUMER_NAME:
+                if (c.get("name")) == TICK_GATE_CONSUMER_NAME:
                     tick_gate_consumer_idle_ms.set(_safe_int(c.get("idle"), 0))
                     ok = True
                     break
@@ -203,7 +205,7 @@ def _self_diag(r: "redis.Redis") -> None:
         tick_gate_last_diag_ts_seconds.set(time.time())
 
 
-def _msg_id_to_ms(msg_id: str) -> Optional[int]:
+def _msg_id_to_ms(msg_id: str) -> int | None:
     try:
         return int(str(msg_id).split("-", 1)[0])
     except Exception:
@@ -241,7 +243,7 @@ def _consume_loop() -> None:
 
             for _stream_name, entries in resp:
                 for msg_id, fields in entries:
-                    status = (str(fields.get("status") or "") or "unknown").strip().lower()
+                    status = ((fields.get("status") or "") or "unknown").strip().lower()
                     tick_gate_events_total.labels(status=status).inc()
                     tick_gate_last_run_ts_seconds.set(now)
 
@@ -294,7 +296,7 @@ def _wsgi_app():
         return metrics_app(environ, start_response)
 
     return app
-    
+
 class SilentRequestHandler(WSGIRequestHandler):
     """Suppresses access log messages (e.g. GET /metrics) to keep logs clean."""
     def log_message(self, format: str, *args: Any) -> None:

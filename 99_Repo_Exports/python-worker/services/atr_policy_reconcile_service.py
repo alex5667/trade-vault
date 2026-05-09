@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import os
 import time
+
 import redis
-from services.atr_promotion_policy_apply_runner import apply_one
+
 from services.atr_policy_workflow import proposal_key
+from services.atr_promotion_policy_apply_runner import apply_one
+import contextlib
 
 
 def _redis():
@@ -25,10 +28,8 @@ def run_once() -> int:
             except Exception:
                 pass
     # SLO-4: stamp last success for reconcile freshness exporter
-    try:
+    with contextlib.suppress(Exception):
         r.set("atr_policy:reconcile:last_success_ts_ms", str(int(time.time() * 1000)))
-    except Exception:
-        pass
     return applied
 
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """Scenario runner on top of the deterministic Binance mock harness.
 
@@ -15,10 +16,10 @@ P6.3: Adds:
   - snapshot() — point-in-time state capture for assertion convenience
 """
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
 import json
 import time
+from dataclasses import dataclass
+from typing import Any
 
 from services.binance_executor import BinanceExecutor
 from services.binance_futures_client import BinanceFuturesClient
@@ -31,8 +32,8 @@ class ScenarioStepResult:
     """Result of a single timeline step for structured reporting."""
     at: str
     op: str
-    result: Dict[str, Any]
-    snapshot: Dict[str, Any]
+    result: dict[str, Any]
+    snapshot: dict[str, Any]
 
 
 class BinanceScenarioRunner:
@@ -64,7 +65,7 @@ class BinanceScenarioRunner:
         self,
         *,
         mock_server: Any,
-        redis_client: Optional[InMemoryRedis] = None,
+        redis_client: InMemoryRedis | None = None,
         api_key: str = "k",
         api_secret: str = "s",
     ) -> None:
@@ -148,7 +149,7 @@ class BinanceScenarioRunner:
 
     # --- Queue helpers ---
 
-    def queue_raw(self, payload: Dict[str, Any], *, queue_key: str = "orders:queue:binance") -> None:
+    def queue_raw(self, payload: dict[str, Any], *, queue_key: str = "orders:queue:binance") -> None:
         """Push a raw order payload JSON into the executor queue."""
         self.redis.lpush(queue_key, json.dumps(payload))
 
@@ -161,8 +162,8 @@ class BinanceScenarioRunner:
         side: str = "BUY",
         qty: float = 1.0,
         order_type: str = "MARKET",
-        sl: Optional[float] = None,
-        tp_levels: Optional[List[float]] = None,
+        sl: float | None = None,
+        tp_levels: list[float] | None = None,
     ) -> None:
         """Push `count` open-position signals into the executor queue.
 
@@ -170,7 +171,7 @@ class BinanceScenarioRunner:
         derived from ``sid_prefix-{idx}``.
         """
         for idx in range(int(count)):
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "action": "open",
                 "sid": f"{sid_prefix}-{idx}",
                 "symbol": symbol,
@@ -202,7 +203,7 @@ class BinanceScenarioRunner:
 
     # --- User-stream drain ---
 
-    def drain_user_stream(self, *, limit: Optional[int] = None) -> int:
+    def drain_user_stream(self, *, limit: int | None = None) -> int:
         """Pop all pending harness WS events and deliver them to the worker.
 
         Returns the number of events handled.  Use `limit` to stop early.
@@ -237,7 +238,7 @@ class BinanceScenarioRunner:
         path: str,
         *,
         status: int,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         repeat: int = 1,
     ) -> None:
         """Inject `repeat` HTTP fault responses for (method, path)."""
@@ -245,11 +246,11 @@ class BinanceScenarioRunner:
 
     # --- Manual event injection ---
 
-    def inject_order_update(self, **kwargs) -> Dict[str, Any]:
+    def inject_order_update(self, **kwargs) -> dict[str, Any]:
         """Inject a plain order WS event; delegates to harness state."""
         return self.mock.state.inject_plain_order_update(**kwargs)
 
-    def inject_algo_update(self, **kwargs) -> Dict[str, Any]:
+    def inject_algo_update(self, **kwargs) -> dict[str, Any]:
         """Inject an algo order WS event; delegates to harness state."""
         return self.mock.state.inject_algo_update(**kwargs)
 
@@ -261,15 +262,15 @@ class BinanceScenarioRunner:
 
     # --- Stream inspection helpers ---
 
-    def exec_events(self, key: str = "orders:exec") -> List[Dict[str, str]]:
+    def exec_events(self, key: str = RS.ORDERS_EXEC) -> list[dict[str, str]]:
         """Return all entries from the executor event stream."""
         return [fields for _id, fields in self.redis.xrange(key)]
 
-    def user_stream_events(self, key: str = "orders:user_stream") -> List[Dict[str, str]]:
+    def user_stream_events(self, key: str = "orders:user_stream") -> list[dict[str, str]]:
         """Return all entries from the user-stream event stream."""
         return [fields for _id, fields in self.redis.xrange(key)]
 
-    def snapshot(self, *, sid: Optional[str] = None, symbol: str = "BTCUSDT") -> Dict[str, Any]:
+    def snapshot(self, *, sid: str | None = None, symbol: str = "BTCUSDT") -> dict[str, Any]:
         """Return a point-in-time snapshot of observable state.
 
         Includes:
@@ -279,7 +280,7 @@ class BinanceScenarioRunner:
           - ``user_stream_events``: count of entries in orders:user_stream
           - ``request_count``: total HTTP requests logged by the harness
         """
-        state_doc: Dict[str, Any] = {}
+        state_doc: dict[str, Any] = {}
         if sid:
             raw = self.redis.get(f"orders:state:{sid}")
             if raw:
@@ -290,8 +291,8 @@ class BinanceScenarioRunner:
         return {
             "sid": sid or "",
             "state": state_doc,
-            "position_qty": float(self.mock.state.positions.get(str(symbol).upper(), 0.0)),
-            "exec_events": len(self.redis.xrange("orders:exec")),
+            "position_qty": float(self.mock.state.positions.get(symbol.upper(), 0.0)),
+            "exec_events": len(self.redis.xrange(RS.ORDERS_EXEC)),
             "user_stream_events": len(self.redis.xrange("orders:user_stream")),
             "request_count": len(self.mock.state.request_log),
         }
@@ -300,11 +301,11 @@ class BinanceScenarioRunner:
 
     def run_timeline(
         self,
-        steps: List[Dict[str, Any]],
+        steps: list[dict[str, Any]],
         *,
-        sid: Optional[str] = None,
+        sid: str | None = None,
         symbol: str = "BTCUSDT",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Execute a list of scripted steps in order, returning step-by-step report.
 
         Each step is a dict with at least ``op`` (operation name) and optionally
@@ -325,11 +326,11 @@ class BinanceScenarioRunner:
           http_fault               — set_http_fault(method, path, status, payload, repeat)
           attach_live_user_stream_bridge — attach_live_user_stream_bridge()
         """
-        report: List[Dict[str, Any]] = []
+        report: list[dict[str, Any]] = []
         for idx, step in enumerate(list(steps)):
-            op = str(step.get("op") or "").strip()
+            op = (step.get("op") or "").strip()
             at = str(step.get("at") or f"step-{idx}")
-            result: Dict[str, Any]
+            result: dict[str, Any]
 
             if op in {"queue_open", "queue_raw"}:
                 payload = dict(step.get("payload") or {})
@@ -383,8 +384,8 @@ class BinanceScenarioRunner:
 
             elif op == "http_fault":
                 self.set_http_fault(
-                    str(step.get("method") or "GET"),
-                    str(step.get("path") or ""),
+                    (step.get("method") or "GET"),
+                    (step.get("path") or ""),
                     status=int(step.get("status") or 500),
                     payload=dict(step.get("payload") or {"code": -1000, "msg": "fault"}),
                     repeat=int(step.get("repeat") or 1),

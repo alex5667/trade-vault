@@ -30,16 +30,16 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 log = logging.getLogger('execution_projection_health_server')
 
 # Registry of worker reference — set once at startup
-_WORKER_REF: Optional[Any] = None  # ExecutionProjectionWorker | None
+_WORKER_REF: Any | None = None  # ExecutionProjectionWorker | None
 _LAG_READYZ_MAX_MS: int = 30000
 
 
-def _health_snapshot() -> Dict[str, Any]:
+def _health_snapshot() -> dict[str, Any]:
     """Retrieve health snapshot from the registered worker, or a fallback."""
     if _WORKER_REF is None:
         return {
@@ -64,7 +64,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         pass
 
-    def _send_json(self, status: int, body: Dict[str, Any]) -> None:
+    def _send_json(self, status: int, body: dict[str, Any]) -> None:
         raw = json.dumps(body, default=str).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
@@ -127,8 +127,8 @@ class ProjectionHealthServer:
         _WORKER_REF = worker
         _LAG_READYZ_MAX_MS = lag_readyz_max_ms
         self.port = port
-        self._httpd: Optional[HTTPServer] = None
-        self._thread: Optional[threading.Thread] = None
+        self._httpd: HTTPServer | None = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         """Start the health HTTP server in a background daemon thread."""
@@ -176,11 +176,13 @@ def main() -> int:  # pragma: no cover
     # Import worker lazily to avoid circular deps at module level
     try:
         from services.execution_projection_worker import (
-            _redis_from_env, _worker_from_env,
+            _redis_from_env,
+            _worker_from_env,
         )
     except ImportError:
         from execution_projection_worker import (  # type: ignore
-            _redis_from_env, _worker_from_env,
+            _redis_from_env,
+            _worker_from_env,
         )
 
     port = int(os.getenv('EXEC_PROJECTION_HEALTH_PORT', '8090'))

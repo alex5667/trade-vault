@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+
 import psycopg2
 import psycopg2.extras
 import redis
+from core.redis_keys import RedisStreams as RS
+
 
 def _dsn():
     return (
@@ -68,9 +71,9 @@ def run_once() -> bool:
         chat_id = os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "")
         if chat_id:
             payload["chat_id"] = chat_id
-            
+
         r = _redis()
-        r.xadd("notify:telegram", payload, maxlen=5000, approximate=True)
+        r.xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=5000, approximate=True)
         return True
     finally:
         conn.close()

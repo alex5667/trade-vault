@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.smt_entry_candidate_service import Setup, RetestState, _fsm_step
+from services.smt_entry_candidate_service import RetestState, Setup, _fsm_step
 
 
 def test_retest_fsm_touch_away_retest_emit():
@@ -45,7 +45,7 @@ def test_retest_fsm_touch_away_retest_emit():
     snap["of_confirm_score"] = 1.0  # Pass min score
     snap["zone_side"] = "MID"       # Valid for LONG
     snap["regime"] = "range"        # Not thin/news
-    
+
     emit, r = _fsm_step(setup=setup, st=st, snap=snap, now_ms=now, touch_bp=12, away_bp=25, retest_bp=12)
     assert emit is True
     assert st.emitted == 1

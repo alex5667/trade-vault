@@ -1,9 +1,16 @@
 from __future__ import annotations
+
 """P4.10 dual-control silence approval workflow tests."""
 
-import pytest
-from unittest.mock import MagicMock
 
+import pytest
+
+from orderflow_services.latency_contract_deploy_lint_silence_v1 import (
+    Cfg,
+    cmd_ack,
+    cmd_approve_override,
+    cmd_prepare_override,
+)
 from services.observability.latency_deploy_lint_silence_approval_state import (
     approve_override_approval,
     consume_approval,
@@ -13,16 +20,8 @@ from services.observability.latency_deploy_lint_silence_approval_state import (
 )
 from services.observability.latency_deploy_lint_silence_state import (
     _base_mapping,
-    evaluate_ack_policy,
-    parse_silence_state,
     record_dual_control_denial,
     upsert_ack_silence,
-)
-from orderflow_services.latency_contract_deploy_lint_silence_v1 import (
-    Cfg,
-    cmd_ack,
-    cmd_approve_override,
-    cmd_prepare_override,
 )
 
 

@@ -1,14 +1,12 @@
-
 from __future__ import annotations
+
 import logging
-import asyncio
-from utils.task_manager import safe_create_task
+from datetime import UTC, datetime
+from typing import Any
 
-from typing import Optional, Dict, Any
-from datetime import datetime, timezone
-
-from services.persistence_manager import get_persistence_manager
 from core.redis_client import get_redis
+from services.persistence_manager import get_persistence_manager
+from utils.task_manager import safe_create_task
 
 logger = logging.getLogger("daily_tracker")
 
@@ -20,23 +18,23 @@ class DailyCandleTracker:
     def __init__(self, symbol: str):
         self.symbol = symbol
         self.current_date = self._get_utc_date_str()
-        
+
         # In-memory state for the current day
         self.day_high = -1.0
         self.day_low = -1.0
         self.day_close = -1.0
         self.day_open = -1.0
         self.day_vol = 0.0
-        
+
         # Dependencies
         self.pm = get_persistence_manager()
         self.redis = get_redis()
-        
+
         # Redis key for fallback/init
         self.redis_key_daily = f"daily_ohlc:{self.symbol}"
 
     def _get_utc_date_str(self) -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        return datetime.now(UTC).strftime("%Y-%m-%d")
 
     def update(self, bar: Any) -> None:
         """
@@ -48,7 +46,7 @@ class DailyCandleTracker:
             if today != self.current_date:
                 # Day rolled over -> persist previous day
                 safe_create_task(self._persist_completed_day(self.current_date))
-                
+
                 # Reset state for new day
                 self.current_date = today
                 self.day_high = -1.0
@@ -78,7 +76,7 @@ class DailyCandleTracker:
                 self.day_low = min(self.day_low, l)
                 self.day_close = c
                 self.day_vol += v
-                
+
         except Exception as e:
             logger.warning(f"Error updating daily tracker for {self.symbol}: {e}")
 
@@ -90,7 +88,7 @@ class DailyCandleTracker:
             return
 
         h, l, c, o, v = self.day_high, self.day_low, self.day_close, self.day_open, self.day_vol
-        
+
         try:
             # 1. Save to Postgres
             ok = await self.pm.save_daily_ohlc(
@@ -103,8 +101,8 @@ class DailyCandleTracker:
             import json
             payload = {
                 "date": date_str,
-                "high": h, 
-                "low": l, 
+                "high": h,
+                "low": l,
                 "close": c,
                 "open": o,
                 "volume": v
@@ -112,6 +110,6 @@ class DailyCandleTracker:
             # key used by cache_service.py
             key = f"yesterday_hlc:{self.symbol}"
             self.redis.setex(key, 172800, json.dumps(payload))
-            
+
         except Exception as e:
             logger.error(f"❌ Failed to persist daily OHLC for {self.symbol}: {e}")

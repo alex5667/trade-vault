@@ -1,5 +1,4 @@
 # services/l3_lite_tracker.py
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 from dataclasses import dataclass

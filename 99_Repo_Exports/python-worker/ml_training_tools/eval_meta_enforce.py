@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Evaluate meta model thresholds for ENFORCE mode.
 
 Evaluates different meta_p_min thresholds on a dataset to find the best one
@@ -20,12 +21,13 @@ Usage:
 import argparse
 import json
 import math
-from typing import Any, Dict, Iterator, List, Tuple
+from collections.abc import Iterator
+from typing import Any
 
 
-def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
+def iter_ndjson(path: str) -> Iterator[dict[str, Any]]:
     """Iterate over NDJSON file, yielding one dict per line."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -38,7 +40,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -46,7 +48,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(d)
+        return d
 
 
 def sigmoid(x: float) -> float:
@@ -58,7 +60,7 @@ def sigmoid(x: float) -> float:
     return z / (1.0 + z)
 
 
-def load_lr_model(path: str) -> Dict[str, Any]:
+def load_lr_model(path: str) -> dict[str, Any]:
     """Load logistic regression model from JSON file.
     
     Expected format:
@@ -70,7 +72,7 @@ def load_lr_model(path: str) -> Dict[str, Any]:
         "threshold": 0.5  # optional
     }
     """
-    d = json.loads(open(path, "r", encoding="utf-8").read())
+    d = json.loads(open(path, encoding="utf-8").read())
     if d.get("kind") != "logreg_v1":
         raise ValueError(f"unexpected model kind: {d.get('kind')}")
     feats = list(d["features"])
@@ -85,7 +87,7 @@ def load_lr_model(path: str) -> Dict[str, Any]:
     }
 
 
-def predict_p(model: Dict[str, Any], row: Dict[str, Any]) -> float:
+def predict_p(model: dict[str, Any], row: dict[str, Any]) -> float:
     """Predict probability using logistic regression model.
     
     Args:
@@ -103,7 +105,7 @@ def predict_p(model: Dict[str, Any], row: Dict[str, Any]) -> float:
     return float(sigmoid(s))
 
 
-def metrics(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+def metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
     """Compute outcome metrics from rows.
     
     Args:

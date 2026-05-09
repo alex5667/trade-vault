@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
 import logging
 import math
 import os
 import time
+from dataclasses import dataclass, field
+from typing import Any
 
 from common.calibration_store import CalibStore
 from common.kind_normalize import normalize_kind
+import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +20,10 @@ def _f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _clamp01(x: float) -> float:
@@ -96,15 +97,15 @@ class ScoreModel:
         self._b = float(os.getenv("CONF_CAL_B", "0.10"))     # смещение (offset)
         self._cap = float(os.getenv("CONF_PCT_CAP", "99.0"))
         # Optional diagnostics (rate-limited).
-        self._log_calib_errors = (str(os.getenv("CONF_CAL_LOG_ERRORS", "0")) == "1")
+        self._log_calib_errors = (os.getenv("CONF_CAL_LOG_ERRORS", "0") == "1")
         self._log_calib_errors_every_sec = float(os.getenv("CONF_CAL_LOG_ERRORS_EVERY_SEC", "30") or "30")
         self._last_calib_err_ts = 0.0
 
         # Calibration mode:
         #   sigmoid   - default, stateless
         #   isotonic  - uses CalibStore (JSON trained offline)
-        self._mode = str(os.getenv("CONF_CAL_MODE", "sigmoid") or "sigmoid").strip().lower()
-        self._cal_path = str(os.getenv("CONF_CAL_PATH", "") or "")
+        self._mode = (os.getenv("CONF_CAL_MODE", "sigmoid") or "sigmoid").strip().lower()
+        self._cal_path = (os.getenv("CONF_CAL_PATH", "") or "")
         self._min_samples = int(os.getenv("CONF_CAL_MIN_SAMPLES", "300") or "300")
         self._reload_sec = int(os.getenv("CONF_CAL_RELOAD_SEC", "30") or "30")
 
@@ -193,8 +194,8 @@ class ScoreModel:
                 self._calib_store.maybe_reload()
                 symbol = self._ctx_symbol(ctx)
                 side = self._ctx_side(ctx)
-                k_norm = normalize_kind(str(kind or "*"))
-                g, k_used = self._calib_store.get_group(kind=str(k_norm), symbol=str(symbol), side=str(side))
+                k_norm = normalize_kind((kind or "*"))
+                g, k_used = self._calib_store.get_group(kind=str(k_norm), symbol=symbol, side=side)
                 if g is not None and k_used:
                     cal_key = str(k_used)
                     cal_n = int(g.n or 0)
@@ -215,10 +216,8 @@ class ScoreModel:
                     pct = float(min(self._cap, max(0.0, 100.0 * _sigmoid(x))))
             except Exception as e:
                 # сверх-защита: не ломаем scoring
-                try:
-                    self._log_calib_exc(e, kind=str(kind or "*"), symbol=self._ctx_symbol(ctx))
-                except Exception:
-                    pass
+                with contextlib.suppress(Exception):
+                    self._log_calib_exc(e, kind=(kind or "*"), symbol=self._ctx_symbol(ctx))
                 x = (abs_final - self._b) * self._k
                 pct = float(min(self._cap, max(0.0, 100.0 * _sigmoid(x))))
         else:
@@ -235,6 +234,6 @@ class ScoreModel:
         parts["confidence_p_win"] = float(pct / 100.0)  # convenience/debug
         parts["confidence_calib_n"] = float(cal_n)
         # Put string/debug info into meta, not parts.
-        meta["confidence_calib_key"] = str(cal_key or "")
+        meta["confidence_calib_key"] = (cal_key or "")
         meta["confidence_calibration_used"] = str(cal_used)
         return ScoreOut(final_score=float(final), conf_factor01=float(cf), confidence_pct=float(pct), parts=parts, meta=meta)

@@ -1,4 +1,4 @@
-from common.decision_trace import patch_trace_sidecar_obj, make_trace_summary
+from common.decision_trace import make_trace_summary, patch_trace_sidecar_obj
 
 
 def test_patch_trace_sidecar_adds_events_and_updates_summary():

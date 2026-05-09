@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P6/P7 asset validation tests.
 
 Verifies:
@@ -7,10 +8,9 @@ Verifies:
 """
 
 import os
-import re
-import sys
-import yaml
+
 import pytest
+import yaml
 
 # Paths relative to repo root
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -43,7 +43,7 @@ REQUIRED_ALERT_NAMES = [
 
 class TestPrometheusRules:
     def _load_rules(self):
-        with open(PROM_RULES_PATH, "r") as f:
+        with open(PROM_RULES_PATH) as f:
             return yaml.safe_load(f)
 
     @pytest.mark.skipif(not os.path.exists(PROM_RULES_PATH), reason="rules file not found")

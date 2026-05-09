@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Geometry and liquidity context logic for CryptoOrderFlowHandler.
 
@@ -7,8 +8,7 @@ This module contains geometry scoring and liquidity context management.
 
 
 import math
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 
 class CryptoOrderFlowGeometryMixin:
@@ -40,19 +40,19 @@ class CryptoOrderFlowGeometryMixin:
         snap = getattr(ctx, "geometry", None)
         if snap is None:
             # missing HTF/geometry provider: neutral score, add quality flag
-            setattr(ctx, "geometry_score", float(self._geometry_missing_score))
+            ctx.geometry_score = float(self._geometry_missing_score)
             flags = getattr(ctx, "data_quality_flags", None)
             if isinstance(flags, list):
                 flags.append("missing_htf")
             return
 
         # Accept multiple snapshot shapes; normalize to a list of hits.
-        hits: List[Dict[str, Any]] = []
+        hits: list[dict[str, Any]] = []
         raw_hits = getattr(snap, "geo_zone_hits", None) or getattr(snap, "hits", None) or getattr(snap, "zones", None)
         if raw_hits is None:
             raw_hits = []
 
-        def _to_hit(obj: Any) -> Optional[Dict[str, Any]]:
+        def _to_hit(obj: Any) -> dict[str, Any] | None:
             try:
                 zone_type = str(getattr(obj, "zone_type", None) or getattr(obj, "type", None) or "")
                 strength = float(getattr(obj, "zone_strength", None) or getattr(obj, "strength", None) or 0.0)
@@ -89,7 +89,7 @@ class CryptoOrderFlowGeometryMixin:
                 return 0.0
             return max(0.0, min(1.0, 1.0 - (d_bps / 50.0)))
 
-        best: Optional[Dict[str, Any]] = None
+        best: dict[str, Any] | None = None
         best_score = -1.0
         for h in hits:
             ds = _dist_score(float(h.get("dist_bps") or 1e9))
@@ -100,6 +100,6 @@ class CryptoOrderFlowGeometryMixin:
                 best_score = score
                 best = h
 
-        setattr(ctx, "geo_zone_hits", hits)
-        setattr(ctx, "geo_zone_hit", best)
-        setattr(ctx, "geometry_score", float(best_score if best is not None else self._geometry_missing_score))
+        ctx.geo_zone_hits = hits
+        ctx.geo_zone_hit = best
+        ctx.geometry_score = float(best_score if best is not None else self._geometry_missing_score)

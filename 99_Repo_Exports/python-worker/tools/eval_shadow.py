@@ -1,8 +1,10 @@
-import redis
 import json
 
+import redis
+from core.redis_keys import RedisStreams as RS
+
 r = redis.Redis(host='redis-worker-1', port=6379, db=0)
-msgs = r.xrevrange("signals:crypto:raw", count=100)
+msgs = r.xrevrange(RS.CRYPTO_RAW, count=100)
 scores = []
 for msg in msgs:
     try:
@@ -10,7 +12,7 @@ for msg in msgs:
         ml_data = json.loads(data.get("ml", "{}"))
         if "p_edge" in ml_data:
             scores.append(ml_data["p_edge"])
-    except Exception as e:
+    except Exception:
         pass
 
 print(f"Evaluated {len(scores)} shadow predictions.")

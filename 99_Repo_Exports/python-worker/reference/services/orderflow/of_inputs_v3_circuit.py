@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """OFInputs V3 circuit breaker (P100).
 
 Goal
@@ -24,8 +25,7 @@ Notes
 import asyncio
 import json
 import re
-from typing import Any, Dict, Optional, Tuple
-
+from typing import Any
 
 _CFG_DISABLED_PREFIX = "cfg:of_inputs:v3_disabled"
 _STATE_DOWGRADES_PREFIX = "state:of_inputs:v3_downgrades"
@@ -38,7 +38,7 @@ _REASON_SAFE_RE = re.compile(r"[^a-z0-9_]+")
 
 
 def _norm_reason(reason: str) -> str:
-    r = str(reason or "").strip().lower()
+    r = (reason or "").strip().lower()
     r = r.replace("-", "_")
     r = _REASON_SAFE_RE.sub("_", r)
     r = re.sub(r"_+", "_", r).strip("_")
@@ -76,7 +76,7 @@ def _json_dumps(obj: Any) -> str:
         return "{}"
 
 
-def _json_loads(s: Optional[str]) -> Dict[str, Any]:
+def _json_loads(s: str | None) -> dict[str, Any]:
     if not s:
         return {}
     try:
@@ -99,7 +99,7 @@ async def refresh_disabled_state(
     runtime,
     now_ms: int,
     refresh_every_ms: int = 10_000,
-) -> Tuple[bool, int, str]:
+) -> tuple[bool, int, str]:
     """Refresh runtime cache from cfg disable key.
 
     Returns: (disabled, disabled_until_ms, disabled_reason)
@@ -115,7 +115,7 @@ async def refresh_disabled_state(
             rsn = str(getattr(runtime, "of_inputs_v3_disabled_reason", "") or "")
             return (until_ms > now_ms, until_ms, rsn)
 
-        setattr(runtime, "of_inputs_v3_cb_last_refresh_ts_ms", int(now_ms))
+        runtime.of_inputs_v3_cb_last_refresh_ts_ms = int(now_ms)
         sym = str(getattr(runtime, "symbol", "") or "")
         if not sym:
             return (False, 0, "")
@@ -165,9 +165,9 @@ async def refresh_disabled_state(
 
         if int(hard_until_ms or 0) <= 0:
             hard_until_ms = int(until_ms)
-        setattr(runtime, "of_inputs_v3_disabled_until_ms", int(until_ms))
-        setattr(runtime, "of_inputs_v3_disabled_hard_until_ms", int(hard_until_ms or until_ms or 0))
-        setattr(runtime, "of_inputs_v3_disabled_reason", str(rsn or ""))
+        runtime.of_inputs_v3_disabled_until_ms = int(until_ms)
+        runtime.of_inputs_v3_disabled_hard_until_ms = int(hard_until_ms or until_ms or 0)
+        runtime.of_inputs_v3_disabled_reason = (rsn or "")
 
         # Phase: hard vs cooldown. We remain disabled until `until_ms`.
         phase = ""
@@ -179,9 +179,9 @@ async def refresh_disabled_state(
                 phase = "cooldown"
         except Exception:
             phase = ""
-        setattr(runtime, "of_inputs_v3_disabled_phase", phase)
+        runtime.of_inputs_v3_disabled_phase = phase
 
-        return (int(until_ms) > now_ms, int(until_ms), str(rsn or ""))
+        return (int(until_ms) > now_ms, int(until_ms), (rsn or ""))
 
     except Exception:
         return (False, int(getattr(runtime, "of_inputs_v3_disabled_until_ms", 0) or 0), str(getattr(runtime, "of_inputs_v3_disabled_reason", "") or ""))
@@ -198,7 +198,7 @@ async def record_downgrade_and_maybe_trip(
     cooldown_ms: int = 0,
     block_auto_apply: bool = True,
     auto_apply_reason: str = "of_inputs_v3",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Record a V3->V2 downgrade and trip circuit if threshold exceeded.
 
     Returns dict:
@@ -207,7 +207,7 @@ async def record_downgrade_and_maybe_trip(
     Redis usage is per-reason ZSET for O(1) ZCOUNT.
     """
     rsn = _norm_reason(downgrade_reason)
-    sym_s = str(sym or "")
+    sym_s = (sym or "")
     if not sym_s:
         return {"tripped": 0, "count": 0, "disabled_until_ms": 0}
 

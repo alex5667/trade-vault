@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import warnings
 import logging
+import warnings
+
 logger = logging.getLogger(__name__)
 msg = "This feature schema version is DEPRECATED (causes data leakage). See DEPRECATED_SCHEMAS in feature_registry."
 warnings.warn(msg, DeprecationWarning, stacklevel=2)
@@ -9,7 +10,7 @@ logger.error(msg)
 
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from core.bucket_utils import bucket_from_scenario
 
@@ -50,7 +51,7 @@ class MLFeatureSchemaV2:
     - Minimal transforms only; model learns interactions.
     """
 
-    num_keys: Tuple[str, ...] = (
+    num_keys: tuple[str, ...] = (
         # flow / microstructure
         "delta_z",
         "ofi_z",
@@ -72,7 +73,7 @@ class MLFeatureSchemaV2:
         "rule_need",
     )
 
-    bool_keys: Tuple[str, ...] = (
+    bool_keys: tuple[str, ...] = (
         "ofi_stable",
         "ofi_dir_ok",
         "obi_stable",
@@ -84,7 +85,7 @@ class MLFeatureSchemaV2:
         "cancel_spike_veto",
     )
 
-    def feature_names(self) -> List[str]:
+    def feature_names(self) -> list[str]:
         names = []
         names.extend([f"n:{k}" for k in self.num_keys])
         names.extend([f"b:{k}" for k in self.bool_keys])
@@ -92,16 +93,16 @@ class MLFeatureSchemaV2:
         names.extend(["bucket:trend", "bucket:range", "bucket:other"])
         return names
 
-    def _get(self, indicators: Dict[str, Any], root: Dict[str, Any], k: str) -> Any:
+    def _get(self, indicators: dict[str, Any], root: dict[str, Any], k: str) -> Any:
         if k in indicators:
             return indicators.get(k)
         return root.get(k)
 
     def vectorize(self, *, symbol: str, ts_ms: int, direction: str, scenario: str,
-                  indicators: Dict[str, Any], rule_score: float, rule_have: int,
-                  rule_need: int, cancel_spike_veto: int) -> List[float]:
+                  indicators: dict[str, Any], rule_score: float, rule_have: int,
+                  rule_need: int, cancel_spike_veto: int) -> list[float]:
         # Build a "root" context to make training and inference symmetric.
-        root: Dict[str, Any] = {
+        root: dict[str, Any] = {
             "symbol": symbol,
             "ts_ms": ts_ms,
             "direction": direction,
@@ -112,7 +113,7 @@ class MLFeatureSchemaV2:
             "cancel_spike_veto": cancel_spike_veto,
         }
 
-        x: List[float] = []
+        x: list[float] = []
 
         for k in self.num_keys:
             x.append(_f(self._get(indicators, root, k), 0.0))
@@ -133,16 +134,16 @@ class MLFeatureSchemaV2:
 
         return x
 
-    def vectorize_row(self, row: Dict[str, Any]) -> List[float]:
+    def vectorize_row(self, row: dict[str, Any]) -> list[float]:
         # row must contain: symbol, ts_ms, direction, scenario_v4, indicators (dict), plus rule_* if present
         indicators = row.get("indicators") or {}
         if not isinstance(indicators, dict):
             indicators = {}
         return self.vectorize(
-            symbol=str(row.get("symbol", "") or ""),
+            symbol=(row.get("symbol", "") or ""),
             ts_ms=int(_f(row.get("ts_ms", 0), 0)),
-            direction=str(row.get("direction", "") or ""),
-            scenario=str(row.get("scenario_v4", row.get("scenario", "")) or ""),
+            direction=(row.get("direction", "") or ""),
+            scenario=(row.get("scenario_v4", row.get("scenario", "")) or ""),
             indicators=indicators,
             rule_score=_f(row.get("rule_score", indicators.get("rule_score", 0.0)), 0.0),
             rule_have=int(_f(row.get("rule_have", indicators.get("rule_have", 0)), 0)),

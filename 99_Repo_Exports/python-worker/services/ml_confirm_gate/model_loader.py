@@ -1,7 +1,8 @@
-import os
 import collections
 import logging
-from typing import Any, Dict, Optional
+import os
+from typing import Any
+
 import joblib
 
 logger = logging.getLogger("ml_confirm_gate.model")
@@ -38,23 +39,23 @@ _SHARED_MODEL_STATS: BoundedLRUCache = BoundedLRUCache(maxsize=30)
 
 class _DictPackModelView:
     """Expose dict-pack model keys as attributes for _build_feature_row."""
-    def __init__(self, pack: Dict[str, Any]):
+    def __init__(self, pack: dict[str, Any]):
         self.feature_cols = list(pack.get("feature_cols", []) or [])
         tf = pack.get("feature_transforms")
         self.feature_transforms = tf if isinstance(tf, dict) else {}
-        self.robust_scaler = pack.get("robust_scaler", None)
+        self.robust_scaler = pack.get("robust_scaler")
         sc = pack.get("session_cfg")
         self.session_cfg = sc if isinstance(sc, dict) else {}
-        self.spread_bucket_edges = pack.get("spread_bucket_edges", None)
+        self.spread_bucket_edges = pack.get("spread_bucket_edges")
         lc = pack.get("liq_cfg")
         self.liq_cfg = lc if isinstance(lc, dict) else {}
 
 
-def _load_model_cached(model_path: str, kind: str, logger: Any = None, force_stat_check: bool = True) -> Optional[Any]:
+def _load_model_cached(model_path: str, kind: str, logger: Any = None, force_stat_check: bool = True) -> Any | None:
     """Load model from disk or return from process-level cache if unchanged."""
     if not model_path:
         return None
-    
+
     if not force_stat_check and model_path in _SHARED_MODELS:
         return _SHARED_MODELS[model_path]
 
@@ -62,7 +63,7 @@ def _load_model_cached(model_path: str, kind: str, logger: Any = None, force_sta
         if logger:
             logger.debug(f"ML gate: Model path does not exist: {model_path}")
         return None
-        
+
     try:
         mtime = os.path.getmtime(model_path)
         size = os.path.getsize(model_path)
@@ -70,17 +71,17 @@ def _load_model_cached(model_path: str, kind: str, logger: Any = None, force_sta
         if logger:
             logger.warning(f"ML gate: Failed to get stats for {model_path}: {e}")
         return None
-        
+
     stats = (mtime, size)
-    
+
     if model_path in _SHARED_MODELS and _SHARED_MODEL_STATS.get(model_path) == stats:
         if logger:
             logger.debug(f"ML gate: Using cached model for {model_path} (kind={kind})")
         return _SHARED_MODELS[model_path]
-        
+
     if logger:
         logger.info(f"ML gate: Loading model from {model_path} (kind={kind})")
-        
+
     model = None
     try:
         if kind == "meta_lr":
@@ -98,9 +99,9 @@ def _load_model_cached(model_path: str, kind: str, logger: Any = None, force_sta
                         logger.error(f"ML gate: missing optional dependency 'catboost' for model {model_path}. Prediction may fail.")
                     return None
                 raise
-                
+
         if model:
-            kind_low = str(kind or "").lower()
+            kind_low = (kind or "").lower()
             if kind_low.startswith("util_mh"):
                 if not hasattr(model, "predict_util") or not hasattr(model, "predict_unc"):
                     if logger:
@@ -130,13 +131,13 @@ def _load_model_cached(model_path: str, kind: str, logger: Any = None, force_sta
                         if logger:
                             logger.error(f"ML gate: schema hash mismatch for {model_path}. Expected {expected_hash}, got {actual_hash}. Schema drift detected!")
                         return None
-                
+
                 if n_features_expected and len(fcols) != n_features_expected:
                     if logger:
                         logger.error(f"ML gate: n_features mismatch for {model_path}. Expected {n_features_expected}, got {len(fcols)}")
                     return None
 
-                _strict_env = str(os.environ.get("EDGE_STACK_STRICT_FEATURE_COLS", "0") or "0").strip().lower()
+                _strict_env = (os.environ.get("EDGE_STACK_STRICT_FEATURE_COLS", "0") or "0").strip().lower()
                 if _strict_env in ("1", "true", "yes"):
                     _bad = [c for c in fcols if str(c).startswith("scenario_v4_")]
                     if _bad:
@@ -154,5 +155,5 @@ def _load_model_cached(model_path: str, kind: str, logger: Any = None, force_sta
     except Exception as e:
         if logger:
             logger.error(f"ML gate: Failed to load model from {model_path}: {e}")
-            
+
     return model

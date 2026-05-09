@@ -1,12 +1,12 @@
-import os
-import time
 import hashlib
 import logging
-from typing import Dict, Any
+import os
+import time
+from typing import Any
 
-import redis
 import feedparser
-
+import redis
+import contextlib
 
 log = logging.getLogger("news_ingestor_py")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -25,7 +25,7 @@ STREAM_MAXLEN = int(os.getenv("NEWS_STREAM_MAXLEN", "100000"))
 
 
 def stable_uid(source: str, url: str, title: str, ts_bucket: int) -> str:
-    h = hashlib.sha1(f"{source}|{url}|{title}|{ts_bucket}".encode("utf-8")).hexdigest()
+    h = hashlib.sha1(f"{source}|{url}|{title}|{ts_bucket}".encode()).hexdigest()
     return h
 
 
@@ -53,14 +53,15 @@ def mark_dedupe(r: redis.Redis, uid: str) -> bool:
     return bool(r.set(f"news:dedupe:{uid}", "1", nx=True, ex=DEDUPE_TTL_SEC))
 
 
-def xadd(r: redis.Redis, stream: str, fields: Dict[str, Any]) -> None:
+def xadd(r: redis.Redis, stream: str, fields: dict[str, Any]) -> None:
     r.xadd(stream, fields, maxlen=STREAM_MAXLEN, approximate=True)
 
 
 def _wait_for_redis_ready(redis_url: str) -> redis.Redis:
     """Wait for Redis to be ready, handling BusyLoadingError"""
-    import redis
     import time
+
+    import redis
 
     max_retries = 60  # 10 минут при 10сек задержке
     retry_count = 0
@@ -149,10 +150,8 @@ def main() -> None:
                             "asset_class": "",
                         })
                     except Exception as e:
-                        try:
+                        with contextlib.suppress(Exception):
                             xadd(r, NEWS_RAW_DLQ, {"uid": uid, "err": str(e), "source": f"rss:{rss_url}", "url": link})
-                        except Exception:
-                            pass
 
             time.sleep(max(POLL_SEC, 0.2))
 

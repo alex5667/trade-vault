@@ -4,17 +4,17 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import average_precision_score, log_loss, brier_score_loss
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import average_precision_score, brier_score_loss, log_loss
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from core.purged_embargo_split_v2 import PurgedEmbargoTimeSeriesSplitV2
 
@@ -35,7 +35,7 @@ def ece(p: np.ndarray, y: np.ndarray, n_bins: int = 10) -> float:
 
 @dataclass
 class TBStackModelV2:
-    feature_cols: List[str]
+    feature_cols: list[str]
     base_lr: Any
     base_gbdt: Any
     meta: Any
@@ -102,7 +102,7 @@ def main() -> None:
     oof_p2 = np.full(len(df), np.nan)
     oof_y = np.full(len(df), np.nan)
 
-    folds: List[Dict[str, Any]] = []
+    folds: list[dict[str, Any]] = []
     last_tr = None
     last_te = None
 

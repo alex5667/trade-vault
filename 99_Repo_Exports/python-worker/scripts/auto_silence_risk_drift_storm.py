@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """P5X: Auto-silence repeated risk-drift mismatch storms in Alertmanager.
@@ -34,11 +35,11 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 from urllib import request
 
 
-def _load_json(path: Path) -> Dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
     """Load JSON from path; return empty dict on any error."""
     if not path.exists():
         return {}
@@ -57,11 +58,11 @@ def _write_atomic(path: Path, payload: str) -> None:
 
 
 def decide_autosilence(
-    summary: Dict[str, Any],
+    summary: dict[str, Any],
     *,
     quarantine_threshold: int,
     mismatch_rate_threshold: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Evaluate whether a silence should be triggered.
 
     Examines only the 24h window rows of the mismatch summary.
@@ -70,7 +71,7 @@ def decide_autosilence(
       - max avg_mismatch_rate >= mismatch_rate_threshold
     """
     rows = list(summary.get('rows') or [])
-    rows24 = [r for r in rows if str(r.get('window_name')) == '24h']
+    rows24 = [r for r in rows if (r.get('window_name')) == '24h']
     quarantine_count = sum(int(r.get('quarantine_count') or 0) for r in rows24)
     max_avg_rate = max(
         [float(r.get('avg_mismatch_rate') or 0.0) for r in rows24] or [0.0]
@@ -86,7 +87,7 @@ def decide_autosilence(
 
 def create_silence(
     base_url: str, duration_sec: int, created_by: str, comment: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create an Alertmanager silence for domain="risk-drift" alerts.
 
     Returns the request payload and the Alertmanager API response body.
@@ -160,7 +161,7 @@ def main() -> int:
         quarantine_threshold=args.quarantine_threshold,
         mismatch_rate_threshold=args.mismatch_rate_threshold,
     )
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         'generated_at_ms': get_ny_time_millis(),
         **decision,
         'dry_run': bool(args.dry_run),

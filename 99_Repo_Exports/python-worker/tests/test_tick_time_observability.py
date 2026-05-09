@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Tests for tick time observability metrics (histograms, action counters, Redis stream).
 
@@ -10,18 +11,19 @@ Tests verify that:
 - Optional Redis stream writes sampled events
 """
 
-import unittest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
 import asyncio
-import time
 import os
+import unittest
+from unittest.mock import AsyncMock, Mock, patch
 
 from services.orderflow.metrics import (
-    tick_age_ms_hist, tick_reorder_back_ms_hist, tick_time_action_total, tick_ts_future_total
+    tick_age_ms_hist,
+    tick_reorder_back_ms_hist,
+    tick_time_action_total,
+    tick_ts_future_total,
 )
-from services.orderflow.strategy import OrderFlowStrategy
 from services.orderflow.runtime import SymbolRuntime
-from core.tick_time import TickTimePolicy
+from services.orderflow.strategy import OrderFlowStrategy
 
 
 class TestTickTimeObservability(unittest.TestCase):
@@ -34,7 +36,7 @@ class TestTickTimeObservability(unittest.TestCase):
         self.mock_ticks = Mock()
         self.mock_publisher = Mock()
         self.mock_of_engine = Mock()
-        
+
         # Reset metrics
         if tick_age_ms_hist:
             for collector in tick_age_ms_hist._buckets:
@@ -58,28 +60,28 @@ class TestTickTimeObservability(unittest.TestCase):
             publisher=self.mock_publisher,
             of_engine=self.mock_of_engine,
         )
-        
+
         runtime = SymbolRuntime(symbol="BTCUSDT")
         runtime.last_ts_ms = 1000000
-        
+
         # Tick with age_ms = 5000ms
         now_wall_ms = get_ny_time_millis()
         tick_ts_ms = now_wall_ms - 5000
-        
+
         tick = {
             "ts_ms": tick_ts_ms,
             "price": 50000.0,
             "qty": 0.1,
             "written_at": now_wall_ms,
         }
-        
+
         result = await strategy.process_tick(runtime, tick)
-        
+
         # Verify histogram was observed (check that metric exists and was called)
         # Note: We can't easily verify exact values without accessing internal state,
         # but we can verify the metric exists and the code path was executed
         self.assertIsNotNone(tick_age_ms_hist)
-        
+
         # Verify action counter was incremented
         if result is not None:  # If tick was processed (not dropped)
             # Should have "ok" action
@@ -94,23 +96,23 @@ class TestTickTimeObservability(unittest.TestCase):
             publisher=self.mock_publisher,
             of_engine=self.mock_of_engine,
         )
-        
+
         runtime = SymbolRuntime(symbol="BTCUSDT")
         runtime.last_ts_ms = 1000000
-        
+
         # Tick with future timestamp (age_ms < 0)
         now_wall_ms = get_ny_time_millis()
         tick_ts_ms = now_wall_ms + 1000  # 1 second in future
-        
+
         tick = {
             "ts_ms": tick_ts_ms,
             "price": 50000.0,
             "qty": 0.1,
             "written_at": now_wall_ms,
         }
-        
+
         result = await strategy.process_tick(runtime, tick)
-        
+
         # Verify future counter exists
         self.assertIsNotNone(tick_ts_future_total)
 
@@ -123,26 +125,26 @@ class TestTickTimeObservability(unittest.TestCase):
             publisher=self.mock_publisher,
             of_engine=self.mock_of_engine,
         )
-        
+
         runtime = SymbolRuntime(symbol="BTCUSDT")
         runtime.last_ts_ms = 1000000
-        
+
         # Tick that goes backwards by 500ms (within max_reorder_ms)
         now_wall_ms = get_ny_time_millis()
         tick_ts_ms = runtime.last_ts_ms - 500
-        
+
         tick = {
             "ts_ms": tick_ts_ms,
             "price": 50000.0,
             "qty": 0.1,
             "written_at": now_wall_ms,
         }
-        
+
         result = await strategy.process_tick(runtime, tick)
-        
+
         # Verify histogram exists
         self.assertIsNotNone(tick_reorder_back_ms_hist)
-        
+
         # Verify action was "clamp" with reason "reorder_soft"
         self.assertIsNotNone(tick_time_action_total)
 
@@ -159,25 +161,25 @@ class TestTickTimeObservability(unittest.TestCase):
             publisher=self.mock_publisher,
             of_engine=self.mock_of_engine,
         )
-        
+
         runtime = SymbolRuntime(symbol="BTCUSDT")
         runtime.last_ts_ms = 1000000
-        
+
         now_wall_ms = get_ny_time_millis()
         tick_ts_ms = now_wall_ms - 1000
-        
+
         tick = {
             "ts_ms": tick_ts_ms,
             "price": 50000.0,
             "qty": 0.1,
             "written_at": now_wall_ms,
         }
-        
+
         result = await strategy.process_tick(runtime, tick)
-        
+
         # Give async task time to complete
         await asyncio.sleep(0.1)
-        
+
         # Verify xadd was called (if sampling allowed it)
         # Note: With 100% sampling, it should be called
         # But we need to check if the task completed
@@ -196,7 +198,7 @@ class TestTickTimeObservability(unittest.TestCase):
             publisher=self.mock_publisher,
             of_engine=self.mock_of_engine,
         )
-        
+
         self.assertFalse(strategy.tick_time_observe_enable)
 
     @patch.dict(os.environ, {
@@ -211,7 +213,7 @@ class TestTickTimeObservability(unittest.TestCase):
             publisher=self.mock_publisher,
             of_engine=self.mock_of_engine,
         )
-        
+
         self.assertEqual(strategy.tick_time_age_clamp_ms, 60000)
 
     def test_deterministic_sampling(self):
@@ -222,17 +224,17 @@ class TestTickTimeObservability(unittest.TestCase):
             publisher=self.mock_publisher,
             of_engine=self.mock_of_engine,
         )
-        
+
         symbol = "BTCUSDT"
         ts_ms = 1000000
         rate = 0.01
-        
+
         # Same inputs should produce same result
         result1 = strategy._tick_time_should_sample(symbol, ts_ms, rate)
         result2 = strategy._tick_time_should_sample(symbol, ts_ms, rate)
-        
+
         self.assertEqual(result1, result2)
-        
+
         # Different inputs should potentially produce different results
         result3 = strategy._tick_time_should_sample(symbol, ts_ms + 1, rate)
         # (May or may not be different, but should be deterministic)

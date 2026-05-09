@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Advanced analysis of trades_closed from Postgres/Timescale:
 - managed vs baseline metrics (global and per entry_tag)
@@ -20,8 +20,7 @@ Example:
 
 import argparse
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from datetime import UTC, datetime
 
 import psycopg2
 
@@ -58,7 +57,7 @@ def _to_bool(v) -> bool:
     return s in ("1", "t", "true", "yes", "y")
 
 
-def parse_ts_arg(val: Optional[str]) -> Optional[int]:
+def parse_ts_arg(val: str | None) -> int | None:
     """
     --from / --to parser:
     - digits => treat as exit_ts_ms (epoch ms)
@@ -76,13 +75,13 @@ def parse_ts_arg(val: Optional[str]) -> Optional[int]:
     try:
         if len(s) == 10 and s[4] == "-" and s[7] == "-":
             dt = datetime.strptime(s, "%Y-%m-%d")
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         else:
             dt = datetime.fromisoformat(s)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             else:
-                dt = dt.astimezone(timezone.utc)
+                dt = dt.astimezone(UTC)
         return int(dt.timestamp() * 1000)
     except Exception as e:
         raise ValueError(f"Не могу разобрать значение времени '{s}': {e}") from e
@@ -95,11 +94,11 @@ def load_trades_from_postgres(
     dsn: str,
     limit: int,
     table: str = "trades_closed",
-    source_filter: Optional[str] = None,
-    symbol_filter: Optional[str] = None,
-    from_ts_ms: Optional[int] = None,
-    to_ts_ms: Optional[int] = None,
-) -> List[Trade]:
+    source_filter: str | None = None,
+    symbol_filter: str | None = None,
+    from_ts_ms: int | None = None,
+    to_ts_ms: int | None = None,
+) -> list[Trade]:
     conn = psycopg2.connect(dsn)
     try:
         cur = conn.cursor()
@@ -125,8 +124,8 @@ def load_trades_from_postgres(
         """
 
         sql = f"SELECT {cols} FROM {table}"
-        conds: List[str] = []
-        params: List[object] = []
+        conds: list[str] = []
+        params: list[object] = []
 
         if source_filter:
             conds.append("source = %s")
@@ -152,7 +151,7 @@ def load_trades_from_postgres(
     finally:
         conn.close()
 
-    trades: List[Trade] = []
+    trades: list[Trade] = []
     for row in rows:
         (
             source,
@@ -213,7 +212,7 @@ def _fmt_f(x: float) -> str:
 
 def render_global_report(label: str, stats: TagStats) -> str:
     m = stats.finalize()
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"=== Global metrics [{label}] ===")
     lines.append(f"Trades: {int(m['n'])}")
     lines.append(f"P/L net sum: {m['pnl_net_sum']:.2f} | avg: {m['pnl_net_avg']:.3f}")
@@ -273,13 +272,13 @@ def render_global_report(label: str, stats: TagStats) -> str:
 
 
 def render_entry_tag_report(
-    stats_by_tag: Dict[str, TagStats],
+    stats_by_tag: dict[str, TagStats],
     min_trades: int = 5,
 ) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"=== Entry-tag metrics (n >= {min_trades}) ===")
 
-    rows: List[Tuple[str, Dict[str, float]]] = []
+    rows: list[tuple[str, dict[str, float]]] = []
     for tag, s in stats_by_tag.items():
         m = s.finalize()
         if m["n"] >= min_trades:
@@ -325,20 +324,20 @@ def render_entry_tag_report(
 class GroupBucket:
     label: str
     global_stats: TagStats
-    by_tag: Dict[str, TagStats]
+    by_tag: dict[str, TagStats]
 
 
 def build_groups(
-    trades: List[Trade],
+    trades: list[Trade],
     group_by: str,
-) -> Dict[str, GroupBucket]:
+) -> dict[str, GroupBucket]:
     """
     group_by:
       - "none"
       - "source_symbol"
       - "strategy"
     """
-    groups: Dict[str, GroupBucket] = {}
+    groups: dict[str, GroupBucket] = {}
 
     for t in trades:
         if group_by == "none":
@@ -446,7 +445,7 @@ def main() -> None:
 
     groups = build_groups(trades, group_by=args.group_by)
 
-    out_chunks: List[str] = []
+    out_chunks: list[str] = []
     for key in sorted(groups.keys()):
         gb = groups[key]
         out_chunks.append(render_global_report(gb.label, gb.global_stats))

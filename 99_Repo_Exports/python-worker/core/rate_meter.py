@@ -1,7 +1,8 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+
 from collections import deque
-from typing import Deque
+from dataclasses import dataclass, field
+
 
 @dataclass
 class RollingRateMeter:
@@ -10,7 +11,7 @@ class RollingRateMeter:
     Deterministically based on provided timestamps (ts_ms).
     """
     window_ms: int
-    _ts: Deque[int] = field(default_factory=deque)
+    _ts: deque[int] = field(default_factory=deque)
 
     def add(self, ts_ms: int) -> None:
         """Add an event timestamp."""

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Tuple
 import bisect
 import math
+from dataclasses import dataclass
 
 
 def _clamp01(x: float) -> float:
@@ -21,8 +20,8 @@ class IsotonicCalibrator:
       - "linear": линейная интерполяция между точками
       - "step": ступенчатая (piecewise-constant)
     """
-    x: List[float]
-    p: List[float]
+    x: list[float]
+    p: list[float]
     mode: str = "linear"
 
     def predict(self, xq: float) -> float:
@@ -53,7 +52,7 @@ class IsotonicCalibrator:
         t = (xq - x0) / (x1 - x0)
         return float(_clamp01(p0 + t * (p1 - p0)))
 
-    def sanitize(self) -> "IsotonicCalibrator":
+    def sanitize(self) -> IsotonicCalibrator:
         # fail-open санитация: finite, сортировка, clamp, монотонность p
         pairs = []
         for xi, pi in zip(self.x or [], self.p or []):
@@ -64,8 +63,8 @@ class IsotonicCalibrator:
             return IsotonicCalibrator(x=[], p=[], mode=self.mode)
         pairs.sort(key=lambda t: t[0])
         # убираем дубликаты x (оставляем последний)
-        xs: List[float] = []
-        ps: List[float] = []
+        xs: list[float] = []
+        ps: list[float] = []
         last_x = None
         for x, p in pairs:
             if last_x is not None and abs(x - last_x) <= 1e-12:
@@ -82,7 +81,7 @@ class IsotonicCalibrator:
         return IsotonicCalibrator(x=xs, p=ps, mode=self.mode)
 
 
-def fit_isotonic_pav(samples: List[Tuple[float, float, float]]) -> IsotonicCalibrator:
+def fit_isotonic_pav(samples: list[tuple[float, float, float]]) -> IsotonicCalibrator:
     """
     samples: list of (x, y, w)
       x >= 0 (например abs(final_score))
@@ -103,9 +102,9 @@ def fit_isotonic_pav(samples: List[Tuple[float, float, float]]) -> IsotonicCalib
         return IsotonicCalibrator(x=[], p=[])
 
     # 2) агрегируем одинаковые x
-    xs: List[float] = []
-    ps: List[float] = []
-    ws: List[float] = []
+    xs: list[float] = []
+    ps: list[float] = []
+    ws: list[float] = []
 
     cur_x = data[0][0]
     sum_w = 0.0
@@ -138,8 +137,8 @@ def fit_isotonic_pav(samples: List[Tuple[float, float, float]]) -> IsotonicCalib
             blocks.append([b1[0], b2[1], w_sum, float(_clamp01(p_new))])
 
     # 4) разворачиваем в breakpoints: берём правые границы блоков как x_k
-    out_x: List[float] = []
-    out_p: List[float] = []
+    out_x: list[float] = []
+    out_p: list[float] = []
     for x_l, x_r, w_sum, p_val in blocks:
         out_x.append(float(x_r))
         out_p.append(float(_clamp01(p_val)))
@@ -153,7 +152,7 @@ def fit_isotonic_pav(samples: List[Tuple[float, float, float]]) -> IsotonicCalib
     return IsotonicCalibrator(x=out_x, p=out_p, mode="linear")
 
 
-def sanitize_breakpoints(x: List[float], p: List[float], *, mode: str = "linear") -> IsotonicCalibrator | None:
+def sanitize_breakpoints(x: list[float], p: list[float], *, mode: str = "linear") -> IsotonicCalibrator | None:
     """
     Fail-soft sanitation for externally loaded (x,p):
       - drop non-finite
@@ -164,7 +163,7 @@ def sanitize_breakpoints(x: List[float], p: List[float], *, mode: str = "linear"
     if not x or not p or len(x) != len(p):
         return None
 
-    tmp: List[Tuple[float, float]] = []
+    tmp: list[tuple[float, float]] = []
     for xi, pi in zip(x, p):
         xi = float(xi)
         pi = float(pi)
@@ -179,9 +178,9 @@ def sanitize_breakpoints(x: List[float], p: List[float], *, mode: str = "linear"
     # but better: run PAV on blocks directly; simplest: approximate by two samples per point.
     # For stability and simplicity: treat each point as mean with weight 1.0 and run PAV by using
     # (x, p, w=1).
-    xs: List[float] = []
-    ps: List[float] = []
-    ws: List[float] = []
+    xs: list[float] = []
+    ps: list[float] = []
+    ws: list[float] = []
 
     cur_x = tmp[0][0]
     sum_w = 0.0
@@ -200,7 +199,7 @@ def sanitize_breakpoints(x: List[float], p: List[float], *, mode: str = "linear"
     ws.append(sum_w)
     ps.append(sum_p / max(1e-12, sum_w))
 
-    blocks: List[List[float]] = []
+    blocks: list[list[float]] = []
     for xi, pi, wi in zip(xs, ps, ws):
         blocks.append([float(xi), float(xi), float(wi), float(_clamp01(pi))])
         while len(blocks) >= 2 and blocks[-2][3] > blocks[-1][3]:
@@ -210,8 +209,8 @@ def sanitize_breakpoints(x: List[float], p: List[float], *, mode: str = "linear"
             p_new = (b1[2] * b1[3] + b2[2] * b2[3]) / max(1e-12, w_sum)
             blocks.append([b1[0], b2[1], w_sum, float(_clamp01(p_new))])
 
-    out_x: List[float] = []
-    out_p: List[float] = []
+    out_x: list[float] = []
+    out_p: list[float] = []
     for x_l, x_r, w_sum, p_val in blocks:
         out_x.append(float(x_r))
         out_p.append(float(_clamp01(p_val)))

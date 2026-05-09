@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 UTC Utilities - Утилиты для работы с UTC временем
 
@@ -11,8 +12,7 @@ UTC Utilities - Утилиты для работы с UTC временем
 """
 
 import time
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime, timezone
 
 
 def utc_now() -> datetime:
@@ -118,7 +118,7 @@ def utc_strftime(fmt: str = '%Y-%m-%d %H:%M:%S UTC') -> str:
     return utc_now().strftime(fmt)
 
 
-def utc_isoformat(timestamp_ms: Optional[int] = None) -> str:
+def utc_isoformat(timestamp_ms: int | None = None) -> str:
     """
     Возвращает ISO формат времени в UTC.
     
@@ -162,7 +162,7 @@ def format_timestamp_for_log(timestamp_ms: int) -> str:
 
 
 # Константы timezone
-UTC = timezone.utc
+UTC = UTC
 
 
 # Aliases для обратной совместимости
@@ -175,13 +175,13 @@ if __name__ == "__main__":
     """Демонстрация использования"""
     print("UTC Utilities Demo")
     print("=" * 60)
-    
+
     print(f"Current UTC time: {utc_now()}")
     print(f"Current UTC timestamp (ms): {utc_timestamp_ms()}")
     print(f"Current UTC timestamp (sec): {utc_timestamp_sec()}")
     print(f"Formatted: {utc_strftime()}")
     print(f"ISO format: {utc_isoformat()}")
-    
+
     print()
     print("Conversion examples:")
     ts_ms = 1730476896789

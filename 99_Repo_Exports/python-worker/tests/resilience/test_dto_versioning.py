@@ -1,8 +1,11 @@
-import pytest
-from unittest.mock import MagicMock, patch
-import services.trade_monitor as tm
-import sys
 import os
+import sys
+from unittest.mock import MagicMock
+
+import pytest
+
+import services.trade_monitor as tm
+
 print(f"DEBUG: {__file__} sys.path[0]={sys.path[0]}", file=sys.stderr)
 print(f"DEBUG: infra exists relative to path[0]? {os.path.exists(os.path.join(sys.path[0], 'infra'))}", file=sys.stderr)
 

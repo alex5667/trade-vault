@@ -1,11 +1,10 @@
 import json
 import logging
 import os
-import urllib.request
-import urllib.error
-import time
 import re
-import html
+import time
+import urllib.error
+import urllib.request
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +55,10 @@ class TelegramMessageAnalyzer:
     def analyze_and_reply(text: str, chat_id: str, reply_to_message_id: int, bot_token: str) -> None:
         if not ENABLED:
             return
-        
+
         if not text or len(text.strip()) < MIN_TEXT_LEN:
             return
-        
+
         if len(text) > MAX_SOURCE_LEN:
             logger.info(f"Skipping LLM analysis: source text too long ({len(text)} chars)")
             return
@@ -80,12 +79,12 @@ class TelegramMessageAnalyzer:
             "text": f"--- DeepSeek Analysis ---\n{analysis}",
             "reply_to_message_id": reply_to_message_id
         }
-        
+
         try:
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
-                url, 
-                data=data, 
+                url,
+                data=data,
                 headers={"Content-Type": "application/json"}
             )
             with urllib.request.urlopen(req, timeout=10) as response:
@@ -101,10 +100,10 @@ class TelegramMessageAnalyzer:
         """
         if not ENABLED:
             return text
-        
+
         if not text or len(text.strip()) < MIN_TEXT_LEN:
             return text
-        
+
         if len(text) > MAX_SOURCE_LEN:
             logger.info(f"Skipping LLM analysis: source text too long ({len(text)} chars)")
             return text
@@ -203,7 +202,7 @@ class TelegramMessageAnalyzer:
     @staticmethod
     def _get_llm_analysis(text: str, payload: dict = None, timeout_sec: float = None) -> str | None:
         """Calls local Ollama instance using the notification LLM registry."""
-        
+
         try:
             from utils.notification_llm_registry import build_analysis_envelope, validate_llm_response
         except ImportError as e:
@@ -216,8 +215,8 @@ class TelegramMessageAnalyzer:
         if "text" not in payload and "message" not in payload:
             payload["text"] = text
 
-        source_service = str(payload.get("source_service", payload.get("source", "unknown_source")))
-        
+        source_service = (payload.get("source_service", payload.get("source", "unknown_source")))
+
         envelope = build_analysis_envelope(
             source_service=source_service,
             payload=payload,
@@ -237,7 +236,7 @@ class TelegramMessageAnalyzer:
         endpoint = f"{OLLAMA_BASE_URL}/api/chat"
         # Extract messages and options from the registry request struct
         messages = llm_request_payload.get("messages", [])
-        
+
         request_body = {
             "model": MODEL,
             "messages": messages,
@@ -254,27 +253,27 @@ class TelegramMessageAnalyzer:
         actual_timeout = timeout_sec if timeout_sec is not None else TIMEOUT
         response_text = None
         t0 = time.monotonic()
-        
+
         try:
             max_retries = 10
             retry_delay = 5.0
-            
+
             for attempt in range(max_retries):
                 try:
                     data = json.dumps(request_body).encode("utf-8")
                     req = urllib.request.Request(
-                        endpoint, 
-                        data=data, 
+                        endpoint,
+                        data=data,
                         headers={"Content-Type": "application/json"}
                     )
                     with urllib.request.urlopen(req, timeout=actual_timeout) as resp:
                         result = json.loads(resp.read().decode("utf-8"))
-                    
+
                     message_obj = result.get("message", {})
                     response_text = message_obj.get("content", "").strip()
                     if response_text:
                         break # Success
-                        
+
                 except (urllib.error.URLError, ConnectionError) as e:
                     is_last = attempt == max_retries - 1
                     if is_last:
@@ -291,11 +290,11 @@ class TelegramMessageAnalyzer:
 
             # Post-processing: remove <think> tags if present
             response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL).strip()
-            
+
             # Clean markdown JSON wraps
             response_text = re.sub(r'^```(?:json)?', '', response_text, flags=re.IGNORECASE | re.MULTILINE)
             response_text = re.sub(r'```$', '', response_text, flags=re.MULTILINE).strip()
-            
+
             # Attempt to parse json
             start_idx = response_text.find('{')
             end_idx = response_text.rfind('}')
@@ -303,7 +302,7 @@ class TelegramMessageAnalyzer:
                 json_str = response_text[start_idx:end_idx+1]
             else:
                 json_str = response_text
-                
+
             try:
                 parsed = json.loads(json_str)
 
@@ -338,7 +337,7 @@ class TelegramMessageAnalyzer:
                         parts.append(f"Действие ({urgency} → {owner}): {first_step}")
 
                 final_text = " ".join(parts)
-                
+
             except json.JSONDecodeError as e:
                 logger.warning(f"Telegram LLM analysis: failed to decode JSON: {e} — falling back to raw LLM output")
                 return response_text
@@ -346,7 +345,7 @@ class TelegramMessageAnalyzer:
             elapsed = time.monotonic() - t0
             logger.info(f"Telegram analysis generated in {elapsed:.2f}s using {MODEL}")
             return final_text
-            
+
         except Exception as e:
             logger.warning(f"Telegram LLM analysis failed: {e}")
             return None

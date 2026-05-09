@@ -11,10 +11,9 @@ All functions return values in **basis points (bps)**.
 """
 
 import math
-from typing import Optional
 
 
-def _finite(x: Optional[float]) -> Optional[float]:
+def _finite(x: float | None) -> float | None:
     if x is None:
         return None
     try:
@@ -41,7 +40,7 @@ def side_sign(side: str) -> int:
     return 0
 
 
-def effective_spread_bps(*, trade_px: float, mid_t: float, side: str) -> Optional[float]:
+def effective_spread_bps(*, trade_px: float, mid_t: float, side: str) -> float | None:
     """Effective spread in bps.
 
     Standard microstructure proxy: 2*(P_trade - mid_t)/mid_t for buys;
@@ -55,7 +54,7 @@ def effective_spread_bps(*, trade_px: float, mid_t: float, side: str) -> Optiona
     return float(2.0 * ss * (px - mid) / mid * 10_000.0)
 
 
-def realized_spread_bps(*, trade_px: float, mid_t: float, mid_t_delta: float, side: str) -> Optional[float]:
+def realized_spread_bps(*, trade_px: float, mid_t: float, mid_t_delta: float, side: str) -> float | None:
     """Realized spread in bps for horizon Δ.
 
     Uses mid at t+Δ; denominator is mid_t to keep scale consistent.
@@ -69,7 +68,7 @@ def realized_spread_bps(*, trade_px: float, mid_t: float, mid_t_delta: float, si
     return float(2.0 * ss * (px - mid_d) / mid * 10_000.0)
 
 
-def permanent_impact_bps(*, mid_t: float, mid_t_delta: float, side: str) -> Optional[float]:
+def permanent_impact_bps(*, mid_t: float, mid_t_delta: float, side: str) -> float | None:
     """Permanent (price) impact proxy in bps.
 
     Positive means mid moved in the direction of the trade and persisted.
@@ -88,7 +87,7 @@ def implementation_shortfall_bps(
     decision_mid: float,
     side: str,
     fee_bps: float = 0.0,
-) -> Optional[float]:
+) -> float | None:
     """Implementation Shortfall (IS) in bps.
 
     Simplified version (full fill):

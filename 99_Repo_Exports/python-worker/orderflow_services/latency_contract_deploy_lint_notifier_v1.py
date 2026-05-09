@@ -1,6 +1,9 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 """Emit ops-event/Telegram summaries for persistent latency deploy-lint drift.
 
 P4.7 adds an operator ack/silence workflow. The rollout gate remains active, but
@@ -12,14 +15,14 @@ class changes are deterministic and visible to approval binding.
 """,
 import json
 import os
-import time
 from dataclasses import dataclass
 from typing import Any
 
 from services.observability.latency_deploy_contract import CONTRACTS
-from services.observability.latency_deploy_lint_state import state_key as lint_state_key
-from services.observability.latency_deploy_lint_notify_state import purposes_hash, state_key as notify_state_key, update_notifier_state
+from services.observability.latency_deploy_lint_notify_state import purposes_hash, update_notifier_state
+from services.observability.latency_deploy_lint_notify_state import state_key as notify_state_key
 from services.observability.latency_deploy_lint_silence_state import list_silenced_purposes, parse_silence_state
+from services.observability.latency_deploy_lint_state import state_key as lint_state_key
 
 
 def _env(name: str, default: str = '') -> str:
@@ -59,9 +62,9 @@ def load_cfg() -> Cfg:
         notifier_state_key=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'),
         silence_prefix=_env('LATENCY_CONTRACT_DEPLOY_LINT_SILENCE_PREFIX', 'cfg:orderflow:latency_contract:deploy_lint:silence'),
         ops_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_OPS_EVENT_STREAM', 'ops:latency_contract:events:v1'),
-        notify_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM', os.getenv('NOTIFY_TELEGRAM_STREAM') or 'notify:telegram'),
+        notify_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_STREAM', os.getenv('NOTIFY_TELEGRAM_STREAM') or RS.NOTIFY_TELEGRAM),
         # P4.14: page stream routes operational class changes requiring pager attention
-        notify_page_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_PAGE_STREAM', os.getenv('NOTIFY_TELEGRAM_PAGE_STREAM') or 'notify:telegram:page'),
+        notify_page_stream=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_PAGE_STREAM', os.getenv('NOTIFY_TELEGRAM_PAGE_STREAM') or RS.NOTIFY_TELEGRAM_PAGE),
         notify_enable=_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_ENABLE', '1').lower() in ('1', 'true', 'yes', 'on'),
         reminder_s=max(60, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFY_REMINDER_S', '21600'), 21600)),
         state_ttl_s=max(600, _i(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_TTL_S', '172800'), 172800)),
@@ -78,7 +81,7 @@ def _active_state_payload(r: Any, prefix: str) -> tuple[list[str], dict[str, dic
     for purpose in sorted(CONTRACTS.keys()):
         raw = r.hgetall(lint_state_key(prefix, purpose)) or {}
         details[purpose] = raw
-        if str(raw.get('gate_active', '0')) == '1':
+        if (raw.get('gate_active', '0')) == '1':
             active.append(purpose)
     return active, details
 
@@ -91,7 +94,7 @@ def _partition_active_by_silence(r: Any, *, prefix: str, active: list[str], now_
 
 def _split_codes(raw: Any) -> set[str]:
     """Split a comma-separated warning_codes field into individual code tokens.""",
-    return {x.strip() for x in str(raw or '').split(',') if x.strip() and x.strip() != 'none'}
+    return {x.strip() for x in (raw or '').split(',') if x.strip() and x.strip() != 'none'}
 
 
 def _warning_policy_for_active(cfg: Cfg, details: dict[str, dict[str, str]], active: list[str]) -> str:
@@ -131,7 +134,7 @@ def _summary_text(active: list[str], details: dict[str, dict[str, str]], *, sile
     parts: list[str] = []
     for purpose in active:
         raw = details.get(purpose) or {}
-        parts.append(f"{purpose}: {str(raw.get('error_codes') or 'unknown')[:240]}")
+        parts.append(f"{purpose}: {(raw.get('error_codes') or 'unknown')[:240]}")
     if silenced:
         parts.append('silenced on notifier:')
         for purpose in silenced:
@@ -232,8 +235,8 @@ def main() -> int:
     raw_active, details = _active_state_payload(r, cfg.state_prefix)
     active, silenced, silence_details = _partition_active_by_silence(r, prefix=cfg.silence_prefix, active=raw_active, now_ms=now_ms)
     prev = r.hgetall(notify_state_key(cfg.notifier_state_key)) or {}
-    prev_hash = str(prev.get('active_hash') or '')
-    prev_status = str(prev.get('last_status') or 'unknown')
+    prev_hash = (prev.get('active_hash') or '')
+    prev_status = (prev.get('last_status') or 'unknown')
     last_emit_ts_ms = _i(prev.get('last_emit_ts_ms'), 0)
     current_hash = purposes_hash(active)
     current_status = 'active' if active else ('silenced' if raw_active else 'ok')

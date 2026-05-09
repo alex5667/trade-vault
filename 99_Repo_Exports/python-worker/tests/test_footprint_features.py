@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import pytest
+
 from core.footprint_features import (
-    compute_bucket_stats, compute_edge_ladders, compute_poc, poc_on_edge, compute_eff_delta
+    compute_bucket_stats,
+    compute_edge_ladders,
+    compute_eff_delta,
+    compute_poc,
+    poc_on_edge,
 )
 
-
-import pytest
 
 def test_bucket_stats_imbalance():
     m = {
@@ -65,10 +69,10 @@ def test_poc_on_edge():
 def test_eff_delta():
     # 10 ticks moved (0.1 / 0.01), delta 1000
     eff = compute_eff_delta(
-        bar_open=100.0, 
-        bar_close=100.1, 
-        bucket_px=0.01, 
-        bar_delta_sum=1000.0, 
+        bar_open=100.0,
+        bar_close=100.1,
+        bucket_px=0.01,
+        bar_delta_sum=1000.0,
         eps=1e-9
     )
     # 10 / 1000 = 0.01

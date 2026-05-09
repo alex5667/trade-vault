@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """P5: Binance Active-Symbol Guard Repair Worker.
@@ -26,7 +27,8 @@ import json
 import math
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -40,8 +42,8 @@ except Exception:  # pragma: no cover
 
 try:
     from services.execution_metrics import (
-        EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
         EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL,
+        EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
         EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
         EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASED_TOMBSTONE_AGE_MS,
         EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
@@ -49,8 +51,8 @@ try:
 except Exception:  # pragma: no cover
     try:
         from execution_metrics import (  # type: ignore
-            EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
             EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL,
+            EXECUTION_ACTIVE_SYMBOL_GUARD_EXCHANGE_CHECK_TOTAL,
             EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASE_TOTAL,
             EXECUTION_ACTIVE_SYMBOL_GUARD_STUCK_TOTAL,
         )
@@ -77,14 +79,14 @@ def _i(v: Any, default: int = 0) -> int:
     try:
         return int(v)
     except Exception:
-        return int(default)
+        return default
 
 
 def _f(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 class BinanceActiveSymbolGuardRepairWorker:
@@ -98,7 +100,7 @@ class BinanceActiveSymbolGuardRepairWorker:
     def __init__(
         self,
         redis_client=None,
-        client: Optional[BinanceFuturesClient] = None,
+        client: BinanceFuturesClient | None = None,
     ) -> None:
         if redis_client is None and redis is None:
             raise RuntimeError("redis-py is required")
@@ -128,14 +130,14 @@ class BinanceActiveSymbolGuardRepairWorker:
         self.interval_sec = float(os.getenv("ACTIVE_SYMBOL_GUARD_REPAIR_INTERVAL_SEC", "5"))
         # Whether to require flat + no-orders (not just flat position) for release
         self.require_flat_no_orders = (
-            str(os.getenv("EXEC_SINGLE_ACTIVE_POSITION_REQUIRE_FLAT_NO_ORDERS", "1"))
+            os.getenv("EXEC_SINGLE_ACTIVE_POSITION_REQUIRE_FLAT_NO_ORDERS", "1")
             .strip()
             .lower()
             not in {"0", "false", "no", "off"}
         )
         # Dry-run: log but do not delete guard keys
         self.dry_run = (
-            str(os.getenv("ACTIVE_SYMBOL_GUARD_REPAIR_DRY_RUN", "0"))
+            os.getenv("ACTIVE_SYMBOL_GUARD_REPAIR_DRY_RUN", "0")
             .strip()
             .lower()
             in {"1", "true", "yes", "on"}
@@ -157,10 +159,10 @@ class BinanceActiveSymbolGuardRepairWorker:
         try:
             if EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL is not None:
                 EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL.labels(
-                    symbol=str(symbol or "").strip().upper(),
+                    symbol=(symbol or "").strip().upper(),
                     writer="guard_repair",
-                    outcome=str(outcome or ""),
-                    reason=str(reason or "")
+                    outcome=(outcome or ""),
+                    reason=(reason or "")
                 ).inc()
         except Exception:
             pass
@@ -169,13 +171,13 @@ class BinanceActiveSymbolGuardRepairWorker:
     # FSM helpers
     # ------------------------------------------------------------------
 
-    def _state_is_terminalish(self, state: Optional[Dict[str, Any]]) -> bool:
+    def _state_is_terminalish(self, state: dict[str, Any] | None) -> bool:
         """Return True if the order-state document represents a closed/terminal position."""
         doc = dict(state or {})
-        fsm_state = str(doc.get("fsm_state") or "").strip().upper()
+        fsm_state = (doc.get("fsm_state") or "").strip().upper()
         if fsm_state in {"CANCELLED", "CANCELED", "FAILED", "EXIT_FILLED", "EMERGENCY_FLATTENED"}:
             return True
-        status = str(doc.get("status") or "").strip().lower()
+        status = (doc.get("status") or "").strip().lower()
         if status in {
             "closed", "cancelled", "canceled", "failed",
             "exited", "exit_filled", "emergency_flattened",
@@ -187,7 +189,7 @@ class BinanceActiveSymbolGuardRepairWorker:
     # Redis helpers
     # ------------------------------------------------------------------
 
-    def _load_json(self, key: str) -> Dict[str, Any]:
+    def _load_json(self, key: str) -> dict[str, Any]:
         try:
             raw = self.r.get(key)
             doc = json.loads(raw) if raw else {}
@@ -195,7 +197,7 @@ class BinanceActiveSymbolGuardRepairWorker:
         except Exception:
             return {}
 
-    def _load_active_symbol_guard(self, symbol: str) -> Dict[str, Any]:
+    def _load_active_symbol_guard(self, symbol: str) -> dict[str, Any]:
         return self._guard_store().load_active(symbol)
 
     # ------------------------------------------------------------------
@@ -206,19 +208,19 @@ class BinanceActiveSymbolGuardRepairWorker:
     def _set_tombstone_age_metric(self, symbol: str, age_ms: int) -> None:
         try:
             if EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASED_TOMBSTONE_AGE_MS is not None:
-                EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASED_TOMBSTONE_AGE_MS.labels(symbol=str(symbol or '').strip().upper()).set(max(0, int(age_ms or 0)))
+                EXECUTION_ACTIVE_SYMBOL_GUARD_RELEASED_TOMBSTONE_AGE_MS.labels(symbol=(symbol or '').strip().upper()).set(max(0, int(age_ms or 0)))
         except Exception:
             pass
 
-    def _read_exchange_truth(self, symbol: str) -> Dict[str, Any]:
+    def _read_exchange_truth(self, symbol: str) -> dict[str, Any]:
         """Query Binance for real position and open-order state.
 
         Returns a structured result with is_flat=True iff:
           positionAmt == 0  AND (no open orders if require_flat_no_orders)
           AND all three API calls succeeded (is_reliable=True).
         """
-        symbol = str(symbol or "").strip().upper()
-        out: Dict[str, Any] = {
+        symbol = (symbol or "").strip().upper()
+        out: dict[str, Any] = {
             "symbol": symbol,
             "checked_at_ms": _ms_now(),
             "position_amt": 0.0,
@@ -230,7 +232,7 @@ class BinanceActiveSymbolGuardRepairWorker:
             "is_reliable": False,
             "is_flat": False,
         }
-        errors: List[str] = []
+        errors: list[str] = []
         # positionRisk check
         try:
             for pos in self.client.get_position_risk() or []:
@@ -279,7 +281,7 @@ class BinanceActiveSymbolGuardRepairWorker:
 
     def _clear_guard(self, symbol: str, expected_sid: str = "") -> bool:
         """Release the guard key using a tombstone. Returns True if successfully released."""
-        symbol = str(symbol or "").strip().upper()
+        symbol = (symbol or "").strip().upper()
         if self.dry_run:
             return False
         try:
@@ -301,21 +303,21 @@ class BinanceActiveSymbolGuardRepairWorker:
     # Single-symbol repair
     # ------------------------------------------------------------------
 
-    def repair_one(self, symbol: str) -> Dict[str, Any]:
+    def repair_one(self, symbol: str) -> dict[str, Any]:
         """Attempt to release the guard for a single symbol.
 
         Returns a status dict:
           status: 'released' | 'noop' | 'blocked'
           reason: release/block reason string
         """
-        symbol = str(symbol or "").strip().upper()
+        symbol = (symbol or "").strip().upper()
         guard = self._guard_store().load_raw(symbol)
         view = guard_view(guard)
         if view.get('is_released'):
             self._set_tombstone_age_metric(symbol, int(view.get('tombstone_age_ms') or 0))
-            return {"symbol": symbol, "sid": str(view.get('sid') or ''), "status": "released_tombstone", "reason": "already_released", "tombstone_age_ms": int(view.get('tombstone_age_ms') or 0)}
+            return {"symbol": symbol, "sid": (view.get('sid') or ''), "status": "released_tombstone", "reason": "already_released", "tombstone_age_ms": int(view.get('tombstone_age_ms') or 0)}
         self._set_tombstone_age_metric(symbol, 0)
-        sid = str(guard.get("sid") or "").strip()
+        sid = (guard.get("sid") or "").strip()
         # Load the order state to check for terminal FSM
         state = self._load_json(f"{self.state_key_prefix}{sid}") if sid else {}
         # Query Binance exchange truth
@@ -398,9 +400,9 @@ class BinanceActiveSymbolGuardRepairWorker:
     # Main loops
     # ------------------------------------------------------------------
 
-    def run_once(self) -> List[Dict[str, Any]]:
+    def run_once(self) -> list[dict[str, Any]]:
         """Scan all guard keys and repair each one. Returns list of results."""
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         released_seen = set()
         prefix = f"{self.active_symbol_key_prefix}*"
         for key in list(self.r.scan_iter(match=prefix)):
@@ -408,7 +410,7 @@ class BinanceActiveSymbolGuardRepairWorker:
             if not symbol:
                 continue
             result = self.repair_one(symbol)
-            if str(result.get('status') or '') == 'released_tombstone':
+            if (result.get('status') or '') == 'released_tombstone':
                 released_seen.add(symbol)
             out.append(result)
         for symbol in set(getattr(self, '_last_released_tombstone_symbols', set())) - released_seen:
@@ -419,10 +421,8 @@ class BinanceActiveSymbolGuardRepairWorker:
     def run_forever(self) -> None:  # pragma: no cover
         """Run repair loop until process exits."""
         while True:
-            try:
+            with contextlib.suppress(Exception):
                 self.run_once()
-            except Exception:
-                pass
             time.sleep(max(0.25, self.interval_sec))
 
 

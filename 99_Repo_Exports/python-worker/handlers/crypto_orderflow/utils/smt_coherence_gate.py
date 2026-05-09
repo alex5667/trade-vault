@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import os
-import json
-import inspect
 import asyncio
+import inspect
+import json
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ def _safe_float(x: Any, default: float = float("nan")) -> float:
             return v
     except Exception:
         pass
-    return float(default)
+    return default
 
 
 def _boolish(x: Any) -> bool:
@@ -67,7 +67,7 @@ def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)))
     except Exception:
-        return float(default)
+        return default
 
 
 def _env_str(name: str, default: str = "") -> str:
@@ -77,7 +77,7 @@ def _env_str(name: str, default: str = "") -> str:
         return default
 
 
-def _env_set(name: str) -> Optional[set]:
+def _env_set(name: str) -> set | None:
     """
     Comma-separated lowercased set. Empty -> None.
     """
@@ -104,7 +104,7 @@ def _sync_get(val: Any) -> Any:
     return val
 
 
-def _redis_read_bundle_state(redis_client: Any, key: str) -> Optional[Dict[str, Any]]:
+def _redis_read_bundle_state(redis_client: Any, key: str) -> dict[str, Any] | None:
     """
     Read bundle state in best-effort manner:
       - if GET(key) returns JSON -> parse
@@ -140,7 +140,7 @@ def _redis_read_bundle_state(redis_client: Any, key: str) -> Optional[Dict[str, 
                 return x.decode("utf-8", errors="ignore")
             return str(x)
 
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         for k, v in dict(d).items():
             out[_b2s(k)] = _b2s(v)
         return out if out else None
@@ -170,7 +170,7 @@ class SmtLeaderCoherenceGate:
         bundle_id: str,
         mode: str,
         coh_hi_thr: float,
-        veto_kinds: Optional[set],
+        veto_kinds: set | None,
         diag_stream: str,
         diag_sample: int,
     ) -> None:
@@ -183,7 +183,7 @@ class SmtLeaderCoherenceGate:
         self.diag_sample = int(diag_sample) if int(diag_sample) > 0 else 1
 
     @staticmethod
-    def from_env(*, redis_client: Any) -> "SmtLeaderCoherenceGate":
+    def from_env(*, redis_client: Any) -> SmtLeaderCoherenceGate:
         # Bundle id is mandatory to enable the gate.
         bundle_id = _env_str("SMT_COH_BUNDLE", "").strip()
         mode = _env_str("SMT_LEADER_MODE", "observe").strip().lower()
@@ -202,7 +202,7 @@ class SmtLeaderCoherenceGate:
             diag_sample=diag_sample,
         )
 
-    def _maybe_diag(self, payload: Dict[str, Any]) -> None:
+    def _maybe_diag(self, payload: dict[str, Any]) -> None:
         """
         Optional diagnostics stream writer (fail-open).
         Note: sampling is coarse; for high-volume streams keep sample=10..100.
@@ -217,7 +217,7 @@ class SmtLeaderCoherenceGate:
         except Exception:
             pass
         try:
-            _sync_get(self.redis.xadd(self.diag_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=50000))
+            _sync_get(self.redis.xadd(self.diag_stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=50000, approximate=True))
         except Exception:
             return
 
@@ -248,7 +248,7 @@ class SmtLeaderCoherenceGate:
                 _ts_ms = _ts_ms * 1000
             if self.redis is not None and _price > 0.0 and _ts_ms > 0:
                 _sync_get(self.redis.hset(
-                    f"price:latest:{str(symbol).strip().upper()}",
+                    f"price:latest:{symbol.strip().upper()}",
                     mapping={
                         "mid": f"{_price:.10f}",
                         "ts_ms": str(_ts_ms),
@@ -284,36 +284,36 @@ class SmtLeaderCoherenceGate:
         sig_ud = _dir_to_ud(direction)
         align = 1 if (leader_dir in {"UP", "DOWN"} and sig_ud in {"UP", "DOWN"} and leader_dir == sig_ud) else 0
 
-        decision = str(st.get("decision") or "none").lower()
-        pick = str(st.get("pick") or "").upper()
+        decision = (st.get("decision") or "none").lower()
+        pick = (st.get("pick") or "").upper()
         news_blocked = 1 if _boolish(st.get("news_blocked")) else 0
         news_until_ts_ms = int(_safe_float(st.get("news_until_ts_ms"), 0.0) or 0)
         leader_conf_score = _safe_float(st.get("leader_conf_score"), float("nan"))
-        
+
         # Attach audit fields (these are used later by reliability curves).
         try:
-            setattr(ctx, "smt_bundle_id", str(self.bundle_id))
-            setattr(ctx, "smt_bundle", str(self.bundle_id))  # backward-friendly alias
-            setattr(ctx, "smt_leader", str(leader))
-            setattr(ctx, "smt_leader_dir", str(leader_dir))
-            setattr(ctx, "smt_leader_confirm", int(leader_confirm))
-            setattr(ctx, "smt_coh", float(coh) if math.isfinite(coh) else float("nan"))
-            setattr(ctx, "smt_coh_hi", int(coh_hi))
-            setattr(ctx, "smt_align", int(align))
-            setattr(ctx, "smt_mode", str(self.mode))
-            setattr(ctx, "smt_decision", decision)
-            setattr(ctx, "smt_pick", pick)
-            setattr(ctx, "smt_news_blocked", int(news_blocked))
-            setattr(ctx, "smt_news_until_ts_ms", int(news_until_ts_ms))
-            setattr(ctx, "smt_leader_conf_score", float(leader_conf_score) if math.isfinite(leader_conf_score) else float("nan"))
+            ctx.smt_bundle_id = str(self.bundle_id)
+            ctx.smt_bundle = str(self.bundle_id)  # backward-friendly alias
+            ctx.smt_leader = str(leader)
+            ctx.smt_leader_dir = str(leader_dir)
+            ctx.smt_leader_confirm = int(leader_confirm)
+            ctx.smt_coh = float(coh) if math.isfinite(coh) else float("nan")
+            ctx.smt_coh_hi = int(coh_hi)
+            ctx.smt_align = int(align)
+            ctx.smt_mode = str(self.mode)
+            ctx.smt_decision = decision
+            ctx.smt_pick = pick
+            ctx.smt_news_blocked = int(news_blocked)
+            ctx.smt_news_until_ts_ms = int(news_until_ts_ms)
+            ctx.smt_leader_conf_score = float(leader_conf_score) if math.isfinite(leader_conf_score) else float("nan")
         except Exception:
             pass
 
         # Hard news veto in veto mode
         if self.mode == "veto" and news_blocked == 1:
             try:
-                setattr(ctx, "smt_blocked", 1)
-                setattr(ctx, "smt_block_reason", "NEWS_GATE")
+                ctx.smt_blocked = 1
+                ctx.smt_block_reason = "NEWS_GATE"
             except Exception:
                 pass
             return GateDecision(apply=True, veto=True, reason_code="VETO_SMT_NEWS_GATE", gate="SmtLeaderCoherenceGate", notes=f"until={news_until_ts_ms}")
@@ -325,8 +325,8 @@ class SmtLeaderCoherenceGate:
         # Write preliminary blocked state early so audit is always set on ctx
         # (golden ticket / continuation may update these fields after).
         try:
-            setattr(ctx, "smt_blocked", int(blocked))
-            setattr(ctx, "smt_block_reason", str(block_reason))
+            ctx.smt_blocked = int(blocked)
+            ctx.smt_block_reason = str(block_reason)
         except Exception:
             pass
 
@@ -336,9 +336,9 @@ class SmtLeaderCoherenceGate:
             blocked = 0
             block_reason = "GOLDEN_REVERSAL"
             try:
-                setattr(ctx, "smt_golden", 1)
-                setattr(ctx, "smt_blocked", 0)
-                setattr(ctx, "smt_block_reason", "GOLDEN_REVERSAL")
+                ctx.smt_golden = 1
+                ctx.smt_blocked = 0
+                ctx.smt_block_reason = "GOLDEN_REVERSAL"
             except Exception:
                 pass
             return GateDecision(apply=True, veto=False, reason_code="SMT_GOLDEN_REVERSAL", gate="SmtLeaderCoherenceGate", notes=f"picked {pick}")
@@ -349,8 +349,8 @@ class SmtLeaderCoherenceGate:
                 blocked = 1
                 block_reason = "COUNTER_CONTINUATION"
                 try:
-                    setattr(ctx, "smt_blocked", int(blocked))
-                    setattr(ctx, "smt_block_reason", str(block_reason))
+                    ctx.smt_blocked = int(blocked)
+                    ctx.smt_block_reason = str(block_reason)
                 except Exception:
                     pass
 
@@ -358,9 +358,9 @@ class SmtLeaderCoherenceGate:
         self._maybe_diag({
             "event": "SMT_GATE",
             "bundle": self.bundle_id,
-            "symbol": str(symbol or ""),
-            "kind": str(kind or ""),
-            "direction": str(direction or ""),
+            "symbol": (symbol or ""),
+            "kind": (kind or ""),
+            "direction": (direction or ""),
             "leader": leader,
             "leader_dir": leader_dir,
             "leader_confirm": leader_confirm,

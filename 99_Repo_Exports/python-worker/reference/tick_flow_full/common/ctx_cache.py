@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 
 def _getattr_safe(obj: Any, name: str, default: Any = None) -> Any:
@@ -21,7 +22,7 @@ def cached_on_ctx(
     ctx: Any,
     *,
     slot: str,
-    key: Tuple[Any, ...],
+    key: tuple[Any, ...],
     compute: Callable[[], Any],
 ) -> Any:
     """

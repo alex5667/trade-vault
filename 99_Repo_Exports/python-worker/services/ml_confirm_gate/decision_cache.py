@@ -1,7 +1,10 @@
 import json
+
 import redis
-from typing import Any
+
 from utils.time_utils import get_ny_time_millis
+import contextlib
+
 
 def cache_ml_decision(
     r: redis.Redis,
@@ -26,7 +29,7 @@ def cache_ml_decision(
     key = f"ml:dec:{sid}"
     payload = {
         "sid": sid,
-        "symbol": str(symbol).upper(),
+        "symbol": symbol.upper(),
         "bucket": str(bucket).lower(),
         "p_edge": float(p_edge),
         "enforce": int(enforce),
@@ -35,7 +38,5 @@ def cache_ml_decision(
         "model_ver": str(model_ver),
         "ts_ms": int(get_ny_time_millis()),
     }
-    try:
+    with contextlib.suppress(Exception):
         r.set(key, json.dumps(payload, separators=(",", ":")), ex=ttl_sec)
-    except Exception:
-        pass

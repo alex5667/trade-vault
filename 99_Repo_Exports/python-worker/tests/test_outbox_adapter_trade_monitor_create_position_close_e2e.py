@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Closing integration test (in-repo, no real Redis):
 
@@ -19,9 +20,7 @@ This test is intentionally "hard-fixed" to catch regressions:
 """
 
 
-import json
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
 
@@ -71,14 +70,14 @@ class _SpecStub:
     contract_size = 1.0
 
     def risk_money(self, entry: float, sl: float, lot: float, direction: str) -> float:
-        return abs(float(entry) - float(sl)) * float(lot)
+        return abs(entry - sl) * lot
 
     def calculate_fees(self, *, entry_price, exit_price, lot, side, duration_ms) -> float:
         return 0.0
 
     def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol="") -> float:
         sign = 1.0 if str(direction).upper() == "LONG" else -1.0
-        return (float(price) - float(entry_price)) * sign * float(lot)
+        return (float(price) - float(entry_price)) * sign * lot
 
 
 def _mk_trade_monitor_like():
@@ -102,9 +101,9 @@ def test_outbox_adapter_to_trade_monitor_to_create_position_and_close_flags(monk
     pass  # Remove env setup - not needed for this test
 
     from core.signal_outbox import OutboxSettings, SignalOutboxPublisher
+    from domain.handlers import create_position, finalize_trade
     from handlers.emitter.outbox_publisher_adapter import OutboxPublisherAdapter
     from runners.trade_monitor_runner import _parse_signal
-    from domain.handlers import create_position, finalize_trade
 
     r = FakeRedisLuaOutbox()
 

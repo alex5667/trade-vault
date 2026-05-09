@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+
 import pytest
 
 from services.stats_aggregator import _write_timebucket_buffers
 
 
 class _Pipe:
-    def __init__(self, r: "FakeRedis") -> None:
+    def __init__(self, r: FakeRedis) -> None:
         self.r = r
         self.ops = []
 

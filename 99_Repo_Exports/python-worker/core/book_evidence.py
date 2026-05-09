@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
 import math
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -23,10 +23,10 @@ def compute_obi_flags(
     *,
     direction: str,
     now_ts_ms: int,
-    last_event: Optional[Dict[str, Any]],
-    cfg: Dict[str, Any],
-    indicators: Dict[str, Any],
-) -> Tuple[bool, bool, float, float]:
+    last_event: dict[str, Any] | None,
+    cfg: dict[str, Any],
+    indicators: dict[str, Any],
+) -> tuple[bool, bool, float, float]:
     """
     Single source of truth for OBI evidence.
 
@@ -70,7 +70,7 @@ def compute_obi_flags(
             return True, True, dw_stable_secs, dw_obi_val
         return obi_dir_ok, obi_stable, stable_secs, obi_val
 
-    obi_dir = str(last_event.get("direction") or "").upper()
+    obi_dir = (last_event.get("direction") or "").upper()
     if obi_dir and obi_dir == str(direction).upper():
         obi_dir_ok = True
         obi_val = _f(last_event.get("obi", 0.0), 0.0)
@@ -112,10 +112,10 @@ def compute_iceberg_flags(
     direction: str,
     price: float,
     now_ts_ms: int,
-    last_event: Optional[Dict[str, Any]],
-    cfg: Dict[str, Any],
-    indicators: Dict[str, Any],
-) -> Tuple[bool, bool, int, float]:
+    last_event: dict[str, Any] | None,
+    cfg: dict[str, Any],
+    indicators: dict[str, Any],
+) -> tuple[bool, bool, int, float]:
     """
     Single source of truth for Iceberg evidence.
 
@@ -145,7 +145,7 @@ def compute_iceberg_flags(
     if not (0 <= age_ms <= ttl_ms):
         return iceberg_dir_ok, iceberg_strict, refresh, duration
 
-    side = str(last_event.get("side") or "")
+    side = (last_event.get("side") or "")
     dir_u = str(direction).upper()
     if (side == "bid" and dir_u == "LONG") or (side == "ask" and dir_u == "SHORT"):
         iceberg_dir_ok = True
@@ -178,9 +178,9 @@ def compute_ofi_flags(
     direction: str,
     now_ts_ms: int,
     last_event: Any,
-    cfg: Dict[str, Any],
-    indicators: Dict[str, Any],
-) -> Tuple[bool, bool, float, float, float, float]:
+    cfg: dict[str, Any],
+    indicators: dict[str, Any],
+) -> tuple[bool, bool, float, float, float, float]:
     """
     OFI evidence (first-class):
       - last_event expected dict-like:

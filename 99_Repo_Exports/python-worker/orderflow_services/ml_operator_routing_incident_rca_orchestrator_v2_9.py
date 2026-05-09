@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -19,14 +20,14 @@ except Exception:  # pragma: no cover
         return None
 
 try:  # pragma: no cover
-    import psycopg
+    import psycopg  # type: ignore
 except Exception:  # pragma: no cover
     psycopg = None
 
+from core.redis_stream_consumer import AsyncRedisStreamHelper
 from orderflow_services.providers.vertex_routing_incident_rca_provider_v2_9 import (
     VertexRoutingIncidentRCAProviderV29,
 )
-
 
 APP_NAME = "ml_operator_routing_incident_rca_orchestrator_v2_9"
 REQUESTS_STREAM = os.getenv(
@@ -56,15 +57,15 @@ MAXLEN = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_MAXLEN", "20000"))
 DRY_RUN = int(os.getenv("VERTEX_ROUTING_INCIDENT_RCA_DRY_RUN", "1"))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -91,8 +92,8 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -110,20 +111,16 @@ def stable_json(obj: Any) -> str:
 
 
 async def ensure_group(client: Any, stream_key: str, group: str) -> None:
-    try:
-        await client.xgroup_create(stream_key, group, id="$", mkstream=True)
-    except Exception:
-        return
+    pass
 
 
-async def persist_if_configured(db_url: str, row: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, row: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     try:  # pragma: no cover
-        with psycopg.connect(db_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
+        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
 
                     INSERT INTO llm_operator_rca_routing_incident_rca_results (
                         route_change_id,
@@ -143,22 +140,22 @@ async def persist_if_configured(db_url: str, row: Dict[str, Any]) -> None:
                         %(result_json)s
                     )
                     """,
-                    {
-                        "route_change_id": row["route_change_id"],
-                        "ts_ms": row["ts_ms"],
-                        "provider": row["provider"],
-                        "model_name": row["model_name"],
-                        "prompt_version": row["prompt_version"],
-                        "policy_version": row["policy_version"],
-                        "result_json": json.dumps(row["result"]),
-                    }
-                )
-                conn.commit()
+                {
+                    "route_change_id": row["route_change_id"],
+                    "ts_ms": row["ts_ms"],
+                    "provider": row["provider"],
+                    "model_name": row["model_name"],
+                    "prompt_version": row["prompt_version"],
+                    "policy_version": row["policy_version"],
+                    "result_json": json.dumps(row["result"]),
+                }
+            )
+            conn.commit()
     except Exception:
         return
 
 
-async def publish_recommendations(r: Any, route_change_id: str, result: Dict[str, Any], maxlen: int) -> None:
+async def publish_recommendations(r: Any, route_change_id: str, result: dict[str, Any], maxlen: int) -> None:
     for idx, reco in enumerate(result.get("recommendations", []) or []):
         payload = {
             "schema_version": 1,
@@ -183,11 +180,26 @@ async def main() -> None:  # pragma: no cover
     if UP:
         UP.set(1)
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    await ensure_group(r, REQUESTS_STREAM, GROUP)
+
+    helper = AsyncRedisStreamHelper(client=r, group=GROUP, consumer=CONSUMER)
+    await helper.ensure_groups([REQUESTS_STREAM])
+
     provider = VertexRoutingIncidentRCAProviderV29()
     db_url = os.getenv("DATABASE_URL", "")
+
+    pel_state = {"start_id": "0-0"}
     while True:
-        rows = await r.xreadgroup(GROUP, CONSUMER, {REQUESTS_STREAM: ">"}, count=16, block=5000)
+        pel_start_id, pending_msgs = await helper.claim_pending(
+            REQUESTS_STREAM, min_idle_ms=5000, count=16, start_id=pel_state.get("start_id", "0-0")
+        )
+        pel_state["start_id"] = pel_start_id
+        pending_formatted = [(m.msg_id, m.fields) for m in pending_msgs]
+
+        if pending_formatted:
+            rows = [[REQUESTS_STREAM, pending_formatted]]
+        else:
+            rows = await helper.read({REQUESTS_STREAM: ">"}, count=16, block=5000)
+
         if not rows:
             continue
         for _stream, messages in rows:
@@ -238,7 +250,7 @@ async def main() -> None:  # pragma: no cover
                             "result": result,
                         }
                     )
-                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
+                    await helper.ack(REQUESTS_STREAM, msg_id)
                     if LAST_RUN_TS:
                         LAST_RUN_TS.set(time.time())
                 except Exception as exc:
@@ -253,7 +265,7 @@ async def main() -> None:  # pragma: no cover
                         }, maxlen=MAXLEN,
                         approximate=True,
                     )
-                    await r.xack(REQUESTS_STREAM, GROUP, msg_id)
+                    await helper.ack(REQUESTS_STREAM, msg_id)
                 finally:
                     if RUNS:
                         RUNS.labels(status=status, provider=provider_name).inc()

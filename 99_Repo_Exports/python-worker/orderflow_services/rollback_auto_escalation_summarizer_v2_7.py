@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
 from collections import Counter as CCounter
-from typing import Any, Dict, List
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -29,16 +30,16 @@ LAST = Gauge("ml_operator_rca_routing_escalation_last_run_ts_seconds", "Last run
 LAT = Histogram("ml_operator_rca_routing_escalation_loop_seconds", "Loop seconds")
 
 
-def _to_str_dict(raw: Dict[Any, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _to_str_dict(raw: dict[Any, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for k, v in raw.items():
         out[k.decode() if isinstance(k, bytes) else str(k)] = v.decode() if isinstance(v, bytes) else str(v)
     return out
 
 
-async def _read(cli: "redis.Redis", stream: str, count: int) -> List[Dict[str, str]]:
+async def _read(cli: redis.Redis, stream: str, count: int) -> list[dict[str, str]]:
     rows = await cli.xrevrange(stream, max="+", min="-", count=count)
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for _id, payload in rows:
         d = _to_str_dict(payload)
         d["stream_id"] = _id.decode() if isinstance(_id, bytes) else str(_id)
@@ -46,7 +47,7 @@ async def _read(cli: "redis.Redis", stream: str, count: int) -> List[Dict[str, s
     return out
 
 
-def _severity(open_n: int, critical_n: int, cfg: Dict[str, Any]) -> str:
+def _severity(open_n: int, critical_n: int, cfg: dict[str, Any]) -> str:
     if critical_n >= int(cfg["critical_open_threshold"]):
         return "critical"
     if open_n >= int(cfg["warning_open_threshold"]):
@@ -54,9 +55,9 @@ def _severity(open_n: int, critical_n: int, cfg: Dict[str, Any]) -> str:
     return "info"
 
 
-async def run_once(cli: "redis.Redis", cfg: Dict[str, Any]) -> Dict[str, Any]:
+async def run_once(cli: redis.Redis, cfg: dict[str, Any]) -> dict[str, Any]:
     t0 = time.perf_counter()
-    events: List[Dict[str, str]] = []
+    events: list[dict[str, str]] = []
     for s in IN_STREAMS:
         events.extend(await _read(cli, s, int(cfg["window_count"])))
     by_reason = CCounter()
@@ -64,7 +65,7 @@ async def run_once(cli: "redis.Redis", cfg: Dict[str, Any]) -> Dict[str, Any]:
     critical_ids = set()
     for e in events:
         rid = str(e.get("recommendation_id", "") or e.get("route_change_id", ""))
-        reason = str(e.get("reason_code", "UNKNOWN"))
+        reason = (e.get("reason_code", "UNKNOWN"))
         if rid:
             open_ids.add(rid)
         if reason in ("ERROR_RATE_SPIKE", "PARSE_FAIL_RATE_HIGH", "LATENCY_P95_REGRESSION"):

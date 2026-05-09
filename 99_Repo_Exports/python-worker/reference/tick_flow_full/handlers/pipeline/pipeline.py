@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from common.decision_trace import trace_gate, trace_enabled
+from common.decision_trace import trace_gate
 
 
 @dataclass(frozen=True)

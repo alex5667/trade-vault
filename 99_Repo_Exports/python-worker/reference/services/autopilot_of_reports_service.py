@@ -1,18 +1,20 @@
-# -*- coding: utf-8 -*-
 """
 Autopilot OF Reports Service.
 Runs inside container as a long-lived process.
 Triggers hourly Canary Monitor and nightly Regression.
 """
 
-import os
 import asyncio
-from datetime import datetime, timezone
+import os
+from datetime import UTC, datetime
+
 import redis.asyncio as aioredis
+
 from tools.cron_of_reports import run_report
 
+
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 def _parse_hhmm(x: str, default: str) -> tuple[int, int]:
     s = (x or default).strip()
@@ -38,7 +40,7 @@ async def main():
 
     # Hourly monitor schedule (at minute :07)
     monitor_minute = int(os.getenv("OF_REPORTS_MONITOR_MINUTE", "7"))
-    
+
     # Nightly regress schedule (HH:MM UTC)
     regress_hhmm = os.getenv("OF_REPORTS_REGRESS_HHMM", "03:17")
     r_h, r_m = _parse_hhmm(regress_hhmm, "03:17")
@@ -50,7 +52,7 @@ async def main():
 
     while True:
         now = _utc_now()
-        
+
         # Hourly Monitor trigger
         if now.minute == monitor_minute and now.hour != last_monitor_hour:
             if await _acquire_lock(r_async, lock_key, 600): # Light lock for monitor

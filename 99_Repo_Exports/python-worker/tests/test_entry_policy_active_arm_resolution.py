@@ -1,7 +1,9 @@
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+
 
 # Minimal mock for EntryPolicyService
 class MockEntryPolicyService:
@@ -13,7 +15,7 @@ class MockEntryPolicyService:
     async def _get_active_arm(self, *, symbol: str, regime: str, group: str, scenario: str, raw_only: bool = False) -> str:
         # Copied logic from patched smt_entry_policy_service.py
         sym, rg, g, scn = symbol.upper(), regime.lower(), group.lower(), (scenario or "").lower()
-        
+
         # 1) Get raw value from Redis (Resolution order: scenario -> base -> group)
         keys = []
         if sym and scn in ("continuation", "reversal"):
@@ -25,20 +27,20 @@ class MockEntryPolicyService:
         raw_v = ""
         for k in keys:
             v = await self.r.get(k)
-            raw_v = str(v or "").strip().upper()
+            raw_v = (v or "").strip().upper()
             if raw_v: break
-            
+
         return raw_v
 
 @pytest.mark.asyncio
 async def test_active_arm_precedence():
     svc = MockEntryPolicyService()
-    
+
     # keys
     k_scn = "cfg:entry_policy:active_arm:BTCUSD:trend:default:continuation"
     k_base = "cfg:entry_policy:active_arm:BTCUSD:trend:default"
     k_grp = "cfg:entry_policy:active_arm:default"
-    
+
     # 1. Scenario match
     svc.r.get.side_effect = lambda k: "B" if k == k_scn else ("A" if k == k_base else "C")
     res = await svc._get_active_arm(symbol="BTCUSD", regime="trend", group="default", scenario="continuation")

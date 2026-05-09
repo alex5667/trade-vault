@@ -1,6 +1,9 @@
-import pytest
 from unittest.mock import MagicMock, patch
-from services.ml_confirm_gate import MLConfirmGate, MLConfirmDecision
+
+import pytest
+
+from services.ml_confirm_gate import MLConfirmDecision, MLConfirmGate
+
 
 @pytest.fixture
 def mock_redis():

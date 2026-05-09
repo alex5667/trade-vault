@@ -1,9 +1,11 @@
-import pytest
 import os
 from unittest.mock import patch
 
-from services.atr_invariant_chaos_catalog import DRILLS, list_drills
+import pytest
+
 import services.atr_invariant_chaos_runner as runner
+from services.atr_invariant_chaos_catalog import DRILLS, list_drills
+
 
 # Mock DB calls to avoid needing a real PG connection during unit tests
 @pytest.fixture(autouse=True)
@@ -40,18 +42,18 @@ def test_buy_ordering_broken(mock_persist, mock_conn):
     # Reset the singleton in runtime engine
     import services.atr_invariant_runtime_engine as eng
     eng._engine = None
-    
+
     res = runner.run_once()
-    
+
     assert res["ok"]
     assert res["drill_code"] == "BUY_ORDERING_BROKEN"
     assert res["mode"] == "audit_only"
-    
+
     # Check violations caught it
     violations = res["result"]["violations"]
     assert len(violations) > 0
     assert any(v["reason_code"] == "INV_PAYLOAD_BUY_ORDERING" for v in violations)
-    
+
     # Check cert
     cert = res["cert"]
     assert cert["violation_logged"] is True
@@ -64,13 +66,13 @@ def test_buy_ordering_broken(mock_persist, mock_conn):
 def test_live_with_stale_allocator(mock_persist, mock_conn):
     os.environ["ATR_INVARIANT_CHAOS_DRILL"] = "LIVE_WITH_STALE_ALLOCATOR"
     os.environ["ATR_INVARIANT_CHAOS_MODE"] = "bounded_execute"
-    
+
     res = runner.run_once()
-    
+
     assert res["ok"]
     violations = res["result"]["violations"]
     assert any(v["reason_code"] == "INV_NO_ALLOCATOR_ON_STALE_STATE_FOR_LIVE_SCOPE" for v in violations)
-    
+
     # Even if remediation executor isn't fully mocked to return FREEZE, the mock cert logic in _certify maps it for tests
     assert res["cert"]["expected_action_triggered"] is True
     assert res["cert"]["status"] == "passed"
@@ -80,9 +82,9 @@ def test_live_with_stale_allocator(mock_persist, mock_conn):
 def test_live_stage_without_rollout_cert(mock_persist, mock_conn):
     os.environ["ATR_INVARIANT_CHAOS_DRILL"] = "LIVE_STAGE_WITHOUT_ROLLOUT_CERT"
     os.environ["ATR_INVARIANT_CHAOS_MODE"] = "audit_only"
-    
+
     res = runner.run_once()
-    
+
     assert res["ok"]
     assert res["result"]["target_stage_allowed"] is False
     assert res["result"]["rollout_paused"] is True

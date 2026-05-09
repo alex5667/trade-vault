@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """tca_worker — compute TCA metrics and publish Redis rollups (Phase B2/B3).
@@ -43,9 +44,8 @@ import asyncio
 import json
 import logging
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 try:
     import redis.asyncio as aioredis  # type: ignore
@@ -54,12 +54,11 @@ except Exception:  # pragma: no cover
 
 from services.posttrade.tca_math import (
     effective_spread_bps,
-    realized_spread_bps,
-    permanent_impact_bps,
     implementation_shortfall_bps,
+    permanent_impact_bps,
+    realized_spread_bps,
 )
 from services.posttrade.tca_redis_state import TcaKeyDims, write_rollups
-
 
 logger = logging.getLogger("tca_worker")
 
@@ -97,9 +96,9 @@ def pick_dsn() -> str:
     )
 
 
-def _parse_delta_list(s: str) -> List[int]:
-    out: List[int] = []
-    for p in str(s or "").split(","):
+def _parse_delta_list(s: str) -> list[int]:
+    out: list[int] = []
+    for p in (s or "").split(","):
         p = p.strip()
         if not p:
             continue
@@ -122,7 +121,7 @@ class Pg:
             import psycopg2  # type: ignore
             return psycopg2.connect(self.dsn)
 
-    def fetch_fills_after(self, *, cursor_ts_ms: int, cursor_sid: str, limit: int) -> List[Dict[str, Any]]:
+    def fetch_fills_after(self, *, cursor_ts_ms: int, cursor_sid: str, limit: int) -> list[dict[str, Any]]:
         q = (
             "SELECT ts_fill_ms, sid, sym, venue, side, fill_role, px, qty, fee_bps "
             "FROM fills WHERE (ts_fill_ms, sid) > (%s, %s) "
@@ -151,7 +150,7 @@ class Pg:
         finally:
             conn.close()
 
-    def fetch_decision_for_fill(self, *, sid: str, ts_fill_ms: int) -> Optional[Dict[str, Any]]:
+    def fetch_decision_for_fill(self, *, sid: str, ts_fill_ms: int) -> dict[str, Any] | None:
         q = (
             "SELECT ts_decision_ms, session, tf, kind, side, venue, decision_mid "
             "FROM decision_snapshot WHERE sid=%s AND ts_decision_ms <= %s "
@@ -176,7 +175,7 @@ class Pg:
         finally:
             conn.close()
 
-    def fetch_bbo_mid(self, *, sym: str, venue: str, ts_ms: int, lookback_ms: int) -> Optional[Dict[str, float]]:
+    def fetch_bbo_mid(self, *, sym: str, venue: str, ts_ms: int, lookback_ms: int) -> dict[str, float] | None:
         # nearest <= ts within lookback
         q = (
             "SELECT bid, ask, mid, ts_ms FROM bbo_ts "
@@ -200,7 +199,7 @@ class Pg:
         finally:
             conn.close()
 
-    def upsert_tca_rows(self, rows: List[Dict[str, Any]]) -> int:
+    def upsert_tca_rows(self, rows: list[dict[str, Any]]) -> int:
         if not rows:
             return 0
         conn = self._connect()
@@ -230,7 +229,7 @@ class Pg:
         finally:
             conn.close()
 
-    def compute_rollups(self, *, dims: TcaKeyDims, window_min: int, delta_sec: int) -> Dict[str, float]:
+    def compute_rollups(self, *, dims: TcaKeyDims, window_min: int, delta_sec: int) -> dict[str, float]:
         # For P1 we compute only the minimal set used by ExecutionHealthGate.
         # NOTE: percentile_cont ignores NULL.
         col = "1s" if int(delta_sec) == 1 else "5s" if int(delta_sec) == 5 else f"{int(delta_sec)}s"
@@ -269,7 +268,7 @@ class Pg:
             row = cur.fetchone()
             if not row:
                 return {}
-            out: Dict[str, float] = {}
+            out: dict[str, float] = {}
             if row[0] is not None:
                 out["is_p95"] = float(row[0])
             if row[1] is not None:
@@ -289,14 +288,14 @@ class Cfg:
     batch_size: int
     poll_sec: float
     cursor_key: str
-    deltas: List[int]
+    deltas: list[int]
     rollup_window_min: int
     redis_ttl_sec: int
     rollups_enable: bool
     bbo_lookback_ms: int
 
     @staticmethod
-    def from_env() -> "Cfg":
+    def from_env() -> Cfg:
         return Cfg(
             redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
             batch_size=_env_int("TCA_WORKER_BATCH_SIZE", "200"),
@@ -310,7 +309,7 @@ class Cfg:
         )
 
 
-async def _load_cursor(r: Any, key: str) -> Tuple[int, str]:
+async def _load_cursor(r: Any, key: str) -> tuple[int, str]:
     try:
         raw = await r.get(key)
         if raw is None:
@@ -318,7 +317,7 @@ async def _load_cursor(r: Any, key: str) -> Tuple[int, str]:
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "replace")
         obj = json.loads(str(raw))
-        return int(obj.get("ts_fill_ms", 0) or 0), str(obj.get("sid", "") or "")
+        return int(obj.get("ts_fill_ms", 0) or 0), (obj.get("sid", "") or "")
     except Exception:
         return 0, ""
 
@@ -352,8 +351,8 @@ async def main() -> None:
                 await asyncio.sleep(cfg.poll_sec)
                 continue
 
-            tca_rows: List[Dict[str, Any]] = []
-            touched_dims: Dict[Tuple[str, str, str, str, str, str], TcaKeyDims] = {}
+            tca_rows: list[dict[str, Any]] = []
+            touched_dims: dict[tuple[str, str, str, str, str, str], TcaKeyDims] = {}
             last = (cur_ts, cur_sid)
 
             for f in fills:
@@ -370,9 +369,9 @@ async def main() -> None:
                     continue
 
                 # Trust decision snapshot for venue/side/session/tf/kind if fill lacks.
-                session = str(dec.get("session") or "na")
-                tf = str(dec.get("tf") or "na")
-                kind = str(dec.get("kind") or "na")
+                session = (dec.get("session") or "na")
+                tf = (dec.get("tf") or "na")
+                kind = (dec.get("kind") or "na")
                 if not venue or venue == "none":
                     venue = str(dec.get("venue") or venue or "binance").lower()
                 if not side or side == "NONE":
@@ -420,7 +419,7 @@ async def main() -> None:
                         "sym": sym,
                         "venue": venue,
                         "side": side,
-                        "fill_role": str(f.get("fill_role") or "entry"),
+                        "fill_role": (f.get("fill_role") or "entry"),
                         "decision_ts_ms": int(dec["decision_ts_ms"]),
                         "session": session,
                         "tf": tf,

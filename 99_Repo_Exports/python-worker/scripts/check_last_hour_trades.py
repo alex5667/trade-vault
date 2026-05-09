@@ -1,8 +1,9 @@
-from utils.time_utils import get_ny_time_millis
 import os
-import time
+from datetime import UTC, datetime
+
 import redis
-from datetime import datetime, timezone
+
+from utils.time_utils import get_ny_time_millis
 
 # Adjust for local environment
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -18,7 +19,7 @@ def main():
     hour_ago_ms = now_ms - (3600 * 1000)
     min_id = f"{hour_ago_ms}-0"
 
-    print(f"Checking trades since {datetime.fromtimestamp(hour_ago_ms/1000, tz=timezone.utc)}")
+    print(f"Checking trades since {datetime.fromtimestamp(hour_ago_ms/1000, tz=UTC)}")
 
     # 1. Check trades:closed stream
     try:
@@ -35,14 +36,14 @@ def main():
     # Listing zsets
     zsets = r.keys("closed_z:*")
     print(f"Found {len(zsets)} ZSET keys (closed_z:*).")
-    
+
     total_zset_trades = 0
     for zkey in zsets:
         count = r.zcount(zkey, hour_ago_ms, now_ms)
         if count > 0:
             print(f"  {zkey}: {count} trades")
             total_zset_trades += count
-            
+
     print(f"Total trades in ZSETs (last 1h): {total_zset_trades}")
 
     # 3. Check legacy lists
@@ -50,7 +51,7 @@ def main():
     # Filter for lists that look like closed:strategy:symbol:tf:source
     print(f"Found {len(lists)} LIST keys (closed:*).")
     # Sampling a few lists isn't easy for time-window without lrange all
-    
+
     # 4. Check PeriodicReporter counters
     counters = r.keys("report_counter:*")
     print(f"Found {len(counters)} report counters.")

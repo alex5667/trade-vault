@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+
 """Phase-0 ML inventory exporter.
 
 Purpose
@@ -23,9 +25,10 @@ import hashlib
 import json
 import os
 import time
-from dataclasses import dataclass, asdict
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server
 
@@ -96,7 +99,7 @@ class ModelRecord:
     artifact_exists: int
     artifact_age_sec: float
 
-    def stream_payload(self, ts_ms: int) -> Dict[str, Any]:
+    def stream_payload(self, ts_ms: int) -> dict[str, Any]:
         return {
             "schema_version": 1,
             "event": "ml_model_inventory",
@@ -130,7 +133,7 @@ def _as_int(v: Any, d: int = 0) -> int:
         return d
 
 
-def _load_json(s: Any) -> Dict[str, Any]:
+def _load_json(s: Any) -> dict[str, Any]:
     try:
         if s is None:
             return {}
@@ -147,7 +150,7 @@ def _sha16(parts: Sequence[str]) -> str:
     return h[:16]
 
 
-def _mtime_age(path: str) -> Tuple[int, float]:
+def _mtime_age(path: str) -> tuple[int, float]:
     p = Path(path)
     if not path:
         return 0, 0.0
@@ -182,7 +185,7 @@ def _connect_redis(url: str):
         return None
 
 
-def _hgetall(r: Any, key: str) -> Dict[str, Any]:
+def _hgetall(r: Any, key: str) -> dict[str, Any]:
     if r is None:
         return {}
     try:
@@ -201,11 +204,11 @@ def _get(r: Any, key: str) -> str:
         return ""
 
 
-def _discover_ml_confirm_records(r: Any, owner_service: str) -> List[ModelRecord]:
-    out: List[ModelRecord] = []
+def _discover_ml_confirm_records(r: Any, owner_service: str) -> list[ModelRecord]:
+    out: list[ModelRecord] = []
     ts_ms = _now_ms()
 
-    json_keys: List[Tuple[str, str]] = [
+    json_keys: list[tuple[str, str]] = [
         (os.getenv("ML_CFG_CHAMPION_KEY", "cfg:ml_confirm:champion"), "champion"),
         (os.getenv("ML_CFG_CHALLENGER_KEY", "cfg:ml_confirm:challenger"), "challenger"),
         ("cfg:ml_confirm:edge_stack_v1:champion", "champion"),
@@ -284,13 +287,13 @@ def _discover_ml_confirm_records(r: Any, owner_service: str) -> List[ModelRecord
     return out
 
 
-def _discover_meta_lr_records(owner_service: str) -> List[ModelRecord]:
+def _discover_meta_lr_records(owner_service: str) -> list[ModelRecord]:
     ts_ms = _now_ms()
-    paths: List[Tuple[str, str, bool]] = [
+    paths: list[tuple[str, str, bool]] = [
         (os.getenv("META_MODEL_CHAMPION_PATH", os.getenv("META_MODEL_PATH", "/var/lib/trade/models/meta_model_v7_champion.json")), "champion", True),
         (os.getenv("META_MODEL_CHALLENGER_PATH", "/var/lib/trade/models/meta_model_v7_challenger.json"), "challenger", False),
     ]
-    out: List[ModelRecord] = []
+    out: list[ModelRecord] = []
     for path, state, is_champion in paths:
         if not path:
             continue
@@ -318,13 +321,13 @@ def _discover_meta_lr_records(owner_service: str) -> List[ModelRecord]:
     return out
 
 
-def _discover_ml_scorer_records(owner_service: str) -> List[ModelRecord]:
+def _discover_ml_scorer_records(owner_service: str) -> list[ModelRecord]:
     ts_ms = _now_ms()
     candidates = [
         (os.getenv("ML_SCORER_V2_MODEL_PATH", "/var/lib/trade/ml_models/scorer_v2/scorer_v2.joblib"), "ml_scorer_v2", "champion", True),
         (os.getenv("ML_SCORER_V3_MODEL_PATH", "/var/lib/trade/ml_models/scorer_v3/scorer_v3.joblib"), "ml_scorer_v3", "challenger", False),
     ]
-    out: List[ModelRecord] = []
+    out: list[ModelRecord] = []
     for path, kind, state, is_champion in candidates:
         if not path:
             continue
@@ -351,9 +354,9 @@ def _discover_ml_scorer_records(owner_service: str) -> List[ModelRecord]:
     return out
 
 
-def discover_inventory(cfg: Cfg) -> List[ModelRecord]:
+def discover_inventory(cfg: Cfg) -> list[ModelRecord]:
     r = _connect_redis(cfg.redis_url)
-    out: List[ModelRecord] = []
+    out: list[ModelRecord] = []
     out.extend(_discover_ml_confirm_records(r, cfg.owner_service))
     out.extend(_discover_meta_lr_records(cfg.owner_service))
     out.extend(_discover_ml_scorer_records(cfg.owner_service))
@@ -367,7 +370,7 @@ def _publish_inventory(r: Any, cfg: Cfg, rows: Sequence[ModelRecord], ts_ms: int
         return
     try:
         pipe = r.pipeline()
-        family_counts: Dict[Tuple[str, str], int] = {}
+        family_counts: dict[tuple[str, str], int] = {}
         for row in rows:
             pipe.xadd(cfg.stream, row.stream_payload(ts_ms), maxlen=cfg.stream_maxlen, approximate=True)
             k = (row.family, row.promotion_state)
@@ -429,7 +432,7 @@ def _update_metrics(rows: Sequence[ModelRecord], ts_s: float, duration_s: float)
     LAST_DURATION.set(duration_s)
 
     # reset gauges by setting current rows; unlabeled old series are tolerated for phase-0
-    counts: Dict[Tuple[str, str], int] = {}
+    counts: dict[tuple[str, str], int] = {}
     for row in rows:
         counts[(row.family, row.promotion_state)] = counts.get((row.family, row.promotion_state), 0) + 1
         MODEL_PRESENT.labels(

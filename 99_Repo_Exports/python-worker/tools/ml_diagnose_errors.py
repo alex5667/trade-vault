@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Диагностика ошибок ML из metrics:ml_confirm stream.
 
@@ -9,16 +10,15 @@ from __future__ import annotations
 - Детали последних ошибок
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
-import json
 import os
 import time
 from collections import Counter, defaultdict
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:
@@ -46,10 +46,10 @@ def read_stream_window(
     window_ms: int,
     *,
     max_scan: int = 200000
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Read stream items in [start_ms, start_ms+window_ms] by ts_ms field."""
     end_ms = start_ms + window_ms
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -98,7 +98,7 @@ def main() -> None:
         return
 
     n_total = len(rows)
-    err_rows = [r for r in rows if (str(r.get("error", "") or "").strip() != "")]
+    err_rows = [r for r in rows if ((r.get("error", "") or "").strip() != "")]
     n_err = len(err_rows)
 
     print(f"\n{'='*80}")
@@ -115,7 +115,7 @@ def main() -> None:
     # Топ ошибок
     err_counts: Counter[str] = Counter()
     for r in err_rows:
-        err = str(r.get("error", "") or "").strip()
+        err = (r.get("error", "") or "").strip()
         if err:
             err_counts[err] += 1
 
@@ -129,7 +129,7 @@ def main() -> None:
     # Ошибки по символам
     err_by_symbol: Counter[str] = Counter()
     for r in err_rows:
-        sym = str(r.get("symbol", "") or "unknown").upper()
+        sym = (r.get("symbol", "") or "unknown").upper()
         err_by_symbol[sym] += 1
 
     print(f"\n{'─'*80}")
@@ -142,11 +142,11 @@ def main() -> None:
     # Ошибки по режимам
     err_by_mode: Counter[str] = Counter()
     for r in err_rows:
-        mode = str(r.get("mode", "") or "unknown").upper()
+        mode = (r.get("mode", "") or "unknown").upper()
         err_by_mode[mode] += 1
 
     print(f"\n{'─'*80}")
-    print(f"ОШИБКИ ПО РЕЖИМАМ:")
+    print("ОШИБКИ ПО РЕЖИМАМ:")
     print(f"{'─'*80}")
     for mode, count in err_by_mode.most_common():
         pct = 100.0 * count / max(1, n_err)
@@ -155,11 +155,11 @@ def main() -> None:
     # Ошибки по fail_policy
     err_by_policy: Counter[str] = Counter()
     for r in err_rows:
-        policy = str(r.get("fail_policy", "") or "unknown").upper()
+        policy = (r.get("fail_policy", "") or "unknown").upper()
         err_by_policy[policy] += 1
 
     print(f"\n{'─'*80}")
-    print(f"ОШИБКИ ПО FAIL POLICY:")
+    print("ОШИБКИ ПО FAIL POLICY:")
     print(f"{'─'*80}")
     for policy, count in err_by_policy.most_common():
         pct = 100.0 * count / max(1, n_err)
@@ -181,7 +181,7 @@ def main() -> None:
         avg = sum(lat_err) / n_lat
 
         print(f"\n{'─'*80}")
-        print(f"ЛАТЕНТНОСТЬ ПРИ ОШИБКАХ (мс):")
+        print("ЛАТЕНТНОСТЬ ПРИ ОШИБКАХ (мс):")
         print(f"{'─'*80}")
         print(f"  Средняя: {avg:.2f} мс")
         print(f"  p50:     {p50:.2f} мс")
@@ -196,10 +196,10 @@ def main() -> None:
     for i, r in enumerate(err_rows[-10:], 1):
         ts_ms = _i(r.get("ts_ms", 0), 0)
         ts_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts_ms / 1000)) if ts_ms > 0 else "unknown"
-        sym = str(r.get("symbol", "") or "unknown")
-        mode = str(r.get("mode", "") or "unknown")
-        err = str(r.get("error", "") or "")[:80]
-        reason = str(r.get("reason", "") or "")[:60]
+        sym = (r.get("symbol", "") or "unknown")
+        mode = (r.get("mode", "") or "unknown")
+        err = (r.get("error", "") or "")[:80]
+        reason = (r.get("reason", "") or "")[:60]
         lat_us = _i(r.get("latency_us", 0), 0)
         lat_ms = lat_us / 1000.0 if lat_us > 0 else 0.0
 
@@ -209,7 +209,7 @@ def main() -> None:
         print(f"   Латентность: {lat_ms:.2f} мс")
 
     # Временное распределение (по 5-минутным бакетам)
-    buckets: Dict[int, int] = defaultdict(int)
+    buckets: dict[int, int] = defaultdict(int)
     for r in err_rows:
         ts_ms = _i(r.get("ts_ms", 0), 0)
         if ts_ms > 0:
@@ -218,7 +218,7 @@ def main() -> None:
 
     if buckets:
         print(f"\n{'─'*80}")
-        print(f"ВРЕМЕННОЕ РАСПРЕДЕЛЕНИЕ ОШИБОК (5-минутные бакеты):")
+        print("ВРЕМЕННОЕ РАСПРЕДЕЛЕНИЕ ОШИБОК (5-минутные бакеты):")
         print(f"{'─'*80}")
         for bucket_min in sorted(buckets.keys()):
             count = buckets[bucket_min]

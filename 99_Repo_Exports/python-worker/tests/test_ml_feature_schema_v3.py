@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for ML Feature Schema V3 — continuation-context quality features.
 
@@ -12,11 +13,8 @@ Validates:
 
 
 import os
-import sys
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, "/home/alex/front/trade/scanner_infra/python-worker")
-
-import pytest
 
 # Force V3 for these tests
 os.environ["ML_FEATURE_SCHEMA_VERSION"] = "3"
@@ -25,11 +23,10 @@ from core.ml_feature_schema import (
     FEATURES_V1,
     FEATURES_V2,
     FEATURES_V3,
+    _feats_for_ver,
     build_feature_vector,
     feature_names,
-    _feats_for_ver,
 )
-
 
 # -----------------------------------------------------------------------
 # Feature list structure

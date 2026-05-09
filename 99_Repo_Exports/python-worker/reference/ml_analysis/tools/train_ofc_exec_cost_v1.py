@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import math
 import os
-import statistics
 import time
-from typing import Any, Dict, Iterable, Iterator, List, Optional
+from collections.abc import Iterator
+from typing import Any
+
+from domain.evidence_keys import CtxKeys
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _iter_jsonl(path: str) -> Iterator[Dict[str, Any]]:
-    with open(path, 'r', encoding='utf-8') as f:
+def _iter_jsonl(path: str) -> Iterator[dict[str, Any]]:
+    with open(path, encoding='utf-8') as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -29,7 +31,7 @@ def _iter_jsonl(path: str) -> Iterator[Dict[str, Any]]:
                 yield obj
 
 
-def _write_json_atomic(path: str, obj: Dict[str, Any]) -> None:
+def _write_json_atomic(path: str, obj: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)) or '.', exist_ok=True)
     tmp = f"{path}.tmp"
     with open(tmp, 'w', encoding='utf-8') as f:
@@ -43,10 +45,10 @@ def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
-def _quantile(xs: List[float], q: float) -> float:
+def _quantile(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     ys = sorted(float(x) for x in xs)
@@ -61,11 +63,11 @@ def _quantile(xs: List[float], q: float) -> float:
     return float(ys[lo] * (1.0 - w) + ys[hi] * w)
 
 
-def train_exec_cost_model(rows_jsonl: str, *, out_model_json: str, out_report_json: str, min_group_rows: int = 30) -> Dict[str, Any]:
-    groups: Dict[str, List[float]] = {}
-    all_costs: List[float] = []
+def train_exec_cost_model(rows_jsonl: str, *, out_model_json: str, out_report_json: str, min_group_rows: int = 30) -> dict[str, Any]:
+    groups: dict[str, list[float]] = {}
+    all_costs: list[float] = []
     for row in _iter_jsonl(rows_jsonl):
-        ctx_key = str(row.get('ctx_key') or 'global')
+        ctx_key = (row.get(CtxKeys.KEY) or 'global')
         realized = _to_float(row.get('realized_slippage_bps'), 0.0)
         spread = _to_float(row.get('spread_bps'), 0.0)
         expected = _to_float(row.get('expected_slippage_bps'), 0.0)
@@ -75,7 +77,7 @@ def train_exec_cost_model(rows_jsonl: str, *, out_model_json: str, out_report_js
 
     global_p50 = _quantile(all_costs, 0.50),
     global_p90 = _quantile(all_costs, 0.90),
-    model_groups: Dict[str, Dict[str, Any]] = {},
+    model_groups: dict[str, dict[str, Any]] = {},
     for key, vals in groups.items():
         if len(vals) < int(min_group_rows):
             continue
@@ -110,7 +112,7 @@ def train_exec_cost_model(rows_jsonl: str, *, out_model_json: str, out_report_js
     return {'model': model, 'report': report}
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description='Train OFC exec-cost group model from JSONL dataset')
     ap.add_argument('--rows_jsonl', required=True)
     ap.add_argument('--out_model_json', required=True)

@@ -1,10 +1,11 @@
-#!/usr/bin/env python3
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+#!/usr/bin/env python3
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -13,8 +14,11 @@ except Exception:  # pragma: no cover
 from prometheus_client import Gauge, start_http_server
 
 from services.orderflow.exec_health_freeze_client_name_policy import evaluate_client_name_policy
-from services.orderflow.exec_health_freeze_service_identity import build_service_identity_contract, ensure_service_identity_sync
 from services.orderflow.exec_health_freeze_reconnect_healing import get_heal_state_key, heal_service_identity_sync
+from services.orderflow.exec_health_freeze_service_identity import (
+    build_service_identity_contract,
+    ensure_service_identity_sync,
+)
 
 UP = Gauge('exec_health_freeze_client_name_policy_up', '1 if Redis-side ExecHealth client-name policy exporter loop is healthy')
 STATE_AGE_S = Gauge('exec_health_freeze_client_name_policy_state_age_seconds', 'Age of ExecHealth client-name policy exporter state in seconds')
@@ -43,7 +47,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 class Exporter:
@@ -57,26 +61,26 @@ class Exporter:
         ensure_service_identity_sync(self.r, 'exec_health_freeze_client_name_audit_exporter_v1')
         heal_service_identity_sync(self.r, 'exec_health_freeze_client_name_audit_exporter_v1', force=True)
 
-    def _read_state(self) -> Dict[str, Any]:
+    def _read_state(self) -> dict[str, Any]:
         try:
             return self.r.hgetall(self.state_key) or {}
         except Exception:
             return {}
 
-    def _read_heal_state(self, service: str) -> Dict[str, Any]:
+    def _read_heal_state(self, service: str) -> dict[str, Any]:
         try:
             return self.r.hgetall(get_heal_state_key(service)) or {}
         except Exception:
             return {}
 
-    def _write_state(self, payload: Dict[str, Any]) -> None:
+    def _write_state(self, payload: dict[str, Any]) -> None:
         try:
             self.r.hset(self.state_key, mapping={str(k): str(v) for k, v in payload.items()})
             self.r.expire(self.state_key, 86400 * 7)
         except Exception:
             pass
 
-    def run_once(self) -> Dict[str, Any]:
+    def run_once(self) -> dict[str, Any]:
         heal_service_identity_sync(self.r, 'exec_health_freeze_client_name_audit_exporter_v1')
         now = _now_ms()
         raw = self.r.execute_command('CLIENT', 'LIST') or ''
@@ -92,7 +96,7 @@ class Exporter:
             RECOVERY_TOTAL.labels(service=service).set(float(int(heal.get('recovery_total', 0) or 0)))
             LAST_RECOVERY_TS_MS.labels(service=service).set(float(int(heal.get('last_recovery_ts_ms', 0) or 0)))
             REPAIR_FAILED_TOTAL.labels(service=service).set(float(int(heal.get('repair_failed_total', 0) or 0)))
-        active = {(str(v.get('kind')), str(v.get('service'))): 1 for v in list(res.get('violations', []) or [])}
+        active = {((v.get('kind')), (v.get('service'))): 1 for v in list(res.get('violations', []) or [])}
         for kind in KNOWN_KINDS:
             for service in list(contract.keys()) + ['unknown']:
                 VIOLATION.labels(kind=kind, service=service).set(1.0 if (kind, service) in active else 0.0)

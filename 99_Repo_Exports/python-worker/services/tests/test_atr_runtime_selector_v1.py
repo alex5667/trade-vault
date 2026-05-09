@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Phase 2 unit tests: services/atr_runtime_selector.py
 
@@ -7,14 +8,13 @@ Run:
   PYTHONPATH=. pytest -q services/tests/test_atr_runtime_selector_v1.py
 """
 
-import pytest
 from services.atr_runtime_selector import (
-    select_runtime_atr_profile,
-    _compute_target_tf_ms,
-    _nearest_allowed_tf,
     _build_candidates,
+    _compute_target_tf_ms,
     _compute_vol_ratio,
+    _nearest_allowed_tf,
     _parse_allowed_tfs,
+    select_runtime_atr_profile,
 )
 
 _ALLOWED = [15000, 30000, 60000, 180000, 300000, 900000]
@@ -341,14 +341,12 @@ class TestSelectorFallbacks:
 class TestEnvOverrides:
     def test_custom_allowed_tfs(self, monkeypatch):
         monkeypatch.setenv("ATR_HORIZON_ALLOWED_TFS_MS", "60000,300000")
-        from importlib import reload
         import services.atr_runtime_selector as m
         tfs = m._parse_allowed_tfs()
         assert set(tfs) == {60000, 300000}
 
     def test_parse_allowed_tfs_defaults(self, monkeypatch):
         monkeypatch.delenv("ATR_HORIZON_ALLOWED_TFS_MS", raising=False)
-        from services.atr_runtime_selector import _parse_allowed_tfs
         tfs = _parse_allowed_tfs()
         assert 60000 in tfs
         assert len(tfs) >= 1

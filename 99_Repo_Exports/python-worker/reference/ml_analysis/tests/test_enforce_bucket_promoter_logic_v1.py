@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # P89: all BucketHealth constructors now require edge_neg_share; all decide calls require max_edge_neg_share
 from ml_analysis.tools.nightly_enforce_bucket_promoter_v1 import (
     BucketHealth,

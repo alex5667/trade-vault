@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Offline calibration script for local signal thresholds.
 
@@ -24,7 +25,6 @@ import math
 import os
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
 
 import psycopg2
 from psycopg2.extras import DictCursor
@@ -77,7 +77,7 @@ class SignalRow:
     pnl_r: float
 
 
-ClusterKey = Tuple[str, str, str]  # (symbol, session, regime)
+ClusterKey = tuple[str, str, str]  # (symbol, session, regime)
 
 
 @dataclass
@@ -87,14 +87,14 @@ class MetricCalibration:
     q98: float
     chosen_threshold: float
     count_samples: int
-    cdf_points: List[Dict[str, float]]
+    cdf_points: list[dict[str, float]]
 
 
 # --------------------
 # Утилиты
 # --------------------
 
-def quantile(xs: List[float], q: float) -> float:
+def quantile(xs: list[float], q: float) -> float:
     if not xs:
         return math.nan
     xs_sorted = sorted(xs)
@@ -102,12 +102,12 @@ def quantile(xs: List[float], q: float) -> float:
     return xs_sorted[k]
 
 
-def build_empirical_cdf(xs: List[float], num_points: int = 101) -> List[Dict[str, float]]:
+def build_empirical_cdf(xs: list[float], num_points: int = 101) -> list[dict[str, float]]:
     if not xs:
         return []
     xs_sorted = sorted(xs)
     n = len(xs_sorted)
-    pts: List[Dict[str, float]] = []
+    pts: list[dict[str, float]] = []
     for i in range(num_points):
         q = i / (num_points - 1)
         k = int(q * (n - 1))
@@ -115,7 +115,7 @@ def build_empirical_cdf(xs: List[float], num_points: int = 101) -> List[Dict[str
     return pts
 
 
-def bucket_by_quantiles(xs: List[float], ys: List[float], num_buckets: int = 5):
+def bucket_by_quantiles(xs: list[float], ys: list[float], num_buckets: int = 5):
     """
     xs – метрика (например delta_spike_z)
     ys – результат (pnl_r)
@@ -170,7 +170,7 @@ def choose_threshold_from_buckets(
 # Загрузка данных из БД
 # --------------------
 
-def load_signals(conn) -> List[SignalRow]:
+def load_signals(conn) -> list[SignalRow]:
     """
     Load historical trades from trades_closed table.
     Maps trades_closed columns to expected signal metrics.
@@ -193,7 +193,7 @@ def load_signals(conn) -> List[SignalRow]:
           AND r_multiple IS NOT NULL
           AND (tp1_hit = TRUE OR r_multiple > 0)
     """
-    rows: List[SignalRow] = []
+    rows: list[SignalRow] = []
     with conn.cursor(cursor_factory=DictCursor) as cur:
         cur.execute(sql)
         for r in cur:
@@ -232,14 +232,14 @@ def _to_float(x, default: float = 0.0) -> float:
         return default
 
 
-def load_signals_from_redis() -> List[SignalRow]:
+def load_signals_from_redis() -> list[SignalRow]:
     """
     Read POSITION_CLOSED events from Redis stream (trades:closed) as an alternative to Postgres.
     """
     if redis is None:
         raise RuntimeError("redis-py is not available")
     r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-    rows: List[SignalRow] = []
+    rows: list[SignalRow] = []
     last = TRADES_CLOSED_START_ID
     for _ in range(100000):
         out = r.xread({TRADES_CLOSED_STREAM: last}, count=1000, block=0) or []
@@ -280,8 +280,8 @@ def load_signals_from_redis() -> List[SignalRow]:
     return rows
 
 
-def build_clusters(rows: List[SignalRow]) -> Dict[ClusterKey, List[SignalRow]]:
-    clusters: Dict[ClusterKey, List[SignalRow]] = {}
+def build_clusters(rows: list[SignalRow]) -> dict[ClusterKey, list[SignalRow]]:
+    clusters: dict[ClusterKey, list[SignalRow]] = {}
     for r in rows:
         key = (r.symbol, r.session, r.regime)
         clusters.setdefault(key, []).append(r)
@@ -294,11 +294,11 @@ def build_clusters(rows: List[SignalRow]) -> Dict[ClusterKey, List[SignalRow]]:
 
 def calibrate_metric_for_cluster(
     metric_name: str,
-    rows: List[SignalRow],
+    rows: list[SignalRow],
 ) -> MetricCalibration | None:
     # забираем метрику и pnl
-    metric_values: List[float] = []
-    pnl_list: List[float] = []
+    metric_values: list[float] = []
+    pnl_list: list[float] = []
 
     for r in rows:
         v = getattr(r, metric_name, None)
@@ -424,7 +424,7 @@ def main() -> None:
                     upsert_calibration(conn, symbol, session, regime, metric, calib)
                 total_calibrations += 1
                 cluster_calibrated = True
-                
+
                 print_counter += 1
                 if print_counter % 1000 == 1 or print_counter == 1:
                     print(f"  Calibrated {symbol} {session} {regime} {metric}: {calib.count_samples} samples")

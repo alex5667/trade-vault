@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import annotations
 """Prometheus exporter for Feature Registry contract status (P94).
 
 Reads Redis hash `metrics:feature_registry_contract:last` and exposes gauges:
@@ -26,7 +27,7 @@ ENV:
 """,
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import redis  # type: ignore
 from prometheus_client import Gauge, start_http_server
@@ -39,19 +40,19 @@ def _now_s() -> float:
 def _as_float(v: Any, d: float = 0.0) -> float:
     try:
         if v is None:
-            return float(d)
+            return d
         return float(v)
     except Exception:
-        return float(d)
+        return d
 
 
 def _as_int(v: Any, d: int = 0) -> int:
     try:
         if v is None:
-            return int(d)
+            return d
         return int(float(v))
     except Exception:
-        return int(d)
+        return d
 
 
 UP = Gauge("feature_registry_contract_exporter_up", "1 if exporter can read Redis metrics")
@@ -76,7 +77,7 @@ def main() -> None:
 
     while True:
         try:
-            m: Dict[str, Any] = r.hgetall(metrics_key) or {}
+            m: dict[str, Any] = r.hgetall(metrics_key) or {}
             UP.set(1)
 
             # Skip update if Redis hash is empty (cold start: contract_check timer
@@ -85,7 +86,7 @@ def main() -> None:
                 time.sleep(interval_s)
                 continue
 
-            status = str(m.get("status", "") or "")
+            status = (m.get("status", "") or "")
             success = 1.0 if status == "ok" else 0.0
             LAST_SUCCESS.set(success)
 

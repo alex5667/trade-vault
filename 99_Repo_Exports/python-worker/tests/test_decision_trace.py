@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from common.decision_trace import ensure_trace, trace_gate, trace_target, build_trace_summary, should_sample
+from common.decision_trace import ensure_trace, should_sample, trace_gate, trace_target
 
 
 def test_should_sample_is_deterministic():

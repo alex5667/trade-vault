@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 # -*- coding: utf-8 -*-
 """
 Export POSITION_CLOSED events from Redis stream (events:trades) into NDJSON.
@@ -38,7 +40,8 @@ import argparse
 import json
 import os
 import time
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 import redis
 
@@ -78,7 +81,7 @@ def _lower(v: str) -> str:
     return (v or "").strip().lower()
 
 
-def _parse_meta_json(v: Any) -> Dict[str, Any]:
+def _parse_meta_json(v: Any) -> dict[str, Any]:
     # meta/metadata in stream is stored as JSON string; fail-open.
     try:
         if not v:
@@ -90,7 +93,7 @@ def _parse_meta_json(v: Any) -> Dict[str, Any]:
         return {}
 
 
-def _iter_xread(redis_url: str, stream: str, start_id: str, count: int) -> Iterable[Tuple[str, Dict[str, str]]]:
+def _iter_xread(redis_url: str, stream: str, start_id: str, count: int) -> Iterable[tuple[str, dict[str, str]]]:
     """
     Yields (msg_id, fields) from XREAD in a loop until no more messages.
     """
@@ -120,7 +123,7 @@ def _iter_xread(redis_url: str, stream: str, start_id: str, count: int) -> Itera
             break
         for mid, fields in entries:
             msg_id = mid.decode() if isinstance(mid, (bytes, bytearray)) else str(mid)
-            d: Dict[str, str] = {}
+            d: dict[str, str] = {}
             for k, v in (fields or {}).items():
                 kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
                 vv = v.decode() if isinstance(v, (bytes, bytearray)) else str(v)
@@ -129,12 +132,12 @@ def _iter_xread(redis_url: str, stream: str, start_id: str, count: int) -> Itera
             last = msg_id
 
 
-def _is_position_closed(fields: Dict[str, str]) -> bool:
+def _is_position_closed(fields: dict[str, str]) -> bool:
     et = _s(fields.get("event_type") or fields.get("event") or "").upper()
     return et == "POSITION_CLOSED"
 
 
-def _extract_closed(fields: Dict[str, str]) -> Optional[Dict[str, Any]]:
+def _extract_closed(fields: dict[str, str]) -> dict[str, Any] | None:
     """
     Convert a stream record (flat string map) into normalized closed-trade dict.
     Fail-open: returns None if not enough data.
@@ -193,7 +196,7 @@ def _extract_closed(fields: Dict[str, str]) -> Optional[Dict[str, Any]]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("TRADE_EVENTS_STREAM", "events:trades"))
+    ap.add_argument("--stream", default=os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES))
     ap.add_argument("--since-id", default="0-0", help="Redis stream id (default 0-0)")
     ap.add_argument("--count", type=int, default=2000, help="XREAD batch size")
     ap.add_argument("--max", type=int, default=200000, help="max records to scan")
@@ -201,7 +204,7 @@ def main() -> int:
     args = ap.parse_args()
 
     n = 0
-    out_lines: List[str] = []
+    out_lines: list[str] = []
     for msg_id, fields in _iter_xread(args.redis, args.stream, args.since_id, args.count):
         if n >= int(args.max):
             break

@@ -9,4 +9,4 @@ __all__ = [
     'StreamPublisher',
     'publish_signal_to_stream',
     'stream_publisher',
-] 
+]

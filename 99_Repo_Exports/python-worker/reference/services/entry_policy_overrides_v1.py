@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Tuple
 import json
+from dataclasses import dataclass, field
+from typing import Any
+
 
 def _i(x: Any, d: int = 0) -> int:
     try: return int(x)
@@ -25,7 +26,7 @@ class SplitABC:
     b: float = 0.10
     c: float = 0.10
 
-    def normalize(self) -> "SplitABC":
+    def normalize(self) -> SplitABC:
         a = _clamp(float(self.a), 0.0, 1.0)
         b = _clamp(float(self.b), 0.0, 1.0)
         c = _clamp(float(self.c), 0.0, 1.0)
@@ -79,10 +80,10 @@ class EntryPolicyOverridesV1:
     winner_lcb_margin: float = 0.05
     winner_min_n: int = 30
 
-    extra: Dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
-    def from_json(raw: str) -> Tuple[Optional["EntryPolicyOverridesV1"], str]:
+    def from_json(raw: str) -> tuple[EntryPolicyOverridesV1 | None, str]:
         try:
             d = json.loads(raw)
             if not isinstance(d, dict):
@@ -135,7 +136,7 @@ class EntryPolicyOverridesV1:
         except Exception:
             return None, "parse_fail"
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         if self.ver != 1:
             return False, "bad_ver"
         if self.freeze_mode not in ("none", "shadow", "hard"):

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any
 
 
-def compute_daily_pivots(hlc: Optional[Dict[str, float]]) -> Dict[str, float]:
+def compute_daily_pivots(hlc: dict[str, float] | None) -> dict[str, float]:
     """
     Вычисляет Classic Pivot Points (Floor Pivots) по HLC предыдущего дня.
     
@@ -16,25 +16,25 @@ def compute_daily_pivots(hlc: Optional[Dict[str, float]]) -> Dict[str, float]:
     """
     if not hlc or not all(k in hlc for k in ("high", "low", "close")):
         return {}
-        
+
     try:
         high = float(hlc["high"])
         low = float(hlc["low"])
         close = float(hlc["close"])
     except (ValueError, TypeError):
         return {}
-        
+
     p = (high + low + close) / 3.0
-    
+
     r1 = 2 * p - low
     s1 = 2 * p - high
-    
+
     r2 = p + (high - low)
     s2 = p - (high - low)
-    
+
     r3 = high + 2 * (p - low)
     s3 = low - 2 * (high - p)
-    
+
     return {
         "P": p,
         "R1": r1,
@@ -58,19 +58,19 @@ def _dist_bps(price: float, level: float) -> float:
 @dataclass(frozen=True)
 class PivotProximityCfg:
     dist_atr_threshold: float = 0.5
-    dist_bp_threshold: Optional[float] = None
+    dist_bp_threshold: float | None = None
     dist_mode: str = "or"
-    key_levels: Tuple[str, ...] = ("P", "R1", "S1", "R2", "S2", "R3", "S3")
+    key_levels: tuple[str, ...] = ("P", "R1", "S1", "R2", "S2", "R3", "S3")
 
 
 def check_pivot_proximity(
     price: float,
-    pivots: Dict[str, Any],
-    atr: Optional[float],
+    pivots: dict[str, Any],
+    atr: float | None,
     cfg: PivotProximityCfg,
     *,
     return_details: bool = False,
-) -> Union[bool, Tuple[bool, Dict[str, Any]]]:
+) -> bool | tuple[bool, dict[str, Any]]:
     """
     Pivot proximity check (ATR + optional BPS) with rich details.
     Intended usage:
@@ -82,8 +82,8 @@ def check_pivot_proximity(
             return False, {"reason": "bad_price", "price": price}
         return False
 
-    closest_key: Optional[str] = None
-    closest_level: Optional[float] = None
+    closest_key: str | None = None
+    closest_level: float | None = None
     min_distance = float("inf")
 
     # Find closest level
@@ -140,7 +140,7 @@ def check_pivot_proximity(
             "closest_level": float(closest_level),
             "price": float(price),
             "min_distance": float(min_distance),
-            "atr": float(atr) if atr is not None else None,
+            "atr": atr if atr is not None else None,
             "dist_atr": float(dist_atr),
             "dist_bps": float(dist_bps),
             "thr_atr": float(cfg.dist_atr_threshold),

@@ -1,9 +1,10 @@
 
-import unittest
-from unittest.mock import patch, MagicMock
 import sys
-import os
+import unittest
+from unittest.mock import patch
+
 from tools import nightly_meta_pipeline_v1
+
 
 class TestNightlyMetaPipelineV3Dispatch(unittest.TestCase):
     def setUp(self):
@@ -25,7 +26,7 @@ class TestNightlyMetaPipelineV3Dispatch(unittest.TestCase):
         """Test that v3 modules are chosen when they exist."""
         # Setup mocks: v3 exists
         mock_exists.side_effect = lambda x: True if "v3" in x else False
-        mock_path.return_value.exists.return_value = True 
+        mock_path.return_value.exists.return_value = True
         mock_subprocess_run.return_value.returncode = 0
 
         with patch.object(sys, 'argv', self.test_args):

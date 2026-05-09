@@ -1,12 +1,12 @@
 from __future__ import annotations
+
 """
 Тесты для fallback механизма в MLConfirmGate (hash cfg:ml_confirm fallback).
 """
 
 
 import json
-import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -40,7 +40,7 @@ def test_fallback_to_hash_when_champion_missing(gate, mock_redis):
     """Test that gate falls back to hash cfg:ml_confirm when champion is missing."""
     # Champion and challenger are missing
     mock_redis.get.return_value = None
-    
+
     # Hash cfg exists
     hash_cfg = {
         "mode": "SHADOW",
@@ -49,11 +49,11 @@ def test_fallback_to_hash_when_champion_missing(gate, mock_redis):
         "kind": "util_mh_v1",
     }
     mock_redis.hgetall.return_value = hash_cfg
-    
+
     # Force cache refresh
     gate._cache_loaded_ms = 0
     gate._refresh_cache_if_needed()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000,
@@ -66,11 +66,11 @@ def test_fallback_to_hash_when_champion_missing(gate, mock_redis):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     # Should not be ERR_NO_CFG
     assert dec.status != "ERR_NO_CFG"
     assert gate._cfg_source == "hash_fallback"
-    
+
     # Should have attempted to write through to champion
     mock_redis.set.assert_any_call("cfg:ml_confirm:champion", json.dumps(hash_cfg, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
@@ -85,7 +85,7 @@ def test_champion_takes_precedence_over_hash(gate, mock_redis):
         "kind": "util_mh_v1",
     }
     mock_redis.get.return_value = json.dumps(champion_cfg)
-    
+
     # Hash also exists (should be ignored)
     hash_cfg = {
         "mode": "ENFORCE",
@@ -93,12 +93,12 @@ def test_champion_takes_precedence_over_hash(gate, mock_redis):
         "enforce_share": "0.1",
     }
     mock_redis.hgetall.return_value = hash_cfg
-    
+
     # Force cache refresh
     gate._cache_loaded_ms = 0
-    
+
     gate._refresh_cache_if_needed()
-    
+
     # Should use champion, not hash
     assert gate._cfg_source == "champion"
     assert gate._cfg.get("enforce_share") == 0.2
@@ -113,14 +113,14 @@ def test_challenger_in_shadow_mode(gate, mock_redis):
         "enforce_share": 0.15,
         "kind": "util_mh_v1",
     })]
-    
+
     # Force cache refresh
     gate.ab_variant = "challenger"
     gate._champion_key = "cfg:ml_confirm:challenger"
     gate._cache_loaded_ms = 0
-    
+
     gate._refresh_cache_if_needed()
-    
+
     # Should use challenger
     assert gate._cfg_source == "challenger"
     assert gate._cfg.get("enforce_share") == 0.15
@@ -132,14 +132,14 @@ def test_coerce_hash_cfg_adds_defaults(gate):
         "kind": "util_mh_v1",
         "model_path": "/path/to/model",
     }
-    
+
     cfg = gate._coerce_hash_cfg(hash_data)
-    
+
     # Should have defaults
     assert cfg["mode"] == "SHADOW"
     assert cfg["fail_policy"] == "OPEN"
     assert cfg["enforce_share"] == 0.05
-    
+
     # Should preserve original
     assert cfg["kind"] == "util_mh_v1"
     assert cfg["model_path"] == "/path/to/model"
@@ -154,11 +154,11 @@ def test_cfg_source_in_metrics(gate, mock_redis):
         "fail_policy": "OPEN",
         "enforce_share": "0.1",
     }
-    
+
     # Force cache refresh
     gate._cache_loaded_ms = 0
     gate._refresh_cache_if_needed()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000,
@@ -171,7 +171,7 @@ def test_cfg_source_in_metrics(gate, mock_redis):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     # Check that xadd was called with cfg_source
     assert mock_redis.xadd.called
     call_args = mock_redis.xadd.call_args
@@ -185,11 +185,11 @@ def test_no_cfg_no_hash_results_in_err_no_cfg(gate, mock_redis):
     # Both champion and hash are missing
     mock_redis.get.return_value = None
     mock_redis.hgetall.return_value = {}
-    
+
     # Force cache refresh
     gate._cache_loaded_ms = 0
     gate._refresh_cache_if_needed()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000,
@@ -202,7 +202,7 @@ def test_no_cfg_no_hash_results_in_err_no_cfg(gate, mock_redis):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     # Should be ERR_NO_CFG
     assert dec.status == "ERR_NO_CFG"
     assert gate._cfg_source == "none"
@@ -218,16 +218,16 @@ def test_empty_champion_string_falls_back_to_hash(gate, mock_redis):
         "enforce_share": "0.1",
         "kind": "util_mh_v1",
     }
-    
+
     gate._cache_loaded_ms = 0
-    
+
     gate._refresh_cache_if_needed()
-    
+
     # Should use hash fallback
     assert gate._cfg_source == "hash_fallback"
     assert gate._cfg.get("mode") == "SHADOW"
     assert gate._cfg.get("enforce_share") == "0.1"  # String preserved from hash (parsing happens downstream)
-    
+
     # Should bootstrap champion
     mock_redis.set.assert_any_call("cfg:ml_confirm:champion", json.dumps(mock_redis.hgetall.return_value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
@@ -242,15 +242,15 @@ def test_invalid_json_champion_falls_back_to_hash(gate, mock_redis):
         "enforce_share": "0.1",
         "kind": "util_mh_v1",
     }
-    
+
     gate._cache_loaded_ms = 0
-    
+
     gate._refresh_cache_if_needed()
-    
+
     # Should use hash fallback
     assert gate._cfg_source == "hash_fallback"
     assert gate._cfg.get("mode") == "SHADOW"
-    
+
     # Should bootstrap champion
     assert mock_redis.set.called
 
@@ -265,11 +265,11 @@ def test_whitespace_only_champion_falls_back_to_hash(gate, mock_redis):
         "enforce_share": "0.1",
         "kind": "util_mh_v1",
     }
-    
+
     gate._cache_loaded_ms = 0
-    
+
     gate._refresh_cache_if_needed()
-    
+
     # Should use hash fallback
     assert gate._cfg_source == "hash_fallback"
     assert gate._cfg.get("mode") == "SHADOW"
@@ -285,11 +285,11 @@ def test_empty_dict_champion_falls_back_to_hash(gate, mock_redis):
         "enforce_share": "0.1",
         "kind": "util_mh_v1",
     }
-    
+
     gate._cache_loaded_ms = 0
-    
+
     gate._refresh_cache_if_needed()
-    
+
     # Should use hash fallback
     assert gate._cfg_source == "hash_fallback"
     assert gate._cfg.get("mode") == "SHADOW"
@@ -307,15 +307,15 @@ def test_bootstrap_creates_valid_json(gate, mock_redis):
         "model_path": "/path/to/model.joblib",
     }
     mock_redis.hgetall.return_value = hash_cfg
-    
+
     gate._cache_loaded_ms = 0
-    
+
     gate._refresh_cache_if_needed()
-    
+
     # Should bootstrap champion
     bootstrapped_json = json.dumps(hash_cfg, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     mock_redis.set.assert_any_call("cfg:ml_confirm:champion", bootstrapped_json)
-    
+
     # Verify the bootstrapped JSON is valid
     parsed = json.loads(bootstrapped_json)
     assert isinstance(parsed, dict)
@@ -334,11 +334,11 @@ def test_hash_fallback_preserves_string_values(gate, mock_redis):
         "kind": "util_mh_v1",
     }
     mock_redis.hgetall.return_value = hash_cfg
-    
+
     gate._cache_loaded_ms = 0
-    
+
     gate._refresh_cache_if_needed()
-    
+
     # Should preserve string values (parsing happens downstream)
     assert gate._cfg.get("enforce_share") == "0.15"  # Still string
     assert gate._cfg.get("mode") == "SHADOW"

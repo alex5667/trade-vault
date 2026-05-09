@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 tests/news_pipeline/test_p6_idempotency_no_duplicate_streams.py
 
@@ -12,19 +13,18 @@ Tests use a minimal in-process mock (no real Redis/DB needed).
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 
 from news_pipeline.p6_dto import stable_event_uuid
-
 
 # ── Minimal fakes ──────────────────────────────────────────────────────────────
 
 @dataclass
 class _FakeRow:
     """Mimics asyncpg Row with dict-like access."""
-    _data: Dict[str, Any]
+    _data: dict[str, Any]
 
     def __getitem__(self, key: str) -> Any:
         return self._data[key]
@@ -36,10 +36,10 @@ class _FakeRow:
 @dataclass
 class _FakeConnection:
     """asyncpg-like connection with configurable fetchrow result."""
-    rows: List[_FakeRow] = field(default_factory=list)
+    rows: list[_FakeRow] = field(default_factory=list)
     call_count: int = 0
 
-    async def fetchrow(self, query: str, *args) -> "_FakeRow | None":
+    async def fetchrow(self, query: str, *args) -> _FakeRow | None:
         self.call_count += 1
         if self.rows:
             return self.rows[self.call_count - 1] if self.call_count <= len(self.rows) else None
@@ -62,7 +62,7 @@ class _FakePool:
 
 @dataclass
 class _FakeRedis:
-    xadd_calls: List[Dict[str, Any]] = field(default_factory=list)
+    xadd_calls: list[dict[str, Any]] = field(default_factory=list)
 
     async def xadd(self, stream: str, fields: dict, **kwargs) -> None:
         self.xadd_calls.append({"stream": stream, "fields": fields})

@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 try:
     import redis  # type: ignore
@@ -58,10 +58,10 @@ class TBHealth:
 
 def check_tb_health(
     *,
-    redis_url: Optional[str] = None,
-    input_stream: str = "signals:of:inputs",
+    redis_url: str | None = None,
+    input_stream: str = RS.OF_INPUTS,
     labels_stream: str = "labels:tb",
-    group: Optional[str] = None,
+    group: str | None = None,
     max_input_lag_ms: int = 120_000,
     max_label_stale_ms: int = 300_000,
     max_pending: int = 5_000,

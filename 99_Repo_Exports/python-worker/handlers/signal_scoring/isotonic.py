@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Tuple
 import bisect
 import math
+from dataclasses import dataclass
 
 
 def _clamp01(x: float) -> float:
@@ -13,8 +12,8 @@ def _clamp01(x: float) -> float:
 @dataclass
 class IsotonicCalibrator:
     # breakpoints x_k (возрастают) и значения p_k (монотонно возрастают)
-    x: List[float]
-    p: List[float]
+    x: list[float]
+    p: list[float]
     mode: str = "linear"  # "linear" or "step"
 
     def predict(self, xq: float) -> float:
@@ -39,7 +38,7 @@ class IsotonicCalibrator:
         return float(_clamp01(p0 + t * (p1 - p0)))
 
 
-def fit_isotonic_pav(samples: List[Tuple[float, int, float]]) -> IsotonicCalibrator:
+def fit_isotonic_pav(samples: list[tuple[float, int, float]]) -> IsotonicCalibrator:
     """
     samples: list of (x, y, w)
       x >= 0 (например abs(final_score))
@@ -53,9 +52,9 @@ def fit_isotonic_pav(samples: List[Tuple[float, int, float]]) -> IsotonicCalibra
         return IsotonicCalibrator(x=[], p=[])
 
     # агрегируем одинаковые x
-    xs: List[float] = []
-    ps: List[float] = []
-    ws: List[float] = []
+    xs: list[float] = []
+    ps: list[float] = []
+    ws: list[float] = []
 
     cur_x = data[0][0]
     sum_w = 0.0
@@ -75,7 +74,7 @@ def fit_isotonic_pav(samples: List[Tuple[float, int, float]]) -> IsotonicCalibra
     ps.append(sum_yw / max(1e-12, sum_w))
 
     # PAV: сливаем блоки при нарушении монотонности
-    blocks: List[List[float]] = []  # [x_left, x_right, w_sum, p_value]
+    blocks: list[list[float]] = []  # [x_left, x_right, w_sum, p_value]
     for x, p, w in zip(xs, ps, ws):
         blocks.append([x, x, w, float(_clamp01(p))])
         while len(blocks) >= 2 and blocks[-2][3] > blocks[-1][3]:
@@ -85,8 +84,8 @@ def fit_isotonic_pav(samples: List[Tuple[float, int, float]]) -> IsotonicCalibra
             p_new = (b1[2] * b1[3] + b2[2] * b2[3]) / max(1e-12, w_sum2)
             blocks.append([b1[0], b2[1], w_sum2, float(_clamp01(p_new))])
 
-    out_x: List[float] = []
-    out_p: List[float] = []
+    out_x: list[float] = []
+    out_p: list[float] = []
     for x_l, x_r, w, p in blocks:
         out_x.append(float(x_r))
         out_p.append(float(_clamp01(p)))

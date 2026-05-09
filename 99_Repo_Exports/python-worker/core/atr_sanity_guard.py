@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 ATR Sanity Guard (deterministic, unit-testable).
 
@@ -24,7 +25,6 @@ Design constraints
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
 
 from core.quantile_p2 import P2Quantile
 
@@ -36,7 +36,7 @@ def tf_to_ms(tf: str) -> int:
     Fail-open: defaults to 60_000.
     """
     try:
-        s = str(tf or "").strip().lower()
+        s = (tf or "").strip().lower()
         if s.endswith("m"):
             return int(float(s[:-1]) * 60_000)
         if s.endswith("h"):
@@ -70,7 +70,7 @@ class RangeTfAggregator:
         self._n = 0
 
         # current bucket OHLC
-        self._bucket: Optional[int] = None
+        self._bucket: int | None = None
         self._o = 0.0
         self._h = 0.0
         self._l = 0.0
@@ -151,7 +151,7 @@ class RangeTfAggregator:
         max_mult: float,
         floor_bps: float = 0.0,
         ceil_bps: float = 1e9,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """
         Compute sanity bounds for ATR_bps based on p50/p95 range_bps.
         - lower bound anchored to p50
@@ -190,10 +190,10 @@ class AtrPick:
 
 def pick_best_atr(
     *,
-    candidates: List[AtrCandidate],
+    candidates: list[AtrCandidate],
     entry_px: float,
     now_ms: int,
-    range_agg: Optional[RangeTfAggregator],
+    range_agg: RangeTfAggregator | None,
     max_age_ms: int,
     min_mult: float,
     max_mult: float,
@@ -222,7 +222,7 @@ def pick_best_atr(
         exp_lo_bps, exp_hi_bps = range_agg.expected_bounds_bps(min_mult=min_mult, max_mult=max_mult)
 
     # helper: candidate sanity
-    def _cand_sane(c: AtrCandidate) -> Tuple[int, str]:
+    def _cand_sane(c: AtrCandidate) -> tuple[int, str]:
         if c.atr <= 0 or px <= 0:
             return 0, "bad_atr_or_px"
         atr_bps = 10000.0 * (float(c.atr) / px)
@@ -239,8 +239,8 @@ def pick_best_atr(
         return 1, "ok"
 
     # rank candidates: sane first, then by age
-    sane_list: List[Tuple[AtrCandidate, str]] = []
-    fresh_list: List[Tuple[AtrCandidate, str]] = []
+    sane_list: list[tuple[AtrCandidate, str]] = []
+    fresh_list: list[tuple[AtrCandidate, str]] = []
     for c in candidates or []:
         if c is None:
             continue

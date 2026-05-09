@@ -1,30 +1,27 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import time
 import hashlib
 import math
-import threading
+import os
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from common.json_safe import make_json_safe_inplace
 from common.strict_mode import strict_contracts_enabled
-
 from services.telegram.analytics_reporter import AnalyticsReporter, NoopAnalyticsReporter
+from utils.time_utils import get_ny_time_millis
 
 from .outbox_writer import OutboxWriter
 
 
 def _tags(kind: str, payload: dict[str, Any]) -> dict[str, str]:
-    tags: dict[str, str] = {"kind": str(kind or "unknown")}
+    tags: dict[str, str] = {"kind": (kind or "unknown")}
     sym = payload.get("symbol", "") or ""
     if sym:
         tags["symbol"] = str(sym)
     tf = payload.get("timeframe", "") or payload.get("tf", "") or ""
     if tf:
-        tags["timeframe"] = str(tf)
+        tags["timeframe"] = tf
     ven = payload.get("venue", "") or ""
     if ven:
         tags["venue"] = str(ven)
@@ -45,11 +42,11 @@ class _SemDedupCfg:
 
 class _NoopMetrics:
     """Fail-open metrics shim. Real implementation can be StatsD/Prometheus wrapper, etc."""
-    def inc(self, _name: str, _value: int = 1, _tags: Optional[dict[str, str]] = None) -> None:
+    def inc(self, _name: str, _value: int = 1, _tags: dict[str, str] | None = None) -> None:
         return
-    def gauge(self, _name: str, _value: float, _tags: Optional[dict[str, str]] = None) -> None:
+    def gauge(self, _name: str, _value: float, _tags: dict[str, str] | None = None) -> None:
         return
-    def observe(self, _name: str, _value: float, _tags: Optional[dict[str, str]] = None) -> None:
+    def observe(self, _name: str, _value: float, _tags: dict[str, str] | None = None) -> None:
         return
 
 
@@ -83,9 +80,9 @@ class UnifiedSignalEmitter:
         *,
         outbox: Any,
         logger: Any,
-        outbox_labels: Optional[Any] = None,
-        metrics: Optional[Any] = None,
-        analytics: Optional[Any] = None,
+        outbox_labels: Any | None = None,
+        metrics: Any | None = None,
+        analytics: Any | None = None,
     ) -> None:
         # Publisher'ы (обычно пишут в Redis Stream / outbox)
         self._outbox_pub = outbox
@@ -148,11 +145,11 @@ class UnifiedSignalEmitter:
         )
 
     def _load_sem_cfg(self) -> _SemDedupCfg:
-        enabled = str(os.getenv("OUTBOX_SEM_DEDUP", "0")).strip() in {"1", "true", "yes", "on"}
+        enabled = os.getenv("OUTBOX_SEM_DEDUP", "0").strip() in {"1", "true", "yes", "on"}
         bucket_ms = int(os.getenv("OUTBOX_SEM_DEDUP_BUCKET_MS", "1000"))
         ttl_ms = int(os.getenv("OUTBOX_SEM_DEDUP_TTL_MS", "15000"))
         level_decimals = int(os.getenv("OUTBOX_SEM_DEDUP_LEVEL_DECIMALS", "2"))
-        raw_kinds = str(os.getenv("OUTBOX_SEM_DEDUP_LEVEL_KEY_KINDS", "")).strip()
+        raw_kinds = os.getenv("OUTBOX_SEM_DEDUP_LEVEL_KEY_KINDS", "").strip()
         # Example: "breakout,absorption"
         level_key_kinds = {k.strip().lower() for k in raw_kinds.split(",") if k.strip()} if raw_kinds else set()
         return _SemDedupCfg(
@@ -167,14 +164,14 @@ class UnifiedSignalEmitter:
         return get_ny_time_millis()
 
     def _tags(self, payload: dict[str, Any]) -> dict[str, str]:
-        kind = str(payload.get("kind", "") or "unknown")
+        kind = (payload.get("kind", "") or "unknown")
         tags: dict[str, str] = {"kind": kind}
         sym = payload.get("symbol", "") or ""
         if sym:
             tags["symbol"] = str(sym)
         tf = payload.get("timeframe", "") or payload.get("tf", "") or ""
         if tf:
-            tags["timeframe"] = str(tf)
+            tags["timeframe"] = tf
         ven = payload.get("venue", "") or ""
         if ven:
             tags["venue"] = str(ven)
@@ -188,18 +185,18 @@ class UnifiedSignalEmitter:
         Idempotency key: first by signal_id (strongest), fallback to stable hash.
         This is the "exact duplicate" layer (not semantic).
         """
-        sid = str(payload.get("signal_id", "") or "").strip()
+        sid = (payload.get("signal_id", "") or "").strip()
         if sid:
             # signal_id may be globally unique already; still namespace it to avoid collisions with future formats.
             return f"sid:{sid}"
-        sym = str(payload.get("symbol", "") or "")
-        kind = str(payload.get("kind", "") or "")
-        ts = str(payload.get("ts", "") or "")
-        lvl = str(payload.get("level_price", "") or "")
+        sym = (payload.get("symbol", "") or "")
+        kind = (payload.get("kind", "") or "")
+        ts = (payload.get("ts", "") or "")
+        lvl = (payload.get("level_price", "") or "")
         base = f"fallback|{sym}|{kind}|{ts}|{lvl}"
         return hashlib.sha1(base.encode("utf-8")).hexdigest()
 
-    def _semantic_key(self, payload: dict[str, Any]) -> Optional[str]:
+    def _semantic_key(self, payload: dict[str, Any]) -> str | None:
         """
         Semantic key = "same event inside a short window".
         Requested safe policy:
@@ -207,8 +204,8 @@ class UnifiedSignalEmitter:
           - level_key only for selected kinds (feature flag), to avoid disabling dedup globally.
         Fail-open: if we cannot build a sane key (missing ts/kind/symbol), return None.
         """
-        kind = str(payload.get("kind", "") or "").strip().lower()
-        sym = str(payload.get("symbol", "") or "").strip()
+        kind = (payload.get("kind", "") or "").strip().lower()
+        sym = (payload.get("symbol", "") or "").strip()
         if not kind or not sym:
             return None
 
@@ -218,7 +215,7 @@ class UnifiedSignalEmitter:
 
         # side/direction: keep best-effort stable
         side = str(payload.get("side", "") or payload.get("direction", "") or "").strip().lower()
-        venue = str(payload.get("venue", "") or "").strip().lower() or "unknown_venue"
+        venue = (payload.get("venue", "") or "").strip().lower() or "unknown_venue"
         tf = str(payload.get("timeframe", "") or payload.get("tf", "") or "").strip().lower() or "unknown_tf"
 
         lvl = self._round_level(payload.get("level_price"))
@@ -230,18 +227,18 @@ class UnifiedSignalEmitter:
 
         # level_key: only for kinds explicitly allowed
         if kind in self._sem_cfg.level_key_kinds:
-            level_key = str(payload.get("level_key", "") or "").strip().lower() or "na"
+            level_key = (payload.get("level_key", "") or "").strip().lower() or "na"
             parts.append(level_key)
 
         base = "|".join(parts)
         return hashlib.sha1(base.encode("utf-8")).hexdigest()
 
     def _pick_writer(self, payload: dict[str, Any]) -> OutboxWriter:
-        if str(payload.get("kind", "")) == "label_update":
+        if (payload.get("kind", "")) == "label_update":
             return self._writer_labels
         return self._writer
 
-    def _safe_float(self, x: Any) -> Optional[float]:
+    def _safe_float(self, x: Any) -> float | None:
         try:
             v = float(x)
             if math.isnan(v) or math.isinf(v):
@@ -250,7 +247,7 @@ class UnifiedSignalEmitter:
         except Exception:
             return None
 
-    def _round_level(self, level_price: Any) -> Optional[str]:
+    def _round_level(self, level_price: Any) -> str | None:
         """
         Normalize level price so semantic dedup does not depend on tiny float noise.
         Result is a STRING to keep semantic key stable across float formatting differences.
@@ -264,7 +261,7 @@ class UnifiedSignalEmitter:
         fmt = f"{{:.{d}f}}"
         return fmt.format(q)
 
-    def _sem_bucket_id(self, ts_ms: Any) -> Optional[int]:
+    def _sem_bucket_id(self, ts_ms: Any) -> int | None:
         v = self._safe_float(ts_ms)
         if v is None:
             return None
@@ -276,8 +273,8 @@ class UnifiedSignalEmitter:
 
     def _sem_tags(self, payload: dict[str, Any]) -> dict[str, str]:
         # Keep tags low-cardinality: kind/symbol only (requested).
-        sym = str(payload.get("symbol", "") or "unknown")
-        kind = str(payload.get("kind", "") or "unknown")
+        sym = (payload.get("symbol", "") or "unknown")
+        kind = (payload.get("kind", "") or "unknown")
         return {"symbol": sym, "kind": kind}
 
     def _sem_count_hit(self, payload: dict[str, Any]) -> None:
@@ -369,9 +366,9 @@ class UnifiedSignalEmitter:
         self,
         payload: dict[str, Any],
         *,
-        labels: Optional[dict[str, Any]] = None,
+        labels: dict[str, Any] | None = None,
         dedup: bool = True,
-        meta: Optional[dict[str, Any]] = None,
+        meta: dict[str, Any] | None = None,
     ) -> bool:
         """
         Записывает сигнал в outbox (Redis Stream) через writer.
@@ -438,7 +435,7 @@ class UnifiedSignalEmitter:
 
         # labels-driven защитные метрики (работает ТОЛЬКО для не-veto ветки, дошедшей до emit)
         try:
-            lbs = payload.get("labels", None)
+            lbs = payload.get("labels")
             if isinstance(lbs, dict):
                 if lbs.get("touch_suppressed", 0):
                     self._metrics.inc("touch_suppressed_total", 1, self._tags(payload))
@@ -464,11 +461,11 @@ class UnifiedSignalEmitter:
         #
         # Это позволяет "подсветить" распределения без жёсткой зависимости от форматтера.
         # --------------------------------------------------------------------
-        kind = str(payload.get("kind", "") or "unknown")
+        kind = (payload.get("kind", "") or "unknown")
         try:
-            cf = payload.get("conf_factor", None)
+            cf = payload.get("conf_factor")
             if cf is None:
-                c = payload.get("confidence", None)
+                c = payload.get("confidence")
                 if c is not None:
                     fc = float(c)
                     # если прислали pct [0..100] — нормализуем
@@ -482,7 +479,7 @@ class UnifiedSignalEmitter:
         except Exception:
             pass
         try:
-            fs = payload.get("final_score", None)
+            fs = payload.get("final_score")
             if fs is not None:
                 v = float(fs)
                 if not (math.isnan(v) or math.isinf(v)):
@@ -517,8 +514,8 @@ class UnifiedSignalEmitter:
                 self._sem_count_write(payload)
             # Update analytics on successful publish (also records soft reasons and flushes at interval)
             try:
-                sym = str(payload.get("symbol", "") or "")
-                kind = str(payload.get("kind", "") or "")
+                sym = (payload.get("symbol", "") or "")
+                kind = (payload.get("kind", "") or "")
                 self._analytics.record_soft_reasons(symbol=sym, kind=kind, payload=payload)
                 self._analytics.maybe_flush(now_ms=self._now_ms())
             except Exception:

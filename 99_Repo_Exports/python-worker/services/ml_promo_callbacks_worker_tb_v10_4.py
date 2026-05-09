@@ -1,13 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import redis
+
 from core.redis_keys import RedisStreams as RS
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _coerce_hash_cfg(h: dict) -> dict:
@@ -20,7 +22,7 @@ def _coerce_hash_cfg(h: dict) -> dict:
     return cfg
 
 
-def _safe_loads(s: Any) -> Dict[str, Any]:
+def _safe_loads(s: Any) -> dict[str, Any]:
     """Safely load JSON from string/bytes/dict."""
     try:
         if s is None:
@@ -34,19 +36,17 @@ def _safe_loads(s: Any) -> Dict[str, Any]:
         return {}
 
 
-def _is_valid_cfg(cfg: Dict[str, Any]) -> bool:
+def _is_valid_cfg(cfg: dict[str, Any]) -> bool:
     if not isinstance(cfg, dict) or not cfg:
         return False
-    rid = str(cfg.get("run_id", "") or "")
+    rid = (cfg.get("run_id", "") or "")
     return bool(rid)
 
 
 def _notify(r: redis.Redis, stream: str, text: str, subtype: str = "ml_promo") -> None:
-    try:
+    with contextlib.suppress(Exception):
         r.xadd(stream, {"type": "alert", "subtype": subtype, "ts_ms": str(get_ny_time_millis()), "text": text},
                maxlen=200000, approximate=True)
-    except Exception:
-        pass
 
 
 def main() -> None:
@@ -64,10 +64,8 @@ def main() -> None:
     processed_set = os.getenv("ML_PROMO_PROCESSED_SET", "ml:promo:processed:v10_4")
     processed_ttl_sec = int(os.getenv("ML_PROMO_PROCESSED_TTL_SEC", "604800"))
 
-    try:
+    with contextlib.suppress(Exception):
         r.xgroup_create(callbacks_stream, group, id="$", mkstream=True)
-    except Exception:
-        pass
 
     # Startup diagnostic: champion exists but is empty/invalid JSON => alert (prevents silent ERR_NO_CFG loops)
     try:
@@ -108,17 +106,15 @@ def main() -> None:
         for _stream, msgs in resp:
             for msg_id, fields in msgs:
                 if r.sismember(processed_set, msg_id):
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xack(callbacks_stream, group, msg_id)
-                    except Exception:
-                        pass
                     continue
 
-                cb = str(fields.get("callback", "") or "")
+                cb = (fields.get("callback", "") or "")
                 if cb.startswith("approve:ml_tb_v10_4:"):
                     run_id = cb.split(":", 2)[2]
                     chal = _safe_loads(r.get(challenger_key))
-                    if _is_valid_cfg(chal) and str(chal.get("run_id", "")) == run_id:
+                    if _is_valid_cfg(chal) and (chal.get("run_id", "")) == run_id:
                         chal.setdefault("promoted_ms", get_ny_time_millis())
                         chal.setdefault("mode", "SHADOW")
                         chal.setdefault("fail_policy", "OPEN")
@@ -133,7 +129,7 @@ def main() -> None:
                 elif cb.startswith("reject:ml_tb_v10_4:"):
                     run_id = cb.split(":", 2)[2]
                     chal = _safe_loads(r.get(challenger_key))
-                    if _is_valid_cfg(chal) and str(chal.get("run_id", "")) == run_id:
+                    if _is_valid_cfg(chal) and (chal.get("run_id", "")) == run_id:
                         chal["rejected_ms"] = get_ny_time_millis()
                         r.set(challenger_key + ":rejected:" + run_id, json.dumps(chal, ensure_ascii=False, separators=(",", ":")), ex=7*24*3600)
                         r.delete(challenger_key)
@@ -143,10 +139,8 @@ def main() -> None:
                     r.expire(processed_set, processed_ttl_sec)
                 except Exception:
                     pass
-                try:
+                with contextlib.suppress(Exception):
                     r.xack(callbacks_stream, group, msg_id)
-                except Exception:
-                    pass
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ def strict_enabled() -> bool:
       - Profile is explicit (human-readable) and still supports boolean legacy flag.
     """
     try:
-        p = str(os.getenv("GATE_PROFILE", "") or "").strip().lower()
+        p = (os.getenv("GATE_PROFILE", "") or "").strip().lower()
         if p in {"strict", "aggressive", "hard"}:
             return True
         if p in {"default", "normal", "soft"}:
@@ -24,7 +24,7 @@ def strict_enabled() -> bool:
     except Exception:
         pass
     try:
-        v = str(os.getenv("GATES_STRICT", "") or "").strip()
+        v = (os.getenv("GATES_STRICT", "") or "").strip()
         return v in {"1", "true", "True", "yes", "on"}
     except Exception:
         return False

@@ -1,6 +1,5 @@
-import pytest
 
-from core.confidence_utils import normalize_confidence_pct, confidence_pct_to_ratio
+from core.confidence_utils import confidence_pct_to_ratio, normalize_confidence_pct
 
 
 def test_normalize_confidence_pct_accepts_ratio_and_pct():

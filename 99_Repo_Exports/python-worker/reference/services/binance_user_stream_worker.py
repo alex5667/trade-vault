@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Binance USDⓈ-M User Data Stream worker.
@@ -22,7 +23,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -56,13 +57,13 @@ class NormalizedUserStreamEvent:
     side: str
     status: str
     execution_type: str
-    order_id: Optional[int]
-    client_order_id: Optional[str]
-    algo_id: Optional[int]
-    client_algo_id: Optional[str]
-    raw: Dict[str, Any]
+    order_id: int | None
+    client_order_id: str | None
+    algo_id: int | None
+    client_algo_id: str | None
+    raw: dict[str, Any]
 
-    def to_redis_fields(self) -> Dict[str, str]:
+    def to_redis_fields(self) -> dict[str, str]:
         return {
             "event_type": str(self.event_type),
             "event_time_ms": str(self.event_time_ms),
@@ -90,26 +91,26 @@ class BinanceUserStreamWorker:
         self.ws_base_url = (os.getenv("BINANCE_FSTREAM_BASE_URL") or "wss://fstream.binance.com").rstrip("/")
         self.r = redis.from_url(self.redis_url, decode_responses=True)
         self.client = BinanceFuturesClient.from_env(prefix=(os.getenv("BINANCE_USER_STREAM_PREFIX") or "BINANCE_"))
-        self.listen_key: Optional[str] = None
+        self.listen_key: str | None = None
         self._last_event_time_ms: int = 0
 
     def _cache_key(self, kind: str, ref: str) -> str:
         return f"{self.cache_prefix}{kind}:{ref}"
 
-    def _normalise(self, payload: Dict[str, Any]) -> Optional[NormalizedUserStreamEvent]:
-        e = str(payload.get("e") or "").upper()
+    def _normalise(self, payload: dict[str, Any]) -> NormalizedUserStreamEvent | None:
+        e = (payload.get("e") or "").upper()
         event_time_ms = int(payload.get("E") or 0)
         if e == "ORDER_TRADE_UPDATE":
             order = payload.get("o") or {}
             return NormalizedUserStreamEvent(
                 event_type=e,
                 event_time_ms=event_time_ms,
-                symbol=str(order.get("s") or ""),
-                side=str(order.get("S") or ""),
-                status=str(order.get("X") or ""),
-                execution_type=str(order.get("x") or ""),
+                symbol=(order.get("s") or ""),
+                side=(order.get("S") or ""),
+                status=(order.get("X") or ""),
+                execution_type=(order.get("x") or ""),
                 order_id=int(order.get("i")) if order.get("i") not in (None, "") else None,
-                client_order_id=str(order.get("c") or "") or None,
+                client_order_id=(order.get("c") or "") or None,
                 algo_id=None,
                 client_algo_id=None,
                 raw=payload,
@@ -120,13 +121,13 @@ class BinanceUserStreamWorker:
                 event_type=e,
                 event_time_ms=event_time_ms,
                 symbol=str(algo.get("s") or payload.get("s") or ""),
-                side=str(algo.get("S") or ""),
+                side=(algo.get("S") or ""),
                 status=str(algo.get("X") or algo.get("x") or ""),
                 execution_type=str(algo.get("x") or payload.get("x") or ""),
                 order_id=None,
                 client_order_id=None,
                 algo_id=int(algo.get("algoId")) if algo.get("algoId") not in (None, "") else None,
-                client_algo_id=str(algo.get("clientAlgoId") or "") or None,
+                client_algo_id=(algo.get("clientAlgoId") or "") or None,
                 raw=payload,
             )
         return None

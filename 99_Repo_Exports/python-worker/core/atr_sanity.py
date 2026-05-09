@@ -1,8 +1,10 @@
 from __future__ import annotations
+
 import os
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Deque, Dict, Optional
+from typing import Any
+
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
@@ -70,7 +72,7 @@ def tf_to_ms(tf: str, default_ms: int = 60_000) -> int:
 class ATRSanityResult:
     atr_used: float
     bad: int
-    reason: Optional[str]
+    reason: str | None
     atr_bps: float
     used_last_good: int
     jump_event: int
@@ -91,23 +93,23 @@ class ATRSanity:
         self.bps_max = float(os.getenv("ATR_BPS_MAX_SANITY", "800.0"))
         self.last_good_ttl_ms = int(os.getenv("ATR_LAST_GOOD_TTL_MS", "1800000"))
         self.jump_max_rel = float(os.getenv("ATR_JUMP_MAX_REL", "1.2"))
-        
+
         # Internal state
         # Keys are "symbol:tf" to support multi-timeframe streams without cross-contamination
-        self._hist: Dict[str, Deque[float]] = {}
-        self._last_good: Dict[str, float] = {}
-        self._last_good_ts: Dict[str, int] = {}
+        self._hist: dict[str, deque[float]] = {}
+        self._last_good: dict[str, float] = {}
+        self._last_good_ts: dict[str, int] = {}
         # per-key jump timestamps (for window count)
-        self._jump_ts: Dict[str, Deque[int]] = {}
+        self._jump_ts: dict[str, deque[int]] = {}
         self._jump_window_ms = int(os.getenv("ATR_JUMP_WINDOW_SEC", "3600")) * 1000
         # Jump step-change acceptance (prevents 30m lockout when volatility regime shifts)
         self.jump_accept_k = int(os.getenv("ATR_JUMP_ACCEPT_K", "3") or 3)
         self.jump_accept_max_rel = float(os.getenv("ATR_JUMP_ACCEPT_MAX_REL", "10.0") or 10.0)
         self.jump_accept_rebase = os.getenv("ATR_JUMP_ACCEPT_REBASE", "1").strip().lower() in ("1", "true", "yes", "on")
         # per-key jump acceptance state (deduped per tf bucket to avoid counting per-tick)
-        self._jump_candidate: Dict[str, Deque[float]] = {}
-        self._jump_streak: Dict[str, int] = {}
-        self._jump_last_bucket: Dict[str, int] = {}
+        self._jump_candidate: dict[str, deque[float]] = {}
+        self._jump_streak: dict[str, int] = {}
+        self._jump_last_bucket: dict[str, int] = {}
 
     def update(self, *, atr: float, px: float, age_ms: int, now_ms: int, symbol: str = "na", tf: str = "1m") -> ATRSanityResult:
         """
@@ -148,7 +150,7 @@ class ATRSanity:
                     tf_ms = tf_to_ms(tf, 60_000)
                     jump_bucket_id = int(int(now_ms) // max(1, int(tf_ms)))
                     last_bucket = int(self._jump_last_bucket.get(key, -1) or -1)
-                    
+
                     if jump_rel > self.jump_max_rel:
                         bad, reason = 1, f"jump_rel>{self.jump_max_rel:.3f}:{jump_rel:.3f}:tf={tf}"
                         jump_event = 1
@@ -222,7 +224,7 @@ class ATRSanity:
                 buf.append(float(atr_bps))
 
         # If ATR is bad for non-jump reasons, reset jump candidates to avoid accidental acceptance later
-        if int(bad) == 1 and not str(reason or "").startswith("jump_rel"):
+        if int(bad) == 1 and not (reason or "").startswith("jump_rel"):
             self._jump_streak[key] = 0
             jump_streak = 0
             if key in self._jump_candidate:

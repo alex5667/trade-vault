@@ -1,9 +1,7 @@
-from pathlib import Path
 import importlib.util
 import sys
-import os
-import time
-from unittest.mock import Mock, MagicMock, patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 # Mock imports for binance_executor
 mod_dir = Path(__file__).parent.parent
@@ -47,14 +45,13 @@ def test_monitor_trade_lifecycle_uses_cancel_all_on_close():
         [{"symbol": "BTCUSDT", "positionAmt": "0.0"}]
     ]
 
-    with patch("time.sleep"):
-        with patch("time.time", side_effect=[100, 101, 102, 103]):
-            ex._monitor_trade_lifecycle_thread(
-                sid="sid-test",
-                symbol="BTCUSDT",
-                logical_side="LONG",
-                client=client
-            )
+    with patch("time.sleep"), patch("time.time", side_effect=[100, 101, 102, 103]):
+        ex._monitor_trade_lifecycle_thread(
+            sid="sid-test",
+            symbol="BTCUSDT",
+            logical_side="LONG",
+            client=client
+        )
 
     # Must use cancel_all (not cancel_by_token) for fully closed positions
     ex._cancel_all_symbol_orders_best_effort.assert_called_once_with(
@@ -83,14 +80,13 @@ def test_monitor_trade_lifecycle_uses_cancel_by_token_on_reversal():
         [{"symbol": "BTCUSDT", "positionAmt": "-1.0"}]   # SHORT (reversed)
     ]
 
-    with patch("time.sleep"):
-        with patch("time.time", side_effect=[100, 101, 102, 103]):
-            ex._monitor_trade_lifecycle_thread(
-                sid="sid-rev",
-                symbol="BTCUSDT",
-                logical_side="LONG",
-                client=client
-            )
+    with patch("time.sleep"), patch("time.time", side_effect=[100, 101, 102, 103]):
+        ex._monitor_trade_lifecycle_thread(
+            sid="sid-rev",
+            symbol="BTCUSDT",
+            logical_side="LONG",
+            client=client
+        )
 
     # Must use cancel_by_token (not cancel_all) for reversals
     ex._cancel_by_token.assert_called_once_with("BTCUSDT", "sid-rev", client=client)
@@ -113,14 +109,13 @@ def test_monitor_trade_lifecycle_cancel_all_includes_algo_orders():
         [{"symbol": "ETHUSDT", "positionAmt": "0.0"}]
     ]
 
-    with patch("time.sleep"):
-        with patch("time.time", side_effect=[100, 101, 102, 103]):
-            ex._monitor_trade_lifecycle_thread(
-                sid="sid-eth",
-                symbol="ETHUSDT",
-                logical_side="SHORT",
-                client=client
-            )
+    with patch("time.sleep"), patch("time.time", side_effect=[100, 101, 102, 103]):
+        ex._monitor_trade_lifecycle_thread(
+            sid="sid-eth",
+            symbol="ETHUSDT",
+            logical_side="SHORT",
+            client=client
+        )
 
     args, _ = ex._exec_event.call_args
     event = args[0]

@@ -1,7 +1,6 @@
 import unittest
-from datetime import datetime, timezone, timedelta
-import json
-import uuid
+from datetime import UTC, datetime, timedelta
+
 
 # Mock the database connection
 class MockCursor:
@@ -28,11 +27,10 @@ class MockConnection:
     def rollback(self):
         self.rolled_back = True
 
-import sys
-import os
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from services.atr_daily_triage_service import ATRDailyTriageService
+
 
 class TestATRDailyTriageService(unittest.TestCase):
     def setUp(self):
@@ -52,14 +50,14 @@ class TestATRDailyTriageService(unittest.TestCase):
     def test_section_scoring_mt5_requote(self):
         status = self.service.derive_section_status("execution", {"mt5_requotes_total": 12, "connection_bursts": 0})
         self.assertEqual(status, "RED")
-        
+
         status_burst = self.service.derive_section_status("execution", {"mt5_requotes_total": 0, "connection_bursts": 5})
         self.assertEqual(status_burst, "BLACK")
 
     def test_section_scoring_protective_mismatch(self):
         status = self.service.derive_section_status("protective", {"sl_ratchet_backwards": 1})
         self.assertEqual(status, "BLACK")
-        
+
     def test_section_scoring_stale_graph_cert(self):
         status = self.service.derive_section_status("control_plane", {"graph_cert_status": "failed"})
         self.assertEqual(status, "BLACK")
@@ -89,7 +87,7 @@ class TestATRDailyTriageService(unittest.TestCase):
         self.assertEqual(actions[0]["owner"], "protective_owner")
         self.assertEqual(actions[0]["reason_code"], "protective_invariant_violation")
         # due within ~1 hour
-        expected_due = datetime.now(timezone.utc) + timedelta(hours=1)
+        expected_due = datetime.now(UTC) + timedelta(hours=1)
         # allow some seconds drift
         self.assertTrue(expected_due - timedelta(seconds=10) < actions[0]["due_at"] < expected_due + timedelta(seconds=10))
 
@@ -104,10 +102,10 @@ class TestATRDailyTriageService(unittest.TestCase):
     def test_board_builder_integration(self):
         # Override Telegram emit to avoid prints
         self.service.emit_telegram_digest = lambda *args: None
-        
+
         conn = MockConnection()
         r = None # mock redis
-        
+
         # Seed healthy dispatch, protective, but MT5 error
         custom_metrics = {
              "dispatch_runtime": {"runtime_critical_drifts": 0, "order_queue_publish_ok_rate": 1.0},
@@ -121,19 +119,19 @@ class TestATRDailyTriageService(unittest.TestCase):
              "signal_gates": {},
              "signal_gates_status": "GREEN"
         }
-        
-        day_start = datetime.now(timezone.utc)
+
+        day_start = datetime.now(UTC)
         board_data = self.service.build_daily_triage_board(conn, r, day_start, custom_metrics=custom_metrics)
-        
+
         self.assertEqual(board_data["overall_status"], "RED")
         self.assertEqual(board_data["summary"]["primary_decision"], "SAME_DAY_FIX")
         self.assertTrue(conn.committed)
-        
+
         # Inject protective black
         custom_metrics["protective_status"] = "BLACK"
         custom_metrics["protective"] = {"sl_ratchet_backwards": 1}
         board_data_black = self.service.build_daily_triage_board(conn, r, day_start, custom_metrics=custom_metrics)
-        
+
         self.assertEqual(board_data_black["overall_status"], "BLACK")
         self.assertIn("INCIDENT_OPEN", board_data_black["summary"]["all_decisions"])
         self.assertIn("FREEZE_SCOPE", board_data_black["summary"]["all_decisions"])

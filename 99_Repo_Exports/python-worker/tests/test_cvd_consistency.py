@@ -1,7 +1,6 @@
-from utils.time_utils import get_ny_time_millis
-import time
 
 from core.tick_cvd import TickCVDState
+from utils.time_utils import get_ny_time_millis
 
 
 def test_quarantine_on_external_cvd_jump(monkeypatch):

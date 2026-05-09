@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict
-
+from dataclasses import asdict, dataclass
+from typing import Any
 
 # Gate bits (stable, for UI/analytics)
 BIT_A = 1 << 0  # A: delta_z + weak_progress OR abs_lvl (per cfg)
@@ -37,8 +36,8 @@ class OFConfirmV3:
     need: int
     gate_bits: int            # BIT_A|BIT_B|...
     reason: str               # stable reason code for veto/allow
-    evidence: Dict[str, Any]  # compact evidence (ages, key flags, fp stats)
-    contrib: Dict[str, float] # score contributions (optional)
+    evidence: dict[str, Any]  # compact evidence (ages, key flags, fp stats)
+    contrib: dict[str, float] # score contributions (optional)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)

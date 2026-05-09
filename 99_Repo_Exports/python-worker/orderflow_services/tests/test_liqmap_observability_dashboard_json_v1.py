@@ -4,9 +4,9 @@ from __future__ import annotations
 # Validates that both the canonical and mirror copies of the dashboard
 # are present, parse, have the correct title, and contain the required
 # Prometheus queries for the two panels.
-
 import json
 import os
+
 import pytest
 
 

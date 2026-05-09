@@ -7,13 +7,13 @@ import datetime as _dt
 import enum
 import math
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Union
 
 JsonScalar = Union[str, int, float, bool, None]
-JsonType = Union[JsonScalar, List["JsonType"], Dict[str, "JsonType"]]
+JsonType = Union[JsonScalar, list["JsonType"], dict[str, "JsonType"]]
 
 
-def _finite_float(x: float) -> Optional[float]:
+def _finite_float(x: float) -> float | None:
     # JSON не поддерживает NaN/Inf. Политика: превращаем в None (fail-open).
     if not isinstance(x, (int, float)):
         return None
@@ -30,7 +30,7 @@ def to_json_safe(
     max_items: int = 500,
     max_str: int = 4096,
     _depth: int = 0,
-    _seen: Optional[Set[int]] = None,
+    _seen: set[int] | None = None,
 ) -> JsonType:
     """
     Гарантирует: результат состоит ТОЛЬКО из:
@@ -115,7 +115,7 @@ def to_json_safe(
 
             # dict
             if isinstance(obj, dict):
-                out: Dict[str, JsonType] = {}
+                out: dict[str, JsonType] = {}
                 n = 0
                 for k, v in obj.items():
                     if n >= max_items:
@@ -130,7 +130,7 @@ def to_json_safe(
 
             # list/tuple/set
             if isinstance(obj, (list, tuple, set)):
-                out_list: List[JsonType] = []
+                out_list: list[JsonType] = []
                 for i, x in enumerate(obj):
                     if i >= max_items:
                         out_list.append("truncated")

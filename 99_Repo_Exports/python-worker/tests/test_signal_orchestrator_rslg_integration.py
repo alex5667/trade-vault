@@ -1,12 +1,11 @@
-import pytest
 from types import SimpleNamespace
 
 from handlers.crypto_orderflow.components.gates import CryptoSignalGates
-from handlers.crypto_orderflow.pipeline.orchestrator import SignalOrchestrator
-from handlers.crypto_orderflow.utils.quality_gates import RegimeSessionLiquidityGate
-from handlers.crypto_orderflow.config.handler_config import CryptoOrderFlowConfigManager
 from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
 from handlers.crypto_orderflow.components.observability import CryptoObservability
+from handlers.crypto_orderflow.pipeline.orchestrator import SignalOrchestrator
+from handlers.crypto_orderflow.utils.quality_gates import RegimeSessionLiquidityGate
+
 
 class DummyConfigManager:
     def __init__(self, symbol="BTCUSDT"):
@@ -41,10 +40,10 @@ class DummyEmitter:
 def test_orchestrator_rslg_integration_veto(monkeypatch):
     monkeypatch.setenv("QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("QUALITY_SPREAD_MAX_BPS_DEFAULT", "5.0")
-    
+
     # 1. Initialize RSLG Gate
     rslg = RegimeSessionLiquidityGate.from_env()
-    
+
     # 2. Wraps in CryptoSignalGates
     gates = CryptoSignalGates(
         entry_policy=None,
@@ -53,14 +52,14 @@ def test_orchestrator_rslg_integration_veto(monkeypatch):
         regime_liquidity_gate=rslg,
         smt_gate=None,
     )
-    
+
     # 3. Setup Orchestrator
     cfg = DummyConfigManager()
     liquidity = CryptoLiquidity()
     obs = CryptoObservability(None, None)
     conf = DummyConfirmations()
     emitter = DummyEmitter()
-    
+
     orchestrator = SignalOrchestrator(
         config=cfg,
         gates=gates,
@@ -69,7 +68,7 @@ def test_orchestrator_rslg_integration_veto(monkeypatch):
         confirmations_engine=conf,
         emitter=emitter
     )
-    
+
     import time
     _ts = int(time.time() * 1000)
     # Context with wide spread (10.0 > 5.0) -> SHOULD BE VETOED
@@ -82,10 +81,10 @@ def test_orchestrator_rslg_integration_veto(monkeypatch):
         of=SimpleNamespace(spread_bps=10.0)
     )
     cand1 = SimpleNamespace(kind="breakout", side=1, raw_score=2.0)
-    
+
     def detect_fn_wide(ctx):
         return [cand1]
-        
+
     any_sent = orchestrator.process(ctx_wide, detect_fn_wide)
     assert not any_sent
     assert len(emitter.emitted) == 0
@@ -93,7 +92,7 @@ def test_orchestrator_rslg_integration_veto(monkeypatch):
 def test_orchestrator_rslg_integration_pass(monkeypatch):
     monkeypatch.setenv("QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("QUALITY_SPREAD_MAX_BPS_DEFAULT", "10.0")
-    
+
     rslg = RegimeSessionLiquidityGate.from_env()
     gates = CryptoSignalGates(
         entry_policy=None,
@@ -102,13 +101,13 @@ def test_orchestrator_rslg_integration_pass(monkeypatch):
         regime_liquidity_gate=rslg,
         smt_gate=None,
     )
-    
+
     cfg = DummyConfigManager()
     liquidity = CryptoLiquidity()
     obs = CryptoObservability(None, None)
     conf = DummyConfirmations()
     emitter = DummyEmitter()
-    
+
     orchestrator = SignalOrchestrator(
         config=cfg,
         gates=gates,
@@ -117,7 +116,7 @@ def test_orchestrator_rslg_integration_pass(monkeypatch):
         confirmations_engine=conf,
         emitter=emitter
     )
-    
+
     import time
     _ts = int(time.time() * 1000)
     # Context with narrow spread (5.0 < 10.0) -> SHOULD PASS
@@ -130,10 +129,10 @@ def test_orchestrator_rslg_integration_pass(monkeypatch):
         of=SimpleNamespace(spread_bps=5.0)
     )
     cand2 = SimpleNamespace(kind="breakout", side=1, raw_score=2.0)
-    
+
     def detect_fn_narrow(ctx):
         return [cand2]
-        
+
     any_sent = orchestrator.process(ctx_narrow, detect_fn_narrow)
     assert any_sent
     assert len(emitter.emitted) == 1

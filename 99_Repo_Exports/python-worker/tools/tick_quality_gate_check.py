@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tick quality gate from Prometheus /metrics.
 
 Purpose
@@ -27,16 +28,15 @@ This tool is stdlib-only.
 
 
 import argparse
-import os
 import json
 import math
+import os
 import re
 import sys
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Tuple
 
 # Exit codes
 # 0  PASS
@@ -49,10 +49,10 @@ _EXIT_METRICS_UNAVAILABLE = 3
 LABEL_RE = re.compile(r"^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)\{(?P<labels>.*)\}$")
 
 
-def _parse_labels(lbls: str) -> Dict[str, str]:
+def _parse_labels(lbls: str) -> dict[str, str]:
     # Prometheus label values are double-quoted with escapes.
     # We implement a minimal parser sufficient for our metrics.
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     s = lbls.strip()
     if not s:
         return out
@@ -71,7 +71,7 @@ def _parse_labels(lbls: str) -> Dict[str, str]:
             break
         i += 1
         # value
-        val_chars: List[str] = []
+        val_chars: list[str] = []
         while i < n:
             c = s[i]
             if c == "\\":
@@ -93,13 +93,13 @@ def _parse_labels(lbls: str) -> Dict[str, str]:
     return out
 
 
-def _metric_key(name: str, labels: Dict[str, str]) -> Tuple[str, Tuple[Tuple[str, str], ...]]:
+def _metric_key(name: str, labels: dict[str, str]) -> tuple[str, tuple[tuple[str, str], ...]]:
     return name, tuple(sorted(labels.items()))
 
 
-def parse_prometheus_text(text: str) -> Dict[Tuple[str, Tuple[Tuple[str, str], ...]], float]:
+def parse_prometheus_text(text: str) -> dict[tuple[str, tuple[tuple[str, str], ...]], float]:
     """Parse Prometheus exposition format into a flat dict."""
-    out: Dict[Tuple[str, Tuple[Tuple[str, str], ...]], float] = {}
+    out: dict[tuple[str, tuple[tuple[str, str], ...]], float] = {}
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -114,7 +114,7 @@ def parse_prometheus_text(text: str) -> Dict[Tuple[str, Tuple[Tuple[str, str], .
             val = float(v)
         except Exception:
             continue
-        labels: Dict[str, str] = {}
+        labels: dict[str, str] = {}
         name = m
         mm = LABEL_RE.match(m)
         if mm:
@@ -129,7 +129,7 @@ def fetch_metrics(
     timeout_s: float = 5.0,
     retries: int = 3,
     retry_delay_s: float = 5.0,
-) -> Dict[Tuple[str, Tuple[Tuple[str, str], ...]], float]:
+) -> dict[tuple[str, tuple[tuple[str, str], ...]], float]:
     """Fetch and parse Prometheus text metrics from *url*.
 
     Retries up to *retries* times (with *retry_delay_s* sleep between attempts)
@@ -154,16 +154,16 @@ def fetch_metrics(
     raise last_exc
 
 
-def _labels_to_dict(lbl_tuple: Tuple[Tuple[str, str], ...]) -> Dict[str, str]:
+def _labels_to_dict(lbl_tuple: tuple[tuple[str, str], ...]) -> dict[str, str]:
     return {k: v for k, v in lbl_tuple}
 
 
 def find_gauge(
-    m: Dict[Tuple[str, Tuple[Tuple[str, str], ...]], float],
+    m: dict[tuple[str, tuple[tuple[str, str], ...]], float],
     name: str,
-    symbol: Optional[str],
-    default: Optional[float] = None,
-) -> Optional[float]:
+    symbol: str | None,
+    default: float | None = None,
+) -> float | None:
     for (n, lbls), v in m.items():
         if n != name:
             continue
@@ -178,17 +178,17 @@ def find_gauge(
 @dataclass
 class Histogram:
     # bucket upper bound -> count
-    buckets: Dict[float, float]
+    buckets: dict[float, float]
     count: float
 
 
 def _histogram_from_snapshot(
-    snap: Dict[Tuple[str, Tuple[Tuple[str, str], ...]], float],
+    snap: dict[tuple[str, tuple[tuple[str, str], ...]], float],
     base_name: str,
-    symbol: Optional[str],
-) -> Optional[Histogram]:
-    buckets: Dict[float, float] = {}
-    total_count: Optional[float] = None
+    symbol: str | None,
+) -> Histogram | None:
+    buckets: dict[float, float] = {}
+    total_count: float | None = None
 
     for (n, lbls), v in snap.items():
         if n == base_name + "_count":
@@ -222,7 +222,7 @@ def _histogram_from_snapshot(
 
 def histogram_window_delta(h1: Histogram, h2: Histogram) -> Histogram:
     # h2 is later than h1
-    out: Dict[float, float] = {}
+    out: dict[float, float] = {}
     all_ubs = set(h1.buckets.keys()) | set(h2.buckets.keys())
     for ub in all_ubs:
         out[ub] = float(h2.buckets.get(ub, 0.0)) - float(h1.buckets.get(ub, 0.0))
@@ -236,7 +236,7 @@ def histogram_window_delta(h1: Histogram, h2: Histogram) -> Histogram:
     return Histogram(buckets=out, count=cnt)
 
 
-def histogram_quantile(q: float, h: Histogram) -> Optional[float]:
+def histogram_quantile(q: float, h: Histogram) -> float | None:
     """Approx quantile from cumulative bucket counts.
 
     For window deltas, bucket values are cumulative counts.
@@ -256,7 +256,7 @@ def histogram_quantile(q: float, h: Histogram) -> Optional[float]:
     return float("inf")
 
 
-def _safe_float(x: Optional[float]) -> Optional[float]:
+def _safe_float(x: float | None) -> float | None:
     if x is None:
         return None
     try:
@@ -274,15 +274,15 @@ def _status(pass_ok: bool, insufficient: bool) -> str:
 
 
 def _emit_unavailable(
-    args: "argparse.Namespace",
+    args: argparse.Namespace,
     url: str,
-    sym: Optional[str],
+    sym: str | None,
     window_s: int,
     exc: Exception,
 ) -> None:
     """Emit a metrics_unavailable result when the /metrics endpoint is unreachable."""
     sys.stderr.write(f"[tick-gate] metrics unavailable at {url}: {exc}\n")
-    result: Dict = {
+    result: dict = {
         "status": "metrics_unavailable",
         "metrics_url": url,
         "symbol": sym,
@@ -295,7 +295,7 @@ def _emit_unavailable(
         sys.stdout.write(f"status=metrics_unavailable url={url} error={exc}\n")
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--metrics-url", default="http://localhost:8000/metrics")
     ap.add_argument("--symbol", default=None, help="Optional symbol label (e.g. BTCUSDT).")
@@ -365,7 +365,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Evaluate
     insufficient = False
-    reasons: List[str] = []
+    reasons: list[str] = []
 
     # Gauges are optional but recommended; lack -> insufficient.
     for name, val in (

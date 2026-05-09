@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 news_pipeline/news_agent_timer.py — P6 timer service for news agent.
 
@@ -20,15 +21,14 @@ ENV vars consumed:
   NEWS_LLM_BUDGET_DAILY_USD   10.0
   NEWS_BUDGET_CLEANUP_DAYS    3  (delete stale budget keys older than N days)
 """
-from utils.time_utils import get_ny_time_millis
-
 import asyncio
 import datetime
 import logging
 import os
 import sys
 import time
-from typing import Dict, List
+
+from utils.time_utils import get_ny_time_millis
 
 log = logging.getLogger("news_agent_timer")
 logging.basicConfig(
@@ -61,7 +61,7 @@ MAX_CALLS_PER_DAY = int(_env("NEWS_LLM_MAX_CALLS_PER_DAY", "2500"))
 BUDGET_USD_LIMIT = float(_env("NEWS_LLM_BUDGET_DAILY_USD", "10.0"))
 
 # Streams to monitor for XLEN lag (format: news:raw as used in this project)
-STREAMS: List[str] = [
+STREAMS: list[str] = [
     _env("NEWS_STREAM_RAW",     "news:raw"),
     _env("NEWS_STREAM_ANALYSIS","news:analysis"),
     _env("NEWS_STREAM_DLQ",     "news:raw:dlq"),
@@ -75,12 +75,12 @@ STREAM_GROUPS_RAW = _env(
 )
 
 
-def _parse_stream_groups(spec: str) -> Dict[str, List[str]]:
+def _parse_stream_groups(spec: str) -> dict[str, list[str]]:
     """Parse NEWS_STREAM_GROUPS env into {stream: [group1, group2, ...]}.
 
     Format: "<stream>=<group1>,<group2>;<stream2>=<group>"
     """
-    out: Dict[str, List[str]] = {}
+    out: dict[str, list[str]] = {}
     for part in (spec or "").split(";"):
         part = part.strip()
         if not part or "=" not in part:
@@ -93,7 +93,7 @@ def _parse_stream_groups(spec: str) -> Dict[str, List[str]]:
     return out
 
 
-STREAM_GROUPS: Dict[str, List[str]] = _parse_stream_groups(STREAM_GROUPS_RAW)
+STREAM_GROUPS: dict[str, list[str]] = _parse_stream_groups(STREAM_GROUPS_RAW)
 
 # ── Prometheus metrics (local, timer-specific) ─────────────────────────────────
 try:
@@ -130,7 +130,7 @@ except ImportError:
 
 # ── Core async loops ──────────────────────────────────────────────────────────
 
-async def _stream_lag_loop(r: "aioredis.Redis") -> None:  # type: ignore
+async def _stream_lag_loop(r: aioredis.Redis) -> None:  # type: ignore
     """Poll XINFO STREAM + XINFO GROUPS for lag/pending metrics."""
     while True:
         now_ms = get_ny_time_millis()
@@ -182,7 +182,7 @@ async def _stream_lag_loop(r: "aioredis.Redis") -> None:  # type: ignore
         await asyncio.sleep(INTERVAL_S)
 
 
-async def _budget_gauge_loop(r: "aioredis.Redis") -> None:  # type: ignore
+async def _budget_gauge_loop(r: aioredis.Redis) -> None:  # type: ignore
     """Read today's call/USD budget usage from Redis and export as gauges."""
     while True:
         today = time.strftime("%Y%m%d", time.gmtime())
@@ -207,7 +207,7 @@ async def _budget_gauge_loop(r: "aioredis.Redis") -> None:  # type: ignore
         await asyncio.sleep(INTERVAL_S)
 
 
-async def _budget_cleanup_loop(r: "aioredis.Redis") -> None:  # type: ignore
+async def _budget_cleanup_loop(r: aioredis.Redis) -> None:  # type: ignore
     """Delete stale budget keys (older than CLEANUP_DAYS) to avoid Redis bloat."""
     while True:
         await asyncio.sleep(3600)  # run hourly

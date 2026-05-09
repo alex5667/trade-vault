@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 ServiceConfig — единое место для всех ENV-переменных CryptoOrderflowService.
 
@@ -11,7 +12,6 @@ ServiceConfig — единое место для всех ENV-переменны
 
 import os
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 def _env_bool(name: str, default: str = "0") -> bool:
@@ -58,8 +58,14 @@ class RedisPoolCfg:
     conn_to: float = field(default_factory=lambda: _env_float("REDIS_SOCKET_CONNECT_TIMEOUT", 5.0))
     hc_interval: int = field(default_factory=lambda: _env_int("REDIS_HEALTHCHECK_INTERVAL", 30))
 
+    # Dedicated publish pool timeout — hot-path XADD must not wait 15s for a pool slot.
+    # Default 2.0s: tight enough to cap P99, loose enough for normal Redis RTT.
+    # Override via REDIS_PUBLISH_SOCKET_TIMEOUT in ENV.
+    publish_sock_to: float = field(
+        default_factory=lambda: _env_float("REDIS_PUBLISH_SOCKET_TIMEOUT", 2.0))
+
     # Отдельный таймаут для config-клиента (не hot-path, может быть выше)
-    config_sock_to: Optional[float] = None  # None → берёт ORDERFLOW_CONFIG_SOCKET_TIMEOUT или 5.0
+    config_sock_to: float | None = None  # None → берёт ORDERFLOW_CONFIG_SOCKET_TIMEOUT или 5.0
 
     def resolved_config_sock_to(self) -> float:
         if self.config_sock_to is not None:
@@ -173,7 +179,7 @@ class StreamCfg:
 
     # Импортируем RS здесь чтобы не создавать circular-import на уровне модуля
     @classmethod
-    def from_env(cls) -> "StreamCfg":
+    def from_env(cls) -> StreamCfg:
         from core.redis_keys import RedisStreams as RS
         return cls(
             notify_stream=os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM),
@@ -225,7 +231,7 @@ class ServiceConfig:
     lifecycle: LifecycleCfg = field(default_factory=LifecycleCfg)
 
     # StreamCfg строится через from_env() из-за отложенного импорта RedisStreams
-    streams: Optional[StreamCfg] = None
+    streams: StreamCfg | None = None
 
     # Lifecycle
     refresh_interval_sec: int = field(
@@ -234,7 +240,7 @@ class ServiceConfig:
         default_factory=lambda: _env_int("CRYPTO_OF_BOOTSTRAP_MAX_CONC", 10))
 
     @classmethod
-    def from_env(cls) -> "ServiceConfig":
+    def from_env(cls) -> ServiceConfig:
         cfg = cls()
         cfg.streams = StreamCfg.from_env()
         return cfg

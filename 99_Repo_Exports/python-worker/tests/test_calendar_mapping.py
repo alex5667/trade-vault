@@ -1,5 +1,6 @@
 from news_pipeline.calendar_mapping import map_calendar_asset_classes
 
+
 def test_us_high_includes_metals_and_crypto():
     out = map_calendar_asset_classes(country="United States", currency="USD", title="FOMC Rate Decision", importance=3)
     assert out == ["forex", "metals", "crypto"]

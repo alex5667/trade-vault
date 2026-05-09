@@ -8,9 +8,9 @@ Focuses on the core atomic state machine for the guard key:
 5. Released -> Active (SAME sid) -> REJECTED (stale writer)
 6. Released -> Active (NEW sid) -> OK (takeover)
 """
-import pytest
-import json
 from unittest.mock import MagicMock
+
+import pytest
 
 from services.active_symbol_guard_store import ActiveSymbolGuardStore
 
@@ -61,7 +61,7 @@ def test_active_rejected_different_sid(store):
 def test_released_tombstone_blocks_same_sid_resurrection(store):
     store.acquire_or_refresh(symbol="BTCUSDT", sid="sid-1", payload_patch={}, writer="exec")
     store.mark_released(symbol="BTCUSDT", expected_sid="sid-1", writer="repair")
-    
+
     # Stale writer for sid-1 wakes up and tries to persist (e.g. projection worker late event)
     res = store.acquire_or_refresh(symbol="BTCUSDT", sid="sid-1", payload_patch={}, writer="proj")
     assert res['applied'] is False
@@ -72,7 +72,7 @@ def test_released_tombstone_blocks_same_sid_resurrection(store):
 def test_different_sid_can_take_over_after_release_tombstone(store):
     store.acquire_or_refresh(symbol="BTCUSDT", sid="sid-1", payload_patch={}, writer="exec")
     store.mark_released(symbol="BTCUSDT", expected_sid="sid-1", writer="repair")
-    
+
     # New trade for BTCUSDT comes in
     res = store.acquire_or_refresh(symbol="BTCUSDT", sid="sid-2", payload_patch={}, writer="exec")
     assert res['applied'] is True
@@ -86,18 +86,18 @@ def test_stale_release_cas_cannot_delete_newer_refresh(store):
     r = FakeRedis()
     s = ActiveSymbolGuardStore(r)
     s.acquire_or_refresh(symbol="SOLUSDT", sid="sid-1", payload_patch={}, writer="w1") # v1
-    
+
     # Simulate a worker reading v1, pausing, while another updates to v2
     s.acquire_or_refresh(symbol="SOLUSDT", sid="sid-1", payload_patch={"note": "refresh"}, writer="w1") # v2
-    
+
     # The paused worker tries to release using an old load_raw doc (v1)
     # Since we can't easily pause the internal CAS, we mock load_raw inside mark_released to return the stale doc
     stale_doc = {"symbol": "SOLUSDT", "sid": "sid-1", "guard_version": 1, "guard_lease_token": "old"}
-    
+
     orig_load = s.load_raw
     s.load_raw = MagicMock(side_effect=[stale_doc, orig_load("SOLUSDT")])
     res = s.mark_released(symbol="SOLUSDT", expected_sid="sid-1", writer="w2", retry_once=False)
     s.load_raw = orig_load
-    
+
     assert res['applied'] is False
     assert 'version_mismatch' in res['reason'] or 'lease_mismatch' in res['reason']

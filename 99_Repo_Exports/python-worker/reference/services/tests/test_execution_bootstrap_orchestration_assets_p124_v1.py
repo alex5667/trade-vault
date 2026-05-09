@@ -5,8 +5,8 @@ required P1.2.4 orchestration artifacts (healthcheck, supervised executor,
 new incident/runbook keys).
 """
 from pathlib import Path
-import yaml
 
+import yaml
 
 # ---------------------------------------------------------------------------
 # Alert rules

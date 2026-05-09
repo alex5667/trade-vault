@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """refresh_exec_slip_stats_p80.py
 
 P80: Refresh materialized view mv_exec_slippage_eval_1h_stats to accelerate promoter/rollback/freezer.
@@ -17,12 +18,12 @@ Optional Redis state (if REDIS_URL/CRYPTO_NOTIFY_REDIS_URL provided):
   state:exec_slip_stats_refresher:last_dur_ms
   state:exec_slip_stats_refresher:last_ok,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import sys
 import time
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import psycopg2  # type: ignore
@@ -32,9 +33,9 @@ except Exception:
 
 def _env_int(name: str, default: str) -> int:
     try:
-        return int(str(os.getenv(name, default)).strip())
+        return int(os.getenv(name, default).strip())
     except Exception:
-        return int(default)
+        return default
 
 
 def _now_ms() -> int:
@@ -43,7 +44,7 @@ def _now_ms() -> int:
 
 def _write_status(path: str, obj: dict) -> None:
     try:
-        p = str(path or "").strip()
+        p = (path or "").strip()
         if not p:
             return
         d = os.path.dirname(p)

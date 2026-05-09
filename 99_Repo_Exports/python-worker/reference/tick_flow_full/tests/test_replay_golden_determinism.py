@@ -2,15 +2,15 @@ import os
 from types import SimpleNamespace
 
 import pytest
-
-# NOTE: these imports assume tests are executed with python-worker/ on PYTHONPATH.
-from common.payload_fingerprint import fingerprint_tradeable_payload
-from handlers.crypto_orderflow.pipeline import candidate_emit_pipeline_v2 as mod
 from handlers.crypto_orderflow.pipeline.candidate_emit_pipeline_v2 import (
     CandidateFrame,
     GateRunner,
     PayloadBuilder,
 )
+
+# NOTE: these imports assume tests are executed with python-worker/ on PYTHONPATH.
+from common.payload_fingerprint import fingerprint_tradeable_payload
+from handlers.crypto_orderflow.pipeline import candidate_emit_pipeline_v2 as mod
 
 
 def create_minimal_frame(symbol="BTCUSDT", price=43210.5, side=1):
@@ -120,11 +120,11 @@ def test_gate_order_levels_attached_before_edge_cost(monkeypatch: pytest.MonkeyP
         events.append((stage, name))
 
     def _ensure_levels(handler, *, ctx):
-        setattr(ctx, "_levels_ensured", True)
+        ctx._levels_ensured = True
 
     def _attach_levels(ctx):
         assert getattr(ctx, "_levels_ensured", False) is True
-        setattr(ctx, "_levels_attached", True)
+        ctx._levels_attached = True
 
     class _H:
         def __init__(self):

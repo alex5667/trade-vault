@@ -1,6 +1,8 @@
+
 import pytest
-import time
-from backtest_hooks import ReplayConfig, replay, ReplayTimeStats
+
+from backtest_hooks import ReplayConfig, replay
+
 
 def test_replay_monotonic_ok():
     ticks = [
@@ -100,9 +102,8 @@ def test_replay_invalid_ts():
 
 def test_parquet_normalization_scales():
     import pandas as pd
-    import numpy as np
+
     from backtest_hooks import ReplayConfig, iter_ticks_from_parquet
-    import backtest_hooks
 
     # Helper to test scale
     def run_norm_test(data_dict):

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Plot Reliability Calibration Curves
 
@@ -10,9 +11,6 @@ Requires matplotlib and pandas.
 
 import os
 import sys
-import csv
-from collections import defaultdict
-from typing import Dict, List
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -27,7 +25,7 @@ except ImportError:
     print("   pip install matplotlib pandas")
 
 
-def load_calibration_curves(data_dir: str) -> Dict[str, pd.DataFrame]:
+def load_calibration_curves(data_dir: str) -> dict[str, pd.DataFrame]:
     """Load calibration curve data from CSV files."""
     curves = {}
 
@@ -45,7 +43,7 @@ def load_calibration_curves(data_dir: str) -> Dict[str, pd.DataFrame]:
     return curves
 
 
-def plot_calibration_curves(curves: Dict[str, pd.DataFrame], output_file: str = None):
+def plot_calibration_curves(curves: dict[str, pd.DataFrame], output_file: str = None):
     """Plot calibration curves for all outcomes."""
     if not HAS_PLOTTING:
         return
@@ -96,7 +94,7 @@ def plot_calibration_curves(curves: Dict[str, pd.DataFrame], output_file: str = 
         plt.show()
 
 
-def plot_outcome_comparison(curves: Dict[str, pd.DataFrame], output_file: str = None):
+def plot_outcome_comparison(curves: dict[str, pd.DataFrame], output_file: str = None):
     """Create comparison plot showing differences between outcomes."""
     if not HAS_PLOTTING:
         return

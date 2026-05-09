@@ -1,9 +1,7 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
-
-import time
 
 from orderflow_services.strategy_research_stats_rollout_preflight_v1 import evaluate_rollout_preflight
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:

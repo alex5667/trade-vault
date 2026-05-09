@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Phase 8.6 — Graph-Backed Protective State Resolver
 
@@ -12,9 +13,7 @@ NOT for broker execution.
 
 import json
 import logging
-import os
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger("atr_graph_backed_protective_resolver")
 
@@ -26,7 +25,7 @@ class ATRGraphBackedProtectiveResolver:
     """
 
     @staticmethod
-    def resolve_from_graph(signal_id: str) -> Optional[Dict[str, Any]]:
+    def resolve_from_graph(signal_id: str) -> dict[str, Any] | None:
         """
         Build canonical protective state from graph nodes.
 
@@ -36,8 +35,9 @@ class ATRGraphBackedProtectiveResolver:
             closeout_state, slippage_feedback, projection_ver
         """
         try:
-            from services.analytics_db import get_conn
             import psycopg2.extras
+
+            from services.analytics_db import get_conn
 
             with get_conn() as conn, conn.cursor(
                 cursor_factory=psycopg2.extras.RealDictCursor,
@@ -54,7 +54,7 @@ class ATRGraphBackedProtectiveResolver:
                 if not rows:
                     return None
 
-                nodes: Dict[str, Dict[str, Any]] = {}
+                nodes: dict[str, dict[str, Any]] = {}
                 symbol = "UNKNOWN"
                 max_version = 0
                 for r in rows:
@@ -92,7 +92,7 @@ class ATRGraphBackedProtectiveResolver:
     def resolve_legacy_from_redis(
         signal_id: str,
         redis_client: Any = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Build legacy protective state from Redis open_positions hash.
 
@@ -122,9 +122,9 @@ class ATRGraphBackedProtectiveResolver:
             if not h or h.get("status") != "open":
                 return None
 
-            tp1_hit = str(h.get("tp1_hit", "0")) == "1"
-            trailing_active = str(h.get("trailing_active", "0")) == "1"
-            trailing_started = str(h.get("trailing_started", "0")) == "1"
+            tp1_hit = (h.get("tp1_hit", "0")) == "1"
+            trailing_active = (h.get("trailing_active", "0")) == "1"
+            trailing_started = (h.get("trailing_started", "0")) == "1"
 
             # Derive break-even state from tp1_hit and trailing logic
             if trailing_active or trailing_started:
@@ -140,7 +140,7 @@ class ATRGraphBackedProtectiveResolver:
 
             return {
                 "signal_id": signal_id,
-                "symbol": str(h.get("symbol", "UNKNOWN")).upper(),
+                "symbol": (h.get("symbol", "UNKNOWN")).upper(),
                 "position_state": "open",
                 "break_even_state": be_state,
                 "trailing_state": trail_state,
@@ -161,14 +161,15 @@ class ATRGraphBackedProtectiveResolver:
     @staticmethod
     def resolve_legacy_closed(
         signal_id: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Build legacy protective state for a closed position from
         trades_closed table (truth source for closeout).
         """
         try:
-            from services.analytics_db import get_conn
             import psycopg2.extras
+
+            from services.analytics_db import get_conn
 
             with get_conn() as conn, conn.cursor(
                 cursor_factory=psycopg2.extras.RealDictCursor,
@@ -189,7 +190,7 @@ class ATRGraphBackedProtectiveResolver:
 
                 return {
                     "signal_id": signal_id,
-                    "symbol": str(row.get("symbol", "UNKNOWN")).upper(),
+                    "symbol": (row.get("symbol", "UNKNOWN")).upper(),
                     "position_state": "closed",
                     "break_even_state": "closed",
                     "trailing_state": "closed",

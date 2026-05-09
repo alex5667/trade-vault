@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Stage 4 next: AB-winner evaluator v2 (deployable p_min, stratified + bootstrap CI).
 
 Why v2:
@@ -38,15 +40,13 @@ ENV vars (all have defaults):
   NOTIFY_TELEGRAM_STREAM  — Redis stream for Telegram notifications
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
-import math
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import numpy as np
@@ -55,6 +55,7 @@ except Exception as e:
     raise SystemExit("Missing deps. Install: pip install numpy pandas") from e
 
 from core.bootstrap_ci import bootstrap_mean_diff, bootstrap_rate_diff
+import contextlib
 
 
 def now_ms() -> int:
@@ -67,7 +68,7 @@ def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)).strip())
     except Exception:
-        return float(default)
+        return default
 
 
 def _env_int(name: str, default: int) -> int:
@@ -75,25 +76,25 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(float(os.getenv(name, str(default)).strip()))
     except Exception:
-        return int(default)
+        return default
 
 
 def _safe_float(x: Any, default: float = 0.0) -> float:
     """Safely convert any value to float with NaN/None handling."""
     try:
         if x is None:
-            return float(default)
+            return default
         if isinstance(x, (int, float, np.number)):
             return float(x)
         s = str(x).strip()
         if not s:
-            return float(default)
+            return default
         return float(s)
     except Exception:
-        return float(default)
+        return default
 
 
-def load_dataset(in_parquet: Optional[str], in_ndjson: Optional[str], limit_rows: int = 0) -> pd.DataFrame:
+def load_dataset(in_parquet: str | None, in_ndjson: str | None, limit_rows: int = 0) -> pd.DataFrame:
     """Load evaluation dataset from parquet or ndjson.
 
     Exactly one of in_parquet/in_ndjson must be provided.
@@ -108,8 +109,8 @@ def load_dataset(in_parquet: Optional[str], in_ndjson: Optional[str], limit_rows
             df = df.iloc[:limit_rows].copy()
         return df
 
-    rows: List[Dict[str, Any]] = []
-    with open(in_ndjson, "r", encoding="utf-8") as f:
+    rows: list[dict[str, Any]] = []
+    with open(in_ndjson, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -127,15 +128,13 @@ def load_dataset(in_parquet: Optional[str], in_ndjson: Optional[str], limit_rows
         _dir = os.path.dirname(in_ndjson)
         outcomes_path = os.path.join(_dir, "latest_outcomes.ndjson")
         if os.path.isfile(outcomes_path):
-            out_rows: List[Dict[str, Any]] = []
-            with open(outcomes_path, "r", encoding="utf-8") as fo:
+            out_rows: list[dict[str, Any]] = []
+            with open(outcomes_path, encoding="utf-8") as fo:
                 for line in fo:
                     s = line.strip()
                     if s:
-                        try:
+                        with contextlib.suppress(Exception):
                             out_rows.append(json.loads(s))
-                        except Exception:
-                            pass
             if out_rows:
                 df_out = pd.DataFrame(out_rows)
                 if "sid" in df_out.columns:
@@ -165,7 +164,7 @@ def score_model_proba(model: Any, df: pd.DataFrame) -> np.ndarray:
     Returns np.ndarray of shape (len(df),) with probabilities in [0, 1].
     Missing feature columns are treated as 0.0 (fail-safe default).
     """
-    feats: List[str] = list(getattr(model, "features", []))
+    feats: list[str] = list(getattr(model, "features", []))
     if not feats:
         feats = [c for c in df.columns if c not in ("y", "r_mult", "ok")]
 
@@ -173,7 +172,7 @@ def score_model_proba(model: Any, df: pd.DataFrame) -> np.ndarray:
     p = np.zeros((len(df),), dtype=float)
 
     for i, row in enumerate(df.itertuples(index=False)):
-        feat_dict: Dict[str, float] = {}
+        feat_dict: dict[str, float] = {}
         for c in feats:
             if c in cols_present:
                 feat_dict[c] = _safe_float(getattr(row, c), 0.0)
@@ -219,7 +218,7 @@ class V2Config:
     require_ci_positive: int = 1  # 1=require CI_lo(ΔexpR) > 0
 
     # Stratification: top-K strata by size are checked for worst-case guard
-    strata_cols: Tuple[str, ...] = ("symbol",)
+    strata_cols: tuple[str, ...] = ("symbol",)
     strata_topk: int = 10
 
     # Ramp knobs
@@ -228,7 +227,7 @@ class V2Config:
     max_share: float = 0.50
 
 
-def _read_freeze_max_share() -> Optional[float]:
+def _read_freeze_max_share() -> float | None:
     """Read max_ab_share cap from freeze file if present.
 
     Integrates with stage4 meta freeze guard (core.meta_freeze_file).
@@ -252,7 +251,7 @@ def _policy_vectors(
     p: np.ndarray,
     p_min: float,
     tail_r: float,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compute per-candidate policy contribution vectors.
 
     Returns:
@@ -270,7 +269,7 @@ def _metrics_from_vectors(
     contrib: np.ndarray,
     tail: np.ndarray,
     allow: np.ndarray,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute policy metrics from pre-computed policy vectors.
 
     All per-candidate rates use the full dataset as denominator (not just
@@ -278,7 +277,7 @@ def _metrics_from_vectors(
     """
     n = int(len(contrib))
     allow_n = int(np.sum(allow))
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "n": n,
         "allow_n": allow_n,
         "allow_rate": float(allow_n / n) if n > 0 else 0.0,
@@ -298,7 +297,7 @@ def _metrics_from_vectors(
     return out
 
 
-def _stratum_key(row: Any, cols: Tuple[str, ...]) -> str:
+def _stratum_key(row: Any, cols: tuple[str, ...]) -> str:
     """Build a string stratum key from named row attributes."""
     if not cols:
         return "ALL"
@@ -315,7 +314,7 @@ def _stratum_key(row: Any, cols: Tuple[str, ...]) -> str:
     return "|".join(parts)
 
 
-def evaluate_v2(df: pd.DataFrame, champ_model: Any, chal_model: Any, cfg: V2Config) -> Dict[str, Any]:
+def evaluate_v2(df: pd.DataFrame, champ_model: Any, chal_model: Any, cfg: V2Config) -> dict[str, Any]:
     """Compare champion vs challenger at fixed p_min with CI and stratified guard.
 
     Decision logic (risk-aware):
@@ -337,7 +336,7 @@ def evaluate_v2(df: pd.DataFrame, champ_model: Any, chal_model: Any, cfg: V2Conf
     df_el = df_el[df_el[cfg.label_col].notna() & df_el[cfg.r_col].notna()].copy()
     n = int(len(df_el))
 
-    rep: Dict[str, Any] = {
+    rep: dict[str, Any] = {
         "ts_ms": now_ms(),
         "counts": {"n_total": int(len(df)), "n_eligible": n},
         "config": {
@@ -386,7 +385,7 @@ def evaluate_v2(df: pd.DataFrame, champ_model: Any, chal_model: Any, cfg: V2Conf
     rep["delta"] = {"exp_r_per_candidate": delta_exp_r, "tail_rate_per_candidate": delta_tail}
 
     # --- Bootstrap CI on deltas (optional but strongly recommended) ---
-    ci: Dict[str, Any] = {}
+    ci: dict[str, Any] = {}
     if int(cfg.bootstrap) == 1:
         # CI for Δ expR (challenger − champion contribution vectors)
         ci_er = bootstrap_mean_diff(
@@ -414,11 +413,11 @@ def evaluate_v2(df: pd.DataFrame, champ_model: Any, chal_model: Any, cfg: V2Conf
     # Purpose: prevent a "global winner" that actually harms specific symbols/sessions
     strata = []
     if cfg.strata_cols:
-        keys: List[str] = []
+        keys: list[str] = []
         for row in df_el.itertuples(index=False):
             keys.append(_stratum_key(row, cfg.strata_cols))
         # map key -> row indices
-        by: Dict[str, List[int]] = {}
+        by: dict[str, list[int]] = {}
         for i, k in enumerate(keys):
             by.setdefault(k, []).append(i)
 
@@ -476,8 +475,8 @@ def recommend_next_share(
     winner: str,
     current_share: float,
     cfg: V2Config,
-    freeze_max_share: Optional[float],
-) -> Tuple[float, str]:
+    freeze_max_share: float | None,
+) -> tuple[float, str]:
     """Compute next challenger share based on winner, respecting freeze cap.
 
     Returns: (share_next, action) where action ∈ {increase_share, decrease_share, hold}
@@ -502,7 +501,7 @@ def _apply_to_redis(
     share_next: float,
     winner: str,
     notify_stream: str,
-    report_compact: Dict[str, Any],
+    report_compact: dict[str, Any],
 ) -> None:
     """Write evaluation result to Redis dynamic config hash and notify stream.
 
@@ -534,7 +533,7 @@ def _apply_to_redis(
         pass  # notify failures are non-critical
 
 
-def _compact(rep: Dict[str, Any]) -> Dict[str, Any]:
+def _compact(rep: dict[str, Any]) -> dict[str, Any]:
     """Extract compact subset of report for Redis stream payload."""
     return {
         "winner": rep.get("winner"),
@@ -588,7 +587,7 @@ def main() -> None:
     ap.add_argument("--share-key", default=os.getenv("META_AB_SHARE_KEY", "meta_ab_challenger_share"))
     ap.add_argument("--winner-key", default=os.getenv("META_AB_WINNER_KEY", "meta_ab_last_winner"))
     ap.add_argument("--ts-key", default=os.getenv("META_AB_LAST_EVAL_TS_KEY", "meta_ab_last_eval_ts_ms"))
-    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"))
+    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM))
 
     ap.add_argument("--current-share", type=float, default=_env_float("META_AB_CURRENT_SHARE", 0.0))
     ap.add_argument("--ramp-step", type=float, default=_env_float("META_AB_RAMP_STEP", 0.05))
@@ -626,7 +625,7 @@ def main() -> None:
     rep = evaluate_v2(df, mm_champ, mm_chal, cfg)
 
     freeze_max_share = _read_freeze_max_share()
-    share_next, action = recommend_next_share(str(rep.get("winner")), float(cfg.current_share), cfg, freeze_max_share)
+    share_next, action = recommend_next_share((rep.get("winner")), float(cfg.current_share), cfg, freeze_max_share)
     rep["ramp"] = {
         "current_share": float(cfg.current_share),
         "share_next": float(share_next),
@@ -649,7 +648,7 @@ def main() -> None:
             winner_key=args.winner_key,
             ts_key=args.ts_key,
             share_next=share_next,
-            winner=str(rep.get("winner")),
+            winner=(rep.get("winner")),
             notify_stream=args.notify_stream,
             report_compact=_compact(rep),
         )

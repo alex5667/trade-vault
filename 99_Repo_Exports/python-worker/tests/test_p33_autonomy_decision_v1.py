@@ -3,8 +3,8 @@
 Validates the should_trigger() function in auto_trigger_checkpoint_scrubber.py
 against various health report states without requiring external services.
 """
-from pathlib import Path
 import importlib.util
+from pathlib import Path
 
 # Load module directly from the scripts directory to avoid import path issues
 _mod_path = Path(__file__).resolve().parent.parent / 'scripts' / 'auto_trigger_checkpoint_scrubber.py'

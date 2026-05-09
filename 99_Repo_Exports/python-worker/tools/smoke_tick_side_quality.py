@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Smoke tool: Tick-side quality & time sanity
 
@@ -18,15 +19,15 @@ Notes
   symbol, side, side_conf, event_ts_ms, ts_source, stream_id/stream_ms (optional)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
 import sys
-import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _b2s(x: Any) -> str:
@@ -60,7 +61,7 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
         return default
 
 
-def _percentile(sorted_vals: List[float], q: float) -> float:
+def _percentile(sorted_vals: list[float], q: float) -> float:
     # q in [0,1]
     if not sorted_vals:
         return 0.0
@@ -88,7 +89,7 @@ class TickSample:
     now_ms: int
 
 
-def parse_tick_fields(fields: Dict[Any, Any], *, msg_id: Optional[str] = None, now_ms: Optional[int] = None) -> TickSample:
+def parse_tick_fields(fields: dict[Any, Any], *, msg_id: str | None = None, now_ms: int | None = None) -> TickSample:
     now = int(now_ms if now_ms is not None else get_ny_time_millis())
 
     def _get_val(k_base: str):
@@ -122,19 +123,19 @@ def parse_tick_fields(fields: Dict[Any, Any], *, msg_id: Optional[str] = None, n
     )
 
 
-def summarize_ticks(samples: Iterable[TickSample], *, max_ts_skew_ms: int = 60_000) -> Dict[str, Any]:
+def summarize_ticks(samples: Iterable[TickSample], *, max_ts_skew_ms: int = 60_000) -> dict[str, Any]:
     """
     Returns dict suitable for JSON output.
     max_ts_skew_ms: threshold to flag large skew between event_ts_ms and stream_ms.
     """
     total = 0
-    by_side_conf: Dict[str, int] = {}
-    by_ts_source: Dict[str, int] = {}
-    by_side: Dict[str, int] = {}
-    by_symbol: Dict[str, int] = {}
+    by_side_conf: dict[str, int] = {}
+    by_ts_source: dict[str, int] = {}
+    by_side: dict[str, int] = {}
+    by_symbol: dict[str, int] = {}
 
-    abs_event_stream: List[float] = []
-    abs_now_event: List[float] = []
+    abs_event_stream: list[float] = []
+    abs_now_event: list[float] = []
     skew_gt: int = 0
     missing_event_ts: int = 0
 
@@ -166,7 +167,7 @@ def summarize_ticks(samples: Iterable[TickSample], *, max_ts_skew_ms: int = 60_0
     abs_event_stream.sort()
     abs_now_event.sort()
 
-    def _stats(vals: List[float]) -> Dict[str, Any]:
+    def _stats(vals: list[float]) -> dict[str, Any]:
         if not vals:
             return {"n": 0, "p50_ms": 0.0, "p95_ms": 0.0, "p99_ms": 0.0, "max_ms": 0.0}
         return {
@@ -198,7 +199,7 @@ def _redis_connect(redis_url: str):
     return redis.Redis.from_url(redis_url, decode_responses=False)
 
 
-def _xrevrange(r, stream: str, *, min_id: str, max_id: str, count: int) -> List[Tuple[str, Dict[Any, Any]]]:
+def _xrevrange(r, stream: str, *, min_id: str, max_id: str, count: int) -> list[tuple[str, dict[Any, Any]]]:
     # compat wrapper
     return r.xrevrange(stream, max=max_id, min=min_id, count=count)
 
@@ -207,7 +208,7 @@ def _ms_id(ms: int) -> str:
     return f"{int(ms)}-0"
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Smoke: tick side quality & time sanity from Redis Streams")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", ""), help="Redis URL (default: env REDIS_URL)")
     ap.add_argument("--ticks-stream", default=os.getenv("TICKS_STREAM", "ticks"), help="Ticks stream name")
@@ -227,7 +228,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     r = _redis_connect(args.redis_url)
 
-    ticks: List[TickSample] = []
+    ticks: list[TickSample] = []
     try:
         entries = _xrevrange(r, args.ticks_stream, min_id=_ms_id(min_ms), max_id="+", count=int(args.limit))
         for msg_id, fields in entries:
@@ -236,7 +237,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"ERROR reading ticks stream '{args.ticks_stream}': {e}", file=sys.stderr)
         return 1
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "window": {"hours": float(args.hours), "min_ms": min_ms, "now_ms": now_ms},
         "ticks_stream": args.ticks_stream,
         "ticks": summarize_ticks(ticks, max_ts_skew_ms=int(args.max_ts_skew_ms)),
@@ -248,7 +249,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             out["quarantine_stream"] = args.quarantine_stream
             out["quarantine_count"] = len(q_entries)
             # quick reason distribution
-            by_reason: Dict[str, int] = {}
+            by_reason: dict[str, int] = {}
             for _id, f in q_entries:
                 reason = _b2s(f.get("reason") or "missing")
                 by_reason[reason] = by_reason.get(reason, 0) + 1

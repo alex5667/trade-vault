@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -12,7 +13,11 @@ except Exception:  # pragma: no cover
     redis = None
 from prometheus_client import Gauge, start_http_server
 
-from services.orderflow.exec_health_freeze_service_identity import build_service_identity_contract, evaluate_client_list_against_contract, ensure_service_identity_sync
+from services.orderflow.exec_health_freeze_service_identity import (
+    build_service_identity_contract,
+    ensure_service_identity_sync,
+    evaluate_client_list_against_contract,
+)
 
 UP = Gauge('exec_health_freeze_service_identity_up', '1 if service identity exporter loop is healthy')
 STATE_AGE_S = Gauge('exec_health_freeze_service_identity_state_age_seconds', 'Age of service identity exporter state in seconds')
@@ -36,20 +41,20 @@ class Exporter:
         self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
         ensure_service_identity_sync(self.r, 'exec_health_freeze_acl_drift_exporter_v1')
 
-    def _read_state(self) -> Dict[str, Any]:
+    def _read_state(self) -> dict[str, Any]:
         try:
             return self.r.hgetall(self.state_key) or {}
         except Exception:
             return {}
 
-    def _write_state(self, payload: Dict[str, Any]) -> None:
+    def _write_state(self, payload: dict[str, Any]) -> None:
         try:
             self.r.hset(self.state_key, mapping={str(k): str(v) for k, v in payload.items()})
             self.r.expire(self.state_key, 86400 * 7)
         except Exception:
             pass
 
-    def run_once(self) -> Dict[str, Any]:
+    def run_once(self) -> dict[str, Any]:
         now = _now_ms()
         raw = self.r.execute_command('CLIENT', 'LIST') or ''
         res = evaluate_client_list_against_contract(raw)
@@ -60,7 +65,7 @@ class Exporter:
             MATCH.labels(service=service, field='user').set(float(int(row.get('user_match', 0) or 0)))
             MATCH.labels(service=service, field='name').set(float(int(row.get('name_match', 0) or 0)))
             MATCH.labels(service=service, field='lib_name').set(float(int(row.get('lib_name_match', 0) or 0)))
-        active = {(str(v.get('kind')), str(v.get('service'))): 1 for v in list(res.get('violations', []) or [])}
+        active = {((v.get('kind')), (v.get('service'))): 1 for v in list(res.get('violations', []) or [])}
         known_kinds = ['service_missing', 'duplicate_service_connection', 'wrong_user', 'wrong_name', 'wrong_lib_name', 'unexpected_exec_health_client']
         for kind in known_kinds:
             for service in list(contract.keys()) + ['unknown']:

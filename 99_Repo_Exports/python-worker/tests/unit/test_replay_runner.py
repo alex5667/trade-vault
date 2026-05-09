@@ -6,6 +6,7 @@ import tempfile
 from replay.jsonl import JsonlWriter
 from replay.outbox_capture import OutboxCapture
 from replay.replay_runner import replay_jsonl
+import contextlib
 
 
 class FakeAdapter:
@@ -40,7 +41,5 @@ def test_replay_jsonl_ctx() -> None:
         assert outbox.items[0]["final_score"] == 3.0
         assert outbox.items[1]["final_score"] == 4.0
     finally:
-        try:
+        with contextlib.suppress(Exception):
             os.remove(path)
-        except Exception:
-            pass

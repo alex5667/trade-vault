@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Offline report for tick time distributions from Redis stream.
 
 The stream is written by OrderFlowStrategy when `TICK_TIME_STREAM_ENABLE=1`.
@@ -21,7 +22,7 @@ import json
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import redis
@@ -30,19 +31,19 @@ import redis
 @dataclass
 class Stats:
     n: int
-    counts: Dict[str, int]
-    age_ms: List[int]
-    back_ms: List[int]
+    counts: dict[str, int]
+    age_ms: list[int]
+    back_ms: list[int]
 
 
-def _q(arr: List[int], p: float) -> Optional[float]:
+def _q(arr: list[int], p: float) -> float | None:
     if not arr:
         return None
     a = np.array(arr, dtype=np.float64)
     return float(np.quantile(a, p))
 
 
-def _suggest_reorder_ms(back_ms: List[int]) -> Optional[int]:
+def _suggest_reorder_ms(back_ms: list[int]) -> int | None:
     if not back_ms:
         return None
     # Prefer p99.5 to avoid over-dropping while keeping tails under control.
@@ -54,7 +55,7 @@ def _suggest_reorder_ms(back_ms: List[int]) -> Optional[int]:
     return int((v + 25) // 50 * 50)
 
 
-def _suggest_past_ms(age_ms: List[int]) -> Optional[int]:
+def _suggest_past_ms(age_ms: list[int]) -> int | None:
     if not age_ms:
         return None
     # If you enforce late tick drops elsewhere, use p99.5(age) + buffer.
@@ -72,11 +73,11 @@ def fetch_stream(
     *,
     count: int,
     start_id: str = "-",
-) -> List[Tuple[str, Dict[str, Any]]]:
+) -> list[tuple[str, dict[str, Any]]]:
     # Read last `count` entries using XREVRANGE for efficiency.
     # We reverse to keep chronological order for potential future uses.
     rows = r.xrevrange(stream, max="+", min=start_id, count=count)
-    out: List[Tuple[str, Dict[str, Any]]] = []
+    out: list[tuple[str, dict[str, Any]]] = []
     for msg_id, fields in rows:
         out.append((msg_id, fields))
     out.reverse()
@@ -95,7 +96,7 @@ def main() -> None:
     r = redis.Redis.from_url(args.redis_url, decode_responses=True)
     rows = fetch_stream(r, args.stream, count=args.n)
 
-    per: Dict[str, Stats] = {}
+    per: dict[str, Stats] = {}
 
     def get_stats(sym: str) -> Stats:
         if sym not in per:
@@ -103,15 +104,15 @@ def main() -> None:
         return per[sym]
 
     for _msg_id, f in rows:
-        sym = str(f.get("symbol") or "").upper()
+        sym = (f.get("symbol") or "").upper()
         if not sym:
             continue
         if args.symbol and sym != args.symbol.upper():
             continue
         st = get_stats(sym)
         st.n += 1
-        action = str(f.get("action") or "unknown")
-        reason = str(f.get("reason") or "unknown")
+        action = (f.get("action") or "unknown")
+        reason = (f.get("reason") or "unknown")
         st.counts[f"{action}:{reason}"] += 1
         try:
             age = int(float(f.get("age_ms") or 0))
@@ -126,7 +127,7 @@ def main() -> None:
         if back > 0:
             st.back_ms.append(back)
 
-    out: Dict[str, Any] = {"stream": args.stream, "n_scanned": len(rows), "symbols": {}}
+    out: dict[str, Any] = {"stream": args.stream, "n_scanned": len(rows), "symbols": {}}
     for sym, st in sorted(per.items()):
         out["symbols"][sym] = {
             "n": st.n,

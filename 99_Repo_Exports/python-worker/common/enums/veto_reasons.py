@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class VetoReason(str, Enum):
+class VetoReason(StrEnum):
     """
     Centralized registry of all veto / fail-open reason codes across the Signal Generation Pipeline.
 

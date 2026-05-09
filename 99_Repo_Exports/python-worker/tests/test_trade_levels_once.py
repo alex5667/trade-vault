@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 
 
 def test_side_normalization():
@@ -47,8 +46,8 @@ def test_key_generation_logic():
     """Test that key generation works correctly for different inputs"""
 
     def _cfg_hash(cfg: dict) -> str:
-        import json
         import hashlib
+        import json
         try:
             s = json.dumps(cfg or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             return hashlib.sha1(s.encode("utf-8", "ignore")).hexdigest()
@@ -58,13 +57,13 @@ def test_key_generation_logic():
     def generate_key(symbol, side_s, kind, cfgd, rg_key, empirical):
         return (
             "levels_v1",
-            str(symbol),
+            symbol,
             str(side_s),
             str(kind),
             str(rg_key)[:64] if rg_key else "",
             _cfg_hash(cfgd),
-            round(float(100.0), 8),  # entry_f placeholder
-            round(float(1.0), 8),    # atr_f placeholder
+            round(100.0, 8),  # entry_f placeholder
+            round(1.0, 8),    # atr_f placeholder
             int(id(None)) if empirical is not None else 0,
         )
 

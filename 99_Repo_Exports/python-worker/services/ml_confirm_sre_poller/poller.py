@@ -4,13 +4,15 @@ SRE poller для метрик ML Confirm и labels:tb (async версия).
 """
 
 import asyncio
+import logging
 import os
 import time
-import logging
-from redis.asyncio import Redis
 
+from prometheus_client import Gauge
+from redis.asyncio import Redis
 from redis.exceptions import BusyLoadingError, ConnectionError, TimeoutError
-from services.ml_confirm.champion_cfg import validate_champion_cfg, ChampionCfgError
+
+from services.ml_confirm.champion_cfg import ChampionCfgError, validate_champion_cfg
 from services.observability.metrics_registry import (
     ml_confirm_cfg_present,
     ml_confirm_cfg_valid,
@@ -18,7 +20,6 @@ from services.observability.metrics_registry import (
     ml_confirm_errors_total,
     ml_missing_critical_total,
 )
-from prometheus_client import Gauge
 
 # tb_labels_xlen is defined locally (NOT imported from metrics_registry)
 # to ensure it is ONLY exported by the ml-confirm-sre-poller job.

@@ -1,12 +1,12 @@
 # signals/router.py
-from typing import Optional, Tuple
+
 from config.unified_pipeline import UnifiedPipelineMode, get_unified_mode
 
 # Глобальный set для логирования fallback один раз на символ
 _fallback_logged_symbols = set()
 
 
-def should_emit_unified(ctx, logger, metrics) -> Tuple[bool, Optional[Exception]]:
+def should_emit_unified(ctx, logger, metrics) -> tuple[bool, Exception | None]:
     """
     Unified pipeline путь.
     Возвращает (should_emit, error).

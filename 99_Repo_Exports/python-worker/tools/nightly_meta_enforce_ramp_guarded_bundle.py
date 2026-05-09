@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Nightly meta ENFORCE ramp proposal with stratified worst-case DiD guard.
 
 Checks safety gates (streak + no recent emergency), evaluates stratified DiD
@@ -9,22 +11,20 @@ Usage:
   (reads ENV vars for schedule, thresholds, symbols, DiD params)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
+import hashlib
+import hmac
 import json
 import os
 import secrets
 import subprocess
 import sys
 import time
-import hmac
-import hashlib
-from typing import List
 
 import redis
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("NightlyMetaEnforceRampGuarded")
 
@@ -65,7 +65,7 @@ def main() -> None:
         streak = int(r.get(streak_key) or "0")
     except Exception:
         streak = 0
-    last_status = str(r.get(last_status_key) or "")
+    last_status = (r.get(last_status_key) or "")
     try:
         last_ts = int(r.get(last_ts_key) or "0")
     except Exception:
@@ -77,7 +77,7 @@ def main() -> None:
 
     if not (last_status == "PASS" and age_ok and streak >= args.min_streak):
         if args.notify_on_skip == 1:
-            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
                 "type": "report",
                 "text": (
                     "<b>Meta ramp skipped</b>\n"
@@ -97,7 +97,7 @@ def main() -> None:
     min_hours = float(os.getenv("META_ENFORCE_RAMP_MIN_HOURS_SINCE_LAST_EMERG", "24") or 24)
     if last_em > 0 and (now_ms() - last_em) < int(min_hours * 3600_000):
         if args.notify_on_skip == 1:
-            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
                 "type": "report",
                 "text": "<b>Meta ramp skipped</b>\nreason=<code>recent_emergency</code>",
                 "ts": str(now_ms()),
@@ -148,7 +148,7 @@ def main() -> None:
         ramp_ts = 0
     if ramp_ts <= 0:
         if args.notify_on_skip == 1:
-            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
                 "type": "report",
                 "text": (
                     "<b>Meta ramp blocked</b>\n"
@@ -167,7 +167,7 @@ def main() -> None:
     trades_out = f"{run_dir}/trades.ndjson"
     eval_out = f"{run_dir}/eval_strat.json"
 
-    trades_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    trades_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     export_hours = max(args.since_hours, 2.0 * args.window_hours + 12.0)
 
     logger.info("Exporting trades from stream=%s, since_hours=%.1f", trades_stream, export_hours)
@@ -202,11 +202,11 @@ def main() -> None:
         "--did_mean_p05_min", str(did_mean_p05_min),
     ])
 
-    rep = json.loads(open(eval_out, "r", encoding="utf-8").read())
+    rep = json.loads(open(eval_out, encoding="utf-8").read())
     dec = rep.get("decision") or {}
     if not dec.get("ok_to_ramp", False):
         if args.notify_on_skip == 1:
-            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
                 "type": "report",
                 "text": (
                     "<b>Meta ramp blocked (stratified worst-case)</b>\n"
@@ -225,7 +225,7 @@ def main() -> None:
     bundle_id = secrets.token_hex(6)
     sig = sign(bundle_id, secret)
 
-    salt = str(os.getenv("META_ENFORCE_SALT", "enf_v1"))
+    salt = os.getenv("META_ENFORCE_SALT", "enf_v1")
 
     ops = []
     for sym in syms:
@@ -276,7 +276,7 @@ def main() -> None:
         f"use_per_regime=<code>{int(use_per_regime)}</code>"
     )
 
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
         "type": "report",
         "text": msg,
         "buttons": json.dumps(buttons, ensure_ascii=False, separators=(",", ":")),

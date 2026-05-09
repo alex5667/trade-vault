@@ -4,17 +4,17 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import average_precision_score, log_loss, brier_score_loss
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import average_precision_score, brier_score_loss, log_loss
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from core.ml_feature_schema_v3 import MLFeatureSchemaV3
 from core.purged_embargo_split import PurgedEmbargoTimeSeriesSplit
@@ -50,7 +50,7 @@ def _fit_base_gbdt(X: np.ndarray, y: np.ndarray) -> Any:
 @dataclass
 class StackingModel:
     schema: str
-    feature_names: List[str]
+    feature_names: list[str]
     base_lr: Any
     base_gbdt: Any
     meta_lr: Any
@@ -90,7 +90,7 @@ def main() -> None:
     oof_p_gb = np.full(len(df), np.nan, dtype=np.float64)
     oof_y = np.full(len(df), np.nan, dtype=np.float64)
 
-    fold_metrics: List[Dict[str, Any]] = []
+    fold_metrics: list[dict[str, Any]] = []
     last_tr = None
     last_te = None
 

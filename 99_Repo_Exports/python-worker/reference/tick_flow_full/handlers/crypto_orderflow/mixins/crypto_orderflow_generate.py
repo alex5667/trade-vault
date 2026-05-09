@@ -1,26 +1,25 @@
 from __future__ import annotations
+
 """
 Signal generation logic for CryptoOrderFlowHandler.
 
 This module contains candidate detection, validation, scoring, and signal generation.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import os
-import time
-from typing import Any, Optional
-
-from handlers.crypto_orderflow.logging.logging_utils import log_signal_one_json_unified
-from ..types.crypto_orderflow_pipeline_types import Candidate as CandidatePipeline
 from dataclasses import dataclass
-from typing import Dict, Any
+from typing import Any
+
 # from orderflow.candidates import ScoredCandidate  <-- REMOVED due to shadowing collision
 from common.math_safe import clamp01, finite_or
-from signal_scoring.reason_codes import ReasonCode
-from signal_scoring.wire_u16 import pack_u16
 from common.u16_pack import pack_u16_list
+from handlers.crypto_orderflow.logging.logging_utils import log_signal_one_json_unified
+from signal_scoring.reason_codes import ReasonCode
 from signal_scoring.reason_registry import reason_code_to_u16
+from signal_scoring.wire_u16 import pack_u16
+from utils.time_utils import get_ny_time_millis
+
+from ..types.crypto_orderflow_pipeline_types import Candidate as CandidatePipeline
 
 
 @dataclass(frozen=True)
@@ -29,7 +28,7 @@ class ScoredCandidate:
     conf_factor: float          # [0..1]
     final_score: float          # raw_score * conf_factor
     confidence_pct: float       # [0..100] calibrated display metric
-    score_parts: Dict[str, Any] # breakdown for debug/audit
+    score_parts: dict[str, Any] # breakdown for debug/audit
 
 
 class CryptoOrderFlowGenerateMixin:

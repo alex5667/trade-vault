@@ -12,7 +12,8 @@ except ImportError:
 
 try:
     hypothesis = pytest.importorskip("hypothesis")
-    from hypothesis import given, settings, strategies as st, HealthCheck
+    from hypothesis import HealthCheck, given, settings
+    from hypothesis import strategies as st
     HAS_HYPOTHESIS = True
 except pytest.skip.Exception:
     # hypothesis not available, skip these tests

@@ -1,5 +1,7 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
+#!/usr/bin/env python3
 """cont_ctx_window_calibrator_v1.py
 
 Production-safe post-analysis calibrator for continuation context window
@@ -25,8 +27,6 @@ Design goals
 - deterministic: uses event ts_ms/stream ids, not wall clock, when possible
 - no hidden policy coupling: calibrates only one knob (`cont_ctx_valid_ms`)
 """,
-from utils.time_utils import get_ny_time_millis
-
 import hashlib
 import json
 import math
@@ -34,13 +34,17 @@ import os
 import socket
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import redis  # type: ignore
 from prometheus_client import Counter, Gauge, Histogram, start_http_server  # type: ignore
 
-NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", "notify:telegram")
+from utils.time_utils import get_ny_time_millis
+import contextlib
+
+NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 PENDING_TTL_SEC = 48 * 3600  # 48h
 
 
@@ -88,8 +92,8 @@ def _loads_maybe_json(v: Any) -> Any:
     return s
 
 
-def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _parse_entry(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in (fields or {}).items():
         ks = k.decode("utf-8", "replace") if isinstance(k, (bytes, bytearray)) else str(k)
         out[ks] = _loads_maybe_json(v)
@@ -106,7 +110,7 @@ def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def _quantile(xs: List[float], q: float) -> float:
+def _quantile(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     arr = sorted(float(x) for x in xs)
@@ -132,7 +136,7 @@ def _clamp_int(v: int, lo: int, hi: int) -> int:
     return max(int(lo), min(int(hi), int(v)))
 
 
-def _bucket_false_breakout(fields: Dict[str, Any]) -> int:
+def _bucket_false_breakout(fields: dict[str, Any]) -> int:
     if _i(fields.get("false_breakout"), 0) == 1:
         return 1
     rsn = str(fields.get("close_reason") or fields.get("exit_reason") or fields.get("reason") or "").lower()
@@ -141,7 +145,7 @@ def _bucket_false_breakout(fields: Dict[str, Any]) -> int:
     return 0
 
 
-def _bucket_outcome_r(fields: Dict[str, Any]) -> float:
+def _bucket_outcome_r(fields: dict[str, Any]) -> float:
     for k in ("r_net", "net_r", "r_mult_net", "r_mult", "pnl_r"):
         if k in fields:
             return _f(fields.get(k), 0.0)
@@ -161,7 +165,7 @@ class Cfg:
     port: int
     loop_sleep_s: float
     baseline_ms: int
-    windows_ms: List[int]
+    windows_ms: list[int]
     min_ms: int
     max_ms: int
     max_step_ms: int
@@ -282,23 +286,23 @@ def _state_key(prefix: str, symbol: str) -> str:
     return f"{prefix}:{symbol}"
 
 
-def _parse_capture(fields: Dict[Any, Any]) -> Optional[CaptureRow]:
+def _parse_capture(fields: dict[Any, Any]) -> CaptureRow | None:
     d = _parse_entry(fields)
     try:
         return CaptureRow(
-            signal_id=str(d.get("signal_id") or ""),
-            symbol=str(d.get("symbol") or "unknown"),
+            signal_id=(d.get("signal_id") or ""),
+            symbol=(d.get("symbol") or "unknown"),
             ts_ms=_i(d.get("ts_ms"), 0),
-            direction=str(d.get("direction") or ""),
-            scenario=str(d.get("scenario") or ""),
+            direction=(d.get("direction") or ""),
+            scenario=(d.get("scenario") or ""),
             ok=_i(d.get("ok"), 0),
             ok_soft=_i(d.get("ok_soft"), 0),
             have=_i(d.get("have"), 0),
             need=_i(d.get("need"), 0),
             score=_f(d.get("score"), 0.0),
-            reason=str(d.get("reason") or ""),
-            strong_gate_missing=str(d.get("strong_gate_missing") or ""),
-            trend_dir_source=str(d.get("trend_dir_source") or ""),
+            reason=(d.get("reason") or ""),
+            strong_gate_missing=(d.get("strong_gate_missing") or ""),
+            trend_dir_source=(d.get("trend_dir_source") or ""),
             cont_ctx_ts_ms=_i(d.get("cont_ctx_ts_ms"), 0),
             cont_ctx_age_ms=_i(d.get("cont_ctx_age_ms"), 0),
             hidden_ctx_recent=_i(d.get("hidden_ctx_recent"), 0),
@@ -316,7 +320,7 @@ def _parse_capture(fields: Dict[Any, Any]) -> Optional[CaptureRow]:
 
 
 def _missing_set(s: str) -> set:
-    return {x.strip() for x in str(s or "").split(",") if x and x.strip()}
+    return {x.strip() for x in (s or "").split(",") if x and x.strip()}
 
 
 def is_candidate(c: CaptureRow, cfg: Cfg) -> bool:
@@ -364,10 +368,8 @@ def _stale_penalty(age_ms: int, cfg: Cfg) -> float:
 
 
 def _ensure_group(r: Any, cfg: Cfg) -> None:
-    try:
+    with contextlib.suppress(Exception):
         r.xgroup_create(name=cfg.capture_stream, groupname=cfg.group, id="0-0", mkstream=True)
-    except Exception:
-        pass
 
 
 def _emit_shadow(r: Any, cfg: Cfg, c: CaptureRow, window_ms: int, run_id: str) -> None:
@@ -415,10 +417,10 @@ def _release_apply_lock(r: Any, cfg: Cfg, token: str) -> None:
         return
 
 
-def _read_recent_closed_trades(r: Any, cfg: Cfg) -> List[Dict[str, Any]]:
+def _read_recent_closed_trades(r: Any, cfg: Cfg) -> list[dict[str, Any]]:
     """Read recent closed calibration trades from trades:closed stream.""",
     since_ms = _now_ms() - int(cfg.lookback_hours) * 3600 * 1000
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     max_scan = 250_000
@@ -438,8 +440,8 @@ def _read_recent_closed_trades(r: Any, cfg: Cfg) -> List[Dict[str, Any]]:
                 break
             if _i(d.get("calib"), 0) != 1:
                 continue
-            kind = str(d.get("calib_kind") or "")
-            reason = str(d.get("entry_reason") or "")
+            kind = (d.get("calib_kind") or "")
+            reason = (d.get("entry_reason") or "")
             if kind != "cont_ctx_window" and reason != "rescued_cont_ctx_window":
                 continue
             d["_ts_ms"] = ts_ms
@@ -447,11 +449,11 @@ def _read_recent_closed_trades(r: Any, cfg: Cfg) -> List[Dict[str, Any]]:
     return out
 
 
-def _aggregate_outcomes(rows: List[Dict[str, Any]], cfg: Cfg) -> Dict[Tuple[str, int], Dict[str, Any]]:
+def _aggregate_outcomes(rows: list[dict[str, Any]], cfg: Cfg) -> dict[tuple[str, int], dict[str, Any]]:
     """Aggregate shadow trade outcomes by (symbol, window_ms).""",
-    out: Dict[Tuple[str, int], Dict[str, Any]] = {}
+    out: dict[tuple[str, int], dict[str, Any]] = {}
     for d in rows:
-        symbol = str(d.get("symbol") or "unknown")
+        symbol = (d.get("symbol") or "unknown")
         window_ms = _i(d.get("candidate_window_ms") or d.get("cont_ctx_candidate_window_ms"), 0)
         if window_ms <= 0:
             continue
@@ -473,7 +475,7 @@ def _aggregate_outcomes(rows: List[Dict[str, Any]], cfg: Cfg) -> Dict[Tuple[str,
     return out
 
 
-def _score_candidate_window(st: Dict[str, Any], cfg: Cfg) -> Tuple[float, float, float, float, float]:
+def _score_candidate_window(st: dict[str, Any], cfg: Cfg) -> tuple[float, float, float, float, float]:
     """Compute utility, expectancy, fb_rate, exec_p95, confidence for a window cohort.
 
     J(W) = E[net_r|W] - λ_fb·FB(W) - λ_exec·TailExec(W) - λ_stale·StalePenalty(W)
@@ -490,12 +492,12 @@ def _score_candidate_window(st: Dict[str, Any], cfg: Cfg) -> Tuple[float, float,
     return utility, expectancy, fb_rate, exec_p95, confidence
 
 
-def _write_summary(r: Any, cfg: Cfg, symbol: str, payload: Dict[str, Any]) -> None:
+def _write_summary(r: Any, cfg: Cfg, symbol: str, payload: dict[str, Any]) -> None:
     key = _state_key(cfg.metrics_summary_prefix, symbol)
     r.hset(key, mapping={k: str(v) for k, v in payload.items()})
 
 
-def _write_suggestion(r: Any, cfg: Cfg, symbol: str, payload: Dict[str, Any]) -> None:
+def _write_suggestion(r: Any, cfg: Cfg, symbol: str, payload: dict[str, Any]) -> None:
     key = _state_key(cfg.suggestions_prefix, symbol)
     r.hset(key, mapping={k: str(v) for k, v in payload.items()})
 
@@ -512,26 +514,24 @@ def _generate_run_id() -> str:
 def _send_telegram(
     r: Any,
     text: str,
-    buttons_json: Optional[str] = None,
+    buttons_json: str | None = None,
 ) -> None:
     """Push message to notify:telegram stream.""",
-    fields: Dict[str, str] = {
+    fields: dict[str, str] = {
         "type": "report",
         "text": text,
         "ts": str(_now_ms()),
     }
     if buttons_json:
         fields["buttons"] = buttons_json
-    try:
+    with contextlib.suppress(Exception):
         r.xadd(
             NOTIFY_STREAM, fields,
             maxlen=200000, approximate=True,
         )
-    except Exception:
-        pass
 
 
-def _build_cont_ctx_buttons(run_id: str, symbols: List[str]) -> Optional[str]:
+def _build_cont_ctx_buttons(run_id: str, symbols: list[str]) -> str | None:
     """Build inline keyboard for cont_ctx window approval.""",
     if not symbols:
         return None
@@ -545,7 +545,7 @@ def _build_cont_ctx_buttons(run_id: str, symbols: List[str]) -> Optional[str]:
 def _store_cont_ctx_pending(
     r: Any,
     run_id: str,
-    recommendations: Dict[str, Dict[str, Any]],
+    recommendations: dict[str, dict[str, Any]],
 ) -> None:
     """Store pending approval data for Telegram callback handler.""",
     now_ms = _now_ms()
@@ -559,21 +559,19 @@ def _store_cont_ctx_pending(
         "last_reminder_ms": now_ms,
         "reminder_count": 0,
     }
-    try:
+    with contextlib.suppress(Exception):
         r.set(
             f"cont_ctx_calib:pending:{run_id}",
             json.dumps(pending, default=str),
             ex=PENDING_TTL_SEC,
         )
-    except Exception:
-        pass
 
 
-def _build_recommendation_verdict(rec: Dict[str, Any]) -> List[str]:
+def _build_recommendation_verdict(rec: dict[str, Any]) -> list[str]:
     """Build pros/cons analysis lines for a single symbol recommendation.""",
-    pros: List[str] = []
-    cons: List[str] = []
-    warnings: List[str] = []
+    pros: list[str] = []
+    cons: list[str] = []
+    warnings: list[str] = []
 
     expectancy = float(rec.get("expectancy_r", 0))
     fb = float(rec.get("false_breakout_rate", 0))
@@ -635,7 +633,7 @@ def _build_recommendation_verdict(rec: Dict[str, Any]) -> List[str]:
         warnings.append(f"⚡ Уверенность средняя: {confidence:.0%} — возможно стоит подождать больше данных")
 
     # --- Build output ---
-    out: List[str] = []
+    out: list[str] = []
     if pros:
         out.append("  <b>За применение:</b>")
         for p in pros:
@@ -661,7 +659,7 @@ def _build_recommendation_verdict(rec: Dict[str, Any]) -> List[str]:
 
 
 def _format_cont_ctx_telegram_report(
-    recommendations: Dict[str, Dict[str, Any]],
+    recommendations: dict[str, dict[str, Any]],
     run_id: str,
     mode: str,
 ) -> str:
@@ -713,7 +711,7 @@ def _format_cont_ctx_telegram_report(
     return "\n".join(lines)
 
 
-def _maybe_apply(r: Any, cfg: Cfg, symbol: str, recommended_ms: int, summary: Dict[str, Any]) -> str:
+def _maybe_apply(r: Any, cfg: Cfg, symbol: str, recommended_ms: int, summary: dict[str, Any]) -> str:
     """Attempt to auto-apply the recommended window (bounded, locked, with cooldown).""",
     if cfg.mode != "AUTO_APPLY":
         return "recommend_only"
@@ -739,7 +737,7 @@ def _maybe_apply(r: Any, cfg: Cfg, symbol: str, recommended_ms: int, summary: Di
             "applied_ts_ms": str(_now_ms()),
             "applied_ms": str(bounded),
             "prev_ms": str(cur),
-            "summary_run_id": str(summary.get("run_id") or ""),
+            "summary_run_id": (summary.get("run_id") or ""),
         })
         APPLY.labels(symbol=symbol, status="applied").inc()
         return f"applied:{cur}->{bounded}"
@@ -751,15 +749,15 @@ def _refresh_recommendations(r: Any, cfg: Cfg) -> None:
     """Periodic recommendation engine: read outcomes, score windows, emit suggestions.""",
     rows = _read_recent_closed_trades(r, cfg)
     agg = _aggregate_outcomes(rows, cfg)
-    by_symbol: Dict[str, Dict[int, Dict[str, Any]]] = {}
+    by_symbol: dict[str, dict[int, dict[str, Any]]] = {}
     for (symbol, window_ms), st in agg.items():
         by_symbol.setdefault(symbol, {})[window_ms] = st
 
-    all_recommendations: Dict[str, Dict[str, Any]] = {}
+    all_recommendations: dict[str, dict[str, Any]] = {}
     for symbol, win_map in by_symbol.items():
         best_window = 0
         best_utility = -999.0
-        best_payload: Dict[str, Any] = {}
+        best_payload: dict[str, Any] = {}
         baseline_exec = 0.0
         if cfg.baseline_ms in win_map:
             baseline_exec = _quantile(list(win_map[cfg.baseline_ms].get("exec_vals", [])), 0.95)
@@ -816,8 +814,8 @@ def _refresh_recommendations(r: Any, cfg: Cfg) -> None:
         FALSE_BREAKOUT.labels(symbol=symbol).set(float(best_payload.get("false_breakout_rate", 0.0)))
         EXEC_P95.labels(symbol=symbol).set(float(best_payload.get("exec_p95_norm", 0.0)))
         LAST_RUN_TS.labels(symbol=symbol).set(time.time())
-        RUNS.labels(symbol=symbol, status=str(best_payload.get("status") or "recommend")).inc()
-        if str(best_payload.get("status") or "").startswith("applied"):
+        RUNS.labels(symbol=symbol, status=(best_payload.get("status") or "recommend")).inc()
+        if (best_payload.get("status") or "").startswith("applied"):
             APPLY.labels(symbol=symbol, status="applied").inc()
 
     # --- Send Telegram notification if recommendations were generated ---
@@ -850,10 +848,8 @@ def main() -> int:
                 for msg_id, fields in messages:
                     c = _parse_capture(fields)
                     if c is None:
-                        try:
+                        with contextlib.suppress(Exception):
                             r.xack(cfg.capture_stream, cfg.group, msg_id)
-                        except Exception:
-                            pass
                         continue
                     if is_candidate(c, cfg):
                         CANDIDATES.labels(symbol=c.symbol).inc()
@@ -864,10 +860,8 @@ def main() -> int:
                                 RESCUED.labels(symbol=c.symbol, window_ms=str(w)).inc()
                                 if cfg.shadow_enable == 1:
                                     _emit_shadow(r, cfg, c, int(w), run_id)
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xack(cfg.capture_stream, cfg.group, msg_id)
-                    except Exception:
-                        pass
 
             now_ms = _now_ms()
             if now_ms - last_refresh_ms >= 300_000:

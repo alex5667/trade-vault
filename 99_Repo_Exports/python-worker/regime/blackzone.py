@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Literal, Optional, List
+from datetime import UTC, datetime
+from typing import Literal
 
 try:
     import psycopg2
@@ -34,8 +34,8 @@ class BlackZoneScheduler:
         if psycopg2 is None:
             raise ImportError("psycopg2 is not available")
         self.pg = psycopg2.connect(pg_dsn)
-        self._cache: List[BlackZone] = []
-        self._last_reload_at: Optional[datetime] = None
+        self._cache: list[BlackZone] = []
+        self._last_reload_at: datetime | None = None
 
     def reload(self) -> None:
         with self.pg.cursor() as cur:
@@ -49,7 +49,7 @@ class BlackZoneScheduler:
             )
             rows = cur.fetchall()
 
-        zones: List[BlackZone] = []
+        zones: list[BlackZone] = []
         for row in rows:
             z = BlackZone(
                 venue=row[0],
@@ -63,7 +63,7 @@ class BlackZoneScheduler:
             zones.append(z)
 
         self._cache = zones
-        self._last_reload_at = datetime.now(timezone.utc)
+        self._last_reload_at = datetime.now(UTC)
 
     def _match_pattern(self, value: str, pattern: str) -> bool:
         # Для простоты: pattern '%' или точное совпадение.
@@ -82,7 +82,7 @@ class BlackZoneScheduler:
         timeframe: str,
     ) -> Mode:
         if now.tzinfo is None:
-            now = now.replace(tzinfo=timezone.utc)
+            now = now.replace(tzinfo=UTC)
 
         # ленивый reload раз в N минут
         if self._last_reload_at is None:

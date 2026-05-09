@@ -1,6 +1,6 @@
 import unittest
 
-from tools.auto_apply_tick_gate_blocker import _label_limiter, _normalize_fail_mode, GateResult, AutoApplyBlocker
+from tools.auto_apply_tick_gate_blocker import AutoApplyBlocker, GateResult, _label_limiter, _normalize_fail_mode
 
 
 class TestAutoApplyTickGateBlocker(unittest.TestCase):

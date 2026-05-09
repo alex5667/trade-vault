@@ -15,8 +15,8 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from regime.baseline_job import SignalFamilyBaselineJob
-from regime.models import SignalExecRow
 from regime.baseline_utils import compute_family_baseline
+from regime.models import SignalExecRow
 
 
 def example_baseline_calculation():

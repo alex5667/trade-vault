@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 """
 Entry Policy Threshold Suggester V1 (LCB-based)
 
@@ -19,21 +21,22 @@ Expert review:
   - DevOps/SRE: Stream consumer with consumer group for horizontal scaling
   - Professor Statistics: LCB methodology sound, regime-specific Z-scores appropriate
 """
-import os
-import json
-import time
-import math
-import hashlib
 import asyncio
+import hashlib
+import json
+import math
+import os
 from dataclasses import dataclass
-from typing import Dict, Any, Tuple, List, Optional
+from typing import Any
+
 import redis.asyncio as aioredis
 
 from core.entry_policy_overrides import EntryPolicyOverridesV1
 from core.switch_budget import SwitchState, can_switch, utc_day_id
+import contextlib
 
 # Configuration
-EVENTS_STREAM = os.getenv("AB_EVENTS_STREAM", "events:trades")
+EVENTS_STREAM = os.getenv("AB_EVENTS_STREAM", RS.EVENTS_TRADES)
 GROUP = os.getenv("THRESH_EVENTS_GROUP", "entry_thresh_v1")
 CONSUMER = os.getenv("THRESH_EVENTS_CONSUMER", "c1")
 
@@ -128,18 +131,18 @@ class Welford:
     n: int = 0
     mean: float = 0.0
     m2: float = 0.0  # Sum of squared deviations
-    
+
     def update(self, x: float) -> None:
         """Add sample to running statistics"""
         self.n += 1
         delta = x - self.mean
         self.mean += delta / self.n
         self.m2 += delta * (x - self.mean)
-    
+
     def var(self) -> float:
         """Sample variance"""
         return self.m2 / (self.n - 1) if self.n >= 2 else 0.0
-    
+
     def lcb(self, z: float) -> float:
         """Lower Confidence Bound: mean - z * SEM"""
         if self.n < 2:
@@ -147,7 +150,7 @@ class Welford:
         sem = math.sqrt(max(0.0, self.var()) / float(self.n))  # Standard Error of Mean
         return float(self.mean - z * sem)
 
-def passes(ev: Dict[str, Any], th: Dict[str, Any]) -> bool:
+def passes(ev: dict[str, Any], th: dict[str, Any]) -> bool:
     """
     Check if event passes threshold combination.
     
@@ -186,7 +189,7 @@ async def main() -> None:
     await _ensure_group(r)
 
     # Rolling window: last N closes per bucket (symbol, regime, scenario)
-    window: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
+    window: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     max_keep = int(os.getenv("THRESH_KEEP_CLOSED", "2000"))
 
     # Threshold grid (combinatorial search space)
@@ -208,7 +211,7 @@ async def main() -> None:
             res = await r.xreadgroup(GROUP, CONSUMER, streams={EVENTS_STREAM: ">"}, count=500, block=2000)
             if not res:
                 continue
-            
+
             for _, entries in res:
                 for msg_id, f in entries:
                     try:
@@ -216,12 +219,12 @@ async def main() -> None:
                         if str(f.get("event_type") or f.get("event") or "") != "POSITION_CLOSED":
                             await r.xack(EVENTS_STREAM, GROUP, msg_id)
                             continue
-                        
+
                         # Extract dimensions
-                        sym = str(f.get("symbol") or "").upper()
-                        rg = _rg(str(f.get("regime") or "na"))
-                        scn = _sc(str(f.get("scenario") or ""))
-                        
+                        sym = (f.get("symbol") or "").upper()
+                        rg = _rg((f.get("regime") or "na"))
+                        scn = _sc((f.get("scenario") or ""))
+
                         # Only process reversal/continuation (skip other scenarios)
                         if scn not in ("reversal", "continuation"):
                             await r.xack(EVENTS_STREAM, GROUP, msg_id)
@@ -240,7 +243,7 @@ async def main() -> None:
                             "zone_dist_bp": float(f.get("zone_dist_bp") or 1e9),
                             "obi_stable_sec": float(f.get("obi_stable_sec") or 0.0),
                         }
-                        
+
                         # Add to rolling window
                         bk = (sym, rg, scn)
                         arr = window.get(bk)
@@ -254,49 +257,49 @@ async def main() -> None:
                         # Evaluate periodically (every 25 samples to reduce Redis writes)
                         if len(arr) >= _min_n(rg) and (len(arr) % 25 == 0):
                             z = _z_for_regime(rg)
-                            
+
                             # Baseline (first threshold combo)
                             base = grid[0]
                             base_st = Welford()
                             for e in arr:
                                 if passes(e, base):
                                     base_st.update(float(e["r_mult"]))
-                            
+
                             if base_st.n < _min_n(rg):
                                 await r.xack(EVENTS_STREAM, GROUP, msg_id)
                                 continue
-                            
+
                             base_lcb = base_st.lcb(z)
 
                             # Search for best threshold combo
                             best = None
                             best_lcb = base_lcb
                             best_n = base_st.n
-                            
+
                             for th in grid:
                                 st = Welford()
                                 for e in arr:
                                     if passes(e, th):
                                         st.update(float(e["r_mult"]))
-                                
+
                                 if st.n < _min_n(rg):
                                     continue
-                                
+
                                 l = st.lcb(z)
                                 if l > best_lcb:
                                     best, best_lcb, best_n = th, l, st.n
-                            
-                            
+
+
                             # Read current applied override (for hold-down + hysteresis)
                             cur_key = f"cfg:entry_policy:overrides:{sym}:{rg}"
                             cur_raw = await r.get(cur_key)
-                            cur_obj: Optional[EntryPolicyOverridesV1] = None
+                            cur_obj: EntryPolicyOverridesV1 | None = None
                             cur_err = ""
                             if cur_raw:
                                 cur_obj, cur_err = EntryPolicyOverridesV1.from_json(cur_raw)
 
                             now_ms = _now_ms()
-                            
+
                             # Enforce hold-down: block suggestions during cooldown period
                             if cur_obj is not None:
                                 if cur_obj.hold_down_ms <= 0:
@@ -315,7 +318,7 @@ async def main() -> None:
                             # Compare vs baseline AND vs current (if exists)
                             ok_gain_vs_base = (best is not None) and ((best_lcb - base_lcb) >= min_impr)
                             ok_gain_vs_cur = True
-                            
+
                             if cur_obj is not None:
                                 # Recompute current LCB on same window using current thresholds
                                 cur_th = {
@@ -329,7 +332,7 @@ async def main() -> None:
                                     if passes(e, cur_th):
                                         cur_st.update(float(e["r_mult"]))
                                 cur_lcb = cur_st.lcb(z) if cur_st.n >= _min_n(rg) else -1e9
-                                
+
                                 # Hysteresis: require additional improvement vs current
                                 ok_gain_vs_cur = (best_lcb >= (cur_lcb + min_impr + hyst))
 
@@ -341,13 +344,11 @@ async def main() -> None:
                                 max_sw = _max_switches_per_day(rg)
                                 gap_ms = _min_switch_gap_ms(rg)
                                 ok_sw, why = can_switch(st=st, now_ms=now_ms, max_per_day=max_sw, min_gap_ms=gap_ms)
-                                
+
                                 if not ok_sw:
                                     # Track blocked suggestions (best-effort metrics)
-                                    try:
+                                    with contextlib.suppress(Exception):
                                         await r.hincrby("diag:thresh_suggester:v1", f"blocked_{why}", 1)
-                                    except Exception:
-                                        pass
                                     await r.xack(EVENTS_STREAM, GROUP, msg_id)
                                     continue
 
@@ -383,13 +384,13 @@ async def main() -> None:
                                         "state": st.to_dict(),
                                     }
                                 }
-                                
+
                                 sid = _sha1(json.dumps(meta, sort_keys=True, separators=(",", ":")))
                                 latest_key = f"{LATEST_PREFIX}:{sym}:{rg}:{scn}"
                                 prev = await r.get(latest_key)
-                                
+
                                 # Only update if suggestion changed
-                                if str(prev or "") != sid:
+                                if (prev or "") != sid:
                                     await r.set(f"{META_PREFIX}:{sid}", json.dumps(meta, ensure_ascii=False, separators=(",", ":")), ex=7 * 24 * 3600)
                                     await r.set(latest_key, sid, ex=7 * 24 * 3600)
                                     await r.delete(f"{APPROVALS_PREFIX}:{sid}")
@@ -397,10 +398,8 @@ async def main() -> None:
 
                         await r.xack(EVENTS_STREAM, GROUP, msg_id)
                     except Exception:
-                        try:
+                        with contextlib.suppress(Exception):
                             await r.xack(EVENTS_STREAM, GROUP, msg_id)
-                        except Exception:
-                            pass
         except Exception:
             await asyncio.sleep(1)  # Backoff on error
 

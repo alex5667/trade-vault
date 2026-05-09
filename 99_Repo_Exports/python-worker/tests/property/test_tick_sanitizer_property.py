@@ -1,15 +1,16 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import math
-import time
 from dataclasses import dataclass
 
 import pytest
 
+from utils.time_utils import get_ny_time_millis
+
 try:
     hyp = pytest.importorskip("hypothesis")
-    from hypothesis import given, strategies as st
+    from hypothesis import given
+    from hypothesis import strategies as st
     HAS_HYPOTHESIS = True
 except pytest.skip.Exception:
     # hypothesis not available, skip these tests

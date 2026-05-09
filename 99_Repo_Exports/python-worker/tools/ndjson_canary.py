@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 
 
 def _stable_hash_u32(s: str) -> int:
@@ -21,7 +20,7 @@ def _pass_share(symbol: str, share: float) -> bool:
     return v < share
 
 
-def iter_ndjson(path: str) -> Iterator[Dict]:
+def iter_ndjson(path: str) -> Iterator[dict]:
     """
     Reads NDJSON (1 JSON per line). Skips empty lines.
     """
@@ -34,7 +33,7 @@ def iter_ndjson(path: str) -> Iterator[Dict]:
             yield json.loads(s)
 
 
-def write_ndjson(path: str, rows: Iterable[Dict]) -> int:
+def write_ndjson(path: str, rows: Iterable[dict]) -> int:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     n = 0
@@ -47,11 +46,11 @@ def write_ndjson(path: str, rows: Iterable[Dict]) -> int:
 
 
 def filter_inputs(
-    rows: Iterable[Dict],
+    rows: Iterable[dict],
     *,
-    canary_symbols: Optional[List[str]] = None,
+    canary_symbols: list[str] | None = None,
     canary_share: float = 0.0,
-) -> Iterator[Dict]:
+) -> Iterator[dict]:
     """
     Filters OFInputsV1 rows by either explicit symbols OR deterministic hash-share.
     Priority:
@@ -64,7 +63,7 @@ def filter_inputs(
         allow = set([s.strip().upper() for s in canary_symbols if s and s.strip()])
 
     for r in rows:
-        sym = str(r.get("symbol") or "").upper()
+        sym = (r.get("symbol") or "").upper()
         if not sym:
             continue
 
@@ -81,7 +80,7 @@ def filter_inputs(
         yield r
 
 
-def pick_baseline_for_symbol(baseline_dir: str, symbol: str) -> Optional[str]:
+def pick_baseline_for_symbol(baseline_dir: str, symbol: str) -> str | None:
     """
     baseline_dir supports:
       baseline_<SYMBOL>.ndjson
@@ -100,14 +99,14 @@ def pick_baseline_for_symbol(baseline_dir: str, symbol: str) -> Optional[str]:
     return None
 
 
-def list_symbols_in_inputs(inputs_path: str, limit: int = 200000) -> List[str]:
+def list_symbols_in_inputs(inputs_path: str, limit: int = 200000) -> list[str]:
     """
     Extract distinct symbols from inputs (bounded).
     """
     seen = set()
-    out: List[str] = []
+    out: list[str] = []
     for i, r in enumerate(iter_ndjson(inputs_path)):
-        sym = str(r.get("symbol") or "").upper()
+        sym = (r.get("symbol") or "").upper()
         if sym and sym not in seen:
             seen.add(sym)
             out.append(sym)
@@ -116,7 +115,7 @@ def list_symbols_in_inputs(inputs_path: str, limit: int = 200000) -> List[str]:
     return out
 
 
-def safe_json_get(row: Dict[str, Any], path: str, default: Any = None) -> Any:
+def safe_json_get(row: dict[str, Any], path: str, default: Any = None) -> Any:
     """Small helper for nested extraction: 'evidence.scenario_v4'."""
     cur: Any = row
     for part in path.split("."):

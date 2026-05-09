@@ -1,5 +1,7 @@
+from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_auto_escalation_summarizer_v3_34 import (
+    decide_severity,
+)
 from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_slo_analytics_v3_34 import compute_rollup
-from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_auto_escalation_summarizer_v3_34 import decide_severity
 
 
 def test_compute_rollup_detects_low_verify_keep_rate():

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 SignalService: Unified node in Python that:
 
@@ -11,12 +12,12 @@ SignalService: Unified node in Python that:
 
 
 
+from .bus import SignalBus
 from .context import SignalContext
 from .execution_planner import ExecutionPlanner
+from .models import Bar1m
 from .performance_tracker import SignalPerformanceTracker
 from .repository import SignalRepository
-from .bus import SignalBus
-from .models import Bar1m
 
 
 class SignalService:

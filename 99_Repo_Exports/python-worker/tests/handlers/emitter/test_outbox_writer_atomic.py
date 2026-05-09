@@ -1,9 +1,7 @@
-from utils.time_utils import get_ny_time_millis
 import time
-import pytest
-import os
 
 from handlers.emitter.outbox_writer import OutboxWriter
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeLogger:

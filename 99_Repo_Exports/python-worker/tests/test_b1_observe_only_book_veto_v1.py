@@ -1,6 +1,5 @@
-import pytest
-import time
 from core.core_snapshot.dq_observe_only import apply_observe_only_book_veto
+
 
 def test_observe_only_blocks_veto_during_warmup():
     # When enabled, and uptime < warmup, veto=0 is returned and suppressed=True

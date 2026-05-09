@@ -1,7 +1,7 @@
-import os
 import math
-import pytest
+
 from core.atr_sanity import ATRSanity
+
 
 def _feed(ats: ATRSanity, *, atr: float, px: float, now_ms: int, tf: str = "1m"):
     return ats.update(atr=atr, px=px, age_ms=0, now_ms=now_ms, symbol="BTCUSDT", tf=tf)

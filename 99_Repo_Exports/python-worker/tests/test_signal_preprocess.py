@@ -1,12 +1,11 @@
-from utils.time_utils import get_ny_time_millis
 import unittest
 
 from services.signal_preprocess import preprocess_signal_for_publish
+from utils.time_utils import get_ny_time_millis
 
 
 class TestSignalPreprocess(unittest.TestCase):
     def test_adds_required_fields_and_flags(self):
-        import time
         sig = {
             "symbol": "btcusdt",
             "confidence": 87.0,  # percent-like

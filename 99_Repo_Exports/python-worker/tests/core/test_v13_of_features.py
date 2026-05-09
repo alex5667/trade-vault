@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Unit tests for core/v13_of_features.py
 
@@ -7,23 +8,25 @@ Tests: all compute groups (NA–NX), inject_v13_of_features master function,
        toxicity composite (NC), z-score (NF), schema key validation.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import math
-import time
-import pytest
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any
 
+import pytest
+
+from core.ml_feature_schema_v13_of import V13_OF_NUMERIC_KEYS
 from core.v13_of_features import (
-    compute_group_na, compute_group_nb, compute_group_nc,
-    compute_group_nd, compute_group_ne, compute_group_nf,
+    _V13_OF_NEW_KEY_SET,
+    compute_group_na,
+    compute_group_nb,
+    compute_group_nc,
+    compute_group_nd,
+    compute_group_ne,
+    compute_group_nf,
     compute_group_nx,
     inject_v13_of_features,
-    _V13_OF_NEW_KEY_SET,
 )
-from core.ml_feature_schema_v13_of import V13_OF_NUMERIC_KEYS
-
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -253,7 +256,7 @@ class TestGroupNX:
 class TestInjectV13OfFeatures:
     def test_all_keys_present(self):
         rt = _runtime()
-        indicators: Dict[str, Any] = {}
+        indicators: dict[str, Any] = {}
         inject_v13_of_features(runtime=rt, now_ms=_now_ms(), indicators=indicators)
 
         for k in _V13_OF_NEW_KEY_SET:
@@ -261,7 +264,7 @@ class TestInjectV13OfFeatures:
 
     def test_no_nan_on_empty_runtime(self):
         rt = _runtime()
-        indicators: Dict[str, Any] = {}
+        indicators: dict[str, Any] = {}
         inject_v13_of_features(runtime=rt, now_ms=_now_ms(), indicators=indicators)
         for k, v in indicators.items():
             if isinstance(v, float):
@@ -270,7 +273,7 @@ class TestInjectV13OfFeatures:
     def test_does_not_overwrite_existing_indicators(self):
         """inject_ must not erase existing indicator values set before it runs."""
         rt = _runtime(garman_klass_vol=0.02)
-        indicators: Dict[str, Any] = {"cvd_slope": 1.5, "vpin_rolling": 0.5}
+        indicators: dict[str, Any] = {"cvd_slope": 1.5, "vpin_rolling": 0.5}
         inject_v13_of_features(runtime=rt, now_ms=_now_ms(), indicators=indicators)
         assert indicators["cvd_slope"] == 1.5  # must be preserved
         assert indicators["garman_klass_vol"] == pytest.approx(0.02)
@@ -293,7 +296,7 @@ class TestInjectV13OfFeatures:
             depth_resilience_half_life=200.0,
             amihud_illiquidity=0.01,
         )
-        indicators: Dict[str, Any] = {
+        indicators: dict[str, Any] = {
             "vpin_rolling": 0.6,
             "funding_rate_bps": 10.0,
             "open_interest_delta": 500.0,

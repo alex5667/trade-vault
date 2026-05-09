@@ -11,9 +11,9 @@ This module provides:
 - small Lua CAS helpers for prepare/approve/commit projection writes
 """
 
-import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
+from typing import Any
 
 from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control
 
@@ -133,25 +133,25 @@ REQUEST_LOG_VIOLATION_KINDS = [
 
 def _s(x: Any, d: str = "") -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
-def _event_payload(rec: Any) -> Tuple[str, Dict[str, Any]]:
+def _event_payload(rec: Any) -> tuple[str, dict[str, Any]]:
     if isinstance(rec, (list, tuple)) and len(rec) >= 2:
         return str(rec[0]), dict(rec[1] or {})
     return "", {}
 
 
-def _xid_key(xid: str) -> Tuple[int, int]:
+def _xid_key(xid: str) -> tuple[int, int]:
     try:
         a, b = str(xid).split("-", 1)
         return int(a), int(b)
@@ -159,7 +159,7 @@ def _xid_key(xid: str) -> Tuple[int, int]:
         return 0, 0
 
 
-def sort_events_asc(events: Sequence[Any]) -> List[Tuple[str, Dict[str, Any]]]:
+def sort_events_asc(events: Sequence[Any]) -> list[tuple[str, dict[str, Any]]]:
     rows = [_event_payload(e) for e in list(events or [])]
     rows = [(eid, payload) for eid, payload in rows if eid]
     rows.sort(key=lambda x: _xid_key(x[0]))
@@ -182,12 +182,12 @@ class FreezeRequestLogResult:
     valid_sequence: bool
     same_operator_violation: bool
     control_request_mismatch: bool
-    violation_kinds: List[str]
+    violation_kinds: list[str]
 
 
-def find_request_events_for_request(events: Sequence[Any], request_id: str) -> List[Tuple[str, Dict[str, Any]]]:
-    rid = str(request_id or "")
-    out: List[Tuple[str, Dict[str, Any]]] = []
+def find_request_events_for_request(events: Sequence[Any], request_id: str) -> list[tuple[str, dict[str, Any]]]:
+    rid = (request_id or "")
+    out: list[tuple[str, dict[str, Any]]] = []
     for eid, payload in sort_events_asc(events):
         if _s(payload.get("request_id")) == rid:
             out.append((eid, payload))
@@ -212,9 +212,9 @@ def evaluate_request_log_sequence(
     rows = find_request_events_for_request(request_events or [], rid) if rid else []
 
     prepare_eid = approve_eid = commit_eid = ""
-    prepare_ev: Dict[str, Any] = {}
-    approve_ev: Dict[str, Any] = {}
-    commit_ev: Dict[str, Any] = {}
+    prepare_ev: dict[str, Any] = {}
+    approve_ev: dict[str, Any] = {}
+    commit_ev: dict[str, Any] = {}
     for eid, payload in rows:
         kind = _s(payload.get("kind"))
         if kind == "manual_ack_thaw_prepare":
@@ -263,7 +263,7 @@ def evaluate_request_log_sequence(
         and commit_by == approved_by
     )
 
-    violations: List[str] = []
+    violations: list[str] = []
     if rid:
         if not prepare_present:
             violations.append("request_log_prepare_missing")
@@ -301,8 +301,8 @@ def evaluate_request_log_sequence(
     )
 
 
-def mapping_to_argv(mapping: Mapping[str, Any]) -> List[str]:
-    flat: List[str] = []
+def mapping_to_argv(mapping: Mapping[str, Any]) -> list[str]:
+    flat: list[str] = []
     for k, v in dict(mapping).items():
         flat.extend([str(k), str(v)])
     return flat

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Phase E / P4: Manipulation Pattern Tracker (Quote Stuffing + Layering)
 
@@ -25,9 +26,8 @@ Fail-open: any exception → silent pass.
 """
 
 
-import os
 import logging
-from typing import Optional
+import os
 
 logger = logging.getLogger("orderflow_manip_patterns")
 

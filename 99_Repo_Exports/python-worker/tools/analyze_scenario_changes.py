@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Analyze scenario determination logic changes in of_confirm_engine.py.
 
 Compares recent commits to understand what changed in scenario determination logic.
@@ -14,7 +15,7 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def get_project_root() -> Path:
@@ -23,14 +24,14 @@ def get_project_root() -> Path:
     return script_dir.parent.parent
 
 
-def get_commits(file_path: str, days: Optional[int] = None, commit_range: Optional[str] = None) -> List[Dict[str, Any]]:
+def get_commits(file_path: str, days: int | None = None, commit_range: str | None = None) -> list[dict[str, Any]]:
     """Get commits for a specific file."""
     project_root = get_project_root()
     full_path = project_root / file_path
-    
+
     if not full_path.exists():
         return []
-    
+
     cmd = ["git", "log", "--format=%H|%ai|%an|%s", "--"]
     if days:
         cmd.insert(2, f"--since={days} days ago")
@@ -38,13 +39,13 @@ def get_commits(file_path: str, days: Optional[int] = None, commit_range: Option
         cmd.insert(2, commit_range)
     else:
         cmd.insert(2, "-30")  # default last 30
-    
+
     cmd.append(str(full_path))
-    
+
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(project_root))
     if result.returncode != 0:
         return []
-    
+
     commits = []
     for line in result.stdout.strip().split("\n"):
         if not line.strip():
@@ -57,40 +58,40 @@ def get_commits(file_path: str, days: Optional[int] = None, commit_range: Option
                 "author": parts[2],
                 "message": parts[3],
             })
-    
+
     return commits
 
 
-def get_file_diff(commit_hash: str, file_path: str) -> Optional[str]:
+def get_file_diff(commit_hash: str, file_path: str) -> str | None:
     """Get diff for a specific commit and file."""
     project_root = get_project_root()
     full_path = project_root / file_path
-    
+
     cmd = ["git", "show", f"{commit_hash}:{file_path}"]
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(project_root))
     if result.returncode != 0:
         return None
-    
+
     return result.stdout
 
 
-def get_commit_diff(commit_hash: str, file_path: str) -> Optional[str]:
+def get_commit_diff(commit_hash: str, file_path: str) -> str | None:
     """Get diff for a specific commit."""
     project_root = get_project_root()
     full_path = project_root / file_path
-    
+
     cmd = ["git", "show", commit_hash, "--", str(full_path)]
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(project_root))
     if result.returncode != 0:
         return None
-    
+
     return result.stdout
 
 
-def find_scenario_logic(file_content: str) -> Dict[str, Any]:
+def find_scenario_logic(file_content: str) -> dict[str, Any]:
     """Extract scenario determination logic from file."""
     lines = file_content.split("\n")
-    
+
     scenario_keywords = [
         "scenario",
         "continuation",
@@ -102,7 +103,7 @@ def find_scenario_logic(file_content: str) -> Dict[str, Any]:
         "eval_continuation",
         "eval_reversal",
     ]
-    
+
     relevant_lines = []
     for i, line in enumerate(lines, 1):
         line_lower = line.lower()
@@ -116,28 +117,28 @@ def find_scenario_logic(file_content: str) -> Dict[str, Any]:
                 "content": line,
                 "context": context,
             })
-    
+
     return {
         "total_lines": len(lines),
         "relevant_sections": relevant_lines,
     }
 
 
-def analyze_scenario_changes(commits: List[Dict[str, Any]], file_path: str) -> List[Dict[str, Any]]:
+def analyze_scenario_changes(commits: list[dict[str, Any]], file_path: str) -> list[dict[str, Any]]:
     """Analyze commits for scenario-related changes."""
     project_root = get_project_root()
     full_path = project_root / file_path
-    
+
     analysis = []
-    
+
     for commit in commits:
         commit_hash = commit["hash"]
-        
+
         # Get diff for this commit
         diff = get_commit_diff(commit_hash, file_path)
         if not diff:
             continue
-        
+
         # Check if diff contains scenario-related changes
         diff_lower = diff.lower()
         scenario_keywords = [
@@ -151,9 +152,9 @@ def analyze_scenario_changes(commits: List[Dict[str, Any]], file_path: str) -> L
             "eval_continuation",
             "eval_reversal",
         ]
-        
+
         has_scenario_changes = any(kw in diff_lower for kw in scenario_keywords)
-        
+
         # Extract changed lines related to scenario
         changed_lines = []
         if has_scenario_changes:
@@ -162,36 +163,36 @@ def analyze_scenario_changes(commits: List[Dict[str, Any]], file_path: str) -> L
                     line_stripped = line[1:].strip()
                     if any(kw in line_stripped.lower() for kw in scenario_keywords):
                         changed_lines.append(line[:200])  # limit length
-        
+
         analysis.append({
             "commit": commit,
             "has_scenario_changes": has_scenario_changes,
             "changed_lines": changed_lines[:20],  # top 20
             "diff_size": len(diff),
         })
-    
+
     return analysis
 
 
-def compare_scenario_logic(baseline_commit: Optional[str], current_commit: str, file_path: str) -> Dict[str, Any]:
+def compare_scenario_logic(baseline_commit: str | None, current_commit: str, file_path: str) -> dict[str, Any]:
     """Compare scenario logic between baseline and current version."""
     project_root = get_project_root()
     full_path = project_root / file_path
-    
+
     # Get current version
     current_content = get_file_diff(current_commit, file_path)
     if not current_content:
         return {"error": "Could not get current version"}
-    
+
     current_logic = find_scenario_logic(current_content)
-    
+
     # Get baseline version if specified
     baseline_logic = None
     if baseline_commit:
         baseline_content = get_file_diff(baseline_commit, file_path)
         if baseline_content:
             baseline_logic = find_scenario_logic(baseline_content)
-    
+
     return {
         "current": current_logic,
         "baseline": baseline_logic,
@@ -199,19 +200,19 @@ def compare_scenario_logic(baseline_commit: Optional[str], current_commit: str, 
     }
 
 
-def print_commits_analysis(commits: List[Dict[str, Any]], analysis: List[Dict[str, Any]]) -> None:
+def print_commits_analysis(commits: list[dict[str, Any]], analysis: list[dict[str, Any]]) -> None:
     """Print commits analysis."""
     print("=" * 80)
     print("COMMITS ANALYSIS")
     print("=" * 80)
     print()
-    
+
     scenario_commits = [a for a in analysis if a["has_scenario_changes"]]
-    
+
     print(f"Total commits: {len(commits)}")
     print(f"Commits with scenario changes: {len(scenario_commits)}")
     print()
-    
+
     if scenario_commits:
         print("⚠️  SCENARIO-RELATED CHANGES DETECTED:")
         print()
@@ -230,7 +231,7 @@ def print_commits_analysis(commits: List[Dict[str, Any]], analysis: List[Dict[st
         print("✓ No direct scenario-related changes found in recent commits")
         print("  (Changes might be indirect - e.g., in dependencies or config)")
         print()
-    
+
     # Show all commits for context
     print("All recent commits:")
     for i, commit in enumerate(commits[:15], 1):
@@ -239,31 +240,31 @@ def print_commits_analysis(commits: List[Dict[str, Any]], analysis: List[Dict[st
     print()
 
 
-def print_scenario_logic_comparison(comparison: Dict[str, Any]) -> None:
+def print_scenario_logic_comparison(comparison: dict[str, Any]) -> None:
     """Print scenario logic comparison."""
     print("=" * 80)
     print("SCENARIO LOGIC COMPARISON")
     print("=" * 80)
     print()
-    
+
     if "error" in comparison:
         print(f"Error: {comparison['error']}")
         return
-    
+
     current = comparison.get("current", {})
     baseline = comparison.get("baseline")
-    
-    print(f"Current version:")
+
+    print("Current version:")
     print(f"  Total lines: {current.get('total_lines', 0)}")
     print(f"  Scenario-related sections: {len(current.get('relevant_sections', []))}")
     print()
-    
+
     if baseline:
-        print(f"Baseline version:")
+        print("Baseline version:")
         print(f"  Total lines: {baseline.get('total_lines', 0)}")
         print(f"  Scenario-related sections: {len(baseline.get('relevant_sections', []))}")
         print()
-    
+
     # Show relevant sections
     if current.get("relevant_sections"):
         print("Current scenario-related code sections:")
@@ -271,23 +272,23 @@ def print_scenario_logic_comparison(comparison: Dict[str, Any]) -> None:
             print(f"  Section {i} (line {section['line']}):")
             print(f"    {section['content'][:100]}")
             if len(section['content']) > 100:
-                print(f"    ... (truncated)")
+                print("    ... (truncated)")
         print()
-    
+
     if baseline and baseline.get("relevant_sections"):
         print("Baseline scenario-related code sections:")
         for i, section in enumerate(baseline["relevant_sections"][:10], 1):
             print(f"  Section {i} (line {section['line']}):")
             print(f"    {section['content'][:100]}")
             if len(section['content']) > 100:
-                print(f"    ... (truncated)")
+                print("    ... (truncated)")
         print()
 
 
-def find_baseline_commit() -> Optional[str]:
+def find_baseline_commit() -> str | None:
     """Try to find baseline commit (e.g., from baseline file or git tags)."""
     project_root = get_project_root()
-    
+
     # Try to find baseline tag
     cmd = ["git", "tag", "-l", "*baseline*", "*BL*"]
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(project_root))
@@ -299,7 +300,7 @@ def find_baseline_commit() -> Optional[str]:
             result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(project_root))
             if result.returncode == 0:
                 return result.stdout.strip()
-    
+
     # Try to find commit that created baseline file
     baseline_file = project_root / "python-worker" / "of_reports_baselines" / "baseline.ndjson"
     if baseline_file.exists():
@@ -324,7 +325,7 @@ def find_baseline_commit() -> Optional[str]:
                         pass
             if closest_commit:
                 return closest_commit
-    
+
     return None
 
 
@@ -336,21 +337,21 @@ def main() -> None:
     ap.add_argument("--baseline-commit", help="Baseline commit hash to compare against")
     ap.add_argument("--find-baseline", action="store_true", help="Try to find baseline commit automatically")
     args = ap.parse_args()
-    
+
     # Get commits
     commits = get_commits(args.file, days=args.days if not args.commit_range else None, commit_range=args.commit_range)
-    
+
     if not commits:
         print(f"No commits found for {args.file}")
         print("Try: python -m tools.analyze_scenario_changes --days 30")
         sys.exit(1)
-    
+
     # Analyze commits
     analysis = analyze_scenario_changes(commits, args.file)
-    
+
     # Print commits analysis
     print_commits_analysis(commits, analysis)
-    
+
     # Compare with baseline if requested
     baseline_commit = args.baseline_commit
     if args.find_baseline and not baseline_commit:
@@ -358,19 +359,19 @@ def main() -> None:
         if baseline_commit:
             print(f"Found baseline commit: {baseline_commit[:8]}")
             print()
-    
+
     if baseline_commit:
         comparison = compare_scenario_logic(baseline_commit, "HEAD", args.file)
         print_scenario_logic_comparison(comparison)
-    
+
     # Summary and recommendations
     print("=" * 80)
     print("SUMMARY & RECOMMENDATIONS")
     print("=" * 80)
     print()
-    
+
     scenario_commits = [a for a in analysis if a["has_scenario_changes"]]
-    
+
     if scenario_commits:
         print("⚠️  ACTION REQUIRED:")
         print(f"   Found {len(scenario_commits)} commits with scenario-related changes")

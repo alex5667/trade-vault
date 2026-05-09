@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Research Guard Calibrator Service — IO layer (Redis + Telegram).
 
@@ -26,16 +26,15 @@ Usage:
   - python -m services.research_guard_calibrator_service
   - Called from of_timers_worker as hourly timer task
 """
-from utils.time_utils import get_ny_time_millis
-
 import hashlib
 import json
 import os
 import time
 import uuid
-from dataclasses import asdict
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis as redis_lib
@@ -49,16 +48,16 @@ except ImportError:
     import logging
     logger = logging.getLogger("ResearchGuardCalibrator")
 
+from core.redis_keys import RedisStreams as RS
 from core.research_guard_calibrator import (
     NightlyReport,
     ResearchGuardCalibResult,
     evaluate_research_guard,
-    rg_mode_to_int,
     rg_is_promotion,
     rg_is_rollback,
+    rg_mode_to_int,
 )
-from core.redis_keys import RedisStreams as RS
-
+import contextlib
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -80,7 +79,7 @@ NOTIFY_STREAM = RS.NOTIFY_TELEGRAM
 # ---------------------------------------------------------------------------
 
 try:
-    from prometheus_client import Gauge, Counter
+    from prometheus_client import Counter, Gauge
 
     rg_calib_psr_gauge = Gauge(
         "rg_calib_latest_psr", "Latest PSR from nightly report"
@@ -191,14 +190,33 @@ def _load_nightly_report(redis_client: Any) -> NightlyReport:
     return report
 
 
-def _load_state(redis_client: Any) -> Dict[str, Any]:
+def _load_state(redis_client: Any) -> dict[str, Any]:
     try:
         raw = redis_client.get(STATE_KEY)
         if raw:
-            return json.loads(raw)
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+            logger.warning(
+                "RG calibrator state is not a dict (type=%s), resetting",
+                type(parsed).__name__,
+            )
     except Exception as e:
         logger.warning("Failed to load RG calibrator state: %s", e)
     return {}
+
+
+def _safe_int_from_state(value: Any, default: int = 0) -> int:
+    """Safely coerce a Redis state value to int, handling list/dict/None."""
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, (str, bytes)):
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return default
+    # list, dict, or any other unexpected type
+    return default
 
 
 def _save_state(
@@ -218,7 +236,7 @@ def _save_state(
         "last_recommend": result.recommend,
         "last_reason": result.reason,
         "run_id": run_id,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         "updated_ms": get_ny_time_millis(),
     }
     try:
@@ -310,7 +328,7 @@ def format_telegram_report(result: ResearchGuardCalibResult, run_id: str) -> str
     return "\n".join(lines)
 
 
-def _build_buttons(run_id: str, result: ResearchGuardCalibResult) -> Optional[str]:
+def _build_buttons(run_id: str, result: ResearchGuardCalibResult) -> str | None:
     if result.recommend == "promote":
         buttons = [[
             {"text": "🔴 Enforce (Block Deploys)", "callback_data": f"rg_calib_approve:{run_id}"},
@@ -360,10 +378,10 @@ def _store_pending(
 def _send_telegram(
     redis_client: Any,
     text: str,
-    buttons_json: Optional[str] = None,
+    buttons_json: str | None = None,
 ) -> None:
     notify_stream = os.getenv("NOTIFY_STREAM", NOTIFY_STREAM)
-    fields: Dict[str, str] = {
+    fields: dict[str, str] = {
         "type": "report",
         "text": text,
         "ts": str(get_ny_time_millis()),
@@ -404,10 +422,8 @@ def _should_run(redis_client: Any, interval_sec: int) -> bool:
 
 
 def _record_run(redis_client: Any, interval_sec: int) -> None:
-    try:
+    with contextlib.suppress(Exception):
         redis_client.set(THROTTLE_KEY, str(time.time()), ex=interval_sec * 3)
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -419,7 +435,7 @@ def run_research_guard_calibration(
     *,
     send_telegram: bool = True,
     telegram_interval_sec: int = 3600,
-) -> Optional[ResearchGuardCalibResult]:
+) -> ResearchGuardCalibResult | None:
     """
     Run one calibration cycle for the Research Guard.
 
@@ -444,9 +460,9 @@ def run_research_guard_calibration(
 
     # Load previous state
     prev_state = _load_state(r)
-    prev_mode = str(prev_state.get("mode", "report") or "report")
-    prev_proof_streak = int(prev_state.get("proof_streak", 0) or 0)
-    prev_rollback_streak = int(prev_state.get("rollback_streak", 0) or 0)
+    prev_mode = (prev_state.get("mode", "report") or "report")
+    prev_proof_streak = _safe_int_from_state(prev_state.get("proof_streak", 0))
+    prev_rollback_streak = _safe_int_from_state(prev_state.get("rollback_streak", 0))
 
     # Load ENV thresholds
     psr_min = float(os.getenv("RG_CALIB_PSR_MIN", "0.95"))

@@ -1,6 +1,3 @@
-import json
-import os
-import tempfile
 import pandas as pd
 
 from tools.confirmations_coverage_nightly_job_v1 import build_report

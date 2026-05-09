@@ -1,4 +1,3 @@
-import pytest
 from types import SimpleNamespace
 
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
@@ -7,15 +6,15 @@ from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
 def _ctx(entry=None, tp1=None, sl=None, spread_bps=None, p=None, n=None):
     ctx = SimpleNamespace()
     if entry is not None:
-        ctx.entry_price = float(entry)
-        ctx.entry = float(entry)
-        ctx.price = float(entry)
+        ctx.entry_price = entry
+        ctx.entry = entry
+        ctx.price = entry
     if tp1 is not None:
-        ctx.tp1_price = float(tp1)
-        ctx.tp1 = float(tp1)
+        ctx.tp1_price = tp1
+        ctx.tp1 = tp1
     if sl is not None:
-        ctx.sl_price = float(sl)
-        ctx.sl = float(sl)
+        ctx.sl_price = sl
+        ctx.sl = sl
     if spread_bps is not None:
         ctx.spread_bps = float(spread_bps)
     if p is not None:

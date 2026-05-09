@@ -1,11 +1,11 @@
 from __future__ import annotations
+
 """
 Lightweight wrapper around PeriodicReporter so other services can reuse
 the reporting logic without duplicating imports or scheduling.
 """
 
 
-from typing import Optional
 
 from common.log import setup_logger
 
@@ -20,7 +20,7 @@ class EmbeddedPeriodicReporter:
 
     def __init__(self) -> None:
         self.logger = setup_logger("EmbeddedPeriodicReporter")
-        self._reporter: Optional[PeriodicReporter] = None
+        self._reporter: PeriodicReporter | None = None
 
         if PeriodicReporter is None:
             self.logger.warning("PeriodicReporter module is not available, reports disabled")
@@ -36,7 +36,7 @@ class EmbeddedPeriodicReporter:
     def available(self) -> bool:
         return self._reporter is not None
 
-    def send_periodic_report(self, window_seconds: Optional[int] = None) -> None:
+    def send_periodic_report(self, window_seconds: int | None = None) -> None:
         if not self._reporter:
             raise RuntimeError("PeriodicReporter is not available")
         self._reporter.send_periodic_report(window_seconds=window_seconds)

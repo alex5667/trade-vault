@@ -1,12 +1,14 @@
 import json
 import logging
-import time
-from typing import Any, Dict, Optional
-
-from prometheus_client import Counter
-from services.analytics_db import get_conn
 import os
+import time
+from typing import Any
+
 import redis
+from prometheus_client import Counter
+
+from services.analytics_db import get_conn
+
 try:
     from core.redis_client import get_atr_redis
 except Exception:
@@ -31,13 +33,13 @@ except Exception:
     atr_rollback_emergency_without_record_total = None
 
 
-def get_rollback(rollback_id: str) -> Optional[Dict[str, Any]]:
+def get_rollback(rollback_id: str) -> dict[str, Any] | None:
     sql = "SELECT * FROM atr_rollback_requests WHERE rollback_id = %s"
     with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
         cur.execute(sql, (rollback_id,))
         return cur.fetchone()
 
-def _record_transition(cur, rollback_id: str, old_status: str, new_status: str, reason_code: str, meta: Dict[str, Any]):
+def _record_transition(cur, rollback_id: str, old_status: str, new_status: str, reason_code: str, meta: dict[str, Any]):
     cur.execute("""
         INSERT INTO atr_rollback_events (rollback_id, old_status, new_status, reason_code, event_json)
         VALUES (%s, %s, %s, %s, %s)
@@ -48,7 +50,7 @@ def request_rollback(
     change_id: str,
     rollback_class: str,
     scope_kind: str,
-    manifest: Dict[str, Any],
+    manifest: dict[str, Any],
     author: str,
     owner: str,
     reason_code: str,
@@ -67,7 +69,7 @@ def request_rollback(
     """Submit a new formal rollback request."""
     now_ms = int(time.time() * 1000)
     initial_status = "ROLLBACK_REQUESTED"
-    
+
     sql = """
         INSERT INTO atr_rollback_requests (
             rollback_id, change_id, rollback_class, scope_kind, source, venue, symbol,
@@ -84,28 +86,28 @@ def request_rollback(
         target_stage, use_last_good, initial_status, author, owner, reason_code,
         json.dumps(manifest), now_ms, now_ms
     )
-    
+
     try:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(sql, params)
             if cur.rowcount > 0:
                 _record_transition(cur, rollback_id, "NONE", initial_status, "SUBMIT_REQUEST", manifest)
-                
+
                 if atr_rollback_requests_total:
                     atr_rollback_requests_total.labels(status=initial_status, rollback_class=rollback_class).inc()
-                
+
                 # Insert the manifest as an artifact
                 cur.execute("""
                     INSERT INTO atr_rollback_artifacts (rollback_id, artifact_kind, artifact_json)
                     VALUES (%s, 'rollback_manifest', %s)
                 """, (rollback_id, json.dumps(manifest)))
-                
+
                 # Auto transition to PENDING
                 new_status = "ROLLBACK_APPROVAL_PENDING"
                 cur.execute("UPDATE atr_rollback_requests SET status = %s, updated_at_ms = %s WHERE rollback_id = %s",
                             (new_status, now_ms, rollback_id))
                 _record_transition(cur, rollback_id, initial_status, new_status, "AUTO_ADVANCE", {})
-                
+
             conn.commit()
             return cur.rowcount > 0
     except Exception as e:
@@ -122,11 +124,11 @@ def approve_rollback(rollback_id: str, actor: str) -> bool:
             if not row:
                 return False
             old_status = row[0]
-            
+
             if old_status != "ROLLBACK_APPROVAL_PENDING":
                 logger.warning(f"Cannot approve {rollback_id} in state {old_status}")
                 return False
-                
+
             new_status = "ROLLBACK_APPROVED"
             cur.execute("UPDATE atr_rollback_requests SET status = %s, updated_at_ms = %s WHERE rollback_id = %s",
                         (new_status, now_ms, rollback_id))
@@ -143,7 +145,7 @@ def emergency_freeze(change_id: str, scope_kind: str, layer: str, actor: str) ->
     # Freeze scope logic using redis
     freeze_key = f"cfg:rollback:freeze:{scope_kind}:{layer}"
     r.set(freeze_key, "freezed")
-    
+
     # Create the record to satisfy governance
     rollback_id = f"rbk_emg_{int(time.time())}"
     manifest = {
@@ -157,7 +159,7 @@ def emergency_freeze(change_id: str, scope_kind: str, layer: str, actor: str) ->
     }
     if atr_rollback_emergency_without_record_total:
         atr_rollback_emergency_without_record_total.inc()
-        
+
     request_rollback(
         rollback_id=rollback_id,
         change_id=change_id,
@@ -169,7 +171,7 @@ def emergency_freeze(change_id: str, scope_kind: str, layer: str, actor: str) ->
         reason_code="EMERGENCY",
         layer=layer
     )
-    
+
     # Auto-execute
     now_ms = int(time.time() * 1000)
     try:
@@ -183,7 +185,7 @@ def emergency_freeze(change_id: str, scope_kind: str, layer: str, actor: str) ->
             conn.commit()
     except Exception as e:
         logger.error(f"Failed to record emergency execute {rollback_id}: {e}")
-        
+
     return rollback_id
 
 def execute_rollback(rollback_id: str) -> bool:
@@ -196,38 +198,38 @@ def execute_rollback(rollback_id: str) -> bool:
             if not rb:
                 return False
             old_status = rb["status"]
-            
+
             if old_status not in ("ROLLBACK_APPROVED", "ROLLBACK_EXEC_PENDING"):
                 logger.warning(f"Cannot execute {rollback_id} in state {old_status}")
                 return False
-            
+
             manifest = rb["request_json"]
-            
+
             # --- EXECUTION LOGIC ---
             r = get_redis()
             scope = manifest.get("scope", {})
             # Set no_new_risk for scope
             if rb["layer"]:
                 r.set(f"cfg:rollback:freeze:{rb['scope_kind']}:{rb['layer']}", "1")
-            
+
             # If target stage or policy_ver present, apply them directly to SQL
             if rb["target_policy_ver"]:
                 logger.info(f"Applying rollback policy_ver target: {rb['target_policy_ver']}")
                 # In real scenario, update the deployment config DB or Redis
-                
+
             open_pos = manifest.get("open_position_policy", {})
             if open_pos.get("trailing_behavior") == "freeze_current":
                 if rb["symbol"] and rb["layer"]:
                     r.set(f"cfg:trailer:freeze:{rb['symbol']}:{rb['layer']}", "1")
-                    
+
             # Rebuild serving state (trigger reload)
             r.set("runtime:reload", str(now_ms))
             # -----------------------
-            
+
             new_status = "ROLLBACK_EXECUTED"
             if atr_rollback_exec_total:
                 atr_rollback_exec_total.labels(rollback_class=rb["rollback_class"]).inc()
-                
+
             cur.execute("UPDATE atr_rollback_requests SET status = %s, updated_at_ms = %s WHERE rollback_id = %s",
                         (new_status, now_ms, rollback_id))
             _record_transition(cur, rollback_id, old_status, new_status, "APPLIED", manifest)
@@ -247,11 +249,11 @@ def certify_rollback(rollback_id: str) -> bool:
         "no_new_entries_after_rollback": True,
         "protective_exits_operational": True
     }
-    
+
     summary = {
         "new_entries_after_exec": 0
     }
-    
+
     now_ms = int(time.time() * 1000)
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
@@ -259,7 +261,7 @@ def certify_rollback(rollback_id: str) -> bool:
             rb = cur.fetchone()
             if not rb:
                 return False
-            
+
             old_status = rb["status"]
             if old_status != "ROLLBACK_EXECUTED":
                 return False
@@ -278,17 +280,17 @@ def certify_rollback(rollback_id: str) -> bool:
                 rb["scenario"], rb["regime"], rb["risk_horizon_bucket"], rb["layer"], rb["target_policy_ver"],
                 "passed", json.dumps(checks), json.dumps(summary)
             ))
-            
+
             new_status = "ROLLBACK_CERT_PASSED"
             if atr_rollback_cert_total:
                 atr_rollback_cert_total.labels(status="passed").inc()
-                
+
             cur.execute("UPDATE atr_rollback_requests SET status = %s, updated_at_ms = %s WHERE rollback_id = %s",
                         (new_status, now_ms, rollback_id))
             _record_transition(cur, rollback_id, old_status, new_status, "POST_CERT_PASS", checks)
             conn.commit()
             return True
-            
+
     except Exception as e:
         logger.error(f"Failed to certify rollback {rollback_id}: {e}")
         return False
@@ -302,11 +304,11 @@ def finalize_rollback(rollback_id: str) -> bool:
             rb = cur.fetchone()
             if not rb:
                 return False
-                
+
             old_status = rb["status"]
             if old_status != "ROLLBACK_CERT_PASSED":
                 return False
-                
+
             evidence = {
                 "rollback_id": rollback_id,
                 "change_id": rb["change_id"],
@@ -314,12 +316,12 @@ def finalize_rollback(rollback_id: str) -> bool:
                 "rollback_manifest_ref": "artifact:rollback_manifest",
                 "allocator_reset_summary": {"ok": True},
             }
-            
+
             cur.execute("""
                 INSERT INTO atr_rollback_artifacts (rollback_id, artifact_kind, artifact_json)
                 VALUES (%s, 'rollback_evidence', %s)
             """, (rollback_id, json.dumps(evidence)))
-            
+
             new_status = "ROLLED_BACK"
             cur.execute("UPDATE atr_rollback_requests SET status = %s, updated_at_ms = %s WHERE rollback_id = %s",
                         (new_status, now_ms, rollback_id))

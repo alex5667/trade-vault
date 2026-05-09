@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Optional, Any
 import math
+from typing import Any
 
-def finite_f(x: Any) -> Optional[float]:
+
+def finite_f(x: Any) -> float | None:
     try:
         v = float(x)
         if not math.isfinite(v):
@@ -12,7 +13,7 @@ def finite_f(x: Any) -> Optional[float]:
     except Exception:
         return None
 
-def label_outcome(outcome: str, realized_r: Optional[float], *, eps_r: float = 0.05) -> Optional[int]:
+def label_outcome(outcome: str, realized_r: float | None, *, eps_r: float = 0.05) -> int | None:
     """
     Разметка для confidence calibration:
       y=1: прибыльный исход
@@ -27,7 +28,7 @@ def label_outcome(outcome: str, realized_r: Optional[float], *, eps_r: float = 0
       - expired_no_entry/unknown: исключить
       - breakeven: исключить
     """
-    o = str(outcome or "").strip().lower()
+    o = (outcome or "").strip().lower()
 
     if o in {"expired_no_entry", "unknown"}:
         return None

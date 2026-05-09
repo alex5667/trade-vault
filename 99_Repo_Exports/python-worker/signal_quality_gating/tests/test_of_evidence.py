@@ -1,23 +1,20 @@
 from __future__ import annotations
+
 """Tests for signal_quality_gating/core/of_evidence.py
 
 Tests cover: compute_sweep_recent, compute_reclaim_recent, compute_absorption_flags.
 """
 
 
-import sys
-import os
 
 import pytest
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-
 from core.of_evidence import (
-    compute_sweep_recent,
-    compute_reclaim_recent,
     compute_absorption_flags,
+    compute_reclaim_recent,
+    compute_sweep_recent,
 )
-
 
 # ---------------------------------------------------------------------------
 # compute_sweep_recent

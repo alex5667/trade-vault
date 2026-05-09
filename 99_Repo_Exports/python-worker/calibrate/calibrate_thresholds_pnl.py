@@ -12,10 +12,10 @@ Usage:
 """
 
 import argparse
-import pandas as pd
-import numpy as np
 from itertools import product
-from typing import Tuple, Optional
+
+import numpy as np
+import pandas as pd
 
 
 def objective(
@@ -23,7 +23,7 @@ def objective(
     dz: float,
     obi: float,
     require_weak: bool = False
-) -> Tuple[float, float, int]:
+) -> tuple[float, float, int]:
     """
     Calculate objective function for given thresholds.
     
@@ -37,31 +37,31 @@ def objective(
         (mean_profit, sharpe, num_samples)
     """
     g = df.copy()
-    
+
     # Build mask
     mask = (np.abs(g["delta_z"]) >= dz)
-    
+
     if "obi" in g.columns:
         mask &= (np.abs(g["obi"]) >= obi)
-    
+
     if require_weak and "weak" in g.columns:
         mask &= (g["weak"] > 0.5)
-    
+
     # Filter
     sel = g[mask]
-    
+
     if sel.empty or "profit" not in sel.columns:
         return -1e9, 0, 0
-    
+
     # Calculate metrics
     mu = sel["profit"].mean()
     sd = sel["profit"].std(ddof=0)
-    
+
     if pd.isna(sd) or sd <= 0:
         sd = 1e-9
-    
+
     sharpe = mu / sd
-    
+
     return mu, sharpe, len(sel)
 
 
@@ -77,21 +77,21 @@ def main():
     ap.add_argument("--require-weak", action="store_true", help="Require weak progress")
     ap.add_argument("--weight-profit", type=float, default=0.7, help="Profit weight (0-1)")
     args = ap.parse_args()
-    
+
     print("=" * 80)
     print("🎯 PnL-Driven Threshold Calibrator v7")
     print("=" * 80)
     print()
-    
+
     # Load data
     print(f"📊 Loading data from {args.data}...")
     if args.data.endswith(".parquet"):
         df = pd.read_parquet(args.data)
     else:
         df = pd.read_csv(args.data)
-    
+
     print(f"✅ Loaded {len(df)} records")
-    
+
     # Check required columns
     required = ["delta_z", "profit"]
     missing = [c for c in required if c not in df.columns]
@@ -99,31 +99,31 @@ def main():
         print(f"❌ Missing required columns: {missing}")
         print(f"   Available: {list(df.columns)}")
         return
-    
+
     print(f"   Columns: {list(df.columns)}")
     print()
-    
+
     # Parse grids
     dzs = [float(x) for x in args.dz_grid.split(",")]
     obis = [float(x) for x in args.obi_grid.split(",")]
-    
-    print(f"🔍 Grid search:")
+
+    print("🔍 Grid search:")
     print(f"   Delta Z:  {dzs}")
     print(f"   OBI:      {obis}")
     print(f"   Total combinations: {len(dzs) * len(obis)}")
     print()
-    
+
     # Grid search
     best = None
     results = []
-    
+
     weight_profit = args.weight_profit
     weight_sharpe = 1 - weight_profit
-    
+
     for dz, ob in product(dzs, obis):
         mu, sh, n = objective(df, dz, ob, args.require_weak)
         score = weight_profit * mu + weight_sharpe * sh
-        
+
         results.append({
             "dz": dz,
             "obi": ob,
@@ -132,27 +132,27 @@ def main():
             "samples": n,
             "score": score
         })
-        
+
         if best is None or score > best[0]:
             best = (score, dz, ob, mu, sh, n)
-    
+
     # Display results
     results_df = pd.DataFrame(results).sort_values("score", ascending=False)
-    
+
     print("📈 Top 10 configurations:")
     print(results_df.head(10).to_string(index=False))
     print()
-    
+
     if best is None or best[0] == -1e9:
         print("⚠️  No valid configuration found, using defaults")
         with open(args.out_env, "w") as f:
             f.write("DELTA_Z_THRESHOLD=3.0\n")
             f.write("OBI_THRESHOLD=0.5\n")
         return
-    
+
     # Best configuration
     score, dz, ob, mu, sh, n = best
-    
+
     print("=" * 80)
     print("🏆 BEST CONFIGURATION")
     print("=" * 80)
@@ -163,16 +163,16 @@ def main():
     print(f"Samples:            {n}")
     print(f"Score:              {score:.3f}")
     print()
-    
+
     # Write to env file
     with open(args.out_env, "w") as f:
-        f.write(f"# PnL-calibrated thresholds\n")
+        f.write("# PnL-calibrated thresholds\n")
         f.write(f"# Generated from {len(df)} records\n")
         f.write(f"# Best config: mean_profit=${mu:.2f}, sharpe={sh:.3f}, samples={n}\n")
-        f.write(f"\n")
+        f.write("\n")
         f.write(f"DELTA_Z_THRESHOLD={dz}\n")
         f.write(f"OBI_THRESHOLD={ob}\n")
-    
+
     print(f"✅ Wrote configuration to {args.out_env}")
     print()
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Signal Quality KPI Worker (v3)
 
@@ -24,15 +25,15 @@ Writes:
       metrics:signal_quality:24h:by_reason
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
 from prometheus_client import Counter
+
+from utils.time_utils import get_ny_time_millis
 
 _runs_total = Counter("signal_quality_kpi_v3_runs_total", "KPI v3 runs", ["result"])
 
@@ -47,15 +48,15 @@ def _env_int(name: str, default: str) -> int:
     try:
         return int(_env(name, default))
     except Exception:
-        return int(default)
+        return default
 
 def _env_float(name: str, default: str) -> float:
     try:
         return float(_env(name, default))
     except Exception:
-        return float(default)
+        return default
 
-def _loads(s: Any) -> Dict[str, Any]:
+def _loads(s: Any) -> dict[str, Any]:
     if s is None:
         return {}
     if isinstance(s, dict):
@@ -65,13 +66,13 @@ def _loads(s: Any) -> Dict[str, Any]:
     except Exception:
         return {}
 
-def _pick(d: Dict[str, Any], *keys: str) -> Optional[Any]:
+def _pick(d: dict[str, Any], *keys: str) -> Any | None:
     for k in keys:
         if k in d and d[k] is not None:
             return d[k]
     return None
 
-def _as_float(v: Any) -> Optional[float]:
+def _as_float(v: Any) -> float | None:
     try:
         if v is None:
             return None
@@ -91,12 +92,12 @@ def _state(v: Any) -> str:
         return { "0":"ok","1":"warn","2":"block","3":"unknown"}.get(s, "unknown")
     return "unknown"
 
-def _win_label(r_mult: Optional[float], win_r_min: float) -> Optional[int]:
+def _win_label(r_mult: float | None, win_r_min: float) -> int | None:
     if r_mult is None:
         return None
     return 1 if r_mult > win_r_min else 0
 
-def _ece(probs: List[float], ys: List[int], bins: int) -> Optional[float]:
+def _ece(probs: list[float], ys: list[int], bins: int) -> float | None:
     n = len(probs)
     if n == 0:
         return None
@@ -115,7 +116,7 @@ def _ece(probs: List[float], ys: List[int], bins: int) -> Optional[float]:
         out += (len(idx)/n) * abs(p_avg - y_avg)
     return out
 
-def _precision_top_p(scores: List[float], ys: List[int], top_p: float) -> Optional[float]:
+def _precision_top_p(scores: list[float], ys: list[int], top_p: float) -> float | None:
     n = len(scores)
     if n == 0:
         return None
@@ -124,12 +125,12 @@ def _precision_top_p(scores: List[float], ys: List[int], top_p: float) -> Option
     top = order[:k]
     return sum(ys[i] for i in top) / k
 
-def _mean(xs: List[float]) -> Optional[float]:
+def _mean(xs: list[float]) -> float | None:
     if not xs:
         return None
     return sum(xs)/len(xs)
 
-def _extract_score_prob(d: Dict[str, Any], score_fields: List[str], prob_fields: List[str]) -> Tuple[Optional[float], Optional[float]]:
+def _extract_score_prob(d: dict[str, Any], score_fields: list[str], prob_fields: list[str]) -> tuple[float | None, float | None]:
     s = None
     for k in score_fields:
         v = _as_float(_pick(d, k))
@@ -144,7 +145,7 @@ def _extract_score_prob(d: Dict[str, Any], score_fields: List[str], prob_fields:
             break
     return s, p
 
-def _write_hash(cli: redis.Redis, key: str, mapping: Dict[str, str]) -> None:
+def _write_hash(cli: redis.Redis, key: str, mapping: dict[str, str]) -> None:
     if not mapping:
         return
     pipe = cli.pipeline(transaction=False)
@@ -181,15 +182,15 @@ def compute_once() -> None:
     rows = cli.xrevrange(stream, max="+", min="-", count=max_scan)
 
     # collectors
-    g_scores: List[float] = []
-    g_probs: List[float] = []
-    g_ys: List[int] = []
-    g_rs: List[float] = []
+    g_scores: list[float] = []
+    g_probs: list[float] = []
+    g_ys: list[int] = []
+    g_rs: list[float] = []
     last_ts = 0
 
-    mode_bins: Dict[Tuple[str,str], Dict[str, Any]] = {}
-    bucket_bins: Dict[Tuple[str,str], Dict[str, Any]] = {}
-    reason_bins: Dict[str, Dict[str, Any]] = {}
+    mode_bins: dict[tuple[str,str], dict[str, Any]] = {}
+    bucket_bins: dict[tuple[str,str], dict[str, Any]] = {}
+    reason_bins: dict[str, dict[str, Any]] = {}
 
     def _acc(binmap, key):
         if key not in binmap:
@@ -265,7 +266,7 @@ def compute_once() -> None:
     cli.hset(dyn_cfg_key, mapping={k:v for k,v in cfg_map.items() if v != ""})
 
     # Breakdown helpers
-    def _pack(binobj: Dict[str, Any]) -> Optional[str]:
+    def _pack(binobj: dict[str, Any]) -> str | None:
         if binobj["n"] < min_n:
             return None
         exp = _mean(binobj["rs"])
@@ -282,7 +283,7 @@ def compute_once() -> None:
 
     # by_mode
     mode_items = sorted(mode_bins.items(), key=lambda kv: kv[1]["n"], reverse=True)[:max_groups]
-    mode_map: Dict[str,str] = {}
+    mode_map: dict[str,str] = {}
     for (dm, dq), b in mode_items:
         v = _pack(b)
         if v:
@@ -291,7 +292,7 @@ def compute_once() -> None:
 
     # by_bucket (safe to keep all but cap anyway)
     bucket_items = sorted(bucket_bins.items(), key=lambda kv: kv[1]["n"], reverse=True)[:max_groups]
-    bucket_map: Dict[str,str] = {}
+    bucket_map: dict[str,str] = {}
     for (bucket, applied), b in bucket_items:
         v = _pack(b)
         if v:
@@ -300,7 +301,7 @@ def compute_once() -> None:
 
     # by_reason (top-K only)
     reason_items = sorted(reason_bins.items(), key=lambda kv: kv[1]["n"], reverse=True)[:top_reason_k]
-    reason_map: Dict[str,str] = {}
+    reason_map: dict[str,str] = {}
     for reason, b in reason_items:
         v = _pack(b)
         if v:

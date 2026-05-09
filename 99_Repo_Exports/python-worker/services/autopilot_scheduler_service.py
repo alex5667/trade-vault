@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """services.autopilot_scheduler_service
 
 Container-friendly scheduler (no systemd) for autopilot reports.
@@ -15,19 +15,17 @@ Locking:
   - Redis SETNX lock prevents double-run across replicas.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import asyncio
 import os
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import redis.asyncio as redis
 
-from core.redis_lock_async import acquire_lock, release_lock, RedisLock
+from core.redis_lock_async import RedisLock, acquire_lock, release_lock
+from utils.time_utils import get_ny_time_millis
 
 
 @dataclass
@@ -46,7 +44,7 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)) or str(default))
     except Exception:
-        return int(default)
+        return default
 
 
 def _now_ms() -> int:
@@ -78,14 +76,14 @@ async def _run_once_task(*, base: Path, propose: bool) -> int:
         "--window-days",
         str(_env_int("AUTOPILOT_WINDOW_DAYS", 7)),
         "--out-dir",
-        str(os.getenv("AUTOPILOT_OUT_DIR", "/tmp/autopilot")),
+        os.getenv("AUTOPILOT_OUT_DIR", "/tmp/autopilot"),
     ]
     if propose:
         args.append("--redis-write")
     else:
         # force off, even if env defaults to 1 for manual runs
         os.environ["AUTOPILOT_REDIS_WRITE"] = "0"
-        
+
     proc = await asyncio.create_subprocess_exec(
         *args,
         cwd=str(base),
@@ -95,7 +93,7 @@ async def _run_once_task(*, base: Path, propose: bool) -> int:
     )
     out_b = await proc.stdout.read() if proc.stdout else b""
     rc = int(await proc.wait())
-    
+
     # last-resort: log to stdout for container logs
     try:
         out = out_b.decode("utf-8", "ignore")
@@ -128,7 +126,7 @@ async def run_forever(cfg: SchedulerCfg) -> None:
         now = time.gmtime()
         day_key = time.strftime("%Y-%m-%d", now)
         hour = int(time.strftime("%H", now))
-        
+
         propose = False
         if cfg.propose_every_hours <= 0:
             propose = False
@@ -141,7 +139,7 @@ async def run_forever(cfg: SchedulerCfg) -> None:
             propose = (hour % int(cfg.propose_every_hours) == 0)
 
         # Lock: skip if another instance is running.
-        lock: Optional[RedisLock] = await acquire_lock(r=r, key=cfg.lock_key, ttl_sec=cfg.lock_ttl_sec)
+        lock: RedisLock | None = await acquire_lock(r=r, key=cfg.lock_key, ttl_sec=cfg.lock_ttl_sec)
         if lock is None:
             continue
         try:
@@ -156,11 +154,11 @@ def _load_cfg() -> SchedulerCfg:
     redis_url = os.getenv("AUTOPILOT_REDIS_URL") or os.getenv("REDIS_URL") or "redis://redis-worker-1:6379/0"
     return SchedulerCfg(
         redis_url=str(redis_url),
-        lock_key=str(os.getenv("AUTOPILOT_LOCK_KEY", "lock:autopilot:reporter")),
+        lock_key=os.getenv("AUTOPILOT_LOCK_KEY", "lock:autopilot:reporter"),
         lock_ttl_sec=_env_int("AUTOPILOT_LOCK_TTL_SEC", 55 * 60),
         every_min=_env_int("AUTOPILOT_EVERY_MIN", 60),
         propose_every_hours=_env_int("AUTOPILOT_PROPOSE_EVERY_HOURS", 24),
-        out_dir=str(os.getenv("AUTOPILOT_OUT_DIR", "/tmp/autopilot")),
+        out_dir=os.getenv("AUTOPILOT_OUT_DIR", "/tmp/autopilot"),
         since_hours=_env_int("AUTOPILOT_SINCE_HOURS", 168),
         window_days=_env_int("AUTOPILOT_WINDOW_DAYS", 7),
     )

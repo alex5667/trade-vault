@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ML feature schema v6 (OrderFlow).
 
 v6_of = v5_of + world-practice flow + realized adverse drift.
@@ -6,7 +7,6 @@ v6_of = v5_of + world-practice flow + realized adverse drift.
 
 
 from dataclasses import dataclass
-from typing import List
 
 from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF
 
@@ -21,7 +21,7 @@ class MLFeatureSchemaV6OF(MLFeatureSchemaV5OF):
     def __post_init__(self) -> None:  # noqa: D401
         super().__post_init__()
 
-        extra_num: List[str] = [
+        extra_num: list[str] = [
             "taker_buy_rate_ema",
             "taker_sell_rate_ema",
             "taker_net_rate_ema",

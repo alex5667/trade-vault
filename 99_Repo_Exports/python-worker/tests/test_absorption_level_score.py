@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from core.absorption_level_score import compute_absorption_level_score, _get
+
+from core.absorption_level_score import _get, compute_absorption_level_score
 
 
 def test_abs_lvl_ok_when_bias_matches_and_components_present():
@@ -89,10 +90,10 @@ def test_abs_lvl_notional_filter():
         bar=bar, direction="LONG", delta_z=2.5, weak_progress=True,
         iceberg_strict=True, reclaim_recent=True, cfg=cfg,
     )
-    # Global OK might be True because of other components (s2, s3, s4), 
+    # Global OK might be True because of other components (s2, s3, s4),
     # but s1 must be 0.0 due to notional filter.
     assert r.parts["s1_z_wp_eff"] == 0.0
-    
+
     # min_quote_delta = 10
     cfg["abs_lvl_min_quote_delta"] = 10.0
     r = compute_absorption_level_score(

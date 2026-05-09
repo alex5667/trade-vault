@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 services/batch_trade_writer.py
 ──────────────────────────────
@@ -31,7 +32,7 @@ import os
 import queue
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
     import psycopg2
@@ -110,11 +111,11 @@ class BatchTradeWriter:
     def __init__(
         self,
         *,
-        enabled: Optional[bool] = None,
-        max_size: Optional[int] = None,
-        flush_interval_s: Optional[float] = None,
-        max_retries: Optional[int] = None,
-        queue_maxsize: Optional[int] = None,
+        enabled: bool | None = None,
+        max_size: int | None = None,
+        flush_interval_s: float | None = None,
+        max_retries: int | None = None,
+        queue_maxsize: int | None = None,
     ) -> None:
         self.enabled = enabled if enabled is not None else _ENV_ENABLED
         self.max_size = max_size if max_size is not None else _ENV_MAX_SIZE
@@ -123,7 +124,7 @@ class BatchTradeWriter:
         queue_maxsize_ = queue_maxsize if queue_maxsize is not None else _ENV_QUEUE_MAXSIZE
 
         self._queue: queue.Queue = queue.Queue(maxsize=queue_maxsize_)
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
 
@@ -162,7 +163,7 @@ class BatchTradeWriter:
         Returns:
             Количество успешно записанных строк.
         """
-        items: List[Any] = []
+        items: list[Any] = []
         try:
             while True:
                 items.append(self._queue.get_nowait())
@@ -240,7 +241,7 @@ class BatchTradeWriter:
         except Exception as exc:
             logger.error("BatchTradeWriter: ошибка финального flush: %s", exc)
 
-    def _flush_with_retry(self, items: List[Any]) -> int:
+    def _flush_with_retry(self, items: list[Any]) -> int:
         """
         Выполняет batch INSERT с повторами при ошибке PG.
 
@@ -248,7 +249,7 @@ class BatchTradeWriter:
         (в начало — LIFO-priority через put_nowait, порядок не гарантирован,
         но lossless-critical: не теряем сделки).
         """
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
                 return self._do_batch_insert(items)
@@ -276,15 +277,15 @@ class BatchTradeWriter:
                 _TM_DB_DROPPED.inc()
         return 0
 
-    def _do_batch_insert(self, items: List[Any]) -> int:
+    def _do_batch_insert(self, items: list[Any]) -> int:
         """
         Выполняет batch INSERT в trades_closed и trades_closed_p0.
         Использует psycopg2.extras.execute_values для максимальной скорости.
         """
         from services import analytics_db
 
-        main_rows: List[Tuple] = []
-        p0_rows: List[Tuple] = []
+        main_rows: list[tuple] = []
+        p0_rows: list[tuple] = []
 
         for closed in items:
             try:
@@ -436,7 +437,7 @@ class BatchTradeWriter:
 # Row builders (pure functions, testable without DB)
 # ------------------------------------------------------------------
 
-def _build_main_row(closed: Any) -> Tuple:
+def _build_main_row(closed: Any) -> tuple:
     """Строит кортеж параметров для INSERT INTO trades_closed."""
     return (
         closed.order_id, closed.sid, closed.strategy, closed.source, closed.symbol, closed.tf, closed.direction,
@@ -472,11 +473,11 @@ def _build_main_row(closed: Any) -> Tuple:
     )
 
 
-def _build_p0_row(closed: Any) -> Tuple:
+def _build_p0_row(closed: Any) -> tuple:
     """Строит кортеж параметров для INSERT INTO trades_closed_p0 (без exit_ts адаптации)."""
     sp = getattr(closed, "signal_payload", {}) or {}
 
-    features: Dict[str, Any] = {}
+    features: dict[str, Any] = {}
     f1 = getattr(closed, "features", None)
     if isinstance(f1, dict):
         features = dict(f1)
@@ -536,7 +537,7 @@ def _build_p0_row(closed: Any) -> Tuple:
 # Singleton accessor
 # ------------------------------------------------------------------
 
-_writer_instance: Optional[BatchTradeWriter] = None
+_writer_instance: BatchTradeWriter | None = None
 _writer_lock = threading.Lock()
 
 

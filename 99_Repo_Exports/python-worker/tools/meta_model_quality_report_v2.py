@@ -1,5 +1,6 @@
 # python-worker/tools/meta_model_quality_report_v2.py
 from __future__ import annotations
+
 """
 Regime/session aware quality report for MetaModelLR.
 
@@ -20,7 +21,7 @@ import math
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 try:
     import pandas as pd  # type: ignore
@@ -47,7 +48,7 @@ def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def _as_dict(x: Any) -> Dict[str, Any]:
+def _as_dict(x: Any) -> dict[str, Any]:
     if x is None:
         return {}
     if isinstance(x, dict):
@@ -84,13 +85,13 @@ def _finite_float(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _get_nested(row: Dict[str, Any], key: str) -> Dict[str, Any]:
+def _get_nested(row: dict[str, Any], key: str) -> dict[str, Any]:
     # row can be dict (from df.iloc[i].to_dict())
     v = row.get(key)
     return _as_dict(v)
 
 
-def _get_feat_value(name: str, evidence: Dict[str, Any], indicators: Dict[str, Any]) -> Any:
+def _get_feat_value(name: str, evidence: dict[str, Any], indicators: dict[str, Any]) -> Any:
     if name in evidence:
         return evidence.get(name)
     # allow indicators may nest again under "indicators" (rare but seen in some pipelines)
@@ -102,8 +103,8 @@ def _get_feat_value(name: str, evidence: Dict[str, Any], indicators: Dict[str, A
     return 0.0
 
 
-def _build_feat_for_model(features: List[str], evidence: Dict[str, Any], indicators: Dict[str, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _build_feat_for_model(features: list[str], evidence: dict[str, Any], indicators: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for f in features:
         out[f] = _get_feat_value(f, evidence, indicators)
     return out
@@ -117,7 +118,7 @@ def _sigmoid(x: float) -> float:
     return z / (1.0 + z)
 
 
-def _predict_proba(model_json: Dict[str, Any], feat: Dict[str, Any]) -> float:
+def _predict_proba(model_json: dict[str, Any], feat: dict[str, Any]) -> float:
     # fallback if core.MetaModelLR is unavailable
     intercept = float(model_json.get("intercept", 0.0))
     coef = model_json.get("coef") or []
@@ -210,7 +211,7 @@ def _calc_metrics(y: np.ndarray, p: np.ndarray, topk: int, ece_bins: int) -> Met
     )
 
 
-def _write_prom_textfile(path: str, lines: List[str]) -> None:
+def _write_prom_textfile(path: str, lines: list[str]) -> None:
     tmp = f"{path}.tmp"
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(tmp, "w", encoding="utf-8") as f:
@@ -235,11 +236,11 @@ def main() -> None:
     args = ap.parse_args()
 
     model_path = args.model_json
-    model_raw = json.loads(open(model_path, "r", encoding="utf-8").read())
+    model_raw = json.loads(open(model_path, encoding="utf-8").read())
     features = list(model_raw.get("features") or [])
     schema_name = str(model_raw.get("schema_name") or model_raw.get("schema") or "")
     schema_version = model_raw.get("schema_version")
-    schema_hash = str(model_raw.get("feature_cols_hash") or "")
+    schema_hash = (model_raw.get("feature_cols_hash") or "")
 
     model = None
     if MetaModelLR is not None:
@@ -281,12 +282,12 @@ def main() -> None:
     global_pack = _calc_metrics(y, p, topk=args.topk, ece_bins=args.ece_bins)
 
     # Groups
-    groups_out: Dict[str, Any] = {}
-    group_metrics: List[Tuple[str, MetricPack]] = []
+    groups_out: dict[str, Any] = {}
+    group_metrics: list[tuple[str, MetricPack]] = []
 
     if group_cols:
         # build group keys
-        keys: List[str] = []
+        keys: list[str] = []
         for i in range(len(df)):
             row = df.iloc[i].to_dict()
             parts = []
@@ -299,7 +300,7 @@ def main() -> None:
             keys.append("|".join(parts))
 
         # aggregate indices per group
-        buckets: Dict[str, List[int]] = {}
+        buckets: dict[str, list[int]] = {}
         for i, k in enumerate(keys):
             buckets.setdefault(k, []).append(i)
 
@@ -390,7 +391,7 @@ def main() -> None:
     if args.prom_textfile:
         # export only global + worst summaries (avoid group label explosion)
         sc = schema_name.replace('"', '\\"')
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append(f'meta_quality_ece{{schema="{sc}"}} {global_pack.ece}')
         lines.append(f'meta_quality_brier{{schema="{sc}"}} {global_pack.brier}')
         lines.append(f'meta_quality_pr_auc{{schema="{sc}"}} {global_pack.pr_auc}')

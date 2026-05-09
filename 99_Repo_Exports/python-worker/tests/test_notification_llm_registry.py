@@ -6,6 +6,8 @@ build_analysis_envelope, render_user_prompt.
 import pytest
 
 from utils.notification_llm_registry import (
+    MODEL_PROFILE_REGISTRY,
+    PAYLOAD_WHITELISTS,
     PROMPT_REGISTRY,
     SOURCE_TO_NOTIFICATION_TYPE,
     SUBTYPE_TO_NOTIFICATION_TYPE,
@@ -15,10 +17,7 @@ from utils.notification_llm_registry import (
     render_user_prompt,
     route_notification,
     sanitize_payload,
-    MODEL_PROFILE_REGISTRY,
-    PAYLOAD_WHITELISTS,
 )
-
 
 # ---------------------------------------------------------------------------
 # route_notification — source_service branch

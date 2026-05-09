@@ -1,9 +1,9 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import time
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 _LUA_POP_DUE = r"""
 -- KEYS[1] = zset_key
@@ -35,7 +35,7 @@ class ExpiryIndex:
     def __init__(self, redis_client: Any, *, settings: ExpiryIndexSettings) -> None:
         self.redis = redis_client
         self.settings = settings
-        self._sha: Optional[str] = None
+        self._sha: str | None = None
 
     def _ensure_sha(self) -> str:
         if self._sha:
@@ -46,7 +46,7 @@ class ExpiryIndex:
     def add(self, key: str, *, expire_at_ms: int) -> None:
         self.redis.zadd(self.settings.zset_key, {str(key): int(expire_at_ms)})
 
-    def pop_due(self, *, now_ms: Optional[int] = None, limit: int = 500) -> List[str]:
+    def pop_due(self, *, now_ms: int | None = None, limit: int = 500) -> list[str]:
         now_ms = int(now_ms or get_ny_time_millis())
         limit = max(1, int(limit))
         sha = self._ensure_sha()

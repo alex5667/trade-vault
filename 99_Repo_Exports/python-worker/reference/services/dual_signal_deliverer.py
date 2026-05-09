@@ -1,15 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from common.log import setup_logger
 from common.transient import is_transient_error
-from core.redis_stream_consumer import SyncRedisStreamHelper
 from core.dual_redis_client import get_dual_signals_redis
+from core.redis_stream_consumer import SyncRedisStreamHelper
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("DualSignalDeliverer")
 
@@ -107,7 +107,7 @@ class DualSignalDeliverer:
         self._claim_start_id = "0-0"
 
         self.done_prefix = os.getenv("DUAL_SIGNAL_DONE_PREFIX", "dual:done:")
-        self._sha: Optional[str] = None
+        self._sha: str | None = None
 
     def _done_key(self, msg_id: str) -> str:
         return f"{self.done_prefix}{msg_id}"
@@ -119,7 +119,7 @@ class DualSignalDeliverer:
         return self._sha
 
     @staticmethod
-    def _kv_flat(payload: Dict[str, Any]) -> list[str]:
+    def _kv_flat(payload: dict[str, Any]) -> list[str]:
         out: list[str] = []
         for k, v in (payload or {}).items():
             out.append(str(k))
@@ -129,7 +129,7 @@ class DualSignalDeliverer:
                 out.append(str(v))
         return out
 
-    def _deliver_one(self, msg_id: str, fields: Dict[str, Any]) -> bool:
+    def _deliver_one(self, msg_id: str, fields: dict[str, Any]) -> bool:
         raw = fields.get("data")
         if not raw:
             return True
@@ -137,8 +137,8 @@ class DualSignalDeliverer:
             raw = raw.decode("utf-8", errors="ignore")
         env = json.loads(raw) if isinstance(raw, str) else raw
 
-        sid = str(env.get("sid") or "")
-        target = str(env.get("target") or "")
+        sid = (env.get("sid") or "")
+        target = (env.get("target") or "")
         meta = env.get("meta") or {}
         payload = env.get("payload") or {}
 
@@ -155,7 +155,7 @@ class DualSignalDeliverer:
             marker_key = f"deliver:notify:{sid}"
             is_notify = "1"
         else:
-            stream = str(meta.get("manual_stream") or "")
+            stream = (meta.get("manual_stream") or "")
             if not stream:
                 self.dual.xack(self.outbox_stream, self.group, msg_id)
                 return True

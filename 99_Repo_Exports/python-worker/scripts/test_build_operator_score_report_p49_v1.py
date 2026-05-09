@@ -1,7 +1,7 @@
-from pathlib import Path
 import importlib.util
 import json
 import sys
+from pathlib import Path
 
 # Load build_operator_score_report module dynamically to avoid circular imports
 path = Path(__file__).resolve().parents[0] / 'build_operator_score_report.py'

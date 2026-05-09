@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """tests/test_phase0_horizon_contract.py
 
 Phase 0 contract tests.
@@ -22,10 +23,9 @@ from unittest.mock import patch
 import pytest
 
 from core.horizon_contract import (
-    ATRProfileV1,
+    HORIZON_CONTRACT_VER,
     HorizonProfileV1,
     HorizonReasonCode,
-    HORIZON_CONTRACT_VER,
     SignalRiskProfileV1,
     attach_phase0_profiles_to_ctx,
     build_horizon_meta_for_payload,
@@ -239,8 +239,8 @@ class TestHorizonModeOff:
             "ATR_HORIZON_MODE": "off",
             "ATR_HORIZON_ENABLE_CTX_ALIASES": "0",
         }):
+
             from core import horizon_contract as hc
-            import importlib
             # Re-evaluate _ENV values
             result = hc.attach_phase0_profiles_to_ctx(
                 ctx, symbol="X", kind="y", regime="z", now_ts_ms=1,

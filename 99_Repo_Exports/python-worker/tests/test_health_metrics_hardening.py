@@ -1,7 +1,7 @@
-import os
 from types import SimpleNamespace
 
 from common.cost_edge_codes import cost_edge_reason_codes
+
 
 class _Boom:
     def __call__(self, *args, **kwargs):
@@ -15,7 +15,7 @@ def _mark_dq(ctx, flag, *, logger=None, key=None, exc=None):
             flags = []
         if flag not in flags:
             flags.append(flag)
-        setattr(ctx, "data_quality_flags", flags)
+        ctx.data_quality_flags = flags
 
 def _safe_health_call(*, ctx, logger, dq_flag, key, fn, args=(), kwargs=None):
     """Mock implementation for testing"""

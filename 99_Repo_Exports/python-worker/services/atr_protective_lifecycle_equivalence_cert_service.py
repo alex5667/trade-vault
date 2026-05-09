@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Phase 8.6 — Protective Lifecycle Equivalence Cert Service
 
@@ -22,8 +23,8 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 from prometheus_client import Counter
 
@@ -65,7 +66,7 @@ CERT_CUTOVER_READINESS = Counter(
 
 # ─── Severity map ─────────────────────────────────────────────────────────────
 
-DRIFT_SEVERITY: Dict[str, str] = {
+DRIFT_SEVERITY: dict[str, str] = {
     "be_before_tp1":              "critical",
     "trailing_before_be":         "critical",
     "sl_ratchet_backwards":       "critical",
@@ -86,7 +87,7 @@ DRIFT_SEVERITY: Dict[str, str] = {
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _gen_id(prefix: str) -> str:
-    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
     return f"{prefix}_{ts}_{uuid.uuid4().hex[:8]}"
 
 
@@ -115,14 +116,14 @@ class ATRProtectiveLifecycleEquivalenceCertService:
     @staticmethod
     def run_check(
         signal_id: str,
-        legacy_state: Dict[str, Any],
-        graph_state: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        legacy_state: dict[str, Any],
+        graph_state: dict[str, Any],
+    ) -> dict[str, Any]:
         """
         Compare legacy and graph protective states.
         Returns check result with drifts list.
         """
-        drifts: List[Dict[str, Any]] = []
+        drifts: list[dict[str, Any]] = []
 
         # C1: break-even state
         leg_be = legacy_state.get("break_even_state", "unknown")
@@ -250,14 +251,14 @@ class ATRProtectiveLifecycleEquivalenceCertService:
                 engine = ATRCharterComplianceEngine()
                 # Use signal_id as context_ref for protective path
                 bundle = engine.evaluate_context(
-                    context_kind="protective_lifecycle_context", 
+                    context_kind="protective_lifecycle_context",
                     context_ref=signal_id
                 )
                 enforcement = bundle.get("enforcement", {"overall_action": "allow"})
-                
+
                 if enforcement["overall_action"] != "allow":
                     logger.warning(
-                        "🚨 ENFORCEMENT TRIGGERED for %s: %s", 
+                        "🚨 ENFORCEMENT TRIGGERED for %s: %s",
                         signal_id, enforcement["overall_action"]
                     )
             except Exception as ce:
@@ -274,7 +275,7 @@ class ATRProtectiveLifecycleEquivalenceCertService:
         }
 
     @staticmethod
-    def persist_check(check_result: Dict[str, Any]) -> Optional[str]:
+    def persist_check(check_result: dict[str, Any]) -> str | None:
         """Persist equivalence check and any drifts to SQL."""
         try:
             from services.analytics_db import get_conn
@@ -325,7 +326,7 @@ class ATRProtectiveLifecycleEquivalenceCertService:
     @staticmethod
     def evaluate_cutover_readiness(
         component: str = "protective_lifecycle",
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """
         Evaluate cutover readiness ladder.
 
@@ -334,8 +335,9 @@ class ATRProtectiveLifecycleEquivalenceCertService:
         ready_for_enforce: ready_for_read + 14d 100% match
         """
         try:
-            from services.analytics_db import get_conn
             import psycopg2.extras
+
+            from services.analytics_db import get_conn
 
             with get_conn() as conn, conn.cursor(
                 cursor_factory=psycopg2.extras.RealDictCursor,
@@ -372,7 +374,7 @@ class ATRProtectiveLifecycleEquivalenceCertService:
                 last_crit = cur.fetchone()["last_critical"]
                 if last_crit:
                     days_without = (
-                        datetime.now(tz=timezone.utc) - last_crit.replace(tzinfo=timezone.utc)
+                        datetime.now(tz=UTC) - last_crit.replace(tzinfo=UTC)
                     ).days
                 else:
                     days_without = 14  # No critical ever = good
@@ -382,7 +384,7 @@ class ATRProtectiveLifecycleEquivalenceCertService:
                     "pct_match": round(pct_match, 2),
                     "total_checks_7d": total,
                     "days_without_critical": days_without,
-                    "evaluated_at": datetime.now(tz=timezone.utc).isoformat(),
+                    "evaluated_at": datetime.now(tz=UTC).isoformat(),
                 }
 
                 # Ladder logic
@@ -465,7 +467,7 @@ def render_protective_critical_drift(
 
 def render_protective_cutover_ready(
     status: str,
-    summary: Dict[str, Any],
+    summary: dict[str, Any],
 ) -> str:
     icon = {
         "not_ready": "🔴",
@@ -476,7 +478,7 @@ def render_protective_cutover_ready(
     lines = [
         f"{icon} <b>ATR Graph Protective Lifecycle Cutover</b>",
         "",
-        f"Component: <code>protective_lifecycle</code>",
+        "Component: <code>protective_lifecycle</code>",
         f"Status: <code>{status.upper()}</code>",
         "Evidence:",
         f"  • 7d critical drifts: <code>{summary.get('critical_drifts_7d', '?')}</code>",

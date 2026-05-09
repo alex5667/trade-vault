@@ -1,15 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
 import time
-from typing import List
 
 import redis
 
 from common.log import setup_logger
 from core.delivery_journal import DeliveryJournal, DeliveryJournalSettings
 from core.sid_lease import SidLease, SidLeaseSettings
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 logger = setup_logger("SignalReconciler")
 
@@ -51,10 +51,8 @@ class SignalReconciler:
         self.lease = SidLease(self.redis, settings=SidLeaseSettings())
 
     def _metric_incr(self, name: str, n: int = 1) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.redis.incrby(f"{self.metrics_prefix}:{name}", int(n))
-        except Exception:
-            pass
 
     def _queued_key(self, sid: str) -> str:
         return f"{self.queued_prefix}:{sid}"
@@ -81,13 +79,11 @@ class SignalReconciler:
             return True
         except Exception:
             # rollback queued marker so next scan can retry
-            try:
+            with contextlib.suppress(Exception):
                 self.redis.delete(qk)
-            except Exception:
-                pass
             return False
 
-    def _scan_candidates(self) -> List[str]:
+    def _scan_candidates(self) -> list[str]:
         idx = self.journal.settings.index_key
         cutoff = _now_ms() - int(self.stale_ms)
         # take oldest/stale by score <= cutoff
@@ -95,7 +91,7 @@ class SignalReconciler:
             sids = self.redis.zrangebyscore(idx, "-inf", cutoff, start=0, num=self.scan_count) or []
         except Exception:
             return []
-        out: List[str] = []
+        out: list[str] = []
         for sid in sids:
             if not sid:
                 continue
@@ -121,10 +117,8 @@ class SignalReconciler:
             enq = self._enqueue_replay_once(sid, reason=reason)
             if enq:
                 # touch journal index forward to avoid immediate re-scan spam
-                try:
+                with contextlib.suppress(Exception):
                     self.redis.zadd(self.journal.settings.index_key, {sid: float(_now_ms())})
-                except Exception:
-                    pass
         finally:
             self.lease.release(sid, token)
 

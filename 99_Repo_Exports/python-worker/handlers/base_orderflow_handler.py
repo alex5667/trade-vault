@@ -9,31 +9,28 @@
 # - Ручное обновление доступно через метод refresh_pivots_cache()
 
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import time
-import threading
 import logging
+import os
+import threading
+import time
 from abc import ABC, abstractmethod
 from collections import deque
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from common.resiliency import safe_call_fail_open as _safe_call_fail_open
+from utils.time_utils import get_ny_time_millis
 
 if TYPE_CHECKING:
-    from signals.unified_pipeline import UnifiedSignalPipeline
+    from core.htf_levels import HTFLevelsProvider
+    from geometry.extrema import LocalExtremaService
     from services.l3_queue_events_proxy import L3QueueEventsProxy
     from services.queue_eta_estimator import QueueETAEvaluator
-    from geometry.extrema import LocalExtremaService
+    from signal_exec import ExecutionPlanner, SignalBus, SignalPerformanceTracker, SignalRepository, SignalService
     from signal_execution.setup_config import ExecutionSetupRepository
-    from signals.signal_publisher import SignalPublisher
     from signal_scoring.engine import SignalScoringEngine
-    from signal_exec import (
-         SignalService, ExecutionPlanner, SignalPerformanceTracker,
-         SignalRepository, SignalBus
-    )
-    from core.htf_levels import HTFLevelsProvider
+    from signals.signal_publisher import SignalPublisher
+    from signals.unified_pipeline import UnifiedSignalPipeline
 else:
     HTFLevelsProvider = object
 
@@ -62,45 +59,41 @@ class DependencyError(HandlerError):
 
 
 
-from core.instrument_config import OrderFlowConfig, SymbolSpecs, get_config
 from common.log import setup_logger
 
-from signals.atr import ATR
-
-
 # Import from contexts (now with fixed imports)
-from contexts import (
-    OrderflowSignalContext, PublishResult
-)
-
+from contexts import OrderflowSignalContext, PublishResult
+from core.instrument_config import OrderFlowConfig, SymbolSpecs, get_config
 from liquidity_geometry import LiquidityGeometryAnalyzer
-from pipeline_adapter import PipelineAdapter
 
 # Lazy import to avoid circular dependency: from signal_scoring import SignalScoringEngine, ScoringConfig, SignalContext as ScoringSignalContext
-from local_calibration.store import LocalCalibrationStore as LCStoreV2, eval_local_quantile
-from .regime_service import (
-    MarketRegimeService, RegimeState
-)
-from .data_parser import OrderFlowDataParser
+from local_calibration.store import LocalCalibrationStore as LCStoreV2
+from local_calibration.store import eval_local_quantile
+from pipeline_adapter import PipelineAdapter
 from services.l3_queue_events_proxy import L3QueueEventsProxy
-from .data_processor import OrderFlowDataProcessor
-from .signal_generator import SignalGenerator
+from signals.atr import ATR
+
+from .atr_redis_publisher import AtrRedisPublisher
 from .cache_service import CacheService
-from .message_handler import MessageHandler
-from .config_manager import ConfigManager
-from .error_handler import ErrorHandler
-from .initialization_manager import InitializationManager
-from .data_extraction_service import DataExtractionService
-from .signal_execution_service import SignalExecutionService
-from .cooldown_service import CooldownService
+
 # ПРИМЕЧАНИЕ: устаревание L2 обрабатывается в OrderFlowDataProcessor._update_l2_tick_staleness()
 from .calibration_service import CalibrationService
-from .session_service import SessionService
-from .signal_processing_service import SignalProcessingService
-from .main_loop_service import MainLoopService
-from .atr_redis_publisher import AtrRedisPublisher
+from .config_manager import ConfigManager
+from .cooldown_service import CooldownService
+from .data_extraction_service import DataExtractionService
+from .data_parser import OrderFlowDataParser
+from .data_processor import OrderFlowDataProcessor
+from .error_handler import ErrorHandler
 from .handler_dependencies import HandlerDependencies
+from .initialization_manager import InitializationManager
 from .lifecycle.state_manager import HandlerStateManager
+from .main_loop_service import MainLoopService
+from .message_handler import MessageHandler
+from .regime_service import MarketRegimeService, RegimeState
+from .session_service import SessionService
+from .signal_execution_service import SignalExecutionService
+from .signal_generator import SignalGenerator
+from .signal_processing_service import SignalProcessingService
 
 # Runtime imports for services (moved from TYPE_CHECKING if used in logic)
 try:
@@ -113,8 +106,9 @@ except ImportError:
 # Import context utilities from extracted module
 from .context_helpers.context_utils import (
     to_float_or_nan as _to_float_or_nan,
-    to_opt_float as _to_opt_float,
-    ensure_levels,  # re-exported so callers can do: from handlers.base_orderflow_handler import ensure_levels
+)
+from .context_helpers.context_utils import (
+    to_opt_float as _to_opt_float,  # re-exported so callers can do: from handlers.base_orderflow_handler import ensure_levels
 )
 
 
@@ -123,48 +117,48 @@ class BaseOrderFlowHandler(ABC):
     redis_ticks: Any  # Redis client for ticks
     group: str  # Redis consumer group name
     consumer_name_prefix: str  # Consumer name prefix
-    _cache_service: "CacheService"  # Cache service instance
-    _error_handler: "ErrorHandler"  # Error handler instance
+    _cache_service: CacheService  # Cache service instance
+    _error_handler: ErrorHandler  # Error handler instance
     _lock: threading.Lock  # Lock for thread safety
-    _state_manager: "HandlerStateManager"  # State manager instance
+    _state_manager: HandlerStateManager  # State manager instance
 
     # Core Services
-    _init_manager: "InitializationManager"
-    _config_manager: "ConfigManager"
-    _data_parser: "OrderFlowDataParser"
-    _data_processor: "OrderFlowDataProcessor"
-    _data_extraction: "DataExtractionService"
-    _cooldown_service: "CooldownService"
-    _calibration: "CalibrationService"
-    _session: "SessionService"
-    _signal_processing: "SignalProcessingService"
-    _signal_generator: "SignalGenerator"
-    _signal_execution: "SignalExecutionService"
-    _pipeline_adapter: "PipelineAdapter"
-    _message_handler: "MessageHandler"
-    _main_loop: "MainLoopService"
-    _atr_publisher: "AtrRedisPublisher"
-    atr_calculator: Optional["ATR"]
+    _init_manager: InitializationManager
+    _config_manager: ConfigManager
+    _data_parser: OrderFlowDataParser
+    _data_processor: OrderFlowDataProcessor
+    _data_extraction: DataExtractionService
+    _cooldown_service: CooldownService
+    _calibration: CalibrationService
+    _session: SessionService
+    _signal_processing: SignalProcessingService
+    _signal_generator: SignalGenerator
+    _signal_execution: SignalExecutionService
+    _pipeline_adapter: PipelineAdapter
+    _message_handler: MessageHandler
+    _main_loop: MainLoopService
+    _atr_publisher: AtrRedisPublisher
+    atr_calculator: ATR | None
 
     # Optional/Dynamic services
-    _scoring_engine: Optional["SignalScoringEngine"]
-    _regime_service: Optional["MarketRegimeService"]
-    _extrema_service: Optional["LocalExtremaService"]
-    _execution_setup: Optional["ExecutionSetupRepository"]
-    _outbox_publisher: Optional["SignalPublisher"]
-    l2_gpu_processor: Optional[Any]
+    _scoring_engine: SignalScoringEngine | None
+    _regime_service: MarketRegimeService | None
+    _extrema_service: LocalExtremaService | None
+    _execution_setup: ExecutionSetupRepository | None
+    _outbox_publisher: SignalPublisher | None
+    l2_gpu_processor: Any | None
 
     # Execution components
-    _signal_service: Optional["SignalService"]
-    _execution_planner: Optional["ExecutionPlanner"]
-    _signal_repo: Optional["SignalRepository"]
-    _signal_bus: Optional["SignalBus"]
-    _performance_tracker: Optional["SignalPerformanceTracker"]
+    _signal_service: SignalService | None
+    _execution_planner: ExecutionPlanner | None
+    _signal_repo: SignalRepository | None
+    _signal_bus: SignalBus | None
+    _performance_tracker: SignalPerformanceTracker | None
 
     # Other metadata
-    health_metrics: Optional[Any]
-    specs: "SymbolSpecs"
-    config: "OrderFlowConfig"
+    health_metrics: Any | None
+    specs: SymbolSpecs
+    config: OrderFlowConfig
 
     # State manager properties for backward compatibility
     @property
@@ -193,12 +187,12 @@ class BaseOrderFlowHandler(ABC):
         return self._state_manager._lock
 
     @property
-    def _thread(self) -> Optional[threading.Thread]:
+    def _thread(self) -> threading.Thread | None:
         """Dynamic read from state manager."""
         return self._state_manager._thread
 
     @_thread.setter
-    def _thread(self, value: Optional[threading.Thread]) -> None:
+    def _thread(self, value: threading.Thread | None) -> None:
         """Allow direct assignment for compatibility."""
         self._state_manager._thread = value
 
@@ -225,15 +219,15 @@ class BaseOrderFlowHandler(ABC):
     def __init__(
         self,
         symbol: str,
-        config: Optional[OrderFlowConfig] = None,
+        config: OrderFlowConfig | None = None,
         *,
         source_name: str = "OrderFlow",
         signal_stream_prefix: str = "signals:orderflow",
-        htf_provider: Optional[HTFLevelsProvider] = None,
-        local_calibration: Optional[LCStoreV2] = None,
-        unified_pipeline: Optional["UnifiedSignalPipeline"] = None,
-        health_metrics: Optional[object] = None,
-        dependencies: Optional[HandlerDependencies] = None,
+        htf_provider: HTFLevelsProvider | None = None,
+        local_calibration: LCStoreV2 | None = None,
+        unified_pipeline: UnifiedSignalPipeline | None = None,
+        health_metrics: object | None = None,
+        dependencies: HandlerDependencies | None = None,
     ):
         # Валидация входных данных
         self._validate_inputs(symbol, config, source_name, signal_stream_prefix)
@@ -272,7 +266,7 @@ class BaseOrderFlowHandler(ABC):
     def _validate_inputs(
         self,
         symbol: str,
-        config: Optional[OrderFlowConfig],
+        config: OrderFlowConfig | None,
         source_name: str,
         signal_stream_prefix: str
     ) -> None:
@@ -327,7 +321,7 @@ class BaseOrderFlowHandler(ABC):
 
         # читаем LIQ_MAX_AGE_MS один раз при инициализации
         self._liq_max_age_ms: int = int(os.getenv("LIQ_MAX_AGE_MS", "5000"))
-        
+
         # Consolidate config: reading DEDUPLICATION_BUCKET_MS here
         self._dedup_bucket_ms: int = int(os.getenv("DEDUPLICATION_BUCKET_MS", "60000"))
 
@@ -363,10 +357,10 @@ class BaseOrderFlowHandler(ABC):
         """Инициализация базовой инфраструктуры (Redis, streams и т.д.)."""
         # Создаем менеджер инициализации и инициализируем подсистемы ядра первыми
         self._init_manager = InitializationManager(self)
-        
+
         # Получаем явный объект инфраструктуры (Initialization Contract)
         infra = self._init_manager.initialize_all(self.symbol, self.config, self.local_calibration, self._unified_pipeline)
-        
+
         # Присваиваем инфраструктуру хендлеру
         self.redis = infra.redis
         self.redis_ticks = infra.redis_ticks
@@ -396,12 +390,12 @@ class BaseOrderFlowHandler(ABC):
         if not hasattr(self, 'l3_stream'):
             raise DependencyError("L3 stream not initialized")
 
-    def health_check(self) -> Dict[str, Any]:
+    def health_check(self) -> dict[str, Any]:
         """Delegate comprehensive health check to HealthMonitorService."""
         monitor = self.dependencies.health_monitor
         if monitor:
              return monitor.health_check(self)
-        
+
         # Fallback if monitor not available (legacy)
         return {"status": "unknown", "message": "HealthMonitorService not initialized"}
 
@@ -549,7 +543,7 @@ class BaseOrderFlowHandler(ABC):
         self.l3_eps = float(os.getenv("L3_EPS", "1e-9"))
 
         # ETA evaluator (depth / taker_rate -> time-to-fill proxy)
-        self.eta_eval: Optional[QueueETAEvaluator] = None
+        self.eta_eval: QueueETAEvaluator | None = None
         try:
             self.eta_eval = QueueETAEvaluator(eps=self.l3_eps)
         except Exception:
@@ -578,7 +572,7 @@ class BaseOrderFlowHandler(ABC):
         # ATR уже инициализирован в _initialize_basic_state()
 
         # pivots
-        self.daily_pivots: Optional[Dict[str, float]] = None
+        self.daily_pivots: dict[str, float] | None = None
         self.last_pivot_date = None
 
         # bar range for weak progress (minute bar)
@@ -587,7 +581,7 @@ class BaseOrderFlowHandler(ABC):
         self.bar_start_ts = 0
 
         # breakout cross - use previous evaluation price (bucket boundary), not every tick
-        self._prev_eval_price: Optional[float] = None
+        self._prev_eval_price: float | None = None
 
         # snapshot
         self.snap_prefix = os.getenv("SNAP_PREFIX", "signal:snap:")
@@ -634,7 +628,7 @@ class BaseOrderFlowHandler(ABC):
         except Exception as e:
             self.logger.warning(f"Failed to log initialization details: {e}")
 
-    def _get_structured_init_data(self) -> Dict[str, Any]:
+    def _get_structured_init_data(self) -> dict[str, Any]:
         """Получение структурированных данных для логирования инициализации."""
         return {
             "handler": self.__class__.__name__,
@@ -684,7 +678,7 @@ class BaseOrderFlowHandler(ABC):
     def _get_symbol_specs(self) -> SymbolSpecs:
         raise NotImplementedError
 
-    def _get_calibrated_trailing_params(self) -> Dict[str, Any]:
+    def _get_calibrated_trailing_params(self) -> dict[str, Any]:
         """
         Читает откалиброванные параметры из Redis symbol_specs.
         Возвращает параметры для трейлинга или fallback на значения из конфига.
@@ -707,7 +701,7 @@ class BaseOrderFlowHandler(ABC):
                 return
             if self.is_running and not self._stop_event.is_set():
                 self.logger.warning("Orderflow marked running but thread not alive: %s", self.symbol)
-            
+
             # Clear stop event and create thread
             self._stop_event.clear()
             self._thread = threading.Thread(
@@ -715,10 +709,10 @@ class BaseOrderFlowHandler(ABC):
                 daemon=True,
                 name=f"orderflow:{self.symbol}",
             )
-            
+
             # Fix Race Condition: Set flag BEFORE starting thread
             self.is_running = True
-            
+
             try:
                 self._thread.start()
                 self.logger.info("Orderflow thread started for %s", self.symbol)
@@ -763,7 +757,7 @@ class BaseOrderFlowHandler(ABC):
                 self.is_running = False
                 self._stop_event.set()
 
-    def process_orderflow_signal(self, ctx: "OrderflowSignalContext", signal_type: str = "bar") -> "PublishResult":
+    def process_orderflow_signal(self, ctx: OrderflowSignalContext, signal_type: str = "bar") -> PublishResult:
         """
         Process signal context using the new unified signal processing architecture.
         """
@@ -794,28 +788,28 @@ class BaseOrderFlowHandler(ABC):
             # Прямой доступ к слотам OrderflowSignalContext (быстрее getattr)
             try: l2_age_ms = _to_float_or_nan(ctx.l2_age_ms)
             except AttributeError: l2_age_ms = float("nan")
-            
+
             try: z_score = _to_float_or_nan(ctx.z_delta)
             except AttributeError: z_score = float("nan")
-            
+
             try: obi = _to_float_or_nan(ctx.obi)
             except AttributeError: obi = float("nan")
-            
+
             try: obi_20 = _to_float_or_nan(ctx.obi_20)
             except AttributeError: obi_20 = float("nan")
-            
+
             try: obi_sustained = bool(ctx.obi_sustained)
             except AttributeError: obi_sustained = False
-            
+
             try: spread_bps = _to_float_or_nan(ctx.spread_bps)
             except AttributeError: spread_bps = float("nan")
 
             try: eta_fill_ms = _to_opt_float(ctx.eta_fill_ms if hasattr(ctx, 'eta_fill_ms') else None)
             except Exception: eta_fill_ms = None
-            
+
             try: burst_ratio = _to_opt_float(ctx.burst_ratio)
             except AttributeError: burst_ratio = None
-            
+
             try: imbalance_min = _to_opt_float(ctx.imbalance_min if hasattr(ctx, 'imbalance_min') else None)
             except AttributeError: imbalance_min = None
 
@@ -871,7 +865,7 @@ class BaseOrderFlowHandler(ABC):
 
             # build_signal_ctx is in OrderFlowDataProcessor
             ctx = self._data_processor.build_signal_ctx(pivots=pivots)
-            
+
             # ВАЖНО: фиксируем время события именно как close-time бара
             if hasattr(ctx, "ts"):
                 ctx.ts = event_ts_ms
@@ -952,7 +946,7 @@ class BaseOrderFlowHandler(ABC):
 
             # build_signal_ctx
             ctx = self._data_processor.build_signal_ctx(pivots=pivots)
-            
+
             # ВАЖНО: фиксируем время события boundary-bucket
             if hasattr(ctx, "ts"):
                 ctx.ts = int(ts_ms)

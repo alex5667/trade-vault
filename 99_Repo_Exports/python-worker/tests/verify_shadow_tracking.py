@@ -1,9 +1,8 @@
 import json
 import uuid
-import time
-from typing import Dict, Any
+
 from services.trade_monitor import TradeMonitorService
-from domain.models import SignalNorm
+
 
 class MockRedis:
     def __init__(self):
@@ -42,7 +41,7 @@ def test_shadow_tracking():
     monitor.shadow_conf_threshold = 70.0
 
     sid = str(uuid.uuid4())
-    
+
     # 1. Receive RAW signal (conf 85)
     print("\n1. Processing RAW signal...")
     raw_sig = {
@@ -54,7 +53,7 @@ def test_shadow_tracking():
         "source": "OrderFlow"
     }
     monitor.on_signal(raw_sig)
-    
+
     pos_id = monitor.pos_by_sid.get(sid)
     assert pos_id is not None
     pos = monitor.open_positions[pos_id]

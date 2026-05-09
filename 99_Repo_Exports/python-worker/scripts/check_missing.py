@@ -1,5 +1,5 @@
-import re
 import os
+import re
 
 lines = open("summary_errors.txt").readlines()
 current_test = None

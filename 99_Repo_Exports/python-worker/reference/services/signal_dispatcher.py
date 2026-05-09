@@ -1,29 +1,28 @@
-from utils.time_utils import get_ny_time_millis
 import json
 import os
 import time
-from typing import Any, Dict, Optional, Tuple, List, Sequence, DefaultDict
-from dataclasses import dataclass
 from collections import defaultdict
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any
 
 import redis
 
 from common.decision_trace import (
     DecisionTrace,
 )
-from services.dispatcher.lua_scripts import LuaScriptManager
-from services.dispatcher.delivery_helpers import DeliveryHelpers
-from services.dispatcher.config import SignalDispatcherConfig
-from services.dispatcher.key_utils import KeyUtils
-from services.dispatcher.lua_scripts import LuaScriptManager
-from services.dispatcher.trace_writer import TraceWriter
-from services.dispatcher.error_handler import ErrorHandler
-from services.dispatcher.observability import sd_fail_open
-
 from common.log import setup_logger
 from common.transient import is_transient_error
-from core.redis_stream_consumer import SyncRedisStreamHelper
 from core.redis_client import get_redis
+from core.redis_stream_consumer import SyncRedisStreamHelper
+from services.dispatcher.config import SignalDispatcherConfig
+from services.dispatcher.delivery_helpers import DeliveryHelpers
+from services.dispatcher.error_handler import ErrorHandler
+from services.dispatcher.key_utils import KeyUtils
+from services.dispatcher.lua_scripts import LuaScriptManager
+from services.dispatcher.observability import sd_fail_open
+from services.dispatcher.trace_writer import TraceWriter
+from utils.time_utils import get_ny_time_millis
 
 
 # =============================================================================
@@ -52,7 +51,7 @@ class PendingMsg:
     Real code uses helper.pending() messages with .msg_id/.fields.
     """
     msg_id: str
-    fields: Dict[str, Any]
+    fields: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -121,7 +120,7 @@ class SignalDispatcher:
     def _apply_config(self):
         """Apply configuration from SignalDispatcherConfig to instance attributes."""
         cfg = self.config
-        
+
         # Streams / groups / consumer
         self.outbox_stream = cfg.outbox_stream
         self.dlq_stream = cfg.dlq_stream
@@ -134,7 +133,7 @@ class SignalDispatcher:
         self.consumer = cfg.consumer
         self.read_count = cfg.read_count
         self.read_block_ms = cfg.read_block_ms
-        
+
         # Target Streams
         self.signal_stream = cfg.signal_stream
         self.signal_maxlen = cfg.signal_maxlen
@@ -146,20 +145,20 @@ class SignalDispatcher:
         self.mt5_plans_maxlen = cfg.mt5_plans_maxlen
         self.snapshot_prefix = cfg.snapshot_prefix
         self.snapshot_ttl_sec = cfg.snapshot_ttl_sec
-        
+
         # DONE markers
         self.msg_done_prefix = cfg.msg_done_prefix
         self.done_ttl_sec = cfg.done_ttl_sec
-        
 
-        
+
+
         # Marker namespaces
         self.marker_prefix = cfg.marker_prefix
         self.env_done_prefix = cfg.env_done_prefix
         self.marker_gc_zset = cfg.marker_gc_zset
         self.done_gc_zset = cfg.done_gc_zset
         self.delivery_marker_prefix = cfg.marker_prefix  # Alias
-        
+
         # Lease settings
         self.sid_lease_prefix = cfg.sid_lease_prefix
         self.sid_lease_ttl_ms = cfg.sid_lease_ttl_ms
@@ -167,7 +166,7 @@ class SignalDispatcher:
         self.msg_lease_prefix = cfg.msg_lease_prefix
         self.msg_lease_ttl_ms = cfg.msg_lease_ttl_ms
         self.msg_lease_extend_every_ms = cfg.msg_lease_extend_every_ms
-        
+
         # Retry settings
         self.retry_dedup_prefix = cfg.retry_dedup_prefix
         self.retry_base_ms = cfg.retry_base_ms
@@ -178,7 +177,7 @@ class SignalDispatcher:
         self.retry_drain_every_ms = cfg.retry_drain_every_ms
         self.retry_sleep_sec = cfg.retry_sleep_sec
         self.retry_sleep_max_sec = cfg.retry_sleep_max_sec
-        
+
         # Pending and reconciliation
         self.pending_interval_sec = cfg.pending_interval_sec
         self.pending_min_idle_ms = cfg.pending_min_idle_ms
@@ -187,7 +186,7 @@ class SignalDispatcher:
         self.claim_count = cfg.claim_count
         self.claim_every_ms = cfg.claim_every_ms
         self.claim_budget_per_tick = cfg.claim_budget_per_tick
-        
+
         # Maintenance
         self.orphan_repair_every_sec = cfg.orphan_repair_every_sec
         self.marker_ttl_repair_every_sec = cfg.marker_ttl_repair_every_sec
@@ -196,13 +195,13 @@ class SignalDispatcher:
         self.marker_repair_batch = cfg.marker_repair_batch
         self.maintenance_every_ms = cfg.maintenance_every_ms
         self.maintenance_scan_count = cfg.maintenance_scan_count
-        
+
         # ACK retry
         self.ack_retry_attempts = cfg.ack_retry_attempts
         self.ack_retry_delay_ms = cfg.ack_retry_delay_ms
         self.ack_retry_ttl_s = cfg.ack_retry_ttl_s
         self.ack_retry_max = cfg.ack_retry_max
-        
+
         # Circuit breaker
         self.circuit_breaker_threshold = cfg.circuit_breaker_threshold
         self.circuit_breaker_window_sec = cfg.circuit_breaker_window_sec
@@ -218,7 +217,7 @@ class SignalDispatcher:
         self.diag_every_ms = cfg.diag_every_ms
         self.dead_consumer_idle_ms = cfg.dead_consumer_idle_ms
         self.cleanup_dead_consumers = cfg.cleanup_dead_consumers
-        
+
         # Attempts & Metrics
         self.attempt_prefix = cfg.attempt_prefix # Note: was _attempt_prefix but used as attempt_prefix in places, check usage
         self._attempt_prefix = cfg.attempt_prefix # Alias for safe refactoring
@@ -230,12 +229,12 @@ class SignalDispatcher:
         self.janitor_enabled = cfg.janitor_enabled
         self.janitor_every_sec = cfg.janitor_every_sec
         self.janitor_scan_count = cfg.janitor_scan_count
-        
+
         # Notify
         self.notify_stream = cfg.notify_stream
         self.notify_signal_counter_key = cfg.notify_signal_counter_key
         self.notify_signal_every_n = cfg.notify_signal_every_n
-        
+
         # Misc
         self.delivery_marker_ttl_sec = cfg.delivery_marker_ttl_sec
         self.metrics_prefix = cfg.metrics_prefix
@@ -247,37 +246,37 @@ class SignalDispatcher:
 
     def _init_state(self):
         """Initialize internal state variables."""
-        self._ctr: DefaultDict[str, int] = defaultdict(int)
+        self._ctr: defaultdict[str, int] = defaultdict(int)
         self._last_diag = 0.0
         self._lease_contention = 0
         self._last_retry_drain = 0.0
-        
-        self._sha_main: Dict[str, str] = {}
-        self._sha_dual: Dict[str, str] = {}
-        self._sha_cache: Dict[Tuple[int, str], str] = {}
-        
+
+        self._sha_main: dict[str, str] = {}
+        self._sha_dual: dict[str, str] = {}
+        self._sha_cache: dict[tuple[int, str], str] = {}
+
         self._last_maint_mono = 0.0
         self._scan_cursor_markers = 0
         self._scan_cursor_done = 0
-        
+
         self._last_diag_mono = 0.0
         self._m = {}
         self._pending_claimed = 0
-        
+
         self._pending_start_id = "0-0"
         self._last_claim_mono = 0.0
-        
-        self._ack_retry: Dict[Tuple[str, str], float] = {}
+
+        self._ack_retry: dict[tuple[str, str], float] = {}
         self._last_ack_cleanup_mono = time.monotonic()
-        
-        self._cb_state: Dict[str, Tuple[int, float]] = {}
-        
+
+        self._cb_state: dict[str, tuple[int, float]] = {}
+
         self._last_consumer_cleanup = 0.0
-        
+
         self._last_metrics_mono = 0.0
-        
+
         self._last_janitor = 0.0
-        
+
         self._last_repair_mono = 0.0
         self._repair_cursor = 0
         self._last_marker_repair_mono = 0.0
@@ -367,7 +366,7 @@ class SignalDispatcher:
             pass
         return self._ack_fail_open(helper, stream, msg_id, ctr_ok=ctr_ok, ctr_fail=ctr_fail, where=where)
 
-    def _handle_env(self, *, msg_id: str, env: Dict[str, Any], sid: str) -> bool:
+    def _handle_env(self, *, msg_id: str, env: dict[str, Any], sid: str) -> bool:
         """
         Process a parsed envelope.
 
@@ -409,7 +408,7 @@ class SignalDispatcher:
                     env["targets"]["mt5_plan"] = mt5_payload
                 except Exception:
                     pass
-            
+
             self._deliver_targets_with_retry(env, sid, _trace=dtrace)
             # Emit success diag
             self.trace_writer.emit_diag(dtrace, stage="dispatch_ok")
@@ -455,7 +454,7 @@ class SignalDispatcher:
         *,
         stream: str,
         msg_id: str,
-        fields: Dict[str, Any],
+        fields: dict[str, Any],
         where: str,
         ack_ctr_ok: str,
         ack_ctr_fail: str,
@@ -522,7 +521,7 @@ class SignalDispatcher:
                         pass
                 return
 
-            sid = str(env.get("sid") or "")
+            sid = (env.get("sid") or "")
             if not sid:
                 ok = False
                 try:
@@ -542,10 +541,10 @@ class SignalDispatcher:
                 ack_now = bool(self._handle_env(msg_id=str(msg_id), env=env, sid=sid))
             except Exception as exc:
                 self.error_handler.handle(
-                    exc, 
-                    context=where, 
-                    msg_id=str(msg_id), 
-                    ctr_transient=handle_transient_ctr, 
+                    exc,
+                    context=where,
+                    msg_id=str(msg_id),
+                    ctr_transient=handle_transient_ctr,
                     ctr_fatal=handle_failed_ctr,
                     log_transient=False # Main loop relies on metrics, not warnings for transient
                 )
@@ -601,7 +600,7 @@ class SignalDispatcher:
     def _is_outbox_done(self, msg_id: str) -> bool:
         return self._is_msg_done(msg_id)
 
-    def _handle_one(self, msg_id: str, fields: Dict[str, Any]) -> bool:
+    def _handle_one(self, msg_id: str, fields: dict[str, Any]) -> bool:
         """
         Parse envelope from fields and delegate to _handle_env.
         
@@ -614,7 +613,7 @@ class SignalDispatcher:
             env = self._parse_envelope(fields)
         except Exception:
             env = None
-        
+
         if not env:
             # Bad envelope -> DLQ
             try:
@@ -622,8 +621,8 @@ class SignalDispatcher:
             except Exception:
                 pass
             return True  # ACK to remove from pending
-        
-        sid = str(env.get("sid") or "")
+
+        sid = (env.get("sid") or "")
         if not sid:
             # Missing SID -> DLQ
             try:
@@ -631,7 +630,7 @@ class SignalDispatcher:
             except Exception:
                 pass
             return True  # ACK to remove from pending
-        
+
         # Delegate to _handle_env
         return self._handle_env(msg_id=str(msg_id), env=env, sid=sid)
 
@@ -784,12 +783,12 @@ class SignalDispatcher:
 
     def _deliver_targets_with_retry(
         self,
-        env: Dict[str, Any],
+        env: dict[str, Any],
         sid: str,
         *,
-        targets: Optional[List[str]] = None,
-        base_attempts: Optional[Dict[str, int]] = None,
-        _trace: Optional[DecisionTrace] = None,
+        targets: list[str] | None = None,
+        base_attempts: dict[str, int] | None = None,
+        _trace: DecisionTrace | None = None,
     ) -> None:
         targets_obj = env.get("targets") or {}
         meta = env.get("meta") or {}
@@ -826,11 +825,11 @@ class SignalDispatcher:
     def _deliver_one_target(
         self,
         *,
-        env: Dict[str, Any],
+        env: dict[str, Any],
         sid: str,
         target: str,
-        targets_obj: Dict[str, Any],
-        meta: Dict[str, Any],
+        targets_obj: dict[str, Any],
+        meta: dict[str, Any],
         dual_client: Any,
         simple_client: Any,
     ) -> None:
@@ -879,7 +878,7 @@ class SignalDispatcher:
             wrapped_payload = payload.copy()
             wrapped_payload["sid"] = sid
             fields = {"data": json.dumps(wrapped_payload, ensure_ascii=False)}
-            
+
             if not self._notify_idempotent(client, sid=sid, payload=fields):
                 raise PermanentDeliveryError("notify_failed")
             return
@@ -893,7 +892,7 @@ class SignalDispatcher:
             wrapped_payload = payload.copy()
             wrapped_payload["sid"] = sid
             fields = {"data": json.dumps(wrapped_payload, ensure_ascii=False)}
-            
+
             if not self._xadd_idempotent_atomic(
                 client, target="signal_stream", sid=sid, stream=stream, fields=fields, maxlen=self.signal_maxlen
             ):
@@ -938,12 +937,12 @@ class SignalDispatcher:
                 raise PermanentDeliveryError("missing_mt5_plans_stream")
             if not isinstance(payload, dict):
                 raise PermanentDeliveryError("invalid_mt5_plan_payload")
-            
+
             # mt5_bridge expects: {"payload": JSON({"plan": ...})}
             wrapper = {"plan": payload}
             payload_json = json.dumps(wrapper, ensure_ascii=False)
             fields = {"payload": payload_json}
-            
+
             if not self._xadd_idempotent_atomic(
                 client, target="mt5_plan", sid=sid, stream=self.mt5_plans_stream, fields=fields, maxlen=self.mt5_plans_maxlen
             ):
@@ -979,10 +978,10 @@ class SignalDispatcher:
     def _env_req_key(self, sid: str) -> str:
         return KeyUtils.env_req_key(self.env_store_prefix, sid)
 
-    def _targets_list(self, env: Dict[str, Any]) -> List[str]:
+    def _targets_list(self, env: dict[str, Any]) -> list[str]:
         t = env.get("targets") or {}
         # canonical list for "done"
-        out: List[str] = []
+        out: list[str] = []
         if t.get("notify"): out.append("notify")
         if t.get("signal_stream_payload"): out.append("signal_stream")
         if t.get("audit_payload"): out.append("audit")
@@ -991,7 +990,7 @@ class SignalDispatcher:
         if t.get("snapshot_payload") or t.get("snapshot"): out.append("snapshot")
         return out
 
-    def _ensure_script(self, client: Any, cache: Dict[str, str], name: str, script: str) -> str:
+    def _ensure_script(self, client: Any, cache: dict[str, str], name: str, script: str) -> str:
         sha = cache.get(name)
         if sha:
             return sha
@@ -1020,7 +1019,7 @@ class SignalDispatcher:
     def _retry_dedup_key(self, target: str, sid: str) -> str:
         return DeliveryHelpers.retry_dedup_key(self.retry_dedup_prefix, target, sid)
 
-    def _schedule_target_retry(self, *, target: str, sid: str, env: Dict[str, Any], attempt: int, last_error: str) -> None:
+    def _schedule_target_retry(self, *, target: str, sid: str, env: dict[str, Any], attempt: int, last_error: str) -> None:
         if attempt >= self.max_attempts:
             # Target-specific DLQ is more useful than generic DLQ here:
             #   - preserves target name
@@ -1082,8 +1081,8 @@ class SignalDispatcher:
         for raw in items:
             try:
                 obj = json.loads(raw)
-                sid = str(obj.get("sid") or "")
-                target = str(obj.get("target") or "")
+                sid = (obj.get("sid") or "")
+                target = (obj.get("target") or "")
                 attempt = int(obj.get("attempt") or 0)
                 env = obj.get("env") or {}
                 if not sid or not target or not isinstance(env, dict):
@@ -1093,7 +1092,7 @@ class SignalDispatcher:
                 continue
 
 
-    def _send_target_dlq(self, target: str, sid: str, env: Dict[str, Any], *, reason: str, err: str) -> None:
+    def _send_target_dlq(self, target: str, sid: str, env: dict[str, Any], *, reason: str, err: str) -> None:
         stream = DeliveryHelpers.get_dlq_stream_for_target(
             target,
             dlq_notify=self.dlq_notify,
@@ -1186,7 +1185,7 @@ class SignalDispatcher:
     def _sid_lease_key(self, sid: str) -> str:
         return f"{self.sid_lease_prefix}:{sid}"
 
-    def _try_acquire_sid_lease(self, sid: str) -> Optional[str]:
+    def _try_acquire_sid_lease(self, sid: str) -> str | None:
         """
         Token-based lease. Возвращает token если взяли lease, иначе None.
         """
@@ -1228,7 +1227,7 @@ class SignalDispatcher:
 
 
     def _xadd_idempotent_atomic(self, client: Any, *, target: str, sid: str, stream: str,
-                               fields: Dict[str, Any], maxlen: int) -> bool:
+                               fields: dict[str, Any], maxlen: int) -> bool:
         """
         B) FIX (строго): marker и XADD атомарно в Lua. Без loss и без параллельных дублей.
         """
@@ -1236,7 +1235,7 @@ class SignalDispatcher:
             return True
         marker = self._marker_key(target, sid)
         # flatten fields
-        argv: List[Any] = [str(self.delivery_marker_ttl_sec), str(maxlen)]
+        argv: list[Any] = [str(self.delivery_marker_ttl_sec), str(maxlen)]
         for k, v in fields.items():
             argv.append(str(k))
             argv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
@@ -1526,7 +1525,7 @@ class SignalDispatcher:
 
         for c in cs or []:
             try:
-                name = str(c.get("name") or "")
+                name = (c.get("name") or "")
                 pending = int(c.get("pending") or 0)
                 idle = int(c.get("idle") or 0)  # ms
             except Exception:
@@ -1576,12 +1575,12 @@ class SignalDispatcher:
         except Exception:
             pass
 
-    def _xadd_idempotent(self, client: Any, *, target: str, sid: str, stream: str, fields: Dict[str, Any], maxlen: int) -> bool:
+    def _xadd_idempotent(self, client: Any, *, target: str, sid: str, stream: str, fields: dict[str, Any], maxlen: int) -> bool:
         """
         Fix: marker set AFTER XADD in single Lua, with rollback on marker-fail.
         Returns True if delivered (or was already delivered).
         """
-        fv: List[str] = []
+        fv: list[str] = []
         for k, v in (fields or {}).items():
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
@@ -1601,8 +1600,8 @@ class SignalDispatcher:
         )
         return bool(res and int(res[0]) in (0, 1))
 
-    def _notify_idempotent(self, client: Any, *, sid: str, payload: Dict[str, Any]) -> bool:
-        fv: List[str] = []
+    def _notify_idempotent(self, client: Any, *, sid: str, payload: dict[str, Any]) -> bool:
+        fv: list[str] = []
         for k, v in (payload or {}).items():
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
@@ -1612,7 +1611,7 @@ class SignalDispatcher:
             args=[str(self.delivery_marker_ttl_sec), str(500000), str(self.notify_signal_every_n)] + fv,
             client=client
         )
-        
+
         # Debug logging for signal gate
         try:
              self.logger.info(f"[SignalGate] SID={sid} N={self.notify_signal_every_n} Result={res} (1=Sent, 0=Skipped)")
@@ -1636,7 +1635,7 @@ class SignalDispatcher:
 
         for c in cs or []:
             try:
-                name = str(c.get("name") or "")
+                name = (c.get("name") or "")
                 pending = int(c.get("pending") or 0)
                 idle = int(c.get("idle") or 0)  # ms
             except Exception:
@@ -1656,14 +1655,14 @@ class SignalDispatcher:
             except Exception:
                 continue
 
-    def _parse_envelope(self, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_envelope(self, fields: dict[str, Any]) -> dict[str, Any] | None:
         """
         Backward compatibility:
           - OutboxWriter may write both: data + payload
           - Some legacy producers wrote only: payload
         """
-        from common.payload_fingerprint import fingerprint_tradeable_payload
         from common.json_safe import to_json_safe
+        from common.payload_fingerprint import fingerprint_tradeable_payload
 
         raw = fields.get("data")
         if not raw:
@@ -1689,31 +1688,31 @@ class SignalDispatcher:
                 # Check if it looks like an old/flat envelope
                 has_audit = "audit_payload" in env
                 has_notify = "notify_payload" in env or "notify" in env
-                
+
                 if has_audit or has_notify:
                     self.logger.info(f"🔧 Auto-repairing flat envelope for sid={env.get('sid', 'unknown')}")
                     targets = {}
-                    
+
                     # Move audit
                     if "audit_payload" in env:
                         targets["audit_payload"] = env.pop("audit_payload")
-                    
+
                     # Move notify
                     if "notify_payload" in env:
                         targets["notify"] = env.pop("notify_payload")
                     elif "notify" in env:
                         targets["notify"] = env.pop("notify")
-                    
+
                     # Move signal_stream_payload
                     if "signal_stream_payload" in env:
                         targets["signal_stream_payload"] = env.pop("signal_stream_payload")
-                    
+
                     env["targets"] = targets
-                    
+
                     # Ensure meta exists
                     if "meta" not in env:
                         env["meta"] = {}
-                    
+
                     # If we have audit_stream / signal_stream at top, move to meta
                     for key in ["audit_stream", "signal_stream", "manual_stream"]:
                         if key in env and key not in env["meta"]:
@@ -1724,14 +1723,14 @@ class SignalDispatcher:
         # ✅ VALIDATION: Ensure envelope structure is correct (audit_payload/meta must not be on top level)
         if "audit_payload" in env or "meta" not in env or "targets" not in env:
             try:
-                self.logger.warning(f"⚠️ Malformed envelope structure detected: audit_payload on top level or missing required fields")
+                self.logger.warning("⚠️ Malformed envelope structure detected: audit_payload on top level or missing required fields")
                 self.logger.warning(f"   env keys: {list(env.keys())}")
                 self.logger.warning(f"   sid: {env.get('sid', 'unknown')}")
                 # Send to DLQ for malformed envelopes
                 payload = {
                     "ts": get_ny_time_millis(),
                     "reason": "malformed_envelope_structure",
-                    "sid": str(env.get("sid") or ""),
+                    "sid": (env.get("sid") or ""),
                     "env_keys": list(env.keys()),
                     "has_audit_payload_top": "audit_payload" in env,
                     "has_meta": "meta" in env,
@@ -1756,7 +1755,7 @@ class SignalDispatcher:
                         payload = {
                             "ts": get_ny_time_millis(),
                             "reason": "payload_fingerprint_mismatch",
-                            "sid": str(env.get("sid") or ""),
+                            "sid": (env.get("sid") or ""),
                             "expected": str(expected),
                             "got": str(got),
                             "env": env_safe,
@@ -1814,7 +1813,7 @@ class SignalDispatcher:
         except Exception:
             return
 
-    def _process_one_outbox_message(self, *, msg_id: str, env: Dict[str, Any], sid: str) -> None:
+    def _process_one_outbox_message(self, *, msg_id: str, env: dict[str, Any], sid: str) -> None:
         """
         Жёсткий контракт:
           - если msg_done уже стоит -> ACK-only (никаких доставок/маркер-проверок)
@@ -1856,8 +1855,8 @@ class SignalDispatcher:
     # Runtime-guard: strict validation (опционально, но рекомендую)
     # =============================================================================
 
-    def _strict_validate_env(self, env: Dict[str, Any]) -> None:
-        if str(os.getenv("OUTBOX_STRICT_VALIDATE","0")).lower() in {"0","false","no"}:
+    def _strict_validate_env(self, env: dict[str, Any]) -> None:
+        if os.getenv("OUTBOX_STRICT_VALIDATE","0").lower() in {"0","false","no"}:
             return
         # 1) trace/events не должны быть в targets
         t = env.get("targets") or {}
@@ -1870,7 +1869,7 @@ class SignalDispatcher:
                 for v in x: _scan(v)
         _scan(t)
 
-    def _extract_trace_id(self, env: Dict[str, Any], fields: Dict[str, Any], msg_id: str) -> str:
+    def _extract_trace_id(self, env: dict[str, Any], fields: dict[str, Any], msg_id: str) -> str:
         # 1) envelope
         try:
             tid = str(env.get("trace_id") or env.get("corr_id") or "").strip()
@@ -1882,7 +1881,7 @@ class SignalDispatcher:
                 v = fields.get("trace_id")
                 if isinstance(v, (bytes, bytearray)):
                     v = v.decode("utf-8", "ignore")
-                tid = str(v or "").strip()
+                tid = (v or "").strip()
             except Exception:
                 tid = ""
         # 3) fallback: не идеально, но лучше чем пусто (корреляция хотя бы по msg_id)
@@ -2049,7 +2048,7 @@ class SignalDispatcher:
         except Exception:
             return -1
 
-    def _pending_by_consumer(self, limit: int = 50) -> Dict[str, int]:
+    def _pending_by_consumer(self, limit: int = 50) -> dict[str, int]:
         """
         Диагностика конкуренции: XPENDING details -> counts by consumer (best-effort).
         """
@@ -2058,7 +2057,7 @@ class SignalDispatcher:
             rows = self.redis.execute_command("XPENDING", self.outbox_stream, self.group, "-", "+", int(limit))
         except Exception:
             return {}
-        out: Dict[str, int] = {}
+        out: dict[str, int] = {}
         # rows: [(id, consumer, idle_ms, deliveries), ...]
         if isinstance(rows, list):
             for r in rows:
@@ -2132,8 +2131,8 @@ class SignalDispatcher:
         self._last_claim_mono = now
 
         claimed_total = 0
-        claimed_msgs: List[Any] = []
-        last_next_id: Optional[str] = None
+        claimed_msgs: list[Any] = []
+        last_next_id: str | None = None
 
         # fair drain: маленькими порциями, чтобы не starve XREADGROUP ">"
         while claimed_total < int(self.claim_budget_per_tick):
@@ -2151,7 +2150,7 @@ class SignalDispatcher:
                 raise
 
             # wrap-guard: если скан завершён и пусто — не сбрасываемся в вечный "0-0" цикл
-            if (not msgs) and (str(next_id or "") == "0-0"):
+            if (not msgs) and ((next_id or "") == "0-0"):
                 self._ctr["claim_wrap_empty"] += 1
                 break
 
@@ -2268,7 +2267,7 @@ if __name__ == "__main__":
     dispatcher.run()
 
 # --- Restored Helper for Tests ---
-def _parse_envelope_fields(fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _parse_envelope_fields(fields: dict[str, Any]) -> dict[str, Any] | None:
     try:
         raw = fields.get("data") or fields.get("payload")
         if raw is None:

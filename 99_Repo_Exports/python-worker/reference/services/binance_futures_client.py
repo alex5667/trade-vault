@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Binance USDT-M Futures REST client (minimal, stdlib-only).
@@ -41,14 +42,11 @@ import hashlib
 import hmac
 import json
 import os
-import socket
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -86,22 +84,22 @@ class PlainOrderRef:
     identifier family for conditional orders after the Algo Service migration.
     """
 
-    order_id: Optional[int]
-    client_order_id: Optional[str]
+    order_id: int | None
+    client_order_id: str | None
     type: str
     side: str
-    position_side: Optional[str] = None
+    position_side: str | None = None
 
 
 @dataclass(frozen=True)
 class AlgoOrderRef:
     """Reference to a conditional /fapi/v1/algoOrder order."""
 
-    algo_id: Optional[int]
-    client_algo_id: Optional[str]
+    algo_id: int | None
+    client_algo_id: str | None
     type: str
     working_type: str
-    trigger_price: Optional[float] = None
+    trigger_price: float | None = None
     close_position: bool = False
     reduce_only: bool = False
 
@@ -125,7 +123,7 @@ def _safe_json_loads(raw: bytes) -> Any:
         return {"_raw": raw[:4096].decode("utf-8", errors="replace")}
 
 
-def _encode_params_stable(params: Dict[str, Any]) -> str:
+def _encode_params_stable(params: dict[str, Any]) -> str:
     """Stable query-string encoding: sorted keys, no None values."""
     items = []
     for k in sorted(params.keys()):
@@ -161,11 +159,11 @@ class BinanceFuturesREST:
         *,
         method: str,
         path: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
         signed: bool = False,
     ) -> Any:
         method_u = (method or "GET").upper()
-        p: Dict[str, Any] = dict(params or {})
+        p: dict[str, Any] = dict(params or {})
         if signed:
             p.setdefault("timestamp", _now_ms())
             p.setdefault("recvWindow", int(self.recv_window_ms))
@@ -203,20 +201,20 @@ class BinanceFuturesREST:
 
     # --- Read APIs ---
 
-    def get_account(self) -> Dict[str, Any]:
+    def get_account(self) -> dict[str, Any]:
         return self._request(method="GET", path="/fapi/v2/account", signed=True)
 
     def get_position_risk(self) -> Any:
         return self._request(method="GET", path="/fapi/v2/positionRisk", signed=True)
 
-    def get_open_orders(self, *, symbol: Optional[str] = None) -> Any:
-        params: Dict[str, Any] = {}
+    def get_open_orders(self, *, symbol: str | None = None) -> Any:
+        params: dict[str, Any] = {}
         if symbol:
             params["symbol"] = symbol
         return self._request(method="GET", path="/fapi/v1/openOrders", params=params, signed=True)
 
     @staticmethod
-    def from_env(prefix: str = "BINANCE_") -> "BinanceFuturesREST":
+    def from_env(prefix: str = "BINANCE_") -> BinanceFuturesREST:
         """Construct from ENV vars.
 
         Default prefix ``BINANCE_`` reads BINANCE_API_KEY / BINANCE_API_SECRET.
@@ -271,7 +269,7 @@ class BinanceFuturesClient:
     timestamp_offset_ms: int = 0  # adjusted by sync_time()
 
     @staticmethod
-    def from_env(prefix: str = "BINANCE_") -> "BinanceFuturesClient":
+    def from_env(prefix: str = "BINANCE_") -> BinanceFuturesClient:
         """Construct from ENV vars.
 
         Default prefix ``BINANCE_`` reads BINANCE_API_KEY / BINANCE_API_SECRET.
@@ -307,17 +305,17 @@ class BinanceFuturesClient:
 
     def _request(
         self, method: str, path: str,
-        *, params: Optional[Dict[str, Any]] = None, signed: bool = False,
+        *, params: dict[str, Any] | None = None, signed: bool = False,
     ) -> Any:
         method = method.upper()
         params = dict(params or {})
-        headers: Dict[str, str] = {
+        headers: dict[str, str] = {
             "X-MBX-APIKEY": self.api_key,
             "User-Agent": "scanner_infra/binance_client_v2",
         }
 
         qs = ""
-        body: Optional[bytes] = None
+        body: bytes | None = None
 
         if signed:
             # Apply server-time offset to minimise -1021 timestamp errors.
@@ -353,7 +351,7 @@ class BinanceFuturesClient:
             raw = e.read() if hasattr(e, "read") else b""
             payload = _safe_json_loads(raw) if raw else {"_error": str(e)}
             raise BinanceAPIError(getattr(e, "code", 0) or 0, payload)
-        except (urllib.error.URLError, socket.timeout, TimeoutError) as e:
+        except (urllib.error.URLError, TimeoutError) as e:
             # Transport-level timeouts are ambiguous for trading flows: the
             # request may have reached Binance while the client timed out
             # waiting for the response. The executor treats these as
@@ -403,7 +401,7 @@ class BinanceFuturesClient:
 
         Used by trailing arming thread to poll mark price vs TP1.
         """
-        return self._request("GET", "/fapi/v1/premiumIndex", params={"symbol": str(symbol).upper()})
+        return self._request("GET", "/fapi/v1/premiumIndex", params={"symbol": symbol.upper()})
 
     def get_mark_price(self, symbol: str) -> float:
         """Return current mark price for symbol; 0.0 on any error (fail-open)."""
@@ -416,14 +414,14 @@ class BinanceFuturesClient:
     def get_ticker_price(self, symbol: str) -> float:
         """Return last / contract price for symbol; 0.0 on any error (fail-open)."""
         try:
-            j = self._request("GET", "/fapi/v1/ticker/price", params={"symbol": str(symbol).upper()})
+            j = self._request("GET", "/fapi/v1/ticker/price", params={"symbol": symbol.upper()})
             return float(j.get("price"))
         except Exception:
             return 0.0
 
     def get_working_price(self, symbol: str, working_type: str) -> float:
         """Resolve the effective trigger price source for watchdog / trigger checks."""
-        wt = str(working_type or "MARK_PRICE").strip().upper()
+        wt = (working_type or "MARK_PRICE").strip().upper()
         if wt == "CONTRACT_PRICE":
             return self.get_ticker_price(symbol)
         return self.get_mark_price(symbol)
@@ -433,7 +431,7 @@ class BinanceFuturesClient:
     def start_user_stream(self) -> str:
         """Start or refresh a listenKey for the USDⓈ-M user stream."""
         j = self._request("POST", "/fapi/v1/listenKey")
-        return str(j.get("listenKey") or "")
+        return (j.get("listenKey") or "")
 
     def keepalive_user_stream(self, listen_key: str) -> Any:
         return self._request("PUT", "/fapi/v1/listenKey", params={"listenKey": str(listen_key)})
@@ -466,21 +464,21 @@ class BinanceFuturesClient:
     def get_position_risk(self) -> Any:
         return self._request("GET", "/fapi/v2/positionRisk", signed=True)
 
-    def get_open_orders(self, symbol: Optional[str] = None) -> Any:
+    def get_open_orders(self, symbol: str | None = None) -> Any:
         """List open plain orders. Pass symbol to narrow the result."""
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if symbol:
             params["symbol"] = symbol
         return self._request("GET", "/fapi/v1/openOrders", params=params, signed=True)
 
-    def get_open_algo_orders(self, symbol: Optional[str] = None) -> Any:
+    def get_open_algo_orders(self, symbol: str | None = None) -> Any:
         """List open conditional orders routed via Algo Service.
 
         Binance exposes algo orders through a dedicated endpoint and a dedicated
         identifier family (`algoId` / `clientAlgoId`), so callers must not mix
         the result with plain order refs.
         """
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if symbol:
             params["symbol"] = symbol
         return self._request("GET", "/fapi/v1/openAlgoOrders", params=params, signed=True)
@@ -514,11 +512,11 @@ class BinanceFuturesClient:
             params={"symbol": symbol, "marginType": str(margin_type).upper()}, signed=True,
         )
 
-    def post_plain_order(self, params: Dict[str, Any]) -> Any:
+    def post_plain_order(self, params: dict[str, Any]) -> Any:
         """Submit a non-conditional order via /fapi/v1/order."""
         return self._request("POST", "/fapi/v1/order", params=params, signed=True)
 
-    def post_algo_order(self, params: Dict[str, Any]) -> Any:
+    def post_algo_order(self, params: dict[str, Any]) -> Any:
         """Submit a conditional order via /fapi/v1/algoOrder.
 
         The Binance Algo API uses `triggerPrice` and `clientAlgoId`. For
@@ -534,7 +532,7 @@ class BinanceFuturesClient:
         algo_params["algoType"] = "CONDITIONAL"
         return self._request("POST", "/fapi/v1/algoOrder", params=algo_params, signed=True)
 
-    def post_order(self, params: Dict[str, Any]) -> Any:
+    def post_order(self, params: dict[str, Any]) -> Any:
         """Backward-compatible routing wrapper.
 
         New code should explicitly call post_plain_order()/post_algo_order().
@@ -542,17 +540,17 @@ class BinanceFuturesClient:
         the executor and tests.
         """
         algo_types = {"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT", "TRAILING_STOP_MARKET"}
-        order_type = str(params.get("type", "")).upper()
+        order_type = (params.get("type", "")).upper()
         if order_type in algo_types:
             return self.post_algo_order(params)
         return self.post_plain_order(params)
 
     def query_plain_order(
         self, symbol: str, *,
-        order_id: Optional[int] = None,
-        client_order_id: Optional[str] = None,
+        order_id: int | None = None,
+        client_order_id: str | None = None,
     ) -> Any:
-        p: Dict[str, Any] = {"symbol": symbol}
+        p: dict[str, Any] = {"symbol": symbol}
         if order_id is not None:
             p["orderId"] = int(order_id)
         if client_order_id is not None:
@@ -561,10 +559,10 @@ class BinanceFuturesClient:
 
     def query_algo_order(
         self, symbol: str, *,
-        algo_id: Optional[int] = None,
-        client_algo_id: Optional[str] = None,
+        algo_id: int | None = None,
+        client_algo_id: str | None = None,
     ) -> Any:
-        p: Dict[str, Any] = {"symbol": symbol}
+        p: dict[str, Any] = {"symbol": symbol}
         if algo_id is not None:
             p["algoId"] = int(algo_id)
         if client_algo_id is not None:
@@ -573,8 +571,8 @@ class BinanceFuturesClient:
 
     def get_order(
         self, symbol: str, *,
-        order_id: Optional[int] = None,
-        client_order_id: Optional[str] = None,
+        order_id: int | None = None,
+        client_order_id: str | None = None,
         is_algo: bool = False
     ) -> Any:
         """Backward-compatible query wrapper."""
@@ -584,10 +582,10 @@ class BinanceFuturesClient:
 
     def cancel_plain_order(
         self, symbol: str, *,
-        order_id: Optional[int] = None,
-        client_order_id: Optional[str] = None,
+        order_id: int | None = None,
+        client_order_id: str | None = None,
     ) -> Any:
-        p: Dict[str, Any] = {"symbol": symbol}
+        p: dict[str, Any] = {"symbol": symbol}
         if order_id is not None:
             p["orderId"] = int(order_id)
         if client_order_id is not None:
@@ -596,10 +594,10 @@ class BinanceFuturesClient:
 
     def cancel_algo_order(
         self, symbol: str, *,
-        algo_id: Optional[int] = None,
-        client_algo_id: Optional[str] = None,
+        algo_id: int | None = None,
+        client_algo_id: str | None = None,
     ) -> Any:
-        p: Dict[str, Any] = {"symbol": symbol}
+        p: dict[str, Any] = {"symbol": symbol}
         if algo_id is not None:
             p["algoId"] = int(algo_id)
         if client_algo_id is not None:
@@ -608,8 +606,8 @@ class BinanceFuturesClient:
 
     def delete_order(
         self, symbol: str, *,
-        order_id: Optional[int] = None,
-        client_order_id: Optional[str] = None,
+        order_id: int | None = None,
+        client_order_id: str | None = None,
         is_algo: bool = False
     ) -> Any:
         """Backward-compatible cancel wrapper."""

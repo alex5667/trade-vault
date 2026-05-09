@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Prometheus textfile exporter: feature-denylist proposal status.
 
 Exports low-cardinality gauges based on proposals manifests on disk.
@@ -30,16 +31,16 @@ REDIS_URL (optional)
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 try:
     import redis  # type: ignore
 except Exception:  # pragma: no cover
     redis = None
 
-UTC = timezone.utc
+UTC = UTC
 
 
 def _get_redis():
@@ -52,18 +53,18 @@ def _get_redis():
         return None
 
 
-def _read_json(path: Path) -> Dict[str, Any]:
+def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _scrape_manifest_statuses(proposals_dir: Path) -> Dict[str, int]:
-    counts: Dict[str, int] = {"pending_ab": 0, "ab_done": 0, "ab_failed": 0, "approved": 0, "applied": 0}
+def _scrape_manifest_statuses(proposals_dir: Path) -> dict[str, int]:
+    counts: dict[str, int] = {"pending_ab": 0, "ab_done": 0, "ab_failed": 0, "approved": 0, "applied": 0}
     if not proposals_dir.exists():
         return counts
     for p in proposals_dir.glob("denylist_proposal_*.manifest.json"):
         try:
             m = _read_json(p)
-            st = str(m.get("status") or "")
+            st = (m.get("status") or "")
             if st in counts:
                 counts[st] += 1
         except Exception:
@@ -74,11 +75,11 @@ def _scrape_manifest_statuses(proposals_dir: Path) -> Dict[str, int]:
 def _oldest_pending_age_s(proposals_dir: Path) -> int:
     if not proposals_dir.exists():
         return 0
-    pending: List[Path] = []
+    pending: list[Path] = []
     for p in proposals_dir.glob("denylist_proposal_*.manifest.json"):
         try:
             m = _read_json(p)
-            if str(m.get("status") or "") == "pending_ab":
+            if (m.get("status") or "") == "pending_ab":
                 pending.append(p)
         except Exception:
             continue
@@ -92,11 +93,11 @@ def _oldest_approved_not_applied_age_s(proposals_dir: Path) -> int:
     """Max age among proposals with status=approved (approved but not applied yet)."""
     if not proposals_dir.exists():
         return 0
-    approved: List[Path] = []
+    approved: list[Path] = []
     for p in proposals_dir.glob("denylist_proposal_*.manifest.json"):
         try:
             m = _read_json(p)
-            if str(m.get("status") or "") == "approved":
+            if (m.get("status") or "") == "approved":
                 approved.append(p)
         except Exception:
             continue
@@ -106,7 +107,7 @@ def _oldest_approved_not_applied_age_s(proposals_dir: Path) -> int:
     return int(time.time() - approved[0].stat().st_mtime)
 
 
-def _format_metric(name: str, labels: Dict[str, str], value: float) -> str:
+def _format_metric(name: str, labels: dict[str, str], value: float) -> str:
     if labels:
         lab = ",".join([f'{k}="{v}"' for k, v in labels.items()])
         return f"{name}{{{lab}}} {value}\n"
@@ -121,7 +122,7 @@ def main() -> int:
     oldest_age = _oldest_pending_age_s(proposals_dir)
     oldest_approved_age = _oldest_approved_not_applied_age_s(proposals_dir)
 
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("# HELP feature_denylist_proposals_total Number of denylist proposals by status\n")
     lines.append("# TYPE feature_denylist_proposals_total gauge\n")
     for st, n in sorted(counts.items()):
@@ -141,7 +142,7 @@ def main() -> int:
     if r is not None:
         try:
             h = r.hgetall(key) or {}
-            ts_utc = str(h.get("ts_utc") or "").strip()
+            ts_utc = (h.get("ts_utc") or "").strip()
             age_s = 0
             if ts_utc:
                 try:
@@ -154,7 +155,7 @@ def main() -> int:
 
             def _i(name: str) -> int:
                 try:
-                    return int(float(str(h.get(name) or "0")))
+                    return int(float((h.get(name) or "0")))
                 except Exception:
                     return 0
 

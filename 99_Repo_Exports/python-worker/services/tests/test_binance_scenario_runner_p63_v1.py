@@ -29,6 +29,7 @@ from services.binance_executor import _make_cid
 from services.testing.binance_mock_harness import running_binance_mock
 from services.testing.binance_scenario_runner import BinanceScenarioRunner
 
+from core.redis_keys import RedisStreams as RS
 
 # ---------------------------------------------------------------------------
 # Shared env-setup helper
@@ -70,7 +71,7 @@ def _configure_env(
         "EXECUTION_QUARANTINE_LEDGER_DSN": "",
         # Redis / stream keys
         "REDIS_URL": "redis://mock/0",
-        "EXEC_STREAM": "orders:exec",
+        "EXEC_STREAM": RS.ORDERS_EXEC,
         "ORDERS_QUEUE_BINANCE": "orders:queue:binance",
         "ORDERS_QUEUE_BINANCE_PROCESSING": "orders:queue:binance:processing",
         "ORDERS_QUEUE_BINANCE_DLQ": "orders:queue:binance:dlq",

@@ -1,11 +1,6 @@
-import pytest
-from unittest.mock import AsyncMock, patch
 
-from orderflow_services.local_fallback_plane_gateway_v3_0 import (
-    evaluate_request,
-    build_prompt,
-    ALLOWED_TASKS
-)
+from orderflow_services.local_fallback_plane_gateway_v3_0 import ALLOWED_TASKS, evaluate_request
+
 
 def test_evaluate_request_unsupported_task():
     policy = {
@@ -23,7 +18,7 @@ def test_evaluate_request_unsupported_task():
         "task_type": "invalid_task",
         "prompt": "Test",
     }
-    
+
     res = evaluate_request(row, policy)
     assert res["accepted"] == 0
     assert res["reason_code"] == "TASK_NOT_SUPPORTED"
@@ -44,7 +39,7 @@ def test_evaluate_request_long_prompt():
         "task_type": "emergency_summarize",
         "prompt": "This prompt is too long for the limit"
     }
-    
+
     res = evaluate_request(row, policy)
     assert res["accepted"] == 0
     assert res["reason_code"] == "PROMPT_TOO_LARGE"
@@ -66,7 +61,7 @@ def test_evaluate_request_vertex_not_degraded():
         "prompt": "Test",
         "vertex_unavailable": 0
     }
-    
+
     res = evaluate_request(row, policy)
     assert res["accepted"] == 0
     assert res["reason_code"] == "VERTEX_NOT_DEGRADED"
@@ -89,7 +84,7 @@ def test_evaluate_request_accepted():
         "vertex_unavailable": 1,
         "severity": "critical"
     }
-    
+
     res = evaluate_request(row, policy)
     assert res["accepted"] == 1
     assert res["reason_code"] == "OK"

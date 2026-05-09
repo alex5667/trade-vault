@@ -1,22 +1,21 @@
-import logging
 import asyncio
-import time
+import logging
 import os
-import json
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import redis
 
-from .dto import MLConfirmDecision, MLConfirmInput, MLConfirmOutput
-from .config_loader import load_config_from_redis, MLConfirmConfig, _safe_loads
-from .model_loader import _load_model_cached
-from .feature_builder import build_feature_row
-from .decision_cache import cache_ml_decision
-from .metrics_emitter import emit_metrics, capture_replay_input
+from .config_loader import load_config_from_redis
 from .decision_policy import DecisionPolicy
+from .dto import MLConfirmDecision, MLConfirmInput
+from .metrics_emitter import emit_metrics
+from .model_loader import _load_model_cached
 
 logger = logging.getLogger("ml_confirm_gate.facade")
 
 from utils.time_utils import get_ny_time_millis
+
+
 def _now_ms() -> int: return get_ny_time_millis()
 def _make_sid(symbol: str, ts_ms: int) -> str:
     sym = (symbol or "").upper()
@@ -33,24 +32,24 @@ class MLConfirmGate:
         fail_policy: str = "OPEN",
         champion_key: str = "cfg:ml_confirm:champion",
         challenger_key: str = "cfg:ml_confirm:challenger",
-        champion_kinds: Optional[List[str]] = None,
+        champion_kinds: list[str] | None = None,
         ab_variant: str = "",
     ):
         self.r = r
         self.champion_key = champion_key
         self.challenger_key = challenger_key
-        self.ab_variant = str(ab_variant or "champion").lower()
+        self.ab_variant = (ab_variant or "champion").lower()
         self.mode = mode.upper()
         self.fail_policy = fail_policy.upper()
 
         self._champion_kinds = champion_kinds or []
         self._cfg_hash_key = "cfg:ml_confirm"
-        self._cfg: Dict[str, Any] = {}
-        self._model: Optional[Any] = None
-        self._cfgs: Dict[str, Dict[str, Any]] = {}
-        self._models: Dict[str, Any] = {}
-        self._cfg_sources: Dict[str, str] = {}
-        self._cfg_keys_used: Dict[str, str] = {}
+        self._cfg: dict[str, Any] = {}
+        self._model: Any | None = None
+        self._cfgs: dict[str, dict[str, Any]] = {}
+        self._models: dict[str, Any] = {}
+        self._cfg_sources: dict[str, str] = {}
+        self._cfg_keys_used: dict[str, str] = {}
 
         self._cache_ttl_ms = 30000
         self._cache_loaded_ms = 0
@@ -60,10 +59,10 @@ class MLConfirmGate:
         self._abstain_on_missing = False
         self._p_min_hard_floor = float(os.environ.get("ML_CONFIRM_P_MIN_HARD_FLOOR", "0.0"))
 
-        self._mode_by_symbol: Dict[str, str] = {}
-        self._enforce_share_by_symbol: Dict[str, float] = {}
-        self._mode_by_symbol_by_kind: Dict[str, Dict[str, str]] = {}
-        self._enforce_share_by_sym_by_kind: Dict[str, Dict[str, float]] = {}
+        self._mode_by_symbol: dict[str, str] = {}
+        self._enforce_share_by_symbol: dict[str, float] = {}
+        self._mode_by_symbol_by_kind: dict[str, dict[str, str]] = {}
+        self._enforce_share_by_sym_by_kind: dict[str, dict[str, float]] = {}
 
         self._calibrator = None
         self._calib_type = "none"
@@ -71,7 +70,7 @@ class MLConfirmGate:
         self.policy = DecisionPolicy(self)
 
     @classmethod
-    def from_env(cls, redis_pool: Optional[redis.ConnectionPool] = None) -> 'MLConfirmGate':
+    def from_env(cls, redis_pool: redis.ConnectionPool | None = None) -> 'MLConfirmGate':
         r_client = None
         if redis_pool is not None:
             r_client = redis.Redis(connection_pool=redis_pool)
@@ -80,7 +79,7 @@ class MLConfirmGate:
             if redis_dsn:
                 r_client = redis.Redis.from_url(redis_dsn)
         return cls(
-            r=r_client, 
+            r=r_client,
             mode=os.getenv("ML_CONFIRM_MODE", "OFF").upper(),
             fail_policy=os.getenv("ML_CONFIRM_FAIL_POLICY", "OPEN").upper()
         )
@@ -103,17 +102,17 @@ class MLConfirmGate:
             self._cache_loaded_ms = now
 
     def _get_effective_mode(self, symbol: str, kind: str) -> str:
-        sym = str(symbol).strip().upper()
+        sym = symbol.strip().upper()
         overrides = self._mode_by_symbol_by_kind.get(kind, {})
         if sym in overrides:
             return overrides[sym]
         if sym in self._mode_by_symbol:
             return self._mode_by_symbol[sym]
-        
+
         cfg_mode = self._cfg.get("mode")
         if cfg_mode:
             return str(cfg_mode).upper()
-            
+
         return self.mode
 
     def check(
@@ -123,14 +122,14 @@ class MLConfirmGate:
         ts_ms: int,
         direction: str,
         scenario: str,
-        indicators: Dict[str, Any],
+        indicators: dict[str, Any],
         rule_score: float = 0.0,
         rule_have: int = 0,
         rule_need: int = 0,
         cancel_spike_veto: int = 0,
         ok_rule: int = 0,
     ) -> MLConfirmDecision:
-        
+
         self._refresh_cache_if_needed()
 
         dec = MLConfirmDecision(
@@ -148,7 +147,7 @@ class MLConfirmGate:
         dec.mode_source = "global"
 
         eff_fail_policy = str(self._cfg.get("fail_policy", self.fail_policy)).upper()
-        
+
         if not self._cfg or not self._model:
             dec.error = "no_cfg"
             if eff_mode == "ENFORCE" and eff_fail_policy == "CLOSED":
@@ -165,7 +164,7 @@ class MLConfirmGate:
         dec.model_path = str(self._cfg.get("model_path", ""))
 
         sid = _make_sid(symbol, ts_ms)
-        
+
         input_dto = MLConfirmInput(
             sid=sid,
             symbol=symbol,

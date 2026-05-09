@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Stage4: Policy guardrail for Meta AB v2 ramp/apply.
 
@@ -11,15 +12,15 @@ Returned decision is embedded into report["policy"] and used to override report[
 """
 
 
-from dataclasses import dataclass
 import json
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
-def _read_json_file(path: str) -> Optional[Dict[str, Any]]:
+def _read_json_file(path: str) -> dict[str, Any] | None:
     if not path:
         return None
     try:
@@ -32,7 +33,7 @@ def _read_json_file(path: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _conf_coverage_check(action_raw: str, share_current: float, share_next_raw: float) -> List[str]:
+def _conf_coverage_check(action_raw: str, share_current: float, share_next_raw: float) -> list[str]:
     """Return reason codes if confirmations coverage report indicates drift."""
     if action_raw == "hold" or share_next_raw == share_current:
         return []
@@ -112,7 +113,7 @@ def _norm_action(action: str) -> str:
     return a or "hold"
 
 
-def _ci_lo(rep: Dict[str, Any]) -> Optional[float]:
+def _ci_lo(rep: dict[str, Any]) -> float | None:
     ci = rep.get("ci") or {}
     if isinstance(ci, dict):
         for k in (
@@ -150,17 +151,17 @@ class PolicyDecision:
     allow_apply: bool
     share_next_final: float
     action_final: str
-    reasons: Tuple[str, ...]
+    reasons: tuple[str, ...]
 
 
 def decide_meta_ab_v2_policy(
-    rep: Dict[str, Any],
+    rep: dict[str, Any],
     cfg: Any,
     share_current: float,
     share_next_raw: float,
     action_raw: str,
-    freeze_max_share: Optional[float],
-    env_overrides: Optional[Dict[str, Any]] = None,
+    freeze_max_share: float | None,
+    env_overrides: dict[str, Any] | None = None,
 ) -> PolicyDecision:
     """
     Apply guardrails and return final ramp decision.
@@ -203,7 +204,7 @@ def decide_meta_ab_v2_policy(
         allow_apply = action != "hold"
         return PolicyDecision(blocked=False, allow_apply=allow_apply, share_next_final=share_next, action_final=action, reasons=())
 
-    reasons: List[str] = []
+    reasons: list[str] = []
 
     # Drift guard: confirmations coverage report (offline)
     reasons.extend(_conf_coverage_check(action_raw, share_current, share_next_raw))
@@ -215,7 +216,7 @@ def decide_meta_ab_v2_policy(
         reasons.append("share_out_of_bounds")
 
     # evaluator error reason should block apply
-    reason_txt = str(rep.get("reason") or "").strip()
+    reason_txt = (rep.get("reason") or "").strip()
     if reason_txt:
         reasons.append("eval_reason_present")
 
@@ -235,7 +236,7 @@ def decide_meta_ab_v2_policy(
         reasons.append("share_above_freeze_max")
 
     # action-specific guards
-    winner = str(rep.get("winner") or "tie").strip().lower()
+    winner = (rep.get("winner") or "tie").strip().lower()
     delta = rep.get("delta") or {}
     delta_exp_r = _to_float(delta.get("exp_r_per_candidate") or 0.0)
     delta_tail = _to_float(delta.get("tail_rate_per_candidate") or 0.0)

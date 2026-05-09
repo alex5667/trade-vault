@@ -5,7 +5,6 @@ Verifies:
 - ok/overlap step advances state, no gap
 - explicit gap step increases EMA, sets book_resync_requested when EMA >= threshold
 """
-import os
 import sys
 from pathlib import Path
 

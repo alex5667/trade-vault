@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 TickProcessor — обрабатывает один тик: parse → DQ → timestamp → lag → dedup →
 side-policy → strategy → burst → publish → latency histogram.
@@ -15,38 +16,56 @@ import json
 import logging
 import os
 import time as _time
-from typing import Any, Callable, Dict, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 import redis.asyncio as aioredis
 
 from common.metrics2 import LagTracker
 from core.dq_policy import TickDQPolicy
-from services.observability.latency_contract import stamp_feature_ready, observe_feature_ready_async
-from services.orderflow.metrics import (
-    ticks_read_total, ticks_processed_total, ticks_dropped_total,
-    tick_dedup_drop_total, ticks_unknown_side_policy_total,
-    ticks_unknown_side_quarantine_published_total,
-    ticks_ts_source_total,
-    tick_unknown_side_ema_gauge, tick_ts_source_now_ema_gauge,
-    tick_ts_source_stream_id_ema_gauge,
-    tick_event_stream_skew_abs_ema_ms_gauge, tick_event_age_abs_ema_ms_gauge,
-    worker_lag_ms_gauge, worker_lag_ms_p50_gauge, worker_lag_ms_p95_gauge,
-    worker_lag_ms_p99_gauge, worker_lag_ms_hist, processing_time_us,
-    signals_published_total, tick_ingest_process_ms, tick_ingest_e2e_delay_ms,
-    redis_entry_lag_ms_gauge, redis_entry_lag_ms_p50_gauge,
-    redis_entry_lag_ms_p99_gauge, redis_entry_lag_ms_hist,
-    market_inactivity_lag_ms_gauge, market_inactivity_lag_ms_hist,
-)
+from services.observability.latency_contract import observe_feature_ready_async, stamp_feature_ready
+from services.orderflow.configuration import _safe_int
 from services.orderflow.metric_labels import TickMetricLimiter, _parse_allowlist, should_emit
+from services.orderflow.metrics import (
+    market_inactivity_lag_ms_gauge,
+    market_inactivity_lag_ms_hist,
+    processing_time_us,
+    redis_entry_lag_ms_gauge,
+    redis_entry_lag_ms_hist,
+    redis_entry_lag_ms_p50_gauge,
+    redis_entry_lag_ms_p99_gauge,
+    signals_published_total,
+    tick_dedup_drop_total,
+    tick_event_age_abs_ema_ms_gauge,
+    tick_event_stream_skew_abs_ema_ms_gauge,
+    tick_ingest_e2e_delay_ms,
+    tick_ingest_process_ms,
+    tick_ts_source_now_ema_gauge,
+    tick_ts_source_stream_id_ema_gauge,
+    tick_unknown_side_ema_gauge,
+    ticks_dropped_total,
+    ticks_processed_total,
+    ticks_read_total,
+    ticks_ts_source_total,
+    ticks_unknown_side_policy_total,
+    ticks_unknown_side_quarantine_published_total,
+    worker_lag_ms_gauge,
+    worker_lag_ms_hist,
+    worker_lag_ms_p50_gauge,
+    worker_lag_ms_p95_gauge,
+    worker_lag_ms_p99_gauge,
+)
 from services.orderflow.side_policy import (
-    is_unknown_side_tick, normalize_unknown_side_policy, deterministic_sample,
+    deterministic_sample,
+    is_unknown_side_tick,
+    normalize_unknown_side_policy,
 )
 from services.orderflow.tick_quality_ema import TickQualityEMA
-from services.orderflow.utils import _fields_to_dict, _parse_tick_payload, _compute_tick_uid
-from services.orderflow.configuration import _safe_int
+from services.orderflow.utils import _compute_tick_uid, _fields_to_dict, _parse_tick_payload
 from services.signal_preprocess import preprocess_signal_for_publish
 from utils.task_manager import safe_create_task
 from utils.time_utils import get_epoch_ms as get_ny_time_millis
+import contextlib
 
 logger = logging.getLogger("tick_processor")
 
@@ -66,19 +85,19 @@ def coerce_event_ts_ms(
     payload_ts_ms: int,
     now_ms: int,
     max_ts_skew_ms: int,
-) -> Tuple[int, str]:
+) -> tuple[int, str]:
     """Детерминированный выбор event_time:
     1) tick.ts_ms если в пределах max_ts_skew_ms от wall-clock
     2) Redis stream-id ms
     3) wall-clock (last resort)
     """
     ts = _safe_int(payload_ts_ms or 0)
-    if ts > 0 and abs(int(now_ms) - ts) <= int(max_ts_skew_ms):
+    if ts > 0 and abs(now_ms - ts) <= max_ts_skew_ms:
         return ts, "payload"
     mid = _msgid_to_ms(msg_id)
     if mid > 0:
         return mid, "stream_id"
-    return int(now_ms), "now"
+    return now_ms, "now"
 
 
 # ── TickProcessor ─────────────────────────────────────────────────────────────
@@ -94,10 +113,10 @@ class TickProcessor:
         self,
         *,
         tick_dq_policy: TickDQPolicy,
-        strategy_fn: Callable[[], Optional[Any]],
+        strategy_fn: Callable[[], Any | None],
         gate: Any,                          # SignalGate
         flusher: Any,                       # BurstFlusher
-        health_metrics: Optional[Any],
+        health_metrics: Any | None,
         main_redis: aioredis.Redis,
         ticks_redis: aioredis.Redis,
         # tick config (из TickCfg)
@@ -111,8 +130,8 @@ class TickProcessor:
         exec_quarantine_enable: bool,
         quarantine_stream: str,
         # shared mutable state (dict-refs из сервиса)
-        lag_trackers: Dict[str, LagTracker],
-        lag_export_counters: Dict[str, int],
+        lag_trackers: dict[str, LagTracker],
+        lag_export_counters: dict[str, int],
     ) -> None:
         self._dq_policy = tick_dq_policy
         self._strategy_fn = strategy_fn
@@ -136,13 +155,13 @@ class TickProcessor:
         self._lag_export_counters = lag_export_counters
 
         # Lazy-init per first tick
-        self._quality_ema: Optional[TickQualityEMA] = None
-        self._metric_limiter: Optional[TickMetricLimiter] = None
-        self._metric_last_emit_ms: Dict[str, int] = {}
-        self._ingest_latency_sample: Optional[float] = None
+        self._quality_ema: TickQualityEMA | None = None
+        self._metric_limiter: TickMetricLimiter | None = None
+        self._metric_last_emit_ms: dict[str, int] = {}
+        self._ingest_latency_sample: float | None = None
 
     @classmethod
-    def from_service(cls, svc: Any) -> "TickProcessor":
+    def from_service(cls, svc: Any) -> TickProcessor:
         """Фабрика: строит TickProcessor из атрибутов CryptoOrderflowService."""
         cfg = svc._svc_cfg.tick
         return cls(
@@ -181,7 +200,7 @@ class TickProcessor:
         _t0 = _time.perf_counter()
         ticks_read_total.labels(symbol=symbol).inc()
 
-        tick: Optional[Dict] = None
+        tick: dict | None = None
         processed_ok = False
 
         try:
@@ -211,18 +230,16 @@ class TickProcessor:
             # event_ts_ms when ts_source != "payload" (i.e. stream_id / wall-clock fallback).
             tick["exchange_ts_ms"] = int(payload_ts_ms)
             tick["redis_stream_ts_ms"] = _msgid_to_ms(str(msg_id)) if msg_id else 0
-            tick["event_ts_ms"] = int(event_ts_ms)
-            tick["ts_ms"] = int(event_ts_ms)
+            tick["event_ts_ms"] = event_ts_ms
+            tick["ts_ms"] = event_ts_ms
             tick["ts_source"] = str(ts_source)
             tick["payload_ts_ms"] = int(payload_ts_ms)  # preserve original for DQ quarantine
             if payload_ts_ms <= 0:
                 tick["dq_tradeable"] = False
                 tick["dq_reason"] = "missing_exchange_ts"
 
-            try:
-                ticks_ts_source_total.labels(symbol=str(symbol), ts_source=str(ts_source)).inc()
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                ticks_ts_source_total.labels(symbol=symbol, ts_source=str(ts_source)).inc()
 
             # ── DQ validate (on resolved event_ts_ms) ────────────────────────
             # DQ still rejects bad_ts_unit / missing_symbol but stale/future/OOO
@@ -255,17 +272,15 @@ class TickProcessor:
 
             # ── process_ts_ms ────────────────────────────────────────────────
             tick["process_ts_ms"] = get_ny_time_millis()
-            runtime.last_ts_ms = int(event_ts_ms)
+            runtime.last_ts_ms = event_ts_ms
 
             # ── Lag tracking ─────────────────────────────────────────────────────
             lag_ms = self._update_lag(symbol, now_ms, event_ts_ms, lag_tracker_max_ms, msg_id=msg_id)
 
             # ── Lag drop ─────────────────────────────────────────────────────
             if self._drop_on_lag and lag_ms > self._max_lag_ms:
-                try:
+                with contextlib.suppress(Exception):
                     ticks_dropped_total.labels(symbol=symbol, reason="lag").inc()
-                except Exception:
-                    pass
                 return True
 
             # ── Dedup (P1-fix: pass msg_id as stream_id for fallback UID) ────
@@ -297,13 +312,13 @@ class TickProcessor:
 
             try:
                 if signal and self._health_metrics:
-                    self._health_metrics.on_signal_emit(symbol=str(symbol))
+                    self._health_metrics.on_signal_emit(symbol=symbol)
             except Exception:
                 pass
 
             # ── Burst flush (если strategy не дала сигнал) ───────────────────
             if not signal:
-                burst = await self._flusher.process(runtime, "tick", int(event_ts_ms), do_publish=False)
+                burst = await self._flusher.process(runtime, "tick", event_ts_ms, do_publish=False)
                 if burst:
                     signal = burst
 
@@ -314,7 +329,8 @@ class TickProcessor:
             processed_ok = True
 
         except Exception as exc:
-            import sys, traceback as _tb
+            import sys
+            import traceback as _tb
             sys.stderr.write(f"❌ DIRECT stderr: {symbol} tick {msg_id}:\n{_tb.format_exc()}\n")
             logger.error("❌ (%s) Crash processing tick %s: %s", symbol, msg_id, exc)
             processed_ok = await self._quarantine_poison(symbol, msg_id, fields, exc)
@@ -326,21 +342,19 @@ class TickProcessor:
 
     # ── Private: pipeline stages ──────────────────────────────────────────────
 
-    def _xadd_dq_quarantine(self, tick: Dict, reason: str) -> None:
+    def _xadd_dq_quarantine(self, tick: dict, reason: str) -> None:
         q_stream = "stream:tick_dq:quarantine"
         try:
             # FIX P1: Serialize synchronously BEFORE event loop takes over
             tick_payload = json.dumps(tick)
             async def _xadd():
-                try:
+                with contextlib.suppress(Exception):
                     await self._main.xadd(
                         q_stream,
                         {"data": tick_payload, "reason": reason},
                         maxlen=20_000,
                         approximate=True,
                     )
-                except Exception:
-                    pass
             safe_create_task(_xadd())
         except Exception:
             pass
@@ -348,12 +362,12 @@ class TickProcessor:
     def _update_quality_ema(
         self,
         symbol: str,
-        tick: Dict,
+        tick: dict,
         now_ms: int,
         unknown_side: bool,
         ts_source: str,
         event_ts_ms: int,
-        raw: Dict,
+        raw: dict,
     ) -> None:
         try:
             if self._quality_ema is None:
@@ -361,12 +375,12 @@ class TickProcessor:
                 self._quality_ema = TickQualityEMA(tau_ms=tau_ms)
 
             stream_ms = _safe_int(tick.get("stream_ms") or 0)
-            abs_skew = abs(int(event_ts_ms) - stream_ms) if stream_ms and event_ts_ms else 0
-            abs_age = abs(int(now_ms) - int(event_ts_ms)) if event_ts_ms else 0
+            abs_skew = abs(event_ts_ms - stream_ms) if stream_ms and event_ts_ms else 0
+            abs_age = abs(now_ms - event_ts_ms) if event_ts_ms else 0
 
             ema = self._quality_ema.update(
-                symbol=str(symbol),
-                ts_ms=int(now_ms),
+                symbol=symbol,
+                ts_ms=now_ms,
                 unknown_side=1.0 if unknown_side else 0.0,
                 ts_source=str(ts_source),
                 abs_skew_ms=float(abs_skew),
@@ -379,11 +393,11 @@ class TickProcessor:
                 ema_min = int(os.getenv("TICK_QUALITY_EMA_UPDATE_MIN_MS", "250"))
                 self._metric_limiter = TickMetricLimiter(allowlist=allow, mode=mode, ema_min_update_ms=ema_min)
 
-            sym_lbl = self._metric_limiter.label(str(symbol))
+            sym_lbl = self._metric_limiter.label(symbol)
             if sym_lbl is not None:
                 last = self._metric_last_emit_ms.get(sym_lbl, 0)
-                if should_emit(int(now_ms), last, int(self._metric_limiter.ema_min_update_ms)):
-                    self._metric_last_emit_ms[sym_lbl] = int(now_ms)
+                if should_emit(now_ms, last, self._metric_limiter.ema_min_update_ms):
+                    self._metric_last_emit_ms[sym_lbl] = now_ms
                     tick_unknown_side_ema_gauge.labels(symbol=sym_lbl).set(float(ema["unknown"]))
                     tick_ts_source_now_ema_gauge.labels(symbol=sym_lbl).set(float(ema["ts_now"]))
                     tick_ts_source_stream_id_ema_gauge.labels(symbol=sym_lbl).set(float(ema["ts_stream_id"]))
@@ -395,14 +409,12 @@ class TickProcessor:
     def _update_lag(self, symbol: str, now_ms: int, event_ts_ms: int, max_ms: int, msg_id: str = "") -> int:
         lag_ms = 0
         try:
-            lag_ms = max(0, int(now_ms - int(event_ts_ms)))
+            lag_ms = max(0, int(now_ms - event_ts_ms))
             if worker_lag_ms_gauge:
                 worker_lag_ms_gauge.labels(symbol=symbol).set(float(lag_ms))
             if worker_lag_ms_hist:
-                try:
+                with contextlib.suppress(Exception):
                     worker_lag_ms_hist.labels(symbol=symbol).observe(lag_ms)
-                except Exception:
-                    pass
 
             tracker = self._lag_trackers.get(symbol)
             if tracker:
@@ -431,7 +443,7 @@ class TickProcessor:
             if msg_id:
                 redis_ms = _msgid_to_ms(str(msg_id))
                 if redis_ms > 0:
-                    r_lag = max(0, int(now_ms) - redis_ms)
+                    r_lag = max(0, now_ms - redis_ms)
                     try:
                         redis_entry_lag_ms_gauge.labels(symbol=symbol).set(float(r_lag))
                         redis_entry_lag_ms_hist.labels(symbol=symbol).observe(float(r_lag))
@@ -460,7 +472,7 @@ class TickProcessor:
                     # due to market inactivity — NOT event loop blockage.
                     # Formula: worker_lag = market_inactivity_lag + redis_entry_lag + processing.
                     if event_ts_ms and event_ts_ms > 0:
-                        m_lag = max(0, redis_ms - int(event_ts_ms))
+                        m_lag = max(0, redis_ms - event_ts_ms)
                         try:
                             market_inactivity_lag_ms_gauge.labels(symbol=symbol).set(float(m_lag))
                             market_inactivity_lag_ms_hist.labels(symbol=symbol).observe(float(m_lag))
@@ -471,7 +483,7 @@ class TickProcessor:
         return lag_ms
 
 
-    def _is_duplicate(self, tick: Dict, runtime: Any, symbol: str, raw: Dict, *, msg_id: str = "") -> bool:
+    def _is_duplicate(self, tick: dict, runtime: Any, symbol: str, raw: dict, *, msg_id: str = "") -> bool:
         """Market-level dedup: trade_id > content-hash(exchange_ts_ms|price|qty|side|bm).
 
         stream_id (Redis msg_id) is intentionally excluded from the economic dedup UID —
@@ -479,7 +491,7 @@ class TickProcessor:
         be detected as a duplicate. stream_id is only relevant for ACK/PEL bookkeeping.
         """
         try:
-            uid = str(tick.get("tick_uid") or "")
+            uid = (tick.get("tick_uid") or "")
             if uid.startswith(tick.get("symbol", symbol).upper() + ":h") or not uid:
                 # Use exchange_ts_ms (immutable) for the content hash so that the UID is
                 # stable across re-XADDs (same exchange payload → same hash regardless of
@@ -491,38 +503,32 @@ class TickProcessor:
                     ts_ms=exchange_ts,
                     price_src=raw.get("price") or raw.get("last") or raw.get("mid"),
                     qty_src=raw.get("qty") or raw.get("volume"),
-                    side=str(tick.get("side") or ""),
+                    side=(tick.get("side") or ""),
                     is_buyer_maker=tick.get("is_buyer_maker"),
                     stream_id=None,  # excluded from market-level dedupe UID
                 )
                 tick["tick_uid"] = uid
             if uid and runtime.is_duplicate_tick_uid(uid):
-                try:
+                with contextlib.suppress(Exception):
                     tick_dedup_drop_total.labels(symbol=symbol).inc()
-                except Exception:
-                    pass
                 return True
         except Exception:
             pass
         return False
 
     async def _apply_side_policy(
-        self, tick: Dict, unknown_side: bool, symbol: str, msg_id: str, raw: Dict
+        self, tick: dict, unknown_side: bool, symbol: str, msg_id: str, raw: dict
     ) -> bool:
         """Returns True if tick должен быть пропущен (drop/quarantine)."""
         if not unknown_side:
             return False
-        try:
-            ticks_unknown_side_policy_total.labels(symbol=str(symbol), policy=str(self._side_policy)).inc()
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            ticks_unknown_side_policy_total.labels(symbol=symbol, policy=str(self._side_policy)).inc()
 
         pol = str(self._side_policy or "ignore_delta")
         if pol in ("drop", "quarantine"):
-            try:
+            with contextlib.suppress(Exception):
                 ticks_dropped_total.labels(symbol=symbol, reason=f"unknown_side_{pol}").inc()
-            except Exception:
-                pass
             if pol == "quarantine":
                 await self._quarantine_unknown_side(symbol, msg_id, tick, raw)
             return True
@@ -541,7 +547,7 @@ class TickProcessor:
         return False
 
     async def _quarantine_unknown_side(
-        self, symbol: str, msg_id: str, tick: Dict, raw_fields: Dict
+        self, symbol: str, msg_id: str, tick: dict, raw_fields: dict
     ) -> None:
         try:
             if not self._ticks:
@@ -550,37 +556,33 @@ class TickProcessor:
             if not deterministic_sample(int(key_ms), float(self._side_quarantine_sample)):
                 return
             payload = {
-                "symbol": str(symbol),
+                "symbol": symbol,
                 "reason": "unknown_side",
                 "policy": str(self._side_policy),
                 "msg_id": str(msg_id),
-                "tick_uid": str(tick.get("tick_uid") or ""),
+                "tick_uid": (tick.get("tick_uid") or ""),
                 "event_ts_ms": str(_safe_int(tick.get("event_ts_ms") or 0)),
-                "ts_source": str(tick.get("ts_source") or ""),
-                "side": str(tick.get("side") or ""),
-                "side_conf": str(tick.get("side_conf") or ""),
-                "side_raw": str(tick.get("side_raw") or ""),
+                "ts_source": (tick.get("ts_source") or ""),
+                "side": (tick.get("side") or ""),
+                "side_conf": (tick.get("side_conf") or ""),
+                "side_raw": (tick.get("side_raw") or ""),
                 "is_buyer_maker": str(tick.get("is_buyer_maker") if tick.get("is_buyer_maker") is not None else ""),
-                "trade_id": str(tick.get("trade_id") or ""),
-                "price": str(tick.get("price") or ""),
+                "trade_id": (tick.get("trade_id") or ""),
+                "price": (tick.get("price") or ""),
                 "qty": str(tick.get("qty") or tick.get("volume") or ""),
             }
-            try:
+            with contextlib.suppress(Exception):
                 payload["raw_keys"] = ",".join(sorted(list(raw_fields.keys()))[:32])
-            except Exception:
-                pass
             await self._ticks.xadd(
                 self._side_quarantine_stream,
                 payload,
                 maxlen=int(self._side_quarantine_maxlen),
                 approximate=True,
             )
-            try:
+            with contextlib.suppress(Exception):
                 ticks_unknown_side_quarantine_published_total.labels(
-                    symbol=str(symbol), reason="unknown_side"
+                    symbol=symbol, reason="unknown_side"
                 ).inc()
-            except Exception:
-                pass
         except Exception:
             pass
 
@@ -594,7 +596,7 @@ class TickProcessor:
             if book and book.timestamp_ms:
                 age = max(0, event_ts_ms - book.timestamp_ms)
                 self._health_metrics.on_tick(
-                    symbol=str(symbol),
+                    symbol=symbol,
                     l2_age_ms=float(age),
                     l2_age_ms_tick=float(age),
                     l2_is_stale=(age > 1500),
@@ -604,7 +606,7 @@ class TickProcessor:
             pass
 
     async def _publish_signal(
-        self, runtime: Any, signal: Dict, tick: Dict, symbol: str, strat: Any
+        self, runtime: Any, signal: dict, tick: dict, symbol: str, strat: Any
     ) -> None:
         try:
             stamp_feature_ready(signal, tick=tick, now_ms=get_ny_time_millis())
@@ -612,11 +614,11 @@ class TickProcessor:
                 signal,
                 redis_client=self._main,
                 service="python_worker",
-                symbol=str(symbol),
+                symbol=symbol,
             )
         except Exception as exc:
             logger.debug("(%s) latency contract feature-ready failed: %s", symbol, exc)
-        try:
+        with contextlib.suppress(Exception):
             preprocess_signal_for_publish(
                 signal,
                 symbol=str(getattr(runtime, "symbol", "") or symbol),
@@ -624,14 +626,10 @@ class TickProcessor:
                 logger=logger,
                 fast_path=False,
             )
-        except Exception:
-            pass
         if strat and await self._gate.allows(runtime, signal):
             await strat.publish_signal(runtime, signal)
-            try:
+            with contextlib.suppress(Exception):
                 signals_published_total.labels(symbol=symbol).inc()
-            except Exception:
-                pass
 
     async def _quarantine_poison(
         self, symbol: str, msg_id: str, fields: Any, exc: Exception
@@ -656,7 +654,7 @@ class TickProcessor:
     def _observe_latency(
         self,
         processed_ok: bool,
-        tick: Optional[Dict],
+        tick: dict | None,
         msg_id: str,
         symbol: str,
         t0: float,
@@ -679,7 +677,7 @@ class TickProcessor:
                 from services.orderflow.metric_labels import symbol_label as _sl
                 sym_lbl = _sl(symbol)
             except Exception:
-                sym_lbl = str(symbol)
+                sym_lbl = symbol
 
             dt_ms = (_time.perf_counter() - t0) * 1000.0
             tick_ingest_process_ms.labels(symbol=sym_lbl).observe(float(dt_ms))

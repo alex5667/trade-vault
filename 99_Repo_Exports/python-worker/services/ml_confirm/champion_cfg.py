@@ -5,8 +5,7 @@ Keep labels low-cardinality: DO NOT put run_id/model_path into Prometheus labels
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
-
+from typing import Any
 
 ALLOWED_MODES = {"SHADOW", "CANARY", "ENFORCE"}
 
@@ -29,10 +28,10 @@ class ChampionCfg:
     model_path: str
     mode: str                 # SHADOW|CANARY|ENFORCE
     enforce_share: float      # [0..1]
-    calibrator_path: Optional[str] = None
-    feature_version: Optional[str] = None
-    model_type: Optional[str] = None
-    checksum: Optional[str] = None
+    calibrator_path: str | None = None
+    feature_version: str | None = None
+    model_type: str | None = None
+    checksum: str | None = None
 
 
 def _as_int(v: Any, field: str) -> int:
@@ -63,8 +62,8 @@ def validate_champion_cfg(
     raw_json: str,
     *,
     allow_default_enforce_share: bool = False,
-    default_enforce_share: Optional[float] = None,
-) -> Tuple[ChampionCfg, Dict[str, Any]]:
+    default_enforce_share: float | None = None,
+) -> tuple[ChampionCfg, dict[str, Any]]:
     """
     Strict validator.
     - If enforce_share missing:
@@ -79,7 +78,7 @@ def validate_champion_cfg(
     if not isinstance(obj, dict):
         raise ChampionCfgError("bad_json: expected object")
 
-    defaulted: Dict[str, Any] = {}
+    defaulted: dict[str, Any] = {}
 
     schema_version = _as_int(obj.get("schema_version"), "schema_version")
     if schema_version != 1:

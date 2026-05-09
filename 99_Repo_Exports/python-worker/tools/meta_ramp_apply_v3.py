@@ -1,3 +1,5 @@
+from domain.evidence_keys import MetaKeys
+
 #!/usr/bin/env python3
 # python-worker/tools/meta_ramp_apply_v3.py
 """
@@ -21,7 +23,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 try:
     import redis
@@ -39,7 +41,7 @@ def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def _as_float(x: Any, default: Optional[float] = 0.0) -> Optional[float]:
+def _as_float(x: Any, default: float | None = 0.0) -> float | None:
     try:
         if x is None or str(x).strip() == "": return default
         return float(x)
@@ -47,7 +49,7 @@ def _as_float(x: Any, default: Optional[float] = 0.0) -> Optional[float]:
         return default
 
 
-def _as_int(x: Any, default: Optional[int] = 0) -> Optional[int]:
+def _as_int(x: Any, default: int | None = 0) -> int | None:
     try:
         if x is None or str(x).strip() == "": return default
         return int(float(x))
@@ -55,27 +57,27 @@ def _as_int(x: Any, default: Optional[int] = 0) -> Optional[int]:
         return default
 
 
-def _cfg_get(cfg: Dict[str, Any], schema: str, key: str, default: Any) -> Any:
+def _cfg_get(cfg: dict[str, Any], schema: str, key: str, default: Any) -> Any:
     if schema:
         k_over = f"{key}__{schema}"
         if k_over in cfg:
             val = cfg[k_over]
             if isinstance(default, float) and isinstance(val, str):
                 try: return float(val)
-                except: pass
+                except Exception: pass
             if isinstance(default, int) and isinstance(val, str):
                 try: return int(float(val))
-                except: pass
+                except Exception: pass
             return val
     return cfg.get(key, default)
 
 
-def _state_get(cfg2: Dict[str, Any], schema: str, key: str, default: Any = None) -> Any:
+def _state_get(cfg2: dict[str, Any], schema: str, key: str, default: Any = None) -> Any:
     # Like _cfg_get(), but for stateful keys we write back into cfg2. Uses per-schema suffix __<schema>.
     sk = f"{key}__{schema}"
-    if sk in cfg2 and str(cfg2.get(sk)).strip() != "":
+    if sk in cfg2 and (cfg2.get(sk)).strip() != "":
         return cfg2.get(sk)
-    if key in cfg2 and str(cfg2.get(key)).strip() != "":
+    if key in cfg2 and (cfg2.get(key)).strip() != "":
         return cfg2.get(key)
     return default
 
@@ -92,22 +94,22 @@ def _min_hold_active(now_ts: int, last_change_ts: int, min_hold_s: int) -> bool:
 
 @dataclass
 class Quality:
-    pr_auc: Optional[float] = None
-    ece: Optional[float] = None
-    precision_top5p: Optional[float] = None
-    worst_pr_auc: Optional[float] = None
-    worst_ece: Optional[float] = None
-    worst_precision_top5p: Optional[float] = None
-    dq_health_mean: Optional[float] = None
-    worst_dq_pr_auc: Optional[float] = None
-    worst_dq_ece: Optional[float] = None
+    pr_auc: float | None = None
+    ece: float | None = None
+    precision_top5p: float | None = None
+    worst_pr_auc: float | None = None
+    worst_ece: float | None = None
+    worst_precision_top5p: float | None = None
+    dq_health_mean: float | None = None
+    worst_dq_pr_auc: float | None = None
+    worst_dq_ece: float | None = None
 
 
-def _extract_quality(report: Dict[str, Any]) -> Quality:
+def _extract_quality(report: dict[str, Any]) -> Quality:
     m = report.get("metrics") or {}
     # report v1/v2 might have flat metrics
     if "global" in m: m = m["global"]
-    
+
     worst = report.get("worst") or {}
     wdq = report.get("metrics", {}).get("worst_dq_bucket") or {}
 
@@ -124,18 +126,18 @@ def _extract_quality(report: Dict[str, Any]) -> Quality:
     )
 
 
-def _hybrid_quality(q: Quality) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+def _hybrid_quality(q: Quality) -> tuple[float | None, float | None, float | None]:
     # Use global metrics, but worsen them if worst-group is provided and worse.
     pr = q.pr_auc
     if q.worst_pr_auc is not None:
         if pr is None: pr = q.worst_pr_auc
         else: pr = min(pr, q.worst_pr_auc)
-    
+
     ece = q.ece
     if q.worst_ece is not None:
         if ece is None: ece = q.worst_ece
         else: ece = max(ece, q.worst_ece)
-        
+
     p5 = q.precision_top5p
     if q.worst_precision_top5p is not None:
         if p5 is None: p5 = q.worst_precision_top5p
@@ -143,7 +145,7 @@ def _hybrid_quality(q: Quality) -> Tuple[Optional[float], Optional[float], Optio
     return pr, ece, p5
 
 
-def _trend_gate(q: Quality, cfg2: Dict[str, Any], schema: str) -> Tuple[bool, str, Dict[str, Any], str, str]:
+def _trend_gate(q: Quality, cfg2: dict[str, Any], schema: str) -> tuple[bool, str, dict[str, Any], str, str]:
     """
     Gate for *increasing* share based on *trend* vs the last stored baseline in cfg2.
     """
@@ -248,9 +250,9 @@ def _trend_gate(q: Quality, cfg2: Dict[str, Any], schema: str) -> Tuple[bool, st
     return False, reason, details, severity, suggested_action
 
 
-def _baseline_kv(schema: str, q: Quality, now_ts: int) -> Dict[str, str]:
+def _baseline_kv(schema: str, q: Quality, now_ts: int) -> dict[str, str]:
     pr, ece, _p5 = _hybrid_quality(q)
-    kv: Dict[str, str] = {}
+    kv: dict[str, str] = {}
     kv[_state_key(schema, "meta_ramp_baseline_ts")] = str(int(now_ts))
     if pr is not None:
         kv[_state_key(schema, "meta_ramp_baseline_pr_auc")] = str(float(pr))
@@ -269,15 +271,15 @@ def _baseline_kv(schema: str, q: Quality, now_ts: int) -> Dict[str, str]:
     return kv
 
 
-def _quality_gate(q: Quality, cfg2: Dict[str, Any], schema: str) -> Tuple[bool, str, Dict[str, Any]]:
+def _quality_gate(q: Quality, cfg2: dict[str, Any], schema: str) -> tuple[bool, str, dict[str, Any]]:
     pass_ok = True
     reason = "quality_ok"
-    
+
     thr_pr = _cfg_get(cfg2, schema, "ramp_pr_auc_min", 0.55)
     thr_ece = _cfg_get(cfg2, schema, "ramp_ece_max", 0.10)
     g_thr_pr = _cfg_get(cfg2, schema, "ramp_group_pr_auc_min", thr_pr)
     g_thr_ece = _cfg_get(cfg2, schema, "ramp_group_ece_max", thr_ece)
-    
+
     curr_pr = q.pr_auc if q.pr_auc is not None else 0.0
     curr_ece = q.ece if q.ece is not None else 1.0
     w_pr = q.worst_pr_auc if q.worst_pr_auc is not None else curr_pr
@@ -295,11 +297,11 @@ def _quality_gate(q: Quality, cfg2: Dict[str, Any], schema: str) -> Tuple[bool, 
     elif w_pr < g_thr_pr or w_ece > g_thr_ece:
         pass_ok = False
         reason = f"worst_group_fail:pr={w_pr:.3f}<{g_thr_pr},ece={w_ece:.3f}>{g_thr_ece}"
-        
+
     return pass_ok, reason, details
 
 
-def _load_dyn_cfg(redis_url: str) -> Dict[str, Any]:
+def _load_dyn_cfg(redis_url: str) -> dict[str, Any]:
     if not redis or not redis_url:
         return {}
     try:
@@ -313,7 +315,7 @@ def _load_dyn_cfg(redis_url: str) -> Dict[str, Any]:
         return {}
 
 
-def _write_dyn_cfg(cfg: Dict[str, Any], patch: Dict[str, Any]) -> None:
+def _write_dyn_cfg(cfg: dict[str, Any], patch: dict[str, Any]) -> None:
     r = cfg.get("_redis")
     if not r:
         return
@@ -342,27 +344,27 @@ def main():
     if not report_path.exists():
         print(f"FATAL: Report not found: {args.report_json}")
         sys.exit(1)
-    
+
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    
+
     # Identify schema
     schema_name = args.schema_override or report.get("schema_name") or ""
     if not schema_name and isinstance(report.get("schema"), dict):
         schema_name = report["schema"].get("name") or ""
-        
+
     if not schema_name and args.model_json:
         m_path = Path(args.model_json)
         if m_path.exists():
             m_meta = json.loads(m_path.read_text(encoding="utf-8"))
             schema_name = m_meta.get("schema_name") or m_meta.get("schema") or ""
-    
+
     # Load dynamic config
     dyn = _load_dyn_cfg(args.redis_url)
-    
+
     # 1. Guard Latch Check
     guard_freeze = int(_as_float(dyn.get("meta_guard_freeze"), 0))
     model_freeze = int(_as_float(dyn.get("meta_model_freeze"), 0))
-    
+
     if (guard_freeze or model_freeze) and not args.ignore_guard:
         reason = dyn.get("meta_guard_reason") or "forced_freeze"
         decision = {
@@ -386,7 +388,7 @@ def main():
     now_ts = int(time.time())
     min_hold_s = int(float(_cfg_get(dyn, schema_name, "ramp_min_hold_s", 72000) or 72000))
     cooldown_after_decrease_s = int(float(_cfg_get(dyn, schema_name, "ramp_cooldown_after_decrease_s", 129600) or 129600))
-    last_change_ts = int(_as_int(_state_get(dyn, schema_name, "meta_ramp_last_change_ts", 0)) or 0)
+    last_change_ts = _as_int(_state_get(dyn, schema_name, "meta_ramp_last_change_ts", 0) or 0)
     last_action = str(_state_get(dyn, schema_name, "meta_ramp_last_action", "") or "").strip().lower()
     min_hold_active = _min_hold_active(now_ts, last_change_ts, min_hold_s)
     cooldown_active = bool(last_action.startswith("decrease") and _min_hold_active(now_ts, last_change_ts, cooldown_after_decrease_s))
@@ -397,7 +399,7 @@ def main():
     dq_freeze = False
     reason_qual = "quality_ok"
     dq_details = {}
-    
+
     if not args.ignore_dq and dq_freeze_decision is not None:
         dq_freeze, reason_dq, dq_details = dq_freeze_decision(report, cfg2=dyn, schema_name=schema_name)
         if dq_freeze:
@@ -410,13 +412,13 @@ def main():
         pass_ok, reason_qual, quality_details = _quality_gate(q, dyn, schema_name)
 
     # 4. Ramp Calculation
-    curr_share = _as_float(dyn.get("meta_enforce_share"), 0.0)
+    curr_share = _as_float(dyn.get(MetaKeys.ENFORCE_SHARE), 0.0)
     cur_mode = dyn.get("meta_model_mode", "SHADOW")
     step_up = _cfg_get(dyn, schema_name, "ramp_share_step_up", 0.05)
     step_down = _cfg_get(dyn, schema_name, "ramp_share_step_down", 0.10)
     max_share = _cfg_get(dyn, schema_name, "ramp_max_share", 1.0)
     share_min = _cfg_get(dyn, schema_name, "ramp_share_min", 0.0)
-    
+
     action = "HOLD"
     next_share = curr_share
 
@@ -451,7 +453,7 @@ def main():
         action = "DECREASE" if next_share < curr_share else "HOLD"
 
     next_mode = "ENFORCE" if next_share > 0 else "SHADOW"
-    
+
     decision = {
         "ts": now_ts,
         "ts_iso": _now_iso(),
@@ -479,15 +481,15 @@ def main():
             "meta_ramp_last_decision": decision,
             # Persist ramp state (per-schema) for observability / alerts
             _state_key(schema_name, "meta_ramp_last_eval_ts"): str(int(now_ts)),
-            _state_key(schema_name, "meta_ramp_last_decision"): str(decision.get("action") or ""),
-            _state_key(schema_name, "meta_ramp_last_decision_reason"): str(decision.get("reason") or ""),
+            _state_key(schema_name, "meta_ramp_last_decision"): (decision.get("action") or ""),
+            _state_key(schema_name, "meta_ramp_last_decision_reason"): (decision.get("reason") or ""),
             # NOTE: last_action/last_reason are kept for backward compatibility
             _state_key(schema_name, "meta_ramp_last_action"): action,
             _state_key(schema_name, "meta_ramp_last_reason"): reason_qual,
         }
 
         # Block reason is set only for holds that prevent INCREASE
-        act = str(decision.get("action") or "")
+        act = (decision.get("action") or "")
         block_reason = ""
         if act in ("HOLD_MIN_HOLD", "HOLD_COOLDOWN"):
             block_reason = str((decision.get("antiflap") or {}).get("blocked") or "")
@@ -496,7 +498,7 @@ def main():
         elif act.startswith("FREEZE") or act == "FREEZE":
             block_reason = "freeze"
         kv[_state_key(schema_name, "meta_status_ramp_block_reason")] = block_reason
-        
+
         # Update last_change_ts IF share or mode changed
         changed = (abs(float(curr_share) - float(next_share)) > 1e-9) or (cur_mode != next_mode)
         if changed:
@@ -509,10 +511,10 @@ def main():
 
         if args.model_json and pass_ok and not dq_freeze:
             kv["meta_model_path"] = str(Path(args.model_json).absolute())
-            
+
         _write_dyn_cfg(dyn, kv)
         print(f"APPLIED: {action} {curr_share} -> {next_share} ({next_mode})")
-    
+
     print(json.dumps(decision, ensure_ascii=False))
 
 

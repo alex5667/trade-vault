@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Optional
-import os
 import math
+import os
+from dataclasses import dataclass
+from typing import Any
 
 
 def clamp01(x: float) -> float:
@@ -53,7 +53,7 @@ class GeometryQualityPolicy:
     4.1: HTF levels недоступны => geometry_score=0.1 (нейтраль), без veto.
     """
 
-    def __init__(self, *, missing_score01: Optional[float] = None):
+    def __init__(self, *, missing_score01: float | None = None):
         if missing_score01 is None:
             missing_score01 = float(os.getenv("GEO_MISSING_SCORE01", "0.1"))
         self.missing_score01 = float(missing_score01)
@@ -107,8 +107,8 @@ def apply_geometry_policy_to_ctx(*, ctx: Any, assessment: GeometryAssessment) ->
     try:
         arr = getattr(ctx, "data_quality_flags", None)
         if arr is None:
-            setattr(ctx, "data_quality_flags", [])
-            arr = getattr(ctx, "data_quality_flags")
+            ctx.data_quality_flags = []
+            arr = ctx.data_quality_flags
         if isinstance(arr, list):
             for f in assessment.flags:
                 if f not in arr:

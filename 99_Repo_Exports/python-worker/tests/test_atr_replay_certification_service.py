@@ -1,5 +1,4 @@
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from services.atr_replay_certification_service import ATRReplayCertificationService
 

@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """meta_cov_quarantine_monitor_v1.py
 
@@ -22,11 +23,12 @@ import argparse
 import json
 import logging
 import os
-import sys
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
+
+from domain.evidence_keys import MetaKeys
 
 # Configure logging
 logging.basicConfig(
@@ -49,7 +51,7 @@ def get_redis_client() -> redis.Redis:
     return redis.Redis.from_url(REDIS_URL, decode_responses=False)
 
 
-def _load_cfg2(r: redis.Redis) -> Dict[str, Any]:
+def _load_cfg2(r: redis.Redis) -> dict[str, Any]:
     try:
         d = r.hgetall(DYN_CFG_KEY) or {}
         decoded = {}
@@ -106,25 +108,25 @@ def main() -> None:
     cfg2 = _load_cfg2(r)
     now_ms = get_ny_time_millis()
 
-    alerts: List[str] = []
-    metrics: List[Dict[str, Any]] = []
+    alerts: list[str] = []
+    metrics: list[dict[str, Any]] = []
 
     # 1. Check invariants per bucket
     for b in ["a", "b", "c", "d"]:
         q_active = int(cfg2.get(f"meta_cov_quarantine_{b}", 0))
         q_until = int(cfg2.get(f"meta_cov_quarantine_until_ms_{b}", 0))
-        share = float(cfg2.get(f"meta_enforce_share_cov_{b}", cfg2.get("meta_enforce_share", 0.0)))
-        
+        share = float(cfg2.get(f"meta_enforce_share_cov_{b}", cfg2.get(MetaKeys.ENFORCE_SHARE, 0.0)))
+
         # Check: Quarantined but share > 0
         if q_active == 1:
             if share > 0:
                 alerts.append(f"Bucket {b}: QUARANTINED but share={share:.2f} > 0!")
-            
+
             # Check: Expired but still active
             if q_until > 0 and q_until < now_ms:
                 # Expired
                 alerts.append(f"Bucket {b}: Quarantine EXPIRED (until {q_until}) but active=1.")
-                
+
             metrics.append({
                 "bucket": b,
                 "quarantine_active": 1,

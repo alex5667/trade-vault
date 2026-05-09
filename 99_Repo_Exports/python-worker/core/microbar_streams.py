@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
 
 # Split-streams defaults (aligned with the migration plan)
 from core.redis_keys import RedisStreams as RS
-from core.redis_keys import RedisKeyPrefixes as RK
+
 LEGACY_STREAM = os.getenv("MICROBAR_LEGACY_STREAM", RS.EVENTS_MICROBAR_CLOSED)
 PER_SYMBOL_PREFIX = os.getenv("MICROBAR_PER_SYMBOL_PREFIX", RK.MICROBAR_PER_SYMBOL)
 ALT_PER_SYMBOL_PREFIX = os.getenv("MICROBAR_ALT_PER_SYMBOL_PREFIX", "microbar_closed:")
@@ -20,7 +22,7 @@ def _to_str(x: Any) -> str:
     return str(x)
 
 
-def _as_payload(fields: Dict[str, Any]) -> Dict[str, Any]:
+def _as_payload(fields: dict[str, Any]) -> dict[str, Any]:
     # common project pattern: {"payload": "<json>"} OR flat fields
     if not isinstance(fields, dict):
         return {}
@@ -32,7 +34,7 @@ def _as_payload(fields: Dict[str, Any]) -> Dict[str, Any]:
     return dict(fields)
 
 
-async def list_symbols(r, fallback: Optional[List[str]] = None) -> List[str]:
+async def list_symbols(r, fallback: list[str] | None = None) -> list[str]:
     # Prefer split-streams symbols set
     try:
         syms = await r.smembers(SYMBOLS_SET)
@@ -85,9 +87,9 @@ async def read_microbars(
     reverse: bool = False,
     start_id: str = "-",
     end_id: str = "+",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     key = await pick_stream_key(r, sym)
-    items: List[Tuple[str, Dict[str, Any]]] = []
+    items: list[tuple[str, dict[str, Any]]] = []
     try:
         if reverse:
             items = await r.xrevrange(key, max=end_id, min=start_id, count=count)
@@ -96,7 +98,7 @@ async def read_microbars(
     except Exception:
         items = []
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
 
     if key == LEGACY_STREAM:
         # shared stream => filter by symbol inside payload/fields

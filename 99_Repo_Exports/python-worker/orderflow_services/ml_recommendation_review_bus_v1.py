@@ -1,12 +1,13 @@
-
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from core.redis_stream_consumer import AsyncRedisStreamHelper
+from utils.time_utils import get_ny_time_millis
 
 try:
     from prometheus_client import Counter, Gauge, Histogram, start_http_server
@@ -78,14 +79,14 @@ def _to_bool(x: Any, default: bool = False) -> bool:
 
 
 def _norm_action(x: Any) -> str:
-    return str(x or "").strip()
+    return (x or "").strip()
 
 
 def _norm_risk(x: Any) -> str:
-    return str(x or "unknown").strip().lower() or "unknown"
+    return (x or "unknown").strip().lower() or "unknown"
 
 
-def _split_reason_codes(payload: Dict[str, Any]) -> List[str]:
+def _split_reason_codes(payload: dict[str, Any]) -> list[str]:
     raw = payload.get("reason_codes_json") or payload.get("reason_codes") or "[]"
     if isinstance(raw, list):
         return [str(x).strip() for x in raw if str(x).strip()]
@@ -100,35 +101,35 @@ def _split_reason_codes(payload: Dict[str, Any]) -> List[str]:
     return [x.strip() for x in s.split(",") if x.strip()]
 
 
-def proposal_to_review_request(payload: Dict[str, Any]) -> Dict[str, Any]:
+def proposal_to_review_request(payload: dict[str, Any]) -> dict[str, Any]:
     action_type = _norm_action(payload.get("action_type"))
-    recommendation_id = str(payload.get("recommendation_id") or "").strip()
+    recommendation_id = (payload.get("recommendation_id") or "").strip()
     if not recommendation_id:
         recommendation_id = hashlib.sha1(
-            f"{action_type}|{payload.get('target_kind')}|{payload.get('target_ref')}|{payload.get('ts_ms')}".encode("utf-8")
+            f"{action_type}|{payload.get('target_kind')}|{payload.get('target_ref')}|{payload.get('ts_ms')}".encode()
         ).hexdigest()
     replay_required = 1 if action_type in {"require_shadow_retrain", "request_calibration_refresh", "propose_threshold_canary"} else 0
     reason_codes = _split_reason_codes(payload)
     return {
         "schema_version": 1,
         "recommendation_id": recommendation_id,
-        "analysis_run_id": str(payload.get("analysis_run_id", "") or ""),
+        "analysis_run_id": (payload.get("analysis_run_id", "") or ""),
         "ts_ms": _to_int(payload.get("ts_ms", _now_ms()), _now_ms()),
         "action_type": action_type,
-        "target_kind": str(payload.get("target_kind", "") or ""),
-        "target_ref": str(payload.get("target_ref", "") or ""),
+        "target_kind": (payload.get("target_kind", "") or ""),
+        "target_ref": (payload.get("target_ref", "") or ""),
         "risk_level": _norm_risk(payload.get("risk_level")),
         "recommendation_json": payload.get("recommendation_json") if isinstance(payload.get("recommendation_json"), str) else json.dumps(payload.get("recommendation_json", {}), ensure_ascii=False, separators=(",", ":")),
         "review_status": "PENDING",
         "replay_required": replay_required,
-        "replay_status": str(payload.get("replay_status", "UNKNOWN") or "UNKNOWN").upper(),
+        "replay_status": (payload.get("replay_status", "UNKNOWN") or "UNKNOWN").upper(),
         "approved_count": 0,
         "rejected_count": 0,
         "reason_codes_json": json.dumps(reason_codes, ensure_ascii=False, separators=(",", ":")),
     }
 
 
-def apply_request_from_review_state(state: Dict[str, Any]) -> Dict[str, Any]:
+def apply_request_from_review_state(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "recommendation_id": state["recommendation_id"],
@@ -142,15 +143,15 @@ def apply_request_from_review_state(state: Dict[str, Any]) -> Dict[str, Any]:
         "approved_count": _to_int(state.get("approved_count", 0), 0),
         "rejected_count": _to_int(state.get("rejected_count", 0), 0),
         "replay_required": _to_int(state.get("replay_required", 0), 0),
-        "replay_status": str(state.get("replay_status", "UNKNOWN") or "UNKNOWN").upper(),
+        "replay_status": (state.get("replay_status", "UNKNOWN") or "UNKNOWN").upper(),
         "reason_codes_json": state.get("reason_codes_json", "[]"),
         "recommendation_json": state.get("recommendation_json", "{}"),
     }
 
 
-def build_audit_event(recommendation_id: str, event_type: str, actor: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def build_audit_event(recommendation_id: str, event_type: str, actor: str, payload: dict[str, Any]) -> dict[str, Any]:
     ts_ms = _now_ms()
-    audit_id = hashlib.sha1(f"{recommendation_id}|{event_type}|{actor}|{ts_ms}".encode("utf-8")).hexdigest()
+    audit_id = hashlib.sha1(f"{recommendation_id}|{event_type}|{actor}|{ts_ms}".encode()).hexdigest()
     return {
         "schema_version": 1,
         "audit_id": audit_id,
@@ -166,9 +167,9 @@ def review_state_key(recommendation_id: str) -> str:
     return f"ml:recommendation:review_state:{recommendation_id}"
 
 
-def should_emit_apply_request(state: Dict[str, Any], *, min_approvals: int) -> Tuple[bool, List[str]]:
-    reasons: List[str] = []
-    action_type = str(state.get("action_type", "") or "")
+def should_emit_apply_request(state: dict[str, Any], *, min_approvals: int) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+    action_type = (state.get("action_type", "") or "")
     if action_type not in ALLOWED_ACTIONS:
         reasons.append("ACTION_NOT_ALLOWED")
     if _to_int(state.get("approved_count", 0), 0) < min_approvals:
@@ -178,19 +179,23 @@ def should_emit_apply_request(state: Dict[str, Any], *, min_approvals: int) -> T
     risk_level = _norm_risk(state.get("risk_level", "unknown"))
     if risk_level == "high" and not _to_bool(os.getenv("ML_RECOMMENDATION_ALLOW_HIGH_RISK", "0"), False):
         reasons.append("HIGH_RISK_BLOCKED")
-    if _to_int(state.get("replay_required", 0), 0) == 1 and str(state.get("replay_status", "UNKNOWN")).upper() != "PASS":
+    if _to_int(state.get("replay_required", 0), 0) == 1 and (state.get("replay_status", "UNKNOWN")).upper() != "PASS":
         reasons.append("REPLAY_REQUIRED_NOT_PASS")
     return (len(reasons) == 0, reasons)
 
 
-async def _handle_proposals(client: Any) -> None:
-    rows = await client.xreadgroup(
-        GROUP_PROPOSALS,
-        CONSUMER,
-        {PROPOSALS_STREAM: ">"},
-        count=_to_int(os.getenv("ML_RECOMMENDATION_REVIEW_BATCH", "64"), 64),
-        block=1000,
+async def _handle_proposals(client: Any, helper: AsyncRedisStreamHelper, pel_state: dict) -> None:
+    pending_start, pending_msgs = await helper.claim_pending(
+        PROPOSALS_STREAM, min_idle_ms=5000, count=_to_int(os.getenv("ML_RECOMMENDATION_REVIEW_BATCH", "64"), 64), start_id=pel_state.get(PROPOSALS_STREAM, "0-0")
     )
+    pel_state[PROPOSALS_STREAM] = pending_start
+    pending_formatted = [(m.msg_id, m.fields) for m in pending_msgs]
+
+    if pending_formatted:
+        rows = [[PROPOSALS_STREAM, pending_formatted]]
+    else:
+        rows = await helper.read({PROPOSALS_STREAM: ">"}, count=_to_int(os.getenv("ML_RECOMMENDATION_REVIEW_BATCH", "64"), 64), block=1000) or []
+
     for _, messages in rows:
         for msg_id, fields in messages:
             proposal = dict(fields)
@@ -201,34 +206,38 @@ async def _handle_proposals(client: Any) -> None:
             await client.xadd(REVIEW_REQUESTS_STREAM, review_req, maxlen=100_000, approximate=True)
             await client.xadd(AUDIT_STREAM, build_audit_event(review_req["recommendation_id"], "REVIEW_REQUEST_CREATED", "ml_recommendation_review_bus_v1", review_req), maxlen=200_000, approximate=True)
             REVIEW_REQ_TOTAL.labels(review_req["action_type"] or "unknown").inc()
-            await client.xack(PROPOSALS_STREAM, GROUP_PROPOSALS, msg_id)
+            await helper.ack(PROPOSALS_STREAM, msg_id)
 
 
-async def _handle_reviews(client: Any) -> None:
-    rows = await client.xreadgroup(
-        GROUP_REVIEWS,
-        CONSUMER,
-        {REVIEWS_STREAM: ">"},
-        count=_to_int(os.getenv("ML_RECOMMENDATION_REVIEW_BATCH", "64"), 64),
-        block=1000,
+async def _handle_reviews(client: Any, helper: AsyncRedisStreamHelper, pel_state: dict) -> None:
+    pending_start, pending_msgs = await helper.claim_pending(
+        REVIEWS_STREAM, min_idle_ms=5000, count=_to_int(os.getenv("ML_RECOMMENDATION_REVIEW_BATCH", "64"), 64), start_id=pel_state.get(REVIEWS_STREAM, "0-0")
     )
+    pel_state[REVIEWS_STREAM] = pending_start
+    pending_formatted = [(m.msg_id, m.fields) for m in pending_msgs]
+
+    if pending_formatted:
+        rows = [[REVIEWS_STREAM, pending_formatted]]
+    else:
+        rows = await helper.read({REVIEWS_STREAM: ">"}, count=_to_int(os.getenv("ML_RECOMMENDATION_REVIEW_BATCH", "64"), 64), block=1000) or []
+
     min_approvals = _to_int(os.getenv("ML_RECOMMENDATION_MIN_APPROVALS", "1"), 1)
     for _, messages in rows:
         for msg_id, fields in messages:
             review = dict(fields)
-            recommendation_id = str(review.get("recommendation_id", "") or "")
+            recommendation_id = (review.get("recommendation_id", "") or "")
             if not recommendation_id:
-                await client.xack(REVIEWS_STREAM, GROUP_REVIEWS, msg_id)
+                await helper.ack(REVIEWS_STREAM, msg_id)
                 continue
             state_key = review_state_key(recommendation_id)
             state = await client.hgetall(state_key)
             if not state:
                 await client.xadd(AUDIT_STREAM, build_audit_event(recommendation_id, "REVIEW_EVENT_DROPPED", "ml_recommendation_review_bus_v1", {"reason": "UNKNOWN_RECOMMENDATION", "review": review}), maxlen=200_000, approximate=True)
-                await client.xack(REVIEWS_STREAM, GROUP_REVIEWS, msg_id)
+                await helper.ack(REVIEWS_STREAM, msg_id)
                 continue
-            decision = str(review.get("decision", "COMMENT") or "COMMENT").upper()
-            reviewer = str(review.get("reviewer", "unknown") or "unknown")
-            replay_status = str(review.get("replay_status", state.get("replay_status", "UNKNOWN")) or "UNKNOWN").upper()
+            decision = (review.get("decision", "COMMENT") or "COMMENT").upper()
+            reviewer = (review.get("reviewer", "unknown") or "unknown")
+            replay_status = (review.get("replay_status", state.get("replay_status", "UNKNOWN")) or "UNKNOWN").upper()
             approved_count = _to_int(state.get("approved_count", 0), 0)
             rejected_count = _to_int(state.get("rejected_count", 0), 0)
 
@@ -256,7 +265,7 @@ async def _handle_reviews(client: Any) -> None:
                 REVIEW_APPLY_REQ_TOTAL.labels(apply_req["action_type"] or "unknown").inc()
             elif reasons:
                 await client.xadd(AUDIT_STREAM, build_audit_event(recommendation_id, "APPLY_REQUEST_BLOCKED", "ml_recommendation_review_bus_v1", {"reasons": reasons, "state": state}), maxlen=200_000, approximate=True)
-            await client.xack(REVIEWS_STREAM, GROUP_REVIEWS, msg_id)
+            await helper.ack(REVIEWS_STREAM, msg_id)
 
 
 async def _run() -> None:
@@ -269,17 +278,20 @@ async def _run() -> None:
     start_http_server(metrics_port)
     REVIEW_UP.set(1)
     client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
-    for stream, group in ((PROPOSALS_STREAM, GROUP_PROPOSALS), (REVIEWS_STREAM, GROUP_REVIEWS)):
-        try:
-            await client.xgroup_create(stream, group, id="0", mkstream=True)
-        except Exception:
-            pass
+
+    helper_proposals = AsyncRedisStreamHelper(client=client, group=GROUP_PROPOSALS, consumer=CONSUMER)
+    await helper_proposals.ensure_groups([PROPOSALS_STREAM])
+
+    helper_reviews = AsyncRedisStreamHelper(client=client, group=GROUP_REVIEWS, consumer=CONSUMER)
+    await helper_reviews.ensure_groups([REVIEWS_STREAM])
+
+    pel_state = {PROPOSALS_STREAM: "0-0", REVIEWS_STREAM: "0-0"}
 
     while True:
         t0 = time.perf_counter()
         REVIEW_LAST_RUN_TS.set(time.time())
-        await _handle_proposals(client)
-        await _handle_reviews(client)
+        await _handle_proposals(client, helper_proposals, pel_state)
+        await _handle_reviews(client, helper_reviews, pel_state)
         REVIEW_LOOP_SECONDS.observe(time.perf_counter() - t0)
 
 

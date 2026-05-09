@@ -1,5 +1,5 @@
-import pytest
 from core.crypto_signal_formatter import CryptoSignal, CryptoSignalFormatter
+
 
 def test_crypto_signal_formatter_with_atr_bps():
     signal = CryptoSignal(
@@ -21,9 +21,9 @@ def test_crypto_signal_formatter_with_atr_bps():
             "atr_floor_rg": "range"
         }
     )
-    
+
     msg = CryptoSignalFormatter.format_telegram_message(signal)
-    
+
     # Check if new ATR info is present
     assert "ATR=500.00" in msg
     assert "(100.5 bps)" in msg
@@ -51,7 +51,7 @@ def test_crypto_signal_formatter_fallback_rg():
             "atr_gate_rg": "trend" # Testing fallback
         }
     )
-    
+
     msg = CryptoSignalFormatter.format_telegram_message(signal)
     assert "(T0, trend)" in msg
 
@@ -70,7 +70,7 @@ def test_crypto_signal_formatter_missing_bps():
         source="CryptoOrderFlow",
         indicators={}
     )
-    
+
     msg = CryptoSignalFormatter.format_telegram_message(signal)
     # Should fallback to basic ATR line
     assert "📊 ATR=500.00 | Conf=85%" in msg

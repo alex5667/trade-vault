@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 
 class _BoomRedis:
     def __init__(self, *, boom_methods=None):

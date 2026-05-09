@@ -1,8 +1,10 @@
-from utils.time_utils import get_ny_time_millis
+
 import fakeredis
-import time
-from news_pipeline.calendar_store_service import CalendarFeatureStoreService
+
 from news_pipeline import config
+from news_pipeline.calendar_store_service import CalendarFeatureStoreService
+from utils.time_utils import get_ny_time_millis
+
 
 def test_calendar_agg_next_event():
     r = fakeredis.FakeRedis(decode_responses=True)

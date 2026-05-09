@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 ExecutionGateService  (v2 — dual-buffer, no MT5)
 
@@ -24,18 +25,18 @@ Logic (PASS-THROUGH mode, default):
 """
 
 import asyncio
-from utils.task_manager import safe_create_task
-
 import json
 import logging
 import os
 import signal
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, List
+from typing import Any
 
 import redis.asyncio as aioredis
 from prometheus_client import Counter, Gauge, start_http_server
+
+from utils.task_manager import safe_create_task
 
 # ---------------------------------------------------------------------------
 # Metrics
@@ -111,7 +112,7 @@ class Proposal:
     symbol: str
     direction: str          # "long" or "short"
     ts_ms: int              # generated_at from the signal
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
     received_at: float = field(default_factory=time.time)
 
 
@@ -120,7 +121,7 @@ class Confirmation:
     symbol: str
     direction: str          # "long" or "short"
     ts_ms: int              # ts_ms from OFConfirm
-    data: Dict[str, Any]    # full confirmation payload (ok, score, reason …)
+    data: dict[str, Any]    # full confirmation payload (ok, score, reason …)
     received_at: float = field(default_factory=time.time)
 
 
@@ -130,7 +131,7 @@ class Confirmation:
 class ExecutionGateService:
     def __init__(self):
         self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-        self.redis: Optional[aioredis.Redis] = None
+        self.redis: aioredis.Redis | None = None
 
         # --- Streams ---
         self.stream_raw = os.getenv("CRYPTO_RAW_STREAM", "signals:crypto:raw")
@@ -147,13 +148,13 @@ class ExecutionGateService:
         ).lower() in {"1", "true", "yes", "on"}
 
         self.running = True
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
         # --- Dual buffer ---
         # symbol -> List[Proposal]
-        self.proposals: Dict[str, List[Proposal]] = {}
+        self.proposals: dict[str, list[Proposal]] = {}
         # symbol -> List[Confirmation]  (F3 fix: buffer confirms too)
-        self.confirmations: Dict[str, List[Confirmation]] = {}
+        self.confirmations: dict[str, list[Confirmation]] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -214,7 +215,7 @@ class ExecutionGateService:
                     logger.error(f"Error consuming raw signals: {e}")
                     await asyncio.sleep(1)
 
-    async def _handle_proposal(self, fields: Dict[str, Any]):
+    async def _handle_proposal(self, fields: dict[str, Any]):
         try:
             payload_str = fields.get("payload")
             if not payload_str:
@@ -272,7 +273,7 @@ class ExecutionGateService:
         except Exception as e:
             logger.error(f"Failed to parse proposal: {e}")
 
-    def _try_match_confirm_for_proposal(self, proposal: Proposal) -> Optional[Confirmation]:
+    def _try_match_confirm_for_proposal(self, proposal: Proposal) -> Confirmation | None:
         """Check buffered confirmations for a match. Returns & removes matched Confirmation."""
         confirms = self.confirmations.get(proposal.symbol, [])
         for i, conf in enumerate(confirms):
@@ -316,7 +317,7 @@ class ExecutionGateService:
                     logger.error(f"Error consuming confirmations: {e}")
                     await asyncio.sleep(1)
 
-    async def _handle_confirmation(self, fields: Dict[str, Any]):
+    async def _handle_confirmation(self, fields: dict[str, Any]):
         try:
             payload_str = fields.get("payload")
             if not payload_str:
@@ -368,7 +369,7 @@ class ExecutionGateService:
 
     def _try_match_proposal_for_confirm(
         self, symbol: str, direction: str, ts_ms: int
-    ) -> Optional[Proposal]:
+    ) -> Proposal | None:
         """Check buffered proposals for a match. Returns & removes matched Proposal."""
         proposals = self.proposals.get(symbol, [])
         for i, prop in enumerate(proposals):
@@ -384,7 +385,7 @@ class ExecutionGateService:
     # Publish
     # ------------------------------------------------------------------
     async def _publish_execution(
-        self, proposal: Proposal, confirmation: Dict[str, Any]
+        self, proposal: Proposal, confirmation: dict[str, Any]
     ):
         """Publish the verified order to the execution queue."""
         try:
@@ -494,7 +495,7 @@ class ExecutionGateService:
 # ======================================================================
 if __name__ == "__main__":
     _service = ExecutionGateService()
-    _main_loop: Optional[asyncio.AbstractEventLoop] = None
+    _main_loop: asyncio.AbstractEventLoop | None = None
 
     def _handle_sigterm(*_args):
         """F5 fix: thread-safe shutdown on Python 3.10+."""

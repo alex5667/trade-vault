@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 from core.world_practice_snapshot_v1 import extract_world_practice_indicators
 
 

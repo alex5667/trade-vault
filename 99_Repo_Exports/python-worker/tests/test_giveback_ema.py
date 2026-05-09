@@ -1,9 +1,7 @@
 from __future__ import annotations
+
+from services.ev_giveback_stats import GivebackEmaConfig, read_giveback_ema, update_giveback_ema
 from utils.time_utils import get_ny_time_millis
-
-import time
-
-from services.ev_giveback_stats import GivebackEmaConfig, update_giveback_ema, read_giveback_ema
 
 
 class FakeRedis:

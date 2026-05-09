@@ -3,8 +3,6 @@
 import os
 from unittest.mock import Mock, patch
 
-import pytest
-
 from core.streams import (
     list_microbar_symbols,
     microbar_legacy_stream,

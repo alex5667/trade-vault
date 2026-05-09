@@ -1,13 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import time
 import json
+import os
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from services.telegram.telegram_client import TelegramClient
+from utils.time_utils import get_ny_time_millis
 
 # NOTE: AnalyticsReporter is intentionally fail-open: any internal error must not break emits/publishers.
 
@@ -36,7 +35,7 @@ class NoopAnalyticsReporter:
         return
     def record_soft_reasons(self, *, symbol: str, kind: str, payload: dict[str, Any]) -> None:
         return
-    def maybe_flush(self, *, now_ms: Optional[int] = None) -> None:
+    def maybe_flush(self, *, now_ms: int | None = None) -> None:
         return
 
 
@@ -180,7 +179,7 @@ class AnalyticsReporter:
                     continue
                 pc.soft_u16_counts[u] = pc.soft_u16_counts.get(u, 0) + 1
 
-    def maybe_flush(self, *, now_ms: Optional[int] = None) -> None:
+    def maybe_flush(self, *, now_ms: int | None = None) -> None:
         if not self._enable:
             return
         tms = int(now_ms) if now_ms is not None else _now_ms()

@@ -4,9 +4,9 @@ Verifies:
   1. No duplicate definitions of critical methods in runtime source files.
   2. CLI main() returns exit code 0 (clean state after P4 canonicalization).
 """
-from pathlib import Path
 import importlib.util
 import sys
+from pathlib import Path
 
 # Locate repo root (python-worker parent) so imports work regardless of CWD
 _root = Path(__file__).resolve()

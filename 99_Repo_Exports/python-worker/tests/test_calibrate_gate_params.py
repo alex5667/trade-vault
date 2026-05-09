@@ -1,8 +1,9 @@
 """Test calibration: grid-search for w_exec_risk, exec_risk_ref_bps, of_score_min."""
 
 import json
-import tempfile
 import os
+import tempfile
+
 from tools.calibrate_gate_params import eval_policy, iter_ndjson
 
 

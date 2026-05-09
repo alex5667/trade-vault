@@ -1,27 +1,28 @@
 
 from __future__ import annotations
 
-import warnings
 import logging
+import warnings
+
 logger = logging.getLogger(__name__)
 msg = "This feature schema version is DEPRECATED (causes data leakage). See DEPRECATED_SCHEMAS in feature_registry."
 warnings.warn(msg, DeprecationWarning, stacklevel=2)
 logger.error(msg)
 
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
-import math
 import datetime as _dt
+import math
+from dataclasses import dataclass
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         if x is None:
-            return float(d)
+            return d
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i01(x: Any) -> int:
@@ -57,7 +58,7 @@ SCENARIOS = [
 ]
 
 # NOTE: Keep ordering stable. This list is the contract between training and inference.
-FEATURES: List[FeatureSpec] = [
+FEATURES: list[FeatureSpec] = [
     # Direction / scenario one-hots
     FeatureSpec("dir_long", 0.0),
 
@@ -111,7 +112,7 @@ FEATURES: List[FeatureSpec] = [
 ]
 
 
-def feature_names() -> List[str]:
+def feature_names() -> list[str]:
     return [f.name for f in FEATURES]
 
 
@@ -121,12 +122,12 @@ def build_feature_vector(
     ts_ms: int,
     direction: str,
     scenario: str,
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     rule_score: float,
     rule_have: int,
     rule_need: int,
     cancel_spike_veto: int,
-) -> Tuple[List[float], List[str]]:
+) -> tuple[list[float], list[str]]:
     """
     Deterministic feature builder. Must be stable across versions.
 
@@ -137,8 +138,8 @@ def build_feature_vector(
     Returns:
       (x, missing_features)
     """
-    missing: List[str] = []
-    out: Dict[str, float] = {}
+    missing: list[str] = []
+    out: dict[str, float] = {}
 
     # one-hots
     out["dir_long"] = 1.0 if str(direction).upper() == "LONG" else 0.0
@@ -152,10 +153,10 @@ def build_feature_vector(
 
     # numeric from indicators
     def need_num(k: str, default: float = 0.0) -> float:
-        v = indicators.get(k, None)
+        v = indicators.get(k)
         if v is None:
             missing.append(k)
-            return float(default)
+            return default
         return _f(v, default)
 
     out["delta_z"] = need_num("delta_z", 0.0)
@@ -179,7 +180,7 @@ def build_feature_vector(
     # binary flags: take from indicators if present, else missing->0
     for k in ["sweep_recent","reclaim_recent","obi_stable","iceberg_strict","abs_lvl_ok","weak_progress","fp_edge_absorb",
               "ofi_stable","ofi_dir_ok"]:
-        v = indicators.get(k, None)
+        v = indicators.get(k)
         if v is None:
             missing.append(k)
             out[k] = 0.0
@@ -201,14 +202,14 @@ def build_feature_vector(
         missing.extend(["hour_sin","hour_cos","dow_sin","dow_cos"])
 
     # finalize in schema order
-    vec: List[float] = []
+    vec: list[float] = []
     for fs in FEATURES:
         vec.append(float(out.get(fs.name, fs.default)))
     return vec, missing
 
 
 # Additional function for nightly pipeline compatibility
-def build_features(payload: Dict[str, Any]) -> Any:
+def build_features(payload: dict[str, Any]) -> Any:
     """
     payload: dict from signals:of:inputs
     - numeric features from top-level and/or indicators
@@ -216,27 +217,27 @@ def build_features(payload: Dict[str, Any]) -> Any:
     Compatible with nightly pipeline FeatureRow format.
     """
     from dataclasses import dataclass
-    
+
     @dataclass(frozen=True)
     class FeatureRow:
-        x: List[float]
-        feature_names: List[str]
-    
+        x: list[float]
+        feature_names: list[str]
+
     ind = payload.get("indicators") or {}
     conf = payload.get("confirmations") or {}
-    
+
     # Use existing build_feature_vector for consistency
     vec, missing = build_feature_vector(
-        symbol=str(payload.get("symbol", "")),
+        symbol=(payload.get("symbol", "")),
         ts_ms=int(payload.get("ts_ms", 0) or 0),
-        direction=str(payload.get("direction", "")),
-        scenario=str(payload.get("scenario", payload.get("scenario_v4", "none")) or "none"),
+        direction=(payload.get("direction", "")),
+        scenario=(payload.get("scenario", payload.get("scenario_v4", "none")) or "none"),
         indicators=dict(ind, **conf),
         rule_score=_f(payload.get("rule_score", ind.get("of_score", 0.0)), 0.0),
         rule_have=int(payload.get("rule_have", ind.get("strong_gate_have", 0)) or 0),
         rule_need=int(payload.get("rule_need", ind.get("strong_gate_need", 0)) or 0),
         cancel_spike_veto=int(payload.get("cancel_spike_veto", ind.get("cancel_spike_veto", 0)) or 0),
     )
-    
+
     return FeatureRow(x=vec, feature_names=feature_names())
 

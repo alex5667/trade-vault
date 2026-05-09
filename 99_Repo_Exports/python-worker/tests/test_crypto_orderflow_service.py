@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Тесты для CryptoOrderflowService - проверка критических исправлений.
 
@@ -8,12 +9,9 @@ from utils.time_utils import get_ny_time_millis
 3. Общий метод _process_burst_flush
 """
 
-import asyncio
-import json
-import pytest
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Dict, Any
+
+import pytest
 
 from services.crypto_orderflow_service import CryptoOrderflowService
 from services.orderflow.runtime import SymbolRuntime

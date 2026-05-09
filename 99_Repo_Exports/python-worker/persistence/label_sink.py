@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 ParquetLabelSink — быстрый проектор событий/меток в Parquet с тайловой партицией.
 Партиции: symbol=..., date=YYYY-MM-DD, tile=HHmm(окно TileMinutes).
@@ -9,11 +8,10 @@ ENV:
   LABEL_TILE_MINUTES=15
 """
 
-import os
-import math
 import json
-from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+import os
+from datetime import UTC, datetime
+from typing import Any
 
 LABEL_PARQUET_DIR = os.getenv("LABEL_PARQUET_DIR", "/data/labels")
 LABEL_TILE_MINUTES = int(os.getenv("LABEL_TILE_MINUTES", "15"))
@@ -21,7 +19,6 @@ LABEL_TILE_MINUTES = int(os.getenv("LABEL_TILE_MINUTES", "15"))
 try:
     import pandas as pd
     import pyarrow as pa
-    import pyarrow.dataset as ds
     import pyarrow.parquet as pq
     _HAS_ARROW = True
 except Exception:
@@ -34,7 +31,7 @@ def _ensure_dir(p: str) -> None:
 
 
 def _tile_str(ts_ms: int) -> tuple:
-    dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).astimezone(timezone.utc)
+    dt = datetime.fromtimestamp(ts_ms / 1000, tz=UTC).astimezone(UTC)
     date = dt.strftime("%Y-%m-%d")
     mins = dt.hour * 60 + dt.minute
     tile_idx = (mins // LABEL_TILE_MINUTES) * LABEL_TILE_MINUTES
@@ -70,7 +67,7 @@ class ParquetLabelSink:
         self.tile_minutes = tile_minutes
         _ensure_dir(self.root)
 
-    def _flatten(self, rec: Dict[str, Any]) -> Dict[str, Any]:
+    def _flatten(self, rec: dict[str, Any]) -> dict[str, Any]:
         out = {}
         for k, v in rec.items():
             if isinstance(v, (list, dict)):
@@ -79,7 +76,7 @@ class ParquetLabelSink:
                 out[k] = v
         return out
 
-    def write(self, rec: Dict[str, Any]) -> str:
+    def write(self, rec: dict[str, Any]) -> str:
         if "ts" not in rec:
             raise ValueError("record must contain 'ts' (ms)")
         if "symbol" not in rec:

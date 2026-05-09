@@ -23,7 +23,7 @@ def test_leader_conf_score_formula():
     sat = SymbolSnapshot(symbol="ETHUSDT", rsi14=55, cvd_slope=0.1, retrace_atr=0.05)
     dec = decide_smt(leader, [leader, sat], coh=0.9, cfg={"smt_coh_threshold":0.65, "smt_zone_max_bp":15.0, "smt_leader_min_of_score":1.0})
     assert dec.kind == "continuation"
-    
+
     # zone score: 1 - 5/15 = 0.6666
     # conf = 0.6*0.8 + 0.4*0.6666 = 0.48 + 0.2666 = 0.7466
     assert 0.74 <= float(dec.conf_score) <= 0.76
@@ -46,10 +46,10 @@ def test_leader_reject_low_score():
         retrace_atr=0.1,
     )
     sat = SymbolSnapshot(symbol="ETHUSDT", rsi14=55, cvd_slope=0.1, retrace_atr=0.05)
-    
+
     # Default min score is 0.65
     dec = decide_smt(leader, [leader, sat], coh=0.9, cfg={"smt_coh_threshold":0.65, "smt_zone_max_bp":15.0})
-    
+
     # Should not be continuation because score 0.06 < 0.65
     assert dec.kind != "continuation"
     assert dec.reason == "confirm_but_weak"

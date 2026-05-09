@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 StreamWorker - единый каркас для обработки Redis Streams с поддержкой retry/pending-claim.
 
@@ -37,10 +38,11 @@ StreamWorker - единый каркас для обработки Redis Streams
 """
 
 
-import time
 import json
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Dict, Any, List, Optional, Tuple
+from typing import Any
 
 import redis
 from redis.exceptions import RedisError
@@ -63,7 +65,7 @@ class WorkerPolicy:
     dlq_stream: str = "dlq:stream_worker"
 
 
-ProcessFn = Callable[[str, str, Dict[str, Any]], bool]  # (stream, msg_id, data) -> ok?
+ProcessFn = Callable[[str, str, dict[str, Any]], bool]  # (stream, msg_id, data) -> ok?
 
 
 class StreamWorker:
@@ -77,7 +79,7 @@ class StreamWorker:
     - Claim orphan pending сообщений
     - Retry механизм с DLQ
     """
-    
+
     def __init__(
         self,
         *,
@@ -85,11 +87,11 @@ class StreamWorker:
         client: redis.Redis,
         group: str,
         consumer: str,
-        build_streams: Callable[[], List[str]],
+        build_streams: Callable[[], list[str]],
         process: ProcessFn,
         policy: WorkerPolicy,
         logger,
-        health_cb: Optional[Callable[[str, str, Dict[str, Any]], None]] = None,
+        health_cb: Callable[[str, str, dict[str, Any]], None] | None = None,
     ):
         self.name = name
         self.client = client
@@ -101,7 +103,7 @@ class StreamWorker:
         self.log = logger
         self.health_cb = health_cb
 
-        self._streams: List[str] = []
+        self._streams: list[str] = []
         self._last_streams_refresh = 0.0
         self._last_pending_drain = 0.0
         self._last_orphan_claim = 0.0
@@ -109,11 +111,11 @@ class StreamWorker:
         self._retry_hash = f"retry:state:{group}:{name}"  # msg retry attempts + timestamps
 
         # for XAUTOCLAIM cursor per stream
-        self._claim_cursor: Dict[str, str] = {}
+        self._claim_cursor: dict[str, str] = {}
 
-    def _streams_dict(self, stream_id: str) -> Dict[str, str]:
+    def _streams_dict(self, stream_id: str) -> dict[str, str]:
         """Формирует словарь streams для xreadgroup."""
-        return {s: stream_id for s in self._streams}
+        return dict.fromkeys(self._streams, stream_id)
 
     def _refresh_streams(self) -> None:
         """Обновляет список streams и инициализирует cursors для claim."""
@@ -136,7 +138,7 @@ class StreamWorker:
         except Exception:
             pass
 
-    def _to_dlq(self, stream: str, msg_id: str, data: Dict[str, Any], err: str, attempts: int) -> None:
+    def _to_dlq(self, stream: str, msg_id: str, data: dict[str, Any], err: str, attempts: int) -> None:
         """Отправляет сообщение в Dead Letter Queue."""
         payload = {
             "ts": int(time.time()),
@@ -158,7 +160,7 @@ class StreamWorker:
         """Подтверждает обработку сообщения."""
         self.client.xack(stream, self.group, msg_id)
 
-    def _handle_one(self, stream: str, msg_id: str, data: Dict[str, Any]) -> None:
+    def _handle_one(self, stream: str, msg_id: str, data: dict[str, Any]) -> None:
         """Обрабатывает одно сообщение с учетом политики retry."""
         try:
             ok = self.process(stream, msg_id, data)
@@ -199,7 +201,7 @@ class StreamWorker:
                 except Exception:
                     pass
 
-    def _read_new(self) -> List[Tuple[str, List[Tuple[str, Dict[str, Any]]]]]:
+    def _read_new(self) -> list[tuple[str, list[tuple[str, dict[str, Any]]]]]:
         """Читает новые сообщения из streams."""
         if not self._streams:
             return []
@@ -274,7 +276,7 @@ class StreamWorker:
                     return 0  # No pending messages or error
             else:
                 return 0  # Other error, skip this drain cycle
-        
+
         for stream, msgs in messages or []:
             for msg_id, data in msgs:
                 drained += 1
@@ -326,7 +328,7 @@ class StreamWorker:
 
     def run_loop(self, running_flag: Callable[[], bool]) -> None:
         """Основной цикл обработки сообщений."""
-        self.log.info("Worker %s started (group=%s consumer=%s ack_mode=%s)", 
+        self.log.info("Worker %s started (group=%s consumer=%s ack_mode=%s)",
                      self.name, self.group, self.consumer, self.policy.ack_mode)
 
         self._refresh_streams()

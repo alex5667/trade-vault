@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Unit tests for OF Gate contract smoke-check integration in of_timers_worker.
 
@@ -15,14 +16,13 @@ Covers:
   - run_of_gate_contract_smoke_check: ENABLE gate, rc=0/2/other handling
 """
 
+import importlib
 import json
 import os
 import sys
-import importlib
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -214,9 +214,8 @@ class TestRunSmokeCheck:
         """ENABLE_OF_GATE_CONTRACT_SMOKE=0 → skip immediately, return True."""
         w = _reload_worker(worker_mod)
         env_patch = {"ENABLE_OF_GATE_CONTRACT_SMOKE": "0"}
-        with patch.dict(os.environ, env_patch):
-            with patch("subprocess.run") as mock_sp:
-                result = w.run_of_gate_contract_smoke_check()
+        with patch.dict(os.environ, env_patch), patch("subprocess.run") as mock_sp:
+            result = w.run_of_gate_contract_smoke_check()
         assert result is True
         mock_sp.assert_not_called()
 
@@ -276,9 +275,8 @@ class TestRunSmokeCheck:
             "ENABLE_OF_GATE_CONTRACT_SMOKE": "1",
             "OF_GATE_CONTRACT_SMOKE_DRY_RUN": "0",
         }
-        with patch.dict(os.environ, env):
-            with patch("subprocess.run", return_value=fake) as mock_sp:
-                w.run_of_gate_contract_smoke_check()
+        with patch.dict(os.environ, env), patch("subprocess.run", return_value=fake) as mock_sp:
+            w.run_of_gate_contract_smoke_check()
         # Verify subprocess was called
         assert mock_sp.called
         cmd = mock_sp.call_args[0][0]
@@ -292,8 +290,7 @@ class TestRunSmokeCheck:
         with patch.dict(os.environ, {
             "ENABLE_OF_GATE_CONTRACT_SMOKE": "1",
             "OF_GATE_CONTRACT_SMOKE_MODULE": "custom.checker_v99",
-        }):
-            with patch("subprocess.run", return_value=fake) as mock_sp:
-                w.run_of_gate_contract_smoke_check()
+        }), patch("subprocess.run", return_value=fake) as mock_sp:
+            w.run_of_gate_contract_smoke_check()
         cmd = mock_sp.call_args[0][0]
         assert "custom.checker_v99" in cmd

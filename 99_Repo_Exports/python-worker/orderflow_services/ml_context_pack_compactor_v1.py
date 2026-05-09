@@ -1,13 +1,16 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
+from core.redis_stream_consumer import SyncRedisStreamHelper
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     import redis
@@ -31,7 +34,7 @@ def _sha16(obj: Any) -> str:
     return hashlib.sha256(json.dumps(obj, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
-def compact_request(req: Dict[str, Any]) -> Dict[str, Any]:
+def compact_request(req: dict[str, Any]) -> dict[str, Any]:
     """Keep only stable, high-signal fields for deterministic triage.""",
     payload = req.get("payload") if isinstance(req.get("payload"), dict) else req
     snapshot = payload.get("model_snapshot") or {}
@@ -40,8 +43,8 @@ def compact_request(req: Dict[str, Any]) -> Dict[str, Any]:
         "schema_version": 1,
         "request_id": str(req.get("request_id") or req.get("id") or _sha16(req)),
         "ts_ms": int(req.get("ts_ms") or _now_ms()),
-        "task_type": str(req.get("task_type") or "root_cause_degradation"),
-        "priority": str(req.get("priority") or "normal"),
+        "task_type": (req.get("task_type") or "root_cause_degradation"),
+        "priority": (req.get("priority") or "normal"),
         "scope": {
             "model_id": snapshot.get("model_id"),
             "family": snapshot.get("family"),
@@ -71,8 +74,8 @@ def compact_request(req: Dict[str, Any]) -> Dict[str, Any]:
         }
     }
     out["compact_hash"] = _sha16(out)
-    out["prompt_version"] = str(os.getenv("ML_TRIAGE_PROMPT_VERSION", "ml_triage_v1"))
-    out["policy_version"] = str(os.getenv("ML_TRIAGE_POLICY_VERSION", "policy_v1"))
+    out["prompt_version"] = os.getenv("ML_TRIAGE_PROMPT_VERSION", "ml_triage_v1")
+    out["policy_version"] = os.getenv("ML_TRIAGE_POLICY_VERSION", "policy_v1")
     return out
 
 
@@ -85,12 +88,22 @@ def main() -> None:
     out_stream = os.getenv("ML_ANALYSIS_REQUESTS_COMPACT_STREAM", "stream:ml:analysis_requests_compact")
     group = os.getenv("ML_CONTEXT_PACK_GROUP", "cg:ml_context_pack_compactor")
     consumer = os.getenv("ML_CONTEXT_PACK_CONSUMER", "ml-context-pack-1")
-    try:
-        r.xgroup_create(in_stream, group, id="0", mkstream=True)
-    except Exception:
-        pass
+
+    helper = SyncRedisStreamHelper(client=r, group=group, consumer=consumer)
+    helper.ensure_groups([in_stream], start_id="0")
+
+    pel_start_id = "0-0"
     while True:
-        rows = r.xreadgroup(groupname=group, consumername=consumer, streams={in_stream: ">"}, count=64, block=5000)
+        pel_start_id, pending_msgs = helper.claim_pending(
+            in_stream, min_idle_ms=5000, count=64, start_id=pel_start_id
+        )
+        pending_formatted = [(m.msg_id, m.fields) for m in pending_msgs]
+
+        if pending_formatted:
+            rows = [[in_stream, pending_formatted]]
+        else:
+            rows = helper.read({in_stream: ">"}, count=64, block=5000)
+
         if not rows:
             LAST_RUN.set(time.time())
             continue
@@ -101,7 +114,7 @@ def main() -> None:
                     raw = json.dumps(req, ensure_ascii=False)
                     INPUT_BYTES.observe(len(raw.encode("utf-8")))
                     compact = compact_request(req)
-                    family = str(((compact.get("scope") or {}).get("family") or "unknown"))
+                    family = str((compact.get("scope") or {}).get("family") or "unknown")
                     packed = json.dumps(compact, ensure_ascii=False)
                     OUTPUT_BYTES.observe(len(packed.encode("utf-8")))
                     r.xadd(out_stream, {"payload": packed}, maxlen=int(os.getenv("ML_ANALYSIS_REQUESTS_COMPACT_MAXLEN", "200000")), approximate=True)
@@ -115,10 +128,8 @@ def main() -> None:
                 except Exception:
                     RUNS.labels(status="err").inc()
                 finally:
-                    try:
-                        r.xack(in_stream, group, msg_id)
-                    except Exception:
-                        pass
+                    with contextlib.suppress(Exception):
+                        helper.ack(in_stream, msg_id)
                     LAST_RUN.set(time.time())
 
 

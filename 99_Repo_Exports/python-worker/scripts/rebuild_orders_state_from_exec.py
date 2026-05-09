@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Rebuild ``orders:state:*`` materialized view keys from the ``orders:exec`` stream.
 
@@ -36,7 +38,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -44,15 +46,18 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 try:
-    from services.execution_state_replay import rebuild_state_with_fallback, persist_state_snapshot
+    from services.execution_state_replay import persist_state_snapshot, rebuild_state_with_fallback
 except Exception:  # pragma: no cover
     try:
-        from binance_execution.execution_state_replay import rebuild_state_with_fallback, persist_state_snapshot  # type: ignore
+        from binance_execution.execution_state_replay import (  # type: ignore
+            persist_state_snapshot,
+            rebuild_state_with_fallback,
+        )
     except Exception:
-        from execution_state_replay import rebuild_state_with_fallback, persist_state_snapshot  # type: ignore
+        from execution_state_replay import persist_state_snapshot, rebuild_state_with_fallback  # type: ignore
 
 
-def render_prometheus_textfile(report: Dict[str, Any]) -> str:
+def render_prometheus_textfile(report: dict[str, Any]) -> str:
     """Convert rebuild report to Prometheus node-exporter textfile format.
 
     P3.3-autonomy: exposes rebuild last-run metrics for Prometheus scraping
@@ -79,7 +84,7 @@ def render_prometheus_textfile(report: Dict[str, Any]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description='Rebuild orders:state:* materialized views from orders:exec stream.')
     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
-    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC))
     parser.add_argument('--state-prefix', default=(os.getenv('ORDERS_STATE_KEY_PREFIX') or 'orders:state:'))
     parser.add_argument('--checkpoint-prefix', default=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'))
     parser.add_argument('--scan-count', type=int, default=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')))
@@ -96,7 +101,7 @@ def main() -> int:
     r = redis.from_url(args.redis_url, decode_responses=True)
     state_prefix = args.state_prefix.rstrip(':') + ':'
     checkpoint_prefix = args.checkpoint_prefix.rstrip(':') + ':'
-    sids: List[str] = list(args.sid or [])
+    sids: list[str] = list(args.sid or [])
     has_prefetched_rows = False
     if not sids:
         # Discover unique SIDs from recent stream entries
@@ -119,37 +124,41 @@ def main() -> int:
             old_rows = r.xrange(args.exec_stream, '-', '+', count=1)
             if old_rows:
                 oldest_stream_id = str(old_rows[0][0])
-            from services.execution_state_replay import _stream_sort_key, extract_sid_events, replay_sid_state, normalize_stream_rows
-            
+            from services.execution_state_replay import (
+                _stream_sort_key,
+                normalize_stream_rows,
+                replay_sid_state,
+            )
+
             # Pre-group the rows to avoid O(M*N) decoding overhead
             norm_evs = normalize_stream_rows(rows)
             for ev in norm_evs:
-                ev_sid = str(ev.get('sid') or '').strip()
+                ev_sid = (ev.get('sid') or '').strip()
                 if ev_sid:
                     norm_rows_by_sid.setdefault(ev_sid, []).append(ev)
-        except Exception as prefetch_err:
+        except Exception:
             pass
-        
-    rebuilt: List[Dict[str, Any]] = []
+
+    rebuilt: list[dict[str, Any]] = []
     # P3.3-ops-complete: aggregate stats for report
-    latencies: List[int] = []
-    sources: Dict[str, int] = {}
+    latencies: list[int] = []
+    sources: dict[str, int] = {}
     truncated_count = 0
     retention_guard_count = 0
     for sid in sids:
         started = time.perf_counter()
-        checkpoint_id = str(r.get(f'{checkpoint_prefix}{sid}') or '')
-        
+        checkpoint_id = (r.get(f'{checkpoint_prefix}{sid}') or '')
+
         if has_prefetched_rows and oldest_stream_id:
             # Fully in-memory processing to bypass O(N) Redis XREVRANGE calls
             retention_guard = False
             if checkpoint_id and oldest_stream_id:
                 retention_guard = _stream_sort_key(checkpoint_id) < _stream_sort_key(oldest_stream_id)
-            
+
             # extract_sid_events sorts them so oldest is first
             events = norm_rows_by_sid.get(sid, [])
-            events.sort(key=lambda d: _stream_sort_key(str(d.get('stream_id') or '')))
-            
+            events.sort(key=lambda d: _stream_sort_key((d.get('stream_id') or '')))
+
             # Simple fallback struct matching ReplayBuildResult
             class DummyResult:
                 def __init__(self, state_doc, source, checkpoint_id, retention_guard_triggered, latency_ms, truncated):
@@ -159,7 +168,7 @@ def main() -> int:
                     self.retention_guard_triggered = retention_guard_triggered
                     self.latency_ms = latency_ms
                     self.truncated = truncated
-                    
+
             if events:
                 state_doc = replay_sid_state(events)
                 latency_ms = int((time.perf_counter() - started) * 1000)
@@ -175,7 +184,7 @@ def main() -> int:
                 scan_count=args.scan_count,
                 checkpoint_id=checkpoint_id,
             )
-            
+
         if not result.state_doc:
             rebuilt.append({'sid': sid, 'rebuilt': False, 'reason': 'stream_events_not_found',
                             'source': result.source, 'checkpoint_id': result.checkpoint_id,

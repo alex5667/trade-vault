@@ -28,18 +28,18 @@ __version__ = "3.0.0"
 # Экспорт основных классов для удобного импорта
 try:
     # Core modules
-    from .repository import Repository, RepoConfig, Order, Signal
     from .metrics import calculate_roc_auc, roc_from_signals
+    from .metrics_publisher import MetricsPublisher
     from .parquet_sink import ParquetSink
+    from .repository import Order, RepoConfig, Repository, Signal
+    from .roc_store import ROCStore
+
+    # v3.0 modules
+    from .svg_renderer import confusion_svg, roc_svg, save_svg
+    from .telegram_reporter_ext import TelegramReporterExt
 
     # v2.0 modules
     from .threshold_tuner import ThresholdTuner
-    from .roc_store import ROCStore
-    from .metrics_publisher import MetricsPublisher
-    from .telegram_reporter_ext import TelegramReporterExt
-
-    # v3.0 modules
-    from .svg_renderer import roc_svg, confusion_svg, save_svg
 
     __all__ = [
         # Core

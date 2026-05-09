@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Operator CLI for ExecHealth dual-control override / thaw workflow (P9).
@@ -47,16 +48,13 @@ import json
 import os
 import secrets
 import sys
-import time
-from typing import Any, Dict
+from typing import Any
 
 try:
     import redis  # type: ignore
 except Exception:  # pragma: no cover
     redis = None
 
-from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
-from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
 from services.orderflow.exec_health_freeze_control import (
     ACK_SIGNING_SECRET_ENV,
     build_dual_control_commit_thaw_update,
@@ -67,13 +65,15 @@ from services.orderflow.exec_health_freeze_control import (
     sign_dual_control_commit,
     stringify_mapping,
 )
+from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _jprint(obj: Dict[str, Any]) -> None:
+def _jprint(obj: dict[str, Any]) -> None:
     print(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True))
 
 
@@ -98,25 +98,25 @@ class OverrideController:
         ensure_service_identity_sync(self.r, "exec_health_freeze_override_v1")
         heal_service_identity_sync(self.r, "exec_health_freeze_override_v1", force=True)
 
-    def _read_hash(self, key: str) -> Dict[str, Any]:
+    def _read_hash(self, key: str) -> dict[str, Any]:
         try:
             return self.r.hgetall(key) or {}
         except Exception:
             return {}
 
-    def _write_hash(self, key: str, payload: Dict[str, Any]) -> None:
+    def _write_hash(self, key: str, payload: dict[str, Any]) -> None:
         """Write hash and set 30-day TTL (operator actions are long-lived audit records)."""
         self.r.hset(key, mapping=stringify_mapping(payload))
         self.r.expire(key, 86400 * 30)
 
-    def _emit_event(self, payload: Dict[str, Any]) -> str:
+    def _emit_event(self, payload: dict[str, Any]) -> str:
         """Best-effort event emit to the freeze event stream. Returns event ID."""
         try:
             return str(self.r.xadd(self.event_stream, stringify_mapping(payload), maxlen=5000) or "")
         except Exception:
             return ""
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         """Return current state from all three sources for operator inspection."""
         heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
         ctl = parse_exec_health_freeze_control(self._read_hash(self.control_key))
@@ -148,7 +148,7 @@ class OverrideController:
         st = parse_exec_health_freeze_control(prev_state)
         return prev_ctl, prev_state, ctl, st
 
-    def prepare_thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> Dict[str, Any]:
+    def prepare_thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> dict[str, Any]:
         """P9 Phase 1: Prepare a thaw request (operator A).
 
         Creates a new request_id, validates the nonce CAS, stores the pending
@@ -190,7 +190,7 @@ class OverrideController:
             ticket=ticket,
             provided_ack_nonce=str(nonce),
         )
-        upd["thaw_prepare_event_id"] = str(event_id or "")
+        upd["thaw_prepare_event_id"] = (event_id or "")
         self._write_hash(self.control_key, upd)
         state_upd = dict(prev_state)
         state_upd.update(upd)
@@ -198,7 +198,7 @@ class OverrideController:
         self._write_hash(self.state_key, state_upd)
         return {"ok": True, "action": "prepare-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 1}
 
-    def approve_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
+    def approve_thaw(self, *, operator: str, request_id: str) -> dict[str, Any]:
         """P9 Phase 2: Approve a thaw request (operator B, must differ from operator A).
 
         Validates that the request is in 'prepared' state and that the approving
@@ -229,7 +229,7 @@ class OverrideController:
         }
         event_id = self._emit_event(event_payload)
         upd = build_thaw_approve_update(prev=prev_ctl, now_ms=now, request_id=str(request_id), approver=operator)
-        upd["thaw_approve_event_id"] = str(event_id or "")
+        upd["thaw_approve_event_id"] = (event_id or "")
         self._write_hash(self.control_key, upd)
         state_upd = dict(prev_state)
         state_upd.update(upd)
@@ -237,7 +237,7 @@ class OverrideController:
         self._write_hash(self.state_key, state_upd)
         return {"ok": True, "action": "approve-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 1}
 
-    def commit_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
+    def commit_thaw(self, *, operator: str, request_id: str) -> dict[str, Any]:
         """P9 Phase 3: Commit (execute) the approved thaw (operator B).
 
         Validates request is 'approved', approver != preparer, then signs and writes
@@ -308,7 +308,7 @@ class OverrideController:
         self._write_hash(self.state_key, state_upd)
         return {"ok": True, "action": "commit-thaw", **event_payload, "event_id": event_id, "effective_freeze_active": 0}
 
-    def freeze(self, *, operator: str, reason: str, ticket: str, minutes: int) -> Dict[str, Any]:
+    def freeze(self, *, operator: str, reason: str, ticket: str, minutes: int) -> dict[str, Any]:
         """Operator force-freeze for maintenance windows or manual intervention.
 
         Writes to control hash, state hash, and raw freeze key (legacy compat).

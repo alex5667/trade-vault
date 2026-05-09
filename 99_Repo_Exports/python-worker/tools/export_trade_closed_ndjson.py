@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 """
 export_trade_closed_ndjson.py
 
@@ -17,15 +20,14 @@ Usage:
   PYTHONPATH=".:.." python tools/export_trade_closed_ndjson.py --since-hours 168 --out /tmp/closed_7d.ndjson
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, List, Tuple, Optional, Union
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -62,18 +64,18 @@ def _loads_maybe_json(x: Any) -> Any:
     return s
 
 
-def _event_ts_ms(fields: Dict[str, Any]) -> int:
+def _event_ts_ms(fields: dict[str, Any]) -> int:
     return _safe_int(fields.get("ts_ms") or fields.get("ts") or fields.get("timestamp") or 0)
 
 
 def _normalize_sid(raw_sid: Any, *, symbol: str, ts_ms: int) -> str:
     """Normalize sid to canonical: crypto-of:{SYMBOL}:{TS_MS}."""
-    sym = str(symbol or "").upper() or "NA"
+    sym = (symbol or "").upper() or "NA"
     try:
         ts = int(ts_ms)
     except Exception:
         ts = 0
-    s = str(raw_sid or "")
+    s = (raw_sid or "")
     if s.startswith("crypto-of:"):
         head = s.split("|", 1)[0]
         parts = head.split(":", 2)
@@ -98,7 +100,7 @@ def _normalize_sid(raw_sid: Any, *, symbol: str, ts_ms: int) -> str:
     return s
 
 
-def _is_position_closed(fields: Dict[str, Any]) -> bool:
+def _is_position_closed(fields: dict[str, Any]) -> bool:
     """
     Check if event is a position closed event.
     Supports both explicit event_type and implicit (trades:closed stream may not have event_type).
@@ -121,13 +123,13 @@ def export_stream(
     since_ms: int,
     out_path: str,
     max_scan: int = 500_000,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """
     Reads stream backwards and writes NDJSON in chronological order.
     Returns (written, scanned).
     """
     scanned = 0
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     while scanned < max_scan:
         batch = r.xrevrange(stream, max=last_id, min="-", count=2000)
@@ -135,7 +137,7 @@ def export_stream(
             break
         if len(batch) == 1 and batch[0][0] == last_id:
             break
-        
+
         # xrevrange returns filtered items including the max ID (last_id).
         # If the batch only contains the last_id we already processed, we are done.
         is_stuck = True
@@ -166,16 +168,16 @@ def export_stream(
                 meta = {}
 
             # Normalize sid to canonical format: crypto-of:{symbol}:{ts_ms}
-            symbol_str = str(fields.get("symbol") or "").upper()
-            raw_sid = str(fields.get("sid") or "")
+            symbol_str = (fields.get("symbol") or "").upper()
+            raw_sid = (fields.get("sid") or "")
             normalized_sid = _normalize_sid(raw_sid, symbol=symbol_str, ts_ms=ts_ms)
-            
+
             row = {
                 "ts_ms": ts_ms,
                 "exit_ts_ms": ts_ms,  # Alias for compatibility
                 "symbol": symbol_str,
                 "sid": normalized_sid,  # Normalized canonical sid
-                "event_id": str(fields.get("event_id") or ""),
+                "event_id": (fields.get("event_id") or ""),
                 "pnl": _safe_float(fields.get("pnl") or fields.get("pnl_net") or 0.0),
                 "risk_usd": _safe_float(fields.get("risk_usd") or 0.0),
                 "r_mult": _safe_float(fields.get("r_mult") or fields.get("r_multiple") or 0.0),
@@ -193,13 +195,13 @@ def export_stream(
                 "of_confirm_ok": _safe_int(fields.get("of_confirm_ok") or 0),
                 "of_confirm_ok_soft": _safe_int(fields.get("of_confirm_ok_soft") or 0),
                 # meta enforce fields (for ramp evaluation and Stage2 optimization)
-                "meta_enforce_applied": _safe_int(fields.get("meta_enforce_applied") or None),
-                "meta_veto": _safe_int(fields.get("meta_veto") or meta.get("meta_veto") or 0),
-                "meta_enforce_key": str(fields.get("meta_enforce_key") or meta.get("meta_enforce_key") or ""),
-                "meta_enforce_salt": str(fields.get("meta_enforce_salt") or meta.get("meta_enforce_salt") or "enf_v1"),
+                "meta_enforce_applied": _safe_int(fields.get(MetaKeys.ENFORCE_APPLIED) or None),
+                "meta_veto": _safe_int(fields.get(MetaKeys.VETO) or meta.get(MetaKeys.VETO) or 0),
+                "meta_enforce_key": str(fields.get(MetaKeys.ENFORCE_KEY) or meta.get(MetaKeys.ENFORCE_KEY) or ""),
+                "meta_enforce_salt": str(fields.get(MetaKeys.ENFORCE_SALT) or meta.get(MetaKeys.ENFORCE_SALT) or "enf_v1"),
             }
             rows.append(row)
-        
+
         if is_stuck:
             break
 
@@ -212,12 +214,12 @@ def export_stream(
 
 def export_ndjson(
     *,
-    r: Optional[redis.Redis] = None,
-    redis_url: Optional[str] = None,
-    stream: Optional[str] = None,
-    since_ts_ms: Optional[int] = None,
-    since_hours: Optional[float] = None,
-    out_path: Optional[str] = None,
+    r: redis.Redis | None = None,
+    redis_url: str | None = None,
+    stream: str | None = None,
+    since_ts_ms: int | None = None,
+    since_hours: float | None = None,
+    out_path: str | None = None,
     batch: int = 1000,
     max_scan: int = 500_000,
 ) -> int:
@@ -227,7 +229,7 @@ def export_ndjson(
     Args:
         r: Redis client (if provided, redis_url is ignored)
         redis_url: Redis URL string (used if r is None)
-        stream: Stream name (default: TRADE_EVENTS_STREAM env or "events:trades")
+        stream: Stream name (default: TRADE_EVENTS_STREAM env or RS.EVENTS_TRADES)
         since_ts_ms: Start timestamp in milliseconds
         since_hours: Hours ago to start from (used if since_ts_ms is None)
         out_path: Output file path (required)
@@ -239,20 +241,20 @@ def export_ndjson(
     """
     if out_path is None:
         raise ValueError("out_path is required")
-    
+
     if r is None:
         url = redis_url or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         r = redis.from_url(url, decode_responses=True)
-    
+
     # Default stream: trades:closed (or TRADES_CLOSED_STREAM env, fallback to events:trades for backward compat)
     stream_name = stream or os.getenv("TRADES_CLOSED_STREAM") or os.getenv("TRADE_EVENTS_STREAM", "trades:closed")
-    
+
     if since_ts_ms is None:
         if since_hours is not None:
             since_ts_ms = _now_ms() - int(float(since_hours) * 3600.0 * 1000.0)
         else:
             since_ts_ms = _now_ms() - int(168.0 * 3600.0 * 1000.0)  # default 7 days
-    
+
     n, scanned = export_stream(
         r=r,
         stream=stream_name,
@@ -273,10 +275,10 @@ def export_from_postgres(*, pg_dsn: str, since_ms: int, out_path: str) -> int:
         from psycopg2.extras import RealDictCursor
     except ImportError:
         raise RuntimeError("psycopg2 not available for Postgres export")
-    
+
     # Convert ms to timestamp for Postgres query
     since_ts_sec = since_ms / 1000.0
-    
+
     sql = """
         SELECT 
             order_id, sid, symbol, direction,
@@ -289,7 +291,7 @@ def export_from_postgres(*, pg_dsn: str, since_ms: int, out_path: str) -> int:
         WHERE exit_ts_ms >= %s
         ORDER BY exit_ts_ms ASC
     """
-    
+
     rows = []
     with psycopg2.connect(pg_dsn) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(sql, (since_ms,))
@@ -302,27 +304,27 @@ def export_from_postgres(*, pg_dsn: str, since_ms: int, out_path: str) -> int:
                     config = json.loads(row["config_json"]) if isinstance(row["config_json"], str) else row["config_json"]
                 except Exception:
                     pass
-            
+
             # Normalize sid to canonical format
-            symbol_str = str(row.get("symbol") or "").upper()
-            raw_sid = str(row.get("sid") or "")
+            symbol_str = (row.get("symbol") or "").upper()
+            raw_sid = (row.get("sid") or "")
             exit_ts_ms = int(row.get("exit_ts_ms") or 0)
             normalized_sid = _normalize_sid(raw_sid, symbol=symbol_str, ts_ms=exit_ts_ms)
-            
+
             # Build normalized row matching stream export format
             out_row = {
                 "ts_ms": exit_ts_ms,
                 "exit_ts_ms": exit_ts_ms,
                 "symbol": symbol_str,
                 "sid": normalized_sid,  # Normalized canonical sid
-                "event_id": str(row.get("order_id") or ""),
+                "event_id": (row.get("order_id") or ""),
                 "pnl": _safe_float(row.get("pnl"), 0.0),
                 "risk_usd": _safe_float(row.get("risk_usd"), 0.0),
                 "r_mult": _safe_float(row.get("r_mult"), 0.0),
-                "regime": str(config.get("regime") or "na").lower(),
+                "regime": (config.get("regime") or "na").lower(),
                 "regime_group": str(config.get("regime_group") or config.get("regime") or "na").lower(),
-                "scenario": str(config.get("scenario") or "").lower(),
-                "scenario_v4": str(config.get("scenario_v4") or "").lower(),
+                "scenario": (config.get("scenario") or "").lower(),
+                "scenario_v4": (config.get("scenario_v4") or "").lower(),
                 "ab_arm": "A",  # Default, not stored in trades_closed
                 "ab_group": "default",
                 "arm_ver": 0,
@@ -337,11 +339,11 @@ def export_from_postgres(*, pg_dsn: str, since_ms: int, out_path: str) -> int:
                 "meta_enforce_salt": "enf_v1",
             }
             rows.append(out_row)
-    
+
     with open(out_path, "w", encoding="utf-8") as f:
         for row in rows:
             f.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
-    
+
     return len(rows)
 
 
@@ -359,7 +361,7 @@ def main() -> None:
     since_ms = _now_ms() - int(float(args.since_hours) * 3600.0 * 1000.0)
     r = redis.from_url(args.redis_url, decode_responses=True)
     n, scanned = export_stream(r=r, stream=args.stream, since_ms=since_ms, out_path=args.out, max_scan=int(args.max_scan))
-    
+
     # Fallback to Postgres if Redis returned insufficient data
     if n < args.pg_fallback and args.pg_dsn:
         print(f"Redis returned {n} trades, falling back to Postgres (dsn={args.pg_dsn[:30]}...)")

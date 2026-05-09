@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import json
+
 import pytest
 
-from services.stats_aggregator import _write_timebucket_buffers, canon_regime
+from services.stats_aggregator import _write_timebucket_buffers
 from signals.empirical_levels import RedisEmpiricalStatsProvider
 
 
 class FakePipe:
-    def __init__(self, r: "FakeRedis"):
+    def __init__(self, r: FakeRedis):
         self.r = r
         self.ops = []
 

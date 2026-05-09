@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 '''
 Auto-apply job entrypoint (orchestration-friendly).
 
@@ -32,18 +33,19 @@ Exit codes:
   30  misconfiguration
 '''
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import shlex
 import subprocess
 import sys
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
-def _env(name: str, default: Optional[str] = None) -> Optional[str]:
+def _env(name: str, default: str | None = None) -> str | None:
     v = os.getenv(name)
     if v is None:
         return default
@@ -78,7 +80,7 @@ def _redis_client(redis_url: str):
         return None
 
 
-def _ops_publish(redis_url: Optional[str], stream: str, event: Dict[str, Any]) -> None:
+def _ops_publish(redis_url: str | None, stream: str, event: dict[str, Any]) -> None:
     if not redis_url:
         return
     r = _redis_client(redis_url)
@@ -91,7 +93,7 @@ def _ops_publish(redis_url: Optional[str], stream: str, event: Dict[str, Any]) -
         return
 
 
-def _check_block() -> Tuple[bool, Dict[str, Any], Optional[str]]:
+def _check_block() -> tuple[bool, dict[str, Any], str | None]:
     '''
     Returns (blocked, meta, err).
     Uses services.orderflow.auto_apply_guard if available; falls back to raw Redis key check.
@@ -116,7 +118,7 @@ def _check_block() -> Tuple[bool, Dict[str, Any], Optional[str]]:
             code = int(getattr(e, "code", 1) or 1)
             if code == 20:
                 # Try to fetch meta for better logging (best-effort).
-                meta: Dict[str, Any] = {}
+                meta: dict[str, Any] = {}
                 if redis_url:
                     r = _redis_client(redis_url)
                     if r:
@@ -149,15 +151,13 @@ def _check_block() -> Tuple[bool, Dict[str, Any], Optional[str]]:
         return False, {"reason": "redis_unavailable"}, "redis_unavailable"
 
     try:
-        blocked = str(r.get(block_key) or "").strip() == "1"
+        blocked = (r.get(block_key) or "").strip() == "1"
         meta_raw = r.get(meta_key)
         ts_raw = r.get(ts_key)
         meta = _loads_maybe_json(meta_raw) or {}
         if ts_raw:
-            try:
+            with contextlib.suppress(Exception):
                 meta["blocked_ts_ms"] = int(ts_raw)
-            except Exception:
-                pass
         return blocked, meta, None
     except Exception as e:
         if fail_mode == "fail_closed":
@@ -165,7 +165,7 @@ def _check_block() -> Tuple[bool, Dict[str, Any], Optional[str]]:
         return False, {"reason": "redis_error", "err": str(e)}, "redis_error"
 
 
-def _run_apply_command(cmd: str, workdir: Optional[str], timeout_s: int) -> Tuple[int, float, str]:
+def _run_apply_command(cmd: str, workdir: str | None, timeout_s: int) -> tuple[int, float, str]:
     start = time.perf_counter()
     try:
         # shell=False for safety; allow quoted args in AUTO_APPLY_CMD.
@@ -191,7 +191,7 @@ def _run_apply_command(cmd: str, workdir: Optional[str], timeout_s: int) -> Tupl
         return 127, dur, f"[EXCEPTION] {type(e).__name__}: {e}"
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     _ = argv  # currently unused; reserved for future flags
 
     cmd = _env("AUTO_APPLY_CMD")

@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
 import uuid
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -61,13 +62,13 @@ MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_BUNDLES_MAXLEN", "1000"))
 LOOKBACK_COUNT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_BUNDLES_LOOKBACK_COUNT", "50"))
 POLL_INTERVAL_SEC = 2.0
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_incident_bundles_runs_total", "Bundle builder runs", ("status", "trigger_type"))
@@ -79,18 +80,18 @@ LAST_RUN = _gauge("ml_route_incident_rca_mirror_incident_bundles_last_run_ts_sec
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
     }
 
-async def fetch_history(r: Any, stream: str, count: int) -> List[Dict[str, Any]]:
+async def fetch_history(r: Any, stream: str, count: int) -> list[dict[str, Any]]:
     # Extract last COUNT elements from stream
     entries = await r.xrevrange(stream, "+", "-", count=count)
     return [decode_dict(fields) for msg_id, fields in entries]
 
-def normalize_trigger(event_dict: Dict[str, Any], event_id: str) -> Dict[str, Any]:
+def normalize_trigger(event_dict: dict[str, Any], event_id: str) -> dict[str, Any]:
     # It can be a journal event (transition_type) or escalation event (severity)
     if "transition_type" in event_dict:
         severity = "info"
@@ -114,12 +115,12 @@ def normalize_trigger(event_dict: Dict[str, Any], event_id: str) -> Dict[str, An
         }
     return {}
 
-async def build_bundle(r: Any, trigger_ctx: Dict[str, Any]) -> Dict[str, Any]:
+async def build_bundle(r: Any, trigger_ctx: dict[str, Any]) -> dict[str, Any]:
     verification = await fetch_history(r, VERIFICATION_STREAM, LOOKBACK_COUNT)
     retry = await fetch_history(r, RETRY_STREAM, LOOKBACK_COUNT)
     escalations = await fetch_history(r, ESCALATIONS_STREAM, LOOKBACK_COUNT)
     journal = await fetch_history(r, JOURNAL_STREAM, LOOKBACK_COUNT)
-    
+
     return {
         "bundle_id": str(uuid.uuid4()),
         "contour": "route_incident_rca_mirror",
@@ -139,7 +140,7 @@ async def build_bundle(r: Any, trigger_ctx: Dict[str, Any]) -> Dict[str, Any]:
         "ts_ms": now_ms(),
     }
 
-async def persist_bundle(db_url: str, bundle: Dict[str, Any]) -> None:
+async def persist_bundle(db_url: str, bundle: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -170,18 +171,18 @@ async def main() -> None:  # pragma: no cover
     start_http_server(PORT)
     if UP:
         UP.set(1)
-        
+
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     db_url = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
-    
+
     last_journal_id = "$"
     last_escalation_id = "$"
-    
+
     while True:
         started = time.perf_counter()
         status = "ok"
         trigger_type = "none"
-        
+
         try:
             streams = {
                 JOURNAL_STREAM: last_journal_id,
@@ -194,7 +195,7 @@ async def main() -> None:  # pragma: no cover
                     for msg_id, fields in events:
                         m_id = msg_id.decode() if isinstance(msg_id, bytes) else msg_id
                         decoded = decode_dict(fields)
-                        
+
                         trigger = normalize_trigger(decoded, m_id)
                         if trigger:
                             trigger_type = trigger["trigger_type"]
@@ -202,22 +203,22 @@ async def main() -> None:  # pragma: no cover
                                 bundle = await build_bundle(r, trigger)
                                 await persist_bundle(db_url, bundle)
                                 b_json = json.dumps(bundle, separators=(",",":"), ensure_ascii=False)
-                                
+
                                 await r.xadd(OUTPUT_STREAM, {"bundle_id": bundle["bundle_id"], "severity": trigger["severity"], "bundle_json": b_json}, maxlen=MAXLEN, approximate=True)
                                 await r.xadd(AUDIT_STREAM, {"event_type": "BUNDLE_GENERATED", "bundle_id": bundle["bundle_id"], "trigger_type": trigger["trigger_type"]}, maxlen=MAXLEN, approximate=True)
                                 await r.hset(LAST_HASH, mapping={"bundle_id": bundle["bundle_id"], "ts_ms": str(now_ms())})
-                                
+
                                 if TOTAL:
                                     TOTAL.labels(severity=trigger["severity"], trigger_type=trigger_type).inc()
-                        
+
                         if s_name == JOURNAL_STREAM:
                             last_journal_id = m_id
                         elif s_name == ESCALATIONS_STREAM:
                             last_escalation_id = m_id
-                            
+
             if LAST_RUN:
                 LAST_RUN.set(time.time())
-                
+
         except Exception as exc:
             status = "error"
             await r.xadd(AUDIT_STREAM, {"event_type": "BUNDLE_GENERATION_FAILED", "error": str(exc), "ts_ms": str(now_ms())}, maxlen=MAXLEN, approximate=True)

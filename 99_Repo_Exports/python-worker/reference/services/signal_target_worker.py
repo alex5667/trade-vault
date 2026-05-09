@@ -1,12 +1,11 @@
-from utils.time_utils import get_ny_time_millis
 import json
 import os
-import time
 import random
-from typing import Any, Dict, Optional
-
+import time
+from typing import Any
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("SignalTargetWorker")
 
@@ -231,6 +230,7 @@ class _Backoff:
 
 from core.redis_client import get_redis
 
+
 class SignalTargetWorker:
     """
     Читает due_zset (zset:signals:due:{target}), берет task JSON из signal:task:{target}:{sid}
@@ -276,13 +276,13 @@ class SignalTargetWorker:
         # dlq
         self.dlq_stream = os.getenv("SIGNAL_DLQ_STREAM", "stream:signals:dlq")
 
-        self._sha_pop: Optional[str] = None
-        self._sha_xadd: Optional[str] = None
-        self._sha_setex: Optional[str] = None
-        self._sha_notify: Optional[str] = None
-        self._sha_requeue: Optional[str] = None
-        self._sha_retry: Optional[str] = None
-        self._sha_complete: Optional[str] = None
+        self._sha_pop: str | None = None
+        self._sha_xadd: str | None = None
+        self._sha_setex: str | None = None
+        self._sha_notify: str | None = None
+        self._sha_requeue: str | None = None
+        self._sha_retry: str | None = None
+        self._sha_complete: str | None = None
 
         self._backoff = _Backoff()
 
@@ -308,7 +308,7 @@ class SignalTargetWorker:
     def _inflight_key(self, sid: str) -> str:
         return f"deliver:inflight:{self.target}:{sid}"
 
-    def _schedule_retry(self, sid: str, task: Dict[str, Any], attempt: int, err: Exception) -> None:
+    def _schedule_retry(self, sid: str, task: dict[str, Any], attempt: int, err: Exception) -> None:
         # Atomic retry: update task payload + move inflight->due (no task loss).
         a = max(0, int(attempt))
         delay = min(self.retry_cap_ms, int(self.retry_base_ms * (2 ** min(a, 10)))) + random.randint(0, max(0, self.retry_jitter_ms))
@@ -351,7 +351,7 @@ class SignalTargetWorker:
         except Exception as e:
             logger.error("DLQ write failed: %s", e, exc_info=True)
 
-    def _claim_due(self, now_ms: int) -> Optional[Dict[str, Any]]:
+    def _claim_due(self, now_ms: int) -> dict[str, Any] | None:
         self._ensure_scripts()
         try:
             res = self.redis.evalsha(
@@ -432,7 +432,7 @@ class SignalTargetWorker:
             except Exception:
                 pass
 
-    def _deliver_xadd(self, sid: str, stream: str, fields: Dict[str, Any], maxlen: int, approx: bool) -> bool:
+    def _deliver_xadd(self, sid: str, stream: str, fields: dict[str, Any], maxlen: int, approx: bool) -> bool:
         self._ensure_scripts()
         done = self._done_key(sid)
         inflight = self._inflight_key(sid)
@@ -497,7 +497,7 @@ class SignalTargetWorker:
             return True
         return False
 
-    def _deliver_notify(self, sid: str, payload: Dict[str, Any]) -> bool:
+    def _deliver_notify(self, sid: str, payload: dict[str, Any]) -> bool:
         self._ensure_scripts()
         done = self._done_key(sid)
         inflight = self._inflight_key(sid)
@@ -537,9 +537,9 @@ class SignalTargetWorker:
             return True
         return False
 
-    def _process_one(self, task: Dict[str, Any]) -> None:
-        sid = str(task.get("sid") or "")
-        op = str(task.get("op") or "")
+    def _process_one(self, task: dict[str, Any]) -> None:
+        sid = (task.get("sid") or "")
+        op = (task.get("op") or "")
         attempt = int(task.get("attempt", 0) or 0)
         if not sid:
             self._send_dlq("missing_sid", task)
@@ -560,7 +560,7 @@ class SignalTargetWorker:
             elif op == "xadd":
                 ok = self._deliver_xadd(
                     sid,
-                    str(task.get("stream") or ""),
+                    (task.get("stream") or ""),
                     task.get("fields") or {},
                     int(task.get("maxlen") or 1000),
                     bool(task.get("approx", True)),
@@ -568,9 +568,9 @@ class SignalTargetWorker:
             elif op == "setex":
                 ok = self._deliver_setex(
                     sid,
-                    str(task.get("key") or ""),
+                    (task.get("key") or ""),
                     int(task.get("ttl") or 3600),
-                    str(task.get("value") or ""),
+                    (task.get("value") or ""),
                 )
             else:
                 self._send_dlq("unknown_op", task)

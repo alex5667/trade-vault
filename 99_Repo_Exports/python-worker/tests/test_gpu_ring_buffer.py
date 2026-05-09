@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for gpu/gpu_ring_buffer.py — GPURingBuffer.
 
@@ -9,16 +10,16 @@ Covers:
   - Latency smoke test (1000 push+compute_stats < 500ms even on CPU)
 """
 
-import math
 import time
-import pytest
+
 import numpy as np
+import pytest
 
 
 # ---------------------------------------------------------------------------
 # Helper to build a GPURingBuffer forcing CPU mode (usable in any environment)
 # ---------------------------------------------------------------------------
-def make_cpu_ring(window: int = 50) -> "GPURingBuffer":  # noqa: F821
+def make_cpu_ring(window: int = 50) -> GPURingBuffer:  # noqa: F821
     from gpu.gpu_ring_buffer import GPURingBuffer
     return GPURingBuffer(window_size=window, min_n=8, use_gpu=False)
 

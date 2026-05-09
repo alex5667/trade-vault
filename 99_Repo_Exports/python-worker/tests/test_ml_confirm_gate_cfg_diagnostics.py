@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Тесты для диагностики конфига в MLConfirmGate (cfg_key_used, cfg_raw_len, cfg_parse_err).
 
@@ -11,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from services.ml_confirm_gate import MLConfirmGate, MLConfirmDecision, _safe_loads_ex
+from services.ml_confirm_gate import MLConfirmDecision, MLConfirmGate, _safe_loads_ex
 
 
 def test_safe_loads_ex_missing():
@@ -92,9 +93,9 @@ def test_no_cfg_error_has_diagnostics(gate, mock_redis):
     """Test that ERR_NO_CFG decision includes diagnostic fields."""
     mock_redis.get.return_value = None  # champion missing
     mock_redis.hgetall.return_value = {}  # hash fallback also empty
-    
+
     gate._refresh_cache_if_needed()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000,
@@ -107,7 +108,7 @@ def test_no_cfg_error_has_diagnostics(gate, mock_redis):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     assert dec.mode == "ERR"
     assert dec.error == "no_cfg"
     assert dec.status == "ERR_NO_CFG"
@@ -123,9 +124,9 @@ def test_bad_cfg_error_has_diagnostics(gate, mock_redis):
     # Champion exists but has invalid JSON
     mock_redis.get.return_value = "{invalid json"
     mock_redis.hgetall.return_value = {}
-    
+
     gate._refresh_cache_if_needed()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000,
@@ -138,7 +139,7 @@ def test_bad_cfg_error_has_diagnostics(gate, mock_redis):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     assert dec.mode == "ERR"
     assert dec.error == "no_cfg"
     assert dec.status == "ERR_NO_CFG"
@@ -152,9 +153,9 @@ def test_empty_dict_cfg_error(gate, mock_redis):
     """Test that empty dict JSON produces ERR_BAD_CFG."""
     mock_redis.get.return_value = "{}"
     mock_redis.hgetall.return_value = {}
-    
+
     gate._refresh_cache_if_needed()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000,
@@ -167,7 +168,7 @@ def test_empty_dict_cfg_error(gate, mock_redis):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     assert dec.mode == "ERR"
     assert dec.error == "no_cfg"
     assert dec.cfg_parse_err == ""
@@ -179,12 +180,12 @@ def test_challenger_fallback_in_shadow_mode(gate, mock_redis):
     # Champion has invalid JSON
     mock_redis.get.side_effect = ["{invalid", '{"run_id": "challenger123", "kind": "util_mh_v1", "mode": "SHADOW"}']
     mock_redis.hgetall.return_value = {}
-    
+
     # Force cache refresh
     gate._cache_loaded_ms = 0
-    
+
     gate._refresh_cache_if_needed()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000,
@@ -197,7 +198,7 @@ def test_challenger_fallback_in_shadow_mode(gate, mock_redis):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     # Should use challenger (but will fail on model load, which is OK for this test)
     # The important part is that cfg_source should be "challenger" if challenger was used
     # Since model won't load, we'll get ERR, but diagnostics should show challenger was tried
@@ -214,9 +215,9 @@ def test_valid_cfg_includes_diagnostics(gate, mock_redis):
     }
     mock_redis.get.return_value = json.dumps(valid_cfg, separators=(",", ":"))
     mock_redis.hgetall.return_value = {}
-    
+
     gate._refresh_cache_if_needed()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000,
@@ -229,7 +230,7 @@ def test_valid_cfg_includes_diagnostics(gate, mock_redis):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     # Even if model fails to load, diagnostic fields should be populated
     assert dec.cfg_key_used == "cfg:ml_confirm:champion"
     assert dec.cfg_source == "champion"
@@ -250,7 +251,7 @@ def test_decision_to_dict_includes_diagnostics():
         cfg_raw_len=15,
         cfg_parse_err="json_error:JSONDecodeError",
     )
-    
+
     d = dec.to_dict()
     assert d["cfg_key_used"] == "cfg:ml_confirm:champion"
     assert d["cfg_source"] == "champion"
@@ -267,9 +268,9 @@ def test_unsupported_kind_includes_diagnostics(gate, mock_redis):
     }
     mock_redis.get.return_value = json.dumps(cfg_with_unknown_kind, separators=(",", ":"))
     mock_redis.hgetall.return_value = {}
-    
+
     gate._refresh_cache_if_needed()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000,
@@ -282,7 +283,7 @@ def test_unsupported_kind_includes_diagnostics(gate, mock_redis):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     assert dec.mode == "ERR"
     assert dec.error == "unsupported_kind"
     # Diagnostic fields should still be populated

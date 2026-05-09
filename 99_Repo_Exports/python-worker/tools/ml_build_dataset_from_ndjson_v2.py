@@ -1,15 +1,14 @@
 from __future__ import annotations
-\
 
 import argparse
 import json
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from core.ml_feature_schema import build_features
-from core.ml_metrics_utils import brier_score, ece_score
+
 
 def load_ndjson(path: str):
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line=line.strip()
             if not line:
@@ -25,7 +24,7 @@ def index_closed_by_sid(closed_path: str) -> dict:
         idx[str(sid)] = row
     return idx
 
-def adverse_proxy_from_row(row: Dict[str, Any]) -> float:
+def adverse_proxy_from_row(row: dict[str, Any]) -> float:
     # Use MAE before MFE if present, else mae_bps as proxy.
     for k in ("mae_bps","mae","mae_r","MAE_R"):
         if k in row:
@@ -35,7 +34,7 @@ def adverse_proxy_from_row(row: Dict[str, Any]) -> float:
                 pass
     return 0.0
 
-def r_net_from_row(row: Dict[str, Any]) -> float:
+def r_net_from_row(row: dict[str, Any]) -> float:
     for k in ("realized_R","r_mult","R_net","r_net"):
         if k in row:
             try:
@@ -47,7 +46,7 @@ def r_net_from_row(row: Dict[str, Any]) -> float:
 def build_y(r_net: float, adverse: float, r_min: float, adv_max: float) -> int:
     return 1 if (r_net >= r_min and adverse <= adv_max) else 0
 
-def build_u(row: Dict[str, Any]) -> float:
+def build_u(row: dict[str, Any]) -> float:
     # Utility proxy: pnl_net - costs. If not available, use pnl or r_mult.
     for k in ("pnl_net","pnl","pnl_usd"):
         if k in row:
@@ -91,9 +90,9 @@ def main() -> None:
             out = {
                 "sid": str(sid),
                 "ts_ms": int(inp.get("ts_ms", 0) or 0),
-                "symbol": str(inp.get("symbol","")),
-                "scenario": str(inp.get("scenario", "none")),
-                "direction": str(inp.get("direction","")),
+                "symbol": (inp.get("symbol","")),
+                "scenario": (inp.get("scenario", "none")),
+                "direction": (inp.get("direction","")),
                 "y_edge": int(y_edge),
                 "y_util": float(y_util),
                 "x": feat.x,

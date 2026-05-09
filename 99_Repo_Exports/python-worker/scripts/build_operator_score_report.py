@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """P4.7/P4.9/P5X: Build merged operator score from execution + replay + risk-engine canary reports.
 
 Combines:
@@ -30,10 +31,10 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 
-def _load_json(path: Path) -> Dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
     """Load JSON from path; return empty dict on any error."""
     if not path.exists():
         return {}
@@ -52,7 +53,7 @@ def _bucket(score: float) -> str:
     return 'red'
 
 
-def _replay_score(doc: Dict[str, Any]) -> float:
+def _replay_score(doc: dict[str, Any]) -> float:
     """Derive a 0-100 score from the replay SLO summary document.
 
     Prefers the 24h window if available.  Penalises:
@@ -61,7 +62,7 @@ def _replay_score(doc: Dict[str, Any]) -> float:
       - p95 replay latency over 50 ms  (up to -20 pts)
     """
     items = list(doc.get('items') or [])
-    target = next((x for x in items if str(x.get('window_name')) == '24h'), items[0] if items else {})
+    target = next((x for x in items if (x.get('window_name')) == '24h'), items[0] if items else {})
     if not target:
         return 50.0  # no data → neutral score
     total = float(target.get('rehydrate_total') or 0.0)
@@ -76,7 +77,7 @@ def _replay_score(doc: Dict[str, Any]) -> float:
     return max(0.0, score)
 
 
-def _extract_mismatch_penalty(doc: Dict[str, Any]) -> Dict[str, float]:
+def _extract_mismatch_penalty(doc: dict[str, Any]) -> dict[str, float]:
     """Derive a mismatch penalty from the latest_risk_mismatch_summary.json report.
 
     Prefers the 24h/ALL window row.  Falls back to averaging all 24h rows.
@@ -86,11 +87,11 @@ def _extract_mismatch_penalty(doc: Dict[str, Any]) -> Dict[str, float]:
     """
     rows = list(doc.get('rows') or [])
     target = next(
-        (x for x in rows if str(x.get('window_name')) == '24h' and str(x.get('tier') or '').upper() == 'ALL'),
+        (x for x in rows if (x.get('window_name')) == '24h' and (x.get('tier') or '').upper() == 'ALL'),
         None,
     )
     if target is None:
-        target_rows = [x for x in rows if str(x.get('window_name')) == '24h']
+        target_rows = [x for x in rows if (x.get('window_name')) == '24h']
         if target_rows:
             avg_q = sum(float(x.get('quarantine_count') or 0.0) for x in target_rows)
             avg_r = sum(float(x.get('avg_mismatch_rate') or 0.0) for x in target_rows) / len(target_rows)
@@ -108,7 +109,7 @@ def _extract_mismatch_penalty(doc: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
-def build_report(report_dir: Path) -> Dict[str, Any]:
+def build_report(report_dir: Path) -> dict[str, Any]:
     """Build the merged operator score report from all sub-reports in *report_dir*."""
     execution = _load_json(report_dir / 'latest_canary_scoring.json')
     replay = _load_json(report_dir / 'latest_replay_slo_summary.json')
@@ -140,7 +141,7 @@ def build_report(report_dir: Path) -> Dict[str, Any]:
     score -= archive_mismatch_penalty
 
     # Penalty: health status degradation
-    status = str(health.get('overall_status') or 'ok')
+    status = (health.get('overall_status') or 'ok')
     if status == 'warning':
         score -= 5.0
     elif status == 'critical':

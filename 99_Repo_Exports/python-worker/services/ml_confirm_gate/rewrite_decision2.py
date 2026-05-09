@@ -1,6 +1,6 @@
 import re
 
-with open("python-worker/services/ml_confirm_gate/decision_policy.py", "r") as f:
+with open("python-worker/services/ml_confirm_gate/decision_policy.py") as f:
     text = f.read()
 
 replacements = {

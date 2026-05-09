@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import hashlib
 from collections import deque
-from typing import Any, Deque, Dict, Set, Tuple
+from typing import Any
 
 
-def tick_uid(tick: Dict[str, Any]) -> str:
+def tick_uid(tick: dict[str, Any]) -> str:
     """Stable-ish uid for a tick (dedup/logging).
 
     Preference order:
@@ -13,7 +13,7 @@ def tick_uid(tick: Dict[str, Any]) -> str:
       2) hash(ts_ms, price, qty, side, is_buyer_maker)
     """
     try:
-        tid = tick.get("trade_id", None)
+        tid = tick.get("trade_id")
         if tid is not None:
             try:
                 tid_i = int(tid)
@@ -27,7 +27,7 @@ def tick_uid(tick: Dict[str, Any]) -> str:
     ts_ms = int(tick.get("ts_ms") or 0)
     price = float(tick.get("price") or 0.0)
     qty = float(tick.get("qty") or 0.0)
-    side = str(tick.get("side") or "").upper()
+    side = (tick.get("side") or "").upper()
     bm = 1 if bool(tick.get("is_buyer_maker")) else 0
     base = f"{ts_ms}|{price:.8f}|{qty:.8f}|{side}|{bm}"
     h = hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
@@ -40,8 +40,8 @@ class TickDeduper:
     def __init__(self, *, max_items: int = 20000, max_age_ms: int = 180_000) -> None:
         self.max_items = int(max_items)
         self.max_age_ms = int(max_age_ms)
-        self._q: Deque[Tuple[int, str]] = deque()
-        self._s: Set[str] = set()
+        self._q: deque[tuple[int, str]] = deque()
+        self._s: set[str] = set()
 
     def _evict(self, now_ms: int) -> None:
         try:

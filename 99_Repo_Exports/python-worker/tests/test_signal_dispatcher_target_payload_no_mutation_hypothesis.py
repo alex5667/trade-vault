@@ -1,10 +1,8 @@
 import json
-import time
 
 import pytest
 
 from services.signal_dispatcher import SignalDispatcher
-
 
 hypothesis = pytest.importorskip("hypothesis")
 st = pytest.importorskip("hypothesis.strategies")

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Tuple
+from collections.abc import Callable
+from typing import Any
+import contextlib
 
 # ---------------------------------------------------------------------------
 # Optional Prometheus metrics (fail-open if prometheus_client not available)
@@ -31,17 +33,15 @@ def _getattr_safe(obj: Any, name: str, default: Any = None) -> Any:
 
 
 def _setattr_safe(obj: Any, name: str, value: Any) -> None:
-    try:
+    with contextlib.suppress(Exception):
         setattr(obj, name, value)
-    except Exception:
-        pass
 
 
 def cached_on_ctx(
     ctx: Any,
     *,
     slot: str,
-    key: Tuple[Any, ...],
+    key: tuple[Any, ...],
     compute: Callable[[], Any],
 ) -> Any:
     """
@@ -56,10 +56,8 @@ def cached_on_ctx(
     """
     if ctx is None:
         if _METRICS_AVAILABLE:
-            try:
+            with contextlib.suppress(Exception):
                 _CTX_COMPUTE.labels(slot=slot).inc()
-            except Exception:
-                pass
         return compute()
 
     box = _getattr_safe(ctx, slot, None)
@@ -81,24 +79,18 @@ def cached_on_ctx(
     try:
         if key in box:
             if _METRICS_AVAILABLE:
-                try:
+                with contextlib.suppress(Exception):
                     _CTX_HIT.labels(slot=slot).inc()
-                except Exception:
-                    pass
             return box[key]
     except Exception:
         pass
 
     if _METRICS_AVAILABLE:
-        try:
+        with contextlib.suppress(Exception):
             _CTX_COMPUTE.labels(slot=slot).inc()
-        except Exception:
-            pass
 
     val = compute()
-    try:
+    with contextlib.suppress(Exception):
         box[key] = val
-    except Exception:
-        pass
 
     return val

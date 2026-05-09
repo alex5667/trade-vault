@@ -1,10 +1,11 @@
 
-from typing import List, Dict, Set, Tuple
 import logging
 import re
-from prometheus_client import Counter, Gauge, Histogram, REGISTRY
 
-def _get_or_create_prom_counter(name: str, documentation: str, labelnames: List[str] = None):
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram
+
+
+def _get_or_create_prom_counter(name: str, documentation: str, labelnames: list[str] = None):
     try:
         if labelnames:
             return Counter(name, documentation, labelnames)
@@ -17,7 +18,7 @@ def _get_or_create_prom_counter(name: str, documentation: str, labelnames: List[
                 return collector
         raise
 
-def _get_or_create_prom_gauge(name: str, documentation: str, labelnames: List[str] = None):
+def _get_or_create_prom_gauge(name: str, documentation: str, labelnames: list[str] = None):
     try:
         if labelnames:
             return Gauge(name, documentation, labelnames)
@@ -29,7 +30,7 @@ def _get_or_create_prom_gauge(name: str, documentation: str, labelnames: List[st
                 return collector
         raise
 
-def _get_or_create_prom_histogram(name: str, documentation: str, labelnames: List[str] = None, buckets: List[float] = None):
+def _get_or_create_prom_histogram(name: str, documentation: str, labelnames: list[str] = None, buckets: list[float] = None):
     try:
         if labelnames:
             return Histogram(name, documentation, labelnames, buckets=buckets or Histogram.DEFAULT_BUCKETS)
@@ -109,7 +110,7 @@ trade_close_joiner_prob_source_total = _get_or_create_prom_counter(
 # Metrics for silent errors
 silent_errors_total = _get_or_create_prom_counter(
     "silent_errors_total",
-    "Total silent errors (except: pass blocks)",
+    "Total silent errors (except Exception: pass blocks)",
     ["kind", "symbol", "where"]
 )
 
@@ -178,22 +179,22 @@ def log_silent_error(exc: Exception, kind: str, symbol: str = "unknown", context
     try:
         w = where or context or "unknown"
         silent_errors_total.labels(kind=kind, symbol=symbol, where=w).inc()
-        
+
         key = (kind, symbol)
         c = _SILENT_COUNTS.get(key, 0) + 1
         _SILENT_COUNTS[key] = c
-        
+
         # Deterministic: every Nth OR if fingerprint changed
         fp = (type(exc).__name__, str(exc)[:120])
         last_fp = _SILENT_LAST_FP.get(key)
-        
+
         is_new = last_fp != fp
         is_sampled = sample_rate > 0 and (c % sample_rate == 0)
-        
+
         if is_new or is_sampled:
             _SILENT_LAST_FP[key] = fp
             logging.getLogger("crypto_orderflow").debug(
-                "Silent error [%s] for %s: %r ctx=%s n=%d", 
+                "Silent error [%s] for %s: %r ctx=%s n=%d",
                 kind, symbol, exc, context, c
             )
     except Exception:
@@ -201,8 +202,8 @@ def log_silent_error(exc: Exception, kind: str, symbol: str = "unknown", context
 
 # Prometheus Metrics
 atr_gate_veto_total = _get_or_create_prom_counter(
-    'atr_gate_veto_total', 
-    'Total signals vetoed by ATR gate', 
+    'atr_gate_veto_total',
+    'Total signals vetoed by ATR gate',
     ['symbol', 'reason', 'mode']
 )
 tp1_net_margin_bps_gauge = _get_or_create_prom_gauge(
@@ -275,50 +276,50 @@ signals_total = _get_or_create_prom_counter(
 
 # --- Gate accounting & Slippage (P70+) ---
 trade_gate_eligible_total = _get_or_create_prom_counter(
-    "trade_gate_eligible_total", 
-    "Total signals eligible for gate evaluation", 
+    "trade_gate_eligible_total",
+    "Total signals eligible for gate evaluation",
     ["gate", "sym", "bucket", "mode"]
 )
 trade_gate_ok_total = _get_or_create_prom_counter(
-    "trade_gate_ok_total", 
-    "Total signals passing the gate", 
+    "trade_gate_ok_total",
+    "Total signals passing the gate",
     ["gate", "sym", "bucket", "mode", "status"]
 )
 trade_gate_veto_total = _get_or_create_prom_counter(
-    "trade_gate_veto_total", 
-    "Total signals vetoed by the gate", 
+    "trade_gate_veto_total",
+    "Total signals vetoed by the gate",
     ["gate", "sym", "bucket", "mode", "reason"]
 )
 trade_gate_shadow_veto_total = _get_or_create_prom_counter(
-    "trade_gate_shadow_veto_total", 
-    "Total signals that would be vetoed in shadow mode", 
+    "trade_gate_shadow_veto_total",
+    "Total signals that would be vetoed in shadow mode",
     ["gate", "sym", "bucket", "reason"]
 )
 
 # Taker flow metrics
 trade_taker_flow_imb_z = _get_or_create_prom_histogram(
-    "trade_taker_flow_imb_z", 
-    "Taker flow imbalance z-score distribution", 
+    "trade_taker_flow_imb_z",
+    "Taker flow imbalance z-score distribution",
     ["sym", "bucket"],
     buckets=[-5.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 5.0]
 )
 trade_taker_flow_imb = _get_or_create_prom_histogram(
-    "trade_taker_flow_imb", 
-    "Taker flow imbalance distribution", 
+    "trade_taker_flow_imb",
+    "Taker flow imbalance distribution",
     ["sym", "bucket"],
     buckets=[-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0]
 )
 
 # Slippage metrics
 trade_expected_slippage_bps = _get_or_create_prom_histogram(
-    "trade_expected_slippage_bps", 
-    "Expected slippage (bps)", 
+    "trade_expected_slippage_bps",
+    "Expected slippage (bps)",
     ["sym", "bucket", "model"],
     buckets=[1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0]
 )
 trade_expected_slippage_ratio = _get_or_create_prom_histogram(
-    "trade_expected_slippage_ratio", 
-    "Expected slippage ratio (expected / max_eff)", 
+    "trade_expected_slippage_ratio",
+    "Expected slippage ratio (expected / max_eff)",
     ["sym", "bucket"],
     buckets=[0.1, 0.5, 0.8, 0.9, 0.95, 1.0, 1.05, 1.1, 1.5, 2.0]
 )
@@ -374,30 +375,30 @@ trade_taker_flow_gate_veto_total = _get_or_create_prom_counter(
 )
 
 trade_expected_slippage_limit_exceed_total = _get_or_create_prom_counter(
-    "trade_expected_slippage_limit_exceed_total", 
-    "Total exceedances of expected slippage limit (ratio > 1)", 
+    "trade_expected_slippage_limit_exceed_total",
+    "Total exceedances of expected slippage limit (ratio > 1)",
     ["sym", "bucket"],
 )
 trade_slippage_residual_bps = _get_or_create_prom_histogram(
-    "trade_slippage_residual_bps", 
-    "Slippage residual (realized_worse - expected) (bps)", 
+    "trade_slippage_residual_bps",
+    "Slippage residual (realized_worse - expected) (bps)",
     ["sym", "bucket"],
     buckets=[-100.0, -50.0, -20.0, -10.0, -5.0, 0.0, 5.0, 10.0, 20.0, 50.0, 100.0]
 )
 trade_edge_minus_expected_bps = _get_or_create_prom_histogram(
-    "trade_edge_minus_expected_bps", 
-    "Edge minus expected slippage (bps)", 
+    "trade_edge_minus_expected_bps",
+    "Edge minus expected slippage (bps)",
     ["sym", "bucket"],
     buckets=[-50.0, -20.0, -10.0, -5.0, 0.0, 5.0, 10.0, 20.0, 50.0, 100.0]
 )
 trade_edge_negative_total = _get_or_create_prom_counter(
-    "trade_edge_negative_total", 
-    "Total cases where edge minus expected slippage is < 0", 
+    "trade_edge_negative_total",
+    "Total cases where edge minus expected slippage is < 0",
     ["sym", "bucket"],
 )
 trade_max_expected_slippage_bps_eff = _get_or_create_prom_gauge(
-    "trade_max_expected_slippage_bps_eff", 
-    "Effective max expected slippage limit (bps)", 
+    "trade_max_expected_slippage_bps_eff",
+    "Effective max expected slippage limit (bps)",
     ["sym", "bucket"],
 )
 
@@ -769,13 +770,13 @@ of_session_outcome_total = _get_or_create_prom_counter(
 
 # --- Diagnostic Metrics (Signal Generation Tracking) ---
 ticks_read_total = _get_or_create_prom_counter(
-    "ticks_read_total", 
-    "Total raw tick messages read from Redis stream", 
+    "ticks_read_total",
+    "Total raw tick messages read from Redis stream",
     ["symbol"],
 )
 ticks_processed_total = _get_or_create_prom_counter(
-    "ticks_processed_total", 
-    "Total tick messages successfully parsed and passed to detectors", 
+    "ticks_processed_total",
+    "Total tick messages successfully parsed and passed to detectors",
     ["symbol"],
 )
 
@@ -813,14 +814,14 @@ tick_event_age_abs_ema_ms_gauge = _get_or_create_prom_gauge(
     ["symbol"],
 )
 signals_published_total = _get_or_create_prom_counter(
-    "signals_published_total", 
-    "Total signals successfully published to all targets (Redis/Telegram/etc)", 
+    "signals_published_total",
+    "Total signals successfully published to all targets (Redis/Telegram/etc)",
     ["symbol"],
 )
 
 veto_min_conf_total = _get_or_create_prom_counter(
-    "veto_min_conf_total", 
-    "Total signals vetoed due to confidence < CRYPTO_SIGNAL_MIN_CONF", 
+    "veto_min_conf_total",
+    "Total signals vetoed due to confidence < CRYPTO_SIGNAL_MIN_CONF",
     ["symbol"],
 )
 
@@ -1140,7 +1141,7 @@ feature_missing_total = _get_or_create_prom_counter(
 # ---------------------------
 
 # Curated keys we explicitly track for coverage (low cardinality, high signal)
-_DEFAULT_COVERAGE_KEYS: Tuple[str, ...] = (
+_DEFAULT_COVERAGE_KEYS: tuple[str, ...] = (
     "reclaim",
     "obi_stable",
     "iceberg_strict",
@@ -1159,10 +1160,10 @@ _DEFAULT_COVERAGE_KEYS: Tuple[str, ...] = (
 )
 
 # Allowlist for schema drift detection (keep reasonably broad; update as you add new confirmations)
-_DEFAULT_ALLOW_KEYS: Set[str] = set(_DEFAULT_COVERAGE_KEYS)
+_DEFAULT_ALLOW_KEYS: set[str] = set(_DEFAULT_COVERAGE_KEYS)
 
 # Aliases (schema compat) — for drift tracking & completeness checks
-_ALIAS_MAP: Dict[str, str] = {
+_ALIAS_MAP: dict[str, str] = {
     "ice_strict": "iceberg_strict",
     "sweep": "sweep",  # kept for legacy detection; canonical are sweep_eqh/sweep_eql
 }
@@ -1254,10 +1255,10 @@ def record_confirmation_seen(symbol: str, conf: str) -> None:
         k = _CONFIRM_KEY_ALIAS.get(k_raw, k_raw)
         if not k:
             return
-        confirmation_seen_total.labels(symbol=str(symbol), key=str(k)).inc()
+        confirmation_seen_total.labels(symbol=symbol, key=str(k)).inc()
         if k_raw not in _CONFIRM_KEY_ALIAS:
             # Note: confirmation_unknown_total handles schema drift detection
-            confirmation_unknown_total.labels(symbol=str(symbol), key=str(k_raw)).inc()
+            confirmation_unknown_total.labels(symbol=symbol, key=str(k_raw)).inc()
     except Exception:
         return
 
@@ -1269,10 +1270,10 @@ def record_evidence_used(symbol: str, session: str, conf: str) -> None:
             return
         if k not in _EVIDENCE_KEYS:
             return
-        evidence_used_total.labels(symbol=str(symbol), key=str(k)).inc()
+        evidence_used_total.labels(symbol=symbol, key=str(k)).inc()
         if session:
             # Session label is critical for dashboard filtering
-            evidence_used_total_session.labels(symbol=str(symbol), session=str(session), key=str(k)).inc()
+            evidence_used_total_session.labels(symbol=symbol, session=str(session), key=str(k)).inc()
     except Exception:
         return
 
@@ -1286,7 +1287,7 @@ confirmations_per_signal_hist = _get_or_create_prom_histogram(
 
 # Protect Prometheus from cardinality explosion on truly broken runs
 _UNKNOWN_KEYS_MAX = 64
-_UNKNOWN_KEYS_SEEN: Set[str] = set()
+_UNKNOWN_KEYS_SEEN: set[str] = set()
 
 def _label_unknown_key(key: str) -> str:
     if key in _UNKNOWN_KEYS_SEEN:
@@ -1318,11 +1319,11 @@ def _parse_confirm_key(c: str) -> str:
 
 def track_confirmations(
     symbol: str,
-    confirmations: List[str],
+    confirmations: list[str],
     side: str = "",
     kind: str = "",
-    allow_keys: Set[str] = None,
-    coverage_keys: Tuple[str, ...] = None,
+    allow_keys: set[str] = None,
+    coverage_keys: tuple[str, ...] = None,
 ) -> None:
     """
     High-ROI drift/coverage tracker:
@@ -1338,7 +1339,7 @@ def track_confirmations(
         cov = coverage_keys or _DEFAULT_COVERAGE_KEYS
         allow = allow_keys or _DEFAULT_ALLOW_KEYS
 
-        keys: Set[str] = set()
+        keys: set[str] = set()
         for c in (confirmations or []):
             k = _parse_confirm_key(str(c))
             if not k:

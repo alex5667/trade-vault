@@ -4,10 +4,10 @@ from __future__ import annotations
 # Validates that both the canonical copy (orderflow_services/) and the
 # mirror copy (tick_flow_full/orderflow_services/) are present, parse as
 # valid YAML, and contain all expected alert names.
-
 import os
-import yaml
+
 import pytest
+import yaml
 
 
 def _alerts_path(tick_flow_full: bool = False) -> str:

@@ -4,16 +4,17 @@ Tests evaluation of meta model thresholds for ENFORCE mode.
 """
 
 import json
-import tempfile
 import os
+import tempfile
+
 import pytest
 
 from tools.eval_meta_enforce import (
-    load_lr_model,
-    predict_p,
-    metrics,
-    sigmoid,
     iter_ndjson,
+    load_lr_model,
+    metrics,
+    predict_p,
+    sigmoid,
 )
 
 
@@ -33,11 +34,11 @@ def test_load_lr_model():
         "intercept": 0.1,
         "threshold": 0.5,
     }
-    
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(model_data, f)
         fpath = f.name
-    
+
     try:
         model = load_lr_model(fpath)
         assert model["features"] == ["feat1", "feat2"]
@@ -56,11 +57,11 @@ def test_load_lr_model_invalid_kind():
         "coef": [0.5],
         "intercept": 0.1,
     }
-    
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(model_data, f)
         fpath = f.name
-    
+
     try:
         with pytest.raises(ValueError, match="unexpected model kind"):
             load_lr_model(fpath)
@@ -76,14 +77,14 @@ def test_predict_p():
         "intercept": 0.0,
         "threshold": 0.5,
     }
-    
+
     row = {"feat1": 1.0, "feat2": 0.0}
     p = predict_p(model, row)
     # score = 0.0 + 1.0 * 1.0 + (-0.5) * 0.0 = 1.0
     # sigmoid(1.0) ≈ 0.73
     assert p > 0.5
     assert p < 1.0
-    
+
     row2 = {"feat1": -1.0, "feat2": 0.0}
     p2 = predict_p(model, row2)
     # score = 0.0 + 1.0 * (-1.0) + (-0.5) * 0.0 = -1.0
@@ -100,7 +101,7 @@ def test_metrics():
         {"r_mult": -1.5},  # tail loss
         {"r_mult": 2.0},
     ]
-    
+
     m = metrics(rows)
     assert m["n"] == 5.0
     assert m["meanR"] == pytest.approx((1.5 + 0.5 - 0.3 - 1.5 + 2.0) / 5.0, abs=0.01)
@@ -119,12 +120,12 @@ def test_iter_ndjson():
         {"a": 1, "b": 2},
         {"a": 3, "b": 4},
     ]
-    
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".ndjson", delete=False) as f:
         for row in data:
             f.write(json.dumps(row) + "\n")
         fpath = f.name
-    
+
     try:
         rows = list(iter_ndjson(fpath))
         assert len(rows) == 2
@@ -147,7 +148,7 @@ def test_eval_meta_enforce_integration(tmp_path):
     model_path = tmp_path / "model.json"
     with open(model_path, "w") as f:
         json.dump(model_data, f)
-    
+
     # Create dataset file
     dataset_path = tmp_path / "dataset.ndjson"
     with open(dataset_path, "w") as f:
@@ -158,14 +159,15 @@ def test_eval_meta_enforce_integration(tmp_path):
         f.write(json.dumps({"ok": 1, "score": 0.0, "r_mult": -0.5}) + "\n")
         f.write(json.dumps({"ok": 1, "score": -0.5, "r_mult": -1.5}) + "\n")  # tail
         f.write(json.dumps({"ok": 1, "score": 0.3, "r_mult": 0.2}) + "\n")
-    
+
     # Run eval
-    from tools.eval_meta_enforce import main
     import sys
     from io import StringIO
-    
+
+    from tools.eval_meta_enforce import main
+
     out_path = tmp_path / "eval.json"
-    
+
     old_argv = sys.argv
     old_stdout = sys.stdout
     try:
@@ -186,12 +188,12 @@ def test_eval_meta_enforce_integration(tmp_path):
     finally:
         sys.argv = old_argv
         sys.stdout = old_stdout
-    
+
     # Check output
     assert os.path.exists(out_path)
-    with open(out_path, "r") as f:
+    with open(out_path) as f:
         result = json.load(f)
-    
+
     assert "best" in result
     if result["best"] is not None:
         assert "meta_p_min" in result["best"]

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Универсальный сервис ордерфлоу для крипто‑фьючерсов Binance USDT-M.
 
@@ -12,16 +13,16 @@ from __future__ import annotations
 Сервис асинхронный, построен на redis.asyncio.
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import json
-import os
-import time
 import asyncio
+import json
 import logging
-from typing import Dict, Any, List, Optional, Tuple, Set, Deque
+import os
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+
 
 @dataclass(slots=True)
 class BookSnapshot:
@@ -29,8 +30,8 @@ class BookSnapshot:
     best_bid_qty: float
     best_ask_px: float
     best_ask_qty: float
-    top5_bids: List[Tuple[float, float]]  # [(px, qty), ...]
-    top5_asks: List[Tuple[float, float]]
+    top5_bids: list[tuple[float, float]]  # [(px, qty), ...]
+    top5_asks: list[tuple[float, float]]
     ts_ms: int
     spread_bps: float
     depth_5_bid_vol: float
@@ -58,7 +59,7 @@ class BookSnapshot:
         return val
 
     @staticmethod
-    def from_raw(book: dict) -> "BookSnapshot":
+    def from_raw(book: dict) -> BookSnapshot:
         """
         Build snapshot from raw dict: {"bids": [[px,qty]...], "asks": [[px,qty]...], "ts_ms": ...}
         Keeps only top-5 to bound memory/CPU.
@@ -73,7 +74,7 @@ class BookSnapshot:
                 sorted_levels = sorted(levels, key=lambda x: float(x[0]), reverse=reverse)
             except (ValueError, TypeError, IndexError):
                 sorted_levels = levels
-                
+
             out = []
             for it in sorted_levels[:5]:
                 try:
@@ -129,91 +130,61 @@ class BookState:
       - ingest_ts_ms: wall clock time when book was ingested (epoch ms)
     """
 
-    raw: Dict[str, Any]
+    raw: dict[str, Any]
     snap: BookSnapshot
-    prev_snap: Optional[BookSnapshot]
+    prev_snap: BookSnapshot | None
     ts_ms: int
     prev_ts_ms: int
     ingest_ts_ms: int
 
-from services.orderflow.configuration import (
-    _safe_int
-)
-from core.pressure_tracker import PressureTracker
-from core.burst_gate import BurstCandidateSelector
-from core.robust_stats import RollingRobustZ
-
-from core.eff_quote_calibrator import EffQuoteCalibrator
-from core.atr_tf_calibrator import ATRTfCalibrator
-from core.atr_sanity_calibrator import ATRSanityCalibrator
-from core.atr_bps_calibrator import ATRBpsCalibrator
-
-
-
-
-from services.orderflow.metrics import (
-    log_silent_error
-)
-from services.orderflow.utils import (
-    _dedup_seen_uid,
-    LogSampler, LogSamplerFactory
-)
-
-
-
-
-
-
-from core.book_rate_calibrator import BookRateCalibrator
-from core.delta_notional_calibrator import DeltaNotionalCalibrator
-from core.daily_ohlc_tracker import DailyCandleTracker
-
-from core.weak_progress import WeakProgressSnapshot
-from common.zone_store import ZonePack
-from core.reclaim_detector import ReclaimDetector, ReclaimEvent
-from core.fp_edge_absorb import FPEdgeAbsorbDetector, EdgeAbsorbEvent
-
-from core.sweep_detector import SweepDetector, SweepEvent
-
-from core.tick_gap_tracker import TickGapTracker
-from core.burst_calibrator import BurstCalibrator
-
-
-# Consolidated core imports
-from core.obi_stability_tracker import OBIStabilityTracker
-from core.weak_progress_detector import WeakProgressDetector
-from core.cvd_reclaim import CVDReclaimEvent
-from core.session_telemetry import HourOfWeekScaleTracker
-from core.session_telemetry import HourOfWeekScaleTracker
-from services.orderflow.session_telemetry import PassRateEmaBySession
-from core.ofi_tracker import OFIStabilityTracker
-from core.liquidity_regime import LiquidityRegimeService
-
-
-
-
-
-
 import redis.asyncio as aioredis
 
+from common.zone_store import ZonePack
+from core.atr_bps_calibrator import ATRBpsCalibrator
+from core.atr_sanity_calibrator import ATRSanityCalibrator
+from core.atr_sanity_guard import RangeTfAggregator, tf_to_ms
+from core.atr_tf_calibrator import ATRTfCalibrator
+from core.book_rate_calibrator import BookRateCalibrator
+from core.burst_calibrator import BurstCalibrator
+from core.burst_gate import BurstCandidateSelector
 from core.crypto_orderflow_detectors import (
     AbsorptionDetector,
     DeltaSpikeDetector,
     IcebergDetector,
     OBIDetector,
 )
-from core.instrument_config import get_specs
-from services.l3_queue_events_proxy import L3QueueEventsProxy
-from core.atr_sanity_guard import RangeTfAggregator, tf_to_ms
-from services.persistence_manager import get_persistence_manager
-from core.tick_cvd import TickCVDState
-from core.microbar import MicroBar, MicroBarAggregator
-from core.swing_detector import SwingDetector, SwingPoint
+from core.cvd_reclaim import CVDReclaimEvent
+from core.daily_ohlc_tracker import DailyCandleTracker
+from core.delta_notional_calibrator import DeltaNotionalCalibrator
 from core.divergence_engine import DivergenceEngine, DivergenceEvent
-from core.rsi import StreamingRSI
-from core.eq_pools import EQPoolTracker
 from core.dyn_cfg_keys import DynCfgKeys as DK
+from core.eff_quote_calibrator import EffQuoteCalibrator
+from core.eq_pools import EQPoolTracker
+from core.fp_edge_absorb import EdgeAbsorbEvent, FPEdgeAbsorbDetector
+from core.instrument_config import get_specs
+from core.liquidity_regime import LiquidityRegimeService
+from core.microbar import MicroBar, MicroBarAggregator
 
+# Consolidated core imports
+from core.obi_stability_tracker import OBIStabilityTracker
+from core.ofi_tracker import OFIStabilityTracker
+from core.pressure_tracker import PressureTracker
+from core.reclaim_detector import ReclaimDetector, ReclaimEvent
+from core.robust_stats import RollingRobustZ
+from core.rsi import StreamingRSI
+from core.session_telemetry import HourOfWeekScaleTracker
+from core.sweep_detector import SweepDetector, SweepEvent
+from core.swing_detector import SwingDetector, SwingPoint
+from core.tick_cvd import TickCVDState
+from core.tick_gap_tracker import TickGapTracker
+from core.weak_progress import WeakProgressSnapshot
+from core.weak_progress_detector import WeakProgressDetector
+from services.l3_queue_events_proxy import L3QueueEventsProxy
+from services.orderflow.configuration import _safe_int
+from services.orderflow.metrics import log_silent_error
+from services.orderflow.session_telemetry import PassRateEmaBySession
+from services.orderflow.utils import LogSampler, LogSamplerFactory, _dedup_seen_uid
+from services.persistence_manager import get_persistence_manager
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Настройки по умолчанию
@@ -255,13 +226,13 @@ _symbols_added_counter = 0
 @dataclass
 class SymbolRuntime:
     symbol: str
-    config: Dict[str, Any]
+    config: dict[str, Any]
     tick_stream: str = ""
     book_stream: str = ""
     tick_group: str = ""
     book_group: str = ""
-    pm: Optional[Any] = field(default=None, init=False, repr=False)  # PersistenceManager (injectable for tests)
-    redis_client: Optional[Any] = field(default=None, init=False, repr=False)  # Redis client for metrics (injectable)
+    pm: Any | None = field(default=None, init=False, repr=False)  # PersistenceManager (injectable for tests)
+    redis_client: Any | None = field(default=None, init=False, repr=False)  # Redis client for metrics (injectable)
     delta_detector: DeltaSpikeDetector = field(init=False)
     obi_detector: OBIDetector = field(init=False)
     absorption_detector: AbsorptionDetector = field(init=False)
@@ -269,9 +240,9 @@ class SymbolRuntime:
     cvd_state: TickCVDState = field(init=False)
     l3_queue: L3QueueEventsProxy = field(init=False)
     liquidity: CryptoLiquidity = field(init=False)
-    l3_stats: Optional[Any] = None  # Stores L3BucketStats
-    _last_l3_bucket_id: Optional[int] = None
-    
+    l3_stats: Any | None = None  # Stores L3BucketStats
+    _last_l3_bucket_id: int | None = None
+
     # Structure engines (Phase B)
     microbar: MicroBarAggregator = field(init=False)
     swing: SwingDetector = field(init=False)
@@ -280,12 +251,12 @@ class SymbolRuntime:
     rsi_cvd: StreamingRSI = field(init=False)
 
     # Latest structure snapshots
-    last_bar: Optional[MicroBar] = None
-    last_swing_high: Optional[SwingPoint] = None
-    last_swing_low: Optional[SwingPoint] = None
-    prev_swing_high: Optional[SwingPoint] = None
-    prev_swing_low: Optional[SwingPoint] = None
-    last_div: Optional[DivergenceEvent] = None
+    last_bar: MicroBar | None = None
+    last_swing_high: SwingPoint | None = None
+    last_swing_low: SwingPoint | None = None
+    prev_swing_high: SwingPoint | None = None
+    prev_swing_low: SwingPoint | None = None
+    last_div: DivergenceEvent | None = None
 
     last_snapshot_ts_ms: int = 0
     last_of_strong_ts_ms: int = 0
@@ -298,7 +269,7 @@ class SymbolRuntime:
     last_book_health_ok: int = 1
     last_book_health: str = "OK"
     last_book_age_ms: int = 0
-    
+
     # Separate: last emitted signal (even if strong gate did NOT pass)
     last_emit_ts_ms: int = 0
     last_emit_dir: str = "NONE"
@@ -311,33 +282,33 @@ class SymbolRuntime:
     # Phase C: liquidity pools + sweeps
     eq_pools: EQPoolTracker = field(init=False)
     sweep: SweepDetector = field(init=False)
-    last_sweep: Optional[SweepEvent] = None
+    last_sweep: SweepEvent | None = None
     # CVD baseline at sweep moment (bar close). Needed for CVD reclaim evidence.
     last_sweep_ts_ms: int = 0
     last_sweep_cvd: float = 0.0
 
     # NEW: weak progress snapshot from last closed microbar
-    last_wp: Optional[WeakProgressSnapshot] = None
+    last_wp: WeakProgressSnapshot | None = None
 
     # reclaim detector and last reclaim
     reclaim: ReclaimDetector = field(init=False)
-    last_reclaim: Optional[ReclaimEvent] = None
+    last_reclaim: ReclaimEvent | None = None
     # CVD reclaim evidence (computed ONLY when reclaim confirmed)
-    last_cvd_reclaim: Optional[CVDReclaimEvent] = None
+    last_cvd_reclaim: CVDReclaimEvent | None = None
 
     # OFI evidence (best bid/ask incremental flow)
     ofi_tracker: OFIStabilityTracker = field(init=False)
-    last_ofi_event: Optional[Dict[str, Any]] = None
+    last_ofi_event: dict[str, Any] | None = None
 
     # Liquidity regime (risk overlay)
     liq_service: LiquidityRegimeService = field(init=False)
-    last_liq: Optional[Dict[str, Any]] = None
+    last_liq: dict[str, Any] | None = None
     liq_score: float = 0.0
     liq_regime: str = "normal"
 
     # NEW: footprint edge absorb detector and last event
     fp_edge: FPEdgeAbsorbDetector = field(init=False)
-    last_fp_edge: Optional[EdgeAbsorbEvent] = None
+    last_fp_edge: EdgeAbsorbEvent | None = None
 
 
     # NEW: continuation context (countertrend absorption observed recently)
@@ -349,23 +320,23 @@ class SymbolRuntime:
     last_atr_ts_ms: int = 0
     # ATR sanity: TF-range proxy (roll-up microbars -> atr_tf)
     atr_range_agg: object = field(init=False)
-    
+
     # Adaptive Pressure Proxy Tier Calibration (legacy - kept for compatibility)
-    ptier_samples_usd: Deque[float] = field(default_factory=lambda: deque(maxlen=4096))
+    ptier_samples_usd: deque[float] = field(default_factory=lambda: deque(maxlen=4096))
     ptier_last_update_ts_ms: int = 0
-    
+
     # Pressure Tier Calibrator (Expert Recommendation - Production Ready)
     # Adaptive DN threshold calibration with regime-awareness and hysteresis
     ptier_calib: object = field(init=False)  # PressureTierCalibrator instance
 
-    tick_buffer: Deque[Dict[str, Any]] = field(init=False)
+    tick_buffer: deque[dict[str, Any]] = field(init=False)
     # Raw (full) book dict from Redis stream (fail-open compatibility for detectors)
-    last_book_raw: Optional[Dict[str, Any]] = None
+    last_book_raw: dict[str, Any] | None = None
     # Typed snapshot for microstructure analytics (top5 + best bid/ask)
-    last_book: Optional[BookSnapshot] = None
-    prev_book: Optional[BookSnapshot] = None
+    last_book: BookSnapshot | None = None
+    prev_book: BookSnapshot | None = None
     # Atomic snapshot (preferred by tick path)
-    book_state: Optional[BookState] = None
+    book_state: BookState | None = None
     last_book_ts_ms: int = 0
     prev_book_ts_ms: int = 0
     book_rate_ema: float = 0.0
@@ -382,8 +353,8 @@ class SymbolRuntime:
     book_rate_z: float = 0.0
     book_churn_score: float = 0.0
     book_churn_hi: int = 0
-    last_obi_event: Optional[Dict[str, Any]] = None
-    last_iceberg_event: Optional[Dict[str, Any]] = None
+    last_obi_event: dict[str, Any] | None = None
+    last_iceberg_event: dict[str, Any] | None = None
     last_signal_ts: int = 0
     # Overtrading/churn proxy: cooldown filtered rate (EMA, signals/sec)
     cooldown_hits_ema: float = 0.0
@@ -393,7 +364,7 @@ class SymbolRuntime:
     pressure: PressureTracker = field(init=False)
     pressure_sps: float = 0.0
     cooldown_hit_rate_ema: float = 0.0
-    
+
     # DeltaNotional calibrator
     dn_calib: DeltaNotionalCalibrator = field(init=False)
     tick_dn_calib: DeltaNotionalCalibrator = field(init=False) # Separate for Tick Triggers
@@ -408,34 +379,34 @@ class SymbolRuntime:
     last_tick_ts_ms: int = 0
     # Tick dedup (best-effort). Helps avoid double-counting on retries/replays.
     tick_dedup_window: int = 4096
-    tick_uid_ring: Deque[str] = field(default_factory=lambda: deque(maxlen=4096), repr=False)
-    tick_uid_set: Set[str] = field(default_factory=set, repr=False)
+    tick_uid_ring: deque[str] = field(default_factory=lambda: deque(maxlen=4096), repr=False)
+    tick_uid_set: set[str] = field(default_factory=set, repr=False)
     burst_cal: BurstCalibrator = field(init=False)
     # простая телеметрия
     tick_count: int = 0
     heartbeat_counter: int = 0
     delta_triggers: int = 0
     signal_count: int = 0
-    
+
     # Counters moved from Service
     strong_gate_counter: int = 0
     low_conf_counter: int = 0
     swing_point_counter: int = 0
-    
+
     last_metrics_ts: float = 0.0
-    
+
     # --- Candidate pressure (cooldown flood) + best-of-burst ---
-    signal_attempt_ts_ms: Deque[int] = field(default_factory=lambda: deque(maxlen=1200))  # ~20min if 1Hz
+    signal_attempt_ts_ms: deque[int] = field(default_factory=lambda: deque(maxlen=1200))  # ~20min if 1Hz
     pressure_sps: float = 0.0
     pressure_hi: int = 0
 
-    pending_payload: Optional[Dict[str, Any]] = None
+    pending_payload: dict[str, Any] | None = None
     pending_score: float = 0.0
     pending_ts_ms: int = 0
     pending_replaced: int = 0
 
     # Adverse Selection Verification (Continuation)
-    pending_adverse_payload: Optional[Dict[str, Any]] = None
+    pending_adverse_payload: dict[str, Any] | None = None
     pending_adverse_ts_ms: int = 0
 
     # Log samplers for high-frequency messages
@@ -443,7 +414,7 @@ class SymbolRuntime:
     weak_signal_log_sampler: LogSampler = field(init=False)
     signal_emit_log_sampler: LogSampler = field(init=False)
     loop_log_sampler: LogSampler = field(init=False)
-    
+
     # Counter for absorption signal logging (log every 10,000th)
     absorption_signal_count: int = field(default=0)
 
@@ -457,12 +428,12 @@ class SymbolRuntime:
     last_ts_ms: int = 0
 
     # HTF zones cache (real zones from geometry publisher)
-    zones_pack: Optional[ZonePack] = None
+    zones_pack: ZonePack | None = None
     zones_last_load_ts_ms: int = 0
-    
+
     # Dynamic specs from Redis (auto-calibration)
-    calibrated_specs: Dict[str, Any] = field(default_factory=dict)
-    dynamic_cfg: Dict[str, Any] = field(default_factory=dict)
+    calibrated_specs: dict[str, Any] = field(default_factory=dict)
+    dynamic_cfg: dict[str, Any] = field(default_factory=dict)
     spec_update_ts_ms: int = 0
     _history_loaded: bool = False
     _pg_loaded: bool = False
@@ -487,7 +458,7 @@ class SymbolRuntime:
             ttl = int(self.config.get("overrides_cache_ttl_ms", 30000))
             if ttl > 0 and (now - int(self.overrides_loaded_ts_ms or 0)) < ttl:
                 return
-            
+
             # 1. Get active pointer
             active_sid = str(await r.get("cfg:orderflow:overrides:v1:active_sid") or "")
             if not active_sid:
@@ -515,7 +486,7 @@ class SymbolRuntime:
                 # (OR clear? Fail-open usually means ignore bad config)
                 self.overrides_loaded_ts_ms = now
                 return
-            
+
             self.overrides_sid = active_sid
             self.overrides_obj = o
             self.overrides_loaded_ts_ms = now
@@ -528,7 +499,7 @@ class SymbolRuntime:
     _atr_tf_bars_since_persist: int = 0
 
     # --- Pivot Persistence: Daily Candle Tracker ---
-    last_day_date: Optional[str] = None
+    last_day_date: str | None = None
     daily_open: float = 0.0
     daily_high: float = 0.0
     daily_low: float = 0.0
@@ -550,14 +521,14 @@ class SymbolRuntime:
 
     # State flags
     ready: bool = False
-    
+
     # Checksum / Sequence tracking
     last_u: int = 0
     last_id: int = 0
-    
+
     # Last state
     last_price: float = 0.0
-    
+
     # Book / Spread stats
     last_spread_bps_l2: float = 0.0
     last_book_mid: float = 0.0
@@ -565,16 +536,16 @@ class SymbolRuntime:
     last_depth_bid_5: float = 0.0
     last_depth_ask_5: float = 0.0
     last_depth_min_5_usd: float = 0.0
-    
+
     # Liquidity regime output
     last_liq_score: float = 0.0
     last_liq_regime: str = "na"
     liq_guard: LiquidityRegimeService = field(init=False)
-    
+
     # OFI (incremental L1 flow)
     # ofi_tracker: OFITracker = field(init=False) # Already exists as OFIStabilityTracker
     # last_ofi_event: Optional[Dict[str, Any]] = None # Already exists
-    
+
     # CVD reclaim (bonus-only): сохраняем только на reclaim event
     # last_sweep_cvd: float = 0.0 # Already exists
     # last_sweep_ts_ms: int = 0 # Already exists
@@ -585,21 +556,21 @@ class SymbolRuntime:
     # obi_detector: OBIDetector = field(init=False) # Already exists
     # iceberg_detector: IcebergDetector = field(init=False) # Already exists
     # absorption_detector: AbsorptionDetector = field(init=False) # Already exists
-    
+
     # Trackers
     # pressure: PressureTracker = field(init=False) # Already exists
     # burst: BurstCandidateSelector = field(init=False) # Already exists
     # spread_stats: RollingRobustZ = field(init=False) # Already exists
-    
+
     # Pending Signal (for Cooldown/Burst)
     # pending_payload: Optional[Dict[str, Any]] = None # Already exists
     # pending_score: float = 0.0 # Already exists
     # pending_ts_ms: int = 0 # Already exists
     # pending_replaced: int = 0 # Already exists
-    
+
     # Dynamic config overrides (from calibration etc.)
     # dynamic_cfg: Dict[str, Any] = field(default_factory=dict) # Already exists
-    
+
     # OBI Tracker
     # obi_tracker: OBIStabilityTracker = field(init=False) # Already exists
     obi_stable: bool = False
@@ -617,7 +588,7 @@ class SymbolRuntime:
             self.dynamic_cfg[DK.ATR_TF_SELECTED] = str(self.config.get("atr_tf", "5m") or "5m")
         except Exception:
             self.dynamic_cfg[DK.ATR_TF_SELECTED] = "5m"
-            
+
         # Initialize Liquidity Regime Service using global config + overrides
         from core.liquidity_regime import LiquidityRegimeService
         self.liq_service = LiquidityRegimeService(symbol=self.symbol, cfg=self.config)
@@ -639,7 +610,7 @@ class SymbolRuntime:
             pressure_hi_per_min=float(self.config.get("pressure_hi_per_min", 60.0)),
             pressure_extreme_per_min=float(self.config.get("pressure_extreme_per_min", 200.0)),
         )
-        
+
         # ATR sanity range aggregator (deterministic TF roll-up)
         try:
             atr_tf = str(self.config.get("atr_tf", "5m") or "5m")
@@ -650,9 +621,9 @@ class SymbolRuntime:
             tf_ms = 60_000
             min_samples = 30
         self.atr_range_agg = RangeTfAggregator(tf_ms=tf_ms, min_samples=min_samples)
-        
+
         # ATR Sanity Calibrator (Source Selector)
-        # Replaced with user's specific naming from diff: atr_sanity 
+        # Replaced with user's specific naming from diff: atr_sanity
         try:
             ms = int(self.config.get("atr_sanity_min_samples", int(os.getenv("ATR_SANITY_MIN_SAMPLES", "500"))) or 500)
             max_age = int(self.config.get("atr_sanity_max_age_ms", int(os.getenv("ATR_SANITY_MAX_AGE_MS", "180000"))) or 180000)
@@ -660,19 +631,19 @@ class SymbolRuntime:
             ms = 500
             max_age = 180000
         self.atr_sanity = ATRSanityCalibrator(min_samples=ms, max_age_ms=max_age)
-        
+
         # Legacy/previous field for compat if needed (but we will switch to atr_sanity primarily)
-        self.atr_src_calib = self.atr_sanity 
+        self.atr_src_calib = self.atr_sanity
 
 
 
         # Spread robust stats
         sw = int(self.config.get("spread_stats_window", 300))
         self.spread_stats = RollingRobustZ(window=max(32, sw))
-        
+
         # Daily Candle Tracker
         self.daily_tracker = DailyCandleTracker(self.symbol)
-        
+
 
 
         # Book rate stats (for churn)
@@ -692,7 +663,7 @@ class SymbolRuntime:
             max_jump_mult=float(os.getenv("ATR_TF_MAX_JUMP_MULT", "4.0")),
         )
 
-        
+
         # --------------------------------------
         # ATR(bps) floor tiers calibrator (v1)
         # --------------------------------------
@@ -709,7 +680,7 @@ class SymbolRuntime:
             br_ms = 300
             br_dtm = 2000
         self.br_calib = BookRateCalibrator(min_samples=br_ms, dt_max_ms=br_dtm)
-        
+
         # Pressure Tier Calibrator (Expert Recommendation - Production Ready)
         # Adaptive DN threshold calibration with regime-awareness and hysteresis
         from core.pressure_tier_calibrator import PressureTierCalibrator
@@ -729,7 +700,7 @@ class SymbolRuntime:
         self.tick_dn_calib = DeltaNotionalCalibrator(
             min_samples=int(self.config.get("dn_calib_min_samples", 300))
         )
-        
+
         # --------------------------------------
         # OBI Stability Tracker (Strong OF Confirmation)
         # --------------------------------------
@@ -743,7 +714,7 @@ class SymbolRuntime:
         self.obi_stable_secs = 0.0
         self.obi_stability_score = 0.0
         self.obi_stable = False
-        
+
         # --------------------------------------
         # Weak Progress Detector (History) - Absorption Mode
         # --------------------------------------
@@ -767,39 +738,39 @@ class SymbolRuntime:
         # --------------------------------------
         # Liquidity regime service (risk overlay) -> Initialized at top
         # --------------------------------------
-        
+
         # --------------------------------------
         # CVD Reclaim (bonus-layer)
         # --------------------------------------
         # Computed only when reclaim is confirmed (discrete microbar grid).
         # We store baseline at sweep, and evaluate at reclaim.
         self.last_cvd_reclaim = None
-        
-
-        
 
 
-        # self._calib_loaded is for eff_quote, but it seems shared in some versions. 
+
+
+
+        # self._calib_loaded is for eff_quote, but it seems shared in some versions.
         # I'll stick to the MEGA-DIFF.
-        
 
-        
+
+
         # L3-lite proxy
         l3_alpha = float(os.getenv("L3_TAKER_RATE_EMA_ALPHA", "0.12"))
         bucket_ms = int(self.config.get("delta_bucket_ms", 1000) or 1000)
-        
+
         # Calibration loaded flags (unified or separate)
         self._calib_loaded: bool = False
         self._book_calib_loaded: bool = False
         self._dn_calib_loaded: bool = False
-        
+
         # Separate throttles (avoid coupling lifecycles)
         self._book_calib_last_persist_ts_ms: int = 0
         self._dn_calib_last_persist_ts_ms: int = 0
-        
+
         self._atr_tf_loaded: bool = False
         self._atr_tf_last_persist_ts_ms: int = 0
-        
+
         self._bookrate_sample_bucket: int = -1
         self.l3_queue = L3QueueEventsProxy(bucket_ms=bucket_ms, alpha=l3_alpha)
         from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
@@ -813,12 +784,12 @@ class SymbolRuntime:
         try:
              d_rate = float(self.config.get("delta_log_sample_rate", 0.05))
              d_n = int(1.0 / d_rate) if d_rate > 0 else 100
-        except: d_n = 20
+        except Exception: d_n = 20
 
         try:
              w_rate = float(self.config.get("weak_signal_log_sample_rate", 0.05))
              w_n = int(1.0 / w_rate) if w_rate > 0 else 100
-        except: w_n = 20
+        except Exception: w_n = 20
 
         self.delta_log_sampler = LogSampler(sample_rate=d_n)
         self.weak_signal_log_sampler = LogSampler(sample_rate=w_n)
@@ -832,11 +803,11 @@ class SymbolRuntime:
 
         # General stream throttle (Processing N stream entries)
         self.throttle_log_sampler = LogSampler(sample_rate=10000)
-        
+
         # Initialization samplers (every 10000th)
         LogSamplerFactory.get_sampler("WORKER_INIT", 10000)
         LogSamplerFactory.get_sampler("TICK_HELPER_INIT", 10000)
-        
+
         self.cooldown_last_ts_ms = 0
 
         # NEW: DN Telemetry initialization
@@ -870,7 +841,7 @@ class SymbolRuntime:
         Single source of truth: dynamic_cfg[DK.ATR_TF_SELECTED] -> config -> fallback.
         All ATR calculations MUST use this method.
         """
-    
+
     def is_duplicate_tick_uid(self, uid: str) -> bool:
         """Return True if uid has been seen in recent window; otherwise record and return False."""
         return _dedup_seen_uid(uid, self.tick_uid_ring, self.tick_uid_set, int(self.tick_dedup_window or 0))
@@ -885,19 +856,19 @@ class SymbolRuntime:
         """
         if getattr(self, "_history_loaded", False):
             return
-        
+
         try:
             pm = (self.pm or get_persistence_manager())
             limit = int(self.config.get("history_warmup_limit", 200))
             bars = await pm.load_microbar_history(self.symbol, limit=limit)
-            
+
             if not bars:
                 logger.info(f"ℹ️ No historical microbars found in PG for {self.symbol}")
                 self._history_loaded = True
                 return
 
             logger.info(f"🔄 Warming up {self.symbol} with {len(bars)} historical bars from PG")
-            
+
             # Prepare MicroBar objects for replay
             # from core.microbar import MicroBar
             for b_dict in bars:
@@ -922,17 +893,17 @@ class SymbolRuntime:
                     if hasattr(self, "eq_pools"): self.eq_pools.on_bar(mb)
                 except Exception:
                     pass
-                
+
             self._history_loaded = True
         except Exception as e:
             logger.error(f"❌ Error during history warmup for {self.symbol}: {e}")
             self._history_loaded = True # Prevent infinite retry
 
-    def apply_config(self, new_config: Dict[str, Any]) -> None:
+    def apply_config(self, new_config: dict[str, Any]) -> None:
         """
         Обновляет конфиг и перезагружает детекторы без потери истории тиков.
         """
-        prev_ticks: List[Dict[str, Any]] = list(self.tick_buffer) if hasattr(self, "tick_buffer") else []
+        prev_ticks: list[dict[str, Any]] = list(self.tick_buffer) if hasattr(self, "tick_buffer") else []
         self.config = new_config.copy()
         self.tick_buffer = deque(prev_ticks, maxlen=self.config["tick_buffer"])
         # keep pressure deque; do not reset on config reload
@@ -1144,7 +1115,7 @@ class SymbolRuntime:
                 self.rsi_price = StreamingRSI(period=int(self.config.get("rsi_period", 14)))
             else:
                 self.rsi_price.apply_config(self.config, key="rsi_period")
-                
+
             if not hasattr(self, "rsi_cvd"):
                 self.rsi_cvd = StreamingRSI(period=int(self.config.get("rsi_period", 14)))
             else:

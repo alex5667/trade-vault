@@ -1,12 +1,10 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import time
-import json
 from types import SimpleNamespace
 
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate, EdgeCostGateDecision
 from services.feature_drift_alarm import FeatureDriftAlarm, FeatureDriftConfig
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:
@@ -114,17 +112,17 @@ def test_drift_alarm_tightens_edge_cost_gate_decision(monkeypatch):
         "feature": "obi",
         "last_ts_ms": str(get_ny_time_millis())
     })
-    
+
     # Verify Redis state
     h = r.hgetall(active_key)
     assert float(h.get("factor", "1")) == 5.0
 
     # 2) Evaluate gate WITHOUT drift (simulate missing key by using different redis)
     gate = _mk_gate(r)
-    gate.redis = FakeRedis() 
+    gate.redis = FakeRedis()
     d0: EdgeCostGateDecision = gate.evaluate(ctx=ctx, kind="absorption", symbol="BTCUSDT")
     assert d0.apply is True
-    assert d0.veto is False 
+    assert d0.veto is False
 
     # 3) Evaluate gate WITH drift => K increases => veto
     gate2 = _mk_gate(r)

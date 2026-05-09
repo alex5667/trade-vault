@@ -1,12 +1,11 @@
-from utils.time_utils import get_ny_time_millis
-
+import argparse
 import asyncio
 import json
 import os
-import sys
-import time
-import argparse
+
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
 
 # This tool acts as the "ApplyRunner" for AB Winner keys.
 # It can read "latest" suggestion for a bucket, OR apply a specific SID.
@@ -16,17 +15,17 @@ async def apply_one_sid(r, sid: str) -> None:
     if not raw:
         print(f"Meta not found for sid={sid}")
         return
-    
+
     try:
         meta = json.loads(raw)
-    except:
+    except Exception:
         return
 
-    sym = str(meta.get("symbol") or "").upper()
-    rg = str(meta.get("regime") or "na").lower()
-    grp = str(meta.get("group") or "default").lower()
+    sym = (meta.get("symbol") or "").upper()
+    rg = (meta.get("regime") or "na").lower()
+    grp = (meta.get("group") or "default").lower()
     win = str(meta.get("winner_arm") or meta.get("winner") or "").upper()
-    scn = str(meta.get("scenario") or "").lower()
+    scn = (meta.get("scenario") or "").lower()
 
     if not sym:
         print("Missing symbol in meta")
@@ -63,10 +62,10 @@ async def main():
 
     if args.sid:
         await apply_one_sid(r, args.sid)
-    
+
     if args.all_latest:
         # Scan all latest suggestions?
-        # Since we don't have a reliable registry of ALL active suggestions easily accessible 
+        # Since we don't have a reliable registry of ALL active suggestions easily accessible
         # without scanning keys or using the agg registry from suggester,
         # we can use the suggester's bucket registry.
         reg_key = "ab:agg:registry:v1"
@@ -85,7 +84,7 @@ async def main():
                     sid = await r.get(l_scn_key)
                     if sid:
                         await apply_one_sid(r, sid)
-                except:
+                except Exception:
                     pass
         except Exception as e:
             print(f"Error scanning latest: {e}")

@@ -2,12 +2,13 @@
 
 from core.meta_features_v8 import (
     META_FEAT_V8_COLS,
-    META_FEAT_V8_NEW_COLS,
     META_FEAT_V8_NAME,
+    META_FEAT_V8_NEW_COLS,
     META_FEAT_V8_VERSION,
     build_meta_features_v8,
 )
 from core.meta_schema_registry import get_schema_info
+
 
 def test_meta_schema_registry_has_v8():
     ver, cols, h = get_schema_info(META_FEAT_V8_NAME)

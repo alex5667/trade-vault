@@ -1,6 +1,7 @@
-import time
 from unittest.mock import MagicMock
-from services.ev_tp1_stats import RedisEvTp1StatsProvider, EvTp1StatsConfig
+
+from services.ev_tp1_stats import EvTp1StatsConfig, RedisEvTp1StatsProvider
+
 
 def test_ev_tp1_stats_provider_get_p():
     # Arrange
@@ -12,7 +13,7 @@ def test_ev_tp1_stats_provider_get_p():
         "tp1_hits": "60",
         "ema_tp1": "0.55"
     }
-    
+
     cfg = EvTp1StatsConfig(
         enabled=True,
         use_regime_dim=True,
@@ -21,10 +22,10 @@ def test_ev_tp1_stats_provider_get_p():
         prefer_ema=True
     )
     prov = RedisEvTp1StatsProvider(redis, cfg)
-    
+
     # Act
     p = prov.get_p_hit_tp1(kind="k", symbol="s", tf="t", regime="r")
-    
+
     # Assert
     assert p == 0.55 # prefers EMA
 
@@ -43,6 +44,6 @@ def test_ev_tp1_stats_provider_not_enough_samples():
         prefer_ema=True
     )
     prov = RedisEvTp1StatsProvider(redis, cfg)
-    
+
     p = prov.get_p_hit_tp1(kind="k", symbol="s", tf="t", regime="r")
     assert p is None

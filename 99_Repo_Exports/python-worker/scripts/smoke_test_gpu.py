@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """GPU Stack Smoke Test
 
 Verifies that all GPU-accelerated components work correctly:
@@ -124,6 +125,7 @@ except Exception as e:
 print("\n=== 4. RollingRobustZ GPU path ===")
 try:
     import numpy as np
+
     from core.robust_stats import RollingRobustZ
 
     rz = RollingRobustZ(window=250)  # > 200 threshold → should hit GPU
@@ -145,8 +147,8 @@ except Exception as e:
 # ---------------------------------------------------------------------------
 print("\n=== 5. XGBoost GPU ===")
 try:
-    import xgboost as xgb
     import numpy as np
+    import xgboost as xgb
 
     X = np.random.rand(2000, 30).astype(np.float32)
     y = (np.random.rand(2000) > 0.5).astype(int)

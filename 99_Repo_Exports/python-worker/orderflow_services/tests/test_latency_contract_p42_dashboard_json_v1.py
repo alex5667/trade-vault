@@ -8,7 +8,7 @@ def test_p42_dashboard_json_valid():
     path = os.path.abspath(
         os.path.join(os.path.dirname(__file__), '..', 'grafana', 'latency_contract_p42_v1.json')
     )
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         data = json.load(f)
     assert data['title']
     assert data['panels']

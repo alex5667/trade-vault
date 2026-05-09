@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Candle → OF features (delta/z/ratio/cvd/bodyATR/absorbed) → Redis:
 
@@ -21,34 +22,34 @@ ATR:
 - Если кэша нет, считаем локально Wilder(14) на лету
 """
 
-import os
 import json
 import math
-import time
-import threading
+import os
 import sys
+import threading
+import time
 from collections import deque
-from typing import Dict, Any, Optional, List
+from typing import Any
 
-from core.redis_client import get_redis
-from core.dual_redis_client import get_dual_signals_redis
 from core.config import (
-    OF_WINDOW_BARS,
-    OF_Z_THRESHOLD,
-    OF_RATIO_THRESHOLD,
+    OF_CONSUMER_GROUP,
     OF_MIN_BODY_ATR,
     OF_MIN_VOLUME_Q,
-    OF_Z_THRESHOLD_PROXY,
-    OF_RATIO_THRESHOLD_PROXY,
     OF_MIN_VOLUME_Q_PROXY,
+    OF_RATIO_THRESHOLD,
+    OF_RATIO_THRESHOLD_PROXY,
+    OF_READ_BLOCK_MS,
+    OF_READ_COUNT,
     OF_STREAM_BAR,
     OF_STREAM_SPIKE,
+    OF_WINDOW_BARS,
+    OF_Z_THRESHOLD,
+    OF_Z_THRESHOLD_PROXY,
+    STREAM_MAX_LENGTH,
     SUBSCRIBE_STREAM,
-    OF_CONSUMER_GROUP,
-    OF_READ_COUNT,
-    OF_READ_BLOCK_MS,
-    STREAM_MAX_LENGTH
 )
+from core.dual_redis_client import get_dual_signals_redis
+from core.redis_client import get_redis
 
 # ✅ GPU Support: импорт GPU сервиса для ускорения вычислений
 try:
@@ -64,12 +65,13 @@ if common_path not in sys.path:
     sys.path.append(common_path)
 
 from common.time_utils import extract_binance_close_time, format_timestamp_for_redis, get_current_timestamp_ms
+import contextlib
 
 
 # ---------------------- Online статистика (Welford) ----------------------
 class OnlineStats:
     """Welford для подсчёта online mean/variance + z-score."""
-    
+
     def __init__(self, maxlen: int = 300):
         self.maxlen = maxlen
         self.buf = deque(maxlen=maxlen)
@@ -102,16 +104,16 @@ class WilderATR:
     - Инициализация: среднее TR за 'period' свечей
     - Обновление: ATR_t = (ATR_{t-1}*(period-1) + TR_t)/period
     """
-    
+
     def __init__(self, period: int = 14, warmup: int = 14):
         self.period = period
         self.warmup = warmup
-        self.prev_close: Optional[float] = None
-        self.atr: Optional[float] = None
+        self.prev_close: float | None = None
+        self.atr: float | None = None
         self.warm_sum = 0.0
         self.warm_cnt = 0
 
-    def tr(self, high: float, low: float, prev_close: Optional[float]) -> float:
+    def tr(self, high: float, low: float, prev_close: float | None) -> float:
         """Вычисляет True Range."""
         a = high - low
         if prev_close is None:
@@ -124,7 +126,7 @@ class WilderATR:
         """Обновляет ATR новой свечой и возвращает текущее значение."""
         tr_val = self.tr(high, low, self.prev_close)
         self.prev_close = close
-        
+
         if self.atr is None:
             # warmup фаза
             self.warm_sum += tr_val
@@ -132,7 +134,7 @@ class WilderATR:
             if self.warm_cnt >= self.warmup:
                 self.atr = self.warm_sum / max(self.warm_cnt, 1)
             return self.atr or 0.0
-        
+
         # Wilder smoothing
         self.atr = (self.atr * (self.period - 1) + tr_val) / self.period
         return self.atr
@@ -141,7 +143,7 @@ class WilderATR:
 # ---------------------- Детектор Δ-спайков на свечах ----------------------
 class CandleDeltaDetector:
     """Детектор Delta спайков на основе Order Flow анализа."""
-    
+
     def __init__(self, window: int = 300):
         self.stats = OnlineStats(window)
         self.vols = deque(maxlen=window)
@@ -163,8 +165,8 @@ class CandleDeltaDetector:
         close: float,
         volume: float,
         atr: float,
-        taker_buy_vol: Optional[float]
-    ) -> Dict[str, Any]:
+        taker_buy_vol: float | None
+    ) -> dict[str, Any]:
         """
         Обрабатывает закрытую свечу и возвращает OF метрики.
         
@@ -237,13 +239,13 @@ class CandleOrderFlowWorker:
     - stream:of-bar (каждый бар)
     - stream:of-spike (только спайки)
     """
-    
+
     def __init__(self):
         """Инициализация клиентов Redis и внутренних структур."""
         self.redis_client = get_redis()  # Клиент для чтения (порт 6379)
         self.dual_redis = get_dual_signals_redis()  # Клиент для публикации (порты 6380, 6381)
         self.is_running = False
-        
+
         # ✅ GPU Support: инициализация GPU сервиса
         self.gpu_service = None
         if GPU_SERVICE_AVAILABLE:
@@ -261,35 +263,35 @@ class CandleOrderFlowWorker:
                 print(f"⚠️ GPU service initialization failed: {e}, using CPU")
                 sys.stdout.flush()
                 self.gpu_service = None
-        
+
         # Детекторы и ATR по (symbol, timeframe)
-        self.detectors: Dict[tuple, CandleDeltaDetector] = {}
-        self.atrs: Dict[tuple, WilderATR] = {}
-        
+        self.detectors: dict[tuple, CandleDeltaDetector] = {}
+        self.atrs: dict[tuple, WilderATR] = {}
+
         # ✅ GPU Batch Processing
         # Global batching is now used in _consume_loop, no per-symbol buffer needed.
         self.batch_size = int(os.getenv('CANDLE_BATCH_SIZE', '10'))
-        
+
         # Статистика
         self.processed_count = 0
         self.spike_count = 0
         self._stats_thread = None
         self._stats_interval_sec = 60
-        
+
     def _get_detector(self, symbol: str, timeframe: str) -> CandleDeltaDetector:
         """Возвращает или создаёт детектор для пары (symbol, timeframe)."""
         key = (symbol, timeframe)
         if key not in self.detectors:
             self.detectors[key] = CandleDeltaDetector(window=OF_WINDOW_BARS)
         return self.detectors[key]
-    
+
     def _get_atr(self, symbol: str, timeframe: str) -> WilderATR:
         """Возвращает или создаёт ATR калькулятор для пары (symbol, timeframe)."""
         key = (symbol, timeframe)
         if key not in self.atrs:
             self.atrs[key] = WilderATR(period=14, warmup=14)
         return self.atrs[key]
-    
+
     def _get_atr_value(self, symbol: str, timeframe: str, open_: float, high: float, low: float, close: float) -> float:
         """
         Получает ATR из Redis кэша или вычисляет локально.
@@ -306,11 +308,11 @@ class CandleOrderFlowWorker:
                     return val
         except Exception:
             pass
-        
+
         # Fallback: локальный расчёт
         atr_calc = self._get_atr(symbol, timeframe)
         return atr_calc.update(high, low, close)
-    
+
     def _as_float(self, x: Any) -> float:
         """Безопасное преобразование в float."""
         if x is None:
@@ -321,7 +323,7 @@ class CandleOrderFlowWorker:
             return float(str(x))
         except Exception:
             return 0.0
-    
+
     def _as_int(self, x: Any) -> int:
         """Безопасное преобразование в int."""
         if x is None:
@@ -332,7 +334,7 @@ class CandleOrderFlowWorker:
             return int(str(x))
         except Exception:
             return 0
-    
+
     def _as_bool(self, x: Any) -> bool:
         """Безопасное преобразование в bool."""
         if isinstance(x, bool):
@@ -343,8 +345,8 @@ class CandleOrderFlowWorker:
         if s in ("false", "0", "no"):
             return False
         return False
-    
-    def _process_stream_message(self, message_id: str, fields: dict) -> Optional[Dict[str, Any]]:
+
+    def _process_stream_message(self, message_id: str, fields: dict) -> dict[str, Any] | None:
         """
         Parses a stream message into a generic candle dict.
         Does NOT process or publish. Returns dict or None.
@@ -352,31 +354,31 @@ class CandleOrderFlowWorker:
         try:
             if 'data' not in fields:
                 return None
-            
+
             message_data = json.loads(fields['data'])
             kline = message_data.get('k') if isinstance(message_data, dict) and 'k' in message_data else message_data
-            
+
             if not isinstance(kline, dict):
                 return None
-            
+
             # Use 'x' (final) from Binance or 'closed' from other sources
             is_closed = self._as_bool(kline.get('x')) or self._as_bool(message_data.get('closed'))
             if not is_closed:
                 return None
-            
+
             symbol = str(kline.get('s') or kline.get('symbol') or '')
             timeframe = str(kline.get('i') or kline.get('type') or '1m')
             ts_ms = self._as_int(kline.get('T') or kline.get('closeTime') or kline.get('timestamp'))
-            
+
             o = self._as_float(kline.get('o') or kline.get('open'))
             h = self._as_float(kline.get('h') or kline.get('high'))
             l = self._as_float(kline.get('l') or kline.get('low'))
             c = self._as_float(kline.get('c') or kline.get('close'))
             v = self._as_float(kline.get('v') or kline.get('volume'))
-            
+
             taker_buy_vol_raw = kline.get('V') or kline.get('takerBuyVolume')
             tb = self._as_float(taker_buy_vol_raw) if taker_buy_vol_raw is not None else None
-            
+
             # Get ATR (needed for bodyATR/spike logic eventually, can be fetched batch-wise or here)
             # Fetching here is simpler for now, though batch fetch would be even better.
             atr = self._get_atr_value(symbol, timeframe, o, h, l, c)
@@ -397,7 +399,7 @@ class CandleOrderFlowWorker:
         except Exception:
             return None
 
-    def _process_global_batch(self, batch_candles: List[Dict[str, Any]]) -> None:
+    def _process_global_batch(self, batch_candles: list[dict[str, Any]]) -> None:
         """
         Processes a mixed batch of candles (various symbols) via GPU if available,
         then publishes results.
@@ -423,10 +425,10 @@ class CandleOrderFlowWorker:
                         'takerBuyVolume': c['takerBuyVolume'],
                         'atr': c['atr']
                     })
-                
+
                 # Bulk compute
                 gpu_out = self.gpu_service.process_candles_batch(gpu_inputs)
-                
+
                 if gpu_out and len(gpu_out.get('deltas', [])) == len(batch_candles):
                     # Unpack GPU results
                     for i, c in enumerate(batch_candles):
@@ -457,33 +459,33 @@ class CandleOrderFlowWorker:
                 res = {}
                 if processed_via_gpu and 'gpu_result' in c:
                     g = c['gpu_result']
-                    
+
                     # Update State with GPU data
                     # Important: "cvd" from GPU might be local sum. We need global CVD from detector.
                     detector.stats.update(g['delta'])
                     detector.vols.append(c['volume'])
-                    detector.cvd += g['delta'] 
-                    
-                    # Re-calculate zDelta using updated stats? 
+                    detector.cvd += g['delta']
+
+                    # Re-calculate zDelta using updated stats?
                     # The GPU 'z_deltas' is likely batch-local or approximation if state isn't synced.
                     # 'candle_of_worker' GPU code (RobustZ) implies it computes Z based on batch distribution.
-                    # CPU code uses `detector.stats.z` (Welford). 
-                    # Let's trust Welford for consistency or use GPU's if we trust it. 
+                    # CPU code uses `detector.stats.z` (Welford).
+                    # Let's trust Welford for consistency or use GPU's if we trust it.
                     # Existing code favored detector.stats.z(delta).
                     # Let's stick to detector logic for stateful metrics (CVD, Z) to ensure continuity,
                     # BUT use GPU for stateless heavy ops if any.
-                    # Actually, the previous implementation did: `detector.stats.update(delta); z = detector.stats.z(delta)` 
+                    # Actually, the previous implementation did: `detector.stats.update(delta); z = detector.stats.z(delta)`
                     # AFTER getting delta from GPU.
-                    
+
                     z_val = detector.stats.z(g['delta'])  # Use Welford Z for consistency across updates
-                    
+
                     res = {
                         "buyVol": g['buyVol'],
                         "sellVol": g['sellVol'],
                         "delta": g['delta'],
                         "cvd": detector.cvd,
                         "deltaRatio": g['deltaRatio'],
-                        "zDelta": z_val, 
+                        "zDelta": z_val,
                         "bodyATR": g['bodyATR'],
                         "atr": g['atr'],
                         "volumeQ": detector._vol_quantile(c['volume']),
@@ -503,7 +505,7 @@ class CandleOrderFlowWorker:
                 body_atr = res.get("bodyATR", 0.0)
                 vol_q = res.get("volumeQ", 0.0)
                 vol_ok = vol_q >= (OF_MIN_VOLUME_Q_PROXY if detector.use_proxy_mode else OF_MIN_VOLUME_Q)
-                
+
                 o, h, l, cl = c['open'], c['high'], c['low'], c['close']
                 wick_up = h - max(o, cl)
                 wick_dn = min(o, cl) - l
@@ -517,7 +519,7 @@ class CandleOrderFlowWorker:
                 z_thr = OF_Z_THRESHOLD_PROXY if detector.use_proxy_mode else OF_Z_THRESHOLD
                 r_thr = OF_RATIO_THRESHOLD_PROXY if detector.use_proxy_mode else OF_RATIO_THRESHOLD
                 body_thr = OF_MIN_BODY_ATR
-                
+
                 spike_long = (z >= z_thr) and (ratio >= r_thr) and (cl > o) and (body_atr >= body_thr) and vol_ok
                 spike_short = (z <= -z_thr) and (ratio <= -r_thr) and (cl < o) and (body_atr >= body_thr) and vol_ok
                 direction = 'long' if spike_long else ('short' if spike_short else None)
@@ -544,7 +546,7 @@ class CandleOrderFlowWorker:
 
                 self._publish_to_stream(OF_STREAM_BAR, payload)
                 self.processed_count += 1
-                
+
                 if res["isSpike"]:
                     spike_payload = {**payload, "direction": direction, "type": "of_spike"}
                     self._publish_to_stream(OF_STREAM_SPIKE, spike_payload)
@@ -554,7 +556,7 @@ class CandleOrderFlowWorker:
             except Exception as e:
                 print(f"❌ OrderFlow: Error processing candle {c.get('symbol')}: {e}")
 
-    def _publish_to_stream(self, stream_name: str, data: Dict[str, Any]) -> Optional[tuple]:
+    def _publish_to_stream(self, stream_name: str, data: dict[str, Any]) -> tuple | None:
         """
         Публикует сообщение в оба Redis Stream (6380, 6381).
         
@@ -572,23 +574,23 @@ class CandleOrderFlowWorker:
                 # Если не нашли closeTime, логируем warning и используем текущее время
                 # print(f"⚠️ OrderFlow: closeTime не найден в данных: {data.get('symbol', 'unknown')}")
                 close_time = get_current_timestamp_ms()
-            
+
             message_data = {
                 'data': json.dumps(data),
                 'timestamp': format_timestamp_for_redis(close_time),  # Время события (UTC ms)
                 'type': data.get('type', 'unknown'),
                 'symbol': data.get('symbol', 'unknown')
             }
-            
+
             message_id_1, message_id_2 = self.dual_redis.xadd(
                 stream_name,
                 message_data,
                 maxlen=STREAM_MAX_LENGTH,
                 approximate=True
             )
-            
+
             return (message_id_1, message_id_2)
-            
+
         except Exception as e:
             print(f"❌ OrderFlow: Ошибка публикации в {stream_name}: {e}")
             sys.stdout.flush()
@@ -604,11 +606,11 @@ class CandleOrderFlowWorker:
                 max='+',
                 count=100
             )
-            
+
             if pending_info:
                 print(f"📦 OrderFlow: Найдено {len(pending_info)} pending сообщений")
                 sys.stdout.flush()
-                
+
                 batch = []
                 ack_ids = []
 
@@ -621,7 +623,7 @@ class CandleOrderFlowWorker:
                         min_idle_time=0,
                         message_ids=[message_id]
                     )
-                    
+
                     for msg_id, fields in messages:
                         candle = self._process_stream_message(msg_id, fields)
                         if candle:
@@ -630,10 +632,10 @@ class CandleOrderFlowWorker:
 
                 if batch:
                     self._process_global_batch(batch)
-                
+
                 for s_name, m_id in ack_ids:
                     self.redis_client.xack(s_name, OF_CONSUMER_GROUP, m_id)
-                        
+
         except Exception as e:
             print(f"❌ OrderFlow: Ошибка обработки pending: {e}")
             sys.stdout.flush()
@@ -643,7 +645,7 @@ class CandleOrderFlowWorker:
         Main loop: Read -> Collect Batch -> Process Batch -> Ack.
         """
         last_id = '>'
-        
+
         while self.is_running:
             try:
                 # Read a chunk of messages (e.g. 50-100)
@@ -654,7 +656,7 @@ class CandleOrderFlowWorker:
                     count=max(self.batch_size, OF_READ_COUNT), # Read enough to fill preferred batch
                     block=OF_READ_BLOCK_MS
                 )
-                
+
                 if not messages:
                     # Idle cycle
                     time.sleep(0.01)
@@ -677,7 +679,7 @@ class CandleOrderFlowWorker:
                     self._process_global_batch(global_batch)
 
                 # Batch Ack
-                # Simplification: we ack everything we read. 
+                # Simplification: we ack everything we read.
                 # If crash happens during processing, we might lose data (at-most-once for processed),
                 # but we are using 'xreadgroup', so they stay in PEL if not acked?
                 # Wait, if we crash inside _process_global_batch, we haven't acked yet.
@@ -691,19 +693,18 @@ class CandleOrderFlowWorker:
                 # Consumer group recovery logic...
                 if "NOGROUP" in str(e).upper():
                      # ... same recovery code ...
-                     try:
+                     with contextlib.suppress(Exception):
                         self.redis_client.xgroup_create(SUBSCRIBE_STREAM, OF_CONSUMER_GROUP, id='$', mkstream=True)
-                     except Exception: pass
-                
+
                 time.sleep(1.0)
 
-    
+
     def _handle_stream(self) -> None:
         """Главная функция обработки стрима."""
         try:
             print(f"🔄 OrderFlow: Подключение к стриму {SUBSCRIBE_STREAM}")
             sys.stdout.flush()
-            
+
             # Создаём consumer group если не существует
             try:
                 self.redis_client.xgroup_create(
@@ -718,52 +719,52 @@ class CandleOrderFlowWorker:
                     print(f"ℹ️ OrderFlow: Consumer group {OF_CONSUMER_GROUP} уже существует")
                 else:
                     print(f"❌ OrderFlow: Ошибка создания consumer group: {e}")
-            
+
             consumer_name = f"of-consumer-{os.getpid()}-{int(time.time())}"
-            
+
             # Обрабатываем pending сообщения
             self._process_pending_messages(consumer_name)
-            
+
             # Основной цикл чтения
-            print(f"🔄 OrderFlow: Запуск основного цикла чтения...")
+            print("🔄 OrderFlow: Запуск основного цикла чтения...")
             sys.stdout.flush()
             self._consume_loop(consumer_name)
-            
+
         except Exception as e:
             print(f"❌ OrderFlow: Критическая ошибка: {e}")
             sys.stdout.flush()
-    
+
     def _periodic_stats(self) -> None:
         """Периодический вывод статистики."""
         while self.is_running:
             try:
                 time.sleep(self._stats_interval_sec)
-                
+
                 # Выводим статистику
                 print(f"📊 OrderFlow Stats: Processed={self.processed_count}, Spikes={self.spike_count}, Detectors={len(self.detectors)}")
                 sys.stdout.flush()
             except Exception:
                 pass
-    
+
     def start(self) -> None:
         """Запускает обработчик в отдельном потоке."""
         if self.is_running:
             print("⚠️ OrderFlow Worker уже запущен")
             return
-        
+
         self.is_running = True
-        
+
         # Запускаем поток обработки стрима
         thread = threading.Thread(target=self._handle_stream, daemon=True)
         thread.start()
-        
+
         # Запускаем поток статистики
         self._stats_thread = threading.Thread(target=self._periodic_stats, daemon=True)
         self._stats_thread.start()
-        
+
         print("🚀 OrderFlow Worker запущен")
         sys.stdout.flush()
-    
+
     def stop(self) -> None:
         """Останавливает обработчик."""
         self.is_running = False

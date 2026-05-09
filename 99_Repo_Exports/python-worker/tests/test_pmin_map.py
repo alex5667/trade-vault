@@ -1,7 +1,8 @@
 from __future__ import annotations
+
 """Tests for p_min map parsing and merging."""
 
-from core.share_map import parse_map, dump_map, merge_updates
+from core.share_map import dump_map, merge_updates, parse_map
 
 
 def test_pmin_map_roundtrip():

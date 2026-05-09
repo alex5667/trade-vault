@@ -1,6 +1,6 @@
 import pytest
 
-from signal_scoring.reason_codes import ReasonCode, legacy_reason_to_code, is_valid_reason_code
+from signal_scoring.reason_codes import ReasonCode, is_valid_reason_code, legacy_reason_to_code
 
 
 @pytest.mark.parametrize(

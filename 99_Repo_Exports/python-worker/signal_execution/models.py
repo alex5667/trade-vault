@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Execution Plan and Performance models for signal processing.
 Extended data structures for TTD, risk management, and performance tracking.
@@ -6,12 +7,11 @@ Extended data structures for TTD, risk management, and performance tracking.
 
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import List, Optional, Tuple
 from datetime import datetime
+from enum import StrEnum
 
 
-class Side(str, Enum):
+class Side(StrEnum):
     LONG = "long"
     SHORT = "short"
 
@@ -49,8 +49,8 @@ class OrderBookSnapshot:
     ts: datetime
     best_bid: float
     best_ask: float
-    bids: List[float] = field(default_factory=list)  # цены bid, отсортированы по убыванию/возрастанию — как заведено у вас
-    asks: List[float] = field(default_factory=list)  # цены ask
+    bids: list[float] = field(default_factory=list)  # цены bid, отсортированы по убыванию/возрастанию — как заведено у вас
+    asks: list[float] = field(default_factory=list)  # цены ask
 
 
 @dataclass
@@ -86,19 +86,19 @@ class ExtendedSignalContext:
     final_score: float
 
     # Микроструктурные данные
-    l2_snapshot: Optional[OrderBookSnapshot] = None
-    local_swings: List[SwingPoint] = field(default_factory=list)
-    htf_levels: List[HTFLevel] = field(default_factory=list)
+    l2_snapshot: OrderBookSnapshot | None = None
+    local_swings: list[SwingPoint] = field(default_factory=list)
+    htf_levels: list[HTFLevel] = field(default_factory=list)
 
     # Параметры инструмента
     tick_size: float = 0.01
     contract_size: float = 1.0  # для фьючей/CFD
 
     # Состояние счёта
-    account_state: Optional[AccountState] = None
+    account_state: AccountState | None = None
 
     # Конфиг по TTD, если уже посчитан (можно подтягивать из БД)
-    ttd_expiry_bars: Optional[int] = None
+    ttd_expiry_bars: int | None = None
 
 
 @dataclass
@@ -126,8 +126,8 @@ class ExecutionPlan:
     expiry_bars: int  # через сколько 1m-свеч сигнал протухает
 
     # Планируемые тейки (0..N) - с дефолтами
-    tp_levels: List[float] = field(default_factory=list)
-    partials: List[float] = field(default_factory=list)  # доли позиции на каждом TP
+    tp_levels: list[float] = field(default_factory=list)
+    partials: list[float] = field(default_factory=list)  # доли позиции на каждом TP
 
     # Служебное
     created_at: datetime = field(default_factory=datetime.utcnow)
@@ -156,30 +156,30 @@ class SignalPerformance:
     setup_type: str
 
     ts_signal: datetime
-    ts_entry: Optional[datetime]
-    ts_exit: Optional[datetime]
+    ts_entry: datetime | None
+    ts_exit: datetime | None
 
     price_at_signal: float
-    entry_price: Optional[float]
-    exit_price: Optional[float]
-    stop_price: Optional[float]
+    entry_price: float | None
+    exit_price: float | None
+    stop_price: float | None
 
     # Результат в R
-    realized_R: Optional[float]  # итоговый результат сделки в R
-    mfe_R: Optional[float]       # max favorable excursion в R
-    mae_R: Optional[float]       # max adverse excursion в R
+    realized_R: float | None  # итоговый результат сделки в R
+    mfe_R: float | None       # max favorable excursion в R
+    mae_R: float | None       # max adverse excursion в R
 
     # Time-to-decay в барах и секундах
-    ttd_bars: Optional[int]
-    ttd_seconds: Optional[float]
+    ttd_bars: int | None
+    ttd_seconds: float | None
 
     # Статус: "realized", "stopped", "expired", "no_entry"
     outcome: str
 
     # Доп. инфа для анализа
-    bars_to_entry: Optional[int] = None
-    bars_to_exit: Optional[int] = None
-    notes: Optional[str] = None
+    bars_to_entry: int | None = None
+    bars_to_exit: int | None = None
+    notes: str | None = None
 
 
 @dataclass
@@ -204,11 +204,11 @@ class SymbolSetupConfig:
     entry_zone_max_R: float = 0.8
 
     # TP уровни в R (если нет явных HTF уровней)
-    default_tp_R: Tuple[float, float, float] = (1.0, 2.0, 3.0)
+    default_tp_R: tuple[float, float, float] = (1.0, 2.0, 3.0)
 
     # Risk sizing по score (ступени)
-    score_buckets: Tuple[float, float, float] = (0.4, 0.7, 0.85)  # границы
-    risk_multipliers: Tuple[float, float, float, float] = (0.5, 1.0, 1.5, 2.0)
+    score_buckets: tuple[float, float, float] = (0.4, 0.7, 0.85)  # границы
+    risk_multipliers: tuple[float, float, float, float] = (0.5, 1.0, 1.5, 2.0)
 
     # Глобальные лимиты
     max_risk_R_per_trade: float = 1.0

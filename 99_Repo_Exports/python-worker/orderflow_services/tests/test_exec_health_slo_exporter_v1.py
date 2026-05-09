@@ -1,11 +1,12 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Tests for exec_health_slo_exporter_v1 (P4)."""
 import importlib
 import sys
-import time
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 def _build_summary(now_ms: int) -> dict:
@@ -63,7 +64,6 @@ class TestSloExporterSetsGauges(unittest.TestCase):
     """Verify the exporter correctly reads summary from Redis and sets gauges."""
 
     def test_exec_health_slo_exporter_sets_gauges_from_summary(self):
-        import importlib
 
         # Stub out prometheus_client & start_http_server so they don't actually start
         _fake_prom = MagicMock()

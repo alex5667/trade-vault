@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import pytest
 
-from handlers.pipeline.pipeline import SignalPipeline
-from handlers.pipeline.candidate import Candidate
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level
 from common.qf_codes import QF
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level
+from handlers.pipeline.candidate import Candidate
+from handlers.pipeline.pipeline import SignalPipeline
 
 
 @dataclass

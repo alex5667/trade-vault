@@ -9,10 +9,7 @@ Coverage:
   * backward compat: rows without aliases still normalized correctly
 """
 
-import os
-import sys
 import unittest
-
 
 try:
     from services.posttrade.decision_snapshot_writer import _normalize_row

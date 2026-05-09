@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Публикатор сообщений в Redis Streams (с дублированием на два Redis).
 
@@ -10,32 +11,29 @@ from utils.time_utils import get_ny_time_millis
 
 import json
 import sys
-import os
-from typing import Dict, Any, Optional
-import time
+from datetime import UTC, datetime
+from typing import Any
 
+from core.config import SIGNAL_DEDUP_TTL_SEC, STREAM_MAPPING, STREAM_MAX_LENGTH
 from core.dual_redis_client import get_dual_signals_redis
 from core.redis_client import get_redis
-import redis
-from core.config import STREAM_MAPPING, STREAM_MAX_LENGTH, SIGNAL_DEDUP_TTL_SEC
-from datetime import datetime, timezone
 
 
 class DualStreamPublisher:
     """Класс для публикации сообщений в два Redis Streams одновременно."""
-    
+
     def __init__(self):
         # Инициализируется лениво при первом вызове, чтобы не блокировать импорт
         self._redis_client = None
         self.stream_mapping = STREAM_MAPPING
-    
+
     @property
     def redis_client(self):
         if self._redis_client is None:
             self._redis_client = get_dual_signals_redis()
         return self._redis_client
-    
-    def publish_to_stream(self, stream_name: str, data: Dict[str, Any], max_length: int = STREAM_MAX_LENGTH) -> Optional[tuple]:
+
+    def publish_to_stream(self, stream_name: str, data: dict[str, Any], max_length: int = STREAM_MAX_LENGTH) -> tuple | None:
         """
         Публикует сообщение в оба Redis Stream.
         
@@ -51,7 +49,7 @@ class DualStreamPublisher:
             # Проверяем соединение с Redis
             if not self._check_connection():
                 return None
-            
+
             # Добавляем метаданные
             message_data = {
                 'data': json.dumps(data),
@@ -59,7 +57,7 @@ class DualStreamPublisher:
                 'type': data.get('type', 'unknown'),
                 'symbol': data.get('symbol', 'unknown')
             }
-            
+
             # Публикуем в оба стрима
             message_id_1, message_id_2 = self.redis_client.xadd(
                 stream_name,
@@ -67,7 +65,7 @@ class DualStreamPublisher:
                 maxlen=max_length,
                 approximate=True
             )
-            
+
             if message_id_1 or message_id_2:
                 print(f"✅ Сообщение опубликовано в стрим {stream_name}")
                 if message_id_1:
@@ -75,14 +73,14 @@ class DualStreamPublisher:
                 if message_id_2:
                     print(f"   📤 Redis-2 (6381): ID {message_id_2}")
                 sys.stdout.flush()
-            
+
             return (message_id_1, message_id_2)
-            
+
         except Exception as e:
             print(f"❌ Неожиданная ошибка при публикации в стрим: {e}")
             sys.stdout.flush()
             return None
-    
+
     def _check_connection(self) -> bool:
         """Проверяет доступность хотя бы одного Redis."""
         try:
@@ -104,7 +102,7 @@ def _build_dedup_key(data: dict) -> str:
     signal_type = data.get('type', 'unknown')
     candle_open_ms = data.get('t') or data.get('openTime')
     if candle_open_ms is None:
-        minute_bucket = datetime.now(timezone.utc).strftime('%Y%m%d%H%M')
+        minute_bucket = datetime.now(UTC).strftime('%Y%m%d%H%M')
         return f"dedup:signal:{signal_type}:{symbol}:{minute_bucket}"
     return f"dedup:signal:{signal_type}:{symbol}:{candle_open_ms}"
 
@@ -122,13 +120,13 @@ def publish_signal_to_stream_dual(channel: str, data: dict) -> bool:
     """
     try:
         publisher = DualStreamPublisher()
-        
+
         # Преобразуем имя канала в имя стрима
         stream_name = publisher.stream_mapping.get(
-            channel, 
+            channel,
             f"stream:{channel.replace('signal:', '').replace('trigger:', '').replace('top:', '')}"
         )
-        
+
         # Дедупликация (используем основной Redis)
         try:
             main_redis = get_redis()
@@ -139,7 +137,7 @@ def publish_signal_to_stream_dual(channel: str, data: dict) -> bool:
         except Exception as dedup_err:
             print(f"⚠️ Ошибка дедупликации сигналов: {dedup_err}")
             sys.stdout.flush()
-        
+
         # Валидация данных
         if data.get('type') == 'volatilityRange':
             if 'volatility' in data and (data['volatility'] == 0 or data['volatility'] is None):
@@ -147,7 +145,7 @@ def publish_signal_to_stream_dual(channel: str, data: dict) -> bool:
                     data['volatility'] = round((abs(float(data['range'])) / float(data['avgRange'])) * 100, 2)
                 else:
                     data['volatility'] = 100.0
-        
+
         elif data.get('type') == 'volatilitySpike':
             if 'volatility' in data and (data['volatility'] == 0 or data['volatility'] is None):
                 if 'high' in data and 'low' in data and 'open' in data:
@@ -155,20 +153,20 @@ def publish_signal_to_stream_dual(channel: str, data: dict) -> bool:
                     low = float(data['low'])
                     open_price = float(data['open'])
                     data['volatility'] = round(((high - low) / open_price) * 100, 2)
-        
+
         # Публикуем данные в оба Redis Stream
         print(f"📢 Публикация сигнала {data.get('type', 'unknown')} в стрим: {stream_name}")
         sys.stdout.flush()
-        
+
         message_ids = publisher.publish_to_stream(stream_name, data)
-        
+
         if message_ids and (message_ids[0] or message_ids[1]):
             print(f"✅ Сигнал {data.get('type', 'unknown')} отправлен в оба стрима {stream_name}")
             sys.stdout.flush()
             return True
         else:
             return False
-            
+
     except Exception as e:
         print(f"❌ Ошибка при публикации сигнала в стрим: {e}")
         sys.stdout.flush()

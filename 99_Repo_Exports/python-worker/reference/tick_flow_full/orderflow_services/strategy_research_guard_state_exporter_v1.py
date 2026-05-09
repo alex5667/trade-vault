@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Prometheus exporter for strategy research guard state (P5.1).
@@ -19,8 +20,8 @@ accidental cardinality explosions in Prometheus.
 import logging
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional
 
 from prometheus_client import Gauge, start_http_server
 
@@ -41,14 +42,14 @@ def _to_float(value: object, default: float = 0.0) -> float:
     try:
         return float(value)
     except Exception:
-        return float(default)
+        return default
 
 
 def _to_int(value: object, default: int = 0) -> int:
     try:
         return int(float(value))
     except Exception:
-        return int(default)
+        return default
 
 
 def _redis_client():
@@ -63,7 +64,7 @@ def _redis_client():
         return None
 
 
-def _read_hash(client, key: str) -> Dict[str, str]:
+def _read_hash(client, key: str) -> dict[str, str]:
     if client is None or not key:
         return {}
     try:
@@ -127,7 +128,7 @@ class ExportState:
     chosen_variant_unique: float = 0.0
 
 
-def _compute_state(summary: Mapping[str, str], blocker: Mapping[str, str], now_ms: Optional[int] = None) -> ExportState:
+def _compute_state(summary: Mapping[str, str], blocker: Mapping[str, str], now_ms: int | None = None) -> ExportState:
     now_ms = int(now_ms if now_ms is not None else get_ny_time_millis())
     summary_present = 1.0 if summary else 0.0
     blocker_present = 1.0 if blocker else 0.0

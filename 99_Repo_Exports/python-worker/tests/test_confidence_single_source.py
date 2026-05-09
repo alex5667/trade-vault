@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import inspect
-import os
 import types
+from types import SimpleNamespace
 
 import pytest
-
-from types import SimpleNamespace
 
 
 def _import_optional():

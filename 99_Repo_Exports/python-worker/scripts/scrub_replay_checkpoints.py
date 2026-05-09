@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """Periodic scrubber for orphan/stale replay checkpoint keys.
 
@@ -30,7 +31,7 @@ ENV
 import argparse
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -38,12 +39,36 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 try:
-    from services.execution_state_replay import rebuild_state_with_fallback, stream_retention_guard_report, _stream_oldest_id, normalize_stream_rows, _stream_sort_key, replay_sid_state, _load_sql_state_snapshot
+    from services.execution_state_replay import (
+        _load_sql_state_snapshot,
+        _stream_oldest_id,
+        _stream_sort_key,
+        normalize_stream_rows,
+        rebuild_state_with_fallback,
+        replay_sid_state,
+        stream_retention_guard_report,
+    )
 except Exception:  # pragma: no cover
     try:
-        from binance_execution.execution_state_replay import rebuild_state_with_fallback, stream_retention_guard_report, _stream_oldest_id, normalize_stream_rows, _stream_sort_key, replay_sid_state, _load_sql_state_snapshot  # type: ignore
+        from binance_execution.execution_state_replay import (  # type: ignore
+            _load_sql_state_snapshot,
+            _stream_oldest_id,
+            _stream_sort_key,
+            normalize_stream_rows,
+            rebuild_state_with_fallback,
+            replay_sid_state,
+            stream_retention_guard_report,
+        )
     except Exception:
-        from execution_state_replay import rebuild_state_with_fallback, stream_retention_guard_report, _stream_oldest_id, normalize_stream_rows, _stream_sort_key, replay_sid_state, _load_sql_state_snapshot  # type: ignore
+        from execution_state_replay import (  # type: ignore
+            _load_sql_state_snapshot,
+            _stream_oldest_id,
+            _stream_sort_key,
+            normalize_stream_rows,
+            rebuild_state_with_fallback,
+            replay_sid_state,
+            stream_retention_guard_report,
+        )
 
 
 def run_scrub(
@@ -56,7 +81,7 @@ def run_scrub(
     scan_count: int,
     sample_limit: int,
     dry_run: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run the checkpoint scrub and return the report dict.,
 
     P3.3-autonomy: extracted from main() so that auto_trigger_checkpoint_scrubber,
@@ -66,7 +91,7 @@ def run_scrub(
     sprefix = state_prefix.rstrip(':') + ':'
 
     # Collect retention guard report upfront (used for delete decisions)
-    report: Dict[str, Any] = {
+    report: dict[str, Any] = {
         'checked': 0,
         'deleted': 0,
         'retention_guard': stream_retention_guard_report(
@@ -87,7 +112,7 @@ def run_scrub(
         all_rows = redis_client.xrevrange(exec_stream, '+', '-', count=int(scan_count))
         norm_evs = normalize_stream_rows(all_rows)
         for ev in norm_evs:
-            ev_sid = str(ev.get('sid') or '').strip()
+            ev_sid = (ev.get('sid') or '').strip()
             if ev_sid:
                 norm_rows_by_sid.setdefault(ev_sid, []).append(ev)
         has_prefetched_rows = True
@@ -110,17 +135,17 @@ def run_scrub(
         # Check if state document exists
         state_raw = redis_client.get(f'{sprefix}{sid}')
         state_exists = bool(state_raw)
-        checkpoint_id = str(redis_client.get(key) or '')
-        
+        checkpoint_id = (redis_client.get(key) or '')
+
         # Try rebuilding from stream to determine viability
         if has_prefetched_rows and oldest_stream_id:
             retention_guard = False
             if checkpoint_id and oldest_stream_id:
                 retention_guard = _stream_sort_key(checkpoint_id) < _stream_sort_key(oldest_stream_id)
-            
+
             events = norm_rows_by_sid.get(sid, [])
-            events.sort(key=lambda d: _stream_sort_key(str(d.get('stream_id') or '')))
-            
+            events.sort(key=lambda d: _stream_sort_key((d.get('stream_id') or '')))
+
             if events:
                 state_doc = replay_sid_state(events)
                 result = DummyResult(state_doc, "stream", checkpoint_id, retention_guard, 0, False)
@@ -165,7 +190,7 @@ def run_scrub(
 def main() -> int:
     parser = argparse.ArgumentParser(description='Periodic scrubber for replay checkpoint keys.')
     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
-    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC))
     parser.add_argument('--checkpoint-prefix', default=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'))
     parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
     parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))

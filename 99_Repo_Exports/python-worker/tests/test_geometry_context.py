@@ -1,7 +1,4 @@
-import math
-from types import SimpleNamespace
 
-import pytest
 
 from signal_scoring.geometry import (
     compute_geometry_context,

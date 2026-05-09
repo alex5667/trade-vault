@@ -1,23 +1,22 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import json
-import time
 import asyncio
+import json
+
 import pytest
 import redis
-from prometheus_client import REGISTRY
 
 from services.async_signal_publisher import (
-    AsyncSignalPublisher, 
-    StreamSink,
-    PUB_OK_TOTAL,
-    PUB_ERR_TOTAL,
     PUB_BUSY_TOTAL,
+    PUB_OK_TOTAL,
     PUB_RETRIES_ENQUEUED_TOTAL,
     PUB_RETRIES_SUCCESS_TOTAL,
-    PUB_DROPPED_TOTAL
+    AsyncSignalPublisher,
+    StreamSink,
 )
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 class FakeAsyncRedis:
@@ -41,8 +40,8 @@ def get_metric_value(metric, **labels):
 
 @pytest.fixture(autouse=True)
 def reset_metrics():
-    # Helper to reset metrics between tests if needed, 
-    # but prometheus_client metrics are global. 
+    # Helper to reset metrics between tests if needed,
+    # but prometheus_client metrics are global.
     # We'll just track deltas or check values carefully.
     pass
 
@@ -60,9 +59,9 @@ async def test_async_publisher_normalizes_contract_and_writes_payload_field():
         "confidence": 0.8,
         "ts": get_ny_time_millis(),
     }
-    
+
     before_ok = get_metric_value(PUB_OK_TOTAL, source=source, stream="raw")
-    
+
     res = await pub.xadd_json(sink=StreamSink(name="raw", field="payload", maxlen=10), payload=payload, symbol="BTCUSDT")
     assert res.ok is True
     assert "raw" in r.streams and len(r.streams["raw"]) == 1
@@ -98,13 +97,13 @@ async def test_async_publisher_raw_crypto_stream_fast_xadd_only(monkeypatch):
     }
 
     res = await pub.xadd_json(
-        sink=StreamSink(name="signals:crypto:raw", field="payload", maxlen=10),
+        sink=StreamSink(name=RS.CRYPTO_RAW, field="payload", maxlen=10),
         payload=payload,
         symbol="BTCUSDT",
     )
 
     assert res.ok is True
-    obj = json.loads(r.streams["signals:crypto:raw"][0]["payload"])
+    obj = json.loads(r.streams[RS.CRYPTO_RAW][0]["payload"])
     assert obj == payload
 
 
@@ -116,14 +115,14 @@ async def test_async_publisher_busyloading_short_circuit():
     pub = AsyncSignalPublisher(redis_client=r, source=source, metrics_prefix="t", logger=None)
 
     payload = {"symbol": "BTCUSDT", "side": "LONG", "entry": 10.0, "ts_ms": get_ny_time_millis()}
-    
+
     before_busy = get_metric_value(PUB_BUSY_TOTAL, source=source, stream="raw")
-    
+
     res = await pub.xadd_json(sink=StreamSink(name="raw", field="payload"), payload=payload, symbol="BTCUSDT")
     assert res.ok is False
     assert res.busy_loading is True
     assert "raw" not in r.streams
-    
+
     after_busy = get_metric_value(PUB_BUSY_TOTAL, source=source, stream="raw")
     assert after_busy == before_busy + 1
 
@@ -137,34 +136,32 @@ async def test_async_publisher_retries_on_network_error():
 
     payload = {"symbol": "BTCUSDT", "side": "LONG", "entry": 10.0, "ts_ms": get_ny_time_millis()}
     pub.start()
-    
+
     before_enqueued = get_metric_value(PUB_RETRIES_ENQUEUED_TOTAL, source=source, symbol="BTCUSDT")
-    
+
     # 1) Call xadd_json. It should return ok=False but queue it.
     res = await pub.xadd_json(sink=StreamSink(name="raw", field="payload"), payload=payload, symbol="BTCUSDT")
     assert res.ok is False
-    
+
     after_enqueued = get_metric_value(PUB_RETRIES_ENQUEUED_TOTAL, source=source, symbol="BTCUSDT")
     assert after_enqueued == before_enqueued + 1
-    
+
     # 2) Clear the error and wait
     r.raise_on.pop("xadd")
-    
+
     before_success = get_metric_value(PUB_RETRIES_SUCCESS_TOTAL, source=source, symbol="BTCUSDT")
-    
-    # Wait for background worker. 
+
+    # Wait for background worker.
     # Attempt 1 wait_sec = 0.5s * 2^(1-1) = 0.5s.
     for _ in range(20):
         if get_metric_value(PUB_RETRIES_SUCCESS_TOTAL, source=source, symbol="BTCUSDT") > before_success:
             break
         await asyncio.sleep(0.1)
-        
+
     assert get_metric_value(PUB_RETRIES_SUCCESS_TOTAL, source=source, symbol="BTCUSDT") == before_success + 1
     assert "raw" in r.streams and len(r.streams["raw"]) == 1
-    
+
     # Cleanup background task
     pub._worker_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await pub._worker_task
-    except asyncio.CancelledError:
-        pass

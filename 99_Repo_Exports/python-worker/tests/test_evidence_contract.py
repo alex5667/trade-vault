@@ -1,7 +1,5 @@
-import pytest
-from services.orderflow.evidence_contract import (
-    normalize_evidence_payload, EVIDENCE_SCHEMA_VERSION, EvidencePayload
-)
+from services.orderflow.evidence_contract import EVIDENCE_SCHEMA_VERSION, normalize_evidence_payload
+
 
 def test_normalize_evidence_payload_basic():
     # Test typical success path
@@ -21,7 +19,7 @@ def test_normalize_evidence_payload_basic():
         },
         strict_unknown=True
     )
-    
+
     # Assert payload content
     payload = res.payload
     assert payload.schema_version == EVIDENCE_SCHEMA_VERSION
@@ -31,7 +29,7 @@ def test_normalize_evidence_payload_basic():
     assert payload.symbol == "BTCUSDT"
     assert payload.tf == "1m"
     assert payload.market_mode == "trend"
-    
+
     # Assert evidence map
     emap = payload.evidence_map
     assert emap["data_health"] == 1.0
@@ -60,11 +58,11 @@ def test_normalize_evidence_payload_aliases_and_strict():
         },
         strict_unknown=True
     )
-    
+
     emap = res.payload.evidence_map
     assert "iceberg_strict" in emap
     assert "iceberg" not in emap
-    
+
     assert "unknown_metric" in res.unknown_keys
     assert "unknown_metric" in res.dropped
     assert res.dropped["unknown_metric"] == "unknown_key"
@@ -81,7 +79,7 @@ def test_normalize_evidence_payload_legacy_confirmations():
         confirmations_legacy=["sweep=1", "rsi=True"],
         strict_unknown=False
     )
-    
+
     emap = res.payload.evidence_map
     # sweep -> sweep_any, rsi -> rsi_agree
     assert emap["sweep_any"] == 1.0

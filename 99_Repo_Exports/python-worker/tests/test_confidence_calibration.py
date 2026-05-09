@@ -1,6 +1,9 @@
 import pytest
 
-from handlers.crypto_orderflow.core.crypto_orderflow_calibration import RollingPercentileCalibrator, ConfidenceCalibratorCfg
+from handlers.crypto_orderflow.core.crypto_orderflow_calibration import (
+    ConfidenceCalibratorCfg,
+    RollingPercentileCalibrator,
+)
 
 
 def test_fallback_mapping_is_in_0_100_and_increases_with_abs_score():

@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 Run AB Winner Evaluator once (container-friendly).
@@ -10,12 +11,13 @@ Used by:
 Safe-lock: Redis SET key NX EX ttl
 """
 
-import os
 import asyncio
-import time
+import os
+
 import redis.asyncio as aioredis
 
 from services.ab_winner_suggester_service_v2 import ABWinnerSuggesterV2
+import contextlib
 
 
 async def _acquire_lock(r, *, key: str, ttl_sec: int) -> bool:
@@ -46,7 +48,7 @@ async def main() -> int:
     #
     # Here we call svc.run_once() if it exists, otherwise no-op.
     try:
-        if hasattr(svc, "run_once") and callable(getattr(svc, "run_once")):
+        if hasattr(svc, "run_once") and callable(svc.run_once):
             await svc.run_once()
         else:
             # Minimal fallback: scan latest pointers and re-publish for them.
@@ -70,10 +72,8 @@ async def main() -> int:
     except Exception:
         return 1
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await r.close()
-        except Exception:
-            pass
     return 0
 
 

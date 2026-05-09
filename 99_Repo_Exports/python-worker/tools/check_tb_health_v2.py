@@ -1,20 +1,20 @@
 # python-worker/tools/check_tb_health_v2.py
 
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import sys
-import time
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import redis
 
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 
-OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
 OF_INPUTS_GROUP = os.getenv("OF_INPUTS_GROUP", "tb-labeler")
 
 TB_LABELS_STREAM = os.getenv("TB_LABELS_STREAM", "labels:tb")
@@ -23,10 +23,10 @@ TB_LAST_LABEL_TS_MS_KEY = os.getenv("TB_LAST_LABEL_TS_MS_KEY", "tb:last_label_ts
 TB_LAST_ERR_TS_MS_KEY = os.getenv("TB_LAST_ERR_TS_MS_KEY", "tb:last_err_ts_ms")
 
 
-def _parse_stream_id(id_: Any) -> Tuple[int, int]:
+def _parse_stream_id(id_: Any) -> tuple[int, int]:
     if isinstance(id_, bytes):
         id_ = id_.decode("utf-8", "ignore")
-    s = str(id_ or "0-0")
+    s = (id_ or "0-0")
     try:
         a, b = s.split("-", 1)
         return int(a), int(b)
@@ -46,7 +46,7 @@ def main() -> int:
     r = redis.Redis.from_url(args.redis_url, decode_responses=False)
     now = get_ny_time_millis()
 
-    out: Dict[str, Any] = {"ok": True, "ts_ms": now, "checks": {}}
+    out: dict[str, Any] = {"ok": True, "ts_ms": now, "checks": {}}
 
     # group info
     try:

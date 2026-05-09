@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """utils.log_throttler — Rate-limit repeated log messages.
 
 Allows emitting only every N-th occurrence of a keyed message to avoid

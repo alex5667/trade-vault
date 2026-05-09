@@ -1,12 +1,9 @@
 from __future__ import annotations
+
 """P13: General asset tests — metrics availability, diagnostics enrichment, CLI args."""
 
 import json
-import time
-from unittest.mock import MagicMock, patch
-
-import pytest
-
+from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # Metrics exist
@@ -111,9 +108,9 @@ class TestDiagnosticsP13:
     def test_debug_symbol_has_runbook_key(self):
         diag = self._make_diag()
         try:
-            from services.active_symbol_guard_semantics import guard_view
+            pass
         except Exception:
-            from active_symbol_guard_semantics import guard_view  # type: ignore
+            pass  # type: ignore
         diag.store.load_raw = MagicMock(return_value={})
         result = diag.debug_symbol('BTCUSDT')
         assert 'runbook' in result

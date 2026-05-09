@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Unit tests for derived flow features (A4).
 
 We test the dependency-free helper:

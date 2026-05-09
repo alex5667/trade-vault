@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 """Tests for provider_context.py — snapshot parsing and reader contract."""
 
 import json
+
 import pytest
+
 from services.orderflow.provider_context import (
     ProviderContextSnapshot,
     ctx_key,

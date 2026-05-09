@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Staged auto-unclamp v4: selective per-symbol RELAX/REMOVE, dual-window outcome (2h + 24h), AUTO/PROPOSE modes.
 
 This is the next level above v3: selective unclamp per symbol based on per-symbol outcome stats.
@@ -43,20 +45,18 @@ Environment Variables:
   - Config: CFG_HASH_PREFIX
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import os
-import time
-import json
-import hmac
 import hashlib
+import hmac
+import json
+import os
 import secrets
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis
 
 from core.redis_client import get_redis
-
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 # ---------------- utils ----------------
 
@@ -65,7 +65,7 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Computes percentile q (0.0-1.0) from sorted list xs."""
     if not xs:
         return 0.0
@@ -80,7 +80,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -88,7 +88,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def sign(bundle_id: str, secret: str) -> str:
@@ -97,12 +97,12 @@ def sign(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def _notify(r: redis.Redis, text: str, buttons: Optional[List[List[Dict[str, str]]]] = None) -> None:
+def _notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Sends notification to Telegram stream with optional buttons."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
 def _mode(r: redis.Redis) -> str:
@@ -149,7 +149,7 @@ def _allow_remove(r: redis.Redis) -> bool:
 
 # ---------------- metrics: health windows ----------------
 
-def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
+def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
     """
     Reads metrics from Redis stream within time window.
     
@@ -162,7 +162,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     Returns:
         List of metric records (dict with fields + _ts_ms)
     """
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -190,7 +190,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     return rows
 
 
-def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+def summarize_health(rows: list[dict[str, Any]]) -> dict[str, float]:
     """
     Summarizes health metrics from metric rows.
     
@@ -224,8 +224,8 @@ def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def is_unhealthy(health: Dict[str, float], *, prefix: str,
-                min_n: int, lat_thr: float, exec_thr: float, soft_thr: float, ok_min: float) -> Tuple[bool, List[str]]:
+def is_unhealthy(health: dict[str, float], *, prefix: str,
+                min_n: int, lat_thr: float, exec_thr: float, soft_thr: float, ok_min: float) -> tuple[bool, list[str]]:
     """
     Checks if health summary indicates unhealthy state.
     
@@ -264,7 +264,7 @@ def is_unhealthy(health: Dict[str, float], *, prefix: str,
 
 # ---------------- clamp audit read + symbol extraction ----------------
 
-def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
+def _read_audit_list(r: redis.Redis, bundle_id: str) -> list[dict[str, Any]]:
     """
     Reads audit log from Redis list.
     
@@ -282,14 +282,12 @@ def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
         s = r.lindex(key, i)
         if not s:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(json.loads(s))
-        except Exception:
-            pass
     return out
 
 
-def _extract_symbols_from_audit(audit: List[Dict[str, Any]], cfg_prefix: str) -> List[str]:
+def _extract_symbols_from_audit(audit: list[dict[str, Any]], cfg_prefix: str) -> list[str]:
     """
     Extracts symbols from clamp audit entries.
     
@@ -302,7 +300,7 @@ def _extract_symbols_from_audit(audit: List[Dict[str, Any]], cfg_prefix: str) ->
     """
     syms = set()
     for a in audit:
-        k = str(a.get("key", ""))
+        k = (a.get("key", ""))
         if k.startswith(cfg_prefix):
             sym = k[len(cfg_prefix):].strip().upper()
             if sym:
@@ -312,47 +310,47 @@ def _extract_symbols_from_audit(audit: List[Dict[str, Any]], cfg_prefix: str) ->
 
 # ---------------- events:trades outcome gate (per-symbol, 2 windows) ----------------
 
-def _event_ts_ms(fields: Dict[str, Any]) -> int:
+def _event_ts_ms(fields: dict[str, Any]) -> int:
     """Extracts timestamp from event fields."""
     return _i(fields.get("ts_ms", fields.get("ts", fields.get("timestamp", 0))), 0)
 
 
-def _is_closed(fields: Dict[str, Any]) -> bool:
+def _is_closed(fields: dict[str, Any]) -> bool:
     """
     Checks if event represents a closed position.
     
     Supports both direct fields and payload JSON.
     """
-    et = str(fields.get("event_type", fields.get("type", "")) or "").upper()
+    et = (fields.get("event_type", fields.get("type", "")) or "").upper()
     if et in ("POSITION_CLOSED", "CLOSE"):
         return True
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            et2 = str(j.get("event_type", j.get("type", "")) or "").upper()
+            et2 = (j.get("event_type", j.get("type", "")) or "").upper()
             return et2 in ("POSITION_CLOSED", "CLOSE")
         except Exception:
             return False
     return False
 
 
-def _get_symbol(fields: Dict[str, Any]) -> str:
+def _get_symbol(fields: dict[str, Any]) -> str:
     """Extracts symbol from event fields (supports payload JSON)."""
-    s = str(fields.get("symbol", "") or "").upper()
+    s = (fields.get("symbol", "") or "").upper()
     if s:
         return s
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            return str(j.get("symbol", "") or "").upper()
+            return (j.get("symbol", "") or "").upper()
         except Exception:
             return ""
     return ""
 
 
-def _get_r_mult(fields: Dict[str, Any]) -> Optional[float]:
+def _get_r_mult(fields: dict[str, Any]) -> float | None:
     """Extracts r_mult from event fields (supports payload JSON)."""
     if "r_mult" in fields:
         try:
@@ -370,7 +368,7 @@ def _get_r_mult(fields: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def _stats_r(rs: List[float]) -> Dict[str, float]:
+def _stats_r(rs: list[float]) -> dict[str, float]:
     """
     Computes statistics from list of R-multiples.
     
@@ -399,15 +397,15 @@ def read_outcome_stats_per_symbol(
     *,
     stream: str,
     since_ms: int,
-    symbols: List[str],
+    symbols: list[str],
     max_scan: int,
-) -> Dict[str, Dict[str, float]]:
+) -> dict[str, dict[str, float]]:
     """
     Reads outcome statistics per symbol from events:trades stream for closed positions.
     
     Args:
         r: Redis client
-        stream: Stream name (e.g., "events:trades")
+        stream: Stream name (e.g., RS.EVENTS_TRADES)
         since_ms: Start timestamp (epoch ms)
         symbols: List of symbols to filter
         max_scan: Maximum number of messages to scan
@@ -416,7 +414,7 @@ def read_outcome_stats_per_symbol(
         Dict mapping symbol to stats dict (n, meanR, tail_rate, p05, p50)
     """
     symset = set([s.upper() for s in symbols if s])
-    acc: Dict[str, List[float]] = {s: [] for s in symset}
+    acc: dict[str, list[float]] = {s: [] for s in symset}
 
     scanned = 0
     last_id = "+"
@@ -454,7 +452,7 @@ def read_outcome_stats_per_symbol(
     return out
 
 
-def outcome_ok(stats: Dict[str, float], *, min_n: int, mean_min: float, tail_max: float) -> Tuple[bool, List[str]]:
+def outcome_ok(stats: dict[str, float], *, min_n: int, mean_min: float, tail_max: float) -> tuple[bool, list[str]]:
     """
     Checks if outcome statistics are acceptable.
     
@@ -489,8 +487,8 @@ def _apply_restores_direct(
     *,
     who: str,
     ttl_sec: int,
-    restores: List[Dict[str, Any]],
-) -> Tuple[str, str]:
+    restores: list[dict[str, Any]],
+) -> tuple[str, str]:
     """
     AUTO mode: apply now, write recs:bundle + recs:audit so rollback works.
     restores: list of {"op":"HSET"/"HDEL", "key":..., "field":..., "value":... optional}
@@ -532,7 +530,7 @@ def _apply_restores_direct(
             pipe.hdel(k, f)
             ops_out.append({"op": "HDEL", "key": k, "field": f})
         else:
-            v = str(op.get("value", ""))
+            v = (op.get("value", ""))
             pipe.hset(k, f, v)
             ops_out.append({"op": "HSET", "key": k, "field": f, "value": v})
 
@@ -559,9 +557,9 @@ def _create_proposal_bundle(
     *,
     who: str,
     ttl_sec: int,
-    ops: List[Dict[str, Any]],
-    meta: Dict[str, Any],
-) -> Tuple[str, str]:
+    ops: list[dict[str, Any]],
+    meta: dict[str, Any],
+) -> tuple[str, str]:
     """
     PROPOSE mode: create recs:bundle, status=PENDING, return id+sig (for buttons).
     
@@ -596,12 +594,12 @@ def _create_proposal_bundle(
 # ---------------- restore builders (selective by symbol) ----------------
 
 def build_relax_ops_selective(
-    clamp_audit: List[Dict[str, Any]],
+    clamp_audit: list[dict[str, Any]],
     *,
-    relax_caps: Dict[str, float],
+    relax_caps: dict[str, float],
     cfg_prefix: str,
-    eligible_syms: List[str],
-) -> List[Dict[str, Any]]:
+    eligible_syms: list[str],
+) -> list[dict[str, Any]]:
     """
     For eligible symbols only: restore old values capped by relax caps.
     Only if field existed pre-clamp (old_null==0).
@@ -618,16 +616,16 @@ def build_relax_ops_selective(
     elig = set([s.upper() for s in eligible_syms])
     ops = []
     for a in clamp_audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        key = str(a.get("key", ""))
+        key = (a.get("key", ""))
         if not key.startswith(cfg_prefix):
             continue
         sym = key[len(cfg_prefix):].strip().upper()
         if sym not in elig:
             continue
 
-        field = str(a.get("field", ""))
+        field = (a.get("field", ""))
         if field not in relax_caps:
             continue
 
@@ -646,11 +644,11 @@ def build_relax_ops_selective(
 
 
 def build_remove_ops_selective(
-    clamp_audit: List[Dict[str, Any]],
+    clamp_audit: list[dict[str, Any]],
     *,
     cfg_prefix: str,
-    eligible_syms: List[str],
-) -> List[Dict[str, Any]]:
+    eligible_syms: list[str],
+) -> list[dict[str, Any]]:
     """
     For eligible symbols only: restore exact pre-clamp (HSET old / HDEL if old_null==1).
     
@@ -665,21 +663,21 @@ def build_remove_ops_selective(
     elig = set([s.upper() for s in eligible_syms])
     ops = []
     for a in clamp_audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        key = str(a.get("key", ""))
+        key = (a.get("key", ""))
         if not key.startswith(cfg_prefix):
             continue
         sym = key[len(cfg_prefix):].strip().upper()
         if sym not in elig:
             continue
 
-        field = str(a.get("field", ""))
+        field = (a.get("field", ""))
         old_null = int(a.get("old_null", 0) or 0)
         if old_null == 1:
             ops.append({"op": "HDEL", "key": key, "field": field})
         else:
-            ops.append({"op": "HSET", "key": key, "field": field, "value": ("" if a.get("old") is None else str(a.get("old", "")))})
+            ops.append({"op": "HSET", "key": key, "field": field, "value": ("" if a.get("old") is None else (a.get("old", "")))})
     return ops
 
 
@@ -690,9 +688,9 @@ def _init_remaining_if_needed(
     *,
     remaining_key: str,
     sym_state_key: str,
-    clamp_audit: List[Dict[str, Any]],
+    clamp_audit: list[dict[str, Any]],
     cfg_prefix: str,
-) -> List[str]:
+) -> list[str]:
     """
     Create remaining symbol set if missing.
     
@@ -767,7 +765,7 @@ def main() -> None:
         if isinstance(pend, dict) and pend.get("bundle_id"):
             bid = str(pend["bundle_id"])
             st = (r.get(f"recs:status:{bid}") or "").strip().upper()
-            action = str(pend.get("action", "")).upper()
+            action = (pend.get("action", "")).upper()
             syms = pend.get("symbols") or []
             syms = [str(s).upper() for s in syms if str(s).strip()]
 
@@ -864,7 +862,7 @@ def main() -> None:
     health_reasons = r30 + r120 + r720
 
     # outcome: per-symbol short + long
-    trades_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    trades_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     out_max_scan = int(os.getenv("META_UNCLAMP_OUTCOME_MAX_SCAN", "400000") or 400000)
 
     out_short_h = float(os.getenv("META_UNCLAMP_OUTCOME_SHORT_HOURS", "2") or 2)

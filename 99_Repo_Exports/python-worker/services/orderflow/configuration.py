@@ -1,10 +1,11 @@
 
-from typing import Any, Dict, List, Tuple
 import asyncio
-import os
 import json
 import logging
+import os
 from copy import deepcopy
+from typing import Any
+from core.redis_keys import RedisStreams as RS
 
 # Max time (seconds) to wait for a single Redis hgetall when loading per-symbol
 # config overrides. Keeps load_dynamic_symbols from blocking the event loop if
@@ -45,7 +46,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
     except (TypeError, ValueError):
         return default
 
-def _ensure_list_levels(raw: Any) -> List[List[float]]:
+def _ensure_list_levels(raw: Any) -> list[list[float]]:
     """
     Приводит уровни книги к формату [[price, qty], ...].
     """
@@ -57,7 +58,7 @@ def _ensure_list_levels(raw: Any) -> List[List[float]]:
     if not isinstance(raw, list):
         return []
 
-    result: List[List[float]] = []
+    result: list[list[float]] = []
     for item in raw:
         if isinstance(item, (list, tuple)) and len(item) >= 2:
             price = _safe_float(item[0])
@@ -65,7 +66,7 @@ def _ensure_list_levels(raw: Any) -> List[List[float]]:
             result.append([price, qty])
     return result
 
-_FALLBACK_SYMBOLS: List[str] = [
+_FALLBACK_SYMBOLS: list[str] = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
     "PEPEUSDT", "DOGEUSDT", "SHIBUSDT", "FLOKIUSDT", "BONKUSDT",
     "WIFUSDT", "SUIUSDT", "APTUSDT", "XAUUSDT"]
@@ -75,11 +76,11 @@ _FALLBACK_SYMBOLS: List[str] = [
 # accidentally spin up readers for SOLUSDT/BTCUSDT/ETHUSDT.
 _env_symbols_raw = os.getenv("SYMBOLS", "")
 if _env_symbols_raw:
-    DEFAULT_SYMBOLS: List[str] = [s.strip().upper() for s in _env_symbols_raw.split(",") if s.strip()]
+    DEFAULT_SYMBOLS: list[str] = [s.strip().upper() for s in _env_symbols_raw.split(",") if s.strip()]
 else:
     DEFAULT_SYMBOLS = list(_FALLBACK_SYMBOLS)
 
-DEFAULT_CONFIG: Dict[str, Any] = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "delta_window": 120,
     # "delta_z_threshold" purposely omitted to allow fallback to SymbolSpecs
     "delta_abs_min": 0.75,
@@ -108,8 +109,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     #   2) Observe dq_level/dq_veto metrics for 24h
     #   3) Switch to DQ_MODE=strict; then DQ_GATE_MODE=enforce
     "dq_gate_enable": _safe_int(os.getenv("DQ_GATE_ENABLE", "0"), 0),
-    "dq_gate_mode": str(os.getenv("DQ_GATE_MODE", "penalty")).lower(),  # off|penalty|enforce|both
-    "dq_mode": str(os.getenv("DQ_MODE", "safe")).lower(),
+    "dq_gate_mode": os.getenv("DQ_GATE_MODE", "penalty").lower(),  # off|penalty|enforce|both
+    "dq_mode": os.getenv("DQ_MODE", "safe").lower(),
     "dq_pen_max": _safe_float(os.getenv("DQ_PEN_MAX", "0.10"), 0.10),
     "dq_tick_gap_min_samples": _safe_int(os.getenv("DQ_TICK_GAP_MIN_SAMPLES", "50"), 50),
 
@@ -147,7 +148,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "tp_rr": "1.3,2.0,2.7",
     "publish_of_inputs": 1,
     "of_inputs_emit_v2": 1,  # Deterministic version selection: 1=v2 (default), 0=v1,
-    "of_inputs_stream": "signals:of:inputs",
+    "of_inputs_stream": RS.OF_INPUTS,
     "of_inputs_stream_maxlen": 200000,
     "of_confirm_stream_maxlen": 50000,
     "confidence_weights": {
@@ -170,7 +171,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "strong_gate_shadow": _to_bool(os.getenv("CRYPTO_OF_STRONG_GATE_SHADOW", "false")),
 
     # P61: MLConfirmGate rollout control (shadow/canary/full)
-    "ml_confirm_rollout": str(os.getenv("ML_CONFIRM_ROLLOUT_MODE", "shadow")).lower(),
+    "ml_confirm_rollout": os.getenv("ML_CONFIRM_ROLLOUT_MODE", "shadow").lower(),
     "ml_confirm_canary_rate": float(os.getenv("ML_CONFIRM_CANARY_RATE", "0.05")),
     "ml_deny_allow_rule_strong": _to_bool(os.getenv("ML_DENY_ALLOW_RULE_STRONG", "true")),
     "ml_abstain_allow_rule_strong": _to_bool(os.getenv("ML_ABSTAIN_ALLOW_RULE_STRONG", "true")),
@@ -231,7 +232,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "of_score_min": float(os.getenv("OF_SCORE_MIN", "0.60")),
 
     "publish_of_confirm": _to_bool(os.getenv("CRYPTO_OF_PUBLISH_CONFIRM", "false")),
-    "of_confirm_stream": os.getenv("CRYPTO_OF_CONFIRM_STREAM", "signals:of:confirm"),
+    "of_confirm_stream": os.getenv("CRYPTO_OF_CONFIRM_STREAM", RS.OF_CONFIRM),
     "atr_bps_min_static": float(os.getenv("CRYPTO_ATR_BPS_MIN_STATIC", "0.0")),
     "atr_gate_audit_only": _to_bool(os.getenv("CRYPTO_ATR_GATE_AUDIT_ONLY", "false")),
     # === Cancellation Spike Gate ===
@@ -250,7 +251,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # Confidence Calibration
     "confidence_calibrator_enable": _safe_int(os.getenv("CONFIDENCE_CALIBRATOR_ENABLE", "0")),
     "confidence_calibrator_bundle_enable": _safe_int(os.getenv("CONFIDENCE_CALIBRATOR_BUNDLE_ENABLE", "0")),
-    
+
     # ML Gate Calibrator Modes injected automatically
     "sg_calib_mode": "shadow",
     "adv_calib_mode": "disabled",
@@ -277,12 +278,12 @@ _CONFIG_STALE_MULT: float = float(os.getenv("ORDERFLOW_CONFIG_STALE_MULT", "4.0"
 class OrderFlowConfigLoader:
     def __init__(self, redis_client):
         self.redis = redis_client
-        self._cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
+        self._cache: dict[str, tuple[dict[str, Any], float]] = {}
         self._cache_ttl_sec: float = float(os.getenv("ORDERFLOW_CONFIG_CACHE_TTL_S", "60.0"))
         # Timestamp of last successful preload_configs run (for hgetall-skip guard)
         self._last_preload_ts: float = 0.0
 
-    async def preload_configs(self, symbols: List[str]) -> None:
+    async def preload_configs(self, symbols: list[str]) -> None:
         """
         Предзагружает конфигурации для списка символов с использованием Redis Pipeline.
         Выполняется чанками (_CONFIG_PIPE_CHUNK) чтобы каждый chunk укладывался в
@@ -325,7 +326,7 @@ class OrderFlowConfigLoader:
                 for symbol, overrides in zip(chunk, results):
                     self._cache[symbol] = (overrides or {}, now)
                 any_ok = True
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 failed_chunks += 1
                 logger.warning(
                     "⚠️ Таймаут preload (pipe) config:orderflow chunk[%d:%d] (>%.1fs) — %d символов пропущено",
@@ -352,12 +353,12 @@ class OrderFlowConfigLoader:
                 total_chunks, len(to_fetch), _timeout or 0.0,
             )
 
-    async def build_symbol_config(self, symbol: str) -> Dict[str, Any]:
+    async def build_symbol_config(self, symbol: str) -> dict[str, Any]:
         """
         Берёт базовый OrderFlowConfig и применяет overrides из Redis.
         """
         base_cfg: OrderFlowConfig = get_config(symbol)
-        cfg: Dict[str, Any] = deepcopy(DEFAULT_CONFIG)
+        cfg: dict[str, Any] = deepcopy(DEFAULT_CONFIG)
         cfg.update(
             {
                 "delta_window": base_cfg.delta_window_ticks,
@@ -449,7 +450,7 @@ class OrderFlowConfigLoader:
         # Backwards compat if not set in base_cfg (should be handled above but double check)
         cfg.setdefault("delta_abs_min_confirm", cfg["delta_abs_min"])
 
-        overrides: Dict[str, Any] = {}
+        overrides: dict[str, Any] = {}
         import time
         now = time.time()
         cached, ts = self._cache.get(symbol, (None, 0.0))
@@ -495,7 +496,7 @@ class OrderFlowConfigLoader:
                 else:
                     overrides = await self.redis.hgetall(f"config:orderflow:{symbol}")
                 self._cache[symbol] = (overrides or {}, now)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "⚠️ (%s) Таймаут загрузки config:orderflow:%s (>%.1fs) — используется %s",
                     symbol, symbol, _CONFIG_REDIS_TIMEOUT_S,
@@ -515,7 +516,7 @@ class OrderFlowConfigLoader:
         self._apply_overrides(cfg, overrides)
         return cfg
 
-    def _apply_overrides(self, cfg: Dict[str, Any], overrides: Dict[str, Any]) -> None:
+    def _apply_overrides(self, cfg: dict[str, Any], overrides: dict[str, Any]) -> None:
         """
         Применяет overrides из Redis hash, если они присутствуют.
         """
@@ -590,7 +591,7 @@ class OrderFlowConfigLoader:
             "confidence_calibrator_path": ("confidence_calibrator_path", str),
             "confidence_calibrator_bundle_path": ("confidence_calibrator_bundle_path", str),
             "confidence_calibrator_reload_sec": ("confidence_calibrator_reload_sec", _safe_int),
-            
+
             # ML Gate Calibrator Modes
             "sg_calib_mode": ("sg_calib_mode", str),
             "adv_calib_mode": ("adv_calib_mode", str),

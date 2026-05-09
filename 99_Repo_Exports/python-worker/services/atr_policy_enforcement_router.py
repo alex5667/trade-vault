@@ -5,17 +5,18 @@ Responsible for mapping charter rule violations to specific enforcement actions
 across different system layers (L1-L9).
 """
 
-import os
 import json
-import logging
+import os
 import time
-from typing import Dict, Any, List, Optional
 from datetime import datetime
+from typing import Any
+
 import redis
 from psycopg2.extras import RealDictCursor
 
 from common.log import setup_logger
 from services.analytics_db import get_conn
+
 try:
     from core.redis_client import get_atr_redis
 except Exception:
@@ -40,7 +41,7 @@ ENFORCEMENT_PRIORITY = [
 ]
 
 class EnforcementDecision:
-    def __init__(self, overall_action: str, results: List[Dict[str, Any]]):
+    def __init__(self, overall_action: str, results: list[dict[str, Any]]):
         self.overall_action = overall_action
         self.results = results
         self.timestamp = datetime.now().isoformat()
@@ -53,7 +54,7 @@ class ATRPolicyEnforcementRouter:
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
-            cls._instance = super(ATRPolicyEnforcementRouter, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
 
@@ -66,7 +67,7 @@ class ATRPolicyEnforcementRouter:
             self._r = get_atr_redis()
         else:
             self._r = redis.Redis.from_url(self.redis_url, decode_responses=True)
-        self._map_cache: Dict[str, List[Dict[str, Any]]] = {}
+        self._map_cache: dict[str, list[dict[str, Any]]] = {}
         self._map_loaded_at: float = 0.0
         self._initialized = True
         # Pre-warm cache at startup (blocking, but only once)
@@ -75,9 +76,9 @@ class ATRPolicyEnforcementRouter:
         except Exception as e:
             logger.warning("ATRPolicyEnforcementRouter: pre-warm failed (will retry lazily): %s", e)
 
-    def _load_map(self) -> Dict[str, List[Dict[str, Any]]]:
+    def _load_map(self) -> dict[str, list[dict[str, Any]]]:
         """Load enforcement map from DB. Thread-safe, TTL-based refresh."""
-        new_map: Dict[str, List[Dict[str, Any]]] = {}
+        new_map: dict[str, list[dict[str, Any]]] = {}
         try:
             with get_conn() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -95,7 +96,7 @@ class ATRPolicyEnforcementRouter:
             logger.error(f"Failed to load enforcement map from DB: {e}")
             return self._map_cache
 
-    def decide_enforcement(self, context_kind: str, context_ref: str, failed_rule_ids: List[str]) -> Dict[str, Any]:
+    def decide_enforcement(self, context_kind: str, context_ref: str, failed_rule_ids: list[str]) -> dict[str, Any]:
         """
         Map failed rules to enforcement actions and aggregate them.
         """
@@ -122,11 +123,11 @@ class ATRPolicyEnforcementRouter:
 
             for m in rule_mappings:
                 action = m["default_action"]
-                # In blocking mode, we use default_action. 
+                # In blocking mode, we use default_action.
                 # If advisory, we downgrade to WARN/DIAG_ONLY
                 if m["enforcement_mode"] == "advisory":
                     action = "WARN"
-                
+
                 triggered_actions.append({
                     "rule_id": rule_id,
                     "action": action,
@@ -146,7 +147,7 @@ class ATRPolicyEnforcementRouter:
 
         # Aggregate overall action based on priority
         overall_action = self._aggregate_actions([a["action"] for a in triggered_actions])
-        
+
         decision = {
             "overall_action": overall_action,
             "triggered_actions": triggered_actions,
@@ -157,24 +158,24 @@ class ATRPolicyEnforcementRouter:
 
         # Persist decision and events
         self._persist_decision(decision)
-        
+
         # Update Redis cache for runtime context
         if context_kind == "runtime_context":
             self._update_runtime_cache(context_ref, decision)
-            
+
         return decision
 
-    def _update_runtime_cache(self, symbol: str, decision: Dict[str, Any]):
+    def _update_runtime_cache(self, symbol: str, decision: dict[str, Any]):
         """Update Redis with runtime decision for fast access."""
         cache_key = f"cache:atr:enforcement:runtime:{symbol}"
         # Cache for 1 hour by default, or less if needed
         self._r.setex(cache_key, 3600, json.dumps(decision))
 
-    def _aggregate_actions(self, actions: List[str]) -> str:
+    def _aggregate_actions(self, actions: list[str]) -> str:
         """Find the highest priority action."""
         highest_idx = -1
         best_action = "allow"
-        
+
         for a in actions:
             try:
                 idx = ENFORCEMENT_PRIORITY.index(a)
@@ -183,10 +184,10 @@ class ATRPolicyEnforcementRouter:
                     best_action = a
             except ValueError:
                 logger.warning(f"Unknown action: {a}")
-                
+
         return best_action
 
-    def _persist_decision(self, decision: Dict[str, Any]):
+    def _persist_decision(self, decision: dict[str, Any]):
         """Save decision and events to Postgres (Best Effort)."""
         try:
             with get_conn() as conn:
@@ -197,9 +198,9 @@ class ATRPolicyEnforcementRouter:
                         INSERT INTO atr_policy_enforcement_decisions (
                             decision_id, context_kind, context_ref, overall_action, summary_json
                         ) VALUES (%s, %s, %s, %s, %s)
-                    """, (decision_id, decision["context_kind"], decision["context_ref"], 
+                    """, (decision_id, decision["context_kind"], decision["context_ref"],
                           decision["overall_action"], json.dumps(decision)))
-                    
+
                     # 2. Events
                     for a in decision["triggered_actions"]:
                         event_id = f"evt_{uuid_short()}"
@@ -215,7 +216,7 @@ class ATRPolicyEnforcementRouter:
         except Exception as e:
             logger.error(f"Failed to persist enforcement decision: {e}")
 
-    def get_runtime_decision(self, symbol: str) -> Dict[str, Any]:
+    def get_runtime_decision(self, symbol: str) -> dict[str, Any]:
         """
         Specific helper for L2 Runtime Dispatch.
         Uses cached decision from Redis to avoid DB hits in hot paths.
@@ -224,7 +225,7 @@ class ATRPolicyEnforcementRouter:
         cached = self._r.get(cache_key)
         if cached:
             return json.loads(cached)
-        
+
         # Global cache check (all symbols)
         global_cache = self._r.get("cache:atr:enforcement:runtime:global")
         if global_cache:

@@ -1,15 +1,16 @@
-from utils.time_utils import get_ny_time_millis
-import feedparser
-import time
 import hashlib
-from typing import List, Dict, Any, Optional
+import time
+from typing import Any
 from urllib.request import Request, urlopen
-from urllib.error import URLError
+
+import feedparser
+
+from utils.time_utils import get_ny_time_millis
 
 
 def stable_uid(source: str, url: str, title: str, ts_bucket: int) -> str:
     """Generate stable UID for deduplication"""
-    h = hashlib.sha1(f"{source}|{url}|{title}|{ts_bucket}".encode("utf-8")).hexdigest()
+    h = hashlib.sha1(f"{source}|{url}|{title}|{ts_bucket}".encode()).hexdigest()
     return h
 
 
@@ -18,7 +19,7 @@ def ts_bucket_sec(epoch_sec: int, bucket_sec: int = 300) -> int:
     return (epoch_sec // bucket_sec) * bucket_sec
 
 
-def fetch_rss_feed(url: str, timeout: int = 10) -> Optional[List[Dict[str, Any]]]:
+def fetch_rss_feed(url: str, timeout: int = 10) -> list[dict[str, Any]] | None:
     """
     Fetch RSS feed and return normalized items.
     Returns None on error (fail-open).
@@ -72,7 +73,7 @@ def fetch_rss_feed(url: str, timeout: int = 10) -> Optional[List[Dict[str, Any]]
         return None
 
 
-def fetch_rss_sources(urls: List[str]) -> List[Dict[str, Any]]:
+def fetch_rss_sources(urls: list[str]) -> list[dict[str, Any]]:
     """Fetch from multiple RSS sources"""
     all_items = []
 

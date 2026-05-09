@@ -1,23 +1,24 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Оркестратор метрик: сбор топ‑метрик, объёмов и funding; форматирование и публикация в стримы.
 """
 import asyncio
 import logging
-from typing import List, Tuple
 
-from .sorting import get_sorted_tickers_by_change
-from .formatters import format_entries, format_volume_entries, format_funding_entries
-from .volumes import get_volume_data
-from .data_access import get_funding_rate_data
-from publisher.stream_publisher import publish_signal_to_stream
-from infra.redis_repo import RedisTradeRepository
 from core.redis_client import get_redis
+from infra.redis_repo import RedisTradeRepository
+from publisher.stream_publisher import publish_signal_to_stream
+
+from .data_access import get_funding_rate_data
+from .formatters import format_entries, format_funding_entries, format_volume_entries
+from .sorting import get_sorted_tickers_by_change
+from .volumes import get_volume_data
 
 logger = logging.getLogger(__name__)
 
 
-def fetch_and_publish_top_metrics() -> Tuple[List[str], List[str]]:
+def fetch_and_publish_top_metrics() -> tuple[list[str], list[str]]:
     """Получает и публикует топ-метрики (gainers/losers)."""
     logger.debug("Fetching top metrics...")
     try:
@@ -67,7 +68,6 @@ async def run_metrics_screener() -> None:
                 loop = asyncio.get_running_loop()
                 ts = int(loop.time() * 1000)
             except RuntimeError:
-                import time
                 ts = get_ny_time_millis()
 
             publish_signal_to_stream('signal:volume', {
@@ -83,7 +83,6 @@ async def run_metrics_screener() -> None:
                 loop = asyncio.get_running_loop()
                 ts = int(loop.time() * 1000)
             except RuntimeError:
-                import time
                 ts = get_ny_time_millis()
 
             publish_signal_to_stream('signal:funding', {

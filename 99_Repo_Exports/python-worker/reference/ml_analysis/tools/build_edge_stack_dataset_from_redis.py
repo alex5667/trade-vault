@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Build an edge-stack training dataset by joining Redis streams via SID.
 
 Primary intent: produce JSONL rows for tools.train_edge_stack_v1_oof (OOF stacking).
@@ -41,18 +42,19 @@ Notes:
       * sid mismatch diagnostics for unmatched closes (nearest signal by time per symbol).
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import bisect
 import gzip
-import re
 import json
 import math
 import os
+import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Any
+
+from utils.time_utils import get_ny_time_millis
 
 if TYPE_CHECKING:  # pragma: no cover
     import redis  # type: ignore
@@ -62,9 +64,11 @@ if TYPE_CHECKING:  # pragma: no cover
 # Centralized schema choices (avoid drift across tools)
 # ---------------------------------------------------------------------------
 try:
-    from tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 except Exception:  # pragma: no cover
-    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from ml_analysis.tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +94,7 @@ except Exception:
     derive_fgh_rows = None  # type: ignore
 
 
-FGH_NUMERIC_KEYS: List[str] = [
+FGH_NUMERIC_KEYS: list[str] = [
     # F) leader-relative
     "rel_ofi_ml_norm_btc",
     "rel_lob_micro_shift_bps_btc",
@@ -123,50 +127,50 @@ def _as_str(x: Any) -> str:
 
 def _as_int(x: Any, default: int = 0) -> int:
     if x is None:
-        return int(default)
+        return default
     if isinstance(x, bool):
-        return int(default)
+        return default
     if isinstance(x, (int, float)):
         try:
             return int(x)
         except Exception:
-            return int(default)
+            return default
     if isinstance(x, bytes):
         try:
             x = x.decode("utf-8", "ignore")
         except Exception:
-            return int(default)
+            return default
     try:
         s = str(x).strip()
         if not s:
-            return int(default)
+            return default
         return int(float(s))
     except Exception:
-        return int(default)
+        return default
 
 
 def _as_float(x: Any, default: float = 0.0) -> float:
     if x is None:
-        return float(default)
+        return default
     if isinstance(x, bool):
-        return float(default)
+        return default
     if isinstance(x, (int, float)):
         try:
             return float(x)
         except Exception:
-            return float(default)
+            return default
     if isinstance(x, bytes):
         try:
             x = x.decode("utf-8", "ignore")
         except Exception:
-            return float(default)
+            return default
     try:
         s = str(x).strip()
         if not s:
-            return float(default)
+            return default
         return float(s)
     except Exception:
-        return float(default)
+        return default
 
 
 def _safe_json_loads(x: Any) -> Any:
@@ -196,7 +200,7 @@ def _make_sid(symbol: str, ts_ms: int) -> str:
     return f"crypto-of:{sym}:{int(ts_ms)}"
 
 
-def _sid_parts(sid: str) -> Tuple[str, int]:
+def _sid_parts(sid: str) -> tuple[str, int]:
     """Parse canonical/legacy sid → (symbol, ts_ms). Returns ("", 0) on failure."""
     s = _as_str(sid).strip()
     if not s:
@@ -275,8 +279,8 @@ def _bucket_from_scenario(v: Any) -> str:
     return "other"
 
 
-def _decode_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _decode_fields(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in (fields or {}).items():
         kk = _as_str(k)
         if isinstance(v, bytes):
@@ -286,13 +290,13 @@ def _decode_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def _xrevrange_recent(r: "redis.Redis", stream: str, *, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+def _xrevrange_recent(r: redis.Redis, stream: str, *, count: int) -> list[tuple[str, dict[str, Any]]]:
     """Read last N entries from a Redis stream in reverse order, in batches to avoid blocking."""
-    out: List[Tuple[str, Dict[str, Any]]] = []
+    out: list[tuple[str, dict[str, Any]]] = []
     last_id = "+"
     remaining = int(count)
     chunk_size = 5000
-    
+
     while remaining > 0:
         batch_size = min(remaining, chunk_size)
         items = r.xrevrange(stream, max=last_id, min="-", count=batch_size)
@@ -322,7 +326,7 @@ _DAY_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.ndjson(?:\.gz)?$")
 def _utc_day_from_ts_ms(ts_ms: int) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(int(ts_ms) / 1000))
 
-def _day_range_from_ms(start_ms: Optional[int], end_ms: Optional[int], *, lookback_days: int) -> Tuple[str, str]:
+def _day_range_from_ms(start_ms: int | None, end_ms: int | None, *, lookback_days: int) -> tuple[str, str]:
     now = _now_ms()
     end = int(end_ms) if end_ms and int(end_ms) > 0 else int(now)
     start = int(start_ms) if start_ms and int(start_ms) > 0 else int(end - int(lookback_days) * 86400 * 1000)
@@ -330,14 +334,14 @@ def _day_range_from_ms(start_ms: Optional[int], end_ms: Optional[int], *, lookba
         start, end = end, start
     return _utc_day_from_ts_ms(start), _utc_day_from_ts_ms(end)
 
-def _list_archive_files(archive_dir: str, *, start_ms: Optional[int], end_ms: Optional[int], lookback_days: int) -> List[str]:
-    d = str(archive_dir or "").strip()
+def _list_archive_files(archive_dir: str, *, start_ms: int | None, end_ms: int | None, lookback_days: int) -> list[str]:
+    d = (archive_dir or "").strip()
     if not d:
         return []
     if not os.path.isdir(d):
         return []
     day_a, day_b = _day_range_from_ms(start_ms, end_ms, lookback_days=int(lookback_days))
-    names: List[str] = []
+    names: list[str] = []
     for nm in os.listdir(d):
         m = _DAY_RE.match(str(nm))
         if not m:
@@ -352,18 +356,18 @@ def _list_archive_files(archive_dir: str, *, start_ms: Optional[int], end_ms: Op
 def _open_text_maybe_gzip(path: str):
     if str(path).endswith(".gz"):
         return gzip.open(path, "rt", encoding="utf-8", errors="replace")
-    return open(path, "r", encoding="utf-8", errors="replace")
+    return open(path, encoding="utf-8", errors="replace")
 
 def _read_archive_items(
     archive_dir: str,
     *,
-    start_ms: Optional[int],
-    end_ms: Optional[int],
+    start_ms: int | None,
+    end_ms: int | None,
     lookback_days: int,
     max_records: int,
-) -> Tuple[List[Tuple[str, Dict[str, Any]]], Dict[str, Any]]:
+) -> tuple[list[tuple[str, dict[str, Any]]], dict[str, Any]]:
     files = _list_archive_files(archive_dir, start_ms=start_ms, end_ms=end_ms, lookback_days=int(lookback_days))
-    items: List[Tuple[str, Dict[str, Any]]] = []
+    items: list[tuple[str, dict[str, Any]]] = []
     stats = {"files": files, "lines": 0, "parsed": 0, "json_errors": 0}
     if not files:
         return items, stats
@@ -401,16 +405,16 @@ def _read_archive_items(
 
 
 def _filter_by_time(
-    items: Sequence[Tuple[str, Dict[str, Any]]],
+    items: Sequence[tuple[str, dict[str, Any]]],
     *,
     ts_field_candidates: Sequence[str],
-    start_ms: Optional[int],
-    end_ms: Optional[int],
-) -> List[Tuple[str, Dict[str, Any]]]:
+    start_ms: int | None,
+    end_ms: int | None,
+) -> list[tuple[str, dict[str, Any]]]:
     if not start_ms and not end_ms:
         return list(items)
 
-    def _pick_ts(f: Dict[str, Any]) -> int:
+    def _pick_ts(f: dict[str, Any]) -> int:
         ts = 0
         for k in ts_field_candidates:
             if k in f:
@@ -438,7 +442,7 @@ def _filter_by_time(
             ts *= 1000
         return int(ts)
 
-    out: List[Tuple[str, Dict[str, Any]]] = []
+    out: list[tuple[str, dict[str, Any]]] = []
     for _id, f in items:
         ts = _pick_ts(f)
         if start_ms and ts and int(ts) < int(start_ms):
@@ -455,7 +459,7 @@ class SignalRow:
     symbol: str
     direction: str
     scenario: str
-    indicators: Dict[str, Any]
+    indicators: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -468,17 +472,17 @@ class CloseRow:
     # Optional metadata for stronger nearest-join disambiguation.
     direction: str = ""
     scenario: str = ""
-    buckets: Dict[str, Any] = field(default_factory=dict, compare=False)
+    buckets: dict[str, Any] = field(default_factory=dict, compare=False)
 
 
 @dataclass
 class DropStats:
     max_examples: int = 50
-    counts: Dict[str, int] = field(default_factory=dict)
-    examples: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    counts: dict[str, int] = field(default_factory=dict)
+    examples: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
-    def add(self, reason: str, example: Optional[Dict[str, Any]] = None) -> None:
-        r = str(reason)
+    def add(self, reason: str, example: dict[str, Any] | None = None) -> None:
+        r = reason
         self.counts[r] = int(self.counts.get(r, 0)) + 1
         if example is None:
             return
@@ -489,7 +493,7 @@ class DropStats:
         if len(ex) < int(self.max_examples):
             ex.append(example)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "counts": dict(sorted(self.counts.items(), key=lambda kv: (-int(kv[1]), str(kv[0])))),
             "examples": self.examples,
@@ -499,10 +503,10 @@ class DropStats:
 @dataclass
 class NearestJoinStats:
     max_examples: int = 50
-    candidates: List[int] = field(default_factory=list)
-    candidates_after_secondary: List[int] = field(default_factory=list)
+    candidates: list[int] = field(default_factory=list)
+    candidates_after_secondary: list[int] = field(default_factory=list)
     ambiguous: int = 0
-    ambiguous_examples: List[Dict[str, Any]] = field(default_factory=list)
+    ambiguous_examples: list[dict[str, Any]] = field(default_factory=list)
     bucket_used: int = 0
 
     def add(
@@ -511,7 +515,7 @@ class NearestJoinStats:
         cand_n: int,
         cand2_n: int,
         ambiguous: bool,
-        example: Optional[Dict[str, Any]] = None,
+        example: dict[str, Any] | None = None,
         bucket_used: bool = False,
     ) -> None:
         self.candidates.append(int(cand_n))
@@ -523,7 +527,7 @@ class NearestJoinStats:
         if bucket_used:
             self.bucket_used += 1
 
-    def _pct(self, xs: List[int], q: float) -> int:
+    def _pct(self, xs: list[int], q: float) -> int:
         if not xs:
             return 0
         s = sorted(int(x) for x in xs)
@@ -531,7 +535,7 @@ class NearestJoinStats:
         idx = max(0, min(len(s) - 1, idx))
         return int(s[idx])
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         return {
             "n": int(len(self.candidates)),
             "cand_p50": int(self._pct(self.candidates, 0.50)),
@@ -553,7 +557,7 @@ class QuarantineWriter:
     def write(self, kind: str, reason: str, *, stream: str, msg_id: str, data: Any) -> None:
         rec = {
             "kind": str(kind),
-            "reason": str(reason),
+            "reason": reason,
             "stream": str(stream),
             "id": str(msg_id),
             "data": _minify(data),
@@ -580,7 +584,7 @@ def _minify(x: Any, *, max_len: int = 4000, max_items: int = 64) -> Any:
     if isinstance(x, str):
         return x[:max_len]
     if isinstance(x, dict):
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         n = 0
         for k, v in x.items():
             if n >= max_items:
@@ -600,7 +604,7 @@ def _minify(x: Any, *, max_len: int = 4000, max_items: int = 64) -> Any:
     return _as_str(x)[:max_len]
 
 
-def parse_replay_signal(fields: Dict[str, Any]) -> Optional[SignalRow]:
+def parse_replay_signal(fields: dict[str, Any]) -> SignalRow | None:
     """Parse one entry from ml_replay_inputs_v1 (or similar)."""
     payload = _safe_json_loads(fields.get("payload"))
     if not isinstance(payload, dict):
@@ -696,14 +700,14 @@ def parse_replay_signal(fields: Dict[str, Any]) -> Optional[SignalRow]:
     )
 
 
-def parse_trade_closed(fields: Dict[str, Any]) -> Optional[CloseRow]:
+def parse_trade_closed(fields: dict[str, Any]) -> CloseRow | None:
     """Parse one entry from trades:closed (or similar)."""
 
     # trades:closed commonly stores a payload-only JSON field ("payload").
     # Merge payload into the top-level view for backward-compatible parsing.
     payload_obj = _safe_json_loads(fields.get("payload"))
     if isinstance(payload_obj, dict):
-        merged: Dict[str, Any] = dict(payload_obj)  # payload takes precedence
+        merged: dict[str, Any] = dict(payload_obj)  # payload takes precedence
         for k, v in fields.items():
             if k not in merged:
                 merged[k] = v
@@ -744,7 +748,7 @@ def parse_trade_closed(fields: Dict[str, Any]) -> Optional[CloseRow]:
 
     direction = _norm_dir(fields.get("direction") or fields.get("side") or "")
     scenario = _norm_scenario(fields.get("scenario") or fields.get("scenario_v4") or "")
-    buckets: Dict[str, Any] = {}
+    buckets: dict[str, Any] = {}
     for k in ("session_bucket", "spread_bucket", "spread_bps_bucket", "liq_bucket", "vol_bucket", "regime_bucket"):
         if k in fields and fields.get(k) is not None:
             buckets[k] = fields.get(k)
@@ -770,14 +774,14 @@ def parse_trade_closed(fields: Dict[str, Any]) -> Optional[CloseRow]:
 
 
 def load_tb_labels_from_stream(
-    r: "redis.Redis",
+    r: redis.Redis,
     *,
     stream: str,
     field: str,
     count: int,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Load most recent TB labels into {sid -> payload} map."""
-    out: Dict[str, Dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {}
     try:
         msgs = r.xrevrange(stream, max="+", min="-", count=int(count))
     except Exception:
@@ -789,7 +793,7 @@ def load_tb_labels_from_stream(
         payload = _safe_json_loads(raw)
         if not payload:
             continue
-        sid = str(payload.get("sid", "") or "")
+        sid = (payload.get("sid", "") or "")
         if not sid:
             continue
         if sid in out:
@@ -798,7 +802,7 @@ def load_tb_labels_from_stream(
     return out
 
 
-def r_mult_and_label(pnl: float, risk_usd: float, *, y_min_r: float) -> Tuple[float, int]:
+def r_mult_and_label(pnl: float, risk_usd: float, *, y_min_r: float) -> tuple[float, int]:
     if risk_usd <= 0.0:
         return 0.0, 0
     r = float(pnl) / float(risk_usd)
@@ -806,8 +810,8 @@ def r_mult_and_label(pnl: float, risk_usd: float, *, y_min_r: float) -> Tuple[fl
     return float(r), int(y)
 
 
-def _build_signal_map(signals: Sequence[SignalRow], *, dedup_signals: str) -> Dict[str, SignalRow]:
-    smap: Dict[str, SignalRow] = {}
+def _build_signal_map(signals: Sequence[SignalRow], *, dedup_signals: str) -> dict[str, SignalRow]:
+    smap: dict[str, SignalRow] = {}
     for s in signals:
         if not s.sid:
             continue
@@ -823,8 +827,8 @@ def _build_signal_map(signals: Sequence[SignalRow], *, dedup_signals: str) -> Di
     return smap
 
 
-def _build_signal_index_by_symbol(signals: Sequence[SignalRow]) -> Dict[str, List[Tuple[int, str]]]:
-    by_sym: Dict[str, List[Tuple[int, str]]] = {}
+def _build_signal_index_by_symbol(signals: Sequence[SignalRow]) -> dict[str, list[tuple[int, str]]]:
+    by_sym: dict[str, list[tuple[int, str]]] = {}
     for s in signals:
         sym = str(s.symbol or "").upper()
         if not sym:
@@ -836,21 +840,21 @@ def _build_signal_index_by_symbol(signals: Sequence[SignalRow]) -> Dict[str, Lis
 
 
 def _nearest_signal_for_ts(
-    arr: List[Tuple[int, str]],
-    times: List[int],
+    arr: list[tuple[int, str]],
+    times: list[int],
     ts_ms: int,
-) -> Optional[Tuple[int, str, int]]:
+) -> tuple[int, str, int] | None:
     """Return (signal_ts_ms, signal_sid, delta_ms=ts_ms-signal_ts_ms) for nearest signal."""
     if not arr or not times:
         return None
     pos = bisect.bisect_left(times, int(ts_ms))
-    candidates: List[Tuple[int, str]] = []
+    candidates: list[tuple[int, str]] = []
     if 0 <= pos < len(arr):
         candidates.append(arr[pos])
     if pos - 1 >= 0:
         candidates.append(arr[pos - 1])
-    best: Optional[Tuple[int, str, int]] = None
-    best_abs: Optional[int] = None
+    best: tuple[int, str, int] | None = None
+    best_abs: int | None = None
     for t, sid in candidates:
         d = int(ts_ms) - int(t)
         a = abs(int(d))
@@ -860,7 +864,7 @@ def _nearest_signal_for_ts(
     return best
 
 
-def _split_csv_keys(x: Any) -> List[str]:
+def _split_csv_keys(x: Any) -> list[str]:
     s = _as_str(x).strip()
     if not s:
         return []
@@ -869,13 +873,13 @@ def _split_csv_keys(x: Any) -> List[str]:
 
 
 def _nearest_candidates_for_ts(
-    arr: List[Tuple[int, str]],
-    times: List[int],
+    arr: list[tuple[int, str]],
+    times: list[int],
     ts_ms: int,
     *,
     tol_ms: int,
     max_scan: int,
-) -> List[Tuple[int, str, int]]:
+) -> list[tuple[int, str, int]]:
     """Return candidate signals around ts_ms within tol_ms.
 
     Returns list of (signal_ts_ms, signal_sid, delta_ms=ts_ms-signal_ts_ms) sorted by:
@@ -888,7 +892,7 @@ def _nearest_candidates_for_ts(
     max_scan_i = max(1, int(max_scan or 1))
 
     pos = bisect.bisect_left(times, ts_ms_i)
-    out: List[Tuple[int, str, int]] = []
+    out: list[tuple[int, str, int]] = []
 
     # scan left
     steps = 0
@@ -924,7 +928,7 @@ def _nearest_candidates_for_ts(
 
 
 def _secondary_match(close: CloseRow, sig: SignalRow, *, mode: str) -> bool:
-    m = str(mode or "none").strip().lower()
+    m = (mode or "none").strip().lower()
     if m in ("", "none", "off", "0"):
         return True
 
@@ -983,9 +987,9 @@ def _bucket_score(close: CloseRow, sig: SignalRow, keys: Sequence[str]) -> int:
 def diagnose_unmatched_closes(
     unmatched_closes: Sequence[CloseRow],
     *,
-    signal_index_by_symbol: Dict[str, List[Tuple[int, str]]],
+    signal_index_by_symbol: dict[str, list[tuple[int, str]]],
     max_examples: int = 50,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """For each unmatched close, find nearest signal by time for same symbol and bucketize deltas."""
     buckets = [
         (1_000, "<=1s"),
@@ -994,8 +998,8 @@ def diagnose_unmatched_closes(
         (300_000, "<=5m"),
         (10**18, ">5m"),
     ],
-    counts: Dict[str, int] = {name: 0 for _, name in buckets}
-    examples: List[Dict[str, Any]] = []
+    counts: dict[str, int] = {name: 0 for _, name in buckets}
+    examples: list[dict[str, Any]] = []
 
     for c in unmatched_closes:
         sym = str(c.symbol or "").upper()
@@ -1004,7 +1008,7 @@ def diagnose_unmatched_closes(
             continue
         times = [t for (t, _) in arr]
         pos = bisect.bisect_left(times, int(c.close_ts_ms))
-        candidates: List[Tuple[int, str]] = []
+        candidates: list[tuple[int, str]] = []
         if 0 <= pos < len(arr):
             candidates.append(arr[pos])
         if pos - 1 >= 0:
@@ -1056,15 +1060,15 @@ def join_signals_with_closes_v2(
     join_tolerance_ms: int = 10_000,
     join_secondary: str = "dir_scenario_soft",
     nearest_max_scan: int = 50,
-    join_bucket_keys: Optional[Sequence[str]] = None,
-    join_debug: Optional[Dict[str, Any]] = None,
-    drop: Optional[DropStats] = None,
-    quarantine: Optional[QuarantineWriter] = None,
+    join_bucket_keys: Sequence[str] | None = None,
+    join_debug: dict[str, Any] | None = None,
+    drop: DropStats | None = None,
+    quarantine: QuarantineWriter | None = None,
     closed_stream: str = "",
-    tb_by_sid: Optional[Dict[str, Dict[str, Any]]] = None,
+    tb_by_sid: dict[str, dict[str, Any]] | None = None,
     label_source: str = "closed",
     tb_util_min_r: float = 0.0,
-) -> Tuple[List[Dict[str, Any]], List[CloseRow]]:
+) -> tuple[list[dict[str, Any]], list[CloseRow]]:
     """Join signals with closes and build JSONL rows.
 
     join_strategy:
@@ -1074,12 +1078,12 @@ def join_signals_with_closes_v2(
     """
     smap = _build_signal_map(signals, dedup_signals=dedup_signals)
 
-    js = str(join_strategy or "sid").strip().lower()
+    js = (join_strategy or "sid").strip().lower()
     if js not in ("sid", "nearest", "sid_or_nearest"):
         js = "sid"
     tol_ms = int(join_tolerance_ms or 0)
     use_nearest = js in ("nearest", "sid_or_nearest")
-    sec_mode = str(join_secondary or "none").strip().lower()
+    sec_mode = (join_secondary or "none").strip().lower()
     allowed_sec = {
         "none",
         "dir",
@@ -1092,7 +1096,7 @@ def join_signals_with_closes_v2(
     if sec_mode not in allowed_sec:
         sec_mode = "none"
 
-    bucket_keys: List[str] = []
+    bucket_keys: list[str] = []
     if join_bucket_keys is not None:
         if isinstance(join_bucket_keys, (list, tuple)):
             for it in join_bucket_keys:
@@ -1104,15 +1108,15 @@ def join_signals_with_closes_v2(
 
 
     # Optional nearest-join index (built over deduped signals)
-    sig_index_by_symbol: Dict[str, List[Tuple[int, str]]] = {}
-    sig_times_by_symbol: Dict[str, List[int]] = {}
+    sig_index_by_symbol: dict[str, list[tuple[int, str]]] = {}
+    sig_times_by_symbol: dict[str, list[int]] = {}
     if use_nearest:
         uniq_signals = list(smap.values())
         sig_index_by_symbol = _build_signal_index_by_symbol(uniq_signals)
         sig_times_by_symbol = {sym: [t for (t, _sid) in arr] for sym, arr in sig_index_by_symbol.items()}
 
-    out: List[Dict[str, Any]] = []
-    unmatched: List[CloseRow] = []
+    out: list[dict[str, Any]] = []
+    unmatched: list[CloseRow] = []
 
     for c in closes:
         if drop_invalid_risk and float(c.risk_usd) <= 0.0:
@@ -1145,7 +1149,7 @@ def join_signals_with_closes_v2(
             )
             join_cand_n = int(len(cands))
 
-            filtered: List[Tuple[int, int, str, int]] = []  # (bucket_score, t, sid, delta)
+            filtered: list[tuple[int, int, str, int]] = []  # (bucket_score, t, sid, delta)
             for t, sid_near, d_ms in cands:
                 s2 = smap.get(str(sid_near))
                 if s2 is None:
@@ -1282,7 +1286,7 @@ def join_signals_with_closes_v2(
                 "y_closed": int(y_closed),
                 "r_mult": float(r_mult),
                 "y": int(y),
-                "tb_primary_label": str(tb_primary.get("label", "") or "") if isinstance(tb_primary, dict) else "",
+                "tb_primary_label": (tb_primary.get("label", "") or "") if isinstance(tb_primary, dict) else "",
                 "tb_primary_ret_bps": float(tb_primary.get("ret_bps", 0.0) or 0.0) if isinstance(tb_primary, dict) else 0.0,
                 "tb_primary_y_edge": int(tb_primary.get("y_edge", 0) or 0) if isinstance(tb_primary, dict) else 0,
                 "tb_util_r": float(tb_meta.get("util_r", 0.0) or 0.0) if isinstance(tb_meta, dict) else 0.0,
@@ -1290,7 +1294,7 @@ def join_signals_with_closes_v2(
             }
         )
 
-    out.sort(key=lambda r: (int(r.get("ts_ms", 0)), str(r.get("sid", ""))))
+    out.sort(key=lambda r: (int(r.get("ts_ms", 0)), (r.get("sid", ""))))
     if join_debug is not None:
         join_debug["join_secondary"] = str(sec_mode)
         join_debug["join_bucket_keys"] = list(bucket_keys)
@@ -1306,7 +1310,7 @@ def join_signals_with_closes(
     *,
     y_min_r: float,
     dedup_signals: str = "latest",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Backward-compatible join (v1 signature)."""
     rows, _unmatched = join_signals_with_closes_v2(
         signals,
@@ -1347,7 +1351,7 @@ def validate_feature_cols_strict(
 
 
 def infer_feature_cols(
-    dataset_rows: Sequence[Dict[str, Any]],
+    dataset_rows: Sequence[dict[str, Any]],
     *,
     max_numeric: int = 128,
     include_direction: bool = True,
@@ -1356,7 +1360,7 @@ def infer_feature_cols(
     include_time_onehot: bool = True,
     strict_feature_cols: bool = False,
     forbid_scenario_v4_onehot: bool = False,
-) -> List[str]:
+) -> list[str]:
     """
     Infer feature column order from dataset rows.
 
@@ -1368,9 +1372,9 @@ def infer_feature_cols(
     include_time_onehot:
       When True, appends hour:0..hour:23 and dow:0..dow:6 columns for train+serve parity.
     """
-    numeric_keys: Dict[str, int] = {}
-    scenarios: Dict[str, int] = {}
-    directions: Dict[str, int] = {}
+    numeric_keys: dict[str, int] = {}
+    scenarios: dict[str, int] = {}
+    directions: dict[str, int] = {}
     for r in dataset_rows:
         ind = r.get("indicators") or {}
         if isinstance(ind, str):
@@ -1400,7 +1404,7 @@ def infer_feature_cols(
                     continue
                 numeric_keys[kk] = numeric_keys.get(kk, 0) + 1
 
-        d = str(r.get("direction") or "").strip().upper()
+        d = (r.get("direction") or "").strip().upper()
         if d:
             directions[d] = directions.get(d, 0) + 1
 
@@ -1413,7 +1417,7 @@ def infer_feature_cols(
 
     # numeric indicators -> f_{key} (keep stable order by freq, then name)
     numerics_sorted = sorted(numeric_keys.items(), key=lambda kv: (-int(kv[1]), str(kv[0])))
-    cols: List[str] = []
+    cols: list[str] = []
     for k, _cnt in numerics_sorted[: int(max_numeric)]:
         cols.append(f"f_{k}")
 
@@ -1449,7 +1453,7 @@ def infer_feature_cols(
     return cols
 
 
-def _write_jsonl(path: str, rows: Sequence[Dict[str, Any]]) -> None:
+def _write_jsonl(path: str, rows: Sequence[dict[str, Any]]) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         for r in rows:
@@ -1461,7 +1465,7 @@ def _write_jsonl(path: str, rows: Sequence[Dict[str, Any]]) -> None:
 def build_dataset_df(
     redis_url: str,
     lookback_hours: int,
-    max_rows: Optional[int] = None,
+    max_rows: int | None = None,
     signal_stream: str = "signals:of:inputs",
     closed_stream: str = "trades:closed",
 ) -> pd.DataFrame:
@@ -1492,13 +1496,13 @@ def build_dataset_df(
         close_items, ts_field_candidates=("exit_ts_ms", "ts_ms", "ts"), start_ms=since_ms, end_ms=None
     )
 
-    signals: List[SignalRow] = []
+    signals: list[SignalRow] = []
     for msg_id, f in sig_items:
         s = parse_replay_signal(f)
         if s:
             signals.append(s)
 
-    closes: List[CloseRow] = []
+    closes: list[CloseRow] = []
     for msg_id, f in close_items:
         c = parse_trade_closed(f)
         if c:
@@ -1519,7 +1523,7 @@ def build_dataset_df(
     return pd.DataFrame(rows)
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", default=os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
@@ -1681,7 +1685,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     drop = DropStats(max_examples=int(args.max_examples))
     quarantine = QuarantineWriter(args.out_quarantine_jsonl) if args.out_quarantine_jsonl else None
 
-    signals: List[SignalRow] = []
+    signals: list[SignalRow] = []
     for msg_id, f in sig_items:
         s = parse_replay_signal(f)
         if s is None:
@@ -1691,7 +1695,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             continue
         signals.append(s)
 
-    closes: List[CloseRow] = []
+    closes: list[CloseRow] = []
     for msg_id, f in close_items:
         c = parse_trade_closed(f)
         if c is None:
@@ -1710,7 +1714,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # Optional archive fallback: if you request an older window or Redis retention is short,
     # we can augment signals/closes from on-disk NDJSON archives.
-    file_stats: Dict[str, Any] = {}
+    file_stats: dict[str, Any] = {}
     if int(args.file_fallback) == 1:
         lb_days = int(args.archive_lookback_days)
         max_rec = int(args.file_max_records)
@@ -1783,9 +1787,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if dedup == "keep_first":
         dedup = ""
 
-    join_debug: Dict[str, Any] = {}
+    join_debug: dict[str, Any] = {}
 
-    tb_by_sid: Optional[Dict[str, Dict[str, Any]]] = None
+    tb_by_sid: dict[str, dict[str, Any]] | None = None
     if str(args.label_source) in ("tb_primary", "tb_util"):
         tb_by_sid = load_tb_labels_from_stream(
             r,
@@ -1814,7 +1818,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         closed_stream=str(args.closed_stream),
     )
 
-    derived_fgh: Dict[str, Any] = {}
+    derived_fgh: dict[str, Any] = {}
     if int(getattr(args, "derive_fgh", 0) or 0) == 1:
         if not _DERIVE_FGH_AVAILABLE or derive_fgh_rows is None:
             print("[WARN] derive_fgh requested but ml_analysis.common.derived_fgh is unavailable")
@@ -1831,14 +1835,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     _write_jsonl(args.out_jsonl, rows)
 
-    mismatch: Dict[str, Any] = {}
+    mismatch: dict[str, Any] = {}
     if int(args.diagnose_mismatch) == 1 and unmatched:
         diag_smap = _build_signal_map(signals, dedup_signals=(dedup or "latest"))
 
         sig_index = _build_signal_index_by_symbol(list(diag_smap.values()))
         mismatch = diagnose_unmatched_closes(unmatched, signal_index_by_symbol=sig_index, max_examples=int(args.max_examples))
 
-    stats: Dict[str, Any] = {
+    stats: dict[str, Any] = {
         "signal_stream": str(args.signal_stream),
         "closed_stream": str(args.closed_stream),
         "signals_raw": int(len(sig_items)),
@@ -1888,7 +1892,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         stats["nearest_join"] = join_debug.get("nearest_join")
 
     if rows:
-        jm = [str(r.get("join_method", "")) for r in rows]
+        jm = [(r.get("join_method", "")) for r in rows]
         stats["joined_by_sid"] = int(sum(1 for m in jm if m == "sid"))
         stats["joined_by_nearest"] = int(sum(1 for m in jm if m == "nearest"))
     if mismatch:
@@ -1918,8 +1922,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                   f"hash={spec.feature_cols_hash[:16]}…")
         elif feature_ver and not _REGISTRY_AVAILABLE:
             # Запрошен Registry, но недоступен — fallback в infer_feature_cols() + варнинг
-            print(f"[WARN] Feature Registry недоступен (проверьте PYTHONPATH). "
-                  f"Fallback на infer_feature_cols().")
+            print("[WARN] Feature Registry недоступен (проверьте PYTHONPATH). "
+                  "Fallback на infer_feature_cols().")
             cols = infer_feature_cols(
                 rows,
                 max_numeric=int(args.max_numeric),

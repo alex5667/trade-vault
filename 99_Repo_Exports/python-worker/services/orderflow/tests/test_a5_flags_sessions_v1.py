@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-# Allow running tests from repo root without PYTHONPATH tweaks.
-import sys
-from pathlib import Path
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # .../tick_flow_full
-
 import math
 
+# Allow running tests from repo root without PYTHONPATH tweaks.
+from core.feature_registry import get_edge_stack_feature_spec
 from core.flags_sessions_v1 import (
     compute_a5_flags,
     session_onehot,
     session_open_close_flags,
     update_time_ema,
 )
-from core.feature_registry import get_edge_stack_feature_spec
 
 
 def _ts(hour: int, minute: int = 0, second: int = 0) -> int:

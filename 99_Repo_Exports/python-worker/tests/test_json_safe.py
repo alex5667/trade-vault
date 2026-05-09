@@ -1,6 +1,7 @@
 # python-worker/tests/test_json_safe.py
-import json
 import datetime as dt
+import json
+
 from common.json_safe import to_json_safe
 
 

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
+
+from core.redis_keys import STREAM_RETENTION
+from core.redis_keys import RedisStreams as RS
 
 
 def _redis() -> redis.Redis:
@@ -15,24 +18,24 @@ def _redis() -> redis.Redis:
 
 
 def _chat_id() -> str:
-    return str(os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
+    return (os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
 
 
-def _notify(text: str, buttons: Optional[List[List[Dict[str, str]]]] = None) -> bool:
-    payload: Dict[str, Any] = {"text": text}
+def _notify(text: str, buttons: list[list[dict[str, str]]] | None = None) -> bool:
+    payload: dict[str, Any] = {"text": text}
     if buttons:
         payload["buttons"] = json.dumps(buttons, ensure_ascii=False)
     cid = _chat_id()
     if cid:
         payload["chat_id"] = cid
     try:
-        _redis().xadd("notify:telegram", payload, maxlen=10000, approximate=True)
+        _redis().xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=STREAM_RETENTION[RS.NOTIFY_TELEGRAM], approximate=True)
         return True
     except Exception:
         return False
 
 
-_RISK_EMOJI: Dict[str, str] = {
+_RISK_EMOJI: dict[str, str] = {
     "SAFE": "🟢",
     "WARN": "⚠️",
     "BLOCK": "🔴",
@@ -43,7 +46,7 @@ def publish_guardrail_warning(
     *,
     action: str,
     target: str,
-    guard: Dict[str, Any],
+    guard: dict[str, Any],
     confirm_callback: str,
 ) -> bool:
     """
@@ -90,7 +93,7 @@ def publish_guardrail_block(
     *,
     action: str,
     target: str,
-    guard: Dict[str, Any],
+    guard: dict[str, Any],
 ) -> bool:
     """
     Publish a short Telegram BLOCK notification (no buttons — action is not possible).

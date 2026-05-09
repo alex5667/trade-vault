@@ -1,18 +1,17 @@
-from utils.time_utils import get_ny_time_millis
 import asyncio
-from utils.task_manager import safe_create_task
-
 import hashlib
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import redis.asyncio as aioredis
 
-from core.redis_lock import RedisLock
-from core.lcb_evaluator import ArmAgg, evaluate_winner_lcb, regime_thresholds
 from core.entry_policy_suggestion_meta_v1 import EntryPolicySuggestionMetaV1
+from core.lcb_evaluator import ArmAgg, evaluate_winner_lcb, regime_thresholds
+from core.redis_lock import RedisLock
+from utils.task_manager import safe_create_task
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -24,7 +23,7 @@ def _sha1(s: str) -> str:
 
 
 def _s(x: Any) -> str:
-    return str(x or "").strip()
+    return (x or "").strip()
 
 
 def _sym(x: Any) -> str:
@@ -99,8 +98,8 @@ class ABWinnerSuggesterV3:
         self._last_id = "0-0"
 
         # in-memory aggregation: (sym,rg,grp,scn)-> arm -> agg
-        self._agg: Dict[Tuple[str, str, str, str], Dict[str, ArmAgg]] = {}
-        self._seen_keys: Dict[Tuple[str, str, str, str], int] = {}
+        self._agg: dict[tuple[str, str, str, str], dict[str, ArmAgg]] = {}
+        self._seen_keys: dict[tuple[str, str, str, str], int] = {}
 
         # scheduling
         self.eval_every_sec = int(os.getenv("AB_EVAL_EVERY_SEC", "3600"))  # hourly
@@ -123,13 +122,13 @@ class ABWinnerSuggesterV3:
         except Exception:
             pass
 
-    def _ingest_event(self, ev: Dict[str, Any]) -> None:
+    def _ingest_event(self, ev: dict[str, Any]) -> None:
         """
         Expected flattened fields in events:trades (your logger expands payload to root):
           event_type, sid, symbol, ts, r_mult, ab_arm, ab_group, regime, scenario
         """
         try:
-            if str(ev.get("event_type") or "") != "POSITION_CLOSED":
+            if (ev.get("event_type") or "") != "POSITION_CLOSED":
                 return
             sym = _sym(ev.get("symbol"))
             rg = _rg(ev.get("regime", "na"))
@@ -169,7 +168,7 @@ class ABWinnerSuggesterV3:
             except Exception:
                 await asyncio.sleep(1.0)
 
-    async def _emit_proposal(self, ctx: KeyCtx, winner: str, metrics: Dict[str, Any], reason: str, min_n: int, alpha: float, min_edge_r: float) -> str:
+    async def _emit_proposal(self, ctx: KeyCtx, winner: str, metrics: dict[str, Any], reason: str, min_n: int, alpha: float, min_edge_r: float) -> str:
         now = _now_ms()
         sid = _sha1(f"abwinner|v3|{ctx.symbol}|{ctx.regime}|{ctx.group}|{ctx.scenario}|{winner}|{int(now/1000/60)}")
 
@@ -188,7 +187,7 @@ class ABWinnerSuggesterV3:
             min_n=min_n,
             alpha=float(alpha),
             min_edge_r=float(min_edge_r),
-            reason=str(reason),
+            reason=reason,
             arm_metrics=metrics,
             approvals_required=int(self.approvals_required),
         ),
@@ -282,7 +281,7 @@ class ABWinnerSuggesterV3:
                     continue
 
                 # compress metrics for meta
-                m: Dict[str, Any] = {}
+                m: dict[str, Any] = {}
                 for arm, rr in (res or {}).items():
                     m[arm] = {
                         "n": rr.n,

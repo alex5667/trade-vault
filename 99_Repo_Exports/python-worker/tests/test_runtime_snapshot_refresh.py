@@ -1,4 +1,3 @@
-import os
 import time
 
 from common.runtime_snapshot import RuntimeSnapshot

@@ -1,11 +1,9 @@
 
 import json
-import os
-import time
 import logging
 import math
-import asyncio
-from typing import Optional, Dict, Any, List
+import os
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +17,11 @@ class ConfidenceCalibratorBundleRuntime:
         self.poll_interval_ms = poll_interval_ms
         self.last_check_ms = 0
         self.last_mtime = 0
-        self.bundle: Optional[Dict[str, Any]] = None
+        self.bundle: dict[str, Any] | None = None
         self.config_loaded = False
-        
+
         # Determine strictness from env (fail safe)
-        self.fail_open = True 
+        self.fail_open = True
 
     def _load_bundle(self):
         """Loads the bundle from disk if changed.""",
@@ -38,23 +36,23 @@ class ConfidenceCalibratorBundleRuntime:
                 return
 
             logger.info(f"Loading/Reloading confidence bundle from {self.bundle_path}")
-            with open(self.bundle_path, "r", encoding="utf-8") as f:
+            with open(self.bundle_path, encoding="utf-8") as f:
                 data = json.load(f)
-            
+
             # Basic validation
             schema_ver = data.get("schema_version")
             if schema_ver not in (2, 3):
                 logger.warning(f"Unknown schema version {schema_ver}, expected 2 or 3. Proceeding anyway.")
-            
+
             self.bundle = data
             self.last_mtime = mt
             self.config_loaded = True
             logger.info(f"Loaded bundle v{data.get('version', '?')} (schema {schema_ver}) generated at {data.get('generated_at', '?')}")
-            
+
         except Exception as e:
             logger.error(f"Failed to load specific confidence bundle: {e}")
             if not self.config_loaded:
-                self.bundle = None 
+                self.bundle = None
 
     def maybe_reload(self, now_ms: int):
         """Polls for updates throttled by poll_interval.""",
@@ -62,16 +60,16 @@ class ConfidenceCalibratorBundleRuntime:
             self.last_check_ms = now_ms
             self._load_bundle()
 
-    def get_calibrated_confidence(self, raw_conf: float, context: Dict[str, Any]) -> Dict[str, Any]:
+    def get_calibrated_confidence(self, raw_conf: float, context: dict[str, Any]) -> dict[str, Any]:
         """,
         Returns calibrated confidence and metadata.
         Output keys: result (float), method (str), bucket_key (str), bucket_by (str), schema_version (int)
         """
         # Default: fallback to identity (raw)
         res = {
-            "result": raw_conf, 
-            "method": "identity", 
-            "bucket_key": "global", 
+            "result": raw_conf,
+            "method": "identity",
+            "bucket_key": "global",
             "bucket_by": "none",
             "bucket_level": "none",
             "fallback_depth": 0,
@@ -80,7 +78,7 @@ class ConfidenceCalibratorBundleRuntime:
 
         if not self.config_loaded or not self.bundle:
             return res
-            
+
         schema_ver = self.bundle.get("schema_version", 2)
         res["schema_version"] = schema_ver
 
@@ -88,29 +86,29 @@ class ConfidenceCalibratorBundleRuntime:
             meta = self.bundle.get("meta", {})
             bucket_by = meta.get("bucket_by", "none")
             buckets = self.bundle.get("buckets", {})
-            
+
             # 1. Determine Bucket Key(s) Hierarchically
             bkeys = ["global"]
-            
+
             # Context extraction
-            s = str(context.get("session", "OFF"))
-            r = str(context.get("regime", "neutral"))
-            sym = str(context.get("symbol", "unknown"))
-            
+            s = (context.get("session", "OFF"))
+            r = (context.get("regime", "neutral"))
+            sym = (context.get("symbol", "unknown"))
+
             if schema_ver >= 3:
                 # V3 Hierarchical Lookup
                 # Pattern: SYM|sess|reg -> SYM|sess|any -> SYM|any|reg -> SYM|any|any -> GLOBAL|... -> GLOBAL
-                # Actually, standard "bucket_by" might control the hierarchy structure. 
+                # Actually, standard "bucket_by" might control the hierarchy structure.
                 # But implementation plan says: Fallback logic: SYM|sess|reg -> ...
                 # Let's assume bucket_by="hierarchical" or we just try specific paths if available.
                 # If bucket_by is specific (e.g. session_regime), we might still want symbol specific overrides?
                 # The prompt implies a standard hierarchy check.
-                
+
                 # Check 1: Symbol Specific
-                # Structure: "SYM|{sym}|{s}_{r}" or "{sym}|{s}|{r}"? 
-                # Let's stick to a reliable key format. 
+                # Structure: "SYM|{sym}|{s}_{r}" or "{sym}|{s}|{r}"?
+                # Let's stick to a reliable key format.
                 # If the trainer generates keys like "BTCUSDT|ASIA|trend_up", we match that.
-                
+
                 # Full specific
                 bkeys = [
                     f"{sym}|{s}|{r}",       # Symbol + Session + Regime
@@ -134,13 +132,13 @@ class ConfidenceCalibratorBundleRuntime:
                 elif bucket_by == "symbol":
                     bkeys = [sym, "global"]
 
-            
+
             # 2. Find Calibrator (First match in buckets)
             cal_cfg = None
             bkey = "global" # Default
             bucket_level = "global"
             fallback_depth = 0
-            
+
             for i, k in enumerate(bkeys):
                 if k in buckets:
                     cal_cfg = buckets[k]
@@ -148,20 +146,20 @@ class ConfidenceCalibratorBundleRuntime:
                     bucket_level = k.split("|")[0] if "|" in k else k # rough level
                     fallback_depth = i
                     break
-            
+
             if not cal_cfg:
                 # Should not happen if "global" is in bkeys and in buckets
                 return res
-            
+
             # 3. Apply Calibration
             method = cal_cfg.get("method", "identity")
             params = cal_cfg.get("params", {})
-            
+
             cal_val = raw_conf
-            
+
             if method == "input" or method == "identity":
                 cal_val = raw_conf
-            
+
             elif method in ("platt", "platt_logit"):
                 # Platt Scaling: 1 / (1 + exp(-(A * x + B)))
                 # V3: platt_logit expects input to be logit? Or just standard Platt on output?
@@ -169,14 +167,14 @@ class ConfidenceCalibratorBundleRuntime:
                 # If score is already prob, we usually convert to logit first.
                 # Legacy "platt" in V2 seemed to do a*prob + b? No, checks line 135: a*raw_conf+b.
                 # Wait, line 139 was `logit = a * raw_conf + b`.
-                # If raw_conf is [0,1], then a*raw_conf+b is linear. Then sigmoid. 
+                # If raw_conf is [0,1], then a*raw_conf+b is linear. Then sigmoid.
                 # This is technically not correct Platt if input is probability.
                 # True Platt is logistic regression on valid logits.
                 # Correct Platt: a * logit(p) + b.
-                
+
                 # Support old V2 behavior for "platt" if needed, or assume trained model matches.
                 # If "platt_logit" is used, we definitely convert to logit first.
-                
+
                 x_val = raw_conf
                 if method == "platt_logit":
                     # Convert p -> logit
@@ -185,7 +183,7 @@ class ConfidenceCalibratorBundleRuntime:
                     else:
                         # Edge cases
                         x_val = -15.0 if raw_conf <= 0.0 else 15.0
-                
+
                 # Check for slope/intercept or a/b
                 a = float(params.get("a") if params.get("a") is not None else params.get("slope", 1.0))
                 b = float(params.get("b") if params.get("b") is not None else params.get("intercept", 0.0))
@@ -194,11 +192,11 @@ class ConfidenceCalibratorBundleRuntime:
                 # clip logit
                 logit = max(-100.0, min(100.0, logit))
                 cal_val = 1.0 / (1.0 + math.exp(-logit))
-                
+
             elif method == "temperature_scaling" or method == "temp_logit":
                 t = float(params.get("temperature", 1.0))
                 if t <= 0: t = 1.0
-                
+
                 if 0.0 < raw_conf < 1.0:
                     logit = math.log(raw_conf / (1.0 - raw_conf))
                     cal_val = 1.0 / (1.0 + math.exp(-(logit / t)))
@@ -209,7 +207,7 @@ class ConfidenceCalibratorBundleRuntime:
                 a = float(params.get("a", 1.0))
                 b = float(params.get("b", 1.0))
                 c = float(params.get("c", 0.0))
-                
+
                 if 0.0 < raw_conf < 1.0:
                     try:
                         ln_p = math.log(raw_conf)
@@ -217,11 +215,11 @@ class ConfidenceCalibratorBundleRuntime:
                         logit = a * ln_p + b * ln_1_p + c
                         logit = max(-100.0, min(100.0, logit))
                         cal_val = 1.0 / (1.0 + math.exp(-logit))
-                    except:
+                    except Exception:
                         cal_val = raw_conf
                 else:
                     cal_val = raw_conf
-            
+
             elif method == "isotonic":
                 boundaries = params.get("boundaries") or params.get("f_x") or cal_cfg.get("boundaries") or cal_cfg.get("f_x") or []
                 values = params.get("values") or params.get("f_y") or cal_cfg.get("values") or cal_cfg.get("f_y") or []
@@ -249,16 +247,16 @@ class ConfidenceCalibratorBundleRuntime:
 
             # Clamp result
             cal_val = max(0.0, min(1.0, cal_val))
-            
+
             res["result"] = cal_val
             res["method"] = method
             res["bucket_key"] = bkey
             res["bucket_by"] = bucket_by
             res["bucket_level"] = bucket_level
             res["fallback_depth"] = fallback_depth
-            
-        except Exception as e:
+
+        except Exception:
             # Fallback on error (silent)
             pass
-            
+
         return res

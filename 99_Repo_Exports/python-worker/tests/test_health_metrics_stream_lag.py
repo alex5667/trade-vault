@@ -1,4 +1,3 @@
-import time
 
 from health_metrics import HealthMetrics, SymbolBucket
 
@@ -32,7 +31,6 @@ class FakeRedis:
 
 
 def test_flush_snapshot_includes_stream_lags_and_pending():
-    from health_metrics import SymbolBucket
 
     hm = HealthMetrics.__new__(HealthMetrics)
     hm._window_sec = 5

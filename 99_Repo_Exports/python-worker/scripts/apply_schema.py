@@ -1,5 +1,6 @@
 import os
 import sys
+
 import psycopg2
 
 sys.path.append(os.getcwd())
@@ -7,12 +8,12 @@ sys.path.append(os.getcwd())
 def apply_schema():
     dsn = (os.getenv("ANALYTICS_DB_DSN") or os.getenv("TRADES_DB_DSN")) or (os.getenv("ANALYTICS_DB_DSN") or os.getenv("PG_DSN")) or "postgresql://postgres:12345@scanner-postgres:5432/trade"
     print(f"Connecting to {dsn}...")
-    
+
     try:
         conn = psycopg2.connect(dsn)
         conn.autocommit = True
         cur = conn.cursor()
-        
+
         # DDLs from init-postgres.sql
         ddls = [
             """
@@ -43,11 +44,11 @@ def apply_schema():
             """
             "CREATE INDEX IF NOT EXISTS idx_microbars_ts ON microbars (ts_ms DESC);"
         ]
-        
+
         for ddl in ddls:
             print(f"Executing: {ddl.strip().splitlines()[0]}...")
             cur.execute(ddl)
-            
+
         print("✅ Schema applied successfully.")
         conn.close()
     except Exception as e:

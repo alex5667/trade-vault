@@ -1,5 +1,5 @@
-import pytest
 from core.ndjson_utils import read_concatenated_json
+
 
 def test_read_concatenated_json_standard_ndjson():
     content = '{"a":1}\n{"b":2}\n'
@@ -23,7 +23,7 @@ def test_read_concatenated_json_mixed_whitespace():
 
 def test_read_concatenated_json_invalid_ignored():
     content = '{"a":1} GARBAGE {"b":2}'
-    # The garbage might cause issues depending on where it is, 
+    # The garbage might cause issues depending on where it is,
     # but the parser attempts to skip until next valid json start char or fail gracefully.
     # Our simple implementation: raw_decode might raise, we catch and advance 1 char.
     res = list(read_concatenated_json(content))

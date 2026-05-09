@@ -1,8 +1,9 @@
 # python-worker/tools/cron_of_reports.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
+import hashlib
+import html
 import json
 import os
 import secrets
@@ -10,12 +11,14 @@ import subprocess
 import sys
 import time
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any
 
-import hashlib
-import html
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _stable_hash_u32(s: str) -> int:
@@ -32,8 +35,8 @@ def _pass_share(symbol: str, share: float) -> bool:
     return v < share
 
 
-def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def iter_ndjson(path: str) -> Iterator[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -41,7 +44,7 @@ def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
             yield json.loads(s)
 
 
-def write_ndjson(path: str, rows: Iterable[Dict[str, Any]]) -> int:
+def write_ndjson(path: str, rows: Iterable[dict[str, Any]]) -> int:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     n = 0
     with open(path, "w", encoding="utf-8") as f:
@@ -52,13 +55,13 @@ def write_ndjson(path: str, rows: Iterable[Dict[str, Any]]) -> int:
     return n
 
 
-def filter_inputs(rows: Iterable[Dict[str, Any]], *, canary_symbols: Optional[List[str]], canary_share: float) -> Iterator[Dict[str, Any]]:
+def filter_inputs(rows: Iterable[dict[str, Any]], *, canary_symbols: list[str] | None, canary_share: float) -> Iterator[dict[str, Any]]:
     allow = None
     if canary_symbols:
         allow = set([s.strip().upper() for s in canary_symbols if s and s.strip()])
 
     for r in rows:
-        sym = str(r.get("symbol") or "").upper()
+        sym = (r.get("symbol") or "").upper()
         if not sym:
             continue
 
@@ -75,7 +78,7 @@ def filter_inputs(rows: Iterable[Dict[str, Any]], *, canary_symbols: Optional[Li
         yield r
 
 
-def pick_baseline(baseline_dir: str, symbol: str) -> Optional[str]:
+def pick_baseline(baseline_dir: str, symbol: str) -> str | None:
     d = Path(baseline_dir)
     if not d.exists():
         return None
@@ -89,7 +92,7 @@ def pick_baseline(baseline_dir: str, symbol: str) -> Optional[str]:
     return None
 
 
-def _get(r: Dict[str, Any], key: str) -> Any:
+def _get(r: dict[str, Any], key: str) -> Any:
     if key in r:
         return r.get(key)
     ev = r.get("evidence")
@@ -103,7 +106,7 @@ def _envf(name: str, d: float) -> float:
     try:
         return float(os.getenv(name, d) or d)
     except Exception:
-        return float(d)
+        return d
 
 
 def _envi(name: str, d: int) -> int:
@@ -111,7 +114,7 @@ def _envi(name: str, d: int) -> int:
     try:
         return int(os.getenv(name, d) or d)
     except Exception:
-        return int(d)
+        return d
 
 
 def _envs(name: str, d: str = "") -> str:
@@ -128,12 +131,12 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 
-def _parse_csv(s: str) -> List[str]:
+def _parse_csv(s: str) -> list[str]:
     """Parse comma-separated string into list of uppercase strings."""
     return [x.strip().upper() for x in (s or "").split(",") if x.strip()]
 
 
-def row_key(r: Dict[str, Any]) -> str:
+def row_key(r: dict[str, Any]) -> str:
     sid = r.get("sid")
     if sid:
         return str(sid)
@@ -144,10 +147,10 @@ def row_key(r: Dict[str, Any]) -> str:
 FIELDS = ["ok", "ok_soft", "score", "have", "need", "scenario", "reason", "scenario_v4", "need_reason"]
 
 
-def diff_report(baseline_path: str, candidate_path: str, *, symbol_filter: Optional[str] = None) -> Dict[str, Any]:
-    base_map: Dict[str, Dict[str, Any]] = {}
+def diff_report(baseline_path: str, candidate_path: str, *, symbol_filter: str | None = None) -> dict[str, Any]:
+    base_map: dict[str, dict[str, Any]] = {}
     for r in iter_ndjson(baseline_path):
-        if symbol_filter and str(r.get("symbol") or "").upper() != symbol_filter.upper():
+        if symbol_filter and (r.get("symbol") or "").upper() != symbol_filter.upper():
             continue
         base_map[row_key(r)] = r
 
@@ -159,7 +162,7 @@ def diff_report(baseline_path: str, candidate_path: str, *, symbol_filter: Optio
     n = 0
 
     for r in iter_ndjson(candidate_path):
-        if symbol_filter and str(r.get("symbol") or "").upper() != symbol_filter.upper():
+        if symbol_filter and (r.get("symbol") or "").upper() != symbol_filter.upper():
             continue
         k = row_key(r)
         b = base_map.get(k)
@@ -200,18 +203,18 @@ def diff_report(baseline_path: str, candidate_path: str, *, symbol_filter: Optio
 @dataclass
 class ReplayStats:
     n: int
-    ok_rate: Optional[float]
-    ok_soft_rate: Optional[float]
+    ok_rate: float | None
+    ok_soft_rate: float | None
     no_data: int
-    by_scenario: Dict[str, Dict[str, Any]]
+    by_scenario: dict[str, dict[str, Any]]
     exec_risk_norm_p50: float
     exec_risk_norm_p90: float
     vol_shock_cap_hit_rate: float
     saw_chop_hard_miss_rate: float
-    top_missing_legs: List[Tuple[str, int]]
+    top_missing_legs: list[tuple[str, int]]
 
 
-def _percentile(xs: List[float], p: float) -> float:
+def _percentile(xs: list[float], p: float) -> float:
     if not xs:
         return 0.0
     xs = sorted(xs)
@@ -226,7 +229,7 @@ def compute_replay_stats(path: str) -> ReplayStats:
     ok = 0
     ok_soft = 0
     by_scn = defaultdict(lambda: {"n": 0, "ok": 0, "ok_soft": 0})
-    exec_norms: List[float] = []
+    exec_norms: list[float] = []
     vol_cap_hit = 0
     vol_n = 0
     saw_hard_miss = 0
@@ -297,7 +300,7 @@ def compute_replay_stats(path: str) -> ReplayStats:
     )
 
 
-def compute_ok_fail_breakdown(path: str) -> Dict[str, int]:
+def compute_ok_fail_breakdown(path: str) -> dict[str, int]:
     """Scan replay NDJSON for ok=0 rows and count how many times each
     blocking condition fires.  Returns condition_name -> count mapping.
     One row can fail multiple conditions simultaneously."""
@@ -317,20 +320,16 @@ def compute_ok_fail_breakdown(path: str) -> Dict[str, int]:
         _score_veto_min = float(os.getenv("OF_SCORE_MIN", "0.60"))
         legacy_min = _get(r, "legacy_of_score_min")
         if legacy_min is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _score_veto_min = float(legacy_min)
-            except Exception:
-                pass
 
         score = _get(r, "score")
         hv = _get(r, "have")
         nd = _get(r, "need")
         has_legs = False
         if hv is not None and nd is not None:
-            try:
+            with contextlib.suppress(Exception):
                 has_legs = float(hv) >= float(nd)
-            except Exception:
-                pass
         rsn = str(_get(r, "reason") or "")
         if score is not None:
             try:
@@ -376,13 +375,13 @@ def compute_ok_fail_breakdown(path: str) -> Dict[str, int]:
                 fail_reasons[reason_short] += 1
 
     # Merge: structured conditions first, then top reason strings
-    result: Dict[str, int] = dict(fail_conds)
+    result: dict[str, int] = dict(fail_conds)
     for rs, cnt in fail_reasons.most_common(8):
         result[f"reason: {rs}"] = cnt
     return result
 
 
-def compute_ok_soft_fail_breakdown(path: str) -> Dict[str, int]:
+def compute_ok_soft_fail_breakdown(path: str) -> dict[str, int]:
     """Scan replay NDJSON for ok_soft=1 rows and count why they are not ok=1."""
     fail_conds: Counter = Counter()
     fail_reasons: Counter = Counter()
@@ -394,15 +393,13 @@ def compute_ok_soft_fail_breakdown(path: str) -> Dict[str, int]:
             continue
 
         rsn = str(_get(r, "reason") or "")
-        
+
         # 1. score veto
         _score_veto_min = float(os.getenv("OF_SCORE_MIN", "0.60"))
         legacy_min = _get(r, "legacy_of_score_min")
         if legacy_min is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _score_veto_min = float(legacy_min)
-            except Exception:
-                pass
 
         score = _get(r, "score")
         if score is not None:
@@ -433,13 +430,13 @@ def compute_ok_soft_fail_breakdown(path: str) -> Dict[str, int]:
             if reason_short:
                 fail_reasons[reason_short] += 1
 
-    result: Dict[str, int] = dict(fail_conds)
+    result: dict[str, int] = dict(fail_conds)
     for rs, cnt in fail_reasons.most_common(5):
         result[f"reason: {rs}"] = cnt
     return result
 
 
-def propose_cfg_recs(stats: ReplayStats, *, mode: str, outcome: Optional[dict] = None) -> List[Dict[str, Any]]:
+def propose_cfg_recs(stats: ReplayStats, *, mode: str, outcome: dict | None = None) -> list[dict[str, Any]]:
     """
     Returns list of recommendations as dicts:
       {key, value, scope, why, cmd}
@@ -479,7 +476,7 @@ def propose_cfg_recs(stats: ReplayStats, *, mode: str, outcome: Optional[dict] =
     base_exec_ref_bps = _envf("RECS_BASE_EXEC_REF_BPS", 10.0)
     base_score_min = _envf("OF_SCORE_MIN", 0.60)  # Baseline score for recommendations
 
-    recs: List[Dict[str, Any]] = []
+    recs: list[dict[str, Any]] = []
 
     # Targets for commands (symbols)
     sym_list = _parse_csv(_envs("CFG_TARGET_SYMBOLS", ""))
@@ -489,9 +486,9 @@ def propose_cfg_recs(stats: ReplayStats, *, mode: str, outcome: Optional[dict] =
 
     prefix = _envs("CFG_HASH_PREFIX", "config:orderflow:")
 
-    def cmd_hset(sym: str, kv: Dict[str, str]) -> str:
+    def cmd_hset(sym: str, kv: dict[str, str]) -> str:
         # Template command (not executed)
-        pairs = " ".join([f"{k} {kv[k]}" for k in kv.keys()])
+        pairs = " ".join([f"{k} {kv[k]}" for k in kv])
         return f"redis-cli HSET {prefix}{sym} {pairs}"
 
     # 1) Execution-risk / "пила" tightening
@@ -518,7 +515,7 @@ def propose_cfg_recs(stats: ReplayStats, *, mode: str, outcome: Optional[dict] =
     if stats.ok_rate is not None and stats.ok_rate < pass_rate_min:
         score_min = _clamp(base_score_min - step_scoremin, 0.30, 0.80)
         ok_rate_str = f"{stats.ok_rate:.2f}" if stats.ok_rate is not None else "NA"
-        
+
         warning = ""
         if stats.exec_risk_norm_p90 >= exec_p90_warn:
             warning = f"\n⚠️ <b>Внимание (Риск):</b> Мягкое снижение of_score_min (до {score_min:.3f}), которое также есть в репорте, я применять пока не советую. При текущем критическом уровне lat_p99 &gt; 25ms и плохом экзекьюшене снижать порог ML Score опасно — в сделку пойдет слишком много маргинального мусора. Сначала \"потушите\" пилу ужесточением exec_risk."
@@ -587,7 +584,7 @@ def propose_cfg_recs(stats: ReplayStats, *, mode: str, outcome: Optional[dict] =
                             "why": f"outcome tail-loss rate={tail:.3f} ≥ {outcome_tail_max:.3f}: ужесточить exec-risk для защиты от больших потерь",
                             "cmd": cmd_hset(sym, kv),
                         })
-                
+
                 # Plus fail-closed toggles (если еще не были включены выше)
                 if stats.vol_shock_cap_hit_rate < vol_cap_warn and int(_envs("RECS_VOL_SHOCK_FAIL_CLOSED_ON_CAP", "1")) == 1:
                     for sym in sym_list:
@@ -600,7 +597,7 @@ def propose_cfg_recs(stats: ReplayStats, *, mode: str, outcome: Optional[dict] =
                             "why": f"outcome tail-loss rate={tail:.3f} ≥ {outcome_tail_max:.3f}: включить fail-closed для vol_shock (защита от tail-loss)",
                             "cmd": cmd_hset(sym, kv),
                         })
-                
+
                 if stats.saw_chop_hard_miss_rate < saw_miss_warn and int(_envs("RECS_SAW_CHOP_FAIL_CLOSED_ON_MISS", "1")) == 1:
                     for sym in sym_list:
                         kv = {"saw_chop_fail_closed": "1"}
@@ -669,7 +666,7 @@ def export_closed_trades(run_dir: Path) -> str:
     """
     since_h = float(os.getenv("TRADES_SINCE_HOURS", "24") or 24)
     max_scan = int(os.getenv("TRADES_MAX_SCAN", "500000") or 500000)
-    stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
     out_path = str(run_dir / "closed_trades.ndjson")
@@ -710,7 +707,7 @@ def analyze_outcome(closed_ndjson: str) -> dict:
         try:
             return float(x)
         except Exception:
-            return float(d)
+            return d
 
     n = 0
     wins = 0
@@ -721,7 +718,7 @@ def analyze_outcome(closed_ndjson: str) -> dict:
 
     by_scn = defaultdict(lambda: {"n": 0, "wins": 0, "sum_r": 0.0, "tail": 0, "bigwin": 0})
     by_ok = defaultdict(lambda: {"n": 0, "wins": 0, "sum_r": 0.0, "tail": 0, "bigwin": 0})
-    
+
     # ok-soft metrics (only for those where ok=0)
     ok_soft_stats = {"n": 0, "wins": 0, "sum_r": 0.0}
 
@@ -813,7 +810,7 @@ def analyze_outcome(closed_ndjson: str) -> dict:
     return out
 
 
-def send_report_redis(redis_url: str, stream: str, text: str, buttons_json: Optional[str] = None, bundle_id: Optional[str] = None) -> None:
+def send_report_redis(redis_url: str, stream: str, text: str, buttons_json: str | None = None, bundle_id: str | None = None) -> None:
     """
     Отправляет отчет в Redis stream notify:telegram.
     
@@ -822,7 +819,7 @@ def send_report_redis(redis_url: str, stream: str, text: str, buttons_json: Opti
     
     Args:
         redis_url: URL Redis подключения
-        stream: Имя stream (обычно "notify:telegram")
+        stream: Имя stream (обычно RS.NOTIFY_TELEGRAM)
         text: Текст сообщения (HTML)
         buttons_json: Опциональный JSON string с кнопками для bot-nest
         bundle_id: Опциональный bundle_id для отслеживания
@@ -851,7 +848,7 @@ def send_report_direct(token: str, chat_id: str, text: str) -> None:
 def run_report(mode: str) -> int:
     # env
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+    stream = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
     field = os.getenv("OF_INPUTS_STREAM_FIELD", "payload")
 
     # Default paths for container if not overridden
@@ -915,8 +912,8 @@ def run_report(mode: str) -> int:
     replay_out = str(run_dir / "of_replay.ndjson")
     dbg_out = str(run_dir / "of_replay_debug.ndjson")
     subprocess.check_call([
-        sys.executable, "-m", "tools.of_confirm_replay_from_inputs", 
-        "--inputs", inputs_path, 
+        sys.executable, "-m", "tools.of_confirm_replay_from_inputs",
+        "--inputs", inputs_path,
         "--out", replay_out,
         "--debug-out", dbg_out
     ])
@@ -1007,11 +1004,11 @@ def run_report(mode: str) -> int:
         if outcome and "ok_soft_stats" in outcome:
             s_wr = outcome["ok_soft_stats"]["winrate"] * 100
             s_pnl = outcome["ok_soft_stats"]["meanR"] # MeanR as proxy for PnL in R
-            
+
         lines.append("")
         lines.append("<b>ok-soft block</b>")
         lines.append(f"WR: <code>{s_wr:.1f}%</code> | PnL: <code>{s_pnl:+.2f}R</code> | Share: <code>{s_share:.1f}%</code> (<code>{n_soft}</code>)")
-        
+
         soft_fail = compute_ok_soft_fail_breakdown(replay_out)
         if soft_fail:
             lines.append("Условия, заблокировавшие ok для ok-soft:")
@@ -1027,7 +1024,7 @@ def run_report(mode: str) -> int:
         top = diff_summary.get("mismatch_by_field", {})
         if isinstance(top, dict) and top:
             lines.append(f"mismatch_by_field=<code>{html.escape(str(top))}</code>")
-    
+
     # Outcome block (R-multiple analysis)
     if outcome:
         lines.append("")
@@ -1056,17 +1053,18 @@ def run_report(mode: str) -> int:
     if recs and int(os.getenv("RECS_ENABLE", "1") or 1) == 1:
         # Импортируем модули для работы с рекомендациями
         try:
-            from core.recs_contract import RecOp, sign_bundle_id
             import redis
-            
+
+            from core.recs_contract import RecOp, sign_bundle_id
+
             # Подготовка данных для bundle
             prefix = os.getenv("CFG_HASH_PREFIX", "config:orderflow:")
             ttl_sec = int(os.getenv("RECS_TTL_SEC", "86400") or 86400)
             secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
             rdb = redis.Redis.from_url(redis_url)
-            
+
             buttons = []
-            
+
             # Строим раздельные bundles для каждой рекомендации
             for r in recs:
                 if r.get("scope") != "per_symbol":
@@ -1077,7 +1075,7 @@ def run_report(mode: str) -> int:
                 kv = r.get("value") or {}
                 if not isinstance(kv, dict):
                     continue
-                    
+
                 ops = []
                 for field, val in kv.items():
                     ops.append(RecOp(
@@ -1086,7 +1084,7 @@ def run_report(mode: str) -> int:
                         field=str(field),
                         value=str(val)
                     ))
-            
+
                 if ops:
                     # Создаем уникальный bundle для конкретной рекомендации
                     b_id = secrets.token_hex(6)  # 12 hex символов
@@ -1098,27 +1096,27 @@ def run_report(mode: str) -> int:
                         "ops": [{"op": op.op, "key": op.key, "field": op.field, "value": op.value} for op in ops],
                         "meta": {"kind": "of_gate_recs", "mode": mode, "ts": ts},
                     }
-                    
+
                     rdb.set(f"recs:bundle:{b_id}", json.dumps(bundle_dict, ensure_ascii=False, separators=(",", ":")), ex=ttl_sec)
                     rdb.set(f"recs:status:{b_id}", "PENDING", ex=ttl_sec)
-                    
+
                     sig = sign_bundle_id(b_id, secret)
-                    
+
                     # Кнопка для этой рекомендации
-                    short_key = str(r.get('key', ''))[:15]
+                    short_key = (r.get('key', ''))[:15]
                     buttons.append([
                         {"text": f"✅ {sym} {short_key}", "callback": f"recs:preview2:{b_id}:{sig}"},
-                        {"text": f"❌ Reject", "callback": f"recs:reject2:{b_id}:{sig}"}
+                        {"text": "❌ Reject", "callback": f"recs:reject2:{b_id}:{sig}"}
                     ])
-                    
+
             if buttons:
                 buttons_json = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-                
+
         except Exception as e:
             print(f"Warning: failed to create recommendation bundle: {e}", file=sys.stderr)
             # Продолжаем без bundle, но показываем рекомендации как обычно
             pass
-    
+
     if recs:
         lines.append("")
         lines.append("<b>Config recommendations</b>")
@@ -1141,7 +1139,7 @@ def run_report(mode: str) -> int:
                 lines.append("<b>Diagnostics</b>")
                 lines.append(f"top_missing_legs=<code>{html.escape(str(r['value'].get('top_missing_legs')))}</code>")
                 break
-    
+
     # Legacy recommendations (kept for backward compatibility)
     if rec:
         lines.append("")
@@ -1165,7 +1163,7 @@ def run_report(mode: str) -> int:
         send_report_direct(token, chat_id, msg)
     else:
         nredis = os.getenv("TELEGRAM_REDIS_URL", redis_url)
-        stream_out = os.getenv("TELEGRAM_NOTIFY_STREAM", "notify:telegram")
+        stream_out = os.getenv("TELEGRAM_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
         send_report_redis(nredis, stream_out, msg, buttons_json=buttons_json, bundle_id=bundle_id)
 
     return 0
@@ -1175,7 +1173,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["monitor", "regress"], required=True)
     args = ap.parse_args()
-    
+
     # Run crossvenue gate calibrator every 4 hours
     try:
         import time

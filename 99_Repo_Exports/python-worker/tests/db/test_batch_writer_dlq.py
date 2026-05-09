@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 P1-3 regression: AsyncBatchWriter writes to durable DLQ after all retries exhausted.
 
@@ -12,10 +13,8 @@ Coverage:
 import json
 import os
 import tempfile
-import threading
-import time
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 
 def _make_writer(dsn: str = "postgresql://x:x@localhost:5432/test", **kwargs):

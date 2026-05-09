@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Regression: StreamRetention (Go) ↔ STREAM_RETENTION (Python) parity (merge-blocker).
 
@@ -15,12 +15,14 @@ Run:
     cd python-worker && python -m pytest tests/test_stream_retention_parity.py -v
 """
 
+import dataclasses
 import os
 import re
-import dataclasses
+
 import pytest
 
-from core.redis_keys import STREAM_RETENTION, RedisStreams as RS
+from core.redis_keys import STREAM_RETENTION
+from core.redis_keys import RedisStreams as RS
 
 # ---------------------------------------------------------------------------
 # Parse Go StreamRetention
@@ -43,7 +45,7 @@ def _parse_go_retention() -> dict[str, int]:
     if not os.path.exists(go_file):
         pytest.skip(f"Go keys file not found at {go_file}", allow_module_level=True)
 
-    with open(go_file, "r", encoding="utf-8") as f:
+    with open(go_file, encoding="utf-8") as f:
         content = f.read()
 
     # --- Step 1: build {GoConstantName: string_value} from the const blocks ---

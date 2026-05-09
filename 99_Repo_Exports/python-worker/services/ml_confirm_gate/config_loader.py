@@ -1,9 +1,9 @@
-import os
 import json
 import logging
-from typing import Any, Dict, Optional, Tuple, List
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Any
+
 import redis
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger("ml_confirm_gate.config")
 
@@ -37,9 +37,9 @@ class MLConfirmConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     p_min: float = 0.52
-    p_min_by_bucket: Dict[str, float] = Field(default_factory=dict)
-    util_floors: Dict[str, Any] = Field(default_factory=dict)
-    edge_floors: Dict[str, Any] = Field(default_factory=dict)
+    p_min_by_bucket: dict[str, float] = Field(default_factory=dict)
+    util_floors: dict[str, Any] = Field(default_factory=dict)
+    edge_floors: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("p_min")
     @classmethod
@@ -50,7 +50,7 @@ class MLConfirmConfig(BaseModel):
 
     @field_validator("p_min_by_bucket")
     @classmethod
-    def validate_p_min_by_bucket(cls, v: Dict[str, float]) -> Dict[str, float]:
+    def validate_p_min_by_bucket(cls, v: dict[str, float]) -> dict[str, float]:
         for k, val in v.items():
             if not (0.5 <= val <= 0.95):
                 raise ValueError(f"p_min_by_bucket[{k}] must be in range [0.5, 0.95], got {val}")
@@ -58,7 +58,7 @@ class MLConfirmConfig(BaseModel):
 
     @field_validator("edge_floors")
     @classmethod
-    def validate_edge_floors_dict(cls, v: Dict[str, Any], info) -> Dict[str, Any]:
+    def validate_edge_floors_dict(cls, v: dict[str, Any], info) -> dict[str, Any]:
         if not v:
             return v
         field_name = info.field_name
@@ -67,7 +67,7 @@ class MLConfirmConfig(BaseModel):
             f = float(g["floor"])
             if not (0.5 <= f <= 0.95):
                 raise ValueError(f"{field_name}.global.floor must be in range [0.5, 0.95], got {f}")
-        
+
         bb = v.get("by_bucket") or {}
         if isinstance(bb, dict):
             for k, bucket_cfg in bb.items():
@@ -84,7 +84,7 @@ def load_config_from_redis(
     challenger_key: str,
     ab_variant: str,
     hash_fallback_key: str = "cfg:ml_confirm"
-) -> Tuple[Dict[str, Any], str, str, str]:
+) -> tuple[dict[str, Any], str, str, str]:
     """
     Load configuration from Redis.
     Returns: (config_dict, cfg_source, cfg_key_used, error_str)
@@ -130,7 +130,7 @@ def load_config_from_redis(
                 cfg_dict.setdefault("mode", "SHADOW")
                 cfg_dict.setdefault("fail_policy", "OPEN")
                 cfg_dict.setdefault("enforce_share", 0.05)
-                
+
                 cfg_source = "hash_fallback"
                 cfg_key_used = hash_fallback_key
                 raw_payload = json.dumps(cfg_dict).encode("utf-8")
@@ -148,7 +148,7 @@ def load_config_from_redis(
     except Exception as e:
         return {}, cfg_source, cfg_key_used, f"parse_error:{type(e).__name__}"
 
-def _safe_loads_ex(s: Any) -> Tuple[Dict[str, Any], str, int]:
+def _safe_loads_ex(s: Any) -> tuple[dict[str, Any], str, int]:
     if s is None:
         return {}, "missing", 0
     if isinstance(s, bytes):

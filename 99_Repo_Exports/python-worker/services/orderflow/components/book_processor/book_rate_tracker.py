@@ -1,9 +1,10 @@
 import logging
 from typing import Any
-from services.orderflow.runtime import SymbolRuntime
-from services.orderflow.configuration import _safe_int
+
 from core.book_churn import compute_churn_from_z
+from services.orderflow.configuration import _safe_int
 from services.orderflow.metrics import book_rate_ema_gauge, book_rate_z_gauge
+from services.orderflow.runtime import SymbolRuntime
 
 logger = logging.getLogger("orderflow_book_rate_tracker")
 
@@ -33,33 +34,33 @@ class BookRateTracker:
             inst = 1000.0 / float(max(1, dt))
             a = float(runtime.config.get("book_rate_ema_alpha", 0.2))
             runtime.book_rate_ema = a * inst + (1.0 - a) * float(runtime.book_rate_ema or 0.0)
-            
+
             # Calibration
             try:
                 rg = str(getattr(runtime, "last_regime", "na") or "na")
                 runtime.br_calib.update(regime=rg, inst_hz=float(inst), dt_ms=int(dt))
             except Exception:
                 pass
-            
+
             # Z-Score
             try:
                 runtime.book_rate_stats.update(float(inst))
                 runtime.book_rate_z = float(runtime.book_rate_stats.z(float(inst)))
             except Exception:
                 pass
-        
+
         # Churn
         try:
             ch = compute_churn_from_z(
-                rate_hz=float(inst), 
-                rate_z=float(runtime.book_rate_z), 
-                z_start=processor.book_churn_z_start, 
-                z_full=processor.book_churn_z_full, 
+                rate_hz=float(inst),
+                rate_z=float(runtime.book_rate_z),
+                z_start=processor.book_churn_z_start,
+                z_full=processor.book_churn_z_full,
                 z_hi=processor.book_churn_z_hi
             )
             runtime.book_churn_score = float(ch.churn_score)
             runtime.book_churn_hi = int(ch.churn_hi)
-            
+
             if book_rate_ema_gauge:
                 book_rate_ema_gauge.labels(symbol=runtime.symbol).set(float(runtime.book_rate_ema))
             if book_rate_z_gauge:

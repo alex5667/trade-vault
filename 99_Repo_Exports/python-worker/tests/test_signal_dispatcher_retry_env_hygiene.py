@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
-
-import pytest
+from typing import Any
 
 
-def _compact_env_for_retry(env: Dict[str, Any]) -> Dict[str, Any]:
+def _compact_env_for_retry(env: dict[str, Any]) -> dict[str, Any]:
     """
     Copy of the compaction logic for testing.
     HARD CONTRACT for retry/DLQ payloads:

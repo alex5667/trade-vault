@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """export_position_closed_ndjson_v1.py
 
 Phase2 helper: export POSITION_CLOSED events from Postgres/Timescale into NDJSON.
@@ -27,7 +28,7 @@ Env fallback for DSN:
 import argparse
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 import psycopg2
 
@@ -43,7 +44,7 @@ def pick_dsn(cli_dsn: str) -> str:
     return ""
 
 
-def _loads_maybe_json(v: Any) -> Dict[str, Any]:
+def _loads_maybe_json(v: Any) -> dict[str, Any]:
     if isinstance(v, dict):
         return v
     if v is None:
@@ -110,30 +111,29 @@ def main() -> None:
         q += f" LIMIT {limit}"
 
     n = 0
-    with psycopg2.connect(dsn) as conn:
-        with conn.cursor() as cur:
-            cur.execute(q, params)
-            with open(str(args.out), "w", encoding="utf-8") as f:
-                for (ts_ms, sid, symbol, event_type, meta_json, payload_json) in cur:
-                    payload = _loads_maybe_json(payload_json)
-                    meta = _loads_maybe_json(meta_json)
+    with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
+        cur.execute(q, params)
+        with open(str(args.out), "w", encoding="utf-8") as f:
+            for (ts_ms, sid, symbol, event_type, meta_json, payload_json) in cur:
+                payload = _loads_maybe_json(payload_json)
+                meta = _loads_maybe_json(meta_json)
 
-                    # Ensure minimal fields expected by dataset builder / labeling.
-                    if sid and "sid" not in payload:
-                        payload["sid"] = sid
-                    if symbol and "symbol" not in payload:
-                        payload["symbol"] = symbol
-                    if event_type and "event_type" not in payload:
-                        payload["event_type"] = event_type
-                    if ts_ms and "ts_ms" not in payload:
-                        payload["ts_ms"] = int(ts_ms)
+                # Ensure minimal fields expected by dataset builder / labeling.
+                if sid and "sid" not in payload:
+                    payload["sid"] = sid
+                if symbol and "symbol" not in payload:
+                    payload["symbol"] = symbol
+                if event_type and "event_type" not in payload:
+                    payload["event_type"] = event_type
+                if ts_ms and "ts_ms" not in payload:
+                    payload["ts_ms"] = int(ts_ms)
 
-                    # Keep meta for risk/pnl fallbacks.
-                    if meta and "meta" not in payload:
-                        payload["meta"] = meta
+                # Keep meta for risk/pnl fallbacks.
+                if meta and "meta" not in payload:
+                    payload["meta"] = meta
 
-                    f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-                    n += 1
+                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                n += 1
 
     print(json.dumps({
         "table": table,

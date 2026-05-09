@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 v11_of — Feature schema v11 (OrderFlow), pinned snapshot + regime/microstructure/interaction extensions.
 
@@ -26,7 +27,6 @@ Design notes
 """
 
 
-from typing import List
 
 SCHEMA_HASH = "de592c070cb6"
 
@@ -43,7 +43,7 @@ except ImportError:
 # Group A — Regime / Structural Context (5 keys)
 # ---------------------------------------------------------------------------
 
-_GROUP_A_REGIME: List[str] = [
+_GROUP_A_REGIME: list[str] = [
     "hurst_exp_50",         # Hurst exponent on last 50 ticks: <0.5 mean-revert, >0.5 trend
     "vol_regime_code",      # Ordinal: 0=low, 1=normal, 2=high, 3=extreme (tree-friendly)
     "tick_autocorr_lag1",   # Autocorrelation of tick signs at lag-1 (persistence of flow)
@@ -55,7 +55,7 @@ _GROUP_A_REGIME: List[str] = [
 # Group B — Trade History / Session Context (5 keys)
 # ---------------------------------------------------------------------------
 
-_GROUP_B_TRADE_HISTORY: List[str] = [
+_GROUP_B_TRADE_HISTORY: list[str] = [
     # Note: win_rate_session, consecutive_losses, mfe_mae_ratio_roll,
     # time_in_trade_p50_ms, calmar_roll_20 were already merged in v10_of
     "kelly_fraction_roll",  # Kelly criterion fraction: win_rate*(edge/odds) — position sizing signal
@@ -69,7 +69,7 @@ _GROUP_B_TRADE_HISTORY: List[str] = [
 # Group C — Cross-Asset / Correlation (4 keys)
 # ---------------------------------------------------------------------------
 
-_GROUP_C_CROSS_ASSET: List[str] = [
+_GROUP_C_CROSS_ASSET: list[str] = [
     "market_breadth_score",  # Ratio of assets trending in same direction as signal (0-1)
     "crypto_fear_greed",     # Fear/Greed index proxy (liquidation_usd vs open_interest_delta)
     "alt_season_index",      # Alts vs BTC dominance momentum (alt_btc_beta_1h derivative)
@@ -80,7 +80,7 @@ _GROUP_C_CROSS_ASSET: List[str] = [
 # Group D — Order Flow Microstructure Extensions (5 keys)
 # ---------------------------------------------------------------------------
 
-_GROUP_D_MICROSTRUCTURE: List[str] = [
+_GROUP_D_MICROSTRUCTURE: list[str] = [
     "trade_size_skew",           # Skewness of trade sizes in window — whale activity
     "sweep_velocity_bps_s",      # Sweep speed in bps/sec — aggression intensity
     "book_refresh_rate_hz",      # Order book update frequency — MM liquidity depth
@@ -92,7 +92,7 @@ _GROUP_D_MICROSTRUCTURE: List[str] = [
 # Group E — Signal Self-Awareness (4 keys)
 # ---------------------------------------------------------------------------
 
-_GROUP_E_SELF_AWARENESS: List[str] = [
+_GROUP_E_SELF_AWARENESS: list[str] = [
     "conf_ma_ratio",            # confidence / moving_avg_conf_24h — relative signal strength
     "signal_cluster_flag",      # 1.0 if 3+ signals within 60s (cluster / noise flag)
     "gate_hardness_score",      # Ratio of hard-veto gates fired vs total gates checked (0-1)
@@ -103,7 +103,7 @@ _GROUP_E_SELF_AWARENESS: List[str] = [
 # Group F — Derived / Interaction Features (5 keys)
 # ---------------------------------------------------------------------------
 
-_GROUP_F_INTERACTIONS: List[str] = [
+_GROUP_F_INTERACTIONS: list[str] = [
     "kyle_x_vpin",              # Kyle lambda × VPIN — toxic flow with price impact
     "momentum_x_vol_ratio",     # momentum_10s × vol_ratio — momentum quality in regime
     "pressure_x_obi",           # pressure × OBI — aggressive flow + book structure alignment
@@ -116,7 +116,7 @@ _GROUP_F_INTERACTIONS: List[str] = [
 # Final composite key list — V11_OF_NUMERIC_KEYS (sorted for determinism)
 # ---------------------------------------------------------------------------
 
-V11_OF_NUMERIC_KEYS: List[str] = sorted(set(
+V11_OF_NUMERIC_KEYS: list[str] = sorted(set(
     _V10_OF_BASE
     + _GROUP_A_REGIME
     + _GROUP_B_TRADE_HISTORY
@@ -136,7 +136,7 @@ if _V10_OF_BASE:
     )
 
 
-def get_v11_of_numeric_keys() -> List[str]:
+def get_v11_of_numeric_keys() -> list[str]:
     """Return sorted list of numeric indicator keys for v11_of."""
     return list(V11_OF_NUMERIC_KEYS)
 

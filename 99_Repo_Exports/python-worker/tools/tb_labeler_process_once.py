@@ -1,21 +1,20 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """One-time processing script for TB labeler to process pending/old data."""
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
-import json
 import os
-import time
-from typing import Any, Dict
 
 import redis
 
 from services.tb_labeler_worker_v10_1 import TBLabelerWorker, _safe_loads
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 # Config (same as worker)
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
 OF_INPUTS_FIELD = os.getenv("OF_INPUTS_FIELD", "payload")
 TB_INPUTS_GROUP = os.getenv("TB_INPUTS_GROUP", "tb-labeler")
 TB_INPUTS_CONSUMER = os.getenv("TB_INPUTS_CONSUMER", "c1")
@@ -25,10 +24,10 @@ def process_pending(r: redis.Redis, limit: int = 1000) -> int:
     """Process pending messages from consumer group."""
     group = os.getenv("TB_INPUTS_GROUP", "tb-labeler")
     consumer = os.getenv("TB_INPUTS_CONSUMER", "c1")
-    
+
     processed = 0
     worker = TBLabelerWorker()
-    
+
     # Check pending
     try:
         pending = r.xpending_range(OF_INPUTS_STREAM, group, min="-", max="+", count=limit)
@@ -51,7 +50,7 @@ def process_pending(r: redis.Redis, limit: int = 1000) -> int:
                     print(f"⚠️  Error claiming {msg_id}: {e}")
     except Exception as e:
         print(f"⚠️  Error checking pending: {e}")
-    
+
     return processed
 
 
@@ -59,16 +58,14 @@ def process_new(r: redis.Redis, limit: int = 1000) -> int:
     """Process new messages from stream."""
     group = os.getenv("TB_INPUTS_GROUP", "tb-labeler")
     consumer = os.getenv("TB_INPUTS_CONSUMER", "c1")
-    
+
     processed = 0
     worker = TBLabelerWorker()
-    
+
     # Ensure group exists
-    try:
+    with contextlib.suppress(Exception):
         r.xgroup_create(OF_INPUTS_STREAM, group, id="0", mkstream=True)
-    except Exception:
-        pass
-    
+
     # Read new messages
     try:
         resp = r.xreadgroup(group, consumer, {OF_INPUTS_STREAM: ">"}, count=limit, block=100)
@@ -82,67 +79,66 @@ def process_new(r: redis.Redis, limit: int = 1000) -> int:
                     processed += 1
     except Exception as e:
         print(f"⚠️  Error reading new messages: {e}")
-    
+
     return processed
 
 
 def process_from_stream_direct(r: redis.Redis, since_hours: float = 24.0, limit: int = 5000) -> int:
     """Process messages directly from stream (bypass consumer group)."""
-    import time
     processed = 0
     skipped_done = 0
     skipped_invalid = 0
     worker = TBLabelerWorker()
-    
+
     since_ms = get_ny_time_millis() - int(since_hours * 3600_000)
-    
+
     try:
         # Read from stream starting from since_ms
         last_id = f"{since_ms}-0"
         batch = r.xrange(OF_INPUTS_STREAM, min=last_id, max="+", count=limit)
-        
+
         if batch:
             print(f"📥 Found {len(batch)} messages in stream (since {since_hours}h ago)")
             sample_checked = False
             for msg_id, fields in batch:
                 raw = fields.get(OF_INPUTS_FIELD)
                 inp = _safe_loads(raw)
-                
+
                 # Debug first few messages
                 if not sample_checked and processed + skipped_done + skipped_invalid < 3:
                     print(f"   🔍 Sample message: msg_id={msg_id}, has_payload={raw is not None}, parsed_keys={list(inp.keys())[:5] if inp else 'None'}")
                     sample_checked = True
-                
+
                 if not inp:
                     skipped_invalid += 1
                     continue
-                
+
                 # Check required fields
-                sid = str(inp.get("sid", "") or "")
-                symbol = str(inp.get("symbol", "") or "").upper()
+                sid = (inp.get("sid", "") or "")
+                symbol = (inp.get("symbol", "") or "").upper()
                 ts_ms = int(inp.get("ts_ms", inp.get("ts", 0)) or 0)
-                direction = str(inp.get("direction", "") or "").upper()
-                
+                direction = (inp.get("direction", "") or "").upper()
+
                 # Generate sid if missing (from symbol + ts_ms + direction)
                 if not sid and symbol and ts_ms > 0 and direction:
                     import hashlib
                     sid_raw = f"{symbol}:{ts_ms}:{direction}"
                     sid = hashlib.sha256(sid_raw.encode()).hexdigest()[:16]
                     inp["sid"] = sid
-                
+
                 if not sid or not symbol or ts_ms <= 0 or direction not in ("LONG", "SHORT"):
                     skipped_invalid += 1
                     if skipped_invalid <= 3:
                         print(f"   ⚠️  Invalid: sid={sid}, symbol={symbol}, ts_ms={ts_ms}, direction={direction}")
                     continue
-                
+
                 # Check if already done
-                sid = str(inp.get("sid", ""))
+                sid = (inp.get("sid", ""))
                 done_key = f"tb:done:{sid}"
                 if r.exists(done_key):
                     skipped_done += 1
                     continue
-                
+
                 # Try to enqueue
                 try:
                     worker.enqueue_job(inp)
@@ -151,14 +147,14 @@ def process_from_stream_direct(r: redis.Redis, since_hours: float = 24.0, limit:
                     skipped_invalid += 1
                     if processed + skipped_done + skipped_invalid <= 10:
                         print(f"   ⚠️  Skipped {sid}: {e}")
-            
+
             if skipped_done > 0:
                 print(f"   ⏭️  Skipped {skipped_done} already processed (tb:done)")
             if skipped_invalid > 0:
                 print(f"   ⚠️  Skipped {skipped_invalid} invalid/missing fields")
     except Exception as e:
         print(f"⚠️  Error reading from stream: {e}")
-    
+
     return processed
 
 
@@ -219,7 +215,7 @@ def main() -> None:
         return
 
     print(f"\n✅ Total processed: {total}")
-    
+
     # Check results
     tb_len = r.xlen("labels:tb")
     jobs_len = r.zcard("tb:jobs:due")

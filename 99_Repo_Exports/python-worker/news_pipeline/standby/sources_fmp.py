@@ -1,11 +1,14 @@
 # python-worker/news_pipeline/standby/sources_fmp.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
+
 import json
-import time
 import urllib.parse
 import urllib.request
-from typing import Dict, Any, List, Iterable
+from collections.abc import Iterable
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+
 
 def _get_json(url: str, *, timeout: float = 10.0, user_agent: str = "trade-standby/1.0") -> Any:
     req = urllib.request.Request(url, headers={"User-Agent": user_agent})
@@ -22,12 +25,12 @@ def fetch_fmp_stock_news(
     limit: int = 50,
     timeout: float = 10.0,
     user_agent: str = "trade-standby/1.0",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     FMP stock_news rows (пример из вашего Go):
       {symbol, publishedDate, title, url, text, site}
     """
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     now_ms = get_ny_time_millis()
 
     for t in tickers:
@@ -46,9 +49,9 @@ def fetch_fmp_stock_news(
             if not isinstance(r, dict):
                 continue
 
-            title = str(r.get("title") or "").strip()
-            link = str(r.get("url") or "").strip()
-            pub = str(r.get("publishedDate") or "").strip()
+            title = (r.get("title") or "").strip()
+            link = (r.get("url") or "").strip()
+            pub = (r.get("publishedDate") or "").strip()
 
             # publishedDate в Go используется и как provider_id, и как источник времени
             # здесь — максимально безопасно: если не распарсили, fallback now
@@ -72,7 +75,7 @@ def fetch_fmp_stock_news(
                 "source": "fmp",
                 "title": title,
                 "url": link,
-                "summary": str(r.get("text") or "")[:4000],
+                "summary": (r.get("text") or "")[:4000],
                 "symbols": [t],
                 "importance": 0.0,
                 "payload": r,

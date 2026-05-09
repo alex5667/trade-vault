@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -20,25 +21,25 @@ def _to_int(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _read_json(path: str) -> Dict[str, Any]:
+def _read_json(path: str) -> dict[str, Any]:
     if not path or not os.path.exists(path):
         return {}
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         return data if isinstance(data, dict) else {}
     except Exception:
@@ -54,10 +55,10 @@ def _redis_client(redis_url: str):
         return None
 
 
-def _write_hash(client: Any, key: str, mapping: Dict[str, Any]) -> bool:
+def _write_hash(client: Any, key: str, mapping: dict[str, Any]) -> bool:
     if client is None or not key:
         return False
-    payload: Dict[str, str] = {}
+    payload: dict[str, str] = {}
     for k, v in mapping.items():
         if isinstance(v, (dict, list)):
             payload[str(k)] = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
@@ -71,10 +72,10 @@ def _write_hash(client: Any, key: str, mapping: Dict[str, Any]) -> bool:
 
 
 def _escape_label(v: Any) -> str:
-    return str(v or "").replace("\\", r"\\").replace('"', r'\"').replace("\n", r"\n")
+    return (v or "").replace("\\", r"\\").replace('"', r'\"').replace("\n", r"\n")
 
 
-def _write_textfile(path: str, summary: Dict[str, Any]) -> bool:
+def _write_textfile(path: str, summary: dict[str, Any]) -> bool:
     if not path:
         return False
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -114,8 +115,7 @@ def _write_textfile(path: str, summary: Dict[str, Any]) -> bool:
         f"ofc_ctx_runtime_summary_rollback_flag_present {float(summary.get('rollback_exists', 0) or 0):.0f}",
         "# HELP ofc_ctx_runtime_summary_info Runtime summary info labels",
         "# TYPE ofc_ctx_runtime_summary_info gauge",
-        'ofc_ctx_runtime_summary_info{active_overlay_fingerprint="%s",last_restart_reason_kind="%s",defer_reason="%s"} 1'
-        % (
+        'ofc_ctx_runtime_summary_info{{active_overlay_fingerprint="{}",last_restart_reason_kind="{}",defer_reason="{}"}} 1'.format(
             _escape_label(summary.get("active_overlay_fingerprint", "unknown")[:128]),
             _escape_label(summary.get("last_restart_reason_kind", "unknown")[:64]),
             _escape_label(summary.get("defer_reason", "")[:64]),
@@ -128,7 +128,7 @@ def _write_textfile(path: str, summary: Dict[str, Any]) -> bool:
     return True
 
 
-def build_summary(state: Dict[str, Any], *, now_ms: Optional[int] = None) -> Dict[str, Any]:
+def build_summary(state: dict[str, Any], *, now_ms: int | None = None) -> dict[str, Any]:
     now_ms = int(now_ms if now_ms is not None else _now_ms())
     if not state:
         return {
@@ -162,16 +162,16 @@ def build_summary(state: Dict[str, Any], *, now_ms: Optional[int] = None) -> Dic
         "child_pid": _to_int(state.get("child_pid", 0), 0),
         "child_uptime_seconds": max(0.0, (now_ms - child_start_ts_ms) / 1000.0) if child_start_ts_ms > 0 else 0.0,
         "restart_count": _to_int(state.get("restart_count", 0), 0),
-        "last_restart_reason": str(state.get("last_restart_reason", "") or ""),
-        "last_restart_reason_kind": str(state.get("last_restart_reason_kind", "unknown") or "unknown"),
+        "last_restart_reason": (state.get("last_restart_reason", "") or ""),
+        "last_restart_reason_kind": (state.get("last_restart_reason_kind", "unknown") or "unknown"),
         "cooldown_remaining_seconds": max(0.0, (cooldown_until_ts_ms - now_ms) / 1000.0) if cooldown_until_ts_ms > 0 else 0.0,
         "defer_active": _to_int(state.get("defer_active", 0), 0),
-        "defer_reason": str(state.get("defer_reason", "") or ""),
+        "defer_reason": (state.get("defer_reason", "") or ""),
         "defer_remaining_seconds": max(0.0, (defer_until_ts_ms - now_ms) / 1000.0) if defer_until_ts_ms > 0 else 0.0,
         "overlay_dirty": _to_int(state.get("overlay_dirty", 0), 0),
         "rollback_exists": _to_int(state.get("rollback_exists", 0), 0),
-        "active_overlay_fingerprint": str(state.get("active_overlay_fingerprint", "") or ""),
-        "desired_overlay_fingerprint": str(state.get("desired_overlay_fingerprint", "") or ""),
+        "active_overlay_fingerprint": (state.get("active_overlay_fingerprint", "") or ""),
+        "desired_overlay_fingerprint": (state.get("desired_overlay_fingerprint", "") or ""),
         "last_child_exit_code": _to_int(state.get("last_child_exit_code", 0), 0),
     }
 
@@ -182,8 +182,8 @@ def write_summary_once(
     redis_url: str = "",
     summary_key: str = "",
     textfile_path: str = "",
-    now_ms: Optional[int] = None,
-) -> Dict[str, Any]:
+    now_ms: int | None = None,
+) -> dict[str, Any]:
     state = _read_json(state_path)
     summary = build_summary(state, now_ms=now_ms)
     summary["redis_write_ok"] = 0

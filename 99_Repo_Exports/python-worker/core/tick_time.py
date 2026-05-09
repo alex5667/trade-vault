@@ -5,9 +5,9 @@ This shim keeps backward compatibility for any importer that uses core.tick_time
 """
 
 from common.tick_time import (  # noqa: F401
-    TickTimePolicy,
-    TickTimeGuard,
     SanitizeResult,
+    TickTimeGuard,
+    TickTimePolicy,
     TsVerifyResult,
     apply_tick_time_policy,
     verify_bucketed_ts,

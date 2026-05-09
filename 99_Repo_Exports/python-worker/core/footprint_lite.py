@@ -1,10 +1,9 @@
-from core.footprint_features import (
-    compute_bucket_stats, compute_edge_ladders, compute_poc, poc_on_edge, compute_eff_delta
-)
-from dataclasses import dataclass, field
-from typing import Any, Dict, Tuple
-from collections import OrderedDict
 import math
+from collections import OrderedDict
+from dataclasses import dataclass, field
+from typing import Any
+
+from core.footprint_features import compute_bucket_stats, compute_edge_ladders, compute_poc, poc_on_edge
 
 
 @dataclass
@@ -22,9 +21,9 @@ class FootprintSnapshot:
     progress: float
     absorb_score: float
     absorption_bias: str
-    
+
     # NEW: Round 6 fields + extensibility
-    extra: Dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.extra.get(key, default)
@@ -57,7 +56,7 @@ class FootprintLite:
             self.max_buckets = 16
 
         # bucket_id -> (buy_qty, sell_qty)
-        self._m: "OrderedDict[int, Tuple[float, float]]" = OrderedDict()
+        self._m: OrderedDict[int, tuple[float, float]] = OrderedDict()
         self.evictions: int = 0
         self.bad_price: int = 0
 
@@ -217,7 +216,7 @@ class FootprintLite:
             abs_bias = "LONG"
         elif ladder_high_len > ladder_low_len:
             abs_bias = "SHORT"
-        
+
         # Original logic as fallback for VERY low progress if bias not yet set?
         # Let's keep existing logic but allow ladder bias to override if strong.
         if abs_bias == "NONE" and (1.0 - progress) > 0.5:

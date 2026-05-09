@@ -2,16 +2,17 @@ import json
 import os
 import unittest
 from tempfile import NamedTemporaryFile
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from tools.meta_ab_winner_evaluator_v1 import evaluate_models, make_decision, compute_metrics
+from tools.meta_ab_winner_evaluator_v1 import compute_metrics, evaluate_models, make_decision
+
 
 class TestMetaABWinnerEvaluator(unittest.TestCase):
     def setUp(self):
         # Create a mock MetaModelLR
         self.mock_model = MagicMock()
         self.mock_model.predict_proba.side_effect = lambda x: x.get("p", 0.5)
-        
+
         # Create a temporary ndjson dataset
         self.dataset = NamedTemporaryFile(delete=False, suffix=".ndjson", mode="w")
         rows = [
@@ -41,16 +42,16 @@ class TestMetaABWinnerEvaluator(unittest.TestCase):
         # Mock models with different predictions
         model_champ = MagicMock()
         model_champ.predict_proba.side_effect = lambda x: x.get("p")
-        
+
         model_chall = MagicMock()
         model_chall.predict_proba.side_effect = lambda x: (x.get("p") + 0.05) if x.get("p") is not None else None
-        
+
         # At p_min=0.75:
         # Champ gets row 2 (p=0.8)
         # Chall gets row 1 (p=0.7+0.05=0.75) and row 2 (p=0.8+0.05=0.85)
-        
+
         results = evaluate_models(self.dataset_path, 0.75, model_champ, model_chall)
-        
+
         self.assertEqual(results["champion"]["n"], 1)
         self.assertEqual(results["challenger"]["n"], 2)
         self.assertEqual(results["n_eligible"], 3)

@@ -1,11 +1,8 @@
 import hashlib
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from core.meta_features_v5 import (
     META_FEAT_V5_COLS,
-    META_FEAT_V5_HASH,
-    META_FEAT_V5_NAME,
-    META_FEAT_V5_VERSION,
     build_meta_features_v5,
 )
 
@@ -24,7 +21,7 @@ META_FEAT_V6_VERSION = 6
 # - Staleness / health
 # - Runtime micro stability
 # - L3-lite + Hawkes-like online intensities
-META_FEAT_V6_NEW_COLS: List[str] = [
+META_FEAT_V6_NEW_COLS: list[str] = [
     # Execution + score core
     "exec_risk_ref_bps",
     "exec_pen",
@@ -61,12 +58,12 @@ META_FEAT_V6_NEW_COLS: List[str] = [
     "hawkes_churn_lam",
 ]
 
-META_FEAT_V6_COLS: List[str] = list(META_FEAT_V5_COLS) + list(META_FEAT_V6_NEW_COLS)
+META_FEAT_V6_COLS: list[str] = list(META_FEAT_V5_COLS) + list(META_FEAT_V6_NEW_COLS)
 META_FEAT_V6_HASH: str = hashlib.sha1(",".join(META_FEAT_V6_COLS).encode("utf-8")).hexdigest()
 
 # Transform specs are applied by core.feature_engineering.apply_transform.
 # NOTE: v3/v4 currently use 'name' key; apply_transform has a backwards-compatible alias.
-META_FEAT_V6_TRANSFORMS: Dict[str, Dict[str, Any]] = {
+META_FEAT_V6_TRANSFORMS: dict[str, dict[str, Any]] = {
     # Age / staleness: log1p (non-negative, but can be large)
     "book_staleness_ms": {"type": "log1p"},
     "obi_age_ms": {"type": "log1p"},
@@ -101,7 +98,7 @@ META_FEAT_V6_TRANSFORMS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _try_get_float(x: Any) -> Optional[float]:
+def _try_get_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -111,12 +108,12 @@ def _try_get_float(x: Any) -> Optional[float]:
 
 
 def build_meta_features_v6(
-    evidence: Dict[str, Any],
-    indicators: Dict[str, Any],
-    runtime_snap: Optional[Any] = None,  # book_state.snap
-    runtime_prev_snap: Optional[Any] = None,  # book_state.prev_snap
-    indicators_with_v4: Optional[Dict[str, Any]] = None,
-    legs: Optional[Dict[str, Any]] = None,
+    evidence: dict[str, Any],
+    indicators: dict[str, Any],
+    runtime_snap: Any | None = None,  # book_state.snap
+    runtime_prev_snap: Any | None = None,  # book_state.prev_snap
+    indicators_with_v4: dict[str, Any] | None = None,
+    legs: dict[str, Any] | None = None,
     have: int = 0,
     need: int = 0,
     ok_soft: int = 0,
@@ -124,7 +121,7 @@ def build_meta_features_v6(
     exec_risk_norm: float = 0.0,
     exec_risk_bps: float = 0.0,
     ml_scenario: str = "",
-) -> Tuple[Dict[str, float], List[str]]:
+) -> tuple[dict[str, float], list[str]]:
     """Build meta_feat_v6 (v5 base + expanded runtime indicators)."""
 
     feat, missing = build_meta_features_v5(

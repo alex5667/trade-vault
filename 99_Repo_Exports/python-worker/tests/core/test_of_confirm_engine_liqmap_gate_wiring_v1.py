@@ -16,6 +16,7 @@ Run command (from repo root):
 
 from pathlib import Path
 
+
 # Both SoT (python-worker/core/) and reference (reference/tick_flow_full/core/) are tested.
 # Walk up from this file to find the scanner_infra root (identified by having 'reference' dir).
 def _find_scanner_infra_root() -> Path:

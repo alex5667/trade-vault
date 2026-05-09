@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
+
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
 
 from .result import ConfirmResult
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot, L2Level
 
 
-def _f(x: Any, default: Optional[float] = None) -> Optional[float]:
+def _f(x: Any, default: float | None = None) -> float | None:
     try:
         v = float(x)
     except Exception:
@@ -31,10 +32,10 @@ class L2ConfirmAbsorption:
     Produces structured flags for 3.3 absorption gating (two independent confirmations).
     """
 
-    def __init__(self, cfg: Optional[AbsorptionConfirmCfg] = None) -> None:
+    def __init__(self, cfg: AbsorptionConfirmCfg | None = None) -> None:
         self.cfg = cfg or AbsorptionConfirmCfg()
 
-    def _get_l2(self, ctx: Any) -> Optional[L2Snapshot]:
+    def _get_l2(self, ctx: Any) -> L2Snapshot | None:
         return getattr(ctx, "l2", None) or getattr(ctx, "l2_snapshot", None) or getattr(ctx, "book", None)
 
     def _is_stale(self, ctx: Any) -> bool:
@@ -113,7 +114,7 @@ class L2ConfirmAbsorption:
 
         # Micro contra: microprice shift against direction (or explicit flag)
         if getattr(ctx, "mp_contra", None) is not None:
-            flags["mp_contra"] = bool(getattr(ctx, "mp_contra"))
+            flags["mp_contra"] = bool(ctx.mp_contra)
         else:
             mps = _f(getattr(ctx, "microprice_shift_bps", None), None)
             if mps is None:
@@ -127,7 +128,7 @@ class L2ConfirmAbsorption:
 
         # Micro proxy: accept explicit (progress_blocked / adverse_ratio) if present
         if getattr(ctx, "micro_proxy", None) is not None:
-            flags["micro_proxy"] = bool(getattr(ctx, "micro_proxy"))
+            flags["micro_proxy"] = bool(ctx.micro_proxy)
         else:
             adverse = _f(getattr(ctx, "adverse_ratio_ema", None), None)
             if adverse is not None:

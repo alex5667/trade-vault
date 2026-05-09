@@ -20,7 +20,7 @@ import json
 import math
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 SCHEMA_VERSION = 1
 DEFAULT_CTX_PREFIX = "ctx:crossvenue:"
@@ -68,14 +68,14 @@ def _s(v: Any, d: str = "") -> str:
 
 
 def ctx_key(symbol: str, prefix: str = DEFAULT_CTX_PREFIX) -> str:
-    return f"{prefix}{str(symbol or '').upper()}"
+    return f"{prefix}{(symbol or '').upper()}"
 
 
 # ---------------------------------------------------------------------------
 # Deserialisation helpers
 # ---------------------------------------------------------------------------
 
-def from_dict(payload: Dict[str, Any]) -> Optional[CrossVenueContextSnapshot]:
+def from_dict(payload: dict[str, Any]) -> CrossVenueContextSnapshot | None:
     try:
         symbol = _s(payload.get("symbol")).upper()
         if not symbol:
@@ -101,7 +101,7 @@ def from_dict(payload: Dict[str, Any]) -> Optional[CrossVenueContextSnapshot]:
         return None
 
 
-def from_json(raw: Any) -> Optional[CrossVenueContextSnapshot]:
+def from_json(raw: Any) -> CrossVenueContextSnapshot | None:
     """Parse JSON bytes / str / dict → snapshot. Returns None on any error."""
     try:
         if raw is None:
@@ -121,7 +121,7 @@ def from_json(raw: Any) -> Optional[CrossVenueContextSnapshot]:
 # Async reader with 2-second local cache (per symbol, fail-open)
 # ---------------------------------------------------------------------------
 
-_LOCAL_CACHE: Dict[str, Tuple[int, Optional[CrossVenueContextSnapshot]]] = {}
+_LOCAL_CACHE: dict[str, tuple[int, CrossVenueContextSnapshot | None]] = {}
 _CACHE_TTL_MS = 2_000
 
 
@@ -134,7 +134,7 @@ async def aread_crossvenue_context(
     *,
     symbol: str,
     prefix: str = DEFAULT_CTX_PREFIX,
-) -> Optional[CrossVenueContextSnapshot]:
+) -> CrossVenueContextSnapshot | None:
     """Read cross-venue context from Redis, with 2-second local cache.
 
     Fail-open: returns None on Redis unavailability or parse errors.

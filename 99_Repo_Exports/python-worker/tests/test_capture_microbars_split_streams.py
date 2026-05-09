@@ -10,10 +10,9 @@ Tests cover:
 """
 
 import os
-import json
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from typing import List
 
 # Import functions from capture_microbars
 from services.capture_microbars import _decode, _discover_symbols, _make_stream_keys
@@ -51,9 +50,9 @@ class TestDiscoverSymbols:
         """Discover symbols in single SSCAN iteration."""
         r = AsyncMock()
         r.sscan = AsyncMock(return_value=(0, [b"BTCUSDT", b"ETHUSDT", b"SOLUSDT"]))
-        
+
         result = await _discover_symbols(r, limit=2000)
-        
+
         assert set(result) == {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
         assert result == sorted(result)  # Should be sorted
         r.sscan.assert_called_once()
@@ -66,9 +65,9 @@ class TestDiscoverSymbols:
             (200, [b"SOLUSDT", b"BNBUSDT"]),
             (0, [b"XRPUSDT"]),  # cursor=0 means done
         ])
-        
+
         result = await _discover_symbols(r, limit=2000)
-        
+
         assert set(result) == {"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"}
         assert r.sscan.call_count == 3
 
@@ -76,9 +75,9 @@ class TestDiscoverSymbols:
         """Respect limit parameter."""
         r = AsyncMock()
         r.sscan = AsyncMock(return_value=(0, [b"BTCUSDT", b"ETHUSDT", b"SOLUSDT", b"BNBUSDT"]))
-        
+
         result = await _discover_symbols(r, limit=2)
-        
+
         assert len(result) == 2
         assert result == sorted(result)
 
@@ -86,18 +85,18 @@ class TestDiscoverSymbols:
         """Handle empty set."""
         r = AsyncMock()
         r.sscan = AsyncMock(return_value=(0, []))
-        
+
         result = await _discover_symbols(r, limit=2000)
-        
+
         assert result == []
 
     async def test_discover_symbols_deduplication(self):
         """Deduplicate symbols."""
         r = AsyncMock()
         r.sscan = AsyncMock(return_value=(0, [b"BTCUSDT", b"BTCUSDT", b"ETHUSDT"]))
-        
+
         result = await _discover_symbols(r, limit=2000)
-        
+
         assert result == ["BTCUSDT", "ETHUSDT"]
 
 

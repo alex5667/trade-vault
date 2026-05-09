@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -39,7 +40,7 @@ LAT = _hist("ml_operator_routing_incident_route_rca_governor_latency_seconds", "
 LAST_RUN = _gauge("ml_operator_routing_incident_route_rca_governor_last_run_ts_seconds", "Last timestamp")
 
 def now_ms() -> int: return get_ny_time_millis()
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 async def ensure_group(r: Any, stream: str, group: str) -> None:
@@ -62,18 +63,18 @@ async def run_loop(r: Any) -> None:
                     row = as_dict(payload)
                     inc_id = row.get("incident_id", "unknown")
                     usefulness_score = float(row.get("usefulness_score", 0.5))
-                    
+
                     # Compute logic based on thresholds (mocking Postgres GROUP BY accumulation here)
                     decision = "HOLD"
                     if usefulness_score >= 0.72:
                         decision = "PROMOTE"
                     elif usefulness_score <= 0.45:
                         decision = "SUPPRESS"
-                        
+
                     # Build decision output
-                    action_key = f"cfg:ml:operator_routing_incident_route_rca_governor:action:open_incident:routing_incident_route_rca_v1:policy_v1"
-                    provider_key = f"cfg:ml:operator_routing_incident_route_rca_governor:provider:vertex:gemini-2.5-flash-lite:routing_incident_route_rca_v1"
-                    
+                    action_key = "cfg:ml:operator_routing_incident_route_rca_governor:action:open_incident:routing_incident_route_rca_v1:policy_v1"
+                    provider_key = "cfg:ml:operator_routing_incident_route_rca_governor:provider:vertex:gemini-2.5-flash-lite:routing_incident_route_rca_v1"
+
                     dec = {
                         "incident_id": inc_id,
                         "decision": decision,
@@ -82,19 +83,19 @@ async def run_loop(r: Any) -> None:
                         "score": usefulness_score,
                         "ts_ms": now_ms()
                     }
-                    
+
                     # Update advisory state natively
                     await r.hset(action_key, mapping=dec)
                     await r.hset(provider_key, mapping=dec)
-                    
+
                     await r.xadd(OUT_STREAM, dec, maxlen=MAXLEN, approximate=True)
                     await r.xadd(AUDIT_STREAM, dec, maxlen=MAXLEN, approximate=True)
-                    
+
                     await r.xack(IN_STREAM, GROUP, msg_id)
                 except Exception:
                     status = "error"
                     await r.xack(IN_STREAM, GROUP, msg_id)
-                    
+
         if LAST_RUN: LAST_RUN.set(time.time())
     except Exception:
         status = "error"

@@ -1,7 +1,7 @@
 import inspect
 
-from services.orderflow.metrics import evidence_used_total
 import services.orderflow_strategy as orderflow_strategy
+from services.orderflow.metrics import evidence_used_total
 
 
 def test_stage1_p0_evidence_used_total_labelnames_contract() -> None:

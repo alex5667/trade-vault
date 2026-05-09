@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Prometheus exporter for extended confidence-calibration diagnostics.
 
 Reads proof/status JSON files written by conf_cal_promotion_manager_v1.py
@@ -20,14 +21,14 @@ import json
 import os
 import signal
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from prometheus_client import Counter, Gauge, start_http_server  # type: ignore
 
 
-def _load_json(path: str) -> Optional[Dict[str, Any]]:
+def _load_json(path: str) -> dict[str, Any] | None:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         return obj if isinstance(obj, dict) else None
     except Exception:
@@ -41,7 +42,7 @@ def _age_sec(path: str) -> float:
         return float("nan")
 
 
-def _metric_value(obj: Dict[str, Any], arm: str, metric: str) -> float:
+def _metric_value(obj: dict[str, Any], arm: str, metric: str) -> float:
     arms = obj.get("arms") or {}
     if not isinstance(arms, dict):
         return float("nan")
@@ -54,7 +55,7 @@ def _metric_value(obj: Dict[str, Any], arm: str, metric: str) -> float:
         return float("nan")
 
 
-def _delta_value(obj: Dict[str, Any], metric: str) -> float:
+def _delta_value(obj: dict[str, Any], metric: str) -> float:
     arms = obj.get("arms") or {}
     delta = arms.get("delta") if isinstance(arms, dict) else {}
     if not isinstance(delta, dict):

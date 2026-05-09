@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 META_FEAT_V1_NAME = "meta_feat_v1"
 META_FEAT_V1_VERSION = 1
@@ -70,10 +70,10 @@ META_FEAT_V1_HASH = hashlib.sha256(
 
 # Default transforms for meta_feat_v1.
 # Stored in the model JSON and applied at runtime by MetaModelLR.
-META_FEAT_V1_TRANSFORMS: Dict[str, Dict[str, Any]] = {
+META_FEAT_V1_TRANSFORMS: dict[str, dict[str, Any]] = {
     # Ages / staleness (ms): log1p(max(0, x))
     "age_ms": {"type": "log1p"},
-    
+
     # z-scores: clip
     "delta_z": {"type": "clip", "lo": -8.0, "hi": 8.0},
     "obi_z": {"type": "clip", "lo": -8.0, "hi": 8.0},
@@ -85,10 +85,10 @@ META_FEAT_V1_TRANSFORMS: Dict[str, Dict[str, Any]] = {
 }
 
 def build_meta_features_v1(
-    evidence: Dict[str, Any],
-    indicators: Dict[str, Any],
-    indicators_with_v4: Optional[Dict[str, Any]] = None,
-    legs: Optional[Dict[str, Any]] = None,
+    evidence: dict[str, Any],
+    indicators: dict[str, Any],
+    indicators_with_v4: dict[str, Any] | None = None,
+    legs: dict[str, Any] | None = None,
     have: int = 0,
     need: int = 0,
     ok_soft: int = 0,
@@ -96,15 +96,15 @@ def build_meta_features_v1(
     exec_risk_norm: float = 0.0,
     exec_risk_bps: float = 0.0,
     ml_scenario: str = "",
-) -> Tuple[Dict[str, float], List[str]]:
+) -> tuple[dict[str, float], list[str]]:
     """
     Builds a flat feature dictionary for MetaModelLR.
     Standardized across training/serving for Train == Serve parity.
     """
-    feat: Dict[str, float] = {}
-    missing: List[str] = []
+    feat: dict[str, float] = {}
+    missing: list[str] = []
 
-    def _get(src: Optional[Dict[str, Any]], k: str) -> Tuple[bool, Any]:
+    def _get(src: dict[str, Any] | None, k: str) -> tuple[bool, Any]:
         if not src: return False, None
         return k in src, src.get(k)
 
@@ -118,7 +118,7 @@ def build_meta_features_v1(
     def _is_finite(v: float) -> bool:
         return math.isfinite(v)
 
-    def _age(src: Optional[Dict[str, Any]], k: str, miss_name: str) -> float:
+    def _age(src: dict[str, Any] | None, k: str, miss_name: str) -> float:
         present, val = _get(src, k)
         v = _to_float(val, 0.0)
         bad = (not present) or (val is None) or (not _is_finite(v)) or (v < 0.0)
@@ -138,15 +138,15 @@ def build_meta_features_v1(
     # Scenario (Unified)
     scn = (ml_scenario or "").lower()
     if not scn and indicators_with_v4:
-        scn = str(indicators_with_v4.get("scenario_v4", "")).lower()
-    
+        scn = (indicators_with_v4.get("scenario_v4", "")).lower()
+
     feat["scn_is_trend"] = 1.0 if "trend" in scn else 0.0
     feat["scn_is_range"] = 1.0 if "range" in scn else 0.0
 
     # Age / Context
     meta_ctx = evidence.get("meta_context", {}) if isinstance(evidence, dict) else {}
     feat["age_ms"] = _age(evidence, "age_ms", "age_ms") if "age_ms" in evidence else _age(meta_ctx, "age_ms", "age_ms")
-    
+
     feat["is_weekend"] = _to_float(meta_ctx.get("is_weekend", 0.0))
     feat["is_eu_hours"] = _to_float(meta_ctx.get("is_eu_hours", 0.0))
     feat["is_us_hours"] = _to_float(meta_ctx.get("is_us_hours", 0.0))
@@ -165,12 +165,12 @@ def build_meta_features_v1(
     # Market State
     feat["spread_bps"] = _to_float(indicators.get("spread_bps"))
     if "spread_bps" not in indicators: missing.append("spread_bps")
-    
+
     for w in ["15m", "1h", "4h", "24h"]:
         k_vol = f"volatility_{w}_bps"
         feat[k_vol] = _to_float(indicators.get(k_vol))
         if k_vol not in indicators: missing.append(k_vol)
-        
+
         for prefix in ["ofi", "book_churn", "liq_imbal", "trade_imbal"]:
             k = f"{prefix}_{w}"
             feat[k] = _to_float(indicators.get(k))

@@ -1,13 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -21,19 +22,19 @@ def _atomic_write(path: str, text: str) -> None:
     os.replace(tmp, path)
 
 
-def _load_state(path: str) -> Dict[str, Any]:
+def _load_state(path: str) -> dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
 
 
-def _save_state(path: str, st: Dict[str, Any]) -> None:
+def _save_state(path: str, st: dict[str, Any]) -> None:
     _atomic_write(path, json.dumps(st, ensure_ascii=False, indent=2))
 
 
-def _decode_payload(fields: Dict[str, Any], field: str) -> Optional[str]:
+def _decode_payload(fields: dict[str, Any], field: str) -> str | None:
     if field in fields:
         v = fields.get(field)
         if v is None:
@@ -51,7 +52,7 @@ def _decode_payload(fields: Dict[str, Any], field: str) -> Optional[str]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--stream", default=os.getenv("OF_INPUTS_STREAM", "signals:of:inputs"))
+    ap.add_argument("--stream", default=os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS))
     ap.add_argument("--field", default=os.getenv("OF_INPUTS_STREAM_FIELD", "payload"))
     ap.add_argument("--since-hours", type=float, default=float(os.getenv("OF_INPUTS_SINCE_HOURS", "24")))
     ap.add_argument("--since-ts-ms", type=int, default=0)
@@ -67,7 +68,7 @@ def main() -> None:
 
     state_path = str(args.state_file or "")
     st = _load_state(state_path) if (int(args.resume) == 1 and state_path) else {}
-    last_id = str(st.get("last_id", "") or "")
+    last_id = (st.get("last_id", "") or "")
     if not last_id:
         last_id = f"{int(since_ms)}-0"
     else:

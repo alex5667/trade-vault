@@ -1,9 +1,6 @@
 from types import SimpleNamespace
 
-import pytest
-
 from news_pipeline.feature_store_service import NewsFeatureStoreService
-from news_pipeline.utils import now_ms
 
 
 class FakePipeline:

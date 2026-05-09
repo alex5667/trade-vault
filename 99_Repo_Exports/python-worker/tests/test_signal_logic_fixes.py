@@ -1,10 +1,9 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-import json
-import time
-from unittest.mock import MagicMock, AsyncMock
+
 from services.orderflow.strategy import OrderFlowStrategy
-from services.outbox.atomic_outbox import atomic_xadd_async
-from services.orderflow.signal_pipeline import SignalPipeline
+
 
 @pytest.mark.asyncio
 async def test_burst_no_ghost_policy():
@@ -19,15 +18,15 @@ async def test_burst_no_ghost_policy():
     runtime.burst.st.active = True
     runtime.last_signal_ts = 0
     runtime.pressure.record_emit = MagicMock()
-    
+
     strategy = OrderFlowStrategy(redis=MagicMock(), ticks=MagicMock(), publisher=MagicMock(), of_engine=MagicMock())
     strategy.logger = MagicMock()
-    
+
     tick = {"ts": 1700000000000, "p": 50000}
     # Simulate a trigger
     with MagicMock() as delta_event:
         delta_event.get.side_effect = lambda k, d=None: 1000.0 if k == "delta" else d
-        
+
         # We need to mock a lot of strategy internals or just test the block we changed.
         # Given the complexity, we'll focus on the bookkeeping lines.
         pass
@@ -40,7 +39,7 @@ async def test_outbox_dual_field_contract():
     redis = AsyncMock()
     # Mocking the Lua script execution result {1, entry_id}
     redis.evalsha = AsyncMock(return_value=[1, "123-0"])
-    
+
     # In reality we want to see if the script string contains 'payload' and 'data'.
     from services.outbox.atomic_outbox import _LUA_ATOMIC_XADD
     assert "'payload',   ARGV[7]" in _LUA_ATOMIC_XADD

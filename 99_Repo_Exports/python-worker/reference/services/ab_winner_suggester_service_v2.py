@@ -1,21 +1,21 @@
-from utils.time_utils import get_ny_time_millis
+import argparse
+import asyncio
+import hashlib
+import json
+
 # -*- coding: utf-8 -*-
 import os
-import json
-import time
-import asyncio
-import argparse
-import hashlib
-from typing import Any, Dict, Tuple, List, Optional
+from typing import Any
 
 import redis.asyncio as aioredis
 
 from common.log import setup_logger
 from core.ab_lcb_evaluator import choose_winner_lcb, default_regime_policy
-from core.redis_lock import try_acquire_lock, release_lock
-from core.cost_aware_lcb import compute_r_adj, compute_arm_stats
+from core.cost_aware_lcb import compute_arm_stats, compute_r_adj
+from core.redis_lock import release_lock, try_acquire_lock
 from core.winner_hysteresis import WinnerHysteresis
-from services.observability.metrics_registry import lcb_winner_changes_total, lcb_margin
+from services.observability.metrics_registry import lcb_margin, lcb_winner_changes_total
+from utils.time_utils import get_ny_time_millis
 
 log = setup_logger("ab_winner_suggester_v2")
 
@@ -71,7 +71,7 @@ class ABWinnerSuggesterV2:
     Reads events:trades and manages AB winner suggestions.
     """
 
-    def __init__(self, redis_client: Optional[aioredis.Redis] = None, redis_url: Optional[str] = None) -> None:
+    def __init__(self, redis_client: aioredis.Redis | None = None, redis_url: str | None = None) -> None:
         self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.r = redis_client or aioredis.from_url(self.redis_url, decode_responses=True)
 
@@ -84,11 +84,11 @@ class ABWinnerSuggesterV2:
         self._last_eval_ms = 0
 
         # Memory buffer for stats: (sym, rg, grp, scn) -> arm -> List[float]
-        self._samples: Dict[Tuple[str, str, str, str], Dict[str, List[float]]] = {}
-        self._ts_range: Dict[Tuple[str, str, str, str], Tuple[int, int]] = {}
+        self._samples: dict[tuple[str, str, str, str], dict[str, list[float]]] = {}
+        self._ts_range: dict[tuple[str, str, str, str], tuple[int, int]] = {}
 
         # --- LCB evaluator policy ---
-        self._policy_overrides: Dict[str, Dict[str, Any]] = {}
+        self._policy_overrides: dict[str, dict[str, Any]] = {}
         try:
             self._policy_overrides["trend"] = {
                 "conf": float(os.getenv("AB_LCB_CONF_TREND", "0.90")),
@@ -120,7 +120,7 @@ class ABWinnerSuggesterV2:
         self._lookback_h = int(os.getenv("LCB_LOOKBACK_HOURS", "24"))
         self._hyst = WinnerHysteresis(self.r)
 
-    def _collect_stats(self, symbol: str, regime: str, group: str, scenario: str) -> Dict[str, Any]:
+    def _collect_stats(self, symbol: str, regime: str, group: str, scenario: str) -> dict[str, Any]:
         k = (_norm_sym(symbol), _norm_rg(regime), _norm_grp(group), _norm_scn(scenario))
         s = self._samples.get(k, {})
         tr = self._ts_range.get(k, (0, 0))
@@ -132,7 +132,7 @@ class ABWinnerSuggesterV2:
             "ts_hi": tr[1]
         }
 
-    async def _score_key_async(self, k: Tuple[str, str, str, str]) -> Dict[str, Any]:
+    async def _score_key_async(self, k: tuple[str, str, str, str]) -> dict[str, Any]:
         symbol, regime, group, scenario = k
         stats = self._collect_stats(symbol=symbol, regime=regime, group=group, scenario=scenario)
         samples_by_arm = {
@@ -154,14 +154,14 @@ class ABWinnerSuggesterV2:
                 cand = stats_list[0]  # Best LCB
                 # Apply hysteresis (async)
                 res = await self._hyst.apply_async(bucket=bucket_key, candidate=cand.arm, candidate_lcb=cand.lcb)
-                
+
                 winner = res.winner
                 reason = f"cost_aware_lcb_{res.reason}"
-                
+
                 # Metrics: track winner changes
                 if res.changed:
                     lcb_winner_changes_total.labels(symbol=symbol, regime=regime, scenario=scenario).inc()
-                
+
                 # Metrics: track LCB margin (winner - runner-up)
                 margin = 0.0
                 if len(stats_list) >= 2:
@@ -173,7 +173,7 @@ class ABWinnerSuggesterV2:
                 elif len(stats_list) == 1:
                     margin = stats_list[0].lcb
                 lcb_margin.labels(symbol=symbol, regime=regime, scenario=scenario).set(margin)
-                
+
                 # Build scores dict from stats_list
                 scores_dict = {
                     s.arm: {
@@ -235,7 +235,7 @@ class ABWinnerSuggesterV2:
                 a: {"n": s.n, "mean": s.mean, "stdev": s.stdev, "stderr": s.stderr, "lcb": s.lcb}
                 for a, s in scores.items()
             }
-            
+
             # Metrics: track LCB margin (winner - runner-up) for non-cost-aware mode
             margin = 0.0
             if len(scores) >= 2:
@@ -277,12 +277,12 @@ class ABWinnerSuggesterV2:
         meta = {
             "v": 2,
             "sid": sid,
-            "symbol": str(symbol),
+            "symbol": symbol,
             "regime": str(regime),
             "group": str(group),
             "scenario": str(scenario),
             "winner_arm": str(winner),
-            "reason": str(reason),
+            "reason": reason,
             "cost_aware": bool(self._cost_aware),
             "scores": scores_dict,
             "window": {"ts_lo": ts_lo, "ts_hi": ts_hi},
@@ -294,10 +294,10 @@ class ABWinnerSuggesterV2:
             meta["policy"] = {"conf": float(pol.conf), "min_n": int(pol.min_n), "min_edge_lcb": float(pol.min_edge_lcb)}
         return {"sid": sid, "meta": meta, "winner": winner, "reason": reason}
 
-    async def publish_suggestion(self, *, symbol: str, regime: str, group: str, scenario: str) -> Optional[str]:
+    async def publish_suggestion(self, *, symbol: str, regime: str, group: str, scenario: str) -> str | None:
         try:
             res = await self._score_key_async((symbol, regime, group, scenario))
-            sid = str(res.get("sid") or "")
+            sid = (res.get("sid") or "")
             meta = res.get("meta") or {}
             if not sid or not isinstance(meta, dict):
                 return None
@@ -313,13 +313,13 @@ class ABWinnerSuggesterV2:
         except Exception:
             return None
 
-    def _extract_sample_value(self, payload: Dict[str, Any]) -> float:
+    def _extract_sample_value(self, payload: dict[str, Any]) -> float:
         """Extract R-multiple value, optionally cost-aware adjusted."""
         if self._cost_aware:
             return float(compute_r_adj(payload))
         return float(payload.get("r_mult", 0.0) or 0.0)
 
-    def _ingest(self, msg: Dict[str, Any]) -> None:
+    def _ingest(self, msg: dict[str, Any]) -> None:
         et = _ss(msg.get("event_type") or msg.get("event"))
         if et != "POSITION_CLOSED":
             return
@@ -339,7 +339,7 @@ class ABWinnerSuggesterV2:
         if k not in self._samples:
             self._samples[k] = {"A": [], "B": [], "C": []}
             self._ts_range[k] = (ts, ts)
-        
+
         self._samples[k].setdefault(arm, []).append(r_value)
         lo, hi = self._ts_range[k]
         self._ts_range[k] = (min(lo, ts) if lo > 0 else ts, max(hi, ts))
@@ -360,7 +360,7 @@ class ABWinnerSuggesterV2:
             await helper.ensure_group(self.stream, start_id="0-0")
         except Exception:
             pass
-        
+
         # Read a large batch
         batch = await self.r.xreadgroup(self.group, self.consumer, {self.stream: ">"}, count=1000, block=1)
         if batch:

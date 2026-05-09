@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from handlers.emitter.unified_signal_emitter import UnifiedSignalEmitter
 from handlers.emitter.label_schema import sys_labels
-from handlers.pipeline.quality_flags import QualityFlag
+from handlers.emitter.unified_signal_emitter import UnifiedSignalEmitter
 
 
 class FakeOutbox:

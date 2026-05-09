@@ -19,7 +19,7 @@ def test_pressure_env_parsing():
     os.environ["PRESSURE_SPS_HI"] = "0.50"
     os.environ["COOLDOWN_PRESSURE_MULT"] = "1.5"
     os.environ["PRESSURE_EMA_ALPHA"] = "0.20"
-    
+
     assert int(os.environ["PRESSURE_WINDOW_MS"]) == 60000
     assert float(os.environ["PRESSURE_SPS_HI"]) == 0.50
     assert float(os.environ["COOLDOWN_PRESSURE_MULT"]) == 1.5

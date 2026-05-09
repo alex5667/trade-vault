@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """DB adapters for decision_snapshot table: SQLite (tests/dev) and Postgres/Timescale (prod).
 
 We intentionally keep the interface tiny and explicit:
@@ -18,12 +19,13 @@ Dependencies:
 
 
 import json
-import os
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
+import contextlib
 
-Row = Dict[str, Any]
+Row = dict[str, Any]
 
 
 def _to_int(v: Any, default: int = 0) -> int:
@@ -33,7 +35,7 @@ def _to_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def _to_float(v: Any) -> Optional[float]:
+def _to_float(v: Any) -> float | None:
     try:
         f = float(v)
     except Exception:
@@ -43,7 +45,7 @@ def _to_float(v: Any) -> Optional[float]:
     return f
 
 
-def _to_text_array(v: Any) -> List[str]:
+def _to_text_array(v: Any) -> list[str]:
     if v is None:
         return []
     if isinstance(v, list):
@@ -247,12 +249,12 @@ class PostgresDecisionSnapshotDB:
         import queue
         if self._conn_pool is None:
             self._conn_pool = queue.Queue(maxsize=10)
-        
+
         # Drain the pool of any already closed or broken connections.
         while not self._conn_pool.empty():
             try:
                 conn = self._conn_pool.get_nowait()
-                
+
                 # Proactive health check: check 'closed' attribute AND try a dummy query.
                 if not getattr(conn, "closed", True):
                     try:
@@ -262,13 +264,11 @@ class PostgresDecisionSnapshotDB:
                         return conn
                     except Exception:
                         # Connection is dead (server closed it, or network failure).
-                        try:
+                        with contextlib.suppress(Exception):
                             conn.close()
-                        except Exception:
-                            pass
             except queue.Empty:
                 break
-        
+
         # Pool empty or all stale; create fresh connection.
         return self._connect()
 
@@ -281,10 +281,8 @@ class PostgresDecisionSnapshotDB:
         try:
             self._conn_pool.put_nowait(conn)
         except queue.Full:
-            try:
+            with contextlib.suppress(Exception):
                 conn.close()
-            except Exception:
-                pass
 
     def _resolve_driver(self):
         """Import psycopg v3 or psycopg2 once; raise clearly if neither installed."""
@@ -316,7 +314,7 @@ class PostgresDecisionSnapshotDB:
 
         log = logging.getLogger("decision_snapshot_db")
         driver = self._resolve_driver()
-        
+
         last_err: Exception | None = None
         for attempt in range(1, _max_retries + 1):
             try:
@@ -342,7 +340,7 @@ class PostgresDecisionSnapshotDB:
                         delay,
                     )
                     time.sleep(delay)
-        
+
         # If we reach here, we exhausted retries
         raise RuntimeError(
             f"Postgres connection via {self._driver_name} failed after {_max_retries} attempts. "
@@ -404,20 +402,18 @@ class PostgresDecisionSnapshotDB:
             conn.commit()
             self._put_connection(conn)
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 conn.close()
-            except Exception:
-                pass
             raise
 
     def upsert_decision_snapshots(self, rows: Sequence[Row]) -> int:
         if not rows:
             return 0
-        
+
         import logging
         log = logging.getLogger("decision_snapshot_db")
         driver = self._resolve_driver()
-        
+
         # We retry for OperationalError (lost connection).
         # Data errors (UniqueConstraintError, etc.) are NOT retryable by simple reconnection.
         max_attempts = 4
@@ -427,7 +423,7 @@ class PostgresDecisionSnapshotDB:
                 cur = conn.cursor()
                 # Detect driver once per call to choose the correct JSON wrapper.
                 _json_wrapper = _make_json_wrapper(conn)
-                
+
                 sql = (
                     """
                     INSERT INTO decision_snapshot (
@@ -485,7 +481,7 @@ class PostgresDecisionSnapshotDB:
                       extra=excluded.extra;
                     """
                 )
-                
+
                 params = []
                 for r in rows:
                     p = dict(r)
@@ -498,18 +494,16 @@ class PostgresDecisionSnapshotDB:
                         raw_json = extra if isinstance(extra, str) else _json_dumps(extra)
                         p["extra"] = _json_wrapper(raw_json)
                     params.append(p)
-                
+
                 cur.executemany(sql, params)
                 conn.commit()
                 self._put_connection(conn)
                 return len(rows)
-            
+
             except driver.OperationalError as e:
                 # Lost connection. Discard and retry with backoff.
-                try:
+                with contextlib.suppress(Exception):
                     conn.close()
-                except Exception:
-                    pass
                 if attempt < max_attempts:
                     import time
                     delay = 1.0 * (2 ** (attempt - 1))
@@ -521,13 +515,11 @@ class PostgresDecisionSnapshotDB:
                     continue
                 # Exhausted retries
                 raise
-            
+
             except Exception:
-                # For non-operational errors (logic, data, unique constraint), 
+                # For non-operational errors (logic, data, unique constraint),
                 # we rollback if possible and raise immediately.
-                try:
+                with contextlib.suppress(Exception):
                     conn.rollback()
-                except Exception:
-                    pass
                 self._put_connection(conn)
                 raise

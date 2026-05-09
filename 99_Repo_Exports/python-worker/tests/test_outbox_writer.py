@@ -1,7 +1,6 @@
 import json
-import pytest
 
-from core.outbox_envelope import OutboxEnvelope, make_envelope
+from core.outbox_envelope import make_envelope
 from core.outbox_writer import OutboxWriter
 
 

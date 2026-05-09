@@ -1,7 +1,8 @@
 import pytest
 
 hypothesis = pytest.importorskip("hypothesis")
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from common.decision_trace import Span
 

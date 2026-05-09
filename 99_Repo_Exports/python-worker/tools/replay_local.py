@@ -53,7 +53,7 @@ def main() -> None:
             print("sample", i, json.dumps(normalize_signal_payload(signals[i]), ensure_ascii=False))
 
     if args.golden:
-        with open(args.golden, "r", encoding="utf-8") as fh:
+        with open(args.golden, encoding="utf-8") as fh:
             g = json.load(fh)
         assert rep.counts_by_kind == g["counts_by_kind"]
         assert rep.score_p50_by_kind == g["score_p50_by_kind"]

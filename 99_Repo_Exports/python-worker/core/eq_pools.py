@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
 import math
+from dataclasses import dataclass
+from typing import Any
 
 from core.swing_detector import SwingPoint
+import contextlib
 
 
 def _bp_to_px(price: float, bp: float) -> float:
@@ -72,18 +73,14 @@ class EQPoolTracker:
         self.eq_ttl_ms = int(eq_ttl_ms)
         self.eq_max_pools = int(eq_max_pools)
 
-        self._pools: List[EQPool] = []
+        self._pools: list[EQPool] = []
         self._seq = 0
 
-    def apply_config(self, cfg: Dict[str, Any]) -> None:
-        try:
+    def apply_config(self, cfg: dict[str, Any]) -> None:
+        with contextlib.suppress(Exception):
             self.eq_tol_bp = float(cfg.get("eq_tol_bp", self.eq_tol_bp))
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             self.eq_tol_atr_mult = float(cfg.get("eq_tol_atr_mult", self.eq_tol_atr_mult))
-        except Exception:
-            pass
         try:
             self.eq_min_touches = int(cfg.get("eq_min_touches", self.eq_min_touches))
             if self.eq_min_touches < 1:
@@ -107,7 +104,7 @@ class EQPoolTracker:
         bp_px = _bp_to_px(price, self.eq_tol_bp)
         atr_px = 0.0
         try:
-            a = float(atr)
+            a = atr
             if math.isfinite(a) and a > 0:
                 atr_px = self.eq_tol_atr_mult * a
         except Exception:
@@ -127,7 +124,7 @@ class EQPoolTracker:
             self._pools.sort(key=lambda p: (p.strength, p.last_ts_ms))
             self._pools = self._pools[-self.eq_max_pools :]
 
-    def pools(self, kind: Optional[str] = None, only_mature: bool = True) -> List[EQPool]:
+    def pools(self, kind: str | None = None, only_mature: bool = True) -> list[EQPool]:
         """
         only_mature=True => touches >= eq_min_touches
         """
@@ -138,7 +135,7 @@ class EQPoolTracker:
             out = [p for p in out if p.touches >= self.eq_min_touches]
         return list(out)
 
-    def on_swing(self, sp: SwingPoint, atr: float) -> Optional[EQPool]:
+    def on_swing(self, sp: SwingPoint, atr: float) -> EQPool | None:
         """
         Вызывается на каждом swing (bar_close path).
         Возвращает обновлённый/созданный пул (или None).
@@ -149,7 +146,7 @@ class EQPoolTracker:
         tol = self._tol_px(price, atr)
 
         # Подбираем существующий пул, куда попадает swing
-        best: Optional[EQPool] = None
+        best: EQPool | None = None
         best_dist = float("inf")
         for p in self._pools:
             if p.kind != kind:
@@ -188,7 +185,7 @@ class EQPoolTracker:
         self._cleanup(now_ts)
         return best
 
-    def nearest_pool(self, kind: str, price: float) -> Optional[Tuple[EQPool, float]]:
+    def nearest_pool(self, kind: str, price: float) -> tuple[EQPool, float] | None:
         """
         Возвращает ближайший mature пул и расстояние до него (px).
         """

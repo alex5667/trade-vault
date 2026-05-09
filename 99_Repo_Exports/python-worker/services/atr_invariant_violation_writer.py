@@ -1,10 +1,9 @@
-import os
-import sys
-import time
 import json
-import uuid
 import logging
-from typing import Any, Dict
+import os
+import time
+import uuid
+from typing import Any
 
 import redis
 
@@ -28,7 +27,7 @@ def setup_stream(r: redis.Redis) -> None:
 def process_messages(messages: list) -> None:
     if not messages:
         return
-        
+
     try:
         with get_conn() as conn, conn.cursor() as cur:
             for stream, msgs in messages:
@@ -37,21 +36,21 @@ def process_messages(messages: list) -> None:
                         payload_str = msg_data.get("payload")
                         if not payload_str:
                             continue
-                            
+
                         payload = json.loads(payload_str)
                         signal = payload.get("signal", {})
                         violations = payload.get("violations", [])
-                        
+
                         now_ms = int(time.time() * 1000)
                         symbol = signal.get("symbol", "UNKNOWN")
                         source = signal.get("source", "UNKNOWN")
-                        
+
                         incidents_to_open = []
-                        
+
                         for v in violations:
                             violation_id = f"viol_{now_ms}_{uuid.uuid4().hex[:6]}"
                             status = "enforced" if (v.get("enforcement_mode") == "runtime_deny") else "detected"
-                            
+
                             cur.execute("""
                                 INSERT INTO atr_invariant_violations (
                                     violation_id, invariant_id, scope_kind, scope_value, surface,
@@ -59,30 +58,30 @@ def process_messages(messages: list) -> None:
                                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """, (
                                 violation_id, v["invariant_id"], "symbol", symbol, "runtime",
-                                v["severity"], status, v["reason_code"], 
+                                v["severity"], status, v["reason_code"],
                                 json.dumps({"signal_id": signal.get("signal_id"), "details": v.get("details", "")})
                             ))
-                            
+
                             # Find related remediation action by invariant_id
                             remediation_actions = signal.get("meta", {}).get("remediation_actions", []) if isinstance(signal.get("meta"), dict) else []
                             if not remediation_actions:
                                 remediation_actions = signal.get("remediation_actions", [])
-                            
+
                             for action in remediation_actions:
-                                # We match action by checking its origin? Actually action_json holds nothing about invariant_id except if it's deny_only. 
+                                # We match action by checking its origin? Actually action_json holds nothing about invariant_id except if it's deny_only.
                                 # Better strategy: Action generator already has action_id. We just insert all actions we see.
                                 pass
-                                
+
                             if v["severity"] == "critical" and ("open_incident" in v["enforcement_mode"] or v["enforcement_mode"] == "runtime_deny"):
                                 incidents_to_open.append(v)
-                                
+
                         # Insert Remediation actions
                         remediation_actions = signal.get("meta", {}).get("remediation_actions", []) if isinstance(signal.get("meta"), dict) else signal.get("remediation_actions", [])
                         for action in remediation_actions:
                             action_id = action.get("action_id", f"act_{uuid.uuid4().hex[:10]}")
                             # Approximate linking via signal_id or just use constant
                             v_id = f"viol_linked_{signal.get('signal_id', 'unknown')}"
-                            
+
                             cur.execute("""
                                 INSERT INTO atr_invariant_remediation_actions (
                                     action_id, violation_id, invariant_id, remediation_kind, scope_kind,
@@ -90,20 +89,20 @@ def process_messages(messages: list) -> None:
                                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON CONFLICT DO NOTHING
                             """, (
-                                action_id, v_id, "RUNTIME_MAPPED", "mapped", 
+                                action_id, v_id, "RUNTIME_MAPPED", "mapped",
                                 action.get("action_json", {}).get("scope_kind", "symbol"),
                                 action.get("action_json", {}).get("scope_value", symbol),
                                 action.get("status", "unknown"),
                                 action.get("reason_code", "unknown"),
                                 json.dumps(action.get("action_json", {}))
                             ))
-                            
+
                             # Fire telegram notification if appropriate
                             if action.get("status") in ["executed", "requested"] and action.get("reason_code") != "REMEDIATION_DENY_ONLY":
                                 _send_remediation_telegram(action)
-                        
+
                         conn.commit()
-                        
+
                         # Open incidents safely
                         if incidents_to_open:
                             try:
@@ -119,15 +118,15 @@ def process_messages(messages: list) -> None:
                                     )
                             except Exception as inc_err:
                                 logger.error(f"Failed to open incident: {inc_err}")
-                                
+
                     except Exception as e:
                         logger.error(f"Error processing individual viol msg {msg_id}: {e}")
-                        
+
     except Exception as e:
         logger.error(f"Failed to persist violations to Postgres: {e}")
         return # Do not ACK, so we retry
 
-def _send_remediation_telegram(action: Dict[str, Any]) -> None:
+def _send_remediation_telegram(action: dict[str, Any]) -> None:
     try:
         from services.telegram.telegram_notifier_worker_v2 import TelegramNotifier
         notifier = TelegramNotifier()
@@ -135,8 +134,8 @@ def _send_remediation_telegram(action: Dict[str, Any]) -> None:
         state = action.get("action_json", {}).get("target_state", "None")
         if action.get("reason_code") == "REMEDIATION_RUNTIME_CLIP":
             state = f"clip_mult={action.get('action_json', {}).get('clip_mult', 1.0)}"
-            
-        msg = f"🛡️ <b>ATR Auto-Remediation</b>\n\n"
+
+        msg = "🛡️ <b>ATR Auto-Remediation</b>\n\n"
         msg += f"<b>Action</b>: {action.get('status')} / {action.get('reason_code')}\n"
         msg += f"<b>Scope</b>: {scope_value}\n"
         msg += f"<b>State</b>: {state}\n\n"
@@ -149,26 +148,26 @@ def run_worker() -> None:
     logger.info("Starting ATR Invariant Violation Writer...")
     r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
     setup_stream(r)
-    
+
     while True:
         try:
             # Read from stream
             messages = r.xreadgroup(
                 GROUP_NAME, CONSUMER_NAME,
-                {STREAM_KEY: ">"}, 
-                count=50, 
+                {STREAM_KEY: ">"},
+                count=50,
                 block=5000
             )
-            
+
             if messages:
                 process_messages(messages)
-                
+
                 # Ack processed messages
                 for stream, msgs in messages:
                     msg_ids = [msg_id for msg_id, _ in msgs]
                     if msg_ids:
                         r.xack(stream, GROUP_NAME, *msg_ids)
-            
+
         except Exception as e:
             logger.error(f"Worker iteration loop error: {e}")
             time.sleep(2)

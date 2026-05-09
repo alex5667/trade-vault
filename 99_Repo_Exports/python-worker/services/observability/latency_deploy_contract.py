@@ -7,12 +7,11 @@ requirements in one place so host-side wrappers and CI/pre-deploy linting use th
 same source of truth.
 """
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, Iterable
 import json
 import os
-import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 COMMON_RUNTIME_ENV = (
     'TRADE_REPO_ROOT',
@@ -216,7 +215,7 @@ def lint_deploy_contract(
 
     # Runtime env
     required_env = list(COMMON_RUNTIME_ENV) + list(contract.required_runtime_env)
-    missing_env = [k for k in required_env if not str(runtime_env.get(k, '')).strip()]
+    missing_env = [k for k in required_env if not (runtime_env.get(k, '')).strip()]
     checks['required_env'] = required_env
     checks['missing_runtime_env'] = missing_env
     if missing_env:
@@ -231,7 +230,7 @@ def lint_deploy_contract(
         else:
             env_file_data = parse_env_file(p)
             checks['env_file_present'] = True
-            missing_in_file = [k for k in required_env if not str(env_file_data.get(k, '')).strip()]
+            missing_in_file = [k for k in required_env if not (env_file_data.get(k, '')).strip()]
             checks['missing_env_file_vars'] = missing_in_file
             if missing_in_file:
                 errors.append('missing_env_file_vars:' + ','.join(missing_in_file))

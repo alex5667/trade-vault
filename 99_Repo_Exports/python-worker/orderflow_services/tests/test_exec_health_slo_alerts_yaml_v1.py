@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for prometheus_alerts_exec_health_slo_v1.yml (P4)."""
 import os
 import unittest
@@ -20,7 +21,7 @@ class TestExecHealthSloAlertsYaml(unittest.TestCase):
 
     def test_yaml_parses_and_has_required_alerts(self):
         path = self._get_path()
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = yaml.safe_load(fh)
 
         self.assertIn("groups", data, "missing 'groups' key")
@@ -48,7 +49,7 @@ class TestExecHealthSloAlertsYaml(unittest.TestCase):
 
     def test_all_alerts_have_severity_label(self):
         path = self._get_path()
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = yaml.safe_load(fh)
         for group in data.get("groups", []):
             for rule in group.get("rules", []):

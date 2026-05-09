@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for signal_quality_gating/common/metrics_stage.py
 
 Tests cover:
@@ -14,8 +15,6 @@ with python-worker/common/.
 
 import importlib.util
 import os
-import sys
-import types
 from unittest.mock import MagicMock
 
 import pytest

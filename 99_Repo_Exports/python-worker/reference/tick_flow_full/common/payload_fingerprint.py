@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tradeable-payload fingerprinting.
 
 Why this exists:
@@ -16,8 +17,8 @@ Contract:
 
 import hashlib
 import json
-from typing import Any, Dict, Iterable, Optional
-
+from collections.abc import Iterable
+from typing import Any
 
 _DEFAULT_IGNORE_KEYS = {
     "published_at_ms",
@@ -42,7 +43,7 @@ def _stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _strip_keys(d: Dict[str, Any], ignore: Iterable[str]) -> Dict[str, Any]:
+def _strip_keys(d: dict[str, Any], ignore: Iterable[str]) -> dict[str, Any]:
     ignore_set = set(ignore)
     return {k: v for k, v in d.items() if k not in ignore_set}
 

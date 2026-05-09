@@ -1,7 +1,6 @@
 import os
 import subprocess
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # Path to the script
 SCRIPT_PATH = "/home/alex/front/trade/scanner_infra/python-worker/ops/run_shadow_meta_v5.sh"
@@ -28,21 +27,21 @@ def test_shadow_runner_execution_logic(mock_makedirs, mock_run):
     """
     # This is a bit tricky to test from python without actually running bash.
     # We can run it with a mock 'python' that just prints args.
-    
+
     test_parquet = "/tmp/test.parquet"
     cmd = [
         "bash", SCRIPT_PATH,
         "--in-parquet", test_parquet
     ]
-    
+
     # We'll use a trick: set an env var to a mock python command
     env = os.environ.copy()
     env["PYTHONPATH"] = "."
-    
+
     # Run the script but mock the 'python' command inside it
     # Actually, the script calls `python -m tools.nightly_meta_pipeline_v1`
     # We can create a dummy tools/nightly_meta_pipeline_v1.py that just exits 0
-    
+
     # For now, let's just check if it's executable and exists
     assert os.access(SCRIPT_PATH, os.X_OK)
 

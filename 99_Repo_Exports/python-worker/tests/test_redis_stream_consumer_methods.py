@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
 from core.redis_stream_consumer import SyncRedisStreamHelper
 

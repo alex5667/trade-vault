@@ -1,7 +1,7 @@
-from pathlib import Path
 import importlib.util
 import json
 import sys
+from pathlib import Path
 
 exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
 exec_spec = importlib.util.spec_from_file_location('binance_executor_single_active', exec_mod_path)
@@ -48,7 +48,7 @@ class FakeRedis:
         return rows
 
     def scan_iter(self, match=None):
-        prefix = str(match or '').rstrip('*')
+        prefix = (match or '').rstrip('*')
         for key in list(self.kv.keys()):
             if not prefix or str(key).startswith(prefix):
                 yield key

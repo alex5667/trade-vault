@@ -4,8 +4,7 @@ GPU service utilities for the scanner infrastructure.
 Provides GPU detection and service management for CUDA-enabled operations.
 """
 
-import os
-from typing import Optional, Dict, Any
+from typing import Any
 
 
 class GPUService:
@@ -43,7 +42,7 @@ class GPUService:
         except Exception:
             return 0
 
-    def get_device_info(self) -> Dict[str, Any]:
+    def get_device_info(self) -> dict[str, Any]:
         """Get information about current GPU device."""
         if not self.available or self.device_count == 0:
             return {"available": False, "device_count": 0}
@@ -83,37 +82,37 @@ class GPUService:
         """
         if not self.available:
             raise RuntimeError("GPU not available")
-            
+
         try:
             import cupy as cp
-            
+
             # Transfer to GPU
             b_gpu = cp.asarray(bid_vol_arr, dtype=cp.float32)
             a_gpu = cp.asarray(ask_vol_arr, dtype=cp.float32)
-            
+
             # Compute OBI Signed: (ask - bid) / (ask + bid)
             total = b_gpu + a_gpu
             # Avoid division by zero
             # mask = total > 0
             # obi_signed = cp.zeros_like(total)
             # obi_signed[mask] = (a_gpu[mask] - b_gpu[mask]) / total[mask]
-            
+
             # Faster approach: add epsilon
             obi_signed = (a_gpu - b_gpu) / (total + 1e-9)
-            
+
             # Compute OBI Ratio: (ask / bid) - 1
             # Handle bid=0 case
             # If bid > 0: ratio = (ask/bid) - 1
             # If bid == 0 and ask > 0: ratio = inf (or high number)
             # If bid == 0 and ask == 0: ratio = 0
-            
+
             # We can use cp.where
-            # ratio = cp.where(b_gpu > 1e-9, (a_gpu / b_gpu) - 1.0, 
+            # ratio = cp.where(b_gpu > 1e-9, (a_gpu / b_gpu) - 1.0,
             #                 cp.where(a_gpu > 1e-9, 999.0, 0.0))
-            
+
             # Simplified for perf
             ratio = (a_gpu / (b_gpu + 1e-9)) - 1.0
-            
+
             # Transfer back
             return {
                 'obi_signed': cp.asnumpy(obi_signed),
@@ -136,7 +135,7 @@ class GPUService:
         """
         if not self.available:
             return 0.0
-            
+
         try:
              import cupy as cp
              if ignore_nan:
@@ -148,11 +147,11 @@ class GPUService:
                  med = float(cp.median(x_gpu))
                  diff = cp.abs(x_gpu - med)
                  mad = float(cp.median(diff))
-             
+
              denom = 1.4826 * mad
              if denom < 1e-12:
                  return 0.0
-             
+
              z = (value - med) / denom
              return float(z)
         except Exception:
@@ -170,11 +169,11 @@ class GPUService:
         """
         if not self.available:
             return {}
-            
+
         try:
             import cupy as cp
             import numpy as np
-            
+
             # Extract data
             opens = np.array([float(c.get('open', 0)) for c in candles], dtype=np.float32)
             highs = np.array([float(c.get('high', 0)) for c in candles], dtype=np.float32)
@@ -206,26 +205,26 @@ class GPUService:
             # sell_vol = v_gpu - tb_gpu
             # delta = buy_vol - sell_vol = 2 * tb_gpu - v_gpu
             delta_gpu = 2.0 * tb_gpu - v_gpu
-            
+
             # Compute CVD (cumulative within batch)
             # Note: This doesn't account for previous batch CVD, but candle_of_worker handles that?
-            # Actually candle_of_worker line 600 expects cumulative. 
+            # Actually candle_of_worker line 600 expects cumulative.
             # We'll just return batch-local prefix-sum delta here for now.
             cvd_gpu = cp.cumsum(delta_gpu)
-            
+
             # Compute Ratio
             ratio_gpu = delta_gpu / (v_gpu + 1e-9)
-            
+
             # Compute BodyATR
             body_atr_gpu = cp.abs(c_gpu - o_gpu) / (a_gpu + 1e-9)
-            
+
             # Robust Z-score (per-candle in batch relative to some baseline? Or relative to the batch self?)
             # Usually zDelta is relative to a sliding window (OnlineStats).
             # Batch processing here is a bit tricky if it's supposed to use the detector's state.
             # However, for now we can provide a self-normalized Z within the batch or leave it for CPU.
             # Looking at candle_of_worker: `detector.stats.z(delta_val)` is used for single candle.
             # For batch, it uses `results['z_deltas'][i]`.
-            
+
             # We'll compute a batch-local robust Z as a baseline.
             med = cp.median(delta_gpu)
             mad = cp.median(cp.abs(delta_gpu - med))
@@ -242,7 +241,7 @@ class GPUService:
                 'z_deltas': cp.asnumpy(z_gpu).tolist(),
                 'atr': cp.asnumpy(a_gpu).tolist()
             }
-        except Exception as e:
+        except Exception:
             # print(f"GPU batch error: {e}")
             return {}
 
@@ -250,7 +249,7 @@ class GPUService:
 
 
 # Global GPU service instance
-_gpu_service: Optional[GPUService] = None
+_gpu_service: GPUService | None = None
 
 
 def get_gpu_service() -> GPUService:

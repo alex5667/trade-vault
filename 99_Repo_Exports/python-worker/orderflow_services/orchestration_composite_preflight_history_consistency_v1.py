@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Consistency checker + rebuild tool for orchestration composite preflight rollup.
 
 P5.7 design goals:
@@ -19,9 +21,9 @@ are also caught as drift.
 import argparse
 import json
 import os
-import time
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -39,6 +41,7 @@ from orderflow_services.orchestration_composite_preflight_history_rollup_v1 impo
     _hour_bucket_start_ms,
     encode_field,
 )
+import contextlib
 
 CONSISTENCY_REPORT_PATH_DEFAULT = "/var/lib/trade/reports/orchestration_composite_preflight_history_consistency.json"
 CONSISTENCY_EXPORT_PATH_DEFAULT = "/var/lib/node_exporter/textfile_collector/orchestration_composite_preflight_history_consistency.prom"
@@ -67,7 +70,7 @@ def _int_env(name: str, default: int) -> int:
     try:
         return int(float(raw))
     except Exception:
-        return int(default)
+        return default
 
 
 def _bool_env(name: str, default: bool) -> bool:
@@ -86,7 +89,7 @@ def _bucket_key(prefix: str, bucket_start_ms: int) -> str:
     return f"{prefix}:{int(bucket_start_ms)}"
 
 
-def _hour_bucket_starts_in_range(start_ms: int, end_ms: int) -> List[int]:
+def _hour_bucket_starts_in_range(start_ms: int, end_ms: int) -> list[int]:
     """Enumerate ALL hourly bucket boundaries overlapping [start_ms, end_ms].
 
     This ensures extra Redis keys with no stream events are caught as drift.
@@ -95,14 +98,14 @@ def _hour_bucket_starts_in_range(start_ms: int, end_ms: int) -> List[int]:
         return []
     current = _hour_bucket_start_ms(start_ms)
     end_bucket = _hour_bucket_start_ms(end_ms)
-    out: List[int] = []
+    out: list[int] = []
     while current <= end_bucket:
         out.append(int(current))
         current += 3_600_000
     return out
 
 
-def _day_bucket_starts_in_range(start_ms: int, end_ms: int) -> List[int]:
+def _day_bucket_starts_in_range(start_ms: int, end_ms: int) -> list[int]:
     """Enumerate ALL daily bucket boundaries overlapping [start_ms, end_ms].
 
     This ensures extra Redis keys with no stream events are caught as drift.
@@ -111,7 +114,7 @@ def _day_bucket_starts_in_range(start_ms: int, end_ms: int) -> List[int]:
         return []
     current = _day_bucket_start_ms(start_ms)
     end_bucket = _day_bucket_start_ms(end_ms)
-    out: List[int] = []
+    out: list[int] = []
     while current <= end_bucket:
         out.append(int(current))
         current += 86_400_000
@@ -125,7 +128,7 @@ def _stream_scan_range(
     start_ms: int,
     end_ms: int,
     batch_size: int,
-) -> List[Tuple[str, Mapping[str, Any]]]:
+) -> list[tuple[str, Mapping[str, Any]]]:
     """Read all stream entries in [start_ms, end_ms] using paginated XRANGE.
 
     Uses the full timestamp range to avoid missing events or duplicating them.
@@ -136,7 +139,7 @@ def _stream_scan_range(
     start_id = f"{int(start_ms)}-0"
     max_id = f"{int(end_ms)}-999999"
     next_min = start_id
-    rows_out: List[Tuple[str, Mapping[str, Any]]] = []
+    rows_out: list[tuple[str, Mapping[str, Any]]] = []
 
     while True:
         rows = r.xrange(stream_key, min=next_min, max=max_id, count=max(1, int(batch_size)))
@@ -164,14 +167,14 @@ def _expected_counts_from_stream(
     start_ms: int,
     end_ms: int,
     batch_size: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Rebuild expected hourly/daily bucket counts from the source stream.
 
     Returns a dict with 'hourly', 'daily', 'events', 'max_stream_id',
     'max_event_ts_ms' — deterministic, no Redis hash reads.
     """,
-    hourly: Dict[int, Dict[str, int]] = {}
-    daily: Dict[int, Dict[str, int]] = {}
+    hourly: dict[int, dict[str, int]] = {}
+    daily: dict[int, dict[str, int]] = {}
     events = _stream_scan_range(r, stream_key=stream_key, start_ms=start_ms, end_ms=end_ms, batch_size=batch_size)
     max_stream_id = ""
     max_event_ts_ms = 0
@@ -200,25 +203,25 @@ def _expected_counts_from_stream(
     }
 
 
-def _actual_counts_from_buckets(r: Any, *, prefix: str, bucket_starts: Iterable[int]) -> Dict[int, Dict[str, int]]:
+def _actual_counts_from_buckets(r: Any, *, prefix: str, bucket_starts: Iterable[int]) -> dict[int, dict[str, int]]:
     """Read current Redis hash fields for each bucket boundary in bucket_starts.
 
     Iterates the full range (not just expected keys) to catch extra Redis keys.
     """,
-    out: Dict[int, Dict[str, int]] = {}
+    out: dict[int, dict[str, int]] = {}
     for bucket_start in sorted({int(v) for v in bucket_starts}):
         raw = r.hgetall(_bucket_key(prefix, bucket_start)) or {}
-        bucket: Dict[str, int] = {}
+        bucket: dict[str, int] = {}
         for field, value in raw.items():
             try:
-                bucket[str(field)] = int(float(str(value or "0")))
+                bucket[str(field)] = int(float((value or "0")))
             except Exception:
                 bucket[str(field)] = 0
         out[int(bucket_start)] = bucket
     return out
 
 
-def _compare_bucket_maps(expected: Mapping[int, Mapping[str, int]], actual: Mapping[int, Mapping[str, int]]) -> Dict[str, int]:
+def _compare_bucket_maps(expected: Mapping[int, Mapping[str, int]], actual: Mapping[int, Mapping[str, int]]) -> dict[str, int]:
     """Compare expected vs actual bucket counts.
 
     Counts:
@@ -248,7 +251,7 @@ def _compare_bucket_maps(expected: Mapping[int, Mapping[str, int]], actual: Mapp
             elif int(act[field]) != int(exp_value):
                 mismatched_value_fields += 1
                 bucket_bad = True
-        for field in act.keys():
+        for field in act:
             if field not in exp:
                 extra_fields += 1
                 bucket_bad = True
@@ -276,7 +279,7 @@ def check_consistency(
     state_key: str,
     cursor_key: str,
     batch_size: int = 500,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run a full consistency check for the given time range.
 
     1. Rebuild expected bucket counts from the source stream.
@@ -352,7 +355,7 @@ def rebuild_range(
     daily_ttl_days: int = 120,
     update_cursor: bool = False,
     cursor_key: str = CURSOR_KEY_DEFAULT,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Rebuild hourly/daily buckets from the source stream for the given range.
 
     Key semantics:
@@ -396,7 +399,7 @@ def rebuild_range(
             written_bucket_keys += 1
 
     now_ms = _now_ms()
-    state_update: Dict[str, str] = {
+    state_update: dict[str, str] = {
         "last_rebuild_ts_ms": str(now_ms),
         "last_rebuild_start_ts_ms": str(int(start_ms)),
         "last_rebuild_end_ts_ms": str(int(end_ms)),
@@ -409,10 +412,8 @@ def rebuild_range(
     r.hset(state_key, mapping=state_update)
     if update_cursor and expected.get("max_stream_id"):
         r.set(cursor_key, _safe_text(expected.get("max_stream_id")))
-        try:
+        with contextlib.suppress(Exception):
             r.hset(state_key, mapping={"last_stream_id": _safe_text(expected.get("max_stream_id"))})
-        except Exception:
-            pass
 
     return {
         "schema_version": "p57_v1",
@@ -435,7 +436,7 @@ def rebuild_range(
 def render_text(report: Mapping[str, Any]) -> str:
     """Render Prometheus textfile metrics from a check or rebuild report.""",
     checked_at_ts_ms = int(float(str(report.get("checked_at_ts_ms") or report.get("rebuilt_at_ts_ms") or "0") or "0"))
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("# HELP orchestration_composite_preflight_rollup_consistency_ok 1 if Redis rollup buckets match the source stream over the checked range\n")
     lines.append("# TYPE orchestration_composite_preflight_rollup_consistency_ok gauge\n")
     lines.append(_metric_line("orchestration_composite_preflight_rollup_consistency_ok", {}, float(int(report.get("consistency_ok") or 0))))

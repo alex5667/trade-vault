@@ -8,9 +8,9 @@ Usage:
     from metrics.features import delta_series_from_ticks, atr_from_bars
 """
 
+
 import numpy as np
 import pandas as pd
-from typing import Optional
 
 # ✅ GPU Support: импорт GPU сервиса для ускорения вычислений
 try:
@@ -44,28 +44,28 @@ def delta_series_from_ticks(
             - range: high - low
     """
     df = ticks.copy()
-    
+
     # Create time buckets
     df["bucket"] = (df["ts_ms"] // bar_ms) * bar_ms
-    
+
     # Group by bucket
     gb = df.groupby("bucket")
-    
+
     # Aggregate volumes by side
     taker_buy = gb.apply(
         lambda g: g.loc[g["side"] == "BUY", "qty"].sum()
     ).rename("taker_buy")
-    
+
     taker_sell = gb.apply(
         lambda g: g.loc[g["side"] == "SELL", "qty"].sum()
     ).rename("taker_sell")
-    
+
     # Price metrics
     high = gb["price"].max().rename("high")
     low = gb["price"].min().rename("low")
     open_price = gb["price"].first().rename("open")
     close_price = gb["price"].last().rename("close")
-    
+
     # Combine
     out = pd.concat([
         taker_buy,
@@ -75,12 +75,12 @@ def delta_series_from_ticks(
         open_price,
         close_price
     ], axis=1).reset_index().rename(columns={"bucket": "t_open"})
-    
+
     # Add derived fields
     out["t_close"] = out["t_open"] + bar_ms
     out["range"] = (out["high"] - out["low"]).abs()
     out["delta"] = out["taker_buy"] - out["taker_sell"]
-    
+
     return out
 
 
@@ -105,7 +105,7 @@ def zscore(series: pd.Series, lookback: int = 50) -> pd.Series:
                 return pd.Series(z_scores, index=series.index)
         except Exception:
             pass  # Fallback to CPU
-    
+
     # CPU fallback
     r = series.rolling(lookback, min_periods=lookback)
     return (series - r.mean()) / r.std(ddof=0)
@@ -134,22 +134,22 @@ def atr_from_bars(bars: pd.DataFrame, n: int = 14) -> pd.Series:
                 return pd.Series(atr_values, index=bars.index)
         except Exception:
             pass  # Fallback to CPU
-    
+
     # CPU fallback
     high = bars["high"]
     low = bars["low"]
     prev_close = bars["close"].shift(1)
-    
+
     # True Range
     tr = pd.concat([
         (high - low).abs(),
         (high - prev_close).abs(),
         (low - prev_close).abs()
     ], axis=1).max(axis=1)
-    
+
     # Wilder's smoothing (EMA with alpha = 1/n)
     atr = tr.ewm(alpha=1 / n, adjust=False).mean()
-    
+
     return atr
 
 
@@ -231,7 +231,7 @@ def cvd_from_delta(delta: pd.Series) -> pd.Series:
                 return pd.Series(cvd_values, index=delta.index)
         except Exception:
             pass  # Fallback to CPU
-    
+
     # CPU fallback
     return delta.cumsum()
 

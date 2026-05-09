@@ -1,14 +1,15 @@
 """Unit tests for common.market_mode (canonical regime normaliser)."""
 
 import pytest
+
 from common.market_mode import (
-    normalize_regime,
-    is_range_regime,
-    is_trend_regime,
+    REGIME_MIXED,
     REGIME_RANGE,
     REGIME_TREND,
-    REGIME_MIXED,
     REGIME_UNKNOWN,
+    is_range_regime,
+    is_trend_regime,
+    normalize_regime,
 )
 
 

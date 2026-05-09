@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Doubly-Robust uplift estimator for Confidence Calibration A/B.
 
@@ -18,11 +19,11 @@ import argparse
 import gzip
 import json
 import math
-import os
 import random
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any
 
 
 def _iter_lines(path: Path) -> Iterator[str]:
@@ -33,14 +34,14 @@ def _iter_lines(path: Path) -> Iterator[str]:
                 if line:
                     yield line
     else:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(path, encoding="utf-8", errors="ignore") as f:
             for line in f:
                 line = line.strip()
                 if line:
                     yield line
 
 
-def _iter_ndjson(paths: List[Path]) -> Iterator[Dict[str, Any]]:
+def _iter_ndjson(paths: list[Path]) -> Iterator[dict[str, Any]]:
     for p in paths:
         for line in _iter_lines(p):
             try:
@@ -49,17 +50,17 @@ def _iter_ndjson(paths: List[Path]) -> Iterator[Dict[str, Any]]:
                 continue
 
 
-def _expand_paths(p: str) -> List[Path]:
+def _expand_paths(p: str) -> list[Path]:
     path = Path(p)
     if path.is_dir():
-        out: List[Path] = []
+        out: list[Path] = []
         for ext in ("*.ndjson", "*.ndjson.gz", "*.jsonl", "*.jsonl.gz"):
             out.extend(sorted(path.glob(ext)))
         return out
     return [path]
 
 
-def _realized_r(row: Dict[str, Any]) -> Optional[float]:
+def _realized_r(row: dict[str, Any]) -> float | None:
     # prefer explicit
     for k in ("realized_R", "r_mult", "r_multiple", "R"):
         if k in row:
@@ -102,7 +103,7 @@ def _dr_pseudo(inp: DRInputs) -> float:
     return base - (inp.y - inp.q0) / (1.0 - p1)
 
 
-def _empirical_bernstein_ci(samples: List[float], alpha: float, bound_B: float) -> Tuple[float, float]:
+def _empirical_bernstein_ci(samples: list[float], alpha: float, bound_B: float) -> tuple[float, float]:
     """
     Maurer-Pontil empirical Bernstein bound for mean.
     Assumes samples are bounded in [-B, B] (width = 2B).
@@ -121,7 +122,7 @@ def _empirical_bernstein_ci(samples: List[float], alpha: float, bound_B: float) 
     return mean - rad - slack, mean + rad + slack
 
 
-def _bootstrap_ci(samples: List[float], alpha: float, B: int, seed: int) -> Tuple[float, float]:
+def _bootstrap_ci(samples: list[float], alpha: float, B: int, seed: int) -> tuple[float, float]:
     n = len(samples)
     if n == 0:
         return float("nan"), float("nan")
@@ -140,7 +141,7 @@ def _bootstrap_ci(samples: List[float], alpha: float, B: int, seed: int) -> Tupl
     return means[lo_idx], means[hi_idx]
 
 
-def main(argv: Optional[Iterable[str]] = None) -> int:
+def main(argv: Iterable[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--decisions", required=True, nargs="+", help="NDJSON file or dir exported from decisions:final")
     ap.add_argument("--closed", required=True, nargs="+", help="NDJSON file or dir exported from trades:closed")
@@ -154,15 +155,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     ap.add_argument("--policy-ok-only", action="store_true", default=True)
     args = ap.parse_args(list(argv) if argv is not None else None)
 
-    decision_paths: List[Path] = []
+    decision_paths: list[Path] = []
     for p in args.decisions:
         decision_paths.extend(_expand_paths(p))
-    closed_paths: List[Path] = []
+    closed_paths: list[Path] = []
     for p in args.closed:
         closed_paths.extend(_expand_paths(p))
 
     # outcomes by sid
-    outcomes: Dict[str, Dict[str, Any]] = {}
+    outcomes: dict[str, dict[str, Any]] = {}
     for row in _iter_ndjson(closed_paths):
         sid = str(row.get("sid") or row.get("signal_id") or "")
         if not sid:
@@ -173,7 +174,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         if prev is None or int(prev.get("ts_ms") or 0) <= ts:
             outcomes[sid] = row
 
-    used: List[float] = []
+    used: list[float] = []
     joined = 0
     skipped = {"no_sid": 0, "no_outcome": 0, "no_conf_cal": 0, "no_q": 0, "bad_p": 0, "policy_fallback": 0, "nan": 0}
 
@@ -202,7 +203,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 skipped["policy_fallback"] += 1
                 continue
 
-        a = 1 if str(conf_cal.get("arm_taken", "champion")) == "challenger" else 0
+        a = 1 if (conf_cal.get("arm_taken", "champion")) == "challenger" else 0
         p1 = float(conf_cal.get("p_challenger", 0.0) or 0.0)
         if p1 < args.min_propensity or p1 > 1.0 - args.min_propensity:
             skipped["bad_p"] += 1
@@ -241,7 +242,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     n = len(used)
     mean = sum(used) / n if n else float("nan")
 
-    report: Dict[str, Any] = {
+    report: dict[str, Any] = {
         "version": "dr_uplift_eval_v1",
         "reward": args.reward,
         "n_joined": joined,

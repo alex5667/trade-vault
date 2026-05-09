@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -80,15 +81,15 @@ DEFAULT_ALLOWED_REASONS_JSON = os.getenv(
 )
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -131,8 +132,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -156,7 +157,7 @@ def maybe_json(value: Any, default: Any = None) -> Any:
         return default
 
 
-def normalize_weights(raw: Any) -> Dict[str, int]:
+def normalize_weights(raw: Any) -> dict[str, int]:
     obj = maybe_json(raw, {})
     if not isinstance(obj, dict):
         obj = {}
@@ -167,7 +168,7 @@ def normalize_weights(raw: Any) -> Dict[str, int]:
     }
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     allowed_reasons = maybe_json(raw.get("allowed_reasons_json"), maybe_json(DEFAULT_ALLOWED_REASONS_JSON, []))
     if not isinstance(allowed_reasons, list):
         allowed_reasons = []
@@ -181,11 +182,11 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def evaluate_rollback(verification_row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
-    decision = str(verification_row.get("decision") or "")
-    reason_code = str(verification_row.get("reason_code") or "")
-    rollback_profile = str(verification_row.get("rollback_profile") or "unknown_profile")
-    rollback_incumbent_arm = str(verification_row.get("rollback_incumbent_arm") or "vertex_primary")
+def evaluate_rollback(verification_row: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    decision = (verification_row.get("decision") or "")
+    reason_code = (verification_row.get("reason_code") or "")
+    rollback_profile = (verification_row.get("rollback_profile") or "unknown_profile")
+    rollback_incumbent_arm = (verification_row.get("rollback_incumbent_arm") or "vertex_primary")
     rollback_weights = normalize_weights(verification_row.get("rollback_weights_json"))
 
     out = {
@@ -219,7 +220,7 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def persist_if_configured(db_url: str, rollback_out: Dict[str, Any], verification_row: Dict[str, Any], applied: int) -> None:
+async def persist_if_configured(db_url: str, rollback_out: dict[str, Any], verification_row: dict[str, Any], applied: int) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover

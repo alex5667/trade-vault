@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
-import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.meta_model_lr import MetaModelLR
 from core.meta_model_guard import validate_meta_model
+from core.meta_model_lr import MetaModelLR
 
 
 def test_signature_roundtrip(tmp_path: Path) -> None:

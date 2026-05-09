@@ -1,13 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
-import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Dict, List, Tuple
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _now_ms() -> int:
@@ -22,8 +22,8 @@ def _decode(x) -> str:
     return str(x)
 
 
-def _parse_tfs_map(s: str) -> Dict[str, int]:
-    out: Dict[str, int] = {}
+def _parse_tfs_map(s: str) -> dict[str, int]:
+    out: dict[str, int] = {}
     for part in (s or "").split(","):
         part = part.strip()
         if not part:
@@ -38,8 +38,8 @@ def _parse_tfs_map(s: str) -> Dict[str, int]:
     return out
 
 
-def _sscan_all(r: redis.Redis, key: str, limit: int = 2000) -> List[str]:
-    out: List[str] = []
+def _sscan_all(r: redis.Redis, key: str, limit: int = 2000) -> list[str]:
+    out: list[str] = []
     cur = 0
     while True:
         cur, batch = r.sscan(key, cursor=cur, count=10000)
@@ -54,7 +54,7 @@ def _sscan_all(r: redis.Redis, key: str, limit: int = 2000) -> List[str]:
     return sorted(set(out))
 
 
-def _emit(lines: List[str], name: str, labels: Dict[str, str], value) -> None:
+def _emit(lines: list[str], name: str, labels: dict[str, str], value) -> None:
     if labels:
         lab = ",".join([f'{k}="{str(v)}"' for k, v in labels.items()])
         lines.append(f"{name}{{{lab}}} {value}")
@@ -63,7 +63,7 @@ def _emit(lines: List[str], name: str, labels: Dict[str, str], value) -> None:
 
 
 def collect_metrics(r: redis.Redis) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     symbols_set = os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols")
     tpl = os.getenv("MICROBAR_PER_SYMBOL_STREAM_TEMPLATE", "events:microbar_closed:{sym}")
     legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
@@ -75,19 +75,15 @@ def collect_metrics(r: redis.Redis) -> str:
     _emit(lines, "microbar_symbols_active", {}, len(syms))
 
     # Streams lengths
-    try:
+    with contextlib.suppress(Exception):
         _emit(lines, "xlen_microbar_closed_total", {"stream": "legacy"}, int(r.xlen(legacy_key)))
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         _emit(lines, "xlen_microbar_closed_total", {"stream": "majors"}, int(r.xlen(majors_key)))
-    except Exception:
-        pass
 
     # Per-symbol xlen (limited)
     if "{sym}" in tpl and syms:
         pipe = r.pipeline()
-        keys: List[Tuple[str, str]] = []
+        keys: list[tuple[str, str]] = []
         for s in syms:
             k = tpl.format(sym=s)
             keys.append((s, k))
@@ -95,10 +91,8 @@ def collect_metrics(r: redis.Redis) -> str:
         try:
             lens = pipe.execute()
             for (s, _k), ln in zip(keys, lens):
-                try:
+                with contextlib.suppress(Exception):
                     _emit(lines, "xlen_microbar_closed_symbol", {"symbol": s}, int(ln or 0))
-                except Exception:
-                    pass
         except Exception:
             pass
 
@@ -120,12 +114,12 @@ def collect_metrics(r: redis.Redis) -> str:
                 bad = int(_decode(vals[i * 5 + 2]) or "0")
             except Exception:
                 bad = 0
-            
+
             try:
                 sw = int(_decode(vals[i * 5 + 3]) or "0")
             except Exception:
                 sw = 0
-            
+
             try:
                 jc = int(_decode(vals[i * 5 + 4]) or "0")
             except Exception:
@@ -159,10 +153,8 @@ def collect_metrics(r: redis.Redis) -> str:
             pipe.get(f"metrics:cvd_jump_total:{s}")
         totals = pipe.execute()
         for s, v in zip(syms, totals):
-            try:
+            with contextlib.suppress(Exception):
                 _emit(lines, "cvd_jump_total", {"symbol": s}, int(_decode(v) or "0"))
-            except Exception:
-                pass
 
     # LCB metrics (winner changes + margin)
     _append_lcb_metrics(lines, r)
@@ -170,7 +162,7 @@ def collect_metrics(r: redis.Redis) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _append_lcb_metrics(lines: List[str], r: redis.Redis) -> None:
+def _append_lcb_metrics(lines: list[str], r: redis.Redis) -> None:
     # lcb_winner_changes_total{symbol,regime,scenario}
     # lcb_margin{symbol,regime,scenario}
     try:
@@ -191,14 +183,10 @@ def _append_lcb_metrics(lines: List[str], r: redis.Redis) -> None:
             continue
         changes = _decode(vals[i * 2 + 0]) or "0"
         margin = _decode(vals[i * 2 + 1]) or "0"
-        try:
+        with contextlib.suppress(Exception):
             _emit(lines, "lcb_winner_changes_total", {"symbol": symbol, "regime": regime, "scenario": scenario}, int(changes))
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             _emit(lines, "lcb_margin", {"symbol": symbol, "regime": regime, "scenario": scenario}, float(margin))
-        except Exception:
-            pass
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -211,7 +199,7 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             body = collect_metrics(self.server.redis_client).encode("utf-8")
         except Exception as e:
-            body = f"error {e}".encode("utf-8")
+            body = f"error {e}".encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))

@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Textfile exporter for orchestration composite preflight rollup buckets.
 
 Reads incremental Redis hourly/daily bucket hashes produced by
@@ -7,9 +9,9 @@ orchestration_composite_preflight_history_rollup_v1 and writes bounded
 Prometheus metrics for 24h / 7d / 30d windows.
 """,
 import os
-import time
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Tuple
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -50,17 +52,17 @@ def _bucket_key(prefix: str, bucket_start_ms: int) -> str:
     return f"{prefix}:{int(bucket_start_ms)}"
 
 
-def _hour_buckets(now_ms: int, hours: int) -> List[int]:
+def _hour_buckets(now_ms: int, hours: int) -> list[int]:
     base = (now_ms // 3_600_000) * 3_600_000
     return [base - i * 3_600_000 for i in range(max(0, int(hours)))]
 
 
-def _day_buckets(now_ms: int, days: int) -> List[int]:
+def _day_buckets(now_ms: int, days: int) -> list[int]:
     base = (now_ms // 86_400_000) * 86_400_000
     return [base - i * 86_400_000 for i in range(max(0, int(days)))]
 
 
-def _read_bucket_hashes(r: Any, prefix: str, bucket_starts_ms: Iterable[int]) -> List[Mapping[str, str]]:
+def _read_bucket_hashes(r: Any, prefix: str, bucket_starts_ms: Iterable[int]) -> list[Mapping[str, str]]:
     pipe = r.pipeline(transaction=False)
     for bucket_start in bucket_starts_ms:
         pipe.hgetall(_bucket_key(prefix, bucket_start))
@@ -68,8 +70,8 @@ def _read_bucket_hashes(r: Any, prefix: str, bucket_starts_ms: Iterable[int]) ->
     return list(rows or [])
 
 
-def aggregate_windows(r: Any, *, now_ms: int, hourly_prefix: str, daily_prefix: str) -> Dict[Tuple[str, str, str, str, str], int]:
-    result: Dict[Tuple[str, str, str, str, str], int] = {}
+def aggregate_windows(r: Any, *, now_ms: int, hourly_prefix: str, daily_prefix: str) -> dict[tuple[str, str, str, str, str], int]:
+    result: dict[tuple[str, str, str, str, str], int] = {}
     window_specs = {
         "24h": (hourly_prefix, _hour_buckets(now_ms, 24)),
         "7d": (daily_prefix, _day_buckets(now_ms, 7)),
@@ -80,7 +82,7 @@ def aggregate_windows(r: Any, *, now_ms: int, hourly_prefix: str, daily_prefix: 
             for field, raw_value in (row or {}).items():
                 try:
                     purpose, source, status, reason = decode_field(field)
-                    value = int(float(str(raw_value or "0")))
+                    value = int(float((raw_value or "0")))
                 except Exception:
                     continue
                 key = (window, purpose, source, status, reason)
@@ -96,7 +98,7 @@ def render_text(r: Any, *, now_ms: int | None = None) -> str:
     cursor_key = os.getenv("ORCHESTRATION_COMPOSITE_PREFLIGHT_HISTORY_CURSOR_KEY", CURSOR_KEY_DEFAULT)
 
     agg = aggregate_windows(r, now_ms=now_ms, hourly_prefix=hourly_prefix, daily_prefix=daily_prefix)
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("# HELP orchestration_composite_preflight_rollup_events_total Incremental orchestration preflight events aggregated from Redis buckets\n")
     lines.append("# TYPE orchestration_composite_preflight_rollup_events_total gauge\n")
     for (window, purpose, source, status, reason), value in sorted(agg.items()):
@@ -114,9 +116,9 @@ def render_text(r: Any, *, now_ms: int | None = None) -> str:
             )
         )
 
-    totals: Dict[Tuple[str, str], int] = {}
-    blocks: Dict[Tuple[str, str], int] = {}
-    invalids: Dict[Tuple[str, str], int] = {}
+    totals: dict[tuple[str, str], int] = {}
+    blocks: dict[tuple[str, str], int] = {}
+    invalids: dict[tuple[str, str], int] = {}
     for (window, purpose, _source, status, _reason), value in agg.items():
         key = (window, purpose)
         totals[key] = totals.get(key, 0) + value
@@ -153,9 +155,9 @@ def render_text(r: Any, *, now_ms: int | None = None) -> str:
         )
 
     state = r.hgetall(state_key) or {}
-    cursor = str(r.get(cursor_key) or "")
-    last_rollup_ts_ms = int(float(str(state.get("last_rollup_ts_ms") or "0") or "0"))
-    last_event_ts_ms = int(float(str(state.get("last_event_ts_ms") or "0") or "0"))
+    cursor = (r.get(cursor_key) or "")
+    last_rollup_ts_ms = int(float((state.get("last_rollup_ts_ms") or "0") or "0"))
+    last_event_ts_ms = int(float((state.get("last_event_ts_ms") or "0") or "0"))
     lag_s = max(0.0, (float(now_ms) - float(last_rollup_ts_ms)) / 1000.0) if last_rollup_ts_ms else 0.0
 
     lines.append("# HELP orchestration_composite_preflight_rollup_state_present 1 if rollup state exists\n")

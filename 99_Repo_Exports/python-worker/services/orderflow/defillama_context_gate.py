@@ -13,14 +13,13 @@ Profiles
 """
 
 from dataclasses import dataclass
-from typing import List
 
 
 @dataclass
 class DefiLlamaContextDecision:
     hit: bool
     mode: str
-    flags: List[str]
+    flags: list[str]
     risk_score: float
     tighten_add_bps: float
     veto: bool
@@ -28,7 +27,7 @@ class DefiLlamaContextDecision:
 
 
 def _map_profile(profile: str) -> str:
-    p = str(profile or "monitor").strip().lower()
+    p = (profile or "monitor").strip().lower()
     if p in {"default", "soft", "monitor"}:
         return "monitor"
     if p in {"strict", "tighten"}:
@@ -52,9 +51,9 @@ def evaluate_defillama_context(
     tighten_cap_bps: float,
 ) -> DefiLlamaContextDecision:
     mode = _map_profile(profile)
-    side_up = str(side or "").strip().upper()
+    side_up = (side or "").strip().upper()
 
-    flags: List[str] = []
+    flags: list[str] = []
 
     # Global stablecoin + BTC dominance regime
     if stablecoin_mcap_delta_1d > 0 and stablecoin_mcap_delta_7d > 0 and btc_dominance_momentum < 0:

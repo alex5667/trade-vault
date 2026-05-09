@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Phase 8.6 — Protective Lifecycle Mirror
 
@@ -21,8 +22,8 @@ import logging
 import os
 import time
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Set
+from datetime import UTC, datetime
+from typing import Any
 
 from prometheus_client import Counter
 
@@ -34,7 +35,7 @@ _ENABLE = os.getenv("ATR_GRAPH_PROTECTIVE_ENABLE", "0") == "1"
 _MODE = os.getenv("ATR_GRAPH_PROTECTIVE_MODE", "shadow_compare")
 
 _BOUNDED_SYMBOLS_RAW = os.getenv("ATR_GRAPH_PROTECTIVE_SYMBOLS", "BTCUSDT,ETHUSDT")
-_BOUNDED_SYMBOLS: Set[str] = {
+_BOUNDED_SYMBOLS: set[str] = {
     s.strip().upper() for s in _BOUNDED_SYMBOLS_RAW.split(",") if s.strip()
 }
 
@@ -58,7 +59,7 @@ MIRROR_INVARIANT_VIOLATION_TOTAL = Counter(
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _gen_id(prefix: str) -> str:
-    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
     return f"{prefix}_{ts}_{uuid.uuid4().hex[:8]}"
 
 
@@ -121,7 +122,7 @@ class ProtectiveLifecycleMirror:
         event_type: str,
         signal_id: str,
         symbol: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
     ) -> str:
         """Write a protective lifecycle event to the journal."""
         event_id = _gen_id("pev")
@@ -144,7 +145,7 @@ class ProtectiveLifecycleMirror:
         node_id: str,
         node_type: str,
         symbol: str,
-        state: Dict[str, Any],
+        state: dict[str, Any],
         event_id: str,
     ) -> None:
         """Create or update a protective graph node."""
@@ -171,7 +172,7 @@ class ProtectiveLifecycleMirror:
         drift_kind: str,
         severity: str,
         reason_code: str,
-        drift_json: Dict[str, Any],
+        drift_json: dict[str, Any],
     ) -> None:
         """Record a protective invariant violation as a drift."""
         drift_id = _gen_id("pdrift")

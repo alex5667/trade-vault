@@ -1,15 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -53,7 +53,7 @@ class ABReportCfg:
     suggestions_ttl_sec: int = 7 * 24 * 3600
 
     @staticmethod
-    def from_env() -> "ABReportCfg":
+    def from_env() -> ABReportCfg:
         return ABReportCfg(
             audit_stream=os.getenv("TRADE_ENTRY_AUDIT_STREAM", "stream:trade:entry_audit"),
             out_dir=os.getenv("EP_REPORT_DIR", "/var/log/trade"),
@@ -66,8 +66,8 @@ class ABReportCfg:
         )
 
 
-async def read_audits(r: aioredis.Redis, stream: str, since_ms: int, limit: int) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+async def read_audits(r: aioredis.Redis, stream: str, since_ms: int, limit: int) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     try:
         entries = await r.xrevrange(stream, max="+", min="-", count=int(limit))
     except Exception:
@@ -88,19 +88,19 @@ async def read_audits(r: aioredis.Redis, stream: str, since_ms: int, limit: int)
     return out
 
 
-def summarize_by_arm(audits: List[Dict[str, Any]]) -> Dict[str, Any]:
-    by_arm: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+def summarize_by_arm(audits: list[dict[str, Any]]) -> dict[str, Any]:
+    by_arm: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for a in audits:
-        arm = str(a.get("arm", "NA") or "NA").upper()
+        arm = (a.get("arm", "NA") or "NA").upper()
         by_arm[arm].append(a)
 
-    def _sum(xs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _sum(xs: list[dict[str, Any]]) -> dict[str, Any]:
         total = len(xs)
         allow = sum(1 for x in xs if int(x.get("ok", 0) or 0) == 1)
         deny = total - allow
         allow_rate = (allow / max(total, 1)) * 100.0
-        by_reason = Counter(str(x.get("reason_code", "na")) for x in xs)
-        by_regime = Counter(str(x.get("regime", "na")) for x in xs)
+        by_reason = Counter((x.get("reason_code", "na")) for x in xs)
+        by_regime = Counter((x.get("regime", "na")) for x in xs)
         # quality proxies (averages on allowed only)
         allowed = [x for x in xs if int(x.get("ok", 0) or 0) == 1]
         avg_of = sum(_f(x.get("of_confirm_score", 0.0)) for x in allowed) / max(len(allowed), 1)
@@ -122,7 +122,7 @@ def summarize_by_arm(audits: List[Dict[str, Any]]) -> Dict[str, Any]:
     return out
 
 
-def pick_winner_any(summary: Dict[str, Any], min_n: int, arms: List[str]) -> Tuple[str, str]:
+def pick_winner_any(summary: dict[str, Any], min_n: int, arms: list[str]) -> tuple[str, str]:
     """
     Conservative winner selection among arms.
     Requirements:
@@ -131,8 +131,8 @@ def pick_winner_any(summary: Dict[str, Any], min_n: int, arms: List[str]) -> Tup
       score = pen * (avg_coh_allow + avg_leader_conf_allow)
       pen reduces if allow_rate is wildly higher than median (too permissive).
     """
-    candidates: List[Tuple[str, float, str]] = []
-    ars: List[float] = []
+    candidates: list[tuple[str, float, str]] = []
+    ars: list[float] = []
     for arm in arms:
         s = summary.get(arm) or {}
         if int(s.get("total", 0) or 0) < min_n:
@@ -163,16 +163,16 @@ def _is_thin(regime: str) -> bool:
     return rg in ("thin", "news", "illiquid")
 
 
-def split_by_group(audits: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-    out: Dict[str, List[Dict[str, Any]]] = {"thin": [], "default": []}
+def split_by_group(audits: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    out: dict[str, list[dict[str, Any]]] = {"thin": [], "default": []}
     for a in audits:
-        rg = str(a.get("regime", "na") or "na")
+        rg = (a.get("regime", "na") or "na")
         out["thin" if _is_thin(rg) else "default"].append(a)
     return out
 
 
-def render_md(day: str, since_ms: int, until_ms: int, by_arm: Dict[str, Any], winner: Tuple[str, str]) -> str:
-    lines: List[str] = []
+def render_md(day: str, since_ms: int, until_ms: int, by_arm: dict[str, Any], winner: tuple[str, str]) -> str:
+    lines: list[str] = []
     lines.append(f"# Entry Policy A/B Report — {day}")
     lines.append("")
     lines.append(f"- window: {since_ms} .. {until_ms} (ms)")
@@ -189,7 +189,7 @@ def render_md(day: str, since_ms: int, until_ms: int, by_arm: Dict[str, Any], wi
         lines.append(f"- avg_leader_conf_allow: **{float(s.get('avg_leader_conf_allow',0.0) or 0.0):.4f}**")
         lines.append(f"- avg_of_confirm_score_allow: **{float(s.get('avg_of_confirm_score_allow',0.0) or 0.0):.4f}**")
         lines.append("")
-        def _tbl(title: str, items: List[Tuple[str, int]]) -> None:
+        def _tbl(title: str, items: list[tuple[str, int]]) -> None:
             lines.append(f"### {title}")
             lines.append("| key | count |")
             lines.append("|---|---:|")

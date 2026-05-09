@@ -61,7 +61,7 @@ Examples:
         help="Enable GPU acceleration with cuDF (fallback to pandas).",
     )
     args = ap.parse_args()
-    
+
     # Load features
     use_gpu = bool(args.use_gpu and _GPU_AVAILABLE)
     if args.use_gpu and not _GPU_AVAILABLE:
@@ -75,7 +75,7 @@ Examples:
     else:
         df = pd.read_parquet(args.features) if args.features.endswith(".parquet") else pd.read_csv(args.features)
     print(f"✅ Loaded {len(df)} feature rows")
-    
+
     # Load labels
     print(f"📂 Loading labels from {args.labels}...")
     if use_gpu:
@@ -83,26 +83,26 @@ Examples:
     else:
         lb = pd.read_parquet(args.labels) if args.labels.endswith(".parquet") else pd.read_csv(args.labels)
     print(f"✅ Loaded {len(lb)} label rows")
-    
+
     # Join
     if "sid" in df.columns and "sid" in lb.columns:
-        print(f"🔗 Joining on 'sid' column...")
+        print("🔗 Joining on 'sid' column...")
         out = df.merge(lb, on="sid", how="left", suffixes=("", "_label"))
         matched = int(out["action"].notna().sum())
         print(f"✅ Matched {matched}/{len(df)} signals with labels ({matched/len(df)*100:.1f}%)")
     else:
-        print(f"⚠️  No 'sid' column found, keeping features as-is")
+        print("⚠️  No 'sid' column found, keeping features as-is")
         out = df
-    
+
     # Save
     print(f"💾 Saving to {args.out}...")
     if args.out.endswith(".parquet"):
         out.to_parquet(args.out, index=False)
     else:
         out.to_csv(args.out, index=False)
-    
+
     print(f"✅ Wrote {len(out)} rows to {args.out}")
-    
+
     # Summary
     if "action" in out.columns:
         print("\n📊 Label Summary:")

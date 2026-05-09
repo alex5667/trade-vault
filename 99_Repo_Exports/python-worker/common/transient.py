@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import socket
 
+
 def is_transient_error(e: Exception) -> bool:
     """
     Single source of truth for transient/network/redis availability issues.
     """
     # redis-py exceptions (best-effort import)
     try:
+        from redis.exceptions import BusyLoadingError, ClusterDownError
         from redis.exceptions import ConnectionError as RedisConnError
         from redis.exceptions import TimeoutError as RedisTimeoutError
-        from redis.exceptions import BusyLoadingError
-        from redis.exceptions import ClusterDownError
     except Exception:  # pragma: no cover
         RedisConnError = ()  # type: ignore
         RedisTimeoutError = ()     # type: ignore

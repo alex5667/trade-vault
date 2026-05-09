@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """ExecHealth rollout SLO-checker.
 
@@ -16,10 +18,10 @@ import argparse
 import json
 import logging
 import os
-import sys
-import time
 from collections import Counter, defaultdict
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -44,28 +46,28 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _s(x: Any, d: str = "") -> str:
     try:
         if x is None:
-            return str(d)
+            return d
         return str(x)
     except Exception:
-        return str(d)
+        return d
 
 
-def _scan_keys(r, prefix: str) -> List[str]:
+def _scan_keys(r, prefix: str) -> list[str]:
     patt = f"{prefix}:*"
-    out: List[str] = []
+    out: list[str] = []
     try:
         cur = 0
         while True:
@@ -78,8 +80,8 @@ def _scan_keys(r, prefix: str) -> List[str]:
     return out
 
 
-def _read_rows(r, keys: Sequence[str]) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+def _read_rows(r, keys: Sequence[str]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     for key in keys:
         try:
             d = r.hgetall(key) or {}
@@ -97,11 +99,11 @@ def _norm_thr(v: Any) -> str:
     return f"{_f(v, 0.0):.6f}"
 
 
-def summarize_scope_rows(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stale_ms: int) -> Dict[str, Any]:
+def summarize_scope_rows(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stale_ms: int) -> dict[str, Any]:
     active = [dict(r) for r in rows if max(0, now_ms - _i(r.get("updated_ts_ms"), 0)) <= stale_ms]
     stale = len(rows) - len(active)
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "active_instances": int(len(active)),
         "stale_instances": int(max(0, stale)),
         "total_n": 0,
@@ -129,7 +131,7 @@ def summarize_scope_rows(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stal
     out["top_deploys_json"] = json.dumps(deploy_counter.most_common(5), ensure_ascii=False)
 
     modal_mode = mode_counter.most_common(1)[0][0]
-    modal_thr: Dict[str, str] = {}
+    modal_thr: dict[str, str] = {}
     for metric in THR_METRICS:
         thr_counter = Counter(_norm_thr(r.get(metric)) for r in active)
         out[f"distinct_{metric}"] = len(thr_counter)
@@ -154,12 +156,12 @@ def summarize_scope_rows(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stal
     return out
 
 
-def build_summary(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stale_ms: int) -> Dict[str, str]:
-    by_scope: Dict[str, List[Mapping[str, Any]]] = defaultdict(list)
+def build_summary(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stale_ms: int) -> dict[str, str]:
+    by_scope: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for row in rows:
         by_scope[_s(row.get("scope"), "unknown")].append(row)
 
-    out: Dict[str, str] = {
+    out: dict[str, str] = {
         "schema_name": "exec_health_slo_summary",
         "schema_version": "1",
         "updated_ts_ms": str(int(now_ms)),
@@ -172,8 +174,8 @@ def build_summary(rows: Sequence[Mapping[str, Any]], *, now_ms: int, stale_ms: i
     for metric in THR_METRICS:
         out[f"cross_scope_distinct_{metric}"] = "0"
 
-    scope_modal_mode: Dict[str, str] = {}
-    scope_modal_thr: Dict[str, str] = {m: "" for m in THR_METRICS}
+    scope_modal_mode: dict[str, str] = {}
+    scope_modal_thr: dict[str, str] = dict.fromkeys(THR_METRICS, "")
 
     active_total = 0
     stale_total = 0
@@ -242,7 +244,7 @@ def main() -> int:
     ap.add_argument("--out-key", default=os.getenv("EXEC_HEALTH_SLO_SUMMARY_KEY", "metrics:exec_health:slo:last"))
     ap.add_argument("--stale-ms", type=int, default=int(os.getenv("EXEC_HEALTH_SLO_STALE_MS", "90000")))
     ap.add_argument("--notify", action="store_true")
-    ap.add_argument("--notify-stream", default=os.getenv("EXEC_HEALTH_SLO_NOTIFY_STREAM", "notify:telegram"))
+    ap.add_argument("--notify-stream", default=os.getenv("EXEC_HEALTH_SLO_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM))
     args = ap.parse_args()
 
     if redis is None:
@@ -253,7 +255,7 @@ def main() -> int:
     try:
         keys = _scan_keys(r, args.state_prefix)
         rows = _read_rows(r, keys)
-        
+
         now = _now_ms()
         # Auto-cleanup: if key is older than 1 hour, delete it
         VERY_STALE_MS = 3600 * 1000
@@ -271,10 +273,8 @@ def main() -> int:
     except Exception as exc:
         logger.exception("exec health slo checker failed: %s", exc)
         if args.notify:
-            try:
+            with contextlib.suppress(Exception):
                 r.xadd(args.notify_stream, {"ts_ms": str(_now_ms()), "source": "exec_health_slo_checker_v1", "text": f"ExecHealth SLO checker ERROR: {exc}"}, maxlen=5000, approximate=True)
-            except Exception:
-                pass
         return 1
 
 

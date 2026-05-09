@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Auto-apply Tick Gate Daily Report
 
@@ -10,14 +11,14 @@ ENV:
   REDIS_URL=redis://host:6379/0
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
 import time
 from collections import Counter, defaultdict
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _env(name: str, default: str) -> str:
@@ -25,8 +26,8 @@ def _env(name: str, default: str) -> str:
     return default if v is None or str(v).strip() == "" else str(v).strip()
 
 
-def _decode_map(m: Dict[Any, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _decode_map(m: dict[Any, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for k, v in (m or {}).items():
         if isinstance(k, (bytes, bytearray)):
             k = k.decode("utf-8", errors="replace")
@@ -45,10 +46,10 @@ def _range_start_id(hours: float) -> str:
     return f"{start_ms}-0"
 
 
-def fetch_stream(rds, stream: str, hours: float, limit: int) -> List[Tuple[str, Dict[str, str]]]:
+def fetch_stream(rds, stream: str, hours: float, limit: int) -> list[tuple[str, dict[str, str]]]:
     start_id = _range_start_id(hours)
     entries = rds.xrange(stream, min=start_id, max="+", count=limit)
-    out: List[Tuple[str, Dict[str, str]]] = []
+    out: list[tuple[str, dict[str, str]]] = []
     for entry_id, fields in entries:
         if isinstance(entry_id, (bytes, bytearray)):
             entry_id = entry_id.decode("utf-8", errors="replace")
@@ -56,7 +57,7 @@ def fetch_stream(rds, stream: str, hours: float, limit: int) -> List[Tuple[str, 
     return out
 
 
-def aggregate(entries: List[Tuple[str, Dict[str, str]]]) -> Dict[str, Any]:
+def aggregate(entries: list[tuple[str, dict[str, str]]]) -> dict[str, Any]:
     status_c = Counter()
     reason_c = Counter()
     rc_c = Counter()

@@ -1,23 +1,24 @@
 from __future__ import annotations
-\
 
 import argparse
 import json
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
-def _ts_ms(payload: Dict[str, Any]) -> int:
+
+def _ts_ms(payload: dict[str, Any]) -> int:
     try:
         return int(float(payload.get("ts_ms", 0) or 0))
     except Exception:
         return 0
 
-def export_inputs(*, r: redis.Redis, stream: str, since_ms: int, out_path: str, max_scan: int = 500_000) -> Tuple[int,int]:
+def export_inputs(*, r: redis.Redis, stream: str, since_ms: int, out_path: str, max_scan: int = 500_000) -> tuple[int,int]:
     scanned = 0
     written = 0
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     while scanned < max_scan:
         batch = r.xrevrange(stream, max=last_id, min="-", count=2000)
@@ -60,7 +61,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--since-hours", type=float, default=24.0)
-    ap.add_argument("--stream", type=str, default=os.getenv("OF_INPUTS_STREAM", "signals:of:inputs"))
+    ap.add_argument("--stream", type=str, default=os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS))
     ap.add_argument("--redis-url", type=str, default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--max-scan", type=int, default=500_000)
     args = ap.parse_args()

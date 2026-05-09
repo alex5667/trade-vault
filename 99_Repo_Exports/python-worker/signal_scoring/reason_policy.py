@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import replace
-from collections import deque, defaultdict
-from dataclasses import dataclass
-from typing import Any, Callable, Deque, Dict, Optional, Set, Tuple, DefaultDict
+from collections import defaultdict, deque
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from typing import Any
 
 from common.qf_codes import QF
 from signal_scoring.reason_codes import ReasonCode
-from signal_scoring.reason_registry import reason_code_to_u16, map_legacy_reason_code
+from signal_scoring.reason_registry import map_legacy_reason_code, reason_code_to_u16
+import contextlib
 
 
 def _label_sanitize(v: Any, *, max_len: int = 80) -> str:
@@ -18,7 +19,7 @@ def _label_sanitize(v: Any, *, max_len: int = 80) -> str:
     - режем длину, чтобы не взорвать кардинальность
     - нормализуем пробелы/таб/переводы строк
     """
-    s = str(v or "").strip()
+    s = (v or "").strip()
     s = " ".join(s.split())
     if len(s) > max_len:
         s = s[:max_len]
@@ -30,7 +31,7 @@ class _Metrics:
     Минимальный интерфейс метрик.
     Поддерживает и StatsD-стиль, и Prom-обёртки.
     """
-    def incr(self, name: str, value: int = 1, tags: Optional[dict[str, str]] = None) -> None:  # pragma: no cover
+    def incr(self, name: str, value: int = 1, tags: dict[str, str] | None = None) -> None:  # pragma: no cover
         raise NotImplementedError
 
 
@@ -67,10 +68,10 @@ class LegacyMapAlertConfig:
 # но делает причину строго корректной и стабильной для дашбордов/калибровки.
 
 
-ANY: Set[str] = {"*"}
+ANY: set[str] = {"*"}
 
 
-def _k(*xs: str) -> Set[str]:
+def _k(*xs: str) -> set[str]:
     return set(xs)
 
 
@@ -84,14 +85,14 @@ class ReasonPolicyEntry:
       - "warn": нештатно, но возможно (эволюция пайплайна)
       - "error": почти наверняка баг/дрейф контракта
     """
-    allowed_kinds: Set[str]
+    allowed_kinds: set[str]
     mismatch_severity: str = "warn"  # "warn" | "error"
 
 
 # ВАЖНО:
 # - Делайте явное покрытие для ВСЕХ VETO_* кодов (тест ниже это гарантирует).
 # - Для общих причин используйте "*" (ANY), чтобы не "пережимать".
-POLICY: Dict[str, ReasonPolicyEntry] = {
+POLICY: dict[str, ReasonPolicyEntry] = {
     # ---------- universal gates ----------
     ReasonCode.VETO_SPREAD_WIDE.value: ReasonPolicyEntry(ANY, "warn"),
     ReasonCode.VETO_CONF_BELOW_MIN.value: ReasonPolicyEntry(ANY, "warn"),
@@ -114,7 +115,7 @@ POLICY: Dict[str, ReasonPolicyEntry] = {
 }
 
 
-def get_policy(reason_code: str) -> Optional[ReasonPolicyEntry]:
+def get_policy(reason_code: str) -> ReasonPolicyEntry | None:
     return POLICY.get(reason_code)
 
 
@@ -124,10 +125,10 @@ def is_reason_allowed_for_kind(reason_code: str, kind: str) -> bool:
         return False
     if "*" in p.allowed_kinds:
         return True
-    return str(kind or "") in p.allowed_kinds
+    return (kind or "") in p.allowed_kinds
 
 
-def normalize_reason_for_kind(*, reason_code: str, kind: str, parts: dict) -> Tuple[str, str]:
+def normalize_reason_for_kind(*, reason_code: str, kind: str, parts: dict) -> tuple[str, str]:
     """
     Return a reason_code that is valid for this kind.
     If mismatch -> VETO_UNKNOWN and annotate parts (debuggable, dashboard-friendly).
@@ -142,10 +143,10 @@ def normalize_reason_for_kind(*, reason_code: str, kind: str, parts: dict) -> Tu
         parts.setdefault("reason_kind_mismatch", {})
         if isinstance(parts["reason_kind_mismatch"], dict):
             parts["reason_kind_mismatch"].update(
-                {"kind": str(kind or ""), "reason_code": str(reason_code or "")}
+                {"kind": (kind or ""), "reason_code": (reason_code or "")}
             )
         else:
-            parts["reason_kind_mismatch"] = {"kind": str(kind or ""), "reason_code": str(reason_code or "")}
+            parts["reason_kind_mismatch"] = {"kind": (kind or ""), "reason_code": (reason_code or "")}
     except Exception:
         # fail-open: parts are best-effort
         pass
@@ -154,8 +155,8 @@ def normalize_reason_for_kind(*, reason_code: str, kind: str, parts: dict) -> Tu
     return ReasonCode.VETO_UNKNOWN.value, sev
 
 
-MetricInc = Callable[[str, Dict[str, str], int], None]
-AlertEmit = Callable[[Dict[str, Any]], None]
+MetricInc = Callable[[str, dict[str, str], int], None]
+AlertEmit = Callable[[dict[str, Any]], None]
 
 
 class ReasonMismatchMonitor:
@@ -169,22 +170,22 @@ class ReasonMismatchMonitor:
     def __init__(
         self,
         *,
-        metrics: Optional[_Metrics] = None,
-        notify: Optional[Callable[[dict[str, Any]], None]] = None,
-        alert_cfg: Optional[LegacyMapAlertConfig] = None,
+        metrics: _Metrics | None = None,
+        notify: Callable[[dict[str, Any]], None] | None = None,
+        alert_cfg: LegacyMapAlertConfig | None = None,
     ) -> None:
         self._m = metrics
         self._notify = notify
         self._alert_cfg = alert_cfg or LegacyMapAlertConfig()
         # key=(kind,from,to) -> deque[timestamps]
-        self._legacy_ts: DefaultDict[tuple[str, str, str], Deque[float]] = defaultdict(deque)
+        self._legacy_ts: defaultdict[tuple[str, str, str], deque[float]] = defaultdict(deque)
         # key=(kind,from,to) -> last alert time
-        self._legacy_last_alert: Dict[tuple[str, str, str], float] = {}
+        self._legacy_last_alert: dict[tuple[str, str, str], float] = {}
 
     def observe(self, *, kind: str, original_rc: str, normalized_rc: str, mismatch_sev: str) -> None:
         # существующая метрика/логика mismatch (оставляем, как у вас было/ожидалось)
         if self._m is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._m.incr(
                     "reason_kind_mismatch_total",
                     1,
@@ -195,10 +196,8 @@ class ReasonMismatchMonitor:
                         "sev": _label_sanitize(mismatch_sev),
                     }
                 )
-            except Exception:
-                pass
 
-    def observe_legacy_map(self, *, kind: str, rc_from: str, rc_to: str, now_s: Optional[float] = None) -> None:
+    def observe_legacy_map(self, *, kind: str, rc_from: str, rc_to: str, now_s: float | None = None) -> None:
         """
         ВАЖНО: это вызывается ТОЛЬКО если registry реально сделал mapping.
         """
@@ -210,10 +209,8 @@ class ReasonMismatchMonitor:
 
         # 1) requested metric: reason_legacy_mapped_total{kind,from,to}
         if self._m is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._m.incr("reason_legacy_mapped_total", 1, tags={"kind": k, "from": f, "to": t})
-            except Exception:
-                pass
 
         # 2) rolling-window spike detection (optional notify)
         dq = self._legacy_ts[key]
@@ -261,10 +258,10 @@ class ReasonMismatchMonitor:
 
 def patch_validation_reason_for_kind(
     *,
-    validation: "Validation",
+    validation: Validation,
     kind: str,
-    monitor: Optional[ReasonMismatchMonitor] = None,
-) -> "Validation":
+    monitor: ReasonMismatchMonitor | None = None,
+) -> Validation:
     """
     Convenience wrapper: mutate/return a Validation with kind-safe reason_code + reason_u16.
     Avoids importing engine.Validation here (string-typed to keep imports light).
@@ -315,10 +312,8 @@ def patch_validation_reason_for_kind(
     if monitor is not None:
         # 1) legacy-map metric/alert (то, что вы просили в 1/1024)
         if legacy_orig is not None and rc1 != rc_in:
-            try:
+            with contextlib.suppress(Exception):
                 monitor.observe_legacy_map(kind=kind, rc_from=legacy_orig, rc_to=rc1)
-            except Exception:
-                pass
         # 2) mismatch metric
         try:
             # original_rc = до policy (после legacy-map), чтобы монитор не шумел на переименования

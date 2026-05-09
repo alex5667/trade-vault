@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
 import math
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -37,7 +37,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _pick_tick_size_px(bar: Any, cfg: Dict[str, Any]) -> float:
+def _pick_tick_size_px(bar: Any, cfg: dict[str, Any]) -> float:
     """
     tick_size_px is needed for delta efficiency eff.
     Priority:
@@ -59,7 +59,7 @@ def _pick_tick_size_px(bar: Any, cfg: Dict[str, Any]) -> float:
     return 1e-9
 
 
-def compute_weak_progress(bar: Any, atr: Optional[float], cfg: Dict[str, Any]) -> WeakProgressSnapshot:
+def compute_weak_progress(bar: Any, atr: float | None, cfg: dict[str, Any]) -> WeakProgressSnapshot:
     """
     Compute weak progress metrics on bar_close.
     Fail-open: if ATR missing/invalid => weak flags only via eff if possible.

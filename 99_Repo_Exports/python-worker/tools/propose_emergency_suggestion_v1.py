@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Manual tool: emit an emergency cfg:suggestions proposal.
 
 Use-case:
@@ -11,16 +12,15 @@ Notes:
 - This tool does NOT depend on ApplyRunner internals.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import hashlib
 import json
 import os
-import time
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     from tools._ml_common import now_ms, safe_int
@@ -35,7 +35,7 @@ except Exception:  # pragma: no cover
             return default
 
 
-def _loads_ops_json(s: str) -> List[Dict[str, Any]]:
+def _loads_ops_json(s: str) -> list[dict[str, Any]]:
     if not s:
         return []
     try:

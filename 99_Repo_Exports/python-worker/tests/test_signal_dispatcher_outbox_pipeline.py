@@ -1,5 +1,5 @@
-import pytest
 from collections import defaultdict
+from core.redis_keys import RedisStreams as RS
 
 
 class _FakeMsg:
@@ -37,10 +37,9 @@ class _FakeRedis:
 
 def _mk_sd():
     # import locally to match repo layout
-    from services.signal_dispatcher import SignalDispatcher
-
     # Mock Redis connection before creating instance
     import services.signal_dispatcher
+    from services.signal_dispatcher import SignalDispatcher
     original_get_redis = services.signal_dispatcher.get_redis
     services.signal_dispatcher.get_redis = lambda: _FakeRedis()
 
@@ -78,7 +77,7 @@ def test_no_messages_continue_is_not_unconditional():
     sd._process_outbox_message = lambda *a, **k: called.__setitem__("n", called["n"] + 1)
 
     # emulate "messages" non-empty branch
-    messages = [("stream:signals:outbox", [_FakeMsg("1-0", {"data": '{"sid":"s1","targets":{}}'})])]
+    messages = [(RS.SIGNAL_OUTBOX, [_FakeMsg("1-0", {"data": '{"sid":"s1","targets":{}}'})])]
     for stream, items in messages:
         for m in items:
             sd._process_outbox_message(
@@ -114,7 +113,7 @@ def test_bad_envelope_goes_to_dlq_and_does_not_call_helper_ack():
 
     sd._process_outbox_message(
         helper,
-        stream="stream:signals:outbox",
+        stream=RS.SIGNAL_OUTBOX,
         msg_id="7-0",
         fields={"data": ""},  # bad
         where="new",

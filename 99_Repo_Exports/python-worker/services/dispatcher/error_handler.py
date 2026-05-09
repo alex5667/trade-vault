@@ -1,12 +1,13 @@
 """
 ErrorHandler: Centralizes error handling and metric counting.
 """
-from typing import Any, Dict
+from typing import Any
+
 from common.transient import is_transient_error
 
 
 class ErrorHandler:
-    def __init__(self, logger: Any, counters: Dict[str, int]):
+    def __init__(self, logger: Any, counters: dict[str, int]):
         self.logger = logger
         self.counters = counters
 
@@ -39,7 +40,7 @@ class ErrorHandler:
             if log_transient:
                self.logger.warning("Transient error %s msg=%s: %s", context, msg_id, exc)
             return True
-        
+
         self.counters[ctr_fatal] += 1
         self.logger.error("Fatal error %s msg=%s: %s", context, msg_id, exc, exc_info=True)
         return False

@@ -5,7 +5,8 @@ Provides fail-open logging and metrics increment functions to ensure
 observability code does not crash the main application logic.
 """
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 
 def sd_sampled_debug(logger: Any, key: str, msg: str, *args: Any) -> None:
@@ -21,7 +22,7 @@ def sd_sampled_debug(logger: Any, key: str, msg: str, *args: Any) -> None:
         logger.debug(msg, *args)
 
 
-def sd_try_incr(logger: Any, incr_fn: Optional[Callable[[str], Any]], metric_key: str) -> None:
+def sd_try_incr(logger: Any, incr_fn: Callable[[str], Any] | None, metric_key: str) -> None:
     """
     Best-effort metrics increment; never raises.
     
@@ -40,11 +41,11 @@ def sd_try_incr(logger: Any, incr_fn: Optional[Callable[[str], Any]], metric_key
 
 
 def sd_fail_open(
-    logger: Any, 
-    *, 
-    key: str, 
-    err: Exception, 
-    incr_fn: Optional[Callable[[str], Any]] = None, 
+    logger: Any,
+    *,
+    key: str,
+    err: Exception,
+    incr_fn: Callable[[str], Any] | None = None,
     metric_key: str = ""
 ) -> None:
     """

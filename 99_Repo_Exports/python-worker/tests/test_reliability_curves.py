@@ -1,7 +1,5 @@
-import os
-from tests.fake_redis import FakeRedis
-
 from services.reliability_curves import update_reliability_curve
+from tests.fake_redis import FakeRedis
 
 
 def _hget_int(redis, key: str, field: str) -> int:

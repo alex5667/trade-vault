@@ -1,14 +1,11 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
-import time
-from typing import Any, Dict, List
+from typing import Any
 
 from news_pipeline.httpx_client import http_get_json
 from news_pipeline.models import NewsRawItem
-
+from utils.time_utils import get_ny_time_millis
 
 FMP_BASE = os.getenv("FMP_BASE_URL", "https://financialmodelingprep.com")
 # по документации: /stable/news/crypto-latest, /stable/news/stock-latest (аналогично),
@@ -19,12 +16,12 @@ def _ts_ms() -> int:
     return get_ny_time_millis()
 
 
-def fetch_fmp(cfg: Dict[str, Any]) -> List[NewsRawItem]:
+def fetch_fmp(cfg: dict[str, Any]) -> list[NewsRawItem]:
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
         return []
 
-    out: List[NewsRawItem] = []
+    out: list[NewsRawItem] = []
     now = _ts_ms()
 
     # --- crypto latest ---
@@ -40,11 +37,11 @@ def fetch_fmp(cfg: Dict[str, Any]) -> List[NewsRawItem]:
             for it in js:
                 if not isinstance(it, dict):
                     continue
-                title = str(it.get("title") or "").strip()
-                link = str(it.get("url") or "").strip()
+                title = (it.get("title") or "").strip()
+                link = (it.get("url") or "").strip()
                 if not title or not link:
                     continue
-                uid = str(it.get("id") or "") or f"fmpc:{hash(link)}"
+                uid = (it.get("id") or "") or f"fmpc:{hash(link)}"
                 out.append(
                     NewsRawItem(
                         uid=f"fmp:crypto:{uid}",
@@ -71,14 +68,14 @@ def fetch_fmp(cfg: Dict[str, Any]) -> List[NewsRawItem]:
             for it in js:
                 if not isinstance(it, dict):
                     continue
-                title = str(it.get("title") or "").strip()
-                link = str(it.get("url") or "").strip()
+                title = (it.get("title") or "").strip()
+                link = (it.get("url") or "").strip()
                 if not title or not link:
                     continue
-                uid = str(it.get("id") or "") or f"fmps:{hash(link)}"
+                uid = (it.get("id") or "") or f"fmps:{hash(link)}"
 
                 # если API отдаёт symbol — хорошо, иначе оставим пусто
-                sym = str(it.get("symbol") or "").strip().upper()
+                sym = (it.get("symbol") or "").strip().upper()
                 symbols = [sym] if sym else []
 
                 out.append(

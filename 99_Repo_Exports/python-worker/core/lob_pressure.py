@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """LOB Pressure features (P91).
 
 Performance notes
@@ -24,13 +25,13 @@ Features:
 """
 
 
-from typing import Any, Dict, List, Optional, Tuple
 import math
+from typing import Any
 
 import numpy as np
 
 # Pre-computed 1/level weights for depth 1..10 (avoids per-call division)
-_LEVEL_WEIGHTS: List[float] = [1.0 / (i + 1) for i in range(10)]
+_LEVEL_WEIGHTS: list[float] = [1.0 / (i + 1) for i in range(10)]
 
 
 def _sf(x: Any, default: float = 0.0) -> float:
@@ -38,10 +39,10 @@ def _sf(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if math.isnan(v) or math.isinf(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
 def _microprice(best_bid_px: float, best_bid_qty: float, best_ask_px: float, best_ask_qty: float) -> float:
@@ -52,7 +53,7 @@ def _microprice(best_bid_px: float, best_bid_qty: float, best_ask_px: float, bes
     return (best_ask_px * best_bid_qty + best_bid_px * best_ask_qty) / denom
 
 
-def _lin_slope_py(y: List[float]) -> float:
+def _lin_slope_py(y: list[float]) -> float:
     """Least-squares slope, pure Python, depth≤10."""
     n = len(y)
     if n <= 1:
@@ -85,19 +86,19 @@ def _lin_slope_np(y: np.ndarray) -> float:
 # Hot path: optimized pure-Python (depth ≤ 10, no numpy allocation)
 # ---------------------------------------------------------------------------
 def _compute_lob_python(
-    bids: List[Tuple[float, float]],
-    asks: List[Tuple[float, float]],
-    prev_bids: Optional[List[Tuple[float, float]]],
-    prev_asks: Optional[List[Tuple[float, float]]],
+    bids: list[tuple[float, float]],
+    asks: list[tuple[float, float]],
+    prev_bids: list[tuple[float, float]] | None,
+    prev_asks: list[tuple[float, float]] | None,
     depth: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Pure-Python path: depth ≤ 10. No NumPy allocation overhead."""
     eps = 1e-12
 
-    bq: List[float] = []
-    aq: List[float] = []
-    bp: List[float] = []
-    ap: List[float] = []
+    bq: list[float] = []
+    aq: list[float] = []
+    bp: list[float] = []
+    ap: list[float] = []
     for i in range(depth):
         if i < len(bids):
             bp.append(_sf(bids[i][0], 0.0))
@@ -111,7 +112,7 @@ def _compute_lob_python(
             ap.append(0.0); aq.append(0.0)
 
     # Queue imbalance per level
-    qi_levels: List[float] = []
+    qi_levels: list[float] = []
     for i in range(depth):
         if bq[i] <= 0.0 or aq[i] <= 0.0:
             qi_levels.append(0.0)
@@ -123,7 +124,7 @@ def _compute_lob_python(
     qi_max_abs = max(abs(q) for q in qi_levels)
     qi_slope = _lin_slope_py(qi_levels)
 
-    out: Dict[str, float] = {
+    out: dict[str, float] = {
         "qi_mean": qi_mean,
         "qi_max_abs": qi_max_abs,
         "qi_slope": qi_slope,
@@ -152,18 +153,18 @@ def _compute_lob_python(
     out["micro_shift_bps"] = mp_shift_bps
 
     # Cumulative depth slopes/convexity
-    cum_bid: List[float] = []
-    cum_ask: List[float] = []
+    cum_bid: list[float] = []
+    cum_ask: list[float] = []
     s = 0.0
     for q in bq: s += q; cum_bid.append(s)
     s = 0.0
     for q in aq: s += q; cum_ask.append(s)
 
-    def _slope(cum: List[float]) -> float:
+    def _slope(cum: list[float]) -> float:
         n = len(cum)
         return (cum[-1] - cum[0]) / float(n - 1) if n > 1 else 0.0
 
-    def _convexity(cum: List[float]) -> float:
+    def _convexity(cum: list[float]) -> float:
         n = len(cum)
         if n < 3: return 0.0
         mid_i = n // 2
@@ -193,12 +194,12 @@ def _compute_lob_python(
 # NumPy path: depth > 10 (allocation overhead amortized by vector length)
 # ---------------------------------------------------------------------------
 def _compute_lob_numpy(
-    bids: List[Tuple[float, float]],
-    asks: List[Tuple[float, float]],
-    prev_bids: Optional[List[Tuple[float, float]]],
-    prev_asks: Optional[List[Tuple[float, float]]],
+    bids: list[tuple[float, float]],
+    asks: list[tuple[float, float]],
+    prev_bids: list[tuple[float, float]] | None,
+    prev_asks: list[tuple[float, float]] | None,
     depth: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """NumPy-vectorized path: depth > 10."""
     eps = 1e-12
 
@@ -223,7 +224,7 @@ def _compute_lob_numpy(
     qi_max_abs = float(np.abs(qi_arr).max())
     qi_slope = _lin_slope_np(qi_arr)
 
-    out: Dict[str, float] = {"qi_mean": qi_mean, "qi_max_abs": qi_max_abs, "qi_slope": qi_slope}
+    out: dict[str, float] = {"qi_mean": qi_mean, "qi_max_abs": qi_max_abs, "qi_slope": qi_slope}
     for i in range(depth):
         out[f"qi_l{i + 1}"] = float(qi_arr[i])
 
@@ -276,12 +277,12 @@ def _compute_lob_numpy(
 # ---------------------------------------------------------------------------
 def compute_lob_pressure(
     *,
-    bids: List[Tuple[float, float]],
-    asks: List[Tuple[float, float]],
-    prev_bids: Optional[List[Tuple[float, float]]] = None,
-    prev_asks: Optional[List[Tuple[float, float]]] = None,
+    bids: list[tuple[float, float]],
+    asks: list[tuple[float, float]],
+    prev_bids: list[tuple[float, float]] | None = None,
+    prev_asks: list[tuple[float, float]] | None = None,
     depth: int = 5,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Compute LOB pressure features from top-of-book levels.
 
     Args:

@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import os
 import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Optional
+from dataclasses import asdict, dataclass
+from typing import Any
 
 try:
     import redis
@@ -25,7 +25,7 @@ class CostRecord:
     actual_cost_usd: float
     context_cache_ref: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 

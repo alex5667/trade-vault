@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Callable, Optional, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 try:
     import redis
@@ -45,7 +46,7 @@ def is_redis_timeout_error(e: BaseException) -> bool:
                 return True
     except Exception:
         pass
-    
+
     if _exc_name(e) in ("TimeoutError",):
         return True
 
@@ -256,14 +257,14 @@ def get_redis_error_category(exc: BaseException) -> str:
     return "unknown"
 
 
-def retry_redis_operation(
+def retry_redis_operation[T](
     operation: Callable[[], T],
     operation_name: str = "Redis operation",
     max_retries: int = 10,
     base_delay: float = 1.0,
     max_delay: float = 30.0,
-    on_final_failure: Optional[Callable[[Exception], T]] = None,
-    logger_instance: Optional[logging.Logger] = None,
+    on_final_failure: Callable[[Exception], T] | None = None,
+    logger_instance: logging.Logger | None = None,
 ) -> T:
     """
     Retry a Redis operation with exponential backoff and jitter.
@@ -296,7 +297,7 @@ def retry_redis_operation(
         max_attempts=max_retries,
     )
 
-    last_exception: Optional[Exception] = None
+    last_exception: Exception | None = None
 
     for attempt in range(max_retries):
         try:

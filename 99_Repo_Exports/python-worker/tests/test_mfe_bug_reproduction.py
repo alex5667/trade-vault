@@ -1,8 +1,9 @@
 
 import unittest
-from dataclasses import dataclass
-from domain.models import PositionState
+
 from domain.handlers import finalize_trade
+from domain.models import PositionState
+
 
 # Mock Spec class for PnL calculation
 class MockSpec:
@@ -38,15 +39,15 @@ class TestMFEBucReproduction(unittest.TestCase):
             sl=90.0,
             tp_levels=[110.0]
         )
-        
+
         # Simulate that we saw a price of 120.0 (favorable)
         # This gives a theoretical MFE of (120 - 100) * 1 = 20.0
         pos.max_favorable_price = 120.0
         pos.max_price_seen = 120.0
-        
+
         # We exited at 105.0 (profit of 5.0)
         exit_price = 105.0
-        
+
         # 2. Call finalize_trade
         spec = MockSpec()
         closed_trade = finalize_trade(
@@ -55,20 +56,20 @@ class TestMFEBucReproduction(unittest.TestCase):
             exit_price=exit_price,
             exit_ts_ms=2000,
             close_reason_raw="TP_HIT",
-            tp_ratios=[1.0] 
+            tp_ratios=[1.0]
         )
-        
+
         # 3. Assertions
         print(f"DEBUG: Closed Trade MFE PnL: {closed_trade.mfe_pnl}")
         print(f"DEBUG: Max Favorable Price: {pos.max_favorable_price}")
-        
+
         # The Bug: MFE PnL should be calculated from max_favorable_price but isn't
         # It currently reads pos.mfe_pnl which defaults to 0.0
-        
-        # If the bug exists, this will be 0.0. 
+
+        # If the bug exists, this will be 0.0.
         # If fixed, it should be 20.0
         self.assertEqual(closed_trade.mfe_pnl, 20.0, "MFE PnL should be 20.0")
-        
+
         # We also want to assert that it *should* have been 20.0 manually to prove our math
         expected_mfe = spec.pnl_money(pos.entry_price, pos.max_favorable_price, pos.lot, pos.direction)
         self.assertEqual(expected_mfe, 20.0)

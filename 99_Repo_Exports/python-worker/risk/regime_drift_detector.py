@@ -12,7 +12,7 @@ class RegimeDriftDetector:
         self.delta = delta
         self.threshold = threshold
         self.alpha = alpha  # forgetting factor
-        
+
         self.n = 0
         self.mean = 0.0
         self.sum = 0.0
@@ -25,7 +25,7 @@ class RegimeDriftDetector:
         Returns True if a drift is detected.
         """
         self.n += 1
-        
+
         if self.n <= self.min_instances:
             self.sum += x
             self.mean = self.sum / self.n
@@ -37,19 +37,19 @@ class RegimeDriftDetector:
         # We track cumulative difference from mean minus tolerance
         diff = self.mean - x - self.delta
         self.ph_statistic += diff
-        
+
         # Track maximum seen so far
         if self.ph_statistic > self.ph_max:
             self.ph_max = self.ph_statistic
-            
+
         # If difference from max exceeds threshold, drift is detected
         is_drift = (self.ph_max - self.ph_statistic) > self.threshold
-        
+
         if is_drift:
             logger.info("Regime Drift detected! Resetting Page-Hinkley variables.")
             self.reset()
             return True
-            
+
         return False
 
     def reset(self):

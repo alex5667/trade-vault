@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Диагностика латентности ML из metrics:ml_confirm stream.
 
@@ -9,15 +10,15 @@ from __future__ import annotations
 - Временные паттерны
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import os
 import time
-from collections import Counter, defaultdict
-from typing import Any, Dict, List
+from collections import defaultdict
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:
@@ -38,7 +39,7 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     xs = sorted(xs)
@@ -54,10 +55,10 @@ def read_stream_window(
     window_ms: int,
     *,
     max_scan: int = 200000
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Read stream items in [start_ms, start_ms+window_ms] by ts_ms field."""
     end_ms = start_ms + window_ms
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -107,16 +108,16 @@ def main() -> None:
         return
 
     n_total = len(rows)
-    lat_all: List[float] = []
-    lat_by_symbol: Dict[str, List[float]] = defaultdict(list)
-    lat_by_mode: Dict[str, List[float]] = defaultdict(list)
-    lat_with_err: List[float] = []
-    lat_without_err: List[float] = []
+    lat_all: list[float] = []
+    lat_by_symbol: dict[str, list[float]] = defaultdict(list)
+    lat_by_mode: dict[str, list[float]] = defaultdict(list)
+    lat_with_err: list[float] = []
+    lat_without_err: list[float] = []
 
     for r in rows:
         # latency: prefer latency_ms; fallback latency_us
         lat_ms = 0.0
-        if str(r.get("latency_ms", "") or "").strip() != "":
+        if (r.get("latency_ms", "") or "").strip() != "":
             lat_ms = _f(r.get("latency_ms", 0.0), 0.0)
         else:
             lat_us = _f(r.get("latency_us", 0.0), 0.0)
@@ -124,12 +125,12 @@ def main() -> None:
 
         if lat_ms > 0:
             lat_all.append(lat_ms)
-            sym = str(r.get("symbol", "") or "unknown").upper()
-            mode = str(r.get("mode", "") or "unknown").upper()
+            sym = (r.get("symbol", "") or "unknown").upper()
+            mode = (r.get("mode", "") or "unknown").upper()
             lat_by_symbol[sym].append(lat_ms)
             lat_by_mode[mode].append(lat_ms)
 
-            err = str(r.get("error", "") or "").strip()
+            err = (r.get("error", "") or "").strip()
             if err:
                 lat_with_err.append(lat_ms)
             else:
@@ -156,7 +157,7 @@ def main() -> None:
     max_lat = max(lat_all)
 
     print(f"\n{'─'*80}")
-    print(f"ОБЩАЯ СТАТИСТИКА ЛАТЕНТНОСТИ (мс):")
+    print("ОБЩАЯ СТАТИСТИКА ЛАТЕНТНОСТИ (мс):")
     print(f"{'─'*80}")
     print(f"  Средняя: {avg:.3f} мс")
     print(f"  p50:     {p50:.3f} мс")
@@ -176,7 +177,7 @@ def main() -> None:
         ok_avg = sum(lat_without_err) / len(lat_without_err)
 
         print(f"\n{'─'*80}")
-        print(f"СРАВНЕНИЕ: С ОШИБКАМИ vs БЕЗ ОШИБОК:")
+        print("СРАВНЕНИЕ: С ОШИБКАМИ vs БЕЗ ОШИБОК:")
         print(f"{'─'*80}")
         print(f"  С ошибками (n={len(lat_with_err)}):")
         print(f"    Средняя: {err_avg:.3f} мс")
@@ -189,7 +190,7 @@ def main() -> None:
     # По режимам
     if lat_by_mode:
         print(f"\n{'─'*80}")
-        print(f"ЛАТЕНТНОСТЬ ПО РЕЖИМАМ:")
+        print("ЛАТЕНТНОСТЬ ПО РЕЖИМАМ:")
         print(f"{'─'*80}")
         mode_stats = []
         for mode, lats in lat_by_mode.items():
@@ -216,13 +217,13 @@ def main() -> None:
             print(f"  {warn} {sym:12s}: n={n:5d} | avg={avg_s:6.2f} мс | p50={p50_s:6.2f} мс | p99={p99_s:6.2f} мс")
 
     # Временное распределение (по 5-минутным бакетам)
-    buckets: Dict[int, List[float]] = defaultdict(list)
+    buckets: dict[int, list[float]] = defaultdict(list)
     for r in rows:
         ts_ms = _i(r.get("ts_ms", 0), 0)
         if ts_ms > 0:
             bucket_min = (ts_ms - start_ms) // (5 * 60_000)  # 5-minute buckets
             lat_ms = 0.0
-            if str(r.get("latency_ms", "") or "").strip() != "":
+            if (r.get("latency_ms", "") or "").strip() != "":
                 lat_ms = _f(r.get("latency_ms", 0.0), 0.0)
             else:
                 lat_us = _f(r.get("latency_us", 0.0), 0.0)
@@ -232,7 +233,7 @@ def main() -> None:
 
     if buckets:
         print(f"\n{'─'*80}")
-        print(f"ВРЕМЕННОЕ РАСПРЕДЕЛЕНИЕ ЛАТЕНТНОСТИ (5-минутные бакеты, p99):")
+        print("ВРЕМЕННОЕ РАСПРЕДЕЛЕНИЕ ЛАТЕНТНОСТИ (5-минутные бакеты, p99):")
         print(f"{'─'*80}")
         bucket_stats = []
         for bucket_min, lats in buckets.items():
@@ -257,7 +258,7 @@ def main() -> None:
 
     if alerts:
         print(f"\n{'─'*80}")
-        print(f"АЛЕРТЫ:")
+        print("АЛЕРТЫ:")
         print(f"{'─'*80}")
         for alert in alerts:
             print(f"  {alert}")

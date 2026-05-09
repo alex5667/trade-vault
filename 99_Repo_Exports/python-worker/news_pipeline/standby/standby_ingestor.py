@@ -1,18 +1,19 @@
 # python-worker/news_pipeline/standby/standby_ingestor.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
-import os
+
 import json
+import os
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
 
-from news_pipeline.standby.uid import UIDPolicy
-from news_pipeline.standby.sources_rss import fetch_rss
+from news_pipeline.standby.sources_cryptopanic import fetch_cryptopanic
 from news_pipeline.standby.sources_fmp import fetch_fmp_stock_news
 from news_pipeline.standby.sources_newsapi import fetch_newsapi_everything
-from news_pipeline.standby.sources_cryptopanic import fetch_cryptopanic
+from news_pipeline.standby.sources_rss import fetch_rss
+from news_pipeline.standby.uid import UIDPolicy
+from utils.time_utils import get_ny_time_millis
 
 NEWS_RAW_STREAM = os.getenv("STREAM_NEWS_RAW", "news:raw")
 MAX_STREAM_LEN = int(os.getenv("MAX_STREAM_LEN", "200000"))
@@ -48,7 +49,7 @@ def _is_stale_hb(raw: str | None) -> bool:
     except Exception:
         return True
 
-def _xadd_dedup(r: redis.Redis, *, uid: str, fields: Dict[str, Any]) -> bool:
+def _xadd_dedup(r: redis.Redis, *, uid: str, fields: dict[str, Any]) -> bool:
     """
     Полностью совместимо с вашим Go: SETNX + TTL, затем XADD.
     """
@@ -70,8 +71,9 @@ def _xadd_dedup(r: redis.Redis, *, uid: str, fields: Dict[str, Any]) -> bool:
 
 def _wait_for_redis_ready(redis_url: str) -> redis.Redis:
     """Wait for Redis to be ready, handling BusyLoadingError"""
-    import redis
     import time
+
+    import redis
 
     max_retries = 60  # 10 минут при 10сек задержке
     retry_count = 0
@@ -182,7 +184,7 @@ def run() -> None:
 def _ingest_items(
     r: redis.Redis,
     uid_policy: UIDPolicy,
-    items: List[Dict[str, Any]],
+    items: list[dict[str, Any]],
     *,
     provider_id_key: str = "provider_id",
     provider_id_fallback: str = "na",
@@ -190,14 +192,14 @@ def _ingest_items(
     now_ms = _now_ms()
 
     for it in items:
-        source = str(it.get("source") or "").strip() or "unknown"
-        title = str(it.get("title") or "").strip()
-        url = str(it.get("url") or "").strip()
+        source = (it.get("source") or "").strip() or "unknown"
+        title = (it.get("title") or "").strip()
+        url = (it.get("url") or "").strip()
         if not title or not url:
             continue
 
         published_ts_ms = int(it.get("published_ts_ms") or now_ms)
-        provider_id = str(it.get(provider_id_key) or "") or provider_id_fallback
+        provider_id = (it.get(provider_id_key) or "") or provider_id_fallback
 
         uid = uid_policy.uid_for_news(
             source=source,
@@ -226,7 +228,7 @@ def _ingest_items(
             "source": source,
             "title": title,
             "url": url,
-            "summary": str(it.get("summary") or ""),
+            "summary": (it.get("summary") or ""),
             "symbols": symbols_json,
             "importance": str(float(it.get("importance") or 0.0)),
             "payload": payload_json,
@@ -234,19 +236,19 @@ def _ingest_items(
 
         _xadd_dedup(r, uid=uid, fields=fields)
 
-def _load_sources_cfg() -> Dict[str, Any]:
+def _load_sources_cfg() -> dict[str, Any]:
     """
     Загружает NEWS_SOURCES_JSON и включает провайдеры только если есть ключи.
     """
     raw = os.getenv("NEWS_SOURCES_JSON", "").strip()
-    obj: Dict[str, Any] = {}
+    obj: dict[str, Any] = {}
     if raw:
         try:
             obj = json.loads(raw)
         except Exception:
             obj = {}
 
-    def _get(d: Dict[str, Any], k: str, default: Any) -> Any:
+    def _get(d: dict[str, Any], k: str, default: Any) -> Any:
         v = d.get(k)
         return default if v is None else v
 

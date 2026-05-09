@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Prometheus metrics for confidence calibration (ROI step).
 
 Why a dedicated module:
@@ -8,10 +9,9 @@ Why a dedicated module:
 All metrics are fail-open: if prometheus_client is missing or registry conflicts,
 we degrade to no-op.
 """,
-from typing import List, Optional
 
 try:
-    from prometheus_client import Counter, Gauge, Histogram, REGISTRY  # type: ignore
+    from prometheus_client import REGISTRY, Counter, Gauge, Histogram  # type: ignore
 except Exception:  # pragma: no cover
     Counter = None  # type: ignore
     Gauge = None  # type: ignore
@@ -19,7 +19,7 @@ except Exception:  # pragma: no cover
     REGISTRY = None  # type: ignore
 
 
-def _get_or_create(name: str, kind: str, documentation: str, labelnames: Optional[List[str]] = None, buckets=None):
+def _get_or_create(name: str, kind: str, documentation: str, labelnames: list[str] | None = None, buckets=None):
     """Create or return an already-registered collector with the same name.""",
     if Counter is None or Gauge is None or Histogram is None or REGISTRY is None:
         return None
@@ -237,7 +237,7 @@ def emit_file_state(symbol: str, *, present: int, age_ms: int, stale: int) -> No
         pass
 
 
-def emit_train_report(symbol: str, cal_type: str, schema_version: int, raw_ece: float, cal_ece: float, raw_brier: float, cal_brier: float, raw_metrics: Optional[dict] = None, cal_metrics: Optional[dict] = None) -> None:
+def emit_train_report(symbol: str, cal_type: str, schema_version: int, raw_ece: float, cal_ece: float, raw_brier: float, cal_brier: float, raw_metrics: dict | None = None, cal_metrics: dict | None = None) -> None:
     """Emit standard training quality metrics plus optional extended metrics.
 
     raw_metrics / cal_metrics accept any subset of:
@@ -281,7 +281,7 @@ def emit_train_report(symbol: str, cal_type: str, schema_version: int, raw_ece: 
         _set_opt(confidence_cal_train_prob_mass_near_half_raw_gauge,  raw_m.get("prob_mass_near_half"))
         _set_opt(confidence_cal_train_prob_mass_near_half_cal_gauge,  cal_m.get("prob_mass_near_half"))
 
-        m = _safe_labels(confidence_cal_info_gauge, symbol=s, type=str(cal_type or "unknown"), schema_version=str(int(schema_version)))
+        m = _safe_labels(confidence_cal_info_gauge, symbol=s, type=(cal_type or "unknown"), schema_version=str(int(schema_version)))
         if m is not None: m.set(1.0)
     except Exception:
         pass
@@ -343,7 +343,7 @@ def inc_bucket_hit(symbol: str, arm: str, bucket_by: str, bucket_level: str, met
         bb = bucket_by or "unknown"
         bl = bucket_level or "unknown"
         m = method or "unknown"
-        
+
         ctr = _safe_labels(confidence_cal_bucket_hit_total, symbol=s, arm=a, bucket_by=bb, bucket_level=bl, method=m)
         if ctr is not None:
             ctr.inc()

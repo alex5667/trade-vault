@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.observability.latency_deploy_lint_state import update_deploy_lint_state, state_key, gate_key
+from services.observability.latency_deploy_lint_state import gate_key, state_key, update_deploy_lint_state
 
 
 class FakeRedis:

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Meta Model Quality Report V3.
 
@@ -15,7 +16,7 @@ import math
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any
 
 try:
     import pandas as pd  # type: ignore
@@ -39,7 +40,7 @@ except Exception:
     MetaModelLR = None
 
 
-def _parse_thresholds(s: str) -> List[float]:
+def _parse_thresholds(s: str) -> list[float]:
     try:
         xs = [float(x.strip()) for x in str(s).split(',') if x.strip()]
         xs = [x for x in xs if not math.isnan(x) and not math.isinf(x)]
@@ -49,7 +50,7 @@ def _parse_thresholds(s: str) -> List[float]:
         return [0.9, 0.8, 0.7, 0.6, 0.5]
 
 
-def _dq_bucket(score: Optional[float], thresholds: List[float]) -> str:
+def _dq_bucket(score: float | None, thresholds: list[float]) -> str:
     """Bucketize dq_health_score into low-cardinality labels."""
     if score is None:
         return "na"
@@ -83,7 +84,7 @@ def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def _as_dict(x: Any) -> Dict[str, Any]:
+def _as_dict(x: Any) -> dict[str, Any]:
     if x is None:
         return {}
     if isinstance(x, dict):
@@ -118,7 +119,7 @@ def _finite_float(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _get_feat_value(name: str, row: Dict[str, Any], evidence: Dict[str, Any], indicators: Dict[str, Any]) -> Any:
+def _get_feat_value(name: str, row: dict[str, Any], evidence: dict[str, Any], indicators: dict[str, Any]) -> Any:
     # 1. Root column
     if name in row:
         return row[name]
@@ -135,8 +136,8 @@ def _get_feat_value(name: str, row: Dict[str, Any], evidence: Dict[str, Any], in
     return 0.0
 
 
-def _build_feat_for_model(features: List[str], row: Dict[str, Any], evidence: Dict[str, Any], indicators: Dict[str, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _build_feat_for_model(features: list[str], row: dict[str, Any], evidence: dict[str, Any], indicators: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for f in features:
         out[f] = _get_feat_value(f, row, evidence, indicators)
     return out
@@ -150,7 +151,7 @@ def _sigmoid(x: float) -> float:
     return z / (1.0 + z)
 
 
-def _predict_proba(model_json: Dict[str, Any], feat: Dict[str, Any]) -> float:
+def _predict_proba(model_json: dict[str, Any], feat: dict[str, Any]) -> float:
     intercept = float(model_json.get("intercept", 0.0))
     coef = model_json.get("coef") or []
     features = model_json.get("features") or []
@@ -222,16 +223,16 @@ def _calc_metrics(y: np.ndarray, p: np.ndarray, topk: int, ece_bins: int) -> Met
     neg = int(n - pos)
     brier = _compute_brier(y01, p) if n else 0.0
     ece = _compute_ece(y01, p, bins=ece_bins) if n else 0.0
-    
+
     if average_precision_score is not None and pos > 0 and neg > 0:
         pr_auc = float(average_precision_score(y01, p))
     else:
         # Fallback if sklearn missing or all same class
         pr_auc = 0.0
-        
+
     precision_top5p = _precision_top_pct(y01, p, 0.05) if n else 0.0
     precision_topk = _precision_at_k(y01, p, topk) if n else 0.0
-    
+
     return MetricPack(
         n=n,
         pos=pos,
@@ -244,7 +245,7 @@ def _calc_metrics(y: np.ndarray, p: np.ndarray, topk: int, ece_bins: int) -> Met
     )
 
 
-def _derive_group_value(name: str, row: Dict[str, Any], evidence: Dict[str, Any], indicators: Dict[str, Any]) -> str:
+def _derive_group_value(name: str, row: dict[str, Any], evidence: dict[str, Any], indicators: dict[str, Any]) -> str:
     # 1. Look in root/evidence/indicators in order
     val = None
     if name in row:
@@ -253,7 +254,7 @@ def _derive_group_value(name: str, row: Dict[str, Any], evidence: Dict[str, Any]
         val = evidence[name]
     elif name in indicators:
         val = indicators[name]
-    
+
     if val is not None:
         return str(val)
 
@@ -264,20 +265,20 @@ def _derive_group_value(name: str, row: Dict[str, Any], evidence: Dict[str, Any]
         ts = row["t_ts_ms"]
     elif "ts_ms" in row:
         ts = row["ts_ms"]
-    
+
     if ts is not None:
         try:
             ts_ms = int(ts)
             # Dow bucket: 0=Mon, 6=Sun
             # epoch ms -> seconds -> struct_time
             st = time.gmtime(ts_ms / 1000.0)
-            
+
             if name == "dow_bucket":
                 return str(st.tm_wday)
-            
+
             if name == "session_bucket":
                 # Simple session logic: UTC hour
-                # Asia: 0-8, London: 8-16, NY: 16-24 ?? 
+                # Asia: 0-8, London: 8-16, NY: 16-24 ??
                 # Just use hour for now or simple mapping if defined standard exists
                 # Standard trade session approximate:
                 h = st.tm_hour
@@ -293,7 +294,7 @@ def _derive_group_value(name: str, row: Dict[str, Any], evidence: Dict[str, Any]
     return "na"
 
 
-def _write_prom_textfile(path: str, lines: List[str]) -> None:
+def _write_prom_textfile(path: str, lines: list[str]) -> None:
     tmp = f"{path}.tmp"
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(tmp, "w", encoding="utf-8") as f:
@@ -324,12 +325,12 @@ def main() -> None:
 
     # Load Model
     model_path = args.model_json
-    with open(model_path, "r", encoding="utf-8") as f:
+    with open(model_path, encoding="utf-8") as f:
         model_raw = json.load(f)
-    
+
     features = list(model_raw.get("features") or [])
     schema_name = str(model_raw.get("schema_name") or model_raw.get("schema") or "")
-    
+
     model = None
     if MetaModelLR is not None:
         try:
@@ -346,31 +347,31 @@ def main() -> None:
 
     if args.label_col not in df.columns:
         print(f"Label col {args.label_col} not found in {list(df.columns)}")
-        # If label missing, maybe can't compute quality? Or treat as 0? 
+        # If label missing, maybe can't compute quality? Or treat as 0?
         # Usually fatal for quality report.
         return
 
     y = df[args.label_col].fillna(0).astype(int).to_numpy()
-    
+
     # Predict
     p = np.zeros(len(df), dtype=float)
-    
+
     # Pre-check columns
     has_ev = args.evidence_col in df.columns
     has_ind = args.indicators_col in df.columns
-    
+
     # Feature extraction & Prediction loop
     # Optimized: convert relevant cols to dicts once if possible, but row iteration is safest for nested json
-    
+
     for i in range(len(df)):
         row = df.iloc[i].to_dict()
-        
+
         # Parse json/structs
         evidence = _as_dict(row.get(args.evidence_col)) if has_ev else {}
         indicators = _as_dict(row.get(args.indicators_col)) if has_ind else {}
-        
+
         feat = _build_feat_for_model(features, row, evidence, indicators)
-        
+
         if model:
             try:
                 p[i] = float(model.predict_proba(feat))
@@ -381,21 +382,21 @@ def main() -> None:
 
     # Global Metrics
     global_pack = _calc_metrics(y, p, topk=args.topk, ece_bins=args.ece_bins)
-    
+
     n_total = len(df)
     y_arr = y
     p_arr = p
-    p_list: List[float] = []
+    p_list: list[float] = []
     miss_sum = 0
 
-    dq_scores: List[float] = []
+    dq_scores: list[float] = []
     dq_present_n = 0
     dq_missing_n = 0
     dq_thresholds = _parse_thresholds(args.dq_health_thresholds)
 
     group_cols = [c.strip() for c in str(args.group_cols).split(",") if c.strip()]
-    group_vals: Dict[str, List[str]] = {c: [] for c in group_cols}
-    dq_buckets: List[str] = []
+    group_vals: dict[str, list[str]] = {c: [] for c in group_cols}
+    dq_buckets: list[str] = []
 
     # Re-iterate for DQ and group values
     for i in range(n_total):
@@ -407,7 +408,7 @@ def main() -> None:
         dq_score = _get_feat_value(args.dq_health_key, row, evidence, indicators)
         if dq_score == 0.0: # Default 0.0 means not found, try fallback
             dq_score = _get_feat_value(args.dq_health_fallback_key, row, evidence, indicators)
-        
+
         if dq_score is not None and dq_score != 0.0: # 0.0 is default for _get_feat_value if not found
             dq_scores.append(float(dq_score))
             dq_buckets.append(_dq_bucket(float(dq_score), dq_thresholds))
@@ -450,8 +451,8 @@ def main() -> None:
     global_metrics["corr_meta_p_dq_health"] = float(dq_corr)
 
     # Groups
-    groups_out: Dict[str, Any] = {}
-    group_metrics: List[Tuple[str, MetricPack]] = []
+    groups_out: dict[str, Any] = {}
+    group_metrics: list[tuple[str, MetricPack]] = []
 
     if group_cols:
         # Build grouping keys
@@ -461,22 +462,22 @@ def main() -> None:
             for gc in group_cols:
                 parts.append(f"{gc}={group_vals[gc][i]}")
             group_keys.append("|".join(parts))
-        
+
         # Bucketing
-        buckets: Dict[str, List[int]] = {}
+        buckets: dict[str, list[int]] = {}
         for i, k in enumerate(group_keys):
             buckets.setdefault(k, []).append(i)
-            
+
         # Compute group metrics
         for k, idxs in buckets.items():
             if len(idxs) < args.min_group_n:
                 continue
-            
+
             yy = y[idxs]
             pp = p[idxs]
             mp = _calc_metrics(yy, pp, topk=args.topk, ece_bins=args.ece_bins)
             group_metrics.append((k, mp))
-            
+
             groups_out[k] = {
                 "counts": {"n": mp.n, "pos": mp.pos, "neg": mp.neg},
                 "metrics": {
@@ -499,7 +500,7 @@ def main() -> None:
         "worst_ece": None,
         "worst_ece_group": None,
     }
-    
+
     stability = {
         "ece_std": 0.0,
         "pr_auc_std": 0.0,
@@ -510,18 +511,18 @@ def main() -> None:
         pr_min = min(group_metrics, key=lambda x: x[1].pr_auc)
         prec_min = min(group_metrics, key=lambda x: x[1].precision_top5p)
         ece_max = max(group_metrics, key=lambda x: x[1].ece)
-        
+
         worst_metrics["worst_pr_auc"] = float(pr_min[1].pr_auc)
         worst_metrics["worst_pr_auc_group"] = pr_min[0]
         worst_metrics["worst_precision_top5p"] = float(prec_min[1].precision_top5p)
         worst_metrics["worst_precision_top5p_group"] = prec_min[0]
         worst_metrics["worst_ece"] = float(ece_max[1].ece)
         worst_metrics["worst_ece_group"] = ece_max[0]
-        
+
         eces = np.array([m.ece for _, m in group_metrics])
         prs = np.array([m.pr_auc for _, m in group_metrics])
         precs = np.array([m.precision_top5p for _, m in group_metrics])
-        
+
         stability["ece_std"] = float(np.std(eces))
         stability["pr_auc_std"] = float(np.std(prs))
         stability["precision_top5p_std"] = float(np.std(precs))
@@ -529,11 +530,11 @@ def main() -> None:
     # DQ-bucket only worst (independent of group_cols)
     worst_dq_bucket = {"bucket": "", "n": 0, "pr_auc": 0.0, "ece": 0.0, "brier": 0.0, "precision_top5p": 0.0}
     if dq_present >= 1:
-        dq_idx_map: Dict[str, List[int]] = {}
+        dq_idx_map: dict[str, list[int]] = {}
         for i in range(n_total):
             b = dq_buckets[i] if i < len(dq_buckets) else "na"
             dq_idx_map.setdefault(b, []).append(i)
-        worst_b: Optional[Tuple[str, MetricPack]] = None
+        worst_b: tuple[str, MetricPack] | None = None
         for b, idxs in dq_idx_map.items():
             if b == "na":
                 continue

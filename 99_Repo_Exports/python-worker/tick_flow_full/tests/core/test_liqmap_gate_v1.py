@@ -1,4 +1,3 @@
-import pytest
 
 from core.liqmap_gate_v1 import evaluate_liqmap_gate_v1
 

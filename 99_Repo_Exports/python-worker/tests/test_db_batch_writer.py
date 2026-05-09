@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for services.db_batch_writer.AsyncBatchWriter.
 
 All tests run without a real PostgreSQL database: psycopg2 is mocked
@@ -6,14 +7,9 @@ so that we can verify batching logic, retry behaviour, Prometheus counters,
 and shutdown/drain semantics without any external dependencies.
 """
 
-import queue
-import threading
 import time
-from types import SimpleNamespace
-from typing import Any, Dict, List
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
+import contextlib
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -174,7 +170,7 @@ class TestAsyncBatchWriterRegistry:
     """Test get_or_create_writer module-level registry."""
 
     def test_get_or_create_returns_same_instance(self):
-        from services.db_batch_writer import get_or_create_writer, _writers, _writers_lock
+        from services.db_batch_writer import _writers, _writers_lock, get_or_create_writer
         # Clean slate for this test
         with _writers_lock:
             _writers.pop("registry_test_table", None)
@@ -192,10 +188,8 @@ class TestAsyncBatchWriterRegistry:
         assert w1 is w2
 
         # Cleanup
-        try:
+        with contextlib.suppress(Exception):
             w1.shutdown()
-        except Exception:
-            pass
         with _writers_lock:
             _writers.pop("registry_test_table", None)
 

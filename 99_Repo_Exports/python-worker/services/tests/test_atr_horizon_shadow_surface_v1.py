@@ -1,10 +1,10 @@
 from __future__ import annotations
+
 """Phase 2.2 — unit tests for shadow stop/entry risk surface builder."""
 
 import pytest
 
 from services.atr_horizon_shadow_surface import build_risk_surface_shadow
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -1,12 +1,12 @@
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Any
 
 from services.analytics_db import get_conn
 
 logger = logging.getLogger("atr_failure_signatures")
 
-def detect_and_record_signature(signature_kind: str, signature_hash: str, payload_json: Dict[str, Any]) -> int:
+def detect_and_record_signature(signature_kind: str, signature_hash: str, payload_json: dict[str, Any]) -> int:
     """
     Records a failure signature and returns its current hit count.
     Used for detecting recurring patterns in incidents, errors, or slippage.
@@ -19,7 +19,7 @@ def detect_and_record_signature(signature_kind: str, signature_hash: str, payloa
                 (signature_kind, signature_hash)
             )
             row = cur.fetchone()
-            
+
             if row:
                 sig_id = row[0]
                 new_hit_count = row[1] + 1
@@ -36,19 +36,19 @@ def detect_and_record_signature(signature_kind: str, signature_hash: str, payloa
                     INSERT INTO atr_failure_signatures (signature_id, signature_kind, signature_hash, signature_json, hit_count)
                     VALUES (%s, %s, %s, %s, %s)
                 """, (sig_id, signature_kind, signature_hash, json.dumps(payload_json), new_hit_count))
-            
+
             # Reopen related postmortems if threshold crossed
             # For simplicity, let's say every 3 hits we raise a flag if it's recent
             # Real implementation would call postmortem_control_service
             if new_hit_count > 1 and new_hit_count % 3 == 0:
                 logger.warning(f"Recurring failure threshold reached for {signature_kind}:{signature_hash} (Hits: {new_hit_count})")
-            
+
             try:
                 from prometheus_client import Counter
                 Counter("atr_failure_signature_recurring_total", "Recurring failures", ["signature_kind"]).labels(signature_kind=signature_kind).inc()
             except Exception:
                 pass
-                
+
             conn.commit()
             return new_hit_count
     except Exception as e:

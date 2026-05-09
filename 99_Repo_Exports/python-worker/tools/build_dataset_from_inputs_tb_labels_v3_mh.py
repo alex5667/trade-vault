@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Any, Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
 import pandas as pd
 
 
-def _read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
+def _read_ndjson(path: str) -> Iterable[dict[str, Any]]:
     """Read NDJSON file line by line."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -17,7 +18,7 @@ def _read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
             yield json.loads(s)
 
 
-def _get_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
+def _get_payload(obj: dict[str, Any]) -> dict[str, Any]:
     """Extract payload from object (handles nested JSON strings)."""
     if "payload" in obj and isinstance(obj["payload"], str) and obj["payload"].strip().startswith("{"):
         try:
@@ -49,7 +50,7 @@ def _as_num(x: Any) -> float:
         return 0.0
 
 
-def build_feat(ind: Dict[str, Any]) -> Dict[str, float]:
+def build_feat(ind: dict[str, Any]) -> dict[str, float]:
     """Build feature dict from indicators."""
     return {f"f_{k}": _as_num(ind.get(k)) for k in FEATURE_KEYS}
 
@@ -69,21 +70,21 @@ def main() -> None:
         raise SystemExit("no horizons")
 
     # Load TB labels by sid
-    tb: Dict[str, Dict[str, Any]] = {}
+    tb: dict[str, dict[str, Any]] = {}
     for obj in _read_ndjson(args.tb):
         o = _get_payload(obj)
-        sid = str(o.get("sid", "") or "")
+        sid = (o.get("sid", "") or "")
         if sid:
             tb[sid] = o
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     miss = 0
     dropped = 0
 
     # Join inputs with TB labels
     for obj in _read_ndjson(args.inputs):
         o = _get_payload(obj)
-        sid = str(o.get("sid", "") or "")
+        sid = (o.get("sid", "") or "")
         if not sid:
             continue
         t = tb.get(sid)
@@ -97,7 +98,7 @@ def main() -> None:
 
         # Primary label for drop rule
         primary = t.get("primary") if isinstance(t.get("primary"), dict) else {}
-        label0 = str(primary.get("label", "") or "")
+        label0 = (primary.get("label", "") or "")
         if int(args.drop_no_ticks) == 1 and label0 in ("NO_TICKS", "NO_PATH", ""):
             dropped += 1
             continue
@@ -106,7 +107,7 @@ def main() -> None:
         ind = o.get("indicators")
         if not isinstance(ind, dict):
             ind = o
-        
+
         # Explicit mappings for root-level fields used in some producers
         if "sweep_recent" in ind and "sweep" not in ind:
             ind["sweep"] = ind["sweep_recent"]
@@ -115,13 +116,13 @@ def main() -> None:
         if "obi_stable" in ind and "obi_stability_score" not in ind:
             ind["obi_stability_score"] = ind["obi_stable"]
 
-        scenario = str(o.get("scenario_v4", o.get("scenario", "")) or "")
-        direction = str(o.get("direction", "") or "")
+        scenario = (o.get("scenario_v4", o.get("scenario", "")) or "")
+        direction = (o.get("direction", "") or "")
 
-        r: Dict[str, Any] = {
+        r: dict[str, Any] = {
             "sid": sid,
             "ts_ms": int(o.get("ts_ms", o.get("ts", 0)) or 0),
-            "symbol": str(o.get("symbol", "") or ""),
+            "symbol": (o.get("symbol", "") or ""),
             "direction": direction,
         }
         if int(args.keep_scenario_raw) == 1:
@@ -133,7 +134,7 @@ def main() -> None:
         # Utility targets per horizon
         for h in horizons:
             hh = horizons_map.get(h, {}) if isinstance(horizons_map, dict) else {}
-            lbl = str(hh.get("label", "") or "")
+            lbl = (hh.get("label", "") or "")
             if lbl in ("NO_TICKS", "NO_PATH", ""):
                 r[f"y_util_pos_{h}"] = 0
                 r[f"util_r_{h}"] = 0.0

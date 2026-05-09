@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import annotations
 """nightly_conf_score_weight_tuning_bundle_v1.py
 
 Phase2 production contour: nightly tuning job that:
@@ -31,8 +32,6 @@ Env (tuning control):
 Notes:
   - The runtime loader must parse conf_score_weight_tuning_json into cfg['conf_score_weight_tuning'].
 """,
-from utils.time_utils import get_ny_time_millis
-
 import json
 import logging
 import os
@@ -42,10 +41,11 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis  # type: ignore
 
+from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger("conf_score_tuning")
 
@@ -64,17 +64,17 @@ def _json_dump(path: str, obj: Any) -> None:
 
 
 def _json_load(path: str) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
-def _run(cmd: List[str], *, timeout_s: int = 900) -> Tuple[int, str, str]:
+def _run(cmd: list[str], *, timeout_s: int = 900) -> tuple[int, str, str]:
     """Run external command; return (rc, stdout, stderr).""",
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
     return int(p.returncode), str(p.stdout), str(p.stderr)
 
 
-def _redis_from_env() -> "redis.Redis":
+def _redis_from_env() -> redis.Redis:
     url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     return redis.Redis.from_url(url, decode_responses=True)
 
@@ -83,15 +83,15 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(float(os.getenv(name, str(default))))
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_str(name: str, default: str = "") -> str:
     return str(os.getenv(name, default) or default).strip()
 
 
-def _split_syms(s: str) -> List[str]:
-    out: List[str] = []
+def _split_syms(s: str) -> list[str]:
+    out: list[str] = []
     for x in (s or "").split(","):
         x = x.strip().upper()
         if x:
@@ -165,7 +165,7 @@ def main() -> None:
 
     _ensure_dir(paths.run_dir)
 
-    status: Dict[str, Any] = {
+    status: dict[str, Any] = {
         "run_id": run_id,
         "ts_ms": now_ms,
         "window": {"days": days, "start_ts_ms": start_ms, "end_ts_ms": now_ms},
@@ -185,7 +185,7 @@ def main() -> None:
 
     r = _redis_from_env()
 
-    def _dyn_update(m: Dict[str, Any]) -> None:
+    def _dyn_update(m: dict[str, Any]) -> None:
         # store low-cardinality metrics in dyn cfg
         try:
             r.hset(dyn_key, mapping={k: str(v) for k, v in m.items()})

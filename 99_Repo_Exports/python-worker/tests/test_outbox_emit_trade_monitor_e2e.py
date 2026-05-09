@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any
+from core.redis_keys import RedisStreams as RS
 
-import pytest
 
 def _parse_signal(fields: dict) -> dict:
     """Updated _parse_signal with payload wins logic."""
@@ -31,8 +31,8 @@ def _parse_signal(fields: dict) -> dict:
 
     # 3) raw fields as-is
     return dict(fields)
+from domain.handlers import _should_start_trailing_after_tp1, create_position
 from services.trade_monitor import TradeMonitorService
-from domain.handlers import create_position, _should_start_trailing_after_tp1
 
 
 # -----------------------------
@@ -46,11 +46,11 @@ class FakeRedis:
       - xadd(stream, fields, *args, **kwargs)
     """
     def __init__(self) -> None:
-        self.kv: Dict[str, str] = {}
-        self.streams: Dict[str, List[Tuple[str, Dict[str, str]]]] = {}
+        self.kv: dict[str, str] = {}
+        self.streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
         self._seq = 0
 
-    def set(self, key: str, value: str, *, nx: bool = False, xx: bool = False, ex: Optional[int] = None) -> bool:
+    def set(self, key: str, value: str, *, nx: bool = False, xx: bool = False, ex: int | None = None) -> bool:
         exists = key in self.kv
         if nx and exists:
             return False
@@ -65,16 +65,16 @@ class FakeRedis:
             return 1
         return 0
 
-    def xadd(self, stream: str, fields: Dict[str, Any], *args: Any, **kwargs: Any) -> str:
+    def xadd(self, stream: str, fields: dict[str, Any], *args: Any, **kwargs: Any) -> str:
         self._seq += 1
         entry_id = f"{self._seq}-0"
-        d: Dict[str, str] = {}
+        d: dict[str, str] = {}
         for k, v in (fields or {}).items():
             d[str(k)] = v if isinstance(v, str) else str(v)
         self.streams.setdefault(stream, []).append((entry_id, d))
         return entry_id
 
-    def last_stream_fields(self, stream: str) -> Dict[str, str]:
+    def last_stream_fields(self, stream: str) -> dict[str, str]:
         items = self.streams.get(stream) or []
         assert items, f"Stream {stream} is empty"
         return items[-1][1]
@@ -84,7 +84,7 @@ class _SpecStub:
     trailing_profile_default = "rocket_v1"
 
     def risk_money(self, entry, sl, lot, direction):
-        return abs(float(entry) - float(sl)) * float(lot)
+        return abs(entry - sl) * lot
 
 
 def _mk_trade_monitor_like() -> TradeMonitorService:
@@ -113,7 +113,7 @@ def _mk_outbox_writer(fake_redis: FakeRedis):
     w = OutboxWriter.__new__(OutboxWriter)
     w.redis = fake_redis
     w.cfg = SimpleNamespace(
-        stream_name="stream:signals:outbox",
+        stream_name=RS.SIGNAL_OUTBOX,
         placeholder_ttl_s=60,
         dedup_ttl_s=3600,
         max_retries=1,
@@ -130,7 +130,7 @@ def _mk_outbox_writer(fake_redis: FakeRedis):
     w.metrics = None
 
     # OutboxWriter.write() calls self._redis_set(); provide a compatible wrapper.
-    def _redis_set(key: str, value: str, nx: bool = False, xx: bool = False, ex: Optional[int] = None):
+    def _redis_set(key: str, value: str, nx: bool = False, xx: bool = False, ex: int | None = None):
         return fake_redis.set(key, value, nx=nx, xx=xx, ex=ex)
 
     w._redis_set = _redis_set  # type: ignore[attr-defined]
@@ -193,7 +193,7 @@ def test_emit_to_stream_parse_to_trade_monitor_and_position_trailing_flag():
 
     assert getattr(res, "ok", False) is True
     # Pull stream fields written by OutboxWriter
-    fields = r.last_stream_fields("stream:signals:outbox")
+    fields = r.last_stream_fields(RS.SIGNAL_OUTBOX)
     assert "payload_json" in fields
 
     # TradeMonitorRunner parsing must merge payload_json -> raw dict
@@ -229,4 +229,4 @@ def test_outbox_dedup_prevents_double_write_same_signal_id():
     assert getattr(res2, "ok", False) is True
     # Second one should be duplicate -> not written
     assert getattr(res2, "duplicate", False) is True
-    assert len(r.streams.get("stream:signals:outbox") or []) == 1
+    assert len(r.streams.get(RS.SIGNAL_OUTBOX) or []) == 1

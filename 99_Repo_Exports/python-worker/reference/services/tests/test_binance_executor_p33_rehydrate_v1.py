@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P3.3 — unit tests for BinanceExecutor rehydrate-on-miss behaviour.
 
 Tests live in python-worker/services/tests/ so that `services.*` imports
@@ -11,10 +12,10 @@ Tests cover:
   - rehydrate is skipped when EXEC_REHYDRATE_ON_STATE_MISS=False
 """
 
-from pathlib import Path
 import importlib.util
-import sys
 import json
+import sys
+from pathlib import Path
 
 # Load executor from services/ dir (parent of services/tests/)
 mod_path = Path(__file__).parent.parent / "binance_executor.py"

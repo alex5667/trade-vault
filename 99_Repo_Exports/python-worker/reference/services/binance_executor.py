@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Binance USDT-M Futures executor (reads Redis queue → places orders → writes exec facts).
@@ -68,7 +69,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -77,19 +78,18 @@ except Exception:  # pragma: no cover
 
 from services.binance_futures_client import BinanceAPIError, BinanceFuturesClient
 from services.execution_intent_validator import validate_exit_intent
+
 try:
+    from services.execution_journal import ExecutionJournalSink
     from services.execution_policy import (
         MAKER_FIRST,
         SAFETY_FIRST,
         ExecutionPolicyDecision,
         resolve_execution_policy,
     )
-    from services.execution_journal import ExecutionJournalSink
-    from services.quarantine_ledger import QuarantineLedgerSink
     from services.execution_state_replay import (
-        rebuild_state_from_stream,
-        rebuild_state_with_fallback,
         persist_state_snapshot,
+        rebuild_state_with_fallback,
     )
     from services.rollout_flags import RolloutFlags
 except Exception:  # pragma: no cover - standalone bundle / local tests
@@ -105,18 +105,16 @@ except Exception:  # pragma: no cover - standalone bundle / local tests
     except Exception:
         pass
     from execution_journal import ExecutionJournalSink
-    from quarantine_ledger import QuarantineLedgerSink
     from execution_state_replay import (
-        rebuild_state_from_stream,
-        rebuild_state_with_fallback,
         persist_state_snapshot,
+        rebuild_state_with_fallback,
     )
     from rollout_flags import RolloutFlags
 
 from services.telegram.telegram_client import TelegramClient
 
 try:
-    from prometheus_client import Counter, REGISTRY
+    from prometheus_client import REGISTRY, Counter
 except Exception:  # pragma: no cover
     Counter = None  # type: ignore
     REGISTRY = None  # type: ignore
@@ -242,12 +240,12 @@ def _format_float(x: float, step: float) -> str:
     """Format float exactly to the step dimension without scientific notation."""
     if step <= 0:
         return f"{x:f}".rstrip('0').rstrip('.') if '.' in f"{x:f}" else f"{x:f}"
-    
+
     s_step = f"{step:f}".rstrip('0').rstrip('.') if '.' in f"{step:f}" else f"{step:f}"
     decimals = 0
     if '.' in s_step:
         decimals = len(s_step.split('.')[1])
-    
+
     fmt = f"{{:.{decimals}f}}"
     return fmt.format(x)
 
@@ -267,7 +265,7 @@ def _round_half_up(x: float, decimals: int = 1) -> float:
 
 
 def compute_trailing_callback_rate_pct(
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     *,
     min_pct: float,
     max_pct: float,
@@ -333,7 +331,7 @@ def compute_trailing_activate_price(
     latest_price: float,
     tick_size: float,
     buffer_bps: float,
-    user_activate_price: Optional[float] = None,
+    user_activate_price: float | None = None,
 ) -> float:
     """Return a valid activatePrice for Binance TRAILING_STOP_MARKET.
 
@@ -397,7 +395,7 @@ class FiltersCache:
 
     def __init__(self, client: BinanceFuturesClient):
         self.client = client
-        self._cache: Dict[str, SymbolFilters] = {}
+        self._cache: dict[str, SymbolFilters] = {}
 
     def get(self, symbol: str) -> SymbolFilters:
         s = symbol.upper()
@@ -406,7 +404,7 @@ class FiltersCache:
 
         info = self.client.get_exchange_info()
         sym_list = info.get("symbols") or []
-        by_symbol = {str(x.get("symbol")).upper(): x for x in sym_list if x.get("symbol")}
+        by_symbol = {(x.get("symbol")).upper(): x for x in sym_list if x.get("symbol")}
         if s not in by_symbol:
             raise RuntimeError(f"Unknown Binance symbol: {s}")
 
@@ -416,7 +414,7 @@ class FiltersCache:
         min_qty = 0.0
         min_notional = 0.0
         for f in filters:
-            t = str(f.get("filterType") or "")
+            t = (f.get("filterType") or "")
             if t == "PRICE_FILTER":
                 tick = _f(f.get("tickSize"), tick)
             elif t == "LOT_SIZE":
@@ -437,7 +435,7 @@ class FiltersCache:
 # Utility functions for order construction
 # ---------------------------------------------------------------------------
 
-def _normalize_side(payload: Dict[str, Any]) -> Tuple[str, str]:
+def _normalize_side(payload: dict[str, Any]) -> tuple[str, str]:
     """Return (binance_side, logical_side).
 
     Accepts: BUY/SELL (Binance native) or LONG/SHORT (strategy convention).
@@ -450,7 +448,7 @@ def _normalize_side(payload: Dict[str, Any]) -> Tuple[str, str]:
     raise ValueError(f"bad side: {payload.get('side')!r}")
 
 
-def _normalize_qty(payload: Dict[str, Any], assume_lot_is_qty: bool) -> float:
+def _normalize_qty(payload: dict[str, Any], assume_lot_is_qty: bool) -> float:
     """Extract trade quantity from payload.
 
     Checks: qty → quantity → lot (only if assume_lot_is_qty=True).
@@ -493,7 +491,7 @@ def _classify_error(e: Exception) -> str:
     return "fatal"
 
 
-def _position_side_for_mode(position_mode: str, logical_side: str) -> Optional[str]:
+def _position_side_for_mode(position_mode: str, logical_side: str) -> str | None:
     """Return positionSide for hedge mode; None for one-way mode."""
     if position_mode != "hedge":
         return None
@@ -568,7 +566,7 @@ class BinanceExecutor:
         # Demo client — built from BINANCE_DEMO_ prefix (testnet)
         _demo_key = (os.getenv("BINANCE_DEMO_API_KEY") or "").strip()
         if _demo_key:
-            self.demo_client: Optional[BinanceFuturesClient] = BinanceFuturesClient.from_env(prefix="BINANCE_DEMO_")
+            self.demo_client: BinanceFuturesClient | None = BinanceFuturesClient.from_env(prefix="BINANCE_DEMO_")
             self.demo_filters = FiltersCache(self.demo_client)
             print(f"   demo_client: base_url={self.demo_client.base_url}")
         else:
@@ -579,7 +577,7 @@ class BinanceExecutor:
         # Production client — built from BINANCE_ prefix
         _prod_key = (os.getenv("BINANCE_API_KEY") or "").strip()
         if _prod_key:
-            self.client: Optional[BinanceFuturesClient] = BinanceFuturesClient.from_env(prefix="BINANCE_")
+            self.client: BinanceFuturesClient | None = BinanceFuturesClient.from_env(prefix="BINANCE_")
             self.filters = FiltersCache(self.client)
             print(f"   prod_client: base_url={self.client.base_url}")
         else:
@@ -710,8 +708,8 @@ class BinanceExecutor:
         raise RuntimeError(f'sid is quarantined: {sid}')
 
     def _resolve_client(
-        self, payload: Dict[str, Any]
-    ) -> Tuple["BinanceFuturesClient", "FiltersCache"]:
+        self, payload: dict[str, Any]
+    ) -> tuple[BinanceFuturesClient, FiltersCache]:
         """Return (client, filters_cache) for this payload.
 
         Routing logic:
@@ -744,7 +742,7 @@ class BinanceExecutor:
 
     # --- P5 Audit chain helpers ---
 
-    def _derive_audit_chain_fields(self, source: Dict[str, Any], sid: str) -> Dict[str, Any]:
+    def _derive_audit_chain_fields(self, source: dict[str, Any], sid: str) -> dict[str, Any]:
         """Build a stable audit chain carried in Redis state and SQL mirrors.
 
         `signal_id` and `execution_plan_id` may arrive from the upstream signal
@@ -765,14 +763,14 @@ class BinanceExecutor:
 
         Example: 'binance|entry|oid=123456789|cid=abcd1234-entry'
         """
-        parts = [str(venue or 'binance').strip(), str(kind or '').strip()]
+        parts = [(venue or 'binance').strip(), (kind or '').strip()]
         if order_id not in (None, '', 0, '0'):
             parts.append(f"oid={order_id}")
         if client_id not in (None, ''):
             parts.append(f"cid={client_id}")
         return '|'.join([p for p in parts if p])
 
-    def _derive_entry_exit_policies(self, *, execution_policy: str) -> Dict[str, str]:
+    def _derive_entry_exit_policies(self, *, execution_policy: str) -> dict[str, str]:
         """Return entry/exit policy names based on execution_policy.
 
         Stored in execution_orders for analytics joins without parsing state_jsonb.
@@ -794,13 +792,13 @@ class BinanceExecutor:
         but short identifier for joins in analytics tables.
         """
         import hashlib as _hashlib
-        suffix = _hashlib.sha1(f"{sid}|{exit_order_ref}|{_ms_now()}".encode('utf-8')).hexdigest()[:12]
+        suffix = _hashlib.sha1(f"{sid}|{exit_order_ref}|{_ms_now()}".encode()).hexdigest()[:12]
         return f"closed:{sid}:{suffix}"
 
 
 
 
-    def _exec_event(self, fields: Dict[str, Any]) -> None:
+    def _exec_event(self, fields: dict[str, Any]) -> None:
         """Write an execution fact to orders:exec stream (fail-open)."""
         fields = dict(fields)
         fields.setdefault("ts_ms", str(_ms_now()))
@@ -835,7 +833,7 @@ class BinanceExecutor:
         except Exception:
             pass
 
-    def _requeue(self, payload: Dict[str, Any], raw: str, reason: str) -> None:
+    def _requeue(self, payload: dict[str, Any], raw: str, reason: str) -> None:
         """Push back to main queue with incremented retry counter."""
         retry_n = int(payload.get("retry_n") or 0)
         payload["retry_n"] = retry_n + 1
@@ -847,7 +845,7 @@ class BinanceExecutor:
             # Can't requeue: DLQ the original
             self._dlq(raw, f"requeue_failed:{reason}")
 
-    def _save_order_state(self, sid: str, state: Dict[str, Any]) -> None:
+    def _save_order_state(self, sid: str, state: dict[str, Any]) -> None:
         """Write orders:state:{sid} Redis key for fast SID→Binance ID lookup.
 
         P5 note: the Redis state key is a *materialized view*, not the primary
@@ -875,7 +873,7 @@ class BinanceExecutor:
         """
         try:
             # P5: read-merge-write to preserve chain fields across partial updates
-            existing: Dict[str, Any] = {}
+            existing: dict[str, Any] = {}
             try:
                 raw_prev = self.r.get(f"{self.state_key_prefix}{sid}")
                 if raw_prev:
@@ -915,7 +913,7 @@ class BinanceExecutor:
         return f"{getattr(self, 'exec_replay_checkpoint_key_prefix', 'orders:exec:replay:cursor:')}{sid}"
 
     def _quarantine_sid_for_replay_mismatch(
-        self, sid: str, *, mismatch: Dict[str, Any], state_doc: Dict[str, Any]
+        self, sid: str, *, mismatch: dict[str, Any], state_doc: dict[str, Any]
     ) -> None:
         """Write quarantine event in Redis + QuarantineLedger for a replay mismatch.
 
@@ -963,7 +961,7 @@ class BinanceExecutor:
         except Exception:
             return
 
-    def _recover_state_from_exec_stream(self, sid: str) -> Dict[str, Any]:
+    def _recover_state_from_exec_stream(self, sid: str) -> dict[str, Any]:
         """Best-effort rehydrate of ``orders:state:{sid}`` from ``orders:exec``.
 
         Redis state keys are a materialized view; the stream remains the
@@ -1015,7 +1013,7 @@ class BinanceExecutor:
         except Exception:
             return {}
 
-    def _load_order_state(self, sid: str) -> Dict[str, Any]:
+    def _load_order_state(self, sid: str) -> dict[str, Any]:
         """Load persisted orders:state:{sid} document.
 
         The executor treats this key as a fast materialized view. It is used to
@@ -1041,11 +1039,11 @@ class BinanceExecutor:
         symbol: str,
         action: str,
         next_state: str,
-        details: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Persist one idempotent FSM transition and mirror it into orders:exec."""
         prev = self._load_order_state(sid)
-        prev_state = str(prev.get("fsm_state") or "")
+        prev_state = (prev.get("fsm_state") or "")
         if prev_state == next_state:
             return prev
         doc = dict(prev)
@@ -1085,7 +1083,7 @@ class BinanceExecutor:
     def _user_stream_cache_key(self, ref_kind: str, ref_value: str) -> str:
         return f"{self.user_stream_cache_prefix}{ref_kind}:{ref_value}"
 
-    def _lookup_user_stream_event(self, *, plain_client_id: Optional[str] = None, algo_client_id: Optional[str] = None) -> Dict[str, Any]:
+    def _lookup_user_stream_event(self, *, plain_client_id: str | None = None, algo_client_id: str | None = None) -> dict[str, Any]:
         keys = []
         if plain_client_id:
             keys.append(self._user_stream_cache_key("order", plain_client_id))
@@ -1102,7 +1100,7 @@ class BinanceExecutor:
                 continue
         return {}
 
-    def _sync_client_clock_if_due(self, client: "BinanceFuturesClient") -> None:
+    def _sync_client_clock_if_due(self, client: BinanceFuturesClient) -> None:
         now_ms = _ms_now()
         if now_ms < self._next_time_sync_due_ms:
             return
@@ -1112,20 +1110,20 @@ class BinanceExecutor:
             return
         self._next_time_sync_due_ms = now_ms + max(1000, self.binance_time_sync_interval_ms)
 
-    def _sync_client_clock(self, client: "BinanceFuturesClient") -> None:
+    def _sync_client_clock(self, client: BinanceFuturesClient) -> None:
         self._sync_client_clock_if_due(client)
         if abs(int(getattr(client, "timestamp_offset_ms", 0))) > int(self.max_clock_drift_ms):
             client.sync_time()
             self._next_time_sync_due_ms = _ms_now() + max(1000, self.binance_time_sync_interval_ms)
 
-    def _submit_plain_order_with_reconcile(self, *, sid: str, symbol: str, action: str, params: Dict[str, Any], client: "BinanceFuturesClient") -> Dict[str, Any]:
+    def _submit_plain_order_with_reconcile(self, *, sid: str, symbol: str, action: str, params: dict[str, Any], client: BinanceFuturesClient) -> dict[str, Any]:
         try:
             return client.post_plain_order(params)
         except Exception as exc:
             if not self.reconcile_enable or not client.is_ambiguous_execution_error(exc):
                 raise
             self._mark_pending_reconcile(sid, symbol=symbol, action=action, reason=str(exc))
-            client_id = str(params.get("newClientOrderId") or "").strip() or None
+            client_id = (params.get("newClientOrderId") or "").strip() or None
             event_doc = self._lookup_user_stream_event(plain_client_id=client_id)
             if event_doc:
                 return dict(event_doc.get("order") or event_doc)
@@ -1133,7 +1131,7 @@ class BinanceExecutor:
                 return client.query_plain_order(symbol, client_order_id=client_id)
             raise
 
-    def _submit_algo_order_with_reconcile(self, *, sid: str, symbol: str, action: str, params: Dict[str, Any], client: "BinanceFuturesClient") -> Dict[str, Any]:
+    def _submit_algo_order_with_reconcile(self, *, sid: str, symbol: str, action: str, params: dict[str, Any], client: BinanceFuturesClient) -> dict[str, Any]:
         try:
             return client.post_algo_order(params)
         except Exception as exc:
@@ -1149,12 +1147,12 @@ class BinanceExecutor:
             raise
 
     def _resume_open_from_state(
-        self, sid: str, *, symbol: str, client: "BinanceFuturesClient"
-    ) -> Optional[Dict[str, Any]]:
+        self, sid: str, *, symbol: str, client: BinanceFuturesClient
+    ) -> dict[str, Any] | None:
         state = self._load_order_state(sid)
-        if not state or str(state.get("symbol") or "").upper() != str(symbol).upper():
+        if not state or (state.get("symbol") or "").upper() != symbol.upper():
             return None
-        fsm_state = str(state.get("fsm_state") or "")
+        fsm_state = (state.get("fsm_state") or "")
         if fsm_state in {FSM_PROTECTED, FSM_TP_POLICY_ARMED, FSM_TRAIL_ARMED, FSM_EXIT_FILLED, FSM_EMERGENCY_FLATTENED}:
             self._exec_event({
                 "sid": sid, "symbol": symbol, "action": "resume",
@@ -1163,7 +1161,7 @@ class BinanceExecutor:
             })
             return dict(state, recovered_from_state=True)
         order_id = _i(state.get("binance_order_id"), 0)
-        client_order_id = str(state.get("entry_client_order_id") or "").strip() or None
+        client_order_id = (state.get("entry_client_order_id") or "").strip() or None
         if order_id or client_order_id:
             q = client.query_plain_order(symbol, order_id=order_id or None, client_order_id=client_order_id)
             return {"recovered_order": q, **state}
@@ -1172,7 +1170,7 @@ class BinanceExecutor:
     # --- Symbol initialisation ---
 
     def _ensure_symbol_settings(
-        self, symbol: str, *, client: "BinanceFuturesClient"
+        self, symbol: str, *, client: BinanceFuturesClient
     ) -> None:
         """Set margin type and leverage for symbol (idempotent, errors ignored).
 
@@ -1210,7 +1208,7 @@ class BinanceExecutor:
             pass
 
     @staticmethod
-    def _parse_max_leverage(exc: "BinanceAPIError") -> int:
+    def _parse_max_leverage(exc: BinanceAPIError) -> int:
         """Extract maxLeverage from a Binance -4028 error payload.
 
         Binance returns one of:
@@ -1242,9 +1240,9 @@ class BinanceExecutor:
     # --- Order quantisation ---
 
     def _quantize(
-        self, symbol: str, qty: float, price: Optional[float],
-        *, filters: "FiltersCache",
-    ) -> Tuple[str, Optional[str]]:
+        self, symbol: str, qty: float, price: float | None,
+        *, filters: FiltersCache,
+    ) -> tuple[str, str | None]:
         """Apply LOT_SIZE stepSize and PRICE_FILTER tickSize to qty and price. Returns formatted strings."""
         f = filters.get(symbol)
         q = qty
@@ -1255,22 +1253,22 @@ class BinanceExecutor:
         p = price
         if price is not None and f.tick_size and f.tick_size > 0:
             p = _round_down(price, f.tick_size)
-            
+
         return _format_float(q, f.step_size), (_format_float(p, f.tick_size) if p is not None else None)
 
     # --- Fill polling ---
 
     def _wait_fill(
         self, symbol: str, order_id: int, *, timeout_s: float,
-        client: "BinanceFuturesClient",
-    ) -> Dict[str, Any]:
+        client: BinanceFuturesClient,
+    ) -> dict[str, Any]:
         """Poll order status until FILLED or terminal state or timeout."""
         deadline = time.time() + timeout_s
-        last: Dict[str, Any] = {}
+        last: dict[str, Any] = {}
         while time.time() < deadline:
             j = client.get_order(symbol, order_id=order_id)
             last = j
-            st = str(j.get("status") or "").upper()
+            st = (j.get("status") or "").upper()
             if st == "FILLED":
                 return j
             if st in {"CANCELED", "REJECTED", "EXPIRED"}:
@@ -1282,8 +1280,8 @@ class BinanceExecutor:
 
     def _split_tp_qtys(
         self, symbol: str, total_qty: float, n: int,
-        *, filters: "FiltersCache",
-    ) -> List[float]:
+        *, filters: FiltersCache,
+    ) -> list[float]:
         """Split total_qty evenly across n TP orders respecting stepSize.
 
         Last TP gets the remainder to avoid rounding dust loss.
@@ -1319,10 +1317,10 @@ class BinanceExecutor:
     def _local_headroom_check(
         self,
         *,
-        client: "BinanceFuturesClient",
+        client: BinanceFuturesClient,
         symbol: str,
         qty: float,
-        reference_price: Optional[float],
+        reference_price: float | None,
     ) -> None:
         """Best-effort reserve check before submitting conditional protection.
 
@@ -1352,12 +1350,12 @@ class BinanceExecutor:
     def _validate_exit_contract(
         self,
         *,
-        position_side: Optional[str],
+        position_side: str | None,
         reduce_only: bool,
         close_position: bool,
-        quantity: Optional[float],
+        quantity: float | None,
         order_type: str,
-        working_type: Optional[str],
+        working_type: str | None,
         is_algo: bool,
     ) -> None:
         result = validate_exit_intent(
@@ -1374,7 +1372,7 @@ class BinanceExecutor:
         if not result.is_valid_exit_contract:
             raise ValueError(f"invalid_exit_contract:{result.reason}")
 
-    def _protection_confirmed(self, prot: Dict[str, Any], tps: List[float], trail_enabled: bool) -> bool:
+    def _protection_confirmed(self, prot: dict[str, Any], tps: list[float], trail_enabled: bool) -> bool:
         if prot.get("sl_algo_id") in (None, "", 0):
             return False
         for idx, _ in enumerate(tps, start=1):
@@ -1408,13 +1406,13 @@ class BinanceExecutor:
         symbol: str,
         logical_side: str,
         qty: float,
-        client: "BinanceFuturesClient",
-        filters: "FiltersCache",
-    ) -> Dict[str, Any]:
+        client: BinanceFuturesClient,
+        filters: FiltersCache,
+    ) -> dict[str, Any]:
         exit_side = "SELL" if logical_side == "LONG" else "BUY"
         pos_side = _position_side_for_mode(self.position_mode, logical_side)
         q_close, _ = self._quantize(symbol, qty, None, filters=filters)
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "symbol": symbol,
             "side": exit_side,
             "type": "MARKET",
@@ -1451,12 +1449,12 @@ class BinanceExecutor:
         self,
         symbol: str,
         logical_side: str,
-        sl: Optional[float],
-        tps: List[float],
+        sl: float | None,
+        tps: list[float],
         *,
-        client: "BinanceFuturesClient",
-        ref_price: Optional[float] = None,
-    ) -> Tuple[Optional[float], List[float]]:
+        client: BinanceFuturesClient,
+        ref_price: float | None = None,
+    ) -> tuple[float | None, list[float]]:
         """Validate SL and TP prices against the current mark price.
 
         Returns (validated_sl, validated_tps) with invalid prices removed or nudged.
@@ -1477,7 +1475,7 @@ class BinanceExecutor:
             TP  (TAKE_PROFIT  BUY-side exit)  : stopPrice must be < markPrice
         """
         # Fetch current mark price; fall back to ref_price if unavailable.
-        mark: Optional[float] = ref_price
+        mark: float | None = ref_price
         try:
             mp = float(client.get_mark_price(symbol) or 0.0)
             if mp > 0:
@@ -1493,7 +1491,7 @@ class BinanceExecutor:
         nudge_thresh = self._PROTECTIVE_NUDGE_THRESHOLD
         nudge_off    = self._PROTECTIVE_NUDGE_OFFSET
 
-        valid_sl: Optional[float] = None
+        valid_sl: float | None = None
         if sl is not None and sl > 0:
             if is_long:
                 # SL for LONG must be below mark (fires on drop)
@@ -1512,7 +1510,7 @@ class BinanceExecutor:
                     valid_sl = mark * (1.0 + nudge_off)
                 # else: wildly below mark — drop it
 
-        valid_tps: List[float] = []
+        valid_tps: list[float] = []
         for tp in tps:
             if is_long:
                 # TP for LONG must be above mark (fires on rise)
@@ -1532,7 +1530,7 @@ class BinanceExecutor:
         return valid_sl, valid_tps
 
 
-    def _resolve_execution_policy(self, payload: dict, symbol: str) -> 'ExecutionPolicyDecision':
+    def _resolve_execution_policy(self, payload: dict, symbol: str) -> ExecutionPolicyDecision:
         infra_degraded = _truthy(payload.get("infra_degraded")) or _truthy(payload.get("degraded_mode"))
         default_policy = self.exec_policy_default
         maker_allowed_symbols = set(self.exec_policy_maker_allowed_symbols)
@@ -1552,7 +1550,7 @@ class BinanceExecutor:
             watchdog_timeout_ms=self.tp_limit_watchdog_timeout_ms,
         )
 
-    def _position_qty_tolerance(self, symbol: str, *, filters: "FiltersCache") -> float:
+    def _position_qty_tolerance(self, symbol: str, *, filters: FiltersCache) -> float:
         try:
             return max(float(filters.get(symbol).step_size or 0.0), 1e-12)
         except Exception:
@@ -1598,8 +1596,8 @@ class BinanceExecutor:
         logical_side: str,
         qty: float,
         reason_tag: str,
-        client: "BinanceFuturesClient",
-        filters: "FiltersCache",
+        client: BinanceFuturesClient,
+        filters: FiltersCache,
     ) -> dict:
         exit_side = "SELL" if logical_side == "LONG" else "BUY"
         pos_side = _position_side_for_mode(self.position_mode, logical_side)
@@ -1650,13 +1648,13 @@ class BinanceExecutor:
             "exit_order_ref": exit_order_ref,
         }
 
-    def _emergency_flatten_position(self, *, sid: str, symbol: str, logical_side: str, qty: float, client: "BinanceFuturesClient", filters: "FiltersCache") -> dict:
+    def _emergency_flatten_position(self, *, sid: str, symbol: str, logical_side: str, qty: float, client: BinanceFuturesClient, filters: FiltersCache) -> dict:
         close = self._submit_reduce_only_market_exit(sid=sid, symbol=symbol, logical_side=logical_side, qty=qty, reason_tag="emerg", client=client, filters=filters)
         if EXECUTION_EMERGENCY_FLATTEN_TOTAL:
             EXECUTION_EMERGENCY_FLATTEN_TOTAL.labels(symbol=symbol, reason="emerg").inc()
         self._transition_state(sid, symbol=symbol, action="emergency_flatten", next_state=FSM_EMERGENCY_FLATTENED, details=close)
         # P5: propagate exit_order_ref and derive closed_trade_id
-        exit_order_ref = str(close.get('exit_order_ref') or '')
+        exit_order_ref = (close.get('exit_order_ref') or '')
         return {
             "emergency_order_id": close.get("close_order_id"),
             "emergency_client_id": close.get("close_client_id"),
@@ -1667,13 +1665,13 @@ class BinanceExecutor:
 
     def _place_protective(
         self, *, sid: str, symbol: str, logical_side: str,
-        qty: float, sl: Optional[float], tps: List[float],
+        qty: float, sl: float | None, tps: list[float],
         policy: ExecutionPolicyDecision,
-        client: "BinanceFuturesClient",
-        filters: "FiltersCache",
-        ref_price: Optional[float] = None,
-    ) -> Dict[str, Any]:
-        out: Dict[str, Any] = {
+        client: BinanceFuturesClient,
+        filters: FiltersCache,
+        ref_price: float | None = None,
+    ) -> dict[str, Any]:
+        out: dict[str, Any] = {
             "execution_policy": policy.name,
             "execution_policy_reason": policy.reason,
             "tp_watchdog_enabled": bool(policy.tp_watchdog_enabled),
@@ -1712,7 +1710,7 @@ class BinanceExecutor:
 
         if valid_sl is not None and valid_sl > 0:
             q_sl, sl_q = self._quantize(symbol, qty, valid_sl, filters=filters)
-            p: Dict[str, Any] = {
+            p: dict[str, Any] = {
                 "symbol": symbol,
                 "side": exit_side,
                 "type": "STOP_MARKET",
@@ -1752,7 +1750,7 @@ class BinanceExecutor:
                 cumulative += float(q_tp)
                 expected_remaining = max(0.0, float(qty) - cumulative)
                 q_tp2, tp_q = self._quantize(symbol, q_tp, tp, filters=filters)
-                common: Dict[str, Any] = {
+                common: dict[str, Any] = {
                     "symbol": symbol,
                     "side": exit_side,
                     "workingType": policy.tp_working_type,
@@ -1852,7 +1850,7 @@ class BinanceExecutor:
     # --- Order cancellation by token ---
 
     def _cancel_by_token(
-        self, symbol: str, sid: str, *, client: "BinanceFuturesClient"
+        self, symbol: str, sid: str, *, client: BinanceFuturesClient
     ) -> int:
         """Cancel all open plain/algo orders for symbol whose client IDs match sid token."""
         token = _sha1_8(sid) if sid else ""
@@ -1860,7 +1858,7 @@ class BinanceExecutor:
 
         orders = client.get_open_orders(symbol) or []
         for o in orders:
-            cid = str(o.get("clientOrderId") or "")
+            cid = (o.get("clientOrderId") or "")
             if token and token not in cid:
                 continue
             try:
@@ -1874,7 +1872,7 @@ class BinanceExecutor:
         try:
             algo_orders = client.get_open_algo_orders(symbol) or []
             for o in algo_orders:
-                cid = str(o.get("clientAlgoId") or "")
+                cid = (o.get("clientAlgoId") or "")
                 if token and token not in cid:
                     continue
                 try:
@@ -1893,9 +1891,9 @@ class BinanceExecutor:
     # --- Position quantity / margin query ---
 
     def _get_position_info(
-        self, symbol: str, logical_side: Optional[str] = None,
-        *, client: "BinanceFuturesClient",
-    ) -> Tuple[float, float, int]:
+        self, symbol: str, logical_side: str | None = None,
+        *, client: BinanceFuturesClient,
+    ) -> tuple[float, float, int]:
         """Return (abs_qty, margin_usdt, leverage) for the symbol position.
 
         margin_usdt is ``isolatedMargin`` for ISOLATED mode and
@@ -1904,7 +1902,7 @@ class BinanceExecutor:
         """
         risks = client.get_position_risk() or []
         for p in risks:
-            if str(p.get("symbol") or "").upper() != symbol.upper():
+            if (p.get("symbol") or "").upper() != symbol.upper():
                 continue
             amt = _f(p.get("positionAmt"))
             # margin: isolatedMargin > 0 for ISOLATED; fall back to initialMargin
@@ -1913,7 +1911,7 @@ class BinanceExecutor:
             if self.position_mode == "oneway":
                 return abs(amt), margin, leverage
             # Hedge mode: match positionSide
-            ps = str(p.get("positionSide") or "").upper().strip()
+            ps = (p.get("positionSide") or "").upper().strip()
             if logical_side and ps and ps in {"LONG", "SHORT"}:
                 if logical_side.upper() == ps and abs(amt) > 0:
                     return abs(amt), margin, leverage
@@ -1922,8 +1920,8 @@ class BinanceExecutor:
         return 0.0, 0.0, 0
 
     def _get_position_qty(
-        self, symbol: str, logical_side: Optional[str] = None,
-        *, client: "BinanceFuturesClient",
+        self, symbol: str, logical_side: str | None = None,
+        *, client: BinanceFuturesClient,
     ) -> float:
         """Return absolute position quantity. Returns 0.0 if no position."""
         qty, _, _lev = self._get_position_info(symbol, logical_side, client=client)
@@ -1935,9 +1933,9 @@ class BinanceExecutor:
         self,
         *,
         symbol: str,
-        client: "BinanceFuturesClient",
-        algo_id: Optional[int] = None,
-        client_algo_id: Optional[str] = None,
+        client: BinanceFuturesClient,
+        algo_id: int | None = None,
+        client_algo_id: str | None = None,
     ) -> None:
         try:
             if algo_id:
@@ -1954,11 +1952,11 @@ class BinanceExecutor:
         sid: str,
         symbol: str,
         logical_side: str,
-        sl_algo_id: Optional[int],
+        sl_algo_id: int | None,
         callback_rate_pct: float,
-        client: "BinanceFuturesClient",
-        filters: "FiltersCache",
-    ) -> Dict[str, Any]:
+        client: BinanceFuturesClient,
+        filters: FiltersCache,
+    ) -> dict[str, Any]:
         qty = self._get_position_qty(symbol, logical_side=logical_side, client=client)
         if qty <= 0:
             self._exec_event({
@@ -2001,13 +1999,13 @@ class BinanceExecutor:
         target_remaining_qty: float,
         initial_qty: float,
         working_type: str,
-        algo_id: Optional[int],
-        client_algo_id: Optional[str],
-        sl_algo_id: Optional[int],
+        algo_id: int | None,
+        client_algo_id: str | None,
+        sl_algo_id: int | None,
         trail_after_tp1: bool,
-        callback_rate_pct: Optional[float],
-        client: "BinanceFuturesClient",
-        filters: "FiltersCache",
+        callback_rate_pct: float | None,
+        client: BinanceFuturesClient,
+        filters: FiltersCache,
     ) -> None:
         try:
             deadline = time.time() + float(self.tp_trigger_monitor_timeout_s)
@@ -2016,7 +2014,7 @@ class BinanceExecutor:
             partial_emitted = False
             trail_armed = False
             tol = self._position_qty_tolerance(symbol, filters=filters)
-            touch_ts_ms: Optional[int] = None
+            touch_ts_ms: int | None = None
 
             while time.time() < deadline:
                 px = float(client.get_working_price(symbol, working_type) or 0.0)
@@ -2098,21 +2096,21 @@ class BinanceExecutor:
     def _start_maker_tp_watchdogs(
         self,
         *,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         sid: str,
         symbol: str,
         logical_side: str,
         filled_qty: float,
-        prot: Dict[str, Any],
-        tps: List[float],
-        client: "BinanceFuturesClient",
-        filters: "FiltersCache",
-    ) -> Dict[str, Any]:
+        prot: dict[str, Any],
+        tps: list[float],
+        client: BinanceFuturesClient,
+        filters: FiltersCache,
+    ) -> dict[str, Any]:
         if prot.get("execution_policy") != MAKER_FIRST or not tps or not _truthy(prot.get("tp_watchdog_enabled")):
             return {}
 
         trail_enabled = _truthy(payload.get("trail_after_tp1")) and bool(tps)
-        callback_rate_pct: Optional[float] = None
+        callback_rate_pct: float | None = None
         if trail_enabled:
             atr = None
             if payload.get("atr") is not None:
@@ -2170,9 +2168,9 @@ class BinanceExecutor:
     def _place_trailing_stop(
         self, *, sid: str, symbol: str, logical_side: str,
         qty: float, callback_rate_pct: float,
-        client: "BinanceFuturesClient",
-        filters: "FiltersCache",
-    ) -> Dict[str, Any]:
+        client: BinanceFuturesClient,
+        filters: FiltersCache,
+    ) -> dict[str, Any]:
         """Place TRAILING_STOP_MARKET through the Algo API."""
         exit_side = "SELL" if logical_side == "LONG" else "BUY"
         pos_side = _position_side_for_mode(self.position_mode, logical_side)
@@ -2180,7 +2178,7 @@ class BinanceExecutor:
         if float(q) <= 0:
             raise ValueError("trail qty <= 0")
 
-        p: Dict[str, Any] = {
+        p: dict[str, Any] = {
             "symbol": symbol,
             "side": exit_side,
             "type": "TRAILING_STOP_MARKET",
@@ -2216,9 +2214,9 @@ class BinanceExecutor:
 
     def _arm_trailing_after_tp1_thread(
         self, *, sid: str, symbol: str, logical_side: str,
-        tp1: float, callback_rate_pct: float, sl_order_id: Optional[int],
-        client: "BinanceFuturesClient",
-        filters: "FiltersCache",
+        tp1: float, callback_rate_pct: float, sl_order_id: int | None,
+        client: BinanceFuturesClient,
+        filters: FiltersCache,
     ) -> None:
         """Daemon thread: poll mark price → when TP1 touched, replace SL with trailing stop.
 
@@ -2240,9 +2238,9 @@ class BinanceExecutor:
                     continue
 
                 if logical_side == "LONG":
-                    touched = mp >= float(tp1)
+                    touched = mp >= tp1
                 else:
-                    touched = mp <= float(tp1)
+                    touched = mp <= tp1
 
                 if touched:
                     break
@@ -2305,7 +2303,7 @@ class BinanceExecutor:
                     self._trail_arm_counts[key] = self._trail_arm_counts.get(key, 0) + 1
                     count = self._trail_arm_counts[key]
                     should_notify = (count % 50 == 0)
-                
+
                 if should_notify:
                     margin_str = f"{margin_usdt:.2f} USDT" if margin_usdt > 0 else "n/a"
                     notional = qty * mp if mp > 0 else 0.0
@@ -2326,13 +2324,13 @@ class BinanceExecutor:
             })
 
     def _maybe_start_trailing_after_tp1(
-        self, *, payload: Dict[str, Any], sid: str, symbol: str,
-        logical_side: str, entry_price: Optional[float], initial_qty: float,
-        sl_algo_id: Optional[int], tp_levels: List[float], tp1_working_type: str,
+        self, *, payload: dict[str, Any], sid: str, symbol: str,
+        logical_side: str, entry_price: float | None, initial_qty: float,
+        sl_algo_id: int | None, tp_levels: list[float], tp1_working_type: str,
         policy: ExecutionPolicyDecision,
-        client: "BinanceFuturesClient",
-        filters: "FiltersCache",
-    ) -> Dict[str, Any]:
+        client: BinanceFuturesClient,
+        filters: FiltersCache,
+    ) -> dict[str, Any]:
         """Start trailing arming daemon thread if trail_after_tp1=true in payload."""
         if not _truthy(payload.get("trail_after_tp1")):
             return {}
@@ -2375,7 +2373,7 @@ class BinanceExecutor:
 
     # --- Action handlers ---
 
-    def handle_open(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_open(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Open a new position: entry order → wait fill → SL/TP → trailing arming.
 
         Routing: payload[is_virtual]=true → demo/testnet client; else → prod client.
@@ -2383,8 +2381,8 @@ class BinanceExecutor:
         client, filters = self._resolve_client(payload)
         is_virtual = _truthy(payload.get("is_virtual")) or _truthy(payload.get("virtual"))
 
-        sid = str(payload.get("sid") or "").strip()
-        symbol = str(payload.get("symbol") or "").strip().upper()
+        sid = (payload.get("sid") or "").strip()
+        symbol = (payload.get("symbol") or "").strip().upper()
         if not sid or not symbol:
             raise ValueError("sid/symbol required")
         self._guard_sid_not_quarantined(sid, symbol=symbol, action='open')
@@ -2395,21 +2393,21 @@ class BinanceExecutor:
 
         side, logical = _normalize_side(payload)
         policy = self._resolve_execution_policy(payload, symbol)
-        
+
         # --- Dirty Reversal & Orphan Cleanup ---
         # If opening a position, we must clean up old orphaned algo orders.
         # Furthermore, in One-Way mode, if we already have an opposing position,
-        # we must cancel all its orders and explicitly close it to avoid 
+        # we must cancel all its orders and explicitly close it to avoid
         # leaving orphaned reduceOnly orders behind.
         try:
             # 1. Check current position for the symbol
             risks = client.get_position_risk() or []
             current_amt = 0.0
             for pos in risks:
-                if str(pos.get("symbol") or "").upper() != symbol:
+                if (pos.get("symbol") or "").upper() != symbol:
                     continue
                 # In One-Way mode, we just look at the net amount.
-                # In Hedge mode, this simple reversal logic doesn't cleanly apply 
+                # In Hedge mode, this simple reversal logic doesn't cleanly apply
                 # (you can have both LONG and SHORT), so we skip aggressive reversal.
                 if self.position_mode == "oneway":
                     current_amt = _f(pos.get("positionAmt"), 0.0)
@@ -2427,12 +2425,12 @@ class BinanceExecutor:
                 self._cancel_by_token(symbol, "", client=client) # passing empty token cancels all orders for symbol via Binance API (if we implemented it/if we just use API wrapper)
                 # Actually, _cancel_by_token filters by token. We should just cancel all.
                 client.cancel_all_orders(symbol)
-                
+
                 # Market close the opposing position
                 exit_side = "SELL" if current_amt > 0 else "BUY"
                 close_qty = abs(current_amt)
                 q_close, _ = self._quantize(symbol, close_qty, None, filters=filters)
-                close_params: Dict[str, Any] = {
+                close_params: dict[str, Any] = {
                     "symbol": symbol,
                     "side": exit_side,
                     "type": "MARKET",
@@ -2441,7 +2439,7 @@ class BinanceExecutor:
                     "newClientOrderId": _make_cid(sid, "rev_close"),
                 }
                 client.post_order(close_params)
-                
+
             # 3. If position is 0 (or just became 0), clean up any lingering Algo orders
             # that might be stuck as orphans.
             if current_amt == 0.0 or is_opposing:
@@ -2449,7 +2447,7 @@ class BinanceExecutor:
                 pos_side_cleanup = _position_side_for_mode(self.position_mode, logical)
                 for o in algo_orders:
                     try:
-                        p_side = str(o.get("positionSide") or "").upper()
+                        p_side = (o.get("positionSide") or "").upper()
                         if self.position_mode == "hedge" and pos_side_cleanup and p_side and p_side != pos_side_cleanup:
                             continue
                         oid = _i(o.get("algoId"), 0)
@@ -2463,7 +2461,7 @@ class BinanceExecutor:
 
         qty = _normalize_qty(payload, self.assume_lot_is_qty)
         entry = payload.get("entry")
-        price: Optional[float] = None
+        price: float | None = None
         if entry not in (None, 0, "", "0"):
             price = _f(entry)
 
@@ -2512,7 +2510,7 @@ class BinanceExecutor:
         if float(q) <= 0:
             raise ValueError("qty <= 0 after quantisation")
 
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "symbol": symbol,
             "side": side,
             "type": order_type,
@@ -2546,7 +2544,7 @@ class BinanceExecutor:
         )
 
         j_final = self._wait_fill(symbol, order_id, timeout_s=self.fill_timeout_s, client=client)
-        status = str(j_final.get("status") or "").upper()
+        status = (j_final.get("status") or "").upper()
         filled_qty = _f(j_final.get("executedQty"), 0.0)
         avg_price = _f(j_final.get("avgPrice"), 0.0)
         if status not in {"FILLED", "PARTIALLY_FILLED"}:
@@ -2651,13 +2649,13 @@ class BinanceExecutor:
         })
         return result
 
-    def handle_modify(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_modify(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Modify existing position: cancel all our orders → re-place SL/TP → trailing arming."""
         client, filters = self._resolve_client(payload)
         self._sync_client_clock(client)
 
-        sid = str(payload.get("sid") or "").strip()
-        symbol = str(payload.get("symbol") or "").strip().upper()
+        sid = (payload.get("sid") or "").strip()
+        symbol = (payload.get("symbol") or "").strip().upper()
         if not sid or not symbol:
             raise ValueError("sid/symbol required")
         self._guard_sid_not_quarantined(sid, symbol=symbol, action='modify')
@@ -2670,7 +2668,7 @@ class BinanceExecutor:
         risks = client.get_position_risk() or []
         amt = 0.0
         for pos in risks:
-            if str(pos.get("symbol") or "").upper() != symbol:
+            if (pos.get("symbol") or "").upper() != symbol:
                 continue
             amt = _f(pos.get("positionAmt"), 0.0)
             break
@@ -2692,7 +2690,7 @@ class BinanceExecutor:
         tps = [tp for tp in tps if tp > 0]
 
         # Fetch current mark price for protective order validation and trailing calc
-        mark_price: Optional[float] = None
+        mark_price: float | None = None
         try:
             mp = float(client.get_mark_price(symbol) or 0.0)
             mark_price = mp if mp > 0 else None
@@ -2708,7 +2706,7 @@ class BinanceExecutor:
 
         # Determine entry price for trailing callbackRate calculation
         # mark_price was already fetched above; use it as the fallback.
-        entry_price: Optional[float] = mark_price
+        entry_price: float | None = mark_price
         if payload.get("entry") not in (None, 0, "", "0"):
             try:
                 ep = float(payload.get("entry"))
@@ -2753,12 +2751,12 @@ class BinanceExecutor:
             )
         }
 
-    def handle_cancel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_cancel(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Cancel: remove our orders + market-close any open position."""
         client, filters = self._resolve_client(payload)
 
-        sid = str(payload.get("sid") or "").strip()
-        symbol = str(payload.get("symbol") or "").strip().upper()
+        sid = (payload.get("sid") or "").strip()
+        symbol = (payload.get("symbol") or "").strip().upper()
         if not sid or not symbol:
             raise ValueError("sid/symbol required")
         if self.allowlist and symbol not in self.allowlist:
@@ -2772,14 +2770,14 @@ class BinanceExecutor:
         risks = client.get_position_risk() or []
         amt = 0.0
         for pos in risks:
-            if str(pos.get("symbol") or "").upper() != symbol:
+            if (pos.get("symbol") or "").upper() != symbol:
                 continue
             amt = _f(pos.get("positionAmt"), 0.0)
             break
 
         closed = False
-        close_order_id: Optional[int] = None
-        logical: Optional[str] = None
+        close_order_id: int | None = None
+        logical: str | None = None
         qty = 0.0
         if amt != 0.0:
             logical = "LONG" if amt > 0 else "SHORT"
@@ -2797,7 +2795,7 @@ class BinanceExecutor:
         if close_order_id:
             exit_order_ref = self._format_order_ref(venue='binance', kind='exit', order_id=close_order_id)
             closed_trade_id = (
-                str(payload.get('closed_trade_id') or '')
+                (payload.get('closed_trade_id') or '')
                 or self._new_closed_trade_id(sid, exit_order_ref=exit_order_ref)
             )
         result = {
@@ -2825,14 +2823,14 @@ class BinanceExecutor:
             })
         return result
 
-    def handle_resize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_resize(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Resize position (TODO: compute delta-qty and market order the difference).
 
         Currently intentionally unimplemented — requires careful delta calculation
         and safe partial-close/pyramid logic.
         """
-        sid = str(payload.get("sid") or "").strip()
-        symbol = str(payload.get("symbol") or "").strip().upper()
+        sid = (payload.get("sid") or "").strip()
+        symbol = (payload.get("symbol") or "").strip().upper()
         self._guard_sid_not_quarantined(sid, symbol=symbol, action='resize')
         raise RuntimeError(f"resize not implemented yet (sid={sid} symbol={symbol})")
 
@@ -2847,9 +2845,9 @@ class BinanceExecutor:
             self._ack_processing(raw)
             return
 
-        action = str(payload.get("action") or "").strip().lower()
-        sid = str(payload.get("sid") or "").strip()
-        symbol = str(payload.get("symbol") or "").strip().upper()
+        action = (payload.get("action") or "").strip().lower()
+        sid = (payload.get("sid") or "").strip()
+        symbol = (payload.get("symbol") or "").strip().upper()
 
         if not action or not sid or not symbol:
             self._dlq(raw, "missing_required_fields")

@@ -15,13 +15,10 @@ Note: tick_uid format (current implementation):
 """
 
 import unittest
-import sys
-import os
 
 # Add parent directory to path to import from services.orderflow
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
-
-from services.orderflow.utils import _parse_tick_payload, _compute_tick_uid
+from services.orderflow.utils import _compute_tick_uid, _parse_tick_payload
 
 
 class TestTickParse(unittest.TestCase):

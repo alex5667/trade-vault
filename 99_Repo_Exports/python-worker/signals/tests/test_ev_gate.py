@@ -3,16 +3,14 @@
 
 EV Gate: Expected Value Gating для оценки профитности сделок.
 """
-import os
 import pytest
+
 from signals.ev_gate import (
     EvGateConfig,
-    EvGateResult,
-    evaluate_ev_gate,
-    estimate_costs_bps,
     _bps_move,
+    estimate_costs_bps,
+    evaluate_ev_gate,
 )
-
 
 # ─────────────────────── _bps_move ───────────────────────
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 '''
 DQ-aware rules used by nightly quality + ramp + guardrails.
 
@@ -16,13 +17,13 @@ Design:
 '''
 
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
 import math
 import os
+from dataclasses import dataclass
+from typing import Any
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         v = float(x)
         if math.isnan(v) or math.isinf(v):
@@ -32,7 +33,7 @@ def _safe_float(x: Any) -> Optional[float]:
         return None
 
 
-def _safe_int(x: Any) -> Optional[int]:
+def _safe_int(x: Any) -> int | None:
     try:
         v = int(x)
         return v
@@ -43,7 +44,7 @@ def _safe_int(x: Any) -> Optional[int]:
         return int(fv)
 
 
-def _get_nested(d: Dict[str, Any], path: str) -> Any:
+def _get_nested(d: dict[str, Any], path: str) -> Any:
     '''
     path: 'metrics.dq_present_n' etc. Returns None if missing.
     '''
@@ -57,7 +58,7 @@ def _get_nested(d: Dict[str, Any], path: str) -> Any:
     return cur
 
 
-def _get_first(report: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
+def _get_first(report: dict[str, Any], keys: tuple[str, ...]) -> Any:
     for k in keys:
         if '.' in k:
             v = _get_nested(report, k)
@@ -71,11 +72,11 @@ def _get_first(report: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
 @dataclass(frozen=True)
 class DQMetrics:
     dq_present_n: int
-    dq_health_mean: Optional[float]
-    corr_meta_p_dq_health: Optional[float]
-    worst_dq_bucket_pr_auc: Optional[float]
-    worst_dq_bucket_ece: Optional[float]
-    worst_dq_bucket: Optional[str]
+    dq_health_mean: float | None
+    corr_meta_p_dq_health: float | None
+    worst_dq_bucket_pr_auc: float | None
+    worst_dq_bucket_ece: float | None
+    worst_dq_bucket: str | None
 
 
 @dataclass(frozen=True)
@@ -87,7 +88,7 @@ class DQThresholds:
     worst_ece_max: float
 
 
-def extract_dq_metrics(report: Dict[str, Any]) -> DQMetrics:
+def extract_dq_metrics(report: dict[str, Any]) -> DQMetrics:
     '''
     Extracts DQ-related signals from report JSON.
     Supports multiple report formats (top-level vs nested metrics).
@@ -126,7 +127,7 @@ def extract_dq_metrics(report: Dict[str, Any]) -> DQMetrics:
     )
 
 
-def thresholds_from_cfg(cfg2: Optional[Dict[str, Any]], schema_name: Optional[str] = None) -> DQThresholds:
+def thresholds_from_cfg(cfg2: dict[str, Any] | None, schema_name: str | None = None) -> DQThresholds:
     '''
     cfg2: merged config (static + dynamic). If missing, env vars are used.
     Per-schema overrides support keys like ramp_dq_present_min__meta_feat_v5.
@@ -167,10 +168,10 @@ def thresholds_from_cfg(cfg2: Optional[Dict[str, Any]], schema_name: Optional[st
 
 
 def dq_freeze_decision(
-    report: Dict[str, Any],
-    cfg2: Optional[Dict[str, Any]] = None,
-    schema_name: Optional[str] = None,
-) -> Tuple[bool, str, Dict[str, Any]]:
+    report: dict[str, Any],
+    cfg2: dict[str, Any] | None = None,
+    schema_name: str | None = None,
+) -> tuple[bool, str, dict[str, Any]]:
     '''
     Returns:
       freeze(bool), reason(str), details(dict)
@@ -178,7 +179,7 @@ def dq_freeze_decision(
     m = extract_dq_metrics(report)
     t = thresholds_from_cfg(cfg2, schema_name=schema_name)
 
-    details: Dict[str, Any] = {
+    details: dict[str, Any] = {
         'dq_present_n': m.dq_present_n,
         'dq_health_mean': m.dq_health_mean,
         'corr_meta_p_dq_health': m.corr_meta_p_dq_health,

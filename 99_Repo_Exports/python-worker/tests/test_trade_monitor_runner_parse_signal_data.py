@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import json
 import importlib.util
+import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import Any
 
 
-def _load_parse_signal() -> Callable[[Dict[str, str]], Dict[str, Any]]:
+def _load_parse_signal() -> Callable[[dict[str, str]], dict[str, Any]]:
     """
     Load runners/trade_monitor_runner.py by filepath to avoid assumptions about
     package layout (__init__.py) or PYTHONPATH in different environments.

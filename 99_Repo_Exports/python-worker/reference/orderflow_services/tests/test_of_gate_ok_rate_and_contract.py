@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Unit tests for of_gate ok_rate & contract v1.
 
@@ -6,13 +7,11 @@ Tests:
   1. enrich_schema_fields + validate_of_gate_row produce a valid row
   2. compute_stats (no_data sentinel when n==0, ok_rate math when rows present)
 """
-from utils.time_utils import get_ny_time_millis
-
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pytest
 
+from utils.time_utils import get_ny_time_millis
 
 # --- Helpers ---
 
@@ -25,8 +24,8 @@ def _make_valid_row(
     ok: int = 0,
     ok_soft: int = 0,
     scenario_v4: str = "na",
-    ts_ms: Optional[int] = None,
-) -> Dict[str, Any]:
+    ts_ms: int | None = None,
+) -> dict[str, Any]:
     """Build the minimal valid row BEFORE enrich_schema_fields."""
     return {
         "ts_ms": str(ts_ms or _ts()),
@@ -53,7 +52,7 @@ def test_contract_enrich_and_validate_ok():
     # Must have schema fields after enrich
     assert row.get("schema_name") == "of_gate_metrics", f"schema_name={row.get('schema_name')!r}"
     assert int(row.get("schema_version", -1)) == 1, f"schema_version={row.get('schema_version')!r}"
-    assert "reason_code" in row and row["reason_code"], f"reason_code missing/empty"
+    assert "reason_code" in row and row["reason_code"], "reason_code missing/empty"
 
     valid, code = validate_of_gate_row(row)
     assert valid, f"validate failed: code={code!r}, row={row}"
@@ -106,7 +105,7 @@ def test_contract_validate_rejects_bad_ts():
 
 # --- ok_rate / no_data math tests ---
 
-def _row(ts_ms: int, ok: int, ok_soft: int = 0, scenario: str = "na") -> Dict[str, Any]:
+def _row(ts_ms: int, ok: int, ok_soft: int = 0, scenario: str = "na") -> dict[str, Any]:
     from services.orderflow.of_gate_metrics_contract import enrich_schema_fields
     r = {
         "ts_ms": str(ts_ms),
@@ -162,8 +161,9 @@ def test_no_data_sentinel_when_empty():
 # P76 / quarantine alerts: new tests added by mega_patch_of_gate_dash_quarantine_alerts_v1
 # ---------------------------------------------------------------------------
 
-import os
 import json as _json
+import os
+
 import yaml as _yaml
 
 

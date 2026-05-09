@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Calibration report for raw vs calibrated confidences.
 
 Computes:
@@ -13,14 +14,14 @@ Computes:
 
 import argparse
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
 from ml_analysis.calibration_extended import report as extended_report
 
 
-def _get(ind: Dict[str, Any], keys: List[str]) -> float | None:
+def _get(ind: dict[str, Any], keys: list[str]) -> float | None:
     for k in keys:
         v = ind.get(k)
         if v is None:
@@ -34,10 +35,10 @@ def _get(ind: Dict[str, Any], keys: List[str]) -> float | None:
     return None
 
 
-def load(path: str) -> Dict[str, np.ndarray]:
+def load(path: str) -> dict[str, np.ndarray]:
     y, r = [], []
     p_v1, p_v2, c_v1, c_v2 = [], [], [], []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
@@ -92,7 +93,7 @@ def expectancy_topk(r: np.ndarray, p: np.ndarray, frac: float = 0.05) -> float:
     return float(rr.mean())
 
 
-def report(y: np.ndarray, r: np.ndarray, p: np.ndarray, *, bins: int = 20, near_half_width: float = 0.05) -> Dict[str, float]:
+def report(y: np.ndarray, r: np.ndarray, p: np.ndarray, *, bins: int = 20, near_half_width: float = 0.05) -> dict[str, float]:
     # Extended calibration report: ECE / MCE / Brier / slope / sharpness / prob_mass_near_half
     ext = extended_report(y, p, bins=bins, near_half_width=near_half_width)
     ext.update({
@@ -116,7 +117,7 @@ def main() -> None:
     if len(y) < args.min_rows:
         raise SystemExit(f"Not enough rows: {len(y)} < {args.min_rows}")
 
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     out["raw_v1"] = report(y, r, d["p_v1"], bins=args.bins, near_half_width=args.near_half_width)
 
     m2 = np.isfinite(d["p_v2"])

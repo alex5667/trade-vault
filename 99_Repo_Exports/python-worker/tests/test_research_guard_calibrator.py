@@ -1,16 +1,13 @@
-# -*- coding: utf-8 -*-
 """Tests for core.research_guard_calibrator — pure computation module."""
 
-import pytest
 from core.research_guard_calibrator import (
     NightlyReport,
     ResearchGuardCalibResult,
     evaluate_research_guard,
-    rg_mode_to_int,
     rg_is_promotion,
     rg_is_rollback,
+    rg_mode_to_int,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helper factory

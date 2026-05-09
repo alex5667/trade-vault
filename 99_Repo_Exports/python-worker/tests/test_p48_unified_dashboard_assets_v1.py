@@ -1,6 +1,6 @@
 """P4.8 test: verify trade_execution_p48_unified.json dashboard exists and is valid JSON."""
-from pathlib import Path
 import json
+from pathlib import Path
 
 
 def test_unified_dashboard_exists():

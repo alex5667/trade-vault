@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Unit tests for of_gate_hardstop_cap_clamp.py
 
 Tests emergency cap-clamp functionality:
@@ -11,39 +13,37 @@ Tests emergency cap-clamp functionality:
 
 import json
 import os
-import time
-from unittest.mock import patch, MagicMock
-from typing import Dict, Any, List
-
-import pytest
-import fakeredis
 
 # Import module functions
-import sys
+from unittest.mock import MagicMock, patch
+
+import fakeredis
+import pytest
+
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'tools'))
 from of_gate_hardstop_cap_clamp import (
-    now_ms,
-    pctl,
     _f,
     _i,
-    sign,
-    read_metrics_window,
-    summarize_health,
-    hard_stop,
     apply_emergency_bundle,
+    hard_stop,
     main,
+    now_ms,
+    pctl,
+    read_metrics_window,
+    sign,
+    summarize_health,
 )
 
 
 class TestPercentile:
     """Test percentile calculation."""
-    
+
     def test_pctl_empty(self):
         assert pctl([], 0.5) == 0.0
-    
+
     def test_pctl_single(self):
         assert pctl([1.0], 0.5) == 1.0
-    
+
     def test_pctl_basic(self):
         xs = [1.0, 2.0, 3.0, 4.0, 5.0]
         assert pctl(xs, 0.0) == 1.0
@@ -54,13 +54,13 @@ class TestPercentile:
 
 class TestTypeConversions:
     """Test type conversion helpers."""
-    
+
     def test_f(self):
         assert _f("1.5") == 1.5
         assert _f(1.5) == 1.5
         assert _f(None, 0.0) == 0.0
         assert _f("invalid", 2.0) == 2.0
-    
+
     def test_i(self):
         assert _i("42") == 42
         assert _i(42) == 42
@@ -70,7 +70,7 @@ class TestTypeConversions:
 
 class TestSign:
     """Test HMAC signature."""
-    
+
     def test_sign(self):
         bundle_id = "abc123"
         secret = "test_secret"
@@ -85,13 +85,13 @@ class TestSign:
 
 class TestReadMetricsWindow:
     """Test reading metrics from Redis stream."""
-    
+
     def test_read_metrics_empty(self):
         r = fakeredis.FakeRedis(decode_responses=True)
         r.xrevrange = MagicMock(return_value=[])
         rows = read_metrics_window(r, "metrics:of_gate", now_ms() - 3600000, max_scan=1000)
         assert rows == []
-    
+
     def test_read_metrics_with_data(self):
         r = fakeredis.FakeRedis(decode_responses=True)
         ts = now_ms()
@@ -109,11 +109,11 @@ class TestReadMetricsWindow:
 
 class TestSummarizeHealth:
     """Test health metrics summarization."""
-    
+
     def test_summarize_health_empty(self):
         result = summarize_health([])
         assert result["n"] == 0.0
-    
+
     def test_summarize_health_basic(self):
         rows = [
             {"ok": "1", "ok_soft": "0", "latency_us": "1000", "exec_risk_norm": "0.5"},
@@ -130,34 +130,34 @@ class TestSummarizeHealth:
 
 class TestHardStop:
     """Test hard-stop detection."""
-    
+
     def test_hard_stop_no_data(self):
         health = {"n": 0.0}
         is_hs, reasons = hard_stop(health)
         assert is_hs is True
         assert "low_n" in str(reasons)
-    
+
     def test_hard_stop_low_n(self):
         with patch.dict(os.environ, {"META_HARDSTOP_MIN_N": "200"}):
             health = {"n": 100.0, "lat_p99_us": 5000.0, "exec_p90": 0.5, "soft_rate": 0.3, "ok_rate": 0.5}
             is_hs, reasons = hard_stop(health)
             assert is_hs is True
             assert any("low_n" in r for r in reasons)
-    
+
     def test_hard_stop_high_latency(self):
         with patch.dict(os.environ, {"META_HARDSTOP_LAT_P99_US": "12000"}):
             health = {"n": 300.0, "lat_p99_us": 15000.0, "exec_p90": 0.5, "soft_rate": 0.3, "ok_rate": 0.5}
             is_hs, reasons = hard_stop(health)
             assert is_hs is True
             assert any("lat_p99" in r for r in reasons)
-    
+
     def test_hard_stop_high_exec(self):
         with patch.dict(os.environ, {"META_HARDSTOP_EXEC_P90": "0.92"}):
             health = {"n": 300.0, "lat_p99_us": 5000.0, "exec_p90": 0.95, "soft_rate": 0.3, "ok_rate": 0.5}
             is_hs, reasons = hard_stop(health)
             assert is_hs is True
             assert any("exec_p90" in r for r in reasons)
-    
+
     def test_hard_stop_ok(self):
         health = {"n": 300.0, "lat_p99_us": 5000.0, "exec_p90": 0.5, "soft_rate": 0.3, "ok_rate": 0.5}
         is_hs, reasons = hard_stop(health)
@@ -167,18 +167,18 @@ class TestHardStop:
 
 class TestApplyEmergencyBundle:
     """Test emergency bundle creation and application."""
-    
+
     def test_apply_bundle_basic(self):
         r = fakeredis.FakeRedis(decode_responses=True)
-        
+
         # Set initial values
         cfg_key = "config:orderflow:BTCUSDT"
         r.hset(cfg_key, "meta_enforce_share_trend", "0.50")
         r.hset(cfg_key, "meta_enforce_share_range", "0.30")
-        
+
         symbols = ["BTCUSDT"]
         caps = {"trend": 0.10, "range": 0.05, "news": 0.00, "other": 0.00}
-        
+
         bundle_id, sig = apply_emergency_bundle(
             r,
             symbols=symbols,
@@ -187,41 +187,41 @@ class TestApplyEmergencyBundle:
             ttl_sec=86400,
             caps=caps,
         )
-        
+
         assert bundle_id is not None
         assert len(bundle_id) == 12  # 6 bytes hex
         assert len(sig) == 8
-        
+
         # Check bundle was stored
         bundle_json = r.get(f"recs:bundle:{bundle_id}")
         assert bundle_json is not None
         bundle = json.loads(bundle_json)
         assert bundle["id"] == bundle_id
         assert bundle["meta"]["kind"] == "meta_hardstop_cap_clamp"
-        
+
         # Check status
         status = r.get(f"recs:status:{bundle_id}")
         assert status == "APPLIED"
-        
+
         # Check audit log
         audit_entries = r.lrange(f"recs:audit:{bundle_id}", 0, -1)
         assert len(audit_entries) > 0
-        
+
         # Check values were clamped
         assert float(r.hget(cfg_key, "meta_enforce_share_trend")) == 0.10  # clamped from 0.50
         assert float(r.hget(cfg_key, "meta_enforce_share_range")) == 0.05  # clamped from 0.30
         assert r.hget(cfg_key, "meta_enforce_per_regime") == "1"
-    
+
     def test_apply_bundle_clamp_never_increases(self):
         r = fakeredis.FakeRedis(decode_responses=True)
-        
+
         cfg_key = "config:orderflow:ETHUSDT"
         # Set value lower than cap
         r.hset(cfg_key, "meta_enforce_share_trend", "0.05")
-        
+
         symbols = ["ETHUSDT"]
         caps = {"trend": 0.10, "range": 0.05, "news": 0.00, "other": 0.00}
-        
+
         bundle_id, _ = apply_emergency_bundle(
             r,
             symbols=symbols,
@@ -230,19 +230,19 @@ class TestApplyEmergencyBundle:
             ttl_sec=86400,
             caps=caps,
         )
-        
+
         # Should keep original value (0.05 < 0.10 cap)
         assert float(r.hget(cfg_key, "meta_enforce_share_trend")) == 0.05
-    
+
     def test_apply_bundle_missing_field(self):
         r = fakeredis.FakeRedis(decode_responses=True)
-        
+
         cfg_key = "config:orderflow:BTCUSDT"
         # No existing values
-        
+
         symbols = ["BTCUSDT"]
         caps = {"trend": 0.10, "range": 0.05, "news": 0.00, "other": 0.00}
-        
+
         bundle_id, _ = apply_emergency_bundle(
             r,
             symbols=symbols,
@@ -251,21 +251,21 @@ class TestApplyEmergencyBundle:
             ttl_sec=86400,
             caps=caps,
         )
-        
+
         # Should set to cap (fail-closed)
         assert float(r.hget(cfg_key, "meta_enforce_share_trend")) == 0.10
         assert float(r.hget(cfg_key, "meta_enforce_share_range")) == 0.05
-    
+
     def test_apply_bundle_audit_format(self):
         """Test that audit log format is compatible with recs_callback_worker rollback."""
         r = fakeredis.FakeRedis(decode_responses=True)
-        
+
         cfg_key = "config:orderflow:BTCUSDT"
         r.hset(cfg_key, "meta_enforce_share_trend", "0.50")
-        
+
         symbols = ["BTCUSDT"]
         caps = {"trend": 0.10, "range": 0.05, "news": 0.00, "other": 0.00}
-        
+
         bundle_id, _ = apply_emergency_bundle(
             r,
             symbols=symbols,
@@ -274,11 +274,11 @@ class TestApplyEmergencyBundle:
             ttl_sec=86400,
             caps=caps,
         )
-        
+
         # Check audit format matches recs_callback_worker expectations
         audit_entries = r.lrange(f"recs:audit:{bundle_id}", 0, -1)
         assert len(audit_entries) > 0
-        
+
         for entry_json in audit_entries:
             entry = json.loads(entry_json)
             assert "op" in entry
@@ -294,7 +294,7 @@ class TestApplyEmergencyBundle:
 
 class TestMain:
     """Test main function integration."""
-    
+
     @patch.dict(os.environ, {
         "REDIS_URL": "redis://localhost:6379/0",
         "OF_GATE_METRICS_STREAM": "metrics:of_gate",
@@ -306,7 +306,7 @@ class TestMain:
         "CFG_HASH_PREFIX": "config:orderflow:",
         "RECS_HMAC_SECRET": "test_secret",
         "RECS_TTL_SEC": "86400",
-        "NOTIFY_TELEGRAM_STREAM": "notify:telegram",
+        "NOTIFY_TELEGRAM_STREAM": RS.NOTIFY_TELEGRAM,
     })
     def test_main_no_symbols(self):
         """Test main with no symbols configured."""
@@ -316,7 +316,7 @@ class TestMain:
                  patch("of_gate_hardstop_cap_clamp.wait_for_redis", return_value=True):
                 # Should return early without error
                 main()
-    
+
     @patch.dict(os.environ, {
         "REDIS_URL": "redis://localhost:6379/0",
         "OF_GATE_METRICS_STREAM": "metrics:of_gate",
@@ -328,20 +328,20 @@ class TestMain:
         "CFG_HASH_PREFIX": "config:orderflow:",
         "RECS_HMAC_SECRET": "test_secret",
         "RECS_TTL_SEC": "86400",
-        "NOTIFY_TELEGRAM_STREAM": "notify:telegram",
+        "NOTIFY_TELEGRAM_STREAM": RS.NOTIFY_TELEGRAM,
     })
     def test_main_no_hard_stop(self):
         """Test main when no hard-stop detected."""
         r = fakeredis.FakeRedis(decode_responses=True)
         r.xrevrange = MagicMock(side_effect=[[], []])
-        
+
         with patch("of_gate_hardstop_cap_clamp.get_redis", return_value=r), \
              patch("of_gate_hardstop_cap_clamp.wait_for_redis", return_value=True):
             main()
             # Should not create bundle
             keys = list(r.scan_iter("recs:bundle:*"))
             assert len(keys) == 0
-    
+
     @patch.dict(os.environ, {
         "REDIS_URL": "redis://localhost:6379/0",
         "OF_GATE_METRICS_STREAM": "metrics:of_gate",
@@ -354,16 +354,16 @@ class TestMain:
         "CFG_HASH_PREFIX": "config:orderflow:",
         "RECS_HMAC_SECRET": "test_secret",
         "RECS_TTL_SEC": "86400",
-        "NOTIFY_TELEGRAM_STREAM": "notify:telegram",
+        "NOTIFY_TELEGRAM_STREAM": RS.NOTIFY_TELEGRAM,
         "META_CLAMP_ACTIVE_KEY": "meta:hardstop:clamp:active",
     })
     def test_main_apply_clamp(self):
         """Test main when hard-stop detected and streak reached."""
         r = fakeredis.FakeRedis(decode_responses=True)
-        
+
         # Set streak to required value
         r.set("meta:hardstop:streak", "2")
-        
+
         # Create mock metrics with hard-stop conditions
         ts = now_ms()
         mock_metrics = [
@@ -375,22 +375,22 @@ class TestMain:
                 "exec_risk_norm": "0.95",  # High exec risk
             }),
         ] * 250  # Enough samples
-        
+
         r.xrevrange = MagicMock(side_effect=[mock_metrics, []])
         r.xadd = MagicMock(return_value="mock_msg_id")
-        
+
         with patch("of_gate_hardstop_cap_clamp.get_redis", return_value=r), \
              patch("of_gate_hardstop_cap_clamp.wait_for_redis", return_value=True):
             main()
-            
+
             # Should create bundle
             keys = list(r.scan_iter("recs:bundle:*"))
             assert len(keys) == 1
-            
+
             # Should set active key
             active = r.get("meta:hardstop:clamp:active")
             assert active is not None
-            
+
             # Should send notification
             assert r.xadd.called
 

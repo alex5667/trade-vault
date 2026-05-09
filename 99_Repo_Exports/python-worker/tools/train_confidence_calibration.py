@@ -5,12 +5,12 @@ import json
 import math
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Tuple
 
 import psycopg2
 
-from common.isotonic_calibration import fit_isotonic_pav, IsotonicCalibrator, _clamp01
+from common.isotonic_calibration import IsotonicCalibrator, _clamp01, fit_isotonic_pav
 from common.kind_normalize import normalize_kind
 
 
@@ -19,7 +19,7 @@ def _env(*names: str, default: str = "") -> str:
         v = os.getenv(n, "")
         if v:
             return str(v)
-    return str(default)
+    return default
 
 
 def _now_ts() -> float:
@@ -30,7 +30,7 @@ def _finite(x: float) -> bool:
     return bool(math.isfinite(float(x)))
 
 
-def _label(outcome: str, realized_r: Optional[float]) -> Optional[int]:
+def _label(outcome: str, realized_r: float | None) -> int | None:
     """
     Profit-aware labels:
       - target_hit -> 1
@@ -41,7 +41,7 @@ def _label(outcome: str, realized_r: Optional[float]) -> Optional[int]:
       - breakeven -> 0
       - прочее: если realized_R известен -> (realized_R > 0 ? 1 : 0) иначе None
     """
-    o = str(outcome or "").strip().lower()
+    o = (outcome or "").strip().lower()
     if o == "target_hit":
         return 1
     if o == "stop_hit":
@@ -65,7 +65,7 @@ class TrainRow:
     side: str
     final_score: float
     outcome: str
-    realized_r: Optional[float]
+    realized_r: float | None
 
 
 def _iter_rows(conn, *, since: str, fetch: int = 5000) -> Iterable[TrainRow]:
@@ -91,11 +91,11 @@ def _iter_rows(conn, *, since: str, fetch: int = 5000) -> Iterable[TrainRow]:
             ts_epoch, symbol, setup_type, side, final_score, outcome, realized_r = r
             yield TrainRow(
                 ts_signal=float(ts_epoch or 0.0),
-                symbol=str(symbol or "*"),
-                setup_type=str(setup_type or "*"),
-                side=str(side or "*"),
+                symbol=(symbol or "*"),
+                setup_type=(setup_type or "*"),
+                side=(side or "*"),
                 final_score=float(final_score or 0.0),
-                outcome=str(outcome or ""),
+                outcome=(outcome or ""),
                 realized_r=(float(realized_r) if realized_r is not None else None),
             )
 
@@ -113,7 +113,7 @@ def _brier(p: float, y: int) -> float:
     return (pp - yy) ** 2
 
 
-def _ece(samples: List[Tuple[float, int]], bins: int = 20) -> float:
+def _ece(samples: list[tuple[float, int]], bins: int = 20) -> float:
     # Expected Calibration Error по равным бинам вероятности
     if not samples:
         return 0.0
@@ -138,7 +138,7 @@ def _ece(samples: List[Tuple[float, int]], bins: int = 20) -> float:
     return float(e)
 
 
-def _load_calib_file(path: str) -> Tuple[Dict[str, IsotonicCalibrator], Dict[str, int], int]:
+def _load_calib_file(path: str) -> tuple[dict[str, IsotonicCalibrator], dict[str, int], int]:
     """
     Возвращает:
       - calibrators: key -> IsotonicCalibrator
@@ -147,19 +147,19 @@ def _load_calib_file(path: str) -> Tuple[Dict[str, IsotonicCalibrator], Dict[str
     Fail-open: на любой ошибке возвращает пустые dict.
     """
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f) or {}
         trained_at = int(obj.get("trained_at", 0) or 0)
         groups = (obj.get("groups", {}) or {})
-        out: Dict[str, IsotonicCalibrator] = {}
-        ns: Dict[str, int] = {}
+        out: dict[str, IsotonicCalibrator] = {}
+        ns: dict[str, int] = {}
         for k, v in groups.items():
             vv = v or {}
             if vv.get("type") != "isotonic":
                 continue
             x = list(vv.get("x", []) or [])
             p = list(vv.get("p", []) or [])
-            mode = str(vv.get("mode", "linear") or "linear")
+            mode = (vv.get("mode", "linear") or "linear")
             n = int(vv.get("n", 0) or 0)
             cal = IsotonicCalibrator(x=[float(t) for t in x], p=[float(t) for t in p], mode=mode).sanitize()
             if not cal.x or not cal.p or len(cal.x) != len(cal.p):
@@ -180,8 +180,8 @@ def train(
     val_days: int = 14,
     mode: str = "linear",
     seed: int = 7,
-    baseline_path: Optional[str] = None,
-) -> Dict[str, object]:
+    baseline_path: str | None = None,
+) -> dict[str, object]:
     """
     Обучает global + kind|symbol из signal_performance.
     Пишет out_path (json) и out_path + '.report.json'.
@@ -197,8 +197,8 @@ def train(
     val_cut = now - float(max(1, int(val_days))) * 86400.0
 
     # samples dict: key -> list[(x, y, w)] for train
-    train_samples: Dict[str, List[Tuple[float, int, float]]] = {"global": []}
-    val_samples: Dict[str, List[Tuple[float, int]]] = {"global": []}  # p will be predicted later
+    train_samples: dict[str, list[tuple[float, int, float]]] = {"global": []}
+    val_samples: dict[str, list[tuple[float, int]]] = {"global": []}  # p will be predicted later
 
     total_rows = 0
     eligible_rows = 0
@@ -233,12 +233,12 @@ def train(
     conn.close()
 
     # fit calibrators
-    groups_out: Dict[str, Dict[str, object]] = {}
-    report_groups: Dict[str, Dict[str, object]] = {}          # candidate metrics
-    baseline_groups: Dict[str, Dict[str, object]] = {}        # baseline metrics (на том же val)
-    delta_groups: Dict[str, Dict[str, object]] = {}           # candidate - baseline
+    groups_out: dict[str, dict[str, object]] = {}
+    report_groups: dict[str, dict[str, object]] = {}          # candidate metrics
+    baseline_groups: dict[str, dict[str, object]] = {}        # baseline metrics (на том же val)
+    delta_groups: dict[str, dict[str, object]] = {}           # candidate - baseline
 
-    def _fit_one(key: str, s: List[Tuple[float, int, float]]) -> Optional[IsotonicCalibrator]:
+    def _fit_one(key: str, s: list[tuple[float, int, float]]) -> IsotonicCalibrator | None:
         if not s:
             return None
         cal = fit_isotonic_pav(s)
@@ -264,10 +264,10 @@ def train(
         groups_out[k] = {"type": "isotonic", "x": cal.x, "p": cal.p, "mode": cal.mode, "n": n}
 
     # validation metrics (Brier/ECE) for global + each group present
-    def _eval(key: str, cal: Optional[IsotonicCalibrator], vals: List[Tuple[float, int]]) -> Dict[str, float]:
+    def _eval(key: str, cal: IsotonicCalibrator | None, vals: list[tuple[float, int]]) -> dict[str, float]:
         if not vals or cal is None:
             return {"n_val": float(len(vals)), "brier": float("nan"), "ece": float("nan")}
-        preds: List[Tuple[float, int]] = []
+        preds: list[tuple[float, int]] = []
         bsum = 0.0
         for x, y in vals:
             p = float(_clamp01(cal.predict(float(x))))
@@ -280,8 +280,8 @@ def train(
         }
 
     # baseline load (optional)
-    base_cals: Dict[str, IsotonicCalibrator] = {}
-    base_ns: Dict[str, int] = {}
+    base_cals: dict[str, IsotonicCalibrator] = {}
+    base_ns: dict[str, int] = {}
     base_trained_at = 0
     if baseline_path and os.path.exists(str(baseline_path)):
         base_cals, base_ns, base_trained_at = _load_calib_file(str(baseline_path))
@@ -291,7 +291,7 @@ def train(
     # build report for keys we output
     trained_at = int(now)
     for key, obj in groups_out.items():
-        cal = IsotonicCalibrator(x=list(obj["x"]), p=list(obj["p"]), mode=str(obj.get("mode", "linear"))).sanitize()
+        cal = IsotonicCalibrator(x=list(obj["x"]), p=list(obj["p"]), mode=(obj.get("mode", "linear"))).sanitize()
         vals = val_samples.get(key, [])
         cand_m = {
             "n_train": float(int(obj.get("n", 0) or 0)),
@@ -334,9 +334,8 @@ def train(
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     if os.path.exists(out_path):
         try:
-            with open(out_path, "rb") as fsrc:
-                with open(bak, "wb") as fdst:
-                    fdst.write(fsrc.read())
+            with open(out_path, "rb") as fsrc, open(bak, "wb") as fdst:
+                fdst.write(fsrc.read())
         except Exception:
             pass
     with open(tmp, "w", encoding="utf-8") as f:

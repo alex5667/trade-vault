@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Быстрый анализ baseline vs managed + трейлинг по сделкам, прочитанным из Redis Stream.
 
@@ -18,7 +18,6 @@ import argparse
 import math
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 import redis
 
@@ -62,9 +61,9 @@ def load_trades_from_redis(
     redis_url: str,
     stream: str,
     limit: int,
-    source: Optional[str] = None,
-    symbol: Optional[str] = None,
-) -> List[Trade]:
+    source: str | None = None,
+    symbol: str | None = None,
+) -> list[Trade]:
     """
     Читает последние `limit` записей из stream, фильтрует по source / symbol.
     Использует XREVRANGE, чтобы взять последние события.
@@ -72,11 +71,11 @@ def load_trades_from_redis(
     client = redis.from_url(redis_url, decode_responses=True)
 
     entries = client.xrevrange(stream, max="+", min="-", count=limit * 3)
-    trades: List[Trade] = []
+    trades: list[Trade] = []
 
     for _stream_id, fields in entries:
-        s_source = str(fields.get("source") or "")
-        s_symbol = str(fields.get("symbol") or "")
+        s_source = (fields.get("source") or "")
+        s_symbol = (fields.get("symbol") or "")
 
         if source and s_source != source:
             continue
@@ -96,9 +95,9 @@ def load_trades_from_redis(
             mae_pnl=_to_float(fields.get("mae_pnl"), 0.0),
             trailing_started=_to_bool(fields.get("trailing_started")),
             trailing_active=_to_bool(fields.get("trailing_active")),
-            close_reason=str(fields.get("close_reason") or ""),
-            close_reason_raw=str(fields.get("close_reason_raw") or ""),
-            entry_tag=str(fields.get("entry_tag") or ""),
+            close_reason=(fields.get("close_reason") or ""),
+            close_reason_raw=(fields.get("close_reason_raw") or ""),
+            entry_tag=(fields.get("entry_tag") or ""),
         )
         trades.append(trade)
 
@@ -110,8 +109,8 @@ def load_trades_from_redis(
 
 
 def _split_r(
-    trades: List[Trade],
-) -> Tuple[List[float], List[float], List[float], List[float]]:
+    trades: list[Trade],
+) -> tuple[list[float], list[float], list[float], list[float]]:
     """
     Возвращает:
         r_managed, r_baseline, r_wins, r_losses
@@ -119,10 +118,10 @@ def _split_r(
         r_managed = pnl_net / one_r_money
         r_baseline = pnl_if_fixed_exit / one_r_money
     """
-    r_managed: List[float] = []
-    r_baseline: List[float] = []
-    r_wins: List[float] = []
-    r_losses: List[float] = []
+    r_managed: list[float] = []
+    r_baseline: list[float] = []
+    r_wins: list[float] = []
+    r_losses: list[float] = []
 
     for trade in trades:
         if trade.one_r_money <= 1e-12:
@@ -139,11 +138,11 @@ def _split_r(
     return r_managed, r_baseline, r_wins, r_losses
 
 
-def _mean(values: List[float]) -> float:
+def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
-def _std(values: List[float]) -> float:
+def _std(values: list[float]) -> float:
     if len(values) < 2:
         return 0.0
     mean_val = _mean(values)
@@ -151,7 +150,7 @@ def _std(values: List[float]) -> float:
     return math.sqrt(variance)
 
 
-def compute_global_metrics(trades: List[Trade]) -> Dict[str, float]:
+def compute_global_metrics(trades: list[Trade]) -> dict[str, float]:
     total = len(trades)
     if total == 0:
         return {}
@@ -264,7 +263,7 @@ def compute_global_metrics(trades: List[Trade]) -> Dict[str, float]:
     }
 
 
-def print_report(trades: List[Trade], metrics: Dict[str, float], source: str, symbol: str) -> None:
+def print_report(trades: list[Trade], metrics: dict[str, float], source: str, symbol: str) -> None:
     if not trades:
         print("Нет сделок по заданному фильтру.")
         return

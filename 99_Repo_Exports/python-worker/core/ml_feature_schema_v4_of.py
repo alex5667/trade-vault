@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import warnings
 import logging
+import warnings
+
 logger = logging.getLogger(__name__)
 msg = "This feature schema version is DEPRECATED (causes data leakage). See DEPRECATED_SCHEMAS in feature_registry."
 warnings.warn(msg, DeprecationWarning, stacklevel=2)
@@ -9,13 +10,13 @@ logger.error(msg)
 
 
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 SCHEMA_HASH = "a548bfe6a931"
 
 
 
-def _get_num(indicators: Dict[str, Any], key: str) -> float:
+def _get_num(indicators: dict[str, Any], key: str) -> float:
     v = indicators.get(key, 0.0)
     try:
         if v is None:
@@ -25,7 +26,7 @@ def _get_num(indicators: Dict[str, Any], key: str) -> float:
         return 0.0
 
 
-def _get_bool(indicators: Dict[str, Any], key: str) -> float:
+def _get_bool(indicators: dict[str, Any], key: str) -> float:
     v = indicators.get(key, 0.0)
     try:
         if isinstance(v, bool):
@@ -48,9 +49,9 @@ class MLFeatureSchemaV4OF:
     """
 
     # numeric keys (read from indicators without the `n:` prefix)
-    num_keys: List[str] = None
+    num_keys: list[str] = None
     # boolean keys (read from indicators without the `b:` prefix)
-    bool_keys: List[str] = None
+    bool_keys: list[str] = None
 
     def __post_init__(self) -> None:
         if self.num_keys is None:
@@ -147,8 +148,8 @@ class MLFeatureSchemaV4OF:
         # + dir(2) + bucket(3) + hour(24) + dow(7)
         return len(self.num_keys) + len(self.bool_keys) + 2 + 3 + 24 + 7
 
-    def feature_names(self) -> List[str]:
-        names: List[str] = []
+    def feature_names(self) -> list[str]:
+        names: list[str] = []
         names += [f"n:{k}" for k in self.num_keys]
         names += [f"b:{k}" for k in self.bool_keys]
         names += ["dir:LONG", "dir:SHORT"]
@@ -163,10 +164,10 @@ class MLFeatureSchemaV4OF:
         ts_ms: int,
         direction: str,
         scenario: str,
-        indicators: Dict[str, Any],
+        indicators: dict[str, Any],
         cancel_spike_veto: bool,
-    ) -> List[float]:
-        x: List[float] = []
+    ) -> list[float]:
+        x: list[float] = []
         for k in self.num_keys:
             x.append(_get_num(indicators, k))
         for k in self.bool_keys:
@@ -190,7 +191,7 @@ class MLFeatureSchemaV4OF:
         try:
             import datetime as _dt
 
-            dt = _dt.datetime.fromtimestamp(float(ts_ms) / 1000.0, _dt.timezone.utc)
+            dt = _dt.datetime.fromtimestamp(float(ts_ms) / 1000.0, _dt.UTC)
             hour = int(dt.hour)
             dow = int(dt.weekday())  # 0=Mon
         except Exception:

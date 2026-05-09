@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import math
 import os
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 
 @dataclass
@@ -141,13 +139,13 @@ class L3QueueEventsProxy:
         self._vpin_var_ema: float = 1e-6
         self._last_vpin_z: float = 0.0
 
-        self._last_bucket_id: Optional[int] = None
+        self._last_bucket_id: int | None = None
 
         # L3-lite totals state
         self._l2_bid_total = 0.0
         self._l2_ask_total = 0.0
-        self._bucket_bid_start_total: Optional[float] = None
-        self._bucket_ask_start_total: Optional[float] = None
+        self._bucket_bid_start_total: float | None = None
+        self._bucket_ask_start_total: float | None = None
 
         # Debug/metrics cache
         self._last_pulled_bid_qty = 0.0
@@ -167,7 +165,7 @@ class L3QueueEventsProxy:
         elif side == -1:
             self._bucket_sell += q
 
-    def on_bucket_advance(self, *, bucket_id: int) -> Optional[L3BucketStats]:
+    def on_bucket_advance(self, *, bucket_id: int) -> L3BucketStats | None:
         """
         Call this when time moves to a new bucket.
         Returns stats for the bucket that just closed.
@@ -349,8 +347,8 @@ class L3QueueEventsProxy:
     def on_bucket_close(
         self,
         *,
-        pulled_bid_qty_proxy: Optional[float] = None,
-        pulled_ask_qty_proxy: Optional[float] = None,
+        pulled_bid_qty_proxy: float | None = None,
+        pulled_ask_qty_proxy: float | None = None,
         bucket_ms: int,
     ) -> None:
         """
@@ -388,7 +386,7 @@ class L3QueueEventsProxy:
         self._rate_add_bid_ema = self._ema(self._rate_add_bid_ema, add_bid_rate, a_add)
         self._rate_add_ask_ema = self._ema(self._rate_add_ask_ema, add_ask_rate, a_add)
 
-    def snapshot(self) -> Dict[str, float]:
+    def snapshot(self) -> dict[str, float]:
         """Non-essential: quick current values (for observability)."""
         return {
             "taker_buy_qty_bucket": float(self._bucket_buy),

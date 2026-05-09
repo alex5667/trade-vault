@@ -1,17 +1,16 @@
 from __future__ import annotations
+
 """Tests for OFConfirmEngine._should_apply_dq_veto (observe-only rollout v1).
 
 These are lightweight unit tests that do not require Redis or Prometheus.
 They validate the guard logic for the book_missing_seq_hard DQ veto rollout.
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import sys
 import time
-from unittest.mock import patch
 
 import pytest
+
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # Import guard: allow tests to run even in a partial environment

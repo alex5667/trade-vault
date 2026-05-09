@@ -1,8 +1,7 @@
-from utils.time_utils import get_ny_time_millis
-import time
 from types import SimpleNamespace
 
 from handlers.crypto_orderflow.utils.pre_publish_gates import RegimeSessionGate
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:

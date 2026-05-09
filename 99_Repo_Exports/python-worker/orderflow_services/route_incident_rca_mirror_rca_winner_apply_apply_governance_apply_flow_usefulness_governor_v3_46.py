@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -139,15 +140,15 @@ DEFAULT_EXECUTOR_MODE = os.getenv(
 ).upper()
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -205,8 +206,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -219,7 +220,7 @@ def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "min_vertex_samples_to_suppress": parse_int(raw.get("min_vertex_samples_to_suppress"), DEFAULT_MIN_VERTEX_SAMPLES_TO_SUPPRESS),
         "min_local_samples_to_suppress": parse_int(raw.get("min_local_samples_to_suppress"), DEFAULT_MIN_LOCAL_SAMPLES_TO_SUPPRESS),
@@ -240,8 +241,8 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def current_bridge_mode(raw: Dict[str, Any]) -> str:
-    mode = str(raw.get("mode") or "AUTO").upper()
+def current_bridge_mode(raw: dict[str, Any]) -> str:
+    mode = (raw.get("mode") or "AUTO").upper()
     return mode if mode in {"AUTO", "LOCAL_ONLY", "VERTEX_ONLY", "DISABLED"} else "AUTO"
 
 
@@ -252,12 +253,12 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
+async def xr_recent(client: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await client.xrevrange(stream_key, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -265,45 +266,45 @@ async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, 
     return out
 
 
-def join_feedback_with_results(feedback_rows: List[Dict[str, Any]], result_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def join_feedback_with_results(feedback_rows: list[dict[str, Any]], result_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     cutoff = now_ms() - WINDOW_MIN * 60 * 1000
-    result_map: Dict[str, Dict[str, Any]] = {}
+    result_map: dict[str, dict[str, Any]] = {}
     for row in result_rows:
         ts_ms = parse_int(row.get("ts_ms"), 0)
         if ts_ms < cutoff:
             continue
-        rid = str(row.get("request_id") or "")
+        rid = (row.get("request_id") or "")
         if rid:
             result_map[rid] = row
 
-    joined: List[Dict[str, Any]] = []
+    joined: list[dict[str, Any]] = []
     for fb in feedback_rows:
         ts_ms = parse_int(fb.get("ts_ms"), 0)
         if ts_ms < cutoff:
             continue
-        rid = str(fb.get("request_id") or "")
+        rid = (fb.get("request_id") or "")
         result = result_map.get(rid)
         if not result:
             continue
-        provider_mode = str(result.get("provider_mode") or "").upper()
+        provider_mode = (result.get("provider_mode") or "").upper()
         if provider_mode not in {"VERTEX", "LOCAL"}:
             continue
         joined.append(
             {
                 "request_id": rid,
-                "bundle_id": str(fb.get("bundle_id") or ""),
+                "bundle_id": (fb.get("bundle_id") or ""),
                 "provider_mode": provider_mode,
                 "quality_score": parse_float(fb.get("quality_score"), 0.0),
                 "usefulness_score": parse_float(fb.get("usefulness_score"), 0.0),
                 "accepted": parse_int(fb.get("accepted"), 0),
-                "reason_code": str(fb.get("reason_code") or ""),
+                "reason_code": (fb.get("reason_code") or ""),
                 "ts_ms": ts_ms,
             }
         )
     return joined
 
 
-def provider_rollup(joined: List[Dict[str, Any]], provider_mode: str) -> Dict[str, Any]:
+def provider_rollup(joined: list[dict[str, Any]], provider_mode: str) -> dict[str, Any]:
     rows = [r for r in joined if r["provider_mode"] == provider_mode]
     n = len(rows)
     if n == 0:
@@ -329,7 +330,7 @@ def provider_rollup(joined: List[Dict[str, Any]], provider_mode: str) -> Dict[st
     }
 
 
-def evaluate_usefulness(vertex: Dict[str, Any], local: Dict[str, Any], bridge_mode: str, policy: Dict[str, Any], cooldown_active: bool) -> Dict[str, Any]:
+def evaluate_usefulness(vertex: dict[str, Any], local: dict[str, Any], bridge_mode: str, policy: dict[str, Any], cooldown_active: bool) -> dict[str, Any]:
     base = {
         "decision": "HOLD",
         "reason_code": "NO_CHANGE",
@@ -382,7 +383,7 @@ def evaluate_usefulness(vertex: Dict[str, Any], local: Dict[str, Any], bridge_mo
     return base
 
 
-async def persist_if_configured(db_url: str, vertex: Dict[str, Any], local: Dict[str, Any], decision: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, vertex: dict[str, Any], local: dict[str, Any], decision: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -475,7 +476,7 @@ async def main() -> None:  # pragma: no cover
 
                             policy['kill_switch'] = 1
 
-                    except: pass
+                    except Exception: pass
                     bridge_raw = as_dict(await r.hgetall(BRIDGE_POLICY_KEY))
                     bridge_mode = current_bridge_mode(bridge_raw)
                     state_raw = as_dict(await r.hgetall(STATE_KEY))

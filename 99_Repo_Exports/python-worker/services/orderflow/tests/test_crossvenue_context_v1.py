@@ -4,15 +4,14 @@ Covers: JSON roundtrip, bytes/str/dict parsing, missing fields → defaults,
 bad JSON → None, NaN/Inf → 0.0, ctx_key format.
 """
 import json
-import pytest
-from services.orderflow.crossvenue_context import (
-    CrossVenueContextSnapshot,
-    from_json,
-    from_dict,
-    ctx_key,
-    SCHEMA_VERSION,
-)
 
+import pytest
+
+from services.orderflow.crossvenue_context import (
+    ctx_key,
+    from_dict,
+    from_json,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -162,7 +161,6 @@ def test_ctx_key_custom_prefix():
 # Async reader (mock Redis)
 # ---------------------------------------------------------------------------
 
-import asyncio
 
 
 @pytest.mark.asyncio
@@ -186,7 +184,7 @@ async def test_aread_returns_none_on_redis_error():
 
 @pytest.mark.asyncio
 async def test_aread_parses_valid_payload():
-    from services.orderflow.crossvenue_context import aread_crossvenue_context, _LOCAL_CACHE
+    from services.orderflow.crossvenue_context import _LOCAL_CACHE, aread_crossvenue_context
 
     # Invalidate cache for this test
     _LOCAL_CACHE.clear()

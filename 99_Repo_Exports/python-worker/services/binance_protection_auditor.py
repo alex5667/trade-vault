@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Independent Binance protection-audit loop.
@@ -14,12 +15,14 @@ second control plane: even if the executor loses state or a reconcile path
 misbehaves, the auditor still sees the exchange truth and can page / flatten.
 """
 
-import hashlib
 import json
 import os
 import time
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from typing import Any
+
 from core.redis_keys import RedisStreams as RS
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -73,7 +76,7 @@ def _f(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
     except Exception:
-        return float(default)
+        return default
 
 
 class BinanceProtectionAuditor:
@@ -81,8 +84,8 @@ class BinanceProtectionAuditor:
         self,
         *,
         redis_client: Any | None = None,
-        prod_client: Optional[BinanceFuturesClient] = None,
-        demo_client: Optional[BinanceFuturesClient] = None,
+        prod_client: BinanceFuturesClient | None = None,
+        demo_client: BinanceFuturesClient | None = None,
         telegram_client: Any | None = None,
     ) -> None:
         if redis_client is None and redis is None:
@@ -113,14 +116,14 @@ class BinanceProtectionAuditor:
             raise RuntimeError("At least one of BINANCE_API_KEY or BINANCE_DEMO_API_KEY must be set")
 
     # ── Client enumeration ────────────────────────────────────────────────
-    def _iter_clients(self) -> Iterable[Tuple[str, BinanceFuturesClient]]:
+    def _iter_clients(self) -> Iterable[tuple[str, BinanceFuturesClient]]:
         if self.prod_client is not None:
             yield "prod", self.prod_client
         if self.demo_client is not None:
             yield "demo", self.demo_client
 
     # ── Algo order classification ─────────────────────────────────────────
-    def _algo_kind(self, order: Dict[str, Any]) -> str:
+    def _algo_kind(self, order: dict[str, Any]) -> str:
         """Classify an order (algo or plain) as sl/tp/trail/other based on type and client IDs."""
         typ = str(order.get("type") or order.get("algoType") or "").upper()
         # Check both clientAlgoId (algo orders) and clientOrderId (plain orders)
@@ -134,7 +137,7 @@ class BinanceProtectionAuditor:
         return "other"
 
     def _token_from_cid(self, client_algo_id: str) -> str:
-        cid = str(client_algo_id or "").strip()
+        cid = (client_algo_id or "").strip()
         if not cid:
             return ""
         parts = cid.split("-")
@@ -143,10 +146,10 @@ class BinanceProtectionAuditor:
         return parts[-2]
 
     # ── Exchange state readers ────────────────────────────────────────────
-    def _positions_by_symbol(self, client: BinanceFuturesClient) -> Dict[str, Dict[str, Any]]:
-        out: Dict[str, Dict[str, Any]] = {}
+    def _positions_by_symbol(self, client: BinanceFuturesClient) -> dict[str, dict[str, Any]]:
+        out: dict[str, dict[str, Any]] = {}
         for row in list(client.get_position_risk() or []):
-            symbol = str(row.get("symbol") or "").strip().upper()
+            symbol = (row.get("symbol") or "").strip().upper()
             if not symbol:
                 continue
             amt = _f(row.get("positionAmt"), 0.0)
@@ -159,7 +162,7 @@ class BinanceProtectionAuditor:
             out[symbol] = current
         return out
 
-    def _algos_by_symbol(self, client: BinanceFuturesClient) -> Dict[str, Dict[str, Any]]:
+    def _algos_by_symbol(self, client: BinanceFuturesClient) -> dict[str, dict[str, Any]]:
         """Aggregate protection orders per symbol from both algo and plain order APIs.
 
         Algo orders (POST /fapi/v1/algoOrder) → get_open_algo_orders()
@@ -169,11 +172,11 @@ class BinanceProtectionAuditor:
         as plain orders, not algo orders. Without the plain-order scan, the
         auditor would falsely report those positions as unprotected.
         """
-        out: Dict[str, Dict[str, Any]] = {}
+        out: dict[str, dict[str, Any]] = {}
 
         # 1. Algo orders (primary protection path)
         for row in list(client.get_open_algo_orders() or []):
-            symbol = str(row.get("symbol") or "").strip().upper()
+            symbol = (row.get("symbol") or "").strip().upper()
             if not symbol:
                 continue
             entry = out.setdefault(symbol, {"sl": 0, "tp": 0, "trail": 0, "other": 0, "orders": []})
@@ -194,10 +197,10 @@ class BinanceProtectionAuditor:
             except Exception:
                 plain_orders = []
             for row in plain_orders:
-                symbol = str(row.get("symbol") or "").strip().upper()
+                symbol = (row.get("symbol") or "").strip().upper()
                 if not symbol:
                     continue
-                typ = str(row.get("type") or "").upper()
+                typ = (row.get("type") or "").upper()
                 if typ not in _PLAIN_PROTECTION_TYPES:
                     # Skip plain MARKET/LIMIT entry orders — they are not protection
                     continue
@@ -209,10 +212,10 @@ class BinanceProtectionAuditor:
         return out
 
     # ── Event / notification helpers ──────────────────────────────────────
-    def _emit_event(self, event: Dict[str, Any]) -> None:
+    def _emit_event(self, event: dict[str, Any]) -> None:
         try:
             fields = {k: json.dumps(v, ensure_ascii=False, default=str) if isinstance(v, (dict, list)) else str(v) for k, v in dict(event or {}).items()}
-            kwargs: Dict[str, Any] = {}
+            kwargs: dict[str, Any] = {}
             if self.exec_stream_maxlen:
                 kwargs = {"maxlen": self.exec_stream_maxlen, "approximate": True}
             self.r.xadd(self.exec_stream, fields, **kwargs, maxlen=50000)
@@ -238,7 +241,7 @@ class BinanceProtectionAuditor:
             return
 
     # ── Remediation actions ───────────────────────────────────────────────
-    def _cancel_orphan_algos(self, *, client: BinanceFuturesClient, symbol: str, orders: List[Dict[str, Any]]) -> int:
+    def _cancel_orphan_algos(self, *, client: BinanceFuturesClient, symbol: str, orders: list[dict[str, Any]]) -> int:
         canceled = 0
         for order in list(orders or []):
             try:
@@ -252,12 +255,10 @@ class BinanceProtectionAuditor:
                 continue
         return canceled
 
-    def _flatten_position(self, *, client: BinanceFuturesClient, symbol: str, logical_side: str, qty: float, finding: str, venue: str) -> Dict[str, Any]:
+    def _flatten_position(self, *, client: BinanceFuturesClient, symbol: str, logical_side: str, qty: float, finding: str, venue: str) -> dict[str, Any]:
         close_side = "SELL" if str(logical_side).upper() == "LONG" else "BUY"
-        try:
+        with contextlib.suppress(Exception):
             client.cancel_all_orders(symbol)
-        except Exception:
-            pass
         order = client.post_plain_order({
             "symbol": symbol,
             "side": close_side,
@@ -277,7 +278,7 @@ class BinanceProtectionAuditor:
         }
 
     # ── Finding event builder ─────────────────────────────────────────────
-    def _finding_event(self, *, venue: str, symbol: str, finding: str, details: Dict[str, Any]) -> Dict[str, Any]:
+    def _finding_event(self, *, venue: str, symbol: str, finding: str, details: dict[str, Any]) -> dict[str, Any]:
         return {
             "sid": "",
             "symbol": symbol,
@@ -292,8 +293,8 @@ class BinanceProtectionAuditor:
         }
 
     # ── Core scan logic ───────────────────────────────────────────────────
-    def scan_once(self) -> List[Dict[str, Any]]:
-        findings: List[Dict[str, Any]] = []
+    def scan_once(self) -> list[dict[str, Any]]:
+        findings: list[dict[str, Any]] = []
         for venue, client in self._iter_clients():
             positions = self._positions_by_symbol(client)
             algos = self._algos_by_symbol(client)
@@ -314,12 +315,12 @@ class BinanceProtectionAuditor:
         return findings
 
     # ── Finding execution (alert / flatten / orphan cancel) ───────────────
-    def execute_findings(self, findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        out: List[Dict[str, Any]] = []
+    def execute_findings(self, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
         for finding in list(findings or []):
-            venue = str(finding.get("venue") or "")
-            symbol = str(finding.get("symbol") or "")
-            finding_name = str(finding.get("finding") or "")
+            venue = (finding.get("venue") or "")
+            symbol = (finding.get("symbol") or "")
+            finding_name = (finding.get("finding") or "")
             details = dict(finding.get("details") or {})
             client = self.prod_client if venue == "prod" else self.demo_client
             if client is None:
@@ -369,7 +370,7 @@ class BinanceProtectionAuditor:
                 pass
         return out
 
-    def run_once(self) -> List[Dict[str, Any]]:
+    def run_once(self) -> list[dict[str, Any]]:
         findings = self.scan_once()
         return self.execute_findings(findings)
 

@@ -2,13 +2,14 @@
 Клиент для работы с двумя Redis инстансами одновременно.
 Публикует данные и в redis-worker-1 (порт 6380) и в redis-worker-2 (порт 6381).
 """
+import concurrent.futures
 import os
 import random
-import redis
-import time
 import sys
-import concurrent.futures
-from typing import Optional
+import time
+
+import redis
+import contextlib
 
 try:
     from prometheus_client import Counter as _Counter
@@ -34,7 +35,7 @@ def get_env(key, default_value):
 
 class DualRedisClient:
     """Класс для работы с двумя Redis инстансами одновременно."""
-    
+
     def __init__(self, retry_attempts=3, retry_delay=1):
         """
         Инициализирует подключения к двум Redis инстансам.
@@ -46,11 +47,11 @@ class DualRedisClient:
         # Подключение к redis-worker-1 (порт 6380)
         redis_host_1 = get_env("REDIS_SIGNALS_HOST", "redis-worker-1")
         redis_port_1 = int(get_env("REDIS_SIGNALS_PORT", "6379"))
-        
+
         # Подключение к redis-worker-2 (порт 6381)
         redis_host_2 = get_env("REDIS_SIGNALS_HOST_2", "redis-worker-2")
         redis_port_2 = int(get_env("REDIS_SIGNALS_PORT_2", "6379"))
-        
+
         import urllib.parse
         redis_url = get_env("REDIS_URL", "")
         url_user = ""
@@ -61,27 +62,27 @@ class DualRedisClient:
                 url_user = parsed.username
             if parsed.password:
                 url_pass = parsed.password
-                
+
         # Получаем учетные данные для DUAL_REDIS (redis-worker-1 / redis-worker-2)
-        # Приоритет: credentials из REDIS_URL (если есть и user и pass), 
+        # Приоритет: credentials из REDIS_URL (если есть и user и pass),
         # иначе набор из переменных окружения.
-        
+
         redis_user = url_user
         redis_pass = url_pass
-        
+
         if not redis_user and not redis_pass:
-            redis_user = get_env("REDIS_SIGNALS_USER", 
-                                 get_env("REDIS_USER", 
-                                         get_env("REDIS_WORKER_USERNAME", 
+            redis_user = get_env("REDIS_SIGNALS_USER",
+                                 get_env("REDIS_USER",
+                                         get_env("REDIS_WORKER_USERNAME",
                                                  get_env("GO_WORKER_REDIS_USER", ""))))
-            
-            redis_pass = get_env("REDIS_SIGNALS_PASS", 
-                                 get_env("REDIS_PASS", 
+
+            redis_pass = get_env("REDIS_SIGNALS_PASS",
+                                 get_env("REDIS_PASS",
                                          get_env("GO_WORKER_REDIS_PASS", "")))
 
         self.client_1 = self._create_client(redis_host_1, redis_port_1, "redis-worker-1", retry_attempts, retry_delay, redis_user, redis_pass)
         self.client_2 = self._create_client(redis_host_2, redis_port_2, "redis-worker-2", retry_attempts, retry_delay, redis_user, redis_pass)
-    
+
     def _create_client(self, host, port, name, retry_attempts, retry_delay, username, password):
         """Создает подключение к Redis с повторными попытками."""
         for attempt in range(retry_attempts):
@@ -100,12 +101,12 @@ class DualRedisClient:
                     socket_keepalive=True,
                     decode_responses=True
                 )
-                
+
                 client.ping()
                 print(f"✅ Подключение к {name} ({host}:{port}) успешно!")
                 sys.stdout.flush()
                 return client
-                
+
             except Exception as e:
                 if attempt < retry_attempts - 1:
                     print(f"⚠️ Ошибка подключения к {name} (попытка {attempt+1}/{retry_attempts}): {e}")
@@ -116,9 +117,9 @@ class DualRedisClient:
                     print(f"❌ Не удалось подключиться к {name} после {retry_attempts} попыток: {e}")
                     sys.stdout.flush()
                     return client
-        
+
         return None
-    
+
     def script_load(self, script):
         """Загружает Lua-скрипт в оба инстанса Redis."""
         sha1 = None
@@ -201,10 +202,8 @@ class DualRedisClient:
                     _client_2.xadd(_stream, _fields, maxlen=_maxlen, approximate=_approximate)
                 except Exception as _sec_err:
                     if _SECONDARY_XADD_ERRORS is not None:
-                        try:
+                        with contextlib.suppress(Exception):
                             _SECONDARY_XADD_ERRORS.labels(stream=_stream).inc()
-                        except Exception:
-                            pass
                     # sample 1% to avoid log flood
                     if random.random() < 0.01:
                         print(f"⚠️ secondary xadd failed stream={_stream}: {_sec_err}", flush=True)
@@ -212,26 +211,26 @@ class DualRedisClient:
             _SECONDARY_POOL.submit(_secondary_xadd)
 
         return message_id_1, None  # caller receives primary ID; secondary is async
-    
+
     def set(self, key, value, ex=None, **kwargs):
         """Устанавливает значение в оба Redis."""
         result_1 = None
         result_2 = None
-        
+
         if self.client_1:
             try:
                 result_1 = self.client_1.set(key, value, ex=ex, **kwargs)
             except Exception as e:
                 print(f"❌ Ошибка SET в redis-worker-1: {e}")
                 sys.stdout.flush()
-        
+
         if self.client_2:
             try:
                 result_2 = self.client_2.set(key, value, ex=ex, **kwargs)
             except Exception as e:
                 print(f"❌ Ошибка SET в redis-worker-2: {e}")
                 sys.stdout.flush()
-        
+
         return result_1 or result_2
 
     def incr(self, key, amount=1):
@@ -266,49 +265,45 @@ class DualRedisClient:
             raise last_error
 
         return None
-    
+
     def ping(self):
         """Проверяет подключение к обоим Redis."""
         result_1 = False
         result_2 = False
-        
+
         if self.client_1:
-            try:
+            with contextlib.suppress(Exception):
                 result_1 = self.client_1.ping()
-            except:
-                pass
-        
+
         if self.client_2:
-            try:
+            with contextlib.suppress(Exception):
                 result_2 = self.client_2.ping()
-            except:
-                pass
-        
+
         return result_1 or result_2
-    
+
     def eval(self, script, numkeys, *args):
         """Выполняет Lua скрипт в обоих Redis."""
         res1 = None
         res2 = None
         last_error = None
-        
+
         if self.client_1:
             try:
                 res1 = self.client_1.eval(script, numkeys, *args)
             except Exception as e:
                 print(f"❌ DualRedis: eval failed on client_1: {e}")
                 last_error = e
-        
+
         if self.client_2:
             try:
                 res2 = self.client_2.eval(script, numkeys, *args)
             except Exception as e:
                 print(f"❌ DualRedis: eval failed on client_2: {e}")
                 last_error = e if res1 is None else last_error
-        
+
         if last_error and res1 is None and res2 is None:
             raise last_error
-            
+
         return res1 or res2
 
     def evalsha(self, sha, numkeys, *args):
@@ -320,24 +315,24 @@ class DualRedisClient:
         if self.client_1:
             try:
                 res1 = self.client_1.evalsha(sha, numkeys, *args)
-            except redis.exceptions.NoScriptError as e:
+            except redis.exceptions.NoScriptError:
                 # Если скрипта нет хоть на одном - нужно чтобы выше поймали и сделали EVAL
-                print(f"⚠️ DualRedis: NOSCRIPT on client_1, raising to trigger fallback")
+                print("⚠️ DualRedis: NOSCRIPT on client_1, raising to trigger fallback")
                 raise
             except Exception as e:
                 print(f"❌ DualRedis: evalsha failed on client_1: {e}")
                 last_error = e
-        
+
         if self.client_2:
             try:
                 res2 = self.client_2.evalsha(sha, numkeys, *args)
-            except redis.exceptions.NoScriptError as e:
-                print(f"⚠️ DualRedis: NOSCRIPT on client_2, raising to trigger fallback")
+            except redis.exceptions.NoScriptError:
+                print("⚠️ DualRedis: NOSCRIPT on client_2, raising to trigger fallback")
                 raise
             except Exception as e:
                 print(f"❌ DualRedis: evalsha failed on client_2: {e}")
                 last_error = e if res1 is None else last_error
-                
+
         if last_error and res1 is None and res2 is None:
             raise last_error
 
@@ -348,15 +343,15 @@ class DualRedisClient:
         if self.client_1:
             try:
                 return self.client_1.get(key)
-            except:
+            except Exception:
                 pass
-        
+
         if self.client_2:
             try:
                 return self.client_2.get(key)
-            except:
+            except Exception:
                 pass
-        
+
         return None
 
 

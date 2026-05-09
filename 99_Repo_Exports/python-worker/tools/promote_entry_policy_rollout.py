@@ -1,13 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -35,12 +35,12 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-async def _read_recent_audit(r: aioredis.Redis, stream: str, since_ms: int, limit: int = 2000) -> List[Dict[str, Any]]:
+async def _read_recent_audit(r: aioredis.Redis, stream: str, since_ms: int, limit: int = 2000) -> list[dict[str, Any]]:
     """
     Reads from stream newest-first until older than since_ms or limit.
     Assumes xrevrange is available.
     """
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     try:
         entries = await r.xrevrange(stream, max="+", min="-", count=limit)
     except Exception:
@@ -57,7 +57,7 @@ async def _read_recent_audit(r: aioredis.Redis, stream: str, since_ms: int, limi
     return out
 
 
-def _audit_health(aud: List[Dict[str, Any]]) -> Tuple[bool, str]:
+def _audit_health(aud: list[dict[str, Any]]) -> tuple[bool, str]:
     """
     Very conservative promotion rule:
       - need >= N audit events in shadow window

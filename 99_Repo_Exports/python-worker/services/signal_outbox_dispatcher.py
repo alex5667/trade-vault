@@ -1,28 +1,32 @@
-from utils.time_utils import get_ny_time_millis
 import json
-import os
-import time
-import random
-import uuid
-from typing import Any, Dict, Optional
-
 import logging
+import os
+import random
+import time
+import uuid
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger(__name__)
 
-from core.redis_client import get_redis
-from core.dual_redis_client import get_dual_signals_redis
-from core.redis_stream_consumer import SyncRedisStreamHelper
-from core.delivery_atomic import DeliveryAtomic, DeliveryAtomicSettings
-from core.sid_lease import SidLease, SidLeaseSettings
-from core.outbox_retry_queue import OutboxRetryQueue, RetryQueueSettings
-from core.notify_gate import NotifyGate, NotifyGateSettings
-from common.outbox_contract import contract_check_best_effort
-from core.redis_keys import RedisStreams as RS, RedisKeyPrefixes as RK, STREAM_RETENTION as _STREAM_RETENTION
+from prometheus_client import Counter, Gauge, Histogram
+
 from common.transient_errors import is_transient_error
-from prometheus_client import Counter, Histogram, Gauge
+from core.delivery_atomic import DeliveryAtomic, DeliveryAtomicSettings
+from core.dual_redis_client import get_dual_signals_redis
+from core.notify_gate import NotifyGate, NotifyGateSettings
 from core.outbox_envelope import SCHEMA_VERSION
+from core.outbox_retry_queue import OutboxRetryQueue, RetryQueueSettings
+from core.redis_client import get_redis
+from core.redis_keys import STREAM_RETENTION as _STREAM_RETENTION
+from core.redis_keys import RedisKeyPrefixes as RK
+from core.redis_keys import RedisStreams as RS
+from core.redis_stream_consumer import SyncRedisStreamHelper
+from core.sid_lease import SidLease, SidLeaseSettings
 from services.dispatcher.target_registry import TargetRegistry
+import contextlib
+
 
 # ── Dual-read schema_version skeleton (Phase 3) ────────────────────────────────
 # The dispatcher accepts any schema_version in this set; everything else is
@@ -53,7 +57,7 @@ def _parse_accepted_versions(default: int) -> frozenset:
 ACCEPTED_SCHEMA_VERSIONS = _parse_accepted_versions(SCHEMA_VERSION)
 
 
-def _normalize_schema_version(raw: Any) -> Optional[int]:
+def _normalize_schema_version(raw: Any) -> int | None:
     """Canonicalise the schema_version field to int. Returns None on parse failure.
 
     Handles all of: int, bool (rejected), numeric string, float-looking string.
@@ -194,11 +198,11 @@ class SignalDispatcher:
         self.simple_redis = get_redis()
 
         # Stream config
-        self.outbox_stream = os.getenv("SIGNAL_OUTBOX_STREAM", "stream:signals:outbox")
-        self.dlq_stream = os.getenv("SIGNAL_DLQ_STREAM", "stream:signals:dlq")
+        self.outbox_stream = os.getenv("SIGNAL_OUTBOX_STREAM", RS.SIGNAL_OUTBOX)
+        self.dlq_stream = os.getenv("SIGNAL_DLQ_STREAM", RS.SIGNAL_DLQ)
         self.group = os.getenv("SIGNAL_OUTBOX_GROUP", "signals-outbox-group")
         self.consumer = os.getenv("SIGNAL_OUTBOX_CONSUMER", f"outbox-dispatcher-{uuid.uuid4().hex[:8]}")
-        self.mt5_plans_stream = os.getenv("SIGNAL_MT5_PLANS_STREAM", "stream:signals:plans")
+        self.mt5_plans_stream = os.getenv("SIGNAL_MT5_PLANS_STREAM", RS.SIGNAL_PLANS)
 
         # Reading config
         self.read_count = int(os.getenv("SIGNAL_OUTBOX_READ_COUNT", "200"))
@@ -243,7 +247,7 @@ class SignalDispatcher:
                 marker_ttl_sec=int(os.getenv("SIGNAL_DELIVERY_MARKER_TTL_SEC", "86400")),
             ),
         )
-        
+
         self.signal_notify_stream = os.getenv("SIGNAL_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
         self.signal_manual_stream = os.getenv("SIGNAL_MANUAL_STREAM", RS.SIGNAL_MANUAL)
         self.signal_notify_maxlen = int(os.getenv("SIGNAL_NOTIFY_MAXLEN", "10000"))
@@ -294,7 +298,7 @@ class SignalDispatcher:
         delay = min(self.retry_max_ms, self.retry_base_ms * (2 ** min(attempt - 1, 8)))
         return int(delay * (0.5 + random.random() * 0.5))
 
-    def _schedule_retry(self, msg_id: str, fields: Dict[str, Any], attempt: int, err: Exception) -> None:
+    def _schedule_retry(self, msg_id: str, fields: dict[str, Any], attempt: int, err: Exception) -> None:
         delay_ms = self._compute_delay_ms(attempt)
         now_ms = get_ny_time_millis()
         due_ms = now_ms + int(delay_ms)
@@ -474,7 +478,7 @@ class SignalDispatcher:
                 logger.error("❌ [%s] Fatal error in SignalDispatcher loop: %s", self.consumer, exc, exc_info=True)
                 time.sleep(1)
 
-    def _parse_envelope(self, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_envelope(self, fields: dict[str, Any]) -> dict[str, Any] | None:
         """Parse signal envelope from stream fields"""
         try:
             data = fields.get("data") or fields.get("payload") or fields.get("payload_json")
@@ -502,7 +506,7 @@ class SignalDispatcher:
         except Exception:
             pass
 
-    def _send_dlq(self, msg_id: str, envelope: Dict[str, Any], reason: str) -> None:
+    def _send_dlq(self, msg_id: str, envelope: dict[str, Any], reason: str) -> None:
         """Send failed message to DLQ"""
         try:
             payload = {
@@ -515,10 +519,8 @@ class SignalDispatcher:
             self.redis.xadd(self.dlq_stream, {"data": json.dumps(payload)}, maxlen=_STREAM_RETENTION.get(self.dlq_stream, 10_000))
         except Exception as dlq_err:
             # True silent loss: message couldn't be written to DLQ either.
-            try:
+            with contextlib.suppress(Exception):
                 SIGNAL_LOSS_SILENT_TOTAL.labels(reason="dlq_write_failed").inc()
-            except Exception:
-                pass
             logger.error(
                 "❌ [%s] DLQ write FAILED for %s reason=%s: %s (SILENT LOSS)",
                 self.consumer, msg_id, reason, dlq_err,
@@ -533,25 +535,21 @@ class SignalDispatcher:
             return int(n)
         except Exception as e:
             logger.warning("⚠️ Failed to bump attempt for %s: %s", msg_id, e)
-            try:
+            with contextlib.suppress(Exception):
                 SIGNAL_LOSS_SILENT_TOTAL.labels(reason="retry_incr_failed").inc()
-            except Exception:
-                pass
             return 1
 
-    def _deliver_all_atomic(self, env: Dict[str, Any], *, sid: str, lease_token: str) -> None:
+    def _deliver_all_atomic(self, env: dict[str, Any], *, sid: str, lease_token: str) -> None:
         targets = env.get("targets") or {}
         meta = env.get("meta") or {}
         # Helper: time a single target delivery and observe histogram (#19)
         def _timed_xadd_once(target_name: str, **kwargs):
             _t0 = time.monotonic()
             result = self._delivery.xadd_once(**kwargs)
-            try:
+            with contextlib.suppress(Exception):
                 DISPATCHER_TARGET_LAT_MS.labels(
                     consumer=self.consumer, target=target_name
                 ).observe((time.monotonic() - _t0) * 1000)
-            except Exception:
-                pass
             return result
 
         def _renew_or_raise() -> None:
@@ -570,7 +568,7 @@ class SignalDispatcher:
             _renew_or_raise()
             marker_key = self._delivery.marker_key("notify", sid)
             symbol = env.get("symbol") or env.get("sym") or ""
-            if self._notify_gate.should_send(sid, symbol=str(symbol)):
+            if self._notify_gate.should_send(sid, symbol=symbol):
                 ok, _ = _timed_xadd_once(
                     "notify",
                     marker_key=marker_key,
@@ -579,10 +577,8 @@ class SignalDispatcher:
                     maxlen=self.signal_notify_maxlen,
                 )
                 if ok:
-                    try:
+                    with contextlib.suppress(Exception):
                         DISPATCHER_PER_TARGET_DELIVERY_TOTAL.labels(target="notify", consumer=self.consumer).inc()
-                    except Exception:
-                        pass
 
         # 2) strategy stream
         signal_stream = str(meta.get("signal_stream") or TargetRegistry.get_task_stream("signal_stream"))
@@ -604,10 +600,8 @@ class SignalDispatcher:
                     maxlen=1000,
                 )
                 if ok:
-                    try:
+                    with contextlib.suppress(Exception):
                         DISPATCHER_PER_TARGET_DELIVERY_TOTAL.labels(target="signal_stream", consumer=self.consumer).inc()
-                    except Exception:
-                        pass
 
         # 3) audit stream
         audit_stream = str(meta.get("audit_stream") or TargetRegistry.get_task_stream("audit"))
@@ -629,10 +623,8 @@ class SignalDispatcher:
                         maxlen=200000,
                     )
                     if ok:
-                        try:
+                        with contextlib.suppress(Exception):
                             DISPATCHER_PER_TARGET_DELIVERY_TOTAL.labels(target="audit", consumer=self.consumer).inc()
-                        except Exception:
-                            pass
                     logger.debug("[OUTBOX] Audit delivery result ok=%s id=%s", ok, res_id)
                 except Exception as e:
                     logger.warning("[OUTBOX] Audit delivery FAILED sid=%s: %s", sid, e)
@@ -664,11 +656,11 @@ class SignalDispatcher:
                 # mt5_bridge.redis_consumer wants specific format: { "payload": JSON({"plan": ...}) }
                 # but here we just put the plan object itself into a wrapper
                 # redis_consumer expects: { "payload": "{ \"plan\": { ... } }" }
-                
+
                 # Wrap plan into envelope expected by mt5_bridge
                 wrapper = {"plan": mt5_plan}
                 payload_json = json.dumps(wrapper, ensure_ascii=False)
-                
+
                 ok, _ = self._delivery.xadd_once(
                     marker_key=marker_key,
                     stream=self.mt5_plans_stream,
@@ -676,20 +668,18 @@ class SignalDispatcher:
                     maxlen=1000,
                 )
                 if ok:
-                    try:
+                    with contextlib.suppress(Exception):
                         DISPATCHER_PER_TARGET_DELIVERY_TOTAL.labels(target="mt5", consumer=self.consumer).inc()
-                    except Exception:
-                        pass
 
         # 5) snapshot
-        snap_key = str(meta.get("snap_key") or "")
+        snap_key = (meta.get("snap_key") or "")
         snap_ttl = int(meta.get("snap_ttl") or 21600)
         snap_payload = targets.get("snapshot")
         if snap_key and snap_payload and self.redis:
             logger.debug("      Delivering to snapshot")
             _renew_or_raise()
             marker_key = self._delivery.marker_key("snapshot", sid)
-            
+
             # P1 queue to snapshot task stream instead of inline SETEX
             snapshot_tasks_stream = TargetRegistry.get_task_stream("snapshot")
             task_payload = json.dumps({
@@ -697,7 +687,7 @@ class SignalDispatcher:
                 "snap_ttl": snap_ttl,
                 "payload": snap_payload
             }, ensure_ascii=False)
-            
+
             ok, _ = self._delivery.xadd_once(
                 marker_key=marker_key,
                 stream=snapshot_tasks_stream,
@@ -718,7 +708,7 @@ class SignalDispatcher:
                 _renew_or_raise()
                 marker_key = self._delivery.marker_key("trade_back", sid)
                 tb_tasks_stream = TargetRegistry.get_task_stream("trade_back")
-                
+
                 # We offload HTTP to Target Worker (with op=http_post)
                 # It natively handles DLQ, backoff, retry, and gives us confirmation
                 task_payload = json.dumps({
@@ -728,7 +718,7 @@ class SignalDispatcher:
                     "headers": {"Content-Type": "application/json"},
                     "timeout_sec": TargetRegistry.get_http_timeout("trade_back")
                 }, ensure_ascii=False)
-                
+
                 ok, _ = self._delivery.xadd_once(
                     marker_key=marker_key,
                     stream=tb_tasks_stream,
@@ -742,7 +732,7 @@ class SignalDispatcher:
                     maxlen=10000,
                 )
 
-    def _handle_one(self, msg_id: str, fields: Dict[str, Any], *, helper: SyncRedisStreamHelper, attempt_hint: int = 0) -> bool:
+    def _handle_one(self, msg_id: str, fields: dict[str, Any], *, helper: SyncRedisStreamHelper, attempt_hint: int = 0) -> bool:
         """Process one outbox message"""
         _t_handle_start = time.monotonic()  # #19: end-to-end dispatch latency
         try:
@@ -765,13 +755,11 @@ class SignalDispatcher:
             sv_label = str(sv_int) if sv_int is not None else (
                 "unknown" if raw_sv in ("", None) else "malformed"
             )
-            try:
+            with contextlib.suppress(Exception):
                 DISPATCHER_SCHEMA_VERSION_TOTAL.labels(
                     consumer=self.consumer,
                     schema_version=sv_label,
                 ).inc()
-            except Exception:
-                pass
             if sv_int is None or sv_int not in ACCEPTED_SCHEMA_VERSIONS:
                 self._send_dlq(msg_id, fields, reason=f"unsupported_schema_version:{sv_label}")
                 self.redis.xack(self.outbox_stream, self.group, msg_id)
@@ -804,7 +792,7 @@ class SignalDispatcher:
 
             # deliver all targets (atomic per-target)
             self._deliver_all_atomic(env, sid=sid, lease_token=token)
-            
+
             self._mark_env_done(sid)
 
             # phase 2: final outbox ACK
@@ -817,12 +805,10 @@ class SignalDispatcher:
             # if we got here, delivery done and ACK succeeded
             self._retryq.cancel(msg_id)
             # #19: observe end-to-end latency on success
-            try:
+            with contextlib.suppress(Exception):
                 DISPATCHER_DISPATCH_LAT_MS.labels(consumer=self.consumer).observe(
                     (time.monotonic() - _t_handle_start) * 1000
                 )
-            except Exception:
-                pass
             return True
         except Exception as exc:
             if self._is_transient(exc):

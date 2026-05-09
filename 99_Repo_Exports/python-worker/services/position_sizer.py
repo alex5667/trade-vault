@@ -22,23 +22,23 @@ class KellyPositionSizer:
         stats = await self.get_rolling_stats(symbol, regime, days=30)
         if stats.n_trades < 20:
             return self.min_size  # недостаточно данных
-        
+
         p = stats.win_rate
         b = stats.avg_rr  # avg R:R ratio
         q = 1.0 - p
-        
+
         # Full Kelly
         kelly_f = (p * b - q) / b if b > 0.0 else 0.0
-        
+
         # Half-Kelly для снижения дисперсии
         half_kelly = kelly_f * 0.5
-        
+
         # Масштабируем на уверенность сигнала
         adjusted = half_kelly * confidence  # confidence из ensemble
-        
+
         # Hard limits
         return max(self.min_size, min(adjusted, self.max_size))
-    
+
     async def get_rolling_stats(self, symbol: str, regime: str, days: int) -> DefaultStats:
         # Из signal_outcomes с фильтром по режиму
         # NOTE: Using a query structured for timescaledb/postgres
@@ -61,5 +61,5 @@ class KellyPositionSizer:
                 return stats
         except Exception as e:
             logger.error(f"Error fetching rolling stats: {e}")
-            
+
         return DefaultStats()

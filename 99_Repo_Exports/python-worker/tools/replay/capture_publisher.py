@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from typing import Any
+import contextlib
 
 
 @dataclass
@@ -28,10 +29,8 @@ class CapturePublisher:
             self.signals.append(payload)
             return True
         except Exception as e:  # pragma: no cover
-            try:
+            with contextlib.suppress(Exception):
                 self.logger.exception(f"CapturePublisher.publish failed: {e}")
-            except Exception:
-                pass
             return False
 
     # Некоторые реализации SignalPublisher могли использовать другое имя метода.

@@ -1,18 +1,18 @@
-from utils.time_utils import get_ny_time_millis
-import sys
 import os
+import sys
 import time
-import json
+
 import redis
-import hmac
-import hashlib
+
+from utils.time_utils import get_ny_time_millis
 
 # Add project root to sys.path
 sys.path.append(os.getcwd())
 
+import argparse
+
 from core.recs_contract import sign_bundle_id
 
-import argparse
 
 def ml_manual_approve():
     parser = argparse.ArgumentParser()
@@ -23,7 +23,7 @@ def ml_manual_approve():
     # 1. Setup Redis
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     r = redis.Redis.from_url(redis_url, decode_responses=True)
-    
+
     # 2. Identify the bundle to approve
     bundle_id = args.bundle
     if not bundle_id:
@@ -38,19 +38,19 @@ def ml_manual_approve():
             status = r.get(f"recs:status:{bid}")
             if status in ("PENDING", "PREVIEWED"):
                 pending_bundles.append(bid)
-                    
+
         if not pending_bundles:
             print("❌ No PENDING or PREVIEWED bundles found.")
             return
 
         bundle_id = pending_bundles[0]
-    
+
     print(f"📦 Selected bundle: {bundle_id}")
 
     # 3. Sign the bundle
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     sig = sign_bundle_id(bundle_id, secret)
-    
+
     # 4. Push events
     stream = os.getenv("BOT_CALLBACKS_STREAM", "bot:callbacks")
     who = {
@@ -70,7 +70,7 @@ def ml_manual_approve():
     who["callback"] = f"recs:confirm:{bundle_id}:{sig}"
     who["timestamp"] = str(get_ny_time_millis())
     r.xadd(stream, who, maxlen=50000)
-    
+
     print("🚀 Triggered manual activation.")
 
 if __name__ == "__main__":

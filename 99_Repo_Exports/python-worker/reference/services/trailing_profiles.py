@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Профили трейлинга, которые включаются ПОСЛЕ достижения TP1.
 
@@ -12,11 +11,11 @@
 - Расширяемость для real DOM
 """
 
-from dataclasses import dataclass, asdict
-from typing import Optional, Dict, List
 import json
-import redis
 import os
+from dataclasses import asdict, dataclass
+
+import redis
 
 from common.log import setup_logger
 
@@ -41,16 +40,16 @@ class TrailingProfile:
     mode: str           # "ATR" | "POINTS" | "STEP"
     atr_mult: float = 1.0
     points: float = 200.0
-    hard_min_lock: Optional[float] = None  # сколько в пунктах обязательно зафиксировать
-    step_points: Optional[float] = None    # для ступенчатого
+    hard_min_lock: float | None = None  # сколько в пунктах обязательно зафиксировать
+    step_points: float | None = None    # для ступенчатого
     comment: str = ""
-    
-    def to_dict(self) -> Dict:
+
+    def to_dict(self) -> dict:
         """Сериализация в dict."""
         return asdict(self)
-    
+
     @classmethod
-    def from_dict(cls, data: Dict) -> 'TrailingProfile':
+    def from_dict(cls, data: dict) -> 'TrailingProfile':
         """Десериализация из dict."""
         return cls(**data)
 
@@ -63,25 +62,25 @@ class TrailingProfilesRegistry:
     Redis key: trailing:profiles
     Format: JSON dict {profile_name: profile_data}
     """
-    
-    def __init__(self, redis_url: Optional[str] = None):
+
+    def __init__(self, redis_url: str | None = None):
         self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.r = redis.from_url(self.redis_url, decode_responses=True)
-        
-        self._profiles: Dict[str, TrailingProfile] = {}
+
+        self._profiles: dict[str, TrailingProfile] = {}
         self._redis_key = "trailing:profiles"
-        
+
         # Инициализация дефолтных профилей
         self._init_default()
-        
+
         # Загрузка из Redis (если есть)
         self._load_from_redis()
-        
+
         log.info("✅ TrailingProfilesRegistry initialized with %d profiles", len(self._profiles))
-    
+
     def _init_default(self):
         """Инициализация дефолтных профилей."""
-        
+
         # Базовый — «не отдаём TP1»
         self._profiles["lock_and_trail"] = TrailingProfile(
             name="lock_and_trail",
@@ -116,7 +115,7 @@ class TrailingProfilesRegistry:
             points=200.0,
             comment="200 pts trailing"
         )
-        
+
         # Агрессивный для криптовалют
         self._profiles["crypto_tight"] = TrailingProfile(
             name="crypto_tight",
@@ -125,9 +124,9 @@ class TrailingProfilesRegistry:
             hard_min_lock=0.0,
             comment="very tight ATR trail for crypto volatility"
         )
-        
+
         log.debug("Initialized %d default profiles", len(self._profiles))
-    
+
     def _load_from_redis(self):
         """Загрузка профилей из Redis."""
         try:
@@ -141,31 +140,31 @@ class TrailingProfilesRegistry:
                         log.debug("Loaded profile from Redis: %s", name)
                     except Exception as e:
                         log.warning("Failed to load profile %s from Redis: %s", name, e)
-                
+
                 log.info("✅ Loaded %d profiles from Redis", len(profiles_dict))
         except Exception as e:
             log.debug("No profiles in Redis or error loading: %s", e)
-    
+
     def save_to_redis(self):
         """Сохранение профилей в Redis."""
         try:
             profiles_dict = {
-                name: profile.to_dict() 
+                name: profile.to_dict()
                 for name, profile in self._profiles.items()
             }
             self.r.set(self._redis_key, json.dumps(profiles_dict))
             log.info("✅ Saved %d profiles to Redis", len(self._profiles))
         except Exception as e:
             log.error("Failed to save profiles to Redis: %s", e)
-    
-    def get(self, name: str) -> Optional[TrailingProfile]:
+
+    def get(self, name: str) -> TrailingProfile | None:
         """Получить профиль по имени."""
         return self._profiles.get(name)
-    
-    def list_names(self) -> List[str]:
+
+    def list_names(self) -> list[str]:
         """Список всех доступных профилей."""
         return list(self._profiles.keys())
-    
+
     def add(self, profile: TrailingProfile, save_to_redis: bool = True):
         """
         Добавить новый профиль.
@@ -176,10 +175,10 @@ class TrailingProfilesRegistry:
         """
         self._profiles[profile.name] = profile
         log.info("Added profile: %s", profile.name)
-        
+
         if save_to_redis:
             self.save_to_redis()
-    
+
     def remove(self, name: str, save_to_redis: bool = True):
         """
         Удалить профиль.
@@ -191,13 +190,13 @@ class TrailingProfilesRegistry:
         if name in self._profiles:
             del self._profiles[name]
             log.info("Removed profile: %s", name)
-            
+
             if save_to_redis:
                 self.save_to_redis()
         else:
             log.warning("Profile not found: %s", name)
-    
-    def get_all(self) -> Dict[str, TrailingProfile]:
+
+    def get_all(self) -> dict[str, TrailingProfile]:
         """Получить все профили."""
         return self._profiles.copy()
 
@@ -205,7 +204,7 @@ class TrailingProfilesRegistry:
 if __name__ == "__main__":
     # Тестирование
     registry = TrailingProfilesRegistry()
-    
+
     print("\n=== Available Profiles ===")
     for name in registry.list_names():
         profile = registry.get(name)
@@ -214,7 +213,7 @@ if __name__ == "__main__":
         print(f"  ATR mult: {profile.atr_mult}")
         print(f"  Points: {profile.points}")
         print(f"  Comment: {profile.comment}")
-    
+
     # Сохранение в Redis
     registry.save_to_redis()
     print("\n✅ Profiles saved to Redis")

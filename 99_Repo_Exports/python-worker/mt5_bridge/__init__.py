@@ -40,14 +40,14 @@ except ImportError:
     Mt5Client = None
     Mt5Config = None
 
-from .executor import PlanExecutor, ActivePlanState
+from .exec_events import ExecEventsPublisher, ExecutionEvent
+from .executor import ActivePlanState, PlanExecutor
 from .redis_consumer import PlansStreamConsumer
-from .exec_events import ExecutionEvent, ExecEventsPublisher
 
 # Import MT5-dependent components only if MetaTrader5 is available
 try:
-    from .deals_watcher import Mt5DealsWatcher
     from .commands_consumer import ExecCommandsConsumer
+    from .deals_watcher import Mt5DealsWatcher
     MT5_EXTENDED_AVAILABLE = True
 except ImportError:
     MT5_EXTENDED_AVAILABLE = False

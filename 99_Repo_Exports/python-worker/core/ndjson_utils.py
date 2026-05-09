@@ -1,5 +1,7 @@
 import json
-from typing import Generator, Any, List
+from collections.abc import Generator
+from typing import Any
+
 
 def read_concatenated_json(content: str) -> Generator[Any, None, None]:
     """
@@ -13,7 +15,7 @@ def read_concatenated_json(content: str) -> Generator[Any, None, None]:
     lines = content.strip().split('\n')
     parsed_objects = []
     all_lines_valid = True
-    
+
     non_empty_lines = [l for l in lines if l.strip()]
     if not non_empty_lines:
         return
@@ -36,15 +38,15 @@ def read_concatenated_json(content: str) -> Generator[Any, None, None]:
     decoder = json.JSONDecoder()
     idx = 0
     length = len(content)
-    
+
     while idx < length:
         # Skip whitespace
         while idx < length and content[idx].isspace():
             idx += 1
-        
+
         if idx >= length:
             break
-            
+
         try:
             obj, end_idx = decoder.raw_decode(content, idx)
             yield obj
@@ -53,10 +55,10 @@ def read_concatenated_json(content: str) -> Generator[Any, None, None]:
             # Skip invalid char and try next (fail-open mostly)
             idx += 1
 
-def load_ndjson_file(path: str) -> List[Any]:
+def load_ndjson_file(path: str) -> list[Any]:
     """Reads a file that might be NDJSON or concatenated JSON."""
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             content = f.read()
         return list(read_concatenated_json(content))
     except Exception:

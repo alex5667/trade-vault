@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """of_gate_dlq_exporter_v1.py
 
 Prometheus exporter for Redis DLQ streams related to OF-gate metrics.
@@ -43,22 +44,22 @@ Notes
 - DLQ oldest age is more useful than newest age for backlog health.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import os
 import signal
 import time
 from collections import Counter
-from typing import Dict, List, Set, Tuple
 
-from prometheus_client import Counter as PromCounter, Gauge, start_http_server  # type: ignore
+from prometheus_client import Counter as PromCounter  # type: ignore
+from prometheus_client import Gauge, start_http_server
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _parse_streams(env_val: str) -> List[str]:
+def _parse_streams(env_val: str) -> list[str]:
     items = [x.strip() for x in (env_val or "").split(",")]
     return [x for x in items if x]
 
@@ -145,7 +146,7 @@ class Exporter:
         self.err_prefix_maxlen = int(os.getenv("OF_GATE_DLQ_EXPORTER_ERR_PREFIX_MAXLEN", "64"))
 
         # Track last label-sets to remove stale topK series
-        self._last_err_labels: Set[Tuple[str, str]] = set()
+        self._last_err_labels: set[tuple[str, str]] = set()
 
         # Lazy import to avoid hard dependency in unit environments
         import redis  # type: ignore
@@ -161,7 +162,7 @@ class Exporter:
     def _stop(self, *_args) -> None:
         self.running = False
 
-    def _poll_one(self, key: str) -> Tuple[int, int, int, Counter]:
+    def _poll_one(self, key: str) -> tuple[int, int, int, Counter]:
         """Returns (len, first_id_ms, last_id_ms, err_prefix_counter)."""
         try:
             n = int(self.redis.xlen(key) or 0)
@@ -208,7 +209,7 @@ class Exporter:
         return n, first_ms, last_ms, err_counter
 
     def _set_top_err_prefix(self, stream: str, err_counter: Counter) -> None:
-        new_labels: Set[Tuple[str, str]] = set()
+        new_labels: set[tuple[str, str]] = set()
         # emit only topK
         for prefix, cnt in err_counter.most_common(max(0, self.topk)):
             lbl = (stream, str(prefix))

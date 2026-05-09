@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from handlers.confirmations.l2_confirm_breakout import L2ConfirmBreakout, BreakoutConfirmCfg
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot, L2Level
+from handlers.confirmations.l2_confirm_breakout import BreakoutConfirmCfg, L2ConfirmBreakout
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
 from signal_scoring import reason_registry as rr
 
 

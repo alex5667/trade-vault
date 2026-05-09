@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """policy_effectiveness_telegram_report_p73_v1.py
 
 P73: Nightly/periodic Telegram summary for policy effectiveness (P71).
@@ -31,14 +32,13 @@ Env:
   POLICY_EFF_TG_STATE_KEY=ops:policy_eff:p73:tg_state
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import hashlib
 import html
 import os
-import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:
@@ -123,7 +123,7 @@ def _classify_severity(
     return "info"
 
 
-def build_message(cfg: Dict[str, str]) -> Tuple[str, Dict[str, Any]]:
+def build_message(cfg: dict[str, str]) -> tuple[str, dict[str, Any]]:
     """Build stable HTML message + extracted stats."""
     ts_ms = _i(cfg.get("policy_effectiveness_last_ts_ms"), 0)
     in_ts_ms = _i(cfg.get("policy_effectiveness_input_last_ts_ms"), 0)
@@ -203,7 +203,7 @@ def should_send(
     severity: str,
     cooldown_sec: int,
     force_on_critical: int,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Returns (send?, reason)."""
     try:
         st = r.hgetall(state_key) or {}

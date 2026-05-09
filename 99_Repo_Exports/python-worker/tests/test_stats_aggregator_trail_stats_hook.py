@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import types
 import services.stats_aggregator as sa
 
 
@@ -30,7 +29,7 @@ def test_trail_stats_called(monkeypatch):
 
     # Verify the import works
     try:
-        from services.trail_giveback_stats import TrailStatsConfig, update_trail_giveback_ema
+        from services.trail_giveback_stats import TrailStatsConfig
         cfg = TrailStatsConfig.from_env()
         assert cfg.enabled == True
         print("Trail stats configuration works")

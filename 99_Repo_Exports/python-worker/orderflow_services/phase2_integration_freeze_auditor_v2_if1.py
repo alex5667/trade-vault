@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-import time
-from typing import Any, Dict, List
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -49,18 +49,18 @@ CHECKS_TOTAL = _counter("ml_phase2_integration_freeze_checks_total", "Checks con
 
 def now_ms() -> int: return get_ny_time_millis()
 
-async def check_stream(r: Any, stream: str, max_age_ms: int) -> Dict[str, Any]:
+async def check_stream(r: Any, stream: str, max_age_ms: int) -> dict[str, Any]:
     try:
         res = await r.xrevrange(stream, count=1)
         if not res:
             return {"status": "FAIL", "reason": f"Stream {stream} is empty"}
-        
+
         msg_id, payload = res[0]
         ts_ms = int(msg_id.decode().split("-")[0])
         age = now_ms() - ts_ms
         if age > max_age_ms:
             return {"status": "WARN", "reason": f"Stream {stream} is stale ({age//1000}s)", "age_ms": age}
-        
+
         return {"status": "OK", "stream": stream}
     except Exception as e:
         return {"status": "FAIL", "reason": f"Error checking {stream}: {str(e)}"}
@@ -68,7 +68,7 @@ async def check_stream(r: Any, stream: str, max_age_ms: int) -> Dict[str, Any]:
 async def run_audit(r: Any) -> None:
     results = []
     verdict = "GO"
-    
+
     # Critical checks
     for s in CRITICAL_STREAMS:
         res = await check_stream(r, s, CRITICAL_MAX_AGE_MS)
@@ -80,19 +80,18 @@ async def run_audit(r: Any) -> None:
     for s in OPTIONAL_STREAMS:
         res = await check_stream(r, s, MAX_AGE_MS)
         results.append({"check": s, "type": "OPTIONAL", **res})
-        if res["status"] == "FAIL" and verdict == "GO": verdict = "WARN"
-        elif res["status"] == "WARN" and verdict == "GO": verdict = "WARN"
+        if res["status"] == "FAIL" and verdict == "GO" or res["status"] == "WARN" and verdict == "GO": verdict = "WARN"
 
     report = {
         "verdict": verdict,
         "results_json": json.dumps(results),
         "ts_ms": now_ms()
     }
-    
+
     await r.xadd(OUT_STREAM, report, maxlen=100)
     await r.xadd(AUDIT_STREAM, report, maxlen=1000)
     await r.hset(METRIC_KEY, mapping=report)
-    
+
     if VERDICT_GAUGE:
         val = 2 if verdict == "GO" else (1 if verdict == "WARN" else 0)
         VERDICT_GAUGE.set(val)

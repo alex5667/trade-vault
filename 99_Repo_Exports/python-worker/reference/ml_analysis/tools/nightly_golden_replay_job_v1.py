@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Nightly golden replay job (B6).
 
 This tool scans OFC_CAPTURE NDJSON captures, groups them by policy hash, and
@@ -9,32 +10,30 @@ Key property: we do NOT allow mixed policies in a single replay run.
 
 
 import argparse
-import os
-import sys
-import time
 import json
+import os
 import subprocess
-from datetime import datetime, timedelta, timezone
+import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List
 
 
 def _utc_yyyymmdd(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y%m%d")
+    return dt.astimezone(UTC).strftime("%Y%m%d")
 
 
-def _iter_policy_dirs(base: Path, day: str) -> List[Path]:
+def _iter_policy_dirs(base: Path, day: str) -> list[Path]:
     root = base / day
     if not root.exists():
         return []
-    out: List[Path] = []
+    out: list[Path] = []
     for p in sorted(root.iterdir()):
         if p.is_dir() and p.name.startswith("policy_"):
             out.append(p)
     return out
 
 
-def _concat_ndjson(files: List[Path], out_path: Path, limit: int) -> int:
+def _concat_ndjson(files: list[Path], out_path: Path, limit: int) -> int:
     n = 0
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as out:
@@ -73,7 +72,7 @@ def _run_parity(inp: Path, outdir: Path, fail_on_mismatch: bool, evidence: str) 
 def prune_old(base: Path, keep_days: int) -> None:
     if keep_days <= 0:
         return
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=int(keep_days))
+    cutoff = datetime.now(tz=UTC) - timedelta(days=int(keep_days))
     for p in sorted(base.iterdir()):
         if not p.is_dir():
             continue
@@ -81,7 +80,7 @@ def prune_old(base: Path, keep_days: int) -> None:
         if len(name) != 8 or not name.isdigit():
             continue
         try:
-            dt = datetime.strptime(name, "%Y%m%d").replace(tzinfo=timezone.utc)
+            dt = datetime.strptime(name, "%Y%m%d").replace(tzinfo=UTC)
         except Exception:
             continue
         if dt < cutoff:
@@ -104,7 +103,7 @@ def prune_old(base: Path, keep_days: int) -> None:
                 pass
 
 
-def main(argv: List[str]) -> int:
+def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--capture-dir", default=os.getenv("OFC_CAPTURE_DIR", "/var/lib/scanner/ofc_capture"))
     ap.add_argument("--outdir", default=os.getenv("GOLDEN_REPLAY_OUTDIR", "/var/lib/scanner/golden_replay_reports"))
@@ -119,7 +118,7 @@ def main(argv: List[str]) -> int:
     out = Path(args.outdir)
 
     if args.date == "yesterday":
-        day = _utc_yyyymmdd(datetime.now(tz=timezone.utc) - timedelta(days=1))
+        day = _utc_yyyymmdd(datetime.now(tz=UTC) - timedelta(days=1))
     else:
         day = str(args.date).strip()
 
@@ -130,7 +129,7 @@ def main(argv: List[str]) -> int:
         prune_old(cap, args.keep_days)
         return 0
 
-    summary: Dict[str, Dict[str, object]] = {"day": day, "policies": {}}  # type: ignore
+    summary: dict[str, dict[str, object]] = {"day": day, "policies": {}}  # type: ignore
 
     rc_all = 0
     for pd in policy_dirs:

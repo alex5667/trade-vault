@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Burstiness Tracker - отслеживание кластеризации и взрывности торгов.
 
@@ -16,7 +17,6 @@ O(1) на тик, без аллокаций на горячем пути.
 import math
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -68,7 +68,7 @@ class BurstinessTracker:
         self.dt_alpha = dt_alpha
 
         # per-bucket counters
-        self._bucket_id: Optional[int] = None
+        self._bucket_id: int | None = None
         self._bucket_trades = 0
         self._bucket_flips = 0
         self._last_side = 0  # -1, 1, or 0
@@ -93,7 +93,7 @@ class BurstinessTracker:
         # Обновление EWMA интенсивности
         if self.last_ts > 0:
             dt = max(1, ts - self.last_ts)
-            
+
             # Экспоненциальное затухание
             self.lambda_s = self.lambda_s * math.exp(-self.beta_s * dt) + 1.0
             self.lambda_l = self.lambda_l * math.exp(-self.beta_l * dt) + 1.0

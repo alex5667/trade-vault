@@ -1,9 +1,10 @@
 
-import pytest
 import os
 from unittest.mock import MagicMock, patch
+
 from services.orderflow.decision_binding_v1 import bind_rule_ml_v1
-from services.orderflow.decision_record_v1 import build_decision_record_v1, _drift_state_from_indicators
+from services.orderflow.decision_record_v1 import _drift_state_from_indicators, build_decision_record_v1
+
 
 class TestP51DriftAlignment:
 
@@ -45,13 +46,13 @@ class TestP51DriftAlignment:
         # From struct
         ind = {"drift": {"drift_state_24h": "2"}}
         assert _drift_state_from_indicators(ind) == "block"
-        
+
         ind = {"drift": {"drift_state_24h": "1"}}
         assert _drift_state_from_indicators(ind) == "warn"
 
         ind = {"drift": {"drift_state_24h": "0"}}
         assert _drift_state_from_indicators(ind) == "ok"
-        
+
         # From fallback
         ind = {"drift_state": "warn"}
         assert _drift_state_from_indicators(ind) == "warn"
@@ -59,7 +60,7 @@ class TestP51DriftAlignment:
     def test_decision_record_structure(self):
         runtime = MagicMock()
         runtime.symbol = "BTCUSDT"
-        
+
         signal = {
             "sid": "test_sig_1",
             "ts_ms": 1700000000000,
@@ -73,7 +74,7 @@ class TestP51DriftAlignment:
                 "of_confirm": {"ok": 1}
             }
         }
-        
+
         rec = build_decision_record_v1(
             runtime=runtime,
             signal=signal,
@@ -81,7 +82,7 @@ class TestP51DriftAlignment:
             final_actual="veto",
             veto_reason="DRIFT_BLOCK"
         )
-        
+
         assert rec["drift_state"] == "block"
         assert rec["drift_psi_max_24h"] == 0.5
         assert rec["drift_z_max_24h"] == 7.5

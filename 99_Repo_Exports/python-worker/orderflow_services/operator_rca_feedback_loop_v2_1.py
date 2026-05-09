@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -18,6 +19,7 @@ except Exception:  # pragma: no cover
     asyncpg = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+import contextlib
 
 FEEDBACK_STREAM = os.getenv("ML_OPERATOR_RCA_FEEDBACK_STREAM", "stream:ml:operator_rca_feedback")
 FEEDBACK_SUMMARY_STREAM = os.getenv("ML_OPERATOR_RCA_FEEDBACK_SUMMARY_STREAM", "stream:ml:operator_rca_feedback_summary")
@@ -75,7 +77,7 @@ class FeedbackEvent:
     note: str
 
 
-def parse_feedback(fields: Dict[Any, Any]) -> FeedbackEvent:
+def parse_feedback(fields: dict[Any, Any]) -> FeedbackEvent:
     return FeedbackEvent(
         recommendation_id=_b2s(fields.get(b"recommendation_id", b"")),
         ts_ms=int(_b2s(fields.get(b"ts_ms", b"0")) or "0"),
@@ -87,10 +89,8 @@ def parse_feedback(fields: Dict[Any, Any]) -> FeedbackEvent:
 
 
 async def _ensure_group(r: Any) -> None:
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(FEEDBACK_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
 
 
 async def _persist(conn: Any, fb: FeedbackEvent, usefulness_score: float) -> None:
@@ -127,7 +127,7 @@ async def _persist(conn: Any, fb: FeedbackEvent, usefulness_score: float) -> Non
     )
 
 
-async def _update_summary(r: Any, action_type: str, usefulness_score: float) -> Dict[str, Any]:
+async def _update_summary(r: Any, action_type: str, usefulness_score: float) -> dict[str, Any]:
     key = f"{SUMMARY_HASH_PREFIX}{action_type or 'unknown'}"
     current = await r.hgetall(key)
     total_n = int(_b2s(current.get(b"total_n", b"0")) or "0") + 1

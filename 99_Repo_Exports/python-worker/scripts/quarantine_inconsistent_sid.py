@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Soft-quarantine inconsistent execution state in Redis.
 
@@ -48,9 +50,9 @@ import argparse
 import json
 import os
 import sys
-import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any
 
 # Allow direct execution without installing the package
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -78,7 +80,7 @@ def build_quarantine_targets(
     mismatches: Iterable[consistency.ConsistencyMismatch],
     *,
     severity: str = 'critical',
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Group mismatches by sid and filter by minimum severity.
 
     Returns list of dicts: {sid, reason, severity}
@@ -87,11 +89,11 @@ def build_quarantine_targets(
     # Numeric severity order – higher = more severe
     order = {'critical': 2, 'warning': 1}
     min_sev = order.get(severity, 2)
-    by_sid: Dict[str, List[consistency.ConsistencyMismatch]] = {}
+    by_sid: dict[str, list[consistency.ConsistencyMismatch]] = {}
     for mm in mismatches:
         if order.get(mm.severity, 0) >= min_sev:
             by_sid.setdefault(mm.sid, []).append(mm)
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for sid, items in sorted(by_sid.items()):
         out.append({
             'sid': sid,
@@ -113,7 +115,7 @@ def quarantine_sid(
     source: str = 'consistency_checker',
     dry_run: bool = False,
     ledger: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Soft-quarantine a single sid in Redis using a pipeline for atomicity.
 
     Steps (when not dry_run):
@@ -127,7 +129,7 @@ def quarantine_sid(
     state_key = f'{state_prefix}{sid}'
     quarantine_key = f'{quarantine_prefix}{sid}'
     existing = redis_client.get(state_key)
-    state_doc: Dict[str, Any]
+    state_doc: dict[str, Any]
     try:
         state_doc = json.loads(existing) if existing else {}
         if not isinstance(state_doc, dict):
@@ -180,12 +182,12 @@ def quarantine_sid(
     return result
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Soft-quarantine inconsistent sid values in Redis.')
     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
     parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
     parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
-    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC))
     parser.add_argument('--stream-count', type=int, default=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')))
     parser.add_argument('--quarantine-prefix', default=os.getenv('ORDERS_QUARANTINE_PREFIX', 'orders:quarantine:state:'))
     parser.add_argument('--severity', default=os.getenv('EXEC_QUARANTINE_MIN_SEVERITY', 'critical'),

@@ -1,6 +1,6 @@
+from handlers.confirmations.engine import Validation
 from signal_scoring.reason_codes import ReasonCode
 from signal_scoring.reason_policy import patch_validation_reason_for_kind
-from handlers.confirmations.engine import Validation
 
 
 def test_reason_kind_mismatch_is_normalized_to_unknown() -> None:

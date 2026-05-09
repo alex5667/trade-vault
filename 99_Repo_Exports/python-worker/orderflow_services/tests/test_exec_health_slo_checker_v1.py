@@ -1,7 +1,6 @@
 from __future__ import annotations
+
 """Tests for exec_health_slo_checker_v1 (P4)."""
-import importlib
-import json
 import unittest
 
 

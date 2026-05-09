@@ -4,7 +4,7 @@ import json
 import os
 import time
 from dataclasses import asdict, dataclass
-from typing import Any, Dict
+from typing import Any
 
 import redis
 
@@ -50,18 +50,18 @@ def _max_flips_per_day() -> int:
     return _safe_int(os.getenv("ATR_POLICY_MAX_FLIPS_PER_DAY", "3"), 3)
 
 
-def _cohort_id(obj: Dict[str, Any]) -> str:
+def _cohort_id(obj: dict[str, Any]) -> str:
     return (
         f"{obj.get('source', '')}|{obj.get('symbol', '')}|{obj.get('scenario', '')}|"
         f"{obj.get('regime', '')}|{obj.get('risk_horizon_bucket', '')}"
     )
 
 
-def cooldown_key(obj: Dict[str, Any]) -> str:
+def cooldown_key(obj: dict[str, Any]) -> str:
     return f"cfg:atr_policy:cooldown:{_cohort_id(obj)}"
 
 
-def flip_count_key(obj: Dict[str, Any]) -> str:
+def flip_count_key(obj: dict[str, Any]) -> str:
     return f"cfg:atr_policy:flip_count:{_cohort_id(obj)}"
 
 
@@ -71,17 +71,17 @@ class GuardrailResult:
     action: str
     require_confirm: bool
     reason_code: str
-    reason_details: Dict[str, Any]
+    reason_details: dict[str, Any]
 
 
-def _read_stop_evidence(obj: Dict[str, Any]) -> Dict[str, Any]:
+def _read_stop_evidence(obj: dict[str, Any]) -> dict[str, Any]:
     ev = obj.get("evidence", {})
     if not isinstance(ev, dict):
         return {}
     return ev.get("stop_ttl", {}) if isinstance(ev.get("stop_ttl"), dict) else {}
 
 
-def _read_trailing_evidence(obj: Dict[str, Any]) -> Dict[str, Any]:
+def _read_trailing_evidence(obj: dict[str, Any]) -> dict[str, Any]:
     ev = obj.get("evidence", {})
     if not isinstance(ev, dict):
         return {}
@@ -89,8 +89,8 @@ def _read_trailing_evidence(obj: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def evaluate_guardrails(
-    *, obj: Dict[str, Any], action: str, is_active: bool
-) -> Dict[str, Any]:
+    *, obj: dict[str, Any], action: str, is_active: bool
+) -> dict[str, Any]:
     """
     Server-side operator guardrail evaluation.
 
@@ -102,7 +102,7 @@ def evaluate_guardrails(
       reason_details dict with supporting numbers
     """
     r = _redis()
-    action = str(action or "").upper()
+    action = (action or "").upper()
     now = int(time.time())
 
     # ── Emit prometheus metrics (best-effort) ─────────────────────────────
@@ -268,7 +268,7 @@ def evaluate_guardrails(
     ))
 
 
-def arm_cooldown(obj: Dict[str, Any], *, actor: str, action: str) -> None:
+def arm_cooldown(obj: dict[str, Any], *, actor: str, action: str) -> None:
     """Arm a cooldown key and increment daily flip counter for the cohort."""
     r = _redis()
     now = int(time.time())

@@ -18,7 +18,7 @@ Design rules
 import json
 import math
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 SCHEMA_VERSION = 1
 DEFAULT_CTX_PREFIX = "ctx:defillama:"
@@ -52,7 +52,7 @@ class DefiLlamaContextSnapshot:
 
     quality_status: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_json(self) -> str:
@@ -72,14 +72,14 @@ def _f(v: Any, d: float = 0.0) -> float:
 
 
 def _s(v: Any) -> str:
-    return str(v or "").strip()
+    return (v or "").strip()
 
 
 def ctx_key(symbol: str, prefix: str = DEFAULT_CTX_PREFIX) -> str:
-    return f"{prefix}{str(symbol or '').upper()}"
+    return f"{prefix}{(symbol or '').upper()}"
 
 
-def from_dict(payload: Dict[str, Any]) -> Optional[DefiLlamaContextSnapshot]:
+def from_dict(payload: dict[str, Any]) -> DefiLlamaContextSnapshot | None:
     try:
         symbol = _s(payload.get("symbol")).upper()
         if not symbol:
@@ -115,7 +115,7 @@ def from_dict(payload: Dict[str, Any]) -> Optional[DefiLlamaContextSnapshot]:
         return None
 
 
-def from_json(raw: Any) -> Optional[DefiLlamaContextSnapshot]:
+def from_json(raw: Any) -> DefiLlamaContextSnapshot | None:
     try:
         if raw is None:
             return None
@@ -134,7 +134,7 @@ def from_json(raw: Any) -> Optional[DefiLlamaContextSnapshot]:
 # Async reader with local cache (2-second TTL) — fail-open
 # ---------------------------------------------------------------------------
 
-_LOCAL_CACHE: Dict[str, Tuple[int, Optional[DefiLlamaContextSnapshot]]] = {}
+_LOCAL_CACHE: dict[str, tuple[int, DefiLlamaContextSnapshot | None]] = {}
 
 
 def _now_ms() -> int:
@@ -144,7 +144,7 @@ def _now_ms() -> int:
 
 async def aread_defillama_context(
     redis, *, symbol: str, prefix: str = DEFAULT_CTX_PREFIX
-) -> Optional[DefiLlamaContextSnapshot]:
+) -> DefiLlamaContextSnapshot | None:
     if redis is None:
         return None
     now_ms = _now_ms()

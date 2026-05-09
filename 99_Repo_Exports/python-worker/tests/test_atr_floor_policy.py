@@ -1,5 +1,7 @@
 import unittest
+
 from core.atr_floor_policy import compute_atr_bps_threshold
+
 
 class TestATRFloorPolicy(unittest.TestCase):
     def test_tier_selection(self):
@@ -10,7 +12,7 @@ class TestATRFloorPolicy(unittest.TestCase):
             "atr_floor_tier_thin": 2,
             "atr_bps_min_static": 2.0
         }
-        
+
         # Trend -> t0
         t, rg, th = compute_atr_bps_threshold(regime="trend", cfg=cfg, t0=3, t1=5, t2=8)
         self.assertEqual(t, 0)

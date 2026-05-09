@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 MetricsBatcher — Bounded async sink for non-critical Redis write operations.
 
@@ -25,10 +26,8 @@ Usage:
 """
 
 import asyncio
-from utils.task_manager import safe_create_task
-
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any
 
 logger = logging.getLogger("metrics_batcher")
 
@@ -62,7 +61,7 @@ class MetricsBatcher:
         worker_label: str = "orderflow",
     ) -> None:
         self._redis = redis
-        self._queue: asyncio.Queue[Tuple] = asyncio.Queue(maxsize=maxsize)
+        self._queue: asyncio.Queue[tuple] = asyncio.Queue(maxsize=maxsize)
         self._batch_size = batch_size
         self._poll_timeout_s = poll_timeout_s
         self._worker_label = worker_label
@@ -129,7 +128,7 @@ class MetricsBatcher:
             timeout = None if drain else self._poll_timeout_s
             first = await asyncio.wait_for(self._queue.get(), timeout=timeout)
             batch.append(first)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return
         except asyncio.QueueEmpty:
             return
@@ -206,7 +205,7 @@ class MetricsBatcher:
 
             elif op == "xadd":
                 stream = args[0]
-                fields: Dict[str, Any] = args[1] if len(args) > 1 else {}
+                fields: dict[str, Any] = args[1] if len(args) > 1 else {}
                 maxlen = kwargs.get("maxlen")
                 approximate = kwargs.get("approximate", True)
                 if maxlen:
@@ -220,7 +219,7 @@ class MetricsBatcher:
         except Exception as exc:
             logger.debug("MetricsBatcher: op=%r failed: %r", op, exc)
 
-    def _flush_prom_batch(self, prom_batch: Dict[Tuple[str, tuple], float]) -> None:
+    def _flush_prom_batch(self, prom_batch: dict[tuple[str, tuple], float]) -> None:
         """Flushes aggregated prometheus metrics."""
         for (op, labels), val in prom_batch.items():
             try:
@@ -237,12 +236,12 @@ class PrometheusBatcher:
     Reduces label lookup and GIL overhead.
     """
     def __init__(self, interval: float = 1.0):
-        self._counts: Dict[Any, float] = {}
+        self._counts: dict[Any, float] = {}
         self._interval = interval
         self._lock = asyncio.Lock()
         self._task = None
 
-    def inc(self, metric: Any, labels: Dict[str, str], amount: float = 1.0):
+    def inc(self, metric: Any, labels: dict[str, str], amount: float = 1.0):
         key = (metric, tuple(sorted(labels.items())))
         self._counts[key] = self._counts.get(key, 0) + amount
 

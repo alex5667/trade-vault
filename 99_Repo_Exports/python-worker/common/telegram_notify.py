@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import os
-import urllib.request
 import urllib.parse
-from typing import Optional
+import urllib.request
 
 
 def _tg_api_url(token: str, method: str) -> str:
@@ -13,8 +12,8 @@ def _tg_api_url(token: str, method: str) -> str:
 def send_telegram(
     text: str,
     *,
-    token: Optional[str] = None,
-    chat_id: Optional[str] = None,
+    token: str | None = None,
+    chat_id: str | None = None,
     parse_mode: str = "HTML",
     disable_web_page_preview: bool = True,
     timeout_sec: float = 10.0,

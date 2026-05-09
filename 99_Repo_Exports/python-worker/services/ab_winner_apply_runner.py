@@ -1,15 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import os
 import time
-from typing import Any, List, Tuple
+from typing import Any
 
 import redis.asyncio as aioredis
 
 from services.ab_winner_apply_lib import apply_sid_if_ready
 from services.orderflow.auto_apply_guard import get_block_state
+from utils.time_utils import get_ny_time_millis
 
 try:
     from prometheus_client import Counter, Gauge, start_http_server
@@ -70,9 +70,9 @@ class ABWinnerApplyRunner:
             self.m_last_success_ts_ms = None
             self.m_backlog_gauge = None
 
-    async def _scan_latest_keys(self) -> List[str]:
+    async def _scan_latest_keys(self) -> list[str]:
         match = f"{self.latest_prefix}:*"
-        keys: List[str] = []
+        keys: list[str] = []
         try:
             cursor, batch = await self.r.scan(self._scan_cursor, match=match, count=self.scan_count)
             self._scan_cursor = int(cursor or 0)
@@ -82,7 +82,7 @@ class ABWinnerApplyRunner:
             self._scan_cursor = 0
         return keys
 
-    async def tick_once(self) -> Tuple[int, int]:
+    async def tick_once(self) -> tuple[int, int]:
         # Step 26: Guard — block apply if tick-quality gate is blocking
         # Step 26: Guard — block apply if tick-quality gate is blocking
         is_blocked, meta = get_block_state()
@@ -92,7 +92,7 @@ class ABWinnerApplyRunner:
             # Since this runs in run_forever loop with sleep, printing is fine (logs will show "blocked")
             # print(f"[ab-apply-runner] Blocked by guard: {meta.get('reason')} (pinned: {meta.get('pinned_reason')})")
             return 0, 0
-        
+
         keys = await self._scan_latest_keys()
         if not keys:
             return 0, 0
@@ -112,7 +112,7 @@ class ABWinnerApplyRunner:
         for sid in sids:
             if applied >= self.max_apply_per_cycle:
                 break
-            sid_s = str(sid or "").strip()
+            sid_s = (sid or "").strip()
             if not sid_s:
                 continue
             considered += 1

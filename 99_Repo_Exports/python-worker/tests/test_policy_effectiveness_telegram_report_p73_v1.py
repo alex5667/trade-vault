@@ -1,9 +1,9 @@
 """Tests for P73 policy effectiveness Telegram report."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from orderflow_services import policy_effectiveness_telegram_report_p73_v1 as p73
+
 
 def test_build_message():
     cfg = {
@@ -22,16 +22,16 @@ def test_build_message():
         "policy_effectiveness_precision_top5p_delta_24h_block": "-0.05",
         "policy_effectiveness_ece_delta_24h_block": "0.05",
     }
-    
+
     with patch("orderflow_services.policy_effectiveness_telegram_report_p73_v1.now_ms", return_value=1700000000000):
         msg, meta = p73.build_message(cfg)
-        
+
     assert "<b>Policy effectiveness (24h)</b>" in msg
     assert "total_n=<code>500</code>" in msg
     assert "baseline_ok=<code>1</code>" in msg
     assert "share: ok=<code>50.00%</code> warn=<code>30.00%</code> block=<code>20.00%</code>" in msg
     assert "Δ vs ok (warn): exp_R=<code>-0.050</code>" in msg
-    
+
     assert meta["total_n"] == 500
     assert meta["baseline_ok"] == 1
     assert meta["shares"]["ok"] == 0.5
@@ -40,28 +40,28 @@ def test_build_message():
 def test_classify_severity():
     # Fresh report, baseline present
     assert p73._classify_severity(100, 1, 500, 1800, 7200) == "info"
-    
+
     # Stale warning
     assert p73._classify_severity(2000, 1, 500, 1800, 7200) == "warning"
-    
+
     # Stale critical
     assert p73._classify_severity(8000, 1, 500, 1800, 7200) == "critical"
-    
+
     # Baseline missing (critical if n >= 50)
     assert p73._classify_severity(100, 0, 50, 1800, 7200) == "critical"
-    
+
     # Baseline missing but low N (not critical due to N)
     assert p73._classify_severity(100, 0, 40, 1800, 7200) == "info"
 
 def test_should_send():
     r_mock = MagicMock()
-    
+
     # Empty state -> should send
     r_mock.hgetall.return_value = {}
     send, reason = p73.should_send(r_mock, "key", "msg1", "info", 3600, 1)
     assert send is True
     assert reason == "ok"
-    
+
     # Cooldown active, same hash -> no send
     with patch("orderflow_services.policy_effectiveness_telegram_report_p73_v1.now_ms", return_value=1000000):
         r_mock.hgetall.return_value = {
@@ -72,16 +72,16 @@ def test_should_send():
         send, reason = p73.should_send(r_mock, "key", "msg1", "info", 3600, 1)
         assert send is False
         assert reason == "dedup_cooldown"
-        
+
         # Cooldown active, different hash -> still no send
         send, reason = p73.should_send(r_mock, "key", "msg2", "info", 3600, 1)
         assert send is False
         assert reason == "cooldown"
-        
+
         # Critical bypass override (force 20% interval)
         send, reason = p73.should_send(r_mock, "key", "msg2", "critical", 3600, 1)
         assert send is True
-        
+
     with patch("orderflow_services.policy_effectiveness_telegram_report_p73_v1.now_ms", return_value=1800000):
         # Time passes enough for critical override (800 > 720s)
         r_mock.hgetall.return_value = {

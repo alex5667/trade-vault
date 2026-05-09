@@ -1,6 +1,14 @@
 import time
-from typing import Any, Dict, List, Tuple
-from core.feature_engineering import RobustScalerPack, apply_transform, bucketize, derive_regime_label, derive_session_label
+from typing import Any
+
+from core.feature_engineering import (
+    RobustScalerPack,
+    apply_transform,
+    bucketize,
+    derive_regime_label,
+    derive_session_label,
+)
+
 
 def _f(x: Any, default: float) -> float:
     try:
@@ -34,15 +42,15 @@ def _bucket_from_scenario(s: str) -> str:
 
 def build_feature_row(
     model: Any,
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     direction: str,
     scenario: str,
     ts_ms: int,
     forbid_scenario_v4_onehot: bool = False
-) -> Tuple[List[float], List[str]]:
+) -> tuple[list[float], list[str]]:
     """Build feature row for model inference."""
-    feature_cols: List[str] = list(getattr(model, "feature_cols", []) or [])
-    missing: List[str] = []
+    feature_cols: list[str] = list(getattr(model, "feature_cols", []) or [])
+    missing: list[str] = []
 
     # critical inputs (accuracy/safety)
     critical = ["spread_bps", "expected_slippage_bps"]
@@ -98,8 +106,8 @@ def build_feature_row(
     liq_cfg = getattr(model, "liq_cfg", None)
     if not isinstance(liq_cfg, dict):
         liq_cfg = {}
-    liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score", None), None), cfg=liq_cfg)
-    vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score", None), None), cfg=liq_cfg)
+    liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score"), None), cfg=liq_cfg)
+    vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score"), None), cfg=liq_cfg)
 
     tm = time.gmtime(float(int(ts_ms or 0)) / 1000.0)
     utc_hour = int(getattr(tm, "tm_hour", 0))
@@ -107,7 +115,7 @@ def build_feature_row(
     bucket = _bucket_from_scenario(s) or "other"
 
     try:
-        bucket2 = str(indicators.get("bucket2") or "").strip().lower()
+        bucket2 = (indicators.get("bucket2") or "").strip().lower()
     except Exception:
         bucket2 = ""
     if not bucket2:
@@ -117,7 +125,7 @@ def build_feature_row(
         except Exception:
             bucket2 = ""
 
-    cache: Dict[str, float] = {}
+    cache: dict[str, float] = {}
 
     def num(name: str) -> float:
         if name in cache:
@@ -130,7 +138,7 @@ def build_feature_row(
         cache[name] = float(x)
         return cache[name]
 
-    row: List[float] = []
+    row: list[float] = []
     for col in feature_cols:
         if col.startswith("f_"):
             key = col[2:]

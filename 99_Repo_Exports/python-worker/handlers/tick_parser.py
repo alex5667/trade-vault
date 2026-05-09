@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Optional, Mapping
-
+from typing import Any
 
 # Флаги (как вы описывали): 1=trade, 2=buy, 4=sell
 FLAG_TRADE = 1
@@ -40,15 +40,15 @@ class Tick:
     last: float
     volume: float
     flags: int
-    is_buyer_maker: Optional[bool] = None
-    raw: Optional[dict[str, Any]] = None  # debug: небольшой сыро-слой (НЕ кладите сюда огромные payloads)
+    is_buyer_maker: bool | None = None
+    raw: dict[str, Any] | None = None  # debug: небольшой сыро-слой (НЕ кладите сюда огромные payloads)
 
 
 def _isfinite(x: float) -> bool:
     return not (math.isnan(x) or math.isinf(x))
 
 
-def _to_int(x: Any) -> Optional[int]:
+def _to_int(x: Any) -> int | None:
     try:
         if x is None:
             return None
@@ -74,7 +74,7 @@ def _to_int(x: Any) -> Optional[int]:
         return None
 
 
-def _to_float(x: Any) -> Optional[float]:
+def _to_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -98,7 +98,7 @@ def _to_float(x: Any) -> Optional[float]:
         return None
 
 
-def normalize_ts_ms(ts: Any) -> Optional[int]:
+def normalize_ts_ms(ts: Any) -> int | None:
     """
     Нормализация времени:
       - если < 1e12 -> секунды -> *1000
@@ -172,7 +172,7 @@ def _unwrap_raw(raw: Any) -> Any:
     return raw
 
 
-def parse_tick(raw: Any, *, now_ms: Optional[int] = None) -> Optional[Tick]:
+def parse_tick(raw: Any, *, now_ms: int | None = None) -> Tick | None:
     """
     Возвращает Tick или None (если вход некорректный).
 

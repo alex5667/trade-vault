@@ -1,26 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class RegimeFeatures:
     # raw metrics
-    vwap_dev_bps: Optional[float] = None
-    daily_open_dev_bps: Optional[float] = None
-    daily_open_cross_freq: Optional[float] = None
-    htf_level_dist_bps: Optional[float] = None
+    vwap_dev_bps: float | None = None
+    daily_open_dev_bps: float | None = None
+    daily_open_cross_freq: float | None = None
+    htf_level_dist_bps: float | None = None
 
     # biases [-1..+1] (or None if not available)
-    atr_bias: Optional[float] = None
-    delta_dir_bias: Optional[float] = None
-    vwap_dev_bias: Optional[float] = None
-    daily_open_dev_bias: Optional[float] = None
-    daily_open_cross_bias: Optional[float] = None
-    htf_prox_bias: Optional[float] = None
-    weak_progress_bias: Optional[float] = None
-    session_bias: Optional[float] = None
+    atr_bias: float | None = None
+    delta_dir_bias: float | None = None
+    vwap_dev_bias: float | None = None
+    daily_open_dev_bias: float | None = None
+    daily_open_cross_bias: float | None = None
+    htf_prox_bias: float | None = None
+    weak_progress_bias: float | None = None
+    session_bias: float | None = None
 
 
 @dataclass
@@ -29,4 +28,4 @@ class RegimeSample:
     price: float
     vwap_side: int
     daily_open_side: int
-    bar_index: Optional[int] = None
+    bar_index: int | None = None

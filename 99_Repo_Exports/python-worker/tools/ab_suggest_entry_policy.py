@@ -1,18 +1,18 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import logging
 import os
-import time
-from dataclasses import dataclass
-from typing import Any, Dict, DefaultDict
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any
 
 import redis
 
 from common.redis_errors import retry_redis_operation
-from services.entry_policy_ab_gate import regime_group, norm_arm
+from services.entry_policy_ab_gate import norm_arm, regime_group
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _j(s: str) -> Dict[str, Any]:
+def _j(s: str) -> dict[str, Any]:
     try:
         d = json.loads(s)
         return d if isinstance(d, dict) else {}
@@ -50,7 +50,7 @@ class Stat:
         return self.wins / self.n if self.n else 0.0
 
 
-def pick(stats: Dict[str, Stat], min_n: int) -> str:
+def pick(stats: dict[str, Stat], min_n: int) -> str:
     best = "A"
     best_key = (-1e18, -1e18, -1)
     for arm, st in stats.items():
@@ -65,7 +65,7 @@ def pick(stats: Dict[str, Stat], min_n: int) -> str:
 
 def main() -> int:
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-    stream = os.getenv("AB_EVENTS_STREAM", "events:trades")
+    stream = os.getenv("AB_EVENTS_STREAM", RS.EVENTS_TRADES)
     window_ms = int(os.getenv("AB_WINDOW_MS", str(6 * 60 * 60 * 1000)))
     min_n = int(os.getenv("AB_MIN_N", "30"))
     max_scan = int(os.getenv("AB_MAX_SCAN", "8000"))
@@ -74,14 +74,14 @@ def main() -> int:
     now = _now_ms()
     cutoff = now - window_ms
 
-    agg: DefaultDict[str, DefaultDict[str, Stat]] = defaultdict(lambda: defaultdict(Stat))
-    
+    agg: defaultdict[str, defaultdict[str, Stat]] = defaultdict(lambda: defaultdict(Stat))
+
     # Retry xrevrange on BusyLoadingError (Redis loading dataset)
     entries = []
     last_id = "+"
     scanned = 0
     chunk_size = 1000
-    
+
     while scanned < max_scan:
         batch = retry_redis_operation(
             operation=lambda: r.xrevrange(stream, max=last_id, min="-", count=chunk_size),
@@ -93,14 +93,14 @@ def main() -> int:
         )
         if not batch:
             break
-            
+
         for _id, fields in batch:
             # Skip overlap if any (though xrevrange is exclusive on min usually, here we move max)
             # Actually standard practice is to use '(' for exclusive range
-            if _id == last_id: 
+            if _id == last_id:
                 continue
             entries.append((_id, fields))
-            
+
         scanned += len(batch)
         if len(batch) < chunk_size:
             break
@@ -108,15 +108,15 @@ def main() -> int:
 
     for _id, fields in entries:
         try:
-            if str(fields.get("event_type") or "") != "POSITION_CLOSED":
+            if (fields.get("event_type") or "") != "POSITION_CLOSED":
                 continue
             ts = int(fields.get("ts") or 0)
             if ts <= 0 or ts < cutoff:
                 continue
             pnl = float(fields.get("pnl") or 0.0)
             meta = _j(fields.get("meta") or "{}")
-            arm = norm_arm(str(meta.get("ab_arm") or "A"))
-            rg = str(meta.get("regime") or "na")
+            arm = norm_arm((meta.get("ab_arm") or "A"))
+            rg = (meta.get("regime") or "na")
             grp = regime_group(rg)
             agg[grp][arm].add(pnl)
         except Exception:
@@ -145,7 +145,7 @@ def main() -> int:
 
     key_prefix = os.getenv("AB_SUGGEST_KEY_PREFIX", "cfg:suggestions:entry_policy:")
     key = f"{key_prefix}{sug_id}"
-    
+
     # Retry write operations on BusyLoadingError
     retry_redis_operation(
         operation=lambda: r.set(key, json.dumps(suggestion, ensure_ascii=False, separators=(",", ":"))),
@@ -155,7 +155,7 @@ def main() -> int:
         max_delay=30.0,
         logger_instance=logger,
     )
-    
+
     # Optional breadcrumb stream
     out_stream = os.getenv("AB_SUGGEST_STREAM", "stream:ab:suggestions")
     retry_redis_operation(

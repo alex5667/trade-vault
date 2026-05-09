@@ -1,9 +1,9 @@
 """
 Unit tests for NewsGate decide() method with Hard Block + Soft Gate
 """
-import pytest
-from unittest.mock import Mock, patch
-from common.news_gate import NewsGate, GateDecision
+from unittest.mock import Mock
+
+from common.news_gate import NewsGate
 
 
 class TestNewsGateDecision:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Calibration tool: подбирать w_exec_risk, exec_risk_ref_bps, of_score_min_* по целевой функции (meanR/tail).
 
 Why:
@@ -12,11 +13,11 @@ Usage:
 
 import argparse
 import json
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
 def iter_ndjson(path: str):
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -28,17 +29,17 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(d)
+        return d
 
 
-def eval_policy(rows: List[Dict[str, Any]], *, w_exec: float, exec_ref_bps: float, score_min: float) -> Dict[str, float]:
+def eval_policy(rows: list[dict[str, Any]], *, w_exec: float, exec_ref_bps: float, score_min: float) -> dict[str, float]:
     """
     Offline approximation:
       score_adj = clamp01(base_score - w_exec * (exec_risk_bps/exec_ref_bps))

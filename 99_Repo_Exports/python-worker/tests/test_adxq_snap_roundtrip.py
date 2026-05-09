@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+
 from core.smt_symbol_snapshot import SymbolSnapshot
 
 

@@ -161,9 +161,7 @@ def test_compute_fill_prob_proxy_monotonic_wrt_cancel_pressure():
                 kw[p] = 1.0
             elif p in ("ofi_z", "ofi"):
                 kw[p] = 0.0
-            elif p in ("cancel_to_trade_bid", "cancel_to_trade"):
-                kw[p] = float(cancel_to_trade)
-            elif p == "cancel_to_trade_ask":
+            elif p in ("cancel_to_trade_bid", "cancel_to_trade") or p == "cancel_to_trade_ask":
                 kw[p] = float(cancel_to_trade)
             elif p in ("intensity_tps", "trades_per_sec"):
                 kw[p] = 5.0

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """P58: Build edge-stack dataset (JSONL) with archive fallback.
 
 This is a light wrapper around:
@@ -22,14 +24,13 @@ Output:
   EDGE_DATASET_DIR/YYYYMMDD_HHMM/latest.jsonl + report.json + feature_cols.json
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional, List
+
+from utils.time_utils import get_ny_time_millis
 
 # Ensure we can import from ml_analysis
 sys.path.append("/app")
@@ -41,7 +42,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     dataset_root = Path(os.getenv("EDGE_DATASET_DIR", "/var/lib/trade/ml_datasets/edge_stack_v1")).expanduser()
     dataset_root.mkdir(parents=True, exist_ok=True)
 
@@ -62,7 +63,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--redis_url",
         os.getenv("REDIS_URL", "redis://localhost:6379/0"),
         "--signal_stream",
-        os.getenv("SIGNAL_STREAM", "signals:of:inputs"),
+        os.getenv("SIGNAL_STREAM", RS.OF_INPUTS),
         "--closed_stream",
         os.getenv("TRADES_CLOSED_STREAM", "trades:closed"),
         "--signals_count",

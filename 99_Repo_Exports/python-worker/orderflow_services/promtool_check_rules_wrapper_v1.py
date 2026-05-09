@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Wrapper around `promtool check rules` for the repo rules bundle.
 
 Why this exists

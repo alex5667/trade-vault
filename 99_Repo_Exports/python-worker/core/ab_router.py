@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Dict, Tuple
 
 
 def _sha1_u32(s: str) -> int:
@@ -42,7 +41,7 @@ class ABSplits:
     group: str = "default"
 
 
-def splits_for_regime(*, regime: str, cfg: Dict) -> ABSplits:
+def splits_for_regime(*, regime: str, cfg: dict) -> ABSplits:
     """
     Contextual split by regime group.
 
@@ -54,7 +53,7 @@ def splits_for_regime(*, regime: str, cfg: Dict) -> ABSplits:
       - ab_split_b_default, ab_split_c_default
       - ab_split_b_thin,    ab_split_c_thin
     """
-    from contexts import normalize_regime_label, MARKET_REGIME_NA
+    from contexts import normalize_regime_label
     rg = normalize_regime_label(regime)
     grp = "thin" if rg in ("thin", "news", "illiquid") else "default"
     if grp == "thin":

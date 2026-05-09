@@ -3,9 +3,11 @@ Redis клиент для публикации сигналов на порт 63
 Используется для записи всех обработанных сигналов в Redis Streams.
 """
 import os
-import redis  # type: ignore
-import time
 import sys
+import time
+
+import redis  # type: ignore
+
 
 def get_env(key, default_value):
     """
@@ -38,7 +40,7 @@ def get_signals_redis(retry_attempts=3, retry_delay=1) -> redis.Redis:
     # По умолчанию используем redis-worker-1:6379 (внутренний порт контейнера)
     redis_host = get_env("REDIS_SIGNALS_HOST", "redis-worker-1")
     redis_port = int(get_env("REDIS_SIGNALS_PORT", "6379"))
-    
+
     # Попытки подключения с повторами при ошибках
     for attempt in range(retry_attempts):
         try:
@@ -55,15 +57,15 @@ def get_signals_redis(retry_attempts=3, retry_delay=1) -> redis.Redis:
                 socket_keepalive=True,
                 decode_responses=True  # автоматически декодировать ответы в строки
             )
-            
+
             # Проверяем подключение простой командой
             client.ping()
-            
+
             # Если успешно, возвращаем клиент
             print(f"✅ Redis клиент для сигналов подключен к {redis_host}:{redis_port}")
             sys.stdout.flush()
             return client
-        
+
         except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
             # Если это не последняя попытка, пробуем снова
             if attempt < retry_attempts - 1:
@@ -77,7 +79,7 @@ def get_signals_redis(retry_attempts=3, retry_delay=1) -> redis.Redis:
                 # Возвращаем клиент даже если ping не удался, чтобы код мог продолжить работу
                 # В этом случае другие компоненты будут обрабатывать ошибки соединения
                 return client
-        
+
         except Exception as e:
             print(f"❌ Неожиданная ошибка при подключении к Redis для сигналов: {e}")
             sys.stdout.flush()

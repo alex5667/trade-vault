@@ -1,8 +1,10 @@
-import redis
 import json
 
+import redis
+from core.redis_keys import RedisStreams as RS
+
 r = redis.Redis.from_url("redis://redis-worker-1:6379/0", decode_responses=True)
-msgs = r.xrevrange("signals:crypto:raw", count=5)
+msgs = r.xrevrange(RS.CRYPTO_RAW, count=5)
 
 for msg_id, data in msgs:
     payload = data.get("payload")

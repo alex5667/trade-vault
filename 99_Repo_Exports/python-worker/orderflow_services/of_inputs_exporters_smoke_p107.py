@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P107 — OF-Inputs exporters smoke-check.
 
 Purpose:
@@ -20,7 +21,6 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import List, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -29,10 +29,10 @@ from urllib.request import Request, urlopen
 class TargetSpec:
     name: str
     endpoint: str  # host:port or full URL
-    must_contain: Optional[str] = None
+    must_contain: str | None = None
 
 
-DEFAULT_TARGETS: List[TargetSpec] = [
+DEFAULT_TARGETS: list[TargetSpec] = [
     TargetSpec("v3_circuit", "of-inputs-v3-circuit-exporter:9164", "of_inputs_v3_circuit_state_exporter_up"),
     TargetSpec("dlq", "of-inputs-dlq-exporter:9158", "of_inputs_dlq_len"),
     TargetSpec("archiver", "of-inputs-archiver-exporter:9156", "of_inputs_archiver_last_run_ts_ms"),
@@ -40,7 +40,7 @@ DEFAULT_TARGETS: List[TargetSpec] = [
 ]
 
 
-def _parse_targets_from_env() -> List[TargetSpec]:
+def _parse_targets_from_env() -> list[TargetSpec]:
     """Allow override via env.
 
     Format:
@@ -50,7 +50,7 @@ def _parse_targets_from_env() -> List[TargetSpec]:
     if not raw:
         return list(DEFAULT_TARGETS)
 
-    out: List[TargetSpec] = []
+    out: list[TargetSpec] = []
     for item in raw.split(","):
         item = item.strip()
         if not item:

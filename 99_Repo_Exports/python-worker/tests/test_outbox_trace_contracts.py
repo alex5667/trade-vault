@@ -1,12 +1,10 @@
-import os
 
 def test_build_outbox_envelope_trace_summary_only(monkeypatch):
     monkeypatch.setenv("OUTBOX_META_PREFIX", "signal:meta:")
 
     import services.outbox.envelope_builder as eb
-
     from common.decision_trace import DecisionTrace
-    
+
     # принудительно включаем trace-путь (без зависимости от ENV)
     monkeypatch.setattr(eb, "trace_enabled", lambda: True)
 
@@ -15,7 +13,7 @@ def test_build_outbox_envelope_trace_summary_only(monkeypatch):
     def fake_set_summary(env_dict, tr):
         env_dict["trace_id"] = "T-1"
         env_dict["trace_summary"] = "gates:conf=OK(0.1ms)"
-    
+
     monkeypatch.setattr(eb, "set_summary_fields", fake_set_summary)
 
     env = eb.build_outbox_envelope(

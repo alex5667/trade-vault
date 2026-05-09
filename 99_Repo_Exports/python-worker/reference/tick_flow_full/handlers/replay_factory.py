@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """
@@ -16,15 +17,14 @@ Replay factory: creates an adapter that can process ctx payloads and capture out
 Реальная интеграция с CryptoOrderFlowHandler с mocked dependencies для replay.
 """
 
-from types import SimpleNamespace
-from typing import Any, Dict, Optional
-import os
-import time
 import logging
+from types import SimpleNamespace
+from typing import Any
 
+from core.instrument_config import SymbolSpecs, get_config
 from replay.outbox_capture import OutboxCapture
+
 from .crypto_orderflow_handler import CryptoOrderFlowHandler
-from core.instrument_config import get_config, SymbolSpecs
 
 
 class FakeRedis:
@@ -140,7 +140,7 @@ class CryptoOrderFlowReplayAdapter:
         # Set handler to use ctx-based time
         self.handler.now_ms = lambda: get_ny_time_millis()
 
-    def process_ctx(self, ctx_payload: Dict[str, Any]) -> None:
+    def process_ctx(self, ctx_payload: dict[str, Any]) -> None:
         """
         Process ctx payload through real CryptoOrderFlowHandler.
 
@@ -167,7 +167,7 @@ class CryptoOrderFlowReplayAdapter:
             self.logger.warning(f"Failed to process ctx in replay: {e}")
             # Continue - don't break replay on individual errors
 
-    def process_tick(self, tick_payload: Dict[str, Any]) -> None:
+    def process_tick(self, tick_payload: dict[str, Any]) -> None:
         """
         Optional tick processing for replay.
         """

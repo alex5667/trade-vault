@@ -1,6 +1,6 @@
-import sys
 import logging
 from unittest.mock import MagicMock
+
 from services.orderflow.signal_pipeline import SignalPipeline
 
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +29,7 @@ sl, tps, lot, out_atr, atr_meta = pipeline._calculate_levels(
 print(f"SL: {sl}, TPs: {tps}")
 
 rocket_mult = float(indicators.get("atr_fees_rocket_mult") or pipeline._get_rocket_multiplier("BTCUSDT"))
-expected_tp1 = entry + (out_atr * rocket_mult) if str(direction or "").upper() == "LONG" else entry - (out_atr * rocket_mult)
+expected_tp1 = entry + (out_atr * rocket_mult) if (direction or "").upper() == "LONG" else entry - (out_atr * rocket_mult)
 actual_tp1 = tps[0] if tps else 0
 diff = abs(expected_tp1 - actual_tp1)
 print(f"Expected TP1: {expected_tp1}, Actual TP1: {actual_tp1}, Diff: {diff}")

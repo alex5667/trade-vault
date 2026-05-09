@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 L2GPUProcessor - GPU-accelerated L2 orderbook processing.
 
@@ -6,14 +7,13 @@ This module provides GPU-accelerated processing for Level 2 (L2) orderbook data,
 including batch processing of orderbook snapshots and real-time updates.
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import time
-from typing import Optional, List, Dict, Any, Tuple
-import threading
 import logging
+import threading
+import time
+from typing import Any
 
 from common.gpu_service import get_gpu_service, is_gpu_available
+from utils.time_utils import get_ny_time_millis
 
 
 class L2GPUProcessor:
@@ -46,7 +46,7 @@ class L2GPUProcessor:
         self.logger.info(f"Initialized L2GPUProcessor for {symbol}, GPU available: {self.gpu_available}")
 
         # Processing buffers
-        self._buffer: List[Dict[str, Any]] = []
+        self._buffer: list[dict[str, Any]] = []
         self._buffer_lock = threading.Lock()
         self._last_process_time = get_ny_time_millis()  # ms
 
@@ -92,7 +92,7 @@ class L2GPUProcessor:
             self.logger.error(f"Failed to initialize/resize GPU arrays: {e}")
             self.gpu_available = False
 
-    def _process_batch_gpu(self, batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _process_batch_gpu(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Process a batch of L2 data using GPU acceleration.
 
@@ -158,26 +158,26 @@ class L2GPUProcessor:
 
             best_bid_size = bid_sizes[best_bid_idx] if best_bid_idx != -1 else cp.array(0.0)
             best_ask_size = ask_sizes[best_ask_idx] if best_ask_idx != -1 else cp.array(0.0)
-            
+
             mp_denom = best_bid_size + best_ask_size
-            microprice = (best_ask * best_bid_size + best_bid * best_ask_size) / mp_denom if mp_denom > 0 else (best_bid + best_ask) * 0.5 
+            microprice = (best_ask * best_bid_size + best_bid * best_ask_size) / mp_denom if mp_denom > 0 else (best_bid + best_ask) * 0.5
 
             # --- Wall Detection ---
             # Wall = order size > mult * average_size (global avg for batch)
             wall_mult = 4.0
-            
+
             avg_bid_size = cp.mean(bid_sizes) if len(bid_sizes) > 0 else cp.array(0.0)
             avg_ask_size = cp.mean(ask_sizes) if len(ask_sizes) > 0 else cp.array(0.0)
-            
+
             bid_wall_mask = bid_sizes > (avg_bid_size * wall_mult)
             ask_wall_mask = ask_sizes > (avg_ask_size * wall_mult)
-            
+
             has_bid_wall = cp.any(bid_wall_mask)
             has_ask_wall = cp.any(ask_wall_mask)
-            
+
             wall_bid_price = cp.array(0.0)
             wall_bid_size = cp.array(0.0)
-            
+
             if has_bid_wall:
                 # Get indices of walls
                 wall_idxs = cp.where(bid_wall_mask)[0]
@@ -226,7 +226,7 @@ class L2GPUProcessor:
 
         return result
 
-    def _process_batch_cpu(self, batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _process_batch_cpu(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Process a batch of L2 data using CPU (fallback).
 
@@ -265,14 +265,14 @@ class L2GPUProcessor:
                 if entry.get('side', '').lower() in ('ask', 'asks')]
 
         # Calculate metrics
-        # For microprice/walls, we need sorted books logic, but 'batch' is just a list of updates 
+        # For microprice/walls, we need sorted books logic, but 'batch' is just a list of updates
         # or snapshot entries. We'll proceed with "best available in batch" logic.
         bids.sort(key=lambda x: x[0], reverse=True) # Descending for bids
         asks.sort(key=lambda x: x[0])               # Ascending for asks
 
         best_bid, best_bid_sz = bids[0] if bids else (0.0, 0.0)
         best_ask, best_ask_sz = asks[0] if asks else (float('inf'), 0.0)
-        
+
         spread = best_ask - best_bid if best_ask != float('inf') and best_bid > 0 else 0.0
 
         bid_depth = sum(size for _, size in bids)
@@ -280,7 +280,7 @@ class L2GPUProcessor:
 
         total_depth = bid_depth + ask_depth
         imbalance = (bid_depth - ask_depth) / total_depth if total_depth > 0 else 0.0
-        
+
         # Microprice
         mp_denom = best_bid_sz + best_ask_sz
         if mp_denom > 0 and best_bid > 0 and best_ask != float('inf'):
@@ -292,14 +292,14 @@ class L2GPUProcessor:
         wall_mult = 4.0
         avg_bid_s = bid_depth / len(bids) if bids else 0.0
         avg_ask_s = ask_depth / len(asks) if asks else 0.0
-        
+
         wall_bid_price, wall_bid_size = 0.0, 0.0
         for p, s in bids:
             if s > avg_bid_s * wall_mult:
                 if s > wall_bid_size: # Max size wall
                     wall_bid_size = s
                     wall_bid_price = p
-        
+
         wall_ask_price, wall_ask_size = 0.0, 0.0
         for p, s in asks:
             if s > avg_ask_s * wall_mult:
@@ -337,7 +337,7 @@ class L2GPUProcessor:
         self.avg_batch_size = alpha * batch_size + (1 - alpha) * self.avg_batch_size
         self.avg_processing_time_ms = alpha * processing_time_ms + (1 - alpha) * self.avg_processing_time_ms
 
-    def add_l2_data(self, l2_entries: List[Dict[str, Any]]) -> None:
+    def add_l2_data(self, l2_entries: list[dict[str, Any]]) -> None:
         """
         Add L2 orderbook entries to the processing buffer.
 
@@ -366,7 +366,7 @@ class L2GPUProcessor:
                     daemon=True
                 ).start()
 
-    def _process_batch_async(self, batch: List[Dict[str, Any]]) -> None:
+    def _process_batch_async(self, batch: list[dict[str, Any]]) -> None:
         """Process a batch asynchronously."""
         try:
             result = self._process_batch_gpu(batch)
@@ -377,8 +377,8 @@ class L2GPUProcessor:
         except Exception as e:
             self.logger.error(f"Failed to process L2 batch: {e}")
 
-    def process_l2_snapshot(self, bids: List[Tuple[float, float]],
-                           asks: List[Tuple[float, float]]) -> Dict[str, Any]:
+    def process_l2_snapshot(self, bids: list[tuple[float, float]],
+                           asks: list[tuple[float, float]]) -> dict[str, Any]:
         """
         Process a complete L2 orderbook snapshot.
 
@@ -401,7 +401,7 @@ class L2GPUProcessor:
         # Process immediately (not buffered)
         return self._process_batch_gpu(l2_entries)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get processing statistics.
 
@@ -421,7 +421,7 @@ class L2GPUProcessor:
             'buffer_size': len(self._buffer)
         }
 
-    def flush_buffer(self) -> Dict[str, Any]:
+    def flush_buffer(self) -> dict[str, Any]:
         """
         Force processing of any remaining data in the buffer.
 

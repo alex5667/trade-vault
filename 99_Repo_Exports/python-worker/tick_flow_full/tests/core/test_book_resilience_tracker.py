@@ -1,10 +1,10 @@
 # tick_flow_full/tests/core/test_book_resilience_tracker.py
-# -*- coding: utf-8 -*-
 """
 Tests for BookResilienceTracker.
 Covers basic recovery flow, slow recovery, window expiry, and no-sweep baseline.
 """
 import pytest
+
 from core.book_resilience import BookResilienceTracker
 
 

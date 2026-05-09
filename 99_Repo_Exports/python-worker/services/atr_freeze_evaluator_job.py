@@ -5,22 +5,22 @@ Reads invariant exhaustions and incidents, evaluates precedence via ATRFreezeMat
 and writes freeze states to DB and Redis projection (cfg:atr_degrade:*).
 """
 
+import json
 import os
 import time
-import json
-import logging
-import psycopg2
-from psycopg2.extras import DictCursor, RealDictCursor
+from datetime import datetime
+
 import redis
-from datetime import datetime, timezone
+from psycopg2.extras import RealDictCursor
 
 from common.log import setup_logger
 from services.analytics_db import get_conn
+from services.atr_control_plane_graph_service import ControlPlaneGraphService
 from services.atr_freeze_matrix_service import ATRFreezeMatrixService
+from services.atr_graph_reconciliation_service import ATRGraphReconciliationService
 from services.atr_unfreeze_hysteresis_service import ATRUnfreezeHysteresisService
 from services.telegram.atr_freeze_telegram_surface import ATRFreezeTelegramSurface
-from services.atr_control_plane_graph_service import ControlPlaneGraphService
-from services.atr_graph_reconciliation_service import ATRGraphReconciliationService
+from core.redis_keys import RedisStreams as RS
 
 logger = setup_logger("atr_freeze_evaluator")
 
@@ -29,8 +29,8 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 CHECK_INTERVAL_SEC = int(os.getenv("ATR_FREEZE_EVALUATOR_INTERVAL_SEC", "15"))
 
 # Advisory mode defaults to False (hard enforcement) unless overridden
-ADVISORY_ONLY = str(os.getenv("ATR_FREEZE_MATRIX_ADVISORY_ONLY", "1")).lower() in ("1", "true", "yes")
-UNFREEZE_ENABLE = str(os.getenv("ATR_FREEZE_MATRIX_UNFREEZE_ENABLE", "0")).lower() in ("1", "true", "yes")
+ADVISORY_ONLY = os.getenv("ATR_FREEZE_MATRIX_ADVISORY_ONLY", "1").lower() in ("1", "true", "yes")
+UNFREEZE_ENABLE = os.getenv("ATR_FREEZE_MATRIX_UNFREEZE_ENABLE", "0").lower() in ("1", "true", "yes")
 
 matrix_service = ATRFreezeMatrixService(advisory_only=ADVISORY_ONLY)
 hysteresis_service = ATRUnfreezeHysteresisService(require_cert=True)
@@ -76,11 +76,11 @@ def run_evaluator_cycle(conn, r):
                 }
 
                 eval_result = matrix_service.evaluate_trigger(trigger, active_freezes, policies)
-                
+
                 # Apply evaluator result to DB
                 if eval_result.get("status") in ("created", "escalated"):
                     fpayload = eval_result["payload"]
-                    
+
                     # Phase 8.8: Graph Authority Check
                     if ATRGraphReconciliationService.detect_out_of_band_legacy_write(
                         component="freeze",
@@ -93,7 +93,7 @@ def run_evaluator_cycle(conn, r):
                         # Still mark the action processed so we don't loop forever
                         cur.execute("UPDATE atr_invariant_budget_actions SET status = 'processed', updated_at = now() WHERE action_id = %s", (action_row["action_id"],))
                         continue
-                        
+
                     cur.execute("""
                         INSERT INTO atr_active_freezes (
                             freeze_id, trigger_kind, scope_kind, scope_value, freeze_state,
@@ -111,15 +111,15 @@ def run_evaluator_cycle(conn, r):
                         fpayload["status"], fpayload["started_at"], fpayload["expires_at"],
                         fpayload["recovery_not_before"], json.dumps(fpayload["freeze_json"])
                     ))
-                    
+
                     cur.execute("""
                         INSERT INTO atr_freeze_events (freeze_id, old_status, new_status, reason_code, event_json)
                         VALUES (%s, %s, %s, %s, %s)
                     """, (
-                        eval_result["freeze_id"], "none", eval_result["status"], 
+                        eval_result["freeze_id"], "none", eval_result["status"],
                         fpayload["source_reason_code"], json.dumps(fpayload)
                     ))
-                    
+
                     # Also write to active_freezes in memory so subsequent checks see it
                     active_freezes.append(fpayload)
 
@@ -128,7 +128,7 @@ def run_evaluator_cycle(conn, r):
                         scope_value=fpayload["scope_value"],
                         event_type="freeze_escalated" if eval_result.get("status") == "escalated" else "freeze_applied",
                         payload={
-                            "level": fpayload["freeze_state"], 
+                            "level": fpayload["freeze_state"],
                             "is_active": True,
                             "reason_code": fpayload["source_reason_code"]
                         }
@@ -137,7 +137,7 @@ def run_evaluator_cycle(conn, r):
                     # --- TELEGRAM NOTIFICATION (CREATE / ESCALATE) ---
                     try:
                         msg_text = ATRFreezeTelegramSurface.format_freeze_event(fpayload, ADVISORY_ONLY)
-                        r.xadd("notify:telegram", {
+                        r.xadd(RS.NOTIFY_TELEGRAM, {
                             "type": "report",
                             "source": "atr_freeze_evaluator",
                             "text": msg_text
@@ -151,7 +151,7 @@ def run_evaluator_cycle(conn, r):
                         SET expires_at = %s, recovery_not_before = %s, status = %s
                         WHERE freeze_id = %s
                     """, (fpayload["expires_at"], fpayload["recovery_not_before"], fpayload["status"], eval_result["freeze_id"]))
-                    
+
                     # Need original freeze metadata for graph event
                     orig_scope_kind = trigger["scope_kind"]
                     orig_scope_value = trigger["scope_value"]
@@ -161,7 +161,7 @@ def run_evaluator_cycle(conn, r):
                         event_type="freeze_applied",
                         payload={"level": active_freezes[-1]["freeze_state"] if active_freezes else "unknown", "is_active": True}
                     )
-                
+
                 # Mark action processed
                 cur.execute("UPDATE atr_invariant_budget_actions SET status = 'processed', updated_at = now() WHERE action_id = %s", (action_row["action_id"],))
 
@@ -174,26 +174,26 @@ def run_evaluator_cycle(conn, r):
                     "open_critical_incidents": 0,
                     "recent_violations": 0
                 }
-                
+
                 # Evaluate candidates
                 unfreeze_transitions = hysteresis_service.evaluate_unfreeze_candidates(active_freezes, health_context)
-                
+
                 for trans in unfreeze_transitions:
                     fw_id = trans["freeze_id"]
                     upid = trans.get("update_payload", {})
-                    
+
                     if upid:
                         set_cols = ", ".join([f"{k} = %s" for k in upid.keys()])
                         set_vals = list(upid.values()) + [fw_id]
                         cur.execute(f"UPDATE atr_active_freezes SET {set_cols} WHERE freeze_id = %s", set_vals)
-                    
+
                     cur.execute("""
                         INSERT INTO atr_freeze_events (freeze_id, old_status, new_status, reason_code, event_json)
                         VALUES (%s, %s, %s, %s, %s)
                     """, (
                         fw_id, trans["old_status"], trans["new_status"], trans["reason_code"], json.dumps(upid)
                     ))
-                    
+
                     # Update active_freezes list in memory
                     target_scope_kind = "unknown"
                     target_scope_value = "unknown"
@@ -208,7 +208,7 @@ def run_evaluator_cycle(conn, r):
                         scope_value=target_scope_value,
                         event_type="freeze_released" if trans["new_status"] == "released" else "freeze_recovering",
                         payload={
-                            "level": trans["new_status"], 
+                            "level": trans["new_status"],
                             "is_active": trans["new_status"] != "released",
                             "reason_code": trans.get("reason_code")
                         }
@@ -217,7 +217,7 @@ def run_evaluator_cycle(conn, r):
                     # --- TELEGRAM NOTIFICATION (UNFREEZE / GRADUATE) ---
                     try:
                         msg_text = ATRFreezeTelegramSurface.format_unfreeze_event(trans)
-                        r.xadd("notify:telegram", {
+                        r.xadd(RS.NOTIFY_TELEGRAM, {
                             "type": "report",
                             "source": "atr_freeze_evaluator",
                             "text": msg_text
@@ -238,9 +238,9 @@ def run_evaluator_cycle(conn, r):
                     "freeze_state": row["freeze_state"],
                     "freeze_id": row["freeze_id"]
                 })
-                
+
             redis_updates = matrix_service.generate_redis_keys(current_active)
-            
+
             # Clear old projection
             cursor = '0'
             while cursor != 0:
@@ -253,7 +253,7 @@ def run_evaluator_cycle(conn, r):
                 cursor, keys = r.scan(cursor=cursor, match='cfg:atr_promotion_freeze:*', count=10000)
                 if keys:
                     r.delete(*keys)
-            
+
             # Write new projection
             if redis_updates:
                 pipe = r.pipeline()

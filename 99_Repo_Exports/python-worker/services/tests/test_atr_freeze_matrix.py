@@ -1,5 +1,5 @@
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+
 from services.atr_freeze_matrix_service import ATRFreezeMatrixService
 from services.atr_unfreeze_hysteresis_service import ATRUnfreezeHysteresisService
 
@@ -27,7 +27,7 @@ POLICIES = [
 
 def test_freeze_escalation():
     svc = ATRFreezeMatrixService(advisory_only=True)
-    
+
     # 1. Trigger scope_frozen
     trigger1 = {
         "trigger_kind": "runtime_budget_exhausted",
@@ -56,15 +56,15 @@ def test_freeze_escalation():
         "scope_value": "all",
         "severity": "critical"
     }
-    
+
     res2 = svc.evaluate_trigger(trigger2, active_freezes, POLICIES)
     assert res2["status"] == "created"
     assert res2["freeze_state"] == "hard_freeze"
 
 def test_unfreeze_hysteresis():
     svc = ATRUnfreezeHysteresisService(require_cert=False)
-    now_utc = datetime.now(timezone.utc)
-    
+    now_utc = datetime.now(UTC)
+
     # Active freeze with dwell time in the past
     active_freezes = [{
         "freeze_id": "f1",
@@ -81,7 +81,7 @@ def test_unfreeze_hysteresis():
         "open_critical_incidents": 0,
         "recent_violations": 0
     }
-    
+
     transitions = svc.evaluate_unfreeze_candidates(active_freezes, health_bad)
     # Should not transition because health is bad
     assert len(transitions) == 0
@@ -107,7 +107,7 @@ def test_unfreeze_hysteresis():
         "started_at": (now_utc - timedelta(hours=2)).isoformat(),
         "recovery_not_before": (now_utc - timedelta(hours=1)).isoformat()
     }]
-    
+
     transitions2 = svc_cert.evaluate_unfreeze_candidates(recovering_freezes, health_good)
     assert len(transitions2) == 1
     # Missing cert, should stay recovering

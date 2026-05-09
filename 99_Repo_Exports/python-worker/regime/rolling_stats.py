@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque
 
 
 @dataclass
 class RollingWindowStats:
     window_size: int
-    r_values: Deque[float] = field(default_factory=deque)
+    r_values: deque[float] = field(default_factory=deque)
 
     def add(self, r: float) -> None:
         self.r_values.append(r)

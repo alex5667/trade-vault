@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
-
-import pytest
+from typing import Any
 
 
 @dataclass
@@ -23,11 +22,11 @@ class DummyTick:
 
 def _ev_type(ev: Any) -> str:
     if isinstance(ev, dict):
-        return str(ev.get("event_type") or "")
+        return (ev.get("event_type") or "")
     return str(getattr(ev, "event_type", "") or "")
 
 
-def _ev_payload(ev: Any) -> Dict[str, Any]:
+def _ev_payload(ev: Any) -> dict[str, Any]:
     if isinstance(ev, dict):
         p = ev.get("payload")
         return p if isinstance(p, dict) else {}
@@ -41,13 +40,13 @@ def _call_process_tick(
     pos: Any,
     spec: Any,
     tick: Any,
-    tp_ratios: List[float],
-) -> Tuple[List[Any], Optional[Any]]:
+    tp_ratios: list[float],
+) -> tuple[list[Any], Any | None]:
     """
     В проекте встречались разные сигнатуры process_tick на эволюции кода.
     Этот хелпер пробует несколько устойчивых вариантов вызова.
     """
-    attempts: List[Callable[[], Any]] = [
+    attempts: list[Callable[[], Any]] = [
         # Корректная сигнатура: process_tick(pos, tick, spec, tp_ratios, fill_policy)
         lambda: process_tick(pos, tick, spec, tp_ratios, "level"),
         lambda: process_tick(pos, tick, spec, tp_ratios),
@@ -60,7 +59,7 @@ def _call_process_tick(
         lambda: process_tick(pos=pos, spec=spec, tick=tick, tp_ratios=tp_ratios, fill_policy="level"),
         lambda: process_tick(pos=pos, spec=spec, tick=tick, tp_ratios=tp_ratios)
     ]
-    last_err: Optional[Exception] = None
+    last_err: Exception | None = None
     for fn in attempts:
         try:
             res = fn()
@@ -138,7 +137,7 @@ def test_tp1_failsafe_marks_tp_hit_arms_trailing_and_rocket_enters_trailing_only
     class FakeSpec:
         def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol="") -> float:
             sign = 1.0 if str(direction).upper() == "LONG" else -1.0
-            return (float(price) - float(entry_price)) * sign * float(lot)
+            return (float(price) - float(entry_price)) * sign * lot
 
     spec = FakeSpec()
 

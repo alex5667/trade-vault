@@ -1,11 +1,10 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
-import time
 from types import SimpleNamespace
 
 from services.feature_drift_alarm import FeatureDriftAlarm, FeatureDriftConfig
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:
@@ -77,7 +76,7 @@ def test_feature_drift_alarm_sets_active_and_emits_alert():
     # Build baseline with stable values
     for _ in range(6):
         alarm.update(redis_client=r, ctx=ctx, symbol="BTCUSDT", kind="absorption")
-        
+
     state_key = "drift:state:v1:BTCUSDT:binance:us_main:1m"
     st = r.hgetall(state_key)
     assert int(st.get("n", 0)) >= 6
@@ -87,7 +86,7 @@ def test_feature_drift_alarm_sets_active_and_emits_alert():
     ctx.z_delta = 5.0
 
     alarm.update(redis_client=r, ctx=ctx, symbol="BTCUSDT", kind="absorption")
-    
+
     st2 = r.hgetall(state_key)
     assert int(st2.get("active", 0)) == 1
     assert float(st2.get("factor", 1.0)) > 1.0

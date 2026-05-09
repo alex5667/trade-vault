@@ -23,7 +23,9 @@ The function accepts a dict of indicators and a list of confirmation strings
 ("key=value"). It prefers indicators when available.
 """
 
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from typing import Any
+import contextlib
 
 
 def _clamp01(x: float) -> float:
@@ -34,8 +36,8 @@ def _clamp01(x: float) -> float:
     return x
 
 
-def _parse_confirmations(confirmations: Iterable[str]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _parse_confirmations(confirmations: Iterable[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for c in confirmations or []:
         try:
             if not c:
@@ -52,8 +54,8 @@ def _parse_confirmations(confirmations: Iterable[str]) -> Dict[str, str]:
 
 def build_compact_confirmations(
     *,
-    indicators: Optional[Dict[str, Any]] = None,
-    confirmations: Optional[Iterable[str]] = None,
+    indicators: dict[str, Any] | None = None,
+    confirmations: Iterable[str] | None = None,
 ) -> str:
     """Return a single-line compact evidence string.
 
@@ -66,7 +68,7 @@ def build_compact_confirmations(
     ind = indicators or {}
     conf = _parse_confirmations(confirmations or [])
 
-    parts: List[str] = []
+    parts: list[str] = []
 
     # liquidity regime (only if thin/stressed)
     liq_rg = ind.get("liq_regime") or conf.get("liq_regime")
@@ -132,24 +134,18 @@ def build_compact_confirmations(
     # Try indicators first
     cvdR_val = ind.get("cvd_reclaim_ratio")
     if cvdR_val is not None:
-        try:
+        with contextlib.suppress(Exception):
             cvdR = float(cvdR_val)
-        except Exception:
-            pass
     # Fallback to confirmations list (cvdR=X.XX)
     if cvdR is None:
         v = conf.get("cvdR")
         if v is not None:
-            try:
+            with contextlib.suppress(Exception):
                 cvdR = float(v)
-            except Exception:
-                pass
-    
+
     if cvdR is not None and cvdR > 0:
-        try:
+        with contextlib.suppress(Exception):
             parts.append(f"cvdR={cvdR:.2f}")
-        except Exception:
-            pass
 
     # iceberg strict
     ice = ind.get("iceberg_strict")

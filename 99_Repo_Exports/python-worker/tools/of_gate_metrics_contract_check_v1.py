@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+
 """of_gate_metrics_contract_check_v1.py
 
 P40: Producer-side contract check for metrics:of_gate.
@@ -21,8 +24,7 @@ This tool is safe to run from SRE timers. It returns:
 import argparse
 import os
 import sys
-import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -66,7 +68,7 @@ def main() -> int:
         return 1
 
     try:
-        rows: List[Tuple[str, Dict[str, Any]]] = r.xrevrange(args.stream, count=args.count) or []
+        rows: list[tuple[str, dict[str, Any]]] = r.xrevrange(args.stream, count=args.count) or []
     except Exception as e:
         print(f"hard_fail xrevrange stream={args.stream}: {e}", file=sys.stderr)
         return 1
@@ -89,14 +91,12 @@ def main() -> int:
                 missing_any += 1
                 break
 
-        b = str(f.get("meta_enforce_cov_bucket") or "").strip().lower()
+        b = (f.get(MetaKeys.ENFORCE_COV_BUCKET) or "").strip().lower()
         if b and b not in ("trend", "range", "other"):
             bad_bucket += 1
 
-        cov = _f(f.get("meta_feature_coverage"))
-        if cov is None:
-            bad_cov += 1
-        elif cov < 0.0 or cov > 1.0:
+        cov = _f(f.get(MetaKeys.FEATURE_COVERAGE))
+        if cov is None or cov < 0.0 or cov > 1.0:
             bad_cov += 1
 
     ok = (missing_any == 0) and (bad_bucket == 0) and (bad_cov == 0)

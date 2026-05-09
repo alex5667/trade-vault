@@ -1,6 +1,5 @@
 import math
 from dataclasses import dataclass
-from typing import Dict, Tuple, Optional
 
 
 @dataclass
@@ -79,12 +78,12 @@ def lcb_mean(agg: ArmAgg, alpha: float = 0.10) -> float:
 
 def evaluate_winner_lcb(
     *,
-    stats_by_arm: Dict[str, ArmAgg],
+    stats_by_arm: dict[str, ArmAgg],
     baseline_arm: str = "A",
     min_n: int = 30,
     alpha: float = 0.10,
     min_edge_r: float = 0.05,
-) -> Tuple[Optional[str], Dict[str, LCBResult], str]:
+) -> tuple[str | None, dict[str, LCBResult], str]:
     """
     Choose winner arm by LCB(mean R).
     Rule:
@@ -94,13 +93,13 @@ def evaluate_winner_lcb(
     Returns:
       (winner_or_none, metrics_by_arm, reason)
     """
-    baseline_arm = str(baseline_arm or "A").upper()
+    baseline_arm = (baseline_arm or "A").upper()
     alpha = float(alpha)
     min_n = int(min_n)
 
-    res: Dict[str, LCBResult] = {}
+    res: dict[str, LCBResult] = {}
     for arm, agg in (stats_by_arm or {}).items():
-        a = str(arm or "").upper()
+        a = (arm or "").upper()
         if not a:
             continue
         mu = agg.mean()
@@ -136,7 +135,7 @@ def evaluate_winner_lcb(
     return None, res, f"edge_too_small({edge:.3f}<{min_edge_r})"
 
 
-def regime_thresholds(regime: str) -> Tuple[int, float, float]:
+def regime_thresholds(regime: str) -> tuple[int, float, float]:
     """
     Best-practice defaults (can be overridden by ENV in service):
       - thin/news/illiquid: stricter (more samples, lower alpha, higher edge)
@@ -144,7 +143,7 @@ def regime_thresholds(regime: str) -> Tuple[int, float, float]:
       - range/mixed: moderate
     Returns: (min_n, alpha, min_edge_r)
     """
-    rg = str(regime or "na").lower()
+    rg = (regime or "na").lower()
     if rg in ("thin", "news", "illiquid"):
         return 60, 0.05, 0.10
     if rg in ("trend", "trending_bull", "trending_bear"):

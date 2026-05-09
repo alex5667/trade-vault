@@ -1,14 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
 
 # Try import TelegramClient, safe fallback
 try:
@@ -44,7 +44,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _json_load(s: str) -> Dict[str, Any]:
+def _json_load(s: str) -> dict[str, Any]:
     try:
         d = json.loads(s)
         return d if isinstance(d, dict) else {}
@@ -83,11 +83,11 @@ class ABSuggester:
         self.sleep_no_msgs = float(os.getenv("AB_IDLE_SLEEP_SEC", "0.25"))
 
         # in-memory: regime -> arm -> stats
-        self.stats: Dict[str, Dict[str, ArmStats]] = {}
+        self.stats: dict[str, dict[str, ArmStats]] = {}
         self.last_ts_ms: int = 0
-        
+
         # Telegram Setup
-        self.tg: Optional[Any] = None
+        self.tg: Any | None = None
         if TelegramClient:
             # Try standard env vars first
             self.tg = TelegramClient.from_env()
@@ -114,7 +114,7 @@ class ABSuggester:
         self.stats[reg].setdefault(a, ArmStats())
         return self.stats[reg][a]
 
-    def _pick_winner(self, regime: str) -> Optional[str]:
+    def _pick_winner(self, regime: str) -> str | None:
         reg = (regime or "na").lower()
         arms = self.stats.get(reg) or {}
         # winner by mean pnl, tie-break by winrate then n
@@ -167,7 +167,7 @@ class ABSuggester:
             )
         except Exception:
             pass
-            
+
         # Notify Telegram
         if self.tg:
             # Prepare message
@@ -175,7 +175,7 @@ class ABSuggester:
             for arm, st in sorted(arms.items()):
                 marker = "✅" if arm == winner else "  "
                 msg += f"{marker} <b>{arm}</b>: n={st.n} μ={st.mean:.2f} WR={int(st.winrate*100)}%\n"
-            
+
             # Send (non-blocking via executor)
             try:
                 loop = asyncio.get_running_loop()
@@ -207,16 +207,16 @@ class ABSuggester:
                 for msg_id, fields in entries:
                     try:
                         # support both direct fields and nested JSON payload
-                        d: Dict[str, Any] = {}
+                        d: dict[str, Any] = {}
                         if "payload" in fields:
                             d = _json_load(fields.get("payload") or "")
                         else:
                             d = dict(fields)
-                        if str(d.get("type") or "") != "position_closed":
+                        if (d.get("type") or "") != "position_closed":
                             continue
                         pnl = float(d.get("pnl") or 0.0)
                         arm = str(d.get("ab_arm") or d.get("arm") or "A").upper()
-                        regime = str(d.get("regime") or "na").lower()
+                        regime = (d.get("regime") or "na").lower()
                         ts_ms = int(d.get("ts_ms") or d.get("close_ts") or now_ms)
 
                         # windowed acceptance (drop too old)

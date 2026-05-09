@@ -4,8 +4,8 @@
 Rolling window statistics, classify_delta, OBI calculation.
 """
 import pytest
-from signals.featurizer import Rolling, classify_delta, obi_from_book, compute_rolling_metrics
 
+from signals.featurizer import Rolling, classify_delta, compute_rolling_metrics, obi_from_book
 
 # ─────────────────────── Rolling ───────────────────────
 

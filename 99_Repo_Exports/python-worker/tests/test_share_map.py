@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from core.share_map import parse_map, dump_map, clamp_map, merge_updates
+from core.share_map import clamp_map, dump_map, merge_updates, parse_map
 
 
 def test_parse_dump_clamp():

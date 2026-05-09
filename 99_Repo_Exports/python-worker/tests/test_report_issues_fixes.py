@@ -1,22 +1,21 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 """
 Tests for validation stats fix and ML p_edge warning logic (Issues 1, 2, 3, 4).
 """
-import sys
 import os
 import unittest
 from unittest.mock import MagicMock, patch
-from typing import Dict, Any
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from services.trade_metrics_service import TradeMetricsService
 
 
 class TestValidationStatsBreakdown(unittest.TestCase):
     """Test that _get_validation_stats correctly separates passed/failed/bypassed."""
 
-    def _make_reporter(self, stream_messages: Dict[str, list]):
+    def _make_reporter(self, stream_messages: dict[str, list]):
         """Build a minimal PeriodicReporter stub."""
         from services.periodic_reporter import PeriodicReporter
         mock_redis = MagicMock()
@@ -37,7 +36,7 @@ class TestValidationStatsBreakdown(unittest.TestCase):
 
     def _make_signal_msg(self, validation_status: str, symbol="BTCUSDT", source="CryptoOrderFlow"):
         """Build a fake Redis xrevrange entry with the given validation_status."""
-        import json, time
+        import json
         ts_ms = get_ny_time_millis()
         msg_id = f"{ts_ms}-0"
         payload = {
@@ -50,8 +49,8 @@ class TestValidationStatsBreakdown(unittest.TestCase):
     def test_all_bypassed_returns_na_pass_rate(self):
         """When all signals are bypassed, pass_rate should be 0.0 (no decided signals)."""
         msgs = [self._make_signal_msg("bypassed") for _ in range(10)]
-        reporter = self._make_reporter({"signals:of:inputs": msgs})
-        with patch("os.getenv", side_effect=lambda k, d=None: "signals:of:inputs" if k == "OF_INPUTS_STREAM" else os.environ.get(k, d)):
+        reporter = self._make_reporter({RS.OF_INPUTS: msgs})
+        with patch("os.getenv", side_effect=lambda k, d=None: RS.OF_INPUTS if k == "OF_INPUTS_STREAM" else os.environ.get(k, d)):
             result = reporter._get_validation_stats("CryptoOrderFlow", "ALL", 3600)
         v_pass_rate, total, _, passed_count, bypassed_count, _, _ = result
         self.assertEqual(total, 10)
@@ -66,8 +65,8 @@ class TestValidationStatsBreakdown(unittest.TestCase):
             + [self._make_signal_msg("failed")] * 2
             + [self._make_signal_msg("bypassed")] * 5
         )
-        reporter = self._make_reporter({"signals:of:inputs": msgs})
-        with patch("os.getenv", side_effect=lambda k, d=None: "signals:of:inputs" if k == "OF_INPUTS_STREAM" else os.environ.get(k, d)):
+        reporter = self._make_reporter({RS.OF_INPUTS: msgs})
+        with patch("os.getenv", side_effect=lambda k, d=None: RS.OF_INPUTS if k == "OF_INPUTS_STREAM" else os.environ.get(k, d)):
             result = reporter._get_validation_stats("CryptoOrderFlow", "ALL", 3600)
         v_pass_rate, total, _, passed_count, bypassed_count, _, _ = result
         self.assertEqual(total, 10)
@@ -79,8 +78,8 @@ class TestValidationStatsBreakdown(unittest.TestCase):
     def test_all_passed_returns_100(self):
         """All passed → 100%."""
         msgs = [self._make_signal_msg("passed") for _ in range(5)]
-        reporter = self._make_reporter({"signals:of:inputs": msgs})
-        with patch("os.getenv", side_effect=lambda k, d=None: "signals:of:inputs" if k == "OF_INPUTS_STREAM" else os.environ.get(k, d)):
+        reporter = self._make_reporter({RS.OF_INPUTS: msgs})
+        with patch("os.getenv", side_effect=lambda k, d=None: RS.OF_INPUTS if k == "OF_INPUTS_STREAM" else os.environ.get(k, d)):
             result = reporter._get_validation_stats("CryptoOrderFlow", "ALL", 3600)
         v_pass_rate, total, _, passed_count, bypassed_count, _, _ = result
         self.assertAlmostEqual(v_pass_rate, 100.0)
@@ -89,7 +88,7 @@ class TestValidationStatsBreakdown(unittest.TestCase):
     def test_no_signals_returns_zeros(self):
         """No signals → (0.0, 0, {}, 0, 0)."""
         reporter = self._make_reporter({})
-        with patch("os.getenv", side_effect=lambda k, d=None: "signals:of:inputs" if k == "OF_INPUTS_STREAM" else os.environ.get(k, d)):
+        with patch("os.getenv", side_effect=lambda k, d=None: RS.OF_INPUTS if k == "OF_INPUTS_STREAM" else os.environ.get(k, d)):
             result = reporter._get_validation_stats("CryptoOrderFlow", "ALL", 3600)
         self.assertEqual(result, (0.0, 0, {}, 0, 0, {}, {}))
 

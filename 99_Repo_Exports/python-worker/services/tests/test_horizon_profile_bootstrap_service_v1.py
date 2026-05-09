@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 services/tests/test_horizon_profile_bootstrap_service_v1.py
 ────────────────────────────────────────────────────────────
@@ -7,7 +8,6 @@ Unit tests for Phase 1 horizon_profile_bootstrap_service.
 Covers pure math helpers (no DB / Redis needed).
 """
 
-import math
 import pytest
 
 from services.horizon_profile_bootstrap_service import (
@@ -17,7 +17,6 @@ from services.horizon_profile_bootstrap_service import (
     _percentile_disc_sorted,
     _profile_conf,
 )
-
 
 # ---------------------------------------------------------------------------
 # _bucket_by_hold_ms

@@ -12,12 +12,10 @@ Usage:
 
 import argparse
 import os
-import sys
-from typing import Dict, List
 
 try:
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 except ImportError:
     print("Error: pandas and numpy required. Run: pip install pandas numpy pyarrow")
     exit(1)
@@ -48,7 +46,7 @@ def _quantile(values: pd.Series, q: float, use_gpu: bool) -> float:
             pass
     return float(np.quantile(arr, q))
 
-def suggest_thresholds(df: pd.DataFrame, use_gpu: bool) -> Dict[str, float]:
+def suggest_thresholds(df: pd.DataFrame, use_gpu: bool) -> dict[str, float]:
     """
     Suggest optimal thresholds based on data analysis.
     
@@ -66,12 +64,12 @@ def suggest_thresholds(df: pd.DataFrame, use_gpu: bool) -> Dict[str, float]:
         Dictionary of threshold values
     """
     out = {}
-    
+
     print("📊 Analyzing data...")
     print(f"   Rows: {len(df)}")
     print(f"   Columns: {', '.join(df.columns)}")
     print()
-    
+
     # ═══════════════════════════════════════════════════════════════
     # 1. Delta Z-score threshold
     # ═══════════════════════════════════════════════════════════════
@@ -88,7 +86,7 @@ def suggest_thresholds(df: pd.DataFrame, use_gpu: bool) -> Dict[str, float]:
     else:
         out['DELTA_Z_THRESHOLD'] = 3.0
         print(f"⚠️  DELTA_Z_THRESHOLD: {out['DELTA_Z_THRESHOLD']} (default, no delta_z column)")
-    
+
     # ═══════════════════════════════════════════════════════════════
     # 2. Weak progress threshold (range/ATR ratio)
     # ═══════════════════════════════════════════════════════════════
@@ -98,13 +96,13 @@ def suggest_thresholds(df: pd.DataFrame, use_gpu: bool) -> Dict[str, float]:
             # Compute rolling range over 60-second windows (assume ~1s sampling)
             N = 60
             ranges = pd.Series(mid).rolling(N).apply(lambda x: x.max() - x.min(), raw=True)
-            
+
             # ATR proxy: 14-period moving average of range
             atr_proxy = ranges.rolling(14).mean()
-            
+
             # Range/ATR ratio
             ratio = (ranges / atr_proxy).replace([np.inf, -np.inf], np.nan)
-            
+
             # Weak progress = lower 30th percentile
             valid_ratio = ratio.dropna()
             if len(valid_ratio) > 100:
@@ -120,7 +118,7 @@ def suggest_thresholds(df: pd.DataFrame, use_gpu: bool) -> Dict[str, float]:
     else:
         out['WEAK_PROGRESS_ATR'] = 0.10
         print(f"⚠️  WEAK_PROGRESS_ATR: {out['WEAK_PROGRESS_ATR']} (default, no mid column)")
-    
+
     # ═══════════════════════════════════════════════════════════════
     # 3. OBI threshold
     # ═══════════════════════════════════════════════════════════════
@@ -138,35 +136,35 @@ def suggest_thresholds(df: pd.DataFrame, use_gpu: bool) -> Dict[str, float]:
     else:
         out['OBI_THRESHOLD'] = 0.5
         print(f"⚠️  OBI_THRESHOLD: {out['OBI_THRESHOLD']} (default, no obi column)")
-    
+
     # ═══════════════════════════════════════════════════════════════
     # 4. Iceberg parameters (conservative defaults)
     # ═══════════════════════════════════════════════════════════════
     out['ICEBERG_MIN_DURATION'] = 1.5  # seconds
     out['ICEBERG_REFRESH_COUNT'] = 2   # minimum refreshes
     out['ICEBERG_REFRESH_MIN_ABS'] = 1.0  # minimum volume change
-    
+
     print(f"✅ ICEBERG_MIN_DURATION: {out['ICEBERG_MIN_DURATION']}s")
     print(f"✅ ICEBERG_REFRESH_COUNT: {out['ICEBERG_REFRESH_COUNT']}")
     print(f"✅ ICEBERG_REFRESH_MIN_ABS: {out['ICEBERG_REFRESH_MIN_ABS']}")
-    
+
     # ═══════════════════════════════════════════════════════════════
     # 5. Distance to pivot (ATR share)
     # ═══════════════════════════════════════════════════════════════
     out['DIST_ATR_THRESHOLD'] = 0.5  # within 0.5 ATR of pivot
     print(f"✅ DIST_ATR_THRESHOLD: {out['DIST_ATR_THRESHOLD']} ATR")
-    
+
     # ═══════════════════════════════════════════════════════════════
     # 6. OBI sustained duration
     # ═══════════════════════════════════════════════════════════════
     out['OBI_MIN_DURATION'] = 2.0  # seconds
     print(f"✅ OBI_MIN_DURATION: {out['OBI_MIN_DURATION']}s")
-    
+
     print()
     return out
 
 
-def write_env_file(thresholds: Dict[str, float], path: str) -> None:
+def write_env_file(thresholds: dict[str, float], path: str) -> None:
     """
     Write thresholds to .env file.
     
@@ -179,17 +177,17 @@ def write_env_file(thresholds: Dict[str, float], path: str) -> None:
         f"# Generated: {pd.Timestamp.now().isoformat()}",
         "",
     ]
-    
+
     for key in sorted(thresholds.keys()):
         value = thresholds[key]
         lines.append(f"{key}={value}")
-    
+
     # Create directory if needed
     os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
-    
+
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
-    
+
     print(f"✅ Wrote thresholds to {path}")
 
 
@@ -219,7 +217,7 @@ Examples:
         help="Enable GPU quantiles if available (fallback to CPU).",
     )
     args = ap.parse_args()
-    
+
     # Load data
     print(f"📂 Loading data from {args.data}...")
     if args.data.endswith(".parquet"):
@@ -228,21 +226,21 @@ Examples:
         df = pd.read_csv(args.data)
     else:
         raise SystemExit("Error: Data file must be .parquet or .csv")
-    
+
     print(f"✅ Loaded {len(df)} rows\n")
-    
+
     use_gpu = bool(args.use_gpu and _GPU_AVAILABLE)
     if args.use_gpu and not _GPU_AVAILABLE:
         print("⚠️ GPU requested but not available, using CPU quantiles")
     elif use_gpu:
         print("🚀 GPU quantiles enabled")
-    
+
     # Suggest thresholds
     thresholds = suggest_thresholds(df, use_gpu=use_gpu)
-    
+
     # Write to file
     write_env_file(thresholds, args.out_env)
-    
+
     print("\n🎯 Summary:")
     print("=" * 60)
     for key, value in sorted(thresholds.items()):

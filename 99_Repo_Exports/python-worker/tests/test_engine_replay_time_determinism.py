@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from core.of_confirm_engine import OFConfirmEngine
-from tests.test_of_confirm_engine_ok_soft import _Runtime, _base_cfg
+from tests.test_of_confirm_engine_ok_soft import _base_cfg, _Runtime
 
 
 def _run_once(replay_ts_ms: int):

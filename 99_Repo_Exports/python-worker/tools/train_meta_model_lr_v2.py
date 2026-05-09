@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Train MetaModelLR on datasets produced by build_dataset_from_inputs_outcomes_v2.py.
 
@@ -21,30 +22,27 @@ Usage:
 
 import argparse
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
-
 from sklearn.linear_model import LogisticRegression
 
 from core.feature_engineering import apply_transform
 from core.meta_features_v1 import (
     META_FEAT_V1_COLS,
-    META_FEAT_V1_NAME,
-    META_FEAT_V1_VERSION,
     META_FEAT_V1_HASH,
+    META_FEAT_V1_NAME,
     META_FEAT_V1_TRANSFORMS,
+    META_FEAT_V1_VERSION,
 )
 from core.meta_features_v2 import (
     META_FEAT_V2_COLS,
-    META_FEAT_V2_NAME,
-    META_FEAT_V2_VERSION,
     META_FEAT_V2_HASH,
+    META_FEAT_V2_NAME,
     META_FEAT_V2_TRANSFORMS,
-    META_FEAT_V2_NEW_COLS,
+    META_FEAT_V2_VERSION,
 )
-
 
 # Fixed list of columns for Train == Serve consistency (canonical inventory).
 # Adjusted by --schema argument.
@@ -66,7 +64,7 @@ SCHEMAS = {
 }
 
 # Simple transform policy (applied before robust scaling) - Overridden by schema transforms if available
-TRANSFORMS_LEGACY: Dict[str, List[Dict[str, Any]]] = {
+TRANSFORMS_LEGACY: dict[str, list[dict[str, Any]]] = {
     # Clamp heavy tails
     "delta_z": [{"type": "clip", "lo": -10.0, "hi": 10.0}],
     "ofi_z": [{"type": "clip", "lo": -10.0, "hi": 10.0}],
@@ -84,23 +82,23 @@ TRANSFORMS = TRANSFORMS_LEGACY
 def _to_float(x: Any, default: float = 0.0) -> float:
     try:
         if x is None:
-            return float(default)
+            return default
         if isinstance(x, (int, float, np.number)):
             v = float(x)
             if not np.isfinite(v):
-                return float(default)
+                return default
             return v
         if isinstance(x, str):
             v = float(x.strip())
             if not np.isfinite(v):
-                return float(default)
+                return default
             return v
     except Exception:
-        return float(default)
-    return float(default)
+        return default
+    return default
 
 
-def _get_payload(ind: Any) -> Dict[str, Any]:
+def _get_payload(ind: Any) -> dict[str, Any]:
     # Parquet can store dicts, JSON strings, or nested shapes.
     if isinstance(ind, dict):
         return ind
@@ -113,7 +111,7 @@ def _get_payload(ind: Any) -> Dict[str, Any]:
     return {}
 
 
-def _get_nested(d: Dict[str, Any], *keys: str) -> Any:
+def _get_nested(d: dict[str, Any], *keys: str) -> Any:
     cur: Any = d
     for k in keys:
         if not isinstance(cur, dict):
@@ -122,7 +120,7 @@ def _get_nested(d: Dict[str, Any], *keys: str) -> Any:
     return cur
 
 
-def _build_features(payload: Dict[str, Any], direction: str = "", scenario: str = "") -> Dict[str, float]:
+def _build_features(payload: dict[str, Any], direction: str = "", scenario: str = "") -> dict[str, float]:
     # Support both flat payload and nested {indicators:{...}, evidence:{...}} shapes
     ind = payload.get("indicators") if isinstance(payload.get("indicators"), dict) else payload
     evidence = payload.get("evidence") if isinstance(payload.get("evidence"), dict) else payload.get("evidence", {})  # type: ignore
@@ -152,7 +150,7 @@ def _build_features(payload: Dict[str, Any], direction: str = "", scenario: str 
     # NOTE: ideally we would use build_meta_features_v1 directly if payload structure matches runtime.
     # But usually parquet logs have slightly different flat structure.
     # For now, we manually map to V1 keys.
-    
+
     # helper for safe extract
     def _g(src, *keys, default=0.0):
         for k in keys:
@@ -160,7 +158,7 @@ def _build_features(payload: Dict[str, Any], direction: str = "", scenario: str 
                 return _to_float(src[k])
         return default
 
-    feat: Dict[str, float] = {
+    feat: dict[str, float] = {
         "base_score": _to_float(sb.get("base_score", ind.get("of_base_score"))),
         "score_final_raw": _to_float(sb.get("final_score_raw", ind.get("of_score_final_raw"))),
         "exec_pen": _to_float(ind.get("exec_pen", evidence.get("exec_pen", 0.0))),
@@ -195,10 +193,10 @@ def _build_features(payload: Dict[str, Any], direction: str = "", scenario: str 
         "book_staleness_ms": _to_float(ind.get("book_staleness_ms")),
         "liq_score": _to_float(ind.get("liq_score")),
         "vol_score": _to_float(ind.get("vol_score")),
-        "liq_low": 1.0 if "low" in str(ind.get("liq_regime", "")).lower() else 0.0,
-        "liq_high": 1.0 if "high" in str(ind.get("liq_regime", "")).lower() else 0.0,
-        "vol_low": 1.0 if "low" in str(ind.get("vol_regime", "")).lower() else 0.0,
-        "vol_high": 1.0 if "high" in str(ind.get("vol_regime", "")).lower() else 0.0,
+        "liq_low": 1.0 if "low" in (ind.get("liq_regime", "")).lower() else 0.0,
+        "liq_high": 1.0 if "high" in (ind.get("liq_regime", "")).lower() else 0.0,
+        "vol_low": 1.0 if "low" in (ind.get("vol_regime", "")).lower() else 0.0,
+        "vol_high": 1.0 if "high" in (ind.get("vol_regime", "")).lower() else 0.0,
         "sc_trend": 1.0 if "trend" in sc else 0.0,
         "sc_range": 1.0 if "range" in sc else 0.0,
         "sc_saw_chop": 1.0 if ("saw" in sc or "chop" in sc) else 0.0,
@@ -228,7 +226,7 @@ def _build_features(payload: Dict[str, Any], direction: str = "", scenario: str 
     return feat
 
 
-def _apply_transforms(df: pd.DataFrame, transforms: Dict[str, List[Dict[str, Any]]]) -> pd.DataFrame:
+def _apply_transforms(df: pd.DataFrame, transforms: dict[str, list[dict[str, Any]]]) -> pd.DataFrame:
     out = df.copy()
     for col, ts in transforms.items():
         if col not in out.columns:
@@ -241,7 +239,7 @@ def _apply_transforms(df: pd.DataFrame, transforms: Dict[str, List[Dict[str, Any
     return out
 
 
-def _robust_params(x: np.ndarray) -> Dict[str, float]:
+def _robust_params(x: np.ndarray) -> dict[str, float]:
     x = x[np.isfinite(x)]
     if x.size == 0:
         return {"center": 0.0, "scale": 1.0}
@@ -272,27 +270,27 @@ def main() -> None:
         schema_info = SCHEMAS["meta_feat_v1"]
 
     FEATURES = schema_info["cols"]
-    
+
     # Resolve transforms: wrap into list if needed
     # We prefer schema transforms, but might fallback to legacy for V1 if needed.
     # For now, let's use the schema's defined transforms as the source of truth.
     # But we need to convert Dict[str, Dict] -> Dict[str, List[Dict]]
-    
+
     transforms_map = {}
     # If using V1, maybe we want to keep using TRANSFORMS_LEGACY to not break existing models?
     # The user request implies moving towards canonical.
     # Let's try to use the definition from the schema module.
-    
+
     schema_transforms = schema_info["transforms"]
     for k, v in schema_transforms.items():
         transforms_map[k] = [v]
-    
+
     # If legacy fallback desired for v1:
     if args.schema == "meta_feat_v1":
         # Merge: use legacy if present, else schema
         # actually legacy covers most.
         pass
-    
+
     # Update global or local variable
     global TRANSFORMS
     TRANSFORMS = transforms_map
@@ -362,10 +360,10 @@ def main() -> None:
         "intercept": float(lr.intercept_[0]),
         "coef": [float(x) for x in lr.coef_[0].tolist()],
         "threshold": float(args.threshold),
-        "transforms": TRANSFORMS, # These are List[Dict] now, but model loader handles Dict[str, Dict] usually... 
+        "transforms": TRANSFORMS, # These are List[Dict] now, but model loader handles Dict[str, Dict] usually...
         # Wait, MetaModelLR.load expects transforms to be Dict[str, Dict] OR logic to handle it.
         # core/meta_model_lr.py says: transforms=obj.get("transforms", {})
-        # And apply logic? 
+        # And apply logic?
         # Actually in meta_model_lr.py:
         # self.transforms = transforms
         # predict_proba -> _apply_transforms -> apply_transform(val, t)
@@ -379,7 +377,7 @@ def main() -> None:
         "schema_hash": schema_info["hash"],
         "feature_cols_hash": schema_info["hash"], # Requested by user
     }
-    
+
     # Unwrap transforms for JSON if they are single-element lists (canonical compliance)
     json_transforms = {}
     for k, v in TRANSFORMS.items():

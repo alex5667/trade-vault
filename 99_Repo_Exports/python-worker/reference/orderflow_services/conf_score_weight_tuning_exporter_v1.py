@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """conf_score_weight_tuning_exporter_v1.py
 
 Prometheus exporter for Phase2 confidence scorer tuning job status.
@@ -23,15 +23,15 @@ Env:
   EXPORTER_ADDR (default 0.0.0.0)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import logging
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import redis  # type: ignore
 from prometheus_client import Gauge, start_http_server  # type: ignore
+
+from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger("conf_score_tuning_exporter")
 
@@ -74,7 +74,7 @@ def main() -> None:
 
     while True:
         try:
-            d: Dict[str, Any] = r.hgetall(dyn_key) or {}
+            d: dict[str, Any] = r.hgetall(dyn_key) or {}
 
             last_ts_ms = _to_int(d.get("conf_score_tuning_last_ts_ms"), 0)
             ok = _to_int(d.get("conf_score_tuning_last_ok"), 0)

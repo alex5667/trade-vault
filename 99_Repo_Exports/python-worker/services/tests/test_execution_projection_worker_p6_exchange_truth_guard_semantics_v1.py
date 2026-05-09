@@ -1,7 +1,7 @@
-from pathlib import Path
 import importlib.util
 import json
 import sys
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # P6 test: Exchange Truth Guard Semantics — projection worker, executor, repair
@@ -80,7 +80,7 @@ class FakeRedis:
         return rows
 
     def scan_iter(self, match=None):
-        prefix = str(match or '').rstrip('*')
+        prefix = (match or '').rstrip('*')
         for key in list(self.kv.keys()):
             if key.startswith(prefix):
                 yield key

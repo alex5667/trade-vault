@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from core.bucket_allowlist_v1 import bucket_allowed
-from typing import Any, Dict
 
 
 @dataclass
@@ -27,13 +27,13 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def eval_taker_flow_gate(
     direction: str,
-    indicators: Dict[str, Any],
-    cfg2: Dict[str, Any],
+    indicators: dict[str, Any],
+    cfg2: dict[str, Any],
 ) -> TakerFlowGateResult:
     """Isolated signed taker-flow imbalance contra gate.
 
@@ -48,10 +48,10 @@ def eval_taker_flow_gate(
     Optional guard: ignore when total taker rate is too small
     (cfg2["taker_flow_gate_min_abs_rate"], default 0.0).
     """
-    mode = str(cfg2.get("taker_flow_gate_mode", "shadow") or "shadow").strip().lower()    # Enforce only on selected execution-regime buckets (default: HIGH_VOL_LOW_LIQ).
+    mode = (cfg2.get("taker_flow_gate_mode", "shadow") or "shadow").strip().lower()    # Enforce only on selected execution-regime buckets (default: HIGH_VOL_LOW_LIQ).
     # If mode is "enforce" but bucket is not allowed -> behave as shadow.
-    bucket = str(indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL")
-    enforce_buckets_raw = str(cfg2.get("taker_flow_gate_enforce_buckets", "HIGH_VOL_LOW_LIQ") or "HIGH_VOL_LOW_LIQ")
+    bucket = (indicators.get("exec_regime_bucket", "NORMAL") or "NORMAL")
+    enforce_buckets_raw = (cfg2.get("taker_flow_gate_enforce_buckets", "HIGH_VOL_LOW_LIQ") or "HIGH_VOL_LOW_LIQ")
     enforce_allowed = bucket_allowed(bucket, enforce_buckets_raw, default_bucket="HIGH_VOL_LOW_LIQ")
     z_thr       = _f(cfg2.get("taker_flow_contra_z_hard", 2.5), 2.5)
     imb_thr     = _f(cfg2.get("taker_flow_contra_imb_hard", 0.25), 0.25)
@@ -67,7 +67,7 @@ def eval_taker_flow_gate(
     if abs_rate < min_abs_rate:
         return TakerFlowGateResult(veto=0, shadow_veto=0, soft=0, reason="low_rate")
 
-    d = str(direction or "").upper()
+    d = (direction or "").upper()
     contra = False
     if d == "LONG":
         # contra: heavy sell flow against long entry

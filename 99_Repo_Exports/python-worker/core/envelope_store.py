@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
+import contextlib
 
 
 @dataclass(frozen=True)
@@ -20,14 +20,14 @@ class EnvelopeStore:
     - хранение идемпотентное: SETNX (первый wins), затем TTL refresh best-effort
     """
 
-    def __init__(self, redis_client: Any, *, settings: Optional[EnvelopeStoreSettings] = None) -> None:
+    def __init__(self, redis_client: Any, *, settings: EnvelopeStoreSettings | None = None) -> None:
         self.redis = redis_client
         self.settings = settings or EnvelopeStoreSettings()
 
     def key(self, sid: str) -> str:
         return f"{self.settings.prefix}:{sid}"
 
-    def save_once(self, sid: str, env: Dict[str, Any]) -> None:
+    def save_once(self, sid: str, env: dict[str, Any]) -> None:
         k = self.key(sid)
         payload = json.dumps(env, ensure_ascii=False, separators=(",", ":"))
         ttl = int(self.settings.ttl_sec)
@@ -39,12 +39,10 @@ class EnvelopeStore:
             # fail-open
             return
         # если уже было — попробуем освежить TTL (best-effort)
-        try:
+        with contextlib.suppress(Exception):
             self.redis.expire(k, ttl)
-        except Exception:
-            pass
 
-    def load(self, sid: str) -> Optional[Dict[str, Any]]:
+    def load(self, sid: str) -> dict[str, Any] | None:
         k = self.key(sid)
         raw = None
         try:

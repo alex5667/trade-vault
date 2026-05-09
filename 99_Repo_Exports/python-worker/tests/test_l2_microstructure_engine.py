@@ -1,5 +1,4 @@
-import pytest
-from contexts import SimpleL2Snapshot, L2Level, BucketState
+from contexts import BucketState, L2Level, SimpleL2Snapshot
 from l2_microstructure_engine import L2MicrostructureEngine
 
 

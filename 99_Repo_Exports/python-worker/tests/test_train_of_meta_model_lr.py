@@ -3,16 +3,17 @@
 Unit tests for train_of_meta_model_lr.py
 """
 import json
-import tempfile
 import os
+import tempfile
 
 import pytest
 
 try:
     import numpy as np
+
     from tools.train_of_meta_model_lr import (
-        iter_ndjson,
         build_xy,
+        iter_ndjson,
         main,
     )
     SKLEARN_AVAILABLE = True
@@ -28,10 +29,10 @@ def test_build_xy():
         {"y": 0, "base_score": 0.5, "exec_risk_norm": 0.8, "have": 1, "need": 2},
         {"y": 1, "base_score": 0.9, "exec_risk_norm": 0.2, "have": 3, "need": 2},
     ]
-    
+
     feat = ["base_score", "exec_risk_norm", "have", "need"]
     X, y = build_xy(rows, feat)
-    
+
     assert X.shape == (3, 4)
     assert y.shape == (3,)
     assert y[0] == 1
@@ -66,14 +67,14 @@ def test_main_end_to_end():
             }
             f.write(json.dumps(row) + "\n")
         dataset_path = f.name
-    
+
     # Create output files
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         model_path = f.name
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         report_path = f.name
-    
+
     try:
         import sys
         old_argv = sys.argv
@@ -86,14 +87,14 @@ def test_main_end_to_end():
             "--seed", "42",
             "--threshold", "0.5",
         ]
-        
+
         try:
             main()
         finally:
             sys.argv = old_argv
-        
+
         # Check model file
-        with open(model_path, "r") as f:
+        with open(model_path) as f:
             model = json.load(f)
             assert "kind" in model
             assert model["kind"] == "logreg_v1"
@@ -102,9 +103,9 @@ def test_main_end_to_end():
             assert "coef" in model
             assert len(model["coef"]) == len(model["features"])
             assert model["threshold"] == 0.5
-        
+
         # Check report file
-        with open(report_path, "r") as f:
+        with open(report_path) as f:
             report = json.load(f)
             assert "n" in report
             assert report["n"] == 400

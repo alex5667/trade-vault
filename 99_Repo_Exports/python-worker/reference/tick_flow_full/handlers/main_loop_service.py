@@ -1,16 +1,17 @@
 # main_loop_service.py
 from __future__ import annotations
+
 """
 Функционал основного цикла обработки, извлеченный из base_orderflow_handler.py
 """
 
-from utils.time_utils import get_ny_time_millis
-
-from typing import Dict, Tuple, List, Any, Optional
-import time
-import random
 import logging
+import random
+import time
 from dataclasses import dataclass
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     from health_metrics import HealthMetrics
@@ -55,8 +56,8 @@ class MainLoopService:
     def __init__(
         self,
         *args: Any,
-        symbol: Optional[str] = None,
-        health_metrics: Optional["HealthMetrics"] = None,
+        symbol: str | None = None,
+        health_metrics: HealthMetrics | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__()  # in case of mixins
@@ -132,7 +133,7 @@ class MainLoopService:
             return 0
         return 0
 
-    def _hm_set_pending_len(self, symbol: str, kind: str, pending: int, ts_ms: int, stream: Optional[str] = None) -> None:
+    def _hm_set_pending_len(self, symbol: str, kind: str, pending: int, ts_ms: int, stream: str | None = None) -> None:
         """
         Унификация разных HealthMetrics API:
           - on_pending_len(symbol, kind, pending)
@@ -157,8 +158,8 @@ class MainLoopService:
         try:
             if hasattr(hm, "gauge"):
                 hm.gauge("pending_len", int(pending), tags={
-                    "symbol": symbol, 
-                    "kind": kind, 
+                    "symbol": symbol,
+                    "kind": kind,
                     "stream": stream or str(kind)
                 })
                 return
@@ -225,7 +226,7 @@ class MainLoopService:
                     return bool(fn(e))
                 except Exception:
                     pass
-        
+
         # 2. Fallback на MessageHandler
         mh = getattr(self, "message_handler", None)
         if mh is not None:
@@ -302,9 +303,9 @@ class MainLoopService:
             return
 
         # Лимит размера fail_counts
-        fail_counts: Dict[Tuple[str, str], int] = {}
+        fail_counts: dict[tuple[str, str], int] = {}
         next_claim_at_mono_ms = 0
-        claim_start_ids = {s: "0-0" for s in streams}
+        claim_start_ids = dict.fromkeys(streams, "0-0")
 
         self.logger.info("Main loop started for %s", self.symbol)
 
@@ -371,7 +372,7 @@ class MainLoopService:
                 if idle_sleep > 0:
                     stop_event.wait(timeout=idle_sleep)
                 continue
-            
+
             # Если сообщения есть, в след. раз не блокируем (читаем быстро остаток)
             should_block = False
 
@@ -412,9 +413,9 @@ class MainLoopService:
                 self._log_stats()
                 self.last_stat_mono_s = time.monotonic()
 
-    def _claim_and_process_pending(self, consumer: Any, streams: List[str],
-                                  start_ids: Dict[str, str],
-                                  fail_counts: Dict[Tuple[str, str], int],
+    def _claim_and_process_pending(self, consumer: Any, streams: list[str],
+                                  start_ids: dict[str, str],
+                                  fail_counts: dict[tuple[str, str], int],
                                   backoff: Backoff,
                                   stop_event: Any) -> bool:
         """

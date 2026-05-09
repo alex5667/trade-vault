@@ -1,8 +1,10 @@
-from utils.time_utils import get_ny_time_millis
 import json
-import time
+
 import fakeredis
+
 from utils.atr_cache import ATRCache
+from utils.time_utils import get_ny_time_millis
+
 
 def test_atr_cache_get_with_meta_from_atr_string_and_ta_last():
     r = fakeredis.FakeRedis(decode_responses=True)

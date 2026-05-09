@@ -1,6 +1,7 @@
-from pathlib import Path
 import importlib.util
 import sys
+from pathlib import Path
+
 import pytest
 
 mod_path = Path(__file__).parent.parent / 'binance_futures_client.py'

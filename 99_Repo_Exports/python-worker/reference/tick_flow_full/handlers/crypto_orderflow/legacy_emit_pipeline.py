@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Legacy candidate emission pipeline (Step 2.1) — CONTRACTED VERSION
 
@@ -23,7 +24,7 @@ Legacy candidate emission pipeline (Step 2.1) — CONTRACTED VERSION
 
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 @dataclass
@@ -31,7 +32,7 @@ class StageTrace:
     stage: str
     ok: bool
     reason: str = ""
-    meta: Dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -46,15 +47,15 @@ class CandidateFrame:
     kind_key: str
     side_int: int
     side_raw: str
-    level_price: Optional[float] = None
+    level_price: float | None = None
     # validate result
     res: Any = None
     # score meta (from ScoredCandidate)
     score: Any = None
     # payload + sidecar
-    payload: Optional[Dict[str, Any]] = None
-    meta: Optional[Dict[str, Any]] = None
-    parts: Optional[Dict[str, Any]] = None
+    payload: dict[str, Any] | None = None
+    meta: dict[str, Any] | None = None
+    parts: dict[str, Any] | None = None
 
 
 class CandidateExtractor:
@@ -62,7 +63,7 @@ class CandidateExtractor:
     Contracted extractor: returns exactly one candidate from scored.
     """
 
-    def run(self, handler: Any, *, ctx: Any, scored: Any) -> List[Any]:
+    def run(self, handler: Any, *, ctx: Any, scored: Any) -> list[Any]:
         if scored is None:
             # Contract says scored must be provided; keep fail-open semantics.
             return []
@@ -77,7 +78,7 @@ class ContextEnricher:
     Parse kind/side/level_price + attach levels (tp/sl) + ensure invariants for gates.
     """
 
-    def run(self, handler: Any, *, ctx: Any, scored: Any, cand: Any, pre: Dict[str, Any]) -> CandidateFrame:
+    def run(self, handler: Any, *, ctx: Any, scored: Any, cand: Any, pre: dict[str, Any]) -> CandidateFrame:
         info = handler._legacy_parse_candidate(cand=cand)
         frame = CandidateFrame(
             ctx=ctx,
@@ -101,7 +102,7 @@ class GateRunner:
     Единая последовательность гейтов + trace.
     """
 
-    def run_pre_validate(self, handler: Any, *, frame: CandidateFrame, pre: Dict[str, Any], trace: List[StageTrace]) -> bool:
+    def run_pre_validate(self, handler: Any, *, frame: CandidateFrame, pre: dict[str, Any], trace: list[StageTrace]) -> bool:
         # candidates_total must be counted BEFORE validate/emit (includes veto)
         handler._legacy_metric_candidate(frame=frame, pre=pre)
 
@@ -118,13 +119,13 @@ class GateRunner:
         handler._legacy_log_candidate(frame=frame, pre=pre)
         return True
 
-    def run_validate(self, handler: Any, *, frame: CandidateFrame, pre: Dict[str, Any], trace: List[StageTrace]) -> bool:
+    def run_validate(self, handler: Any, *, frame: CandidateFrame, pre: dict[str, Any], trace: list[StageTrace]) -> bool:
         ok, reason, res = handler._legacy_gate_confirmations(frame=frame, pre=pre)
         frame.res = res
         trace.append(StageTrace(stage="confirmations_validate", ok=ok, reason=reason))
         return bool(ok)
 
-    def run_post_validate(self, handler: Any, *, frame: CandidateFrame, pre: Dict[str, Any], trace: List[StageTrace]) -> bool:
+    def run_post_validate(self, handler: Any, *, frame: CandidateFrame, pre: dict[str, Any], trace: list[StageTrace]) -> bool:
         # confidence/conf_factor gates use ScoredCandidate fields (contract)
         ok, reason = handler._legacy_gate_min_conf(frame=frame, pre=pre)
         trace.append(StageTrace(stage="min_conf", ok=ok, reason=reason))
@@ -144,7 +145,7 @@ class GateRunner:
 
         return True
 
-    def run_pre_emit(self, handler: Any, *, frame: CandidateFrame, pre: Dict[str, Any], trace: List[StageTrace]) -> bool:
+    def run_pre_emit(self, handler: Any, *, frame: CandidateFrame, pre: dict[str, Any], trace: list[StageTrace]) -> bool:
         ok, reason = handler._legacy_gate_entry_policy(frame=frame, pre=pre)
         trace.append(StageTrace(stage="entry_policy", ok=ok, reason=reason))
         return bool(ok)
@@ -155,22 +156,22 @@ class ScoringRunner:
     Contracted scoring: take score axis from ScoredCandidate (no recompute here).
     """
 
-    def run(self, handler: Any, *, frame: CandidateFrame, pre: Dict[str, Any]) -> Any:
+    def run(self, handler: Any, *, frame: CandidateFrame, pre: dict[str, Any]) -> Any:
         return handler._legacy_score_from_scored(frame=frame, pre=pre)
 
 
 class PayloadBuilder:
-    def run(self, handler: Any, *, frame: CandidateFrame, pre: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]], Dict[str, Any]]:
+    def run(self, handler: Any, *, frame: CandidateFrame, pre: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any]]:
         return handler._legacy_build_payload(frame=frame, pre=pre)
 
 
 class OutboxWriter:
-    def run(self, handler: Any, *, frame: CandidateFrame, pre: Dict[str, Any]) -> bool:
+    def run(self, handler: Any, *, frame: CandidateFrame, pre: dict[str, Any]) -> bool:
         return bool(handler._legacy_emit_outbox(frame=frame, pre=pre))
 
 
 class Observability:
-    def on_emit(self, handler: Any, *, frame: CandidateFrame, pre: Dict[str, Any], ok: bool) -> None:
+    def on_emit(self, handler: Any, *, frame: CandidateFrame, pre: dict[str, Any], ok: bool) -> None:
         handler._legacy_observe_emit(frame=frame, pre=pre, ok=ok)
 
 
@@ -197,7 +198,7 @@ class LegacyCandidatePipeline:
 
         any_sent = False
         for cand in candidates:
-            trace: List[StageTrace] = []
+            trace: list[StageTrace] = []
             try:
                 frame = self.enricher.run(handler, ctx=ctx, scored=scored, cand=cand, pre=pre)
             except Exception as e:

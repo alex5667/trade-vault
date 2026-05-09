@@ -9,22 +9,21 @@
 # Logic: condition must be sustained; has cooldown; freeze and rollback are idempotent;
 #         fail-open when Redis/summary unavailable.
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import secrets
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from services.orderflow.exec_health_freeze_control import (
     build_autoguard_latch_update,
     stringify_mapping,
 )
-from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_async
 from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_async
+from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_async
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as aioredis  # type: ignore
@@ -40,7 +39,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _b(x: Any) -> bool:
@@ -54,9 +53,9 @@ def _b(x: Any) -> bool:
 
 def _s(x: Any, d: str = "") -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
 @dataclass
@@ -80,7 +79,7 @@ class GuardCfg:
     enabled: bool                   # master enable switch (EXEC_HEALTH_AUTOGUARD_ENABLE)
 
     @staticmethod
-    def from_env() -> "GuardCfg":
+    def from_env() -> GuardCfg:
         return GuardCfg(
             redis_url=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"),
             summary_key=os.getenv("EXEC_HEALTH_SLO_SUMMARY_KEY", "metrics:exec_health:slo:last"),
@@ -109,11 +108,11 @@ class EvalResult:
     mode_mismatch_since_ts_ms: int   # timestamp when condition first appeared (0 if inactive)
     rollout_drift_since_ts_ms: int   # timestamp when condition first appeared (0 if inactive)
     should_trigger: bool             # True if any condition crossed the sustained threshold
-    trigger_reasons: List[str]       # list of active reason labels
+    trigger_reasons: list[str]       # list of active reason labels
 
 
 def evaluate_autoguard(
-    *, summary: Dict[str, Any], prev_state: Dict[str, Any], cfg: GuardCfg, now_ms: int
+    *, summary: dict[str, Any], prev_state: dict[str, Any], cfg: GuardCfg, now_ms: int
 ) -> EvalResult:
     """
     Pure evaluation function (no Redis I/O) — easy to unit-test.
@@ -139,7 +138,7 @@ def evaluate_autoguard(
     else:
         dr_since = 0
 
-    reasons: List[str] = []
+    reasons: list[str] = []
     if mm_active and (now_ms - mm_since) >= int(cfg.mode_mismatch_minutes * 60 * 1000):
         reasons.append("cross_scope_mode_mismatch")
     if drift_active and (now_ms - dr_since) >= int(cfg.drift_minutes * 60 * 1000):
@@ -169,7 +168,7 @@ class AutoGuard:
         self.r = aioredis.from_url(self.cfg.redis_url, decode_responses=True)
         self._identity_checked = False
 
-    async def _read_hash(self, key: str) -> Dict[str, Any]:
+    async def _read_hash(self, key: str) -> dict[str, Any]:
         try:
             return await self.r.hgetall(key) or {}
         except Exception:
@@ -186,7 +185,7 @@ class AutoGuard:
         except Exception:
             pass
 
-    async def _emit_event(self, payload: Dict[str, Any]) -> str:
+    async def _emit_event(self, payload: dict[str, Any]) -> str:
         """Emit an audit event to the P8 freeze event stream (best-effort).
 
         Returns the Redis stream event ID (e.g. '1-0') or '' on failure.
@@ -196,13 +195,13 @@ class AutoGuard:
         except Exception:
             return ""
 
-    async def _set_state(self, state: Dict[str, Any]) -> None:
+    async def _set_state(self, state: dict[str, Any]) -> None:
         """Persist autoguard state hash with TTL = max(300s, cooldown*3 minutes)."""
         payload = {str(k): str(v) for k, v in state.items()}
         await self.r.hset(self.cfg.state_key, mapping=payload)
         await self.r.expire(self.cfg.state_key, max(300, self.cfg.cooldown_minutes * 180))
 
-    async def _set_control_latch(self, *, now_ms: int, reasons: List[str], freeze_until_ts_ms: int, ack_nonce: str, trigger_event_id: str = "") -> None:
+    async def _set_control_latch(self, *, now_ms: int, reasons: list[str], freeze_until_ts_ms: int, ack_nonce: str, trigger_event_id: str = "") -> None:
         """Write the P7/P8 latched control hash so raw key deletion cannot bypass the freeze.
 
         P8: stores the pending ack nonce so the operator thaw CLI can do a CAS check.
@@ -217,12 +216,12 @@ class AutoGuard:
             reasons=list(reasons),
             freeze_until_ts_ms=int(freeze_until_ts_ms),
             ack_nonce=str(ack_nonce),
-            trigger_event_id=str(trigger_event_id or ""),
+            trigger_event_id=(trigger_event_id or ""),
         )
         await self.r.hset(self.cfg.control_key, mapping=stringify_mapping(payload))
         await self.r.expire(self.cfg.control_key, max(86400, self.cfg.freeze_minutes * 86400))
 
-    async def _set_freeze(self, *, now_ms: int, reasons: List[str]) -> None:
+    async def _set_freeze(self, *, now_ms: int, reasons: list[str]) -> None:
         """Write freeze key with TTL = freeze_minutes. Idempotent (overwrite is safe)."""
         until = now_ms + int(self.cfg.freeze_minutes * 60 * 1000)
         payload = {
@@ -237,8 +236,8 @@ class AutoGuard:
         await self.r.pexpire(self.cfg.freeze_key, int(self.cfg.freeze_minutes * 60 * 1000))
 
     async def _maybe_rollback(
-        self, *, now_ms: int, reasons: List[str], state: Dict[str, Any]
-    ) -> Tuple[bool, str, str]:
+        self, *, now_ms: int, reasons: list[str], state: dict[str, Any]
+    ) -> tuple[bool, str, str]:
         """
         Optionally switch cfg:orderflow:overrides:v1:active_sid → prev_sid.
         Returns (did_rollback, from_sid, to_sid).
@@ -347,7 +346,7 @@ class AutoGuard:
                     "manual_ack_event_id": "",
                     "expected_ack_nonce": str(ack_nonce),
                     "last_trigger_nonce": str(ack_nonce),
-                    "last_trigger_event_id": str(trigger_event_id or ""),
+                    "last_trigger_event_id": (trigger_event_id or ""),
                     "control_source": "autoguard",
                     "effective_freeze_active": 1,
                     "last_trigger_ts_ms": int(now),

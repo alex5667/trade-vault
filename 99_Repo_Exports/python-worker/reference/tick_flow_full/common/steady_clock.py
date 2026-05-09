@@ -1,8 +1,9 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
 import time
+
+from utils.time_utils import get_ny_time_millis
 
 
 class SteadyClock:

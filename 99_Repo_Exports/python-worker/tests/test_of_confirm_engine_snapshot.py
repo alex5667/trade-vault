@@ -1,13 +1,12 @@
 from __future__ import annotations
+
 """Tests for OFConfirmEngine runtime snapshot (golden replay support)."""
 
 
 from types import SimpleNamespace
 
-import pytest
-
-from core.of_confirm_engine import OFConfirmEngine, _get_attr_or_key
 from core.dyn_cfg_keys import DynCfgKeys as DK
+from core.of_confirm_engine import OFConfirmEngine, _get_attr_or_key
 
 
 def test_get_attr_or_key_dict():

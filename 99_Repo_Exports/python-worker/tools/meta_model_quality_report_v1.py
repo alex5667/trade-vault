@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Offline quality report for MetaModelLR (meta-labeling).
 
 Computes:
@@ -21,16 +22,16 @@ import math
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from core.meta_model_lr import MetaModelLR
-from core.meta_features_v1 import META_FEAT_V1_COLS, META_FEAT_V1_NAME, build_meta_features_v1
+from core.meta_features_v1 import META_FEAT_V1_NAME, build_meta_features_v1
 from core.meta_features_v2 import META_FEAT_V2_NAME, build_meta_features_v2
 from core.meta_features_v3 import META_FEAT_V3_NAME, build_meta_features_v3
 from core.meta_features_v4 import META_FEAT_V4_NAME, build_meta_features_v4
+from core.meta_model_lr import MetaModelLR
 
 
 @dataclass
@@ -50,9 +51,9 @@ def brier_score(p: np.ndarray, y: np.ndarray) -> float:
     return float(np.mean((p - y) ** 2))
 
 
-def ece_score(p: np.ndarray, y: np.ndarray, n_bins: int = 10) -> Tuple[float, List[CalibBin]]:
+def ece_score(p: np.ndarray, y: np.ndarray, n_bins: int = 10) -> tuple[float, list[CalibBin]]:
     p = np.clip(p, 0.0, 1.0)
-    bins: List[CalibBin] = []
+    bins: list[CalibBin] = []
     ece = 0.0
     edges = np.linspace(0.0, 1.0, n_bins + 1)
     n = len(p)
@@ -114,9 +115,9 @@ def precision_at_toppct(p: np.ndarray, y: np.ndarray, pct: float) -> float:
     return precision_at_topk(p, y, k)
 
 
-def build_features_from_rows(rows: List[Dict[str, Any]], schema_name: str) -> List[Dict[str, float]]:
+def build_features_from_rows(rows: list[dict[str, Any]], schema_name: str) -> list[dict[str, float]]:
     feats = []
-    
+
     # Select builder
     # Dispatch builder based on schema_name (which comes from model usually, or passed in)
     if schema_name == META_FEAT_V3_NAME:
@@ -137,47 +138,15 @@ def build_features_from_rows(rows: List[Dict[str, Any]], schema_name: str) -> Li
         rule_score = float(r.get("score_final_01", r.get("rule_score", 0.0)) or 0.0)
         exec_risk_norm = float(r.get("exec_risk_norm", 0.0) or 0.0)
         exec_risk_bps = float(r.get("exec_risk_bps", 0.0) or 0.0)
-        ml_scenario = str(r.get("scenario_v4", r.get("ml_scenario", "")) or "")
-        
+        ml_scenario = (r.get("scenario_v4", r.get("ml_scenario", "")) or "")
+
         # Args logic: v1/v2/v3 signatures are compatible if we pass kwargs that they all accept
         # or we branch. Since they are all based on v1 signature roughly, but v2/v3 might need extras?
         # v2/v3 take 'evidence' which is 'row' here.
-        
+
         # V3/V2 Builders have same signature for these basic args.
-        if builder == build_meta_features_v3:
+        if builder == build_meta_features_v3 or builder == build_meta_features_v4 or builder == build_meta_features_v2:
             feat, _ = builder(
-                evidence=r,
-                indicators=r,
-                runtime_snap=None,
-                runtime_prev_snap=None,
-                indicators_with_v4=r,
-                legs=r,
-                have=have,
-                need=need,
-                ok_soft=ok_soft,
-                rule_score=rule_score,
-                exec_risk_norm=exec_risk_norm,
-                exec_risk_bps=exec_risk_bps,
-                ml_scenario=ml_scenario,
-            )
-        elif builder == build_meta_features_v4:
-             feat, _ = builder(
-                evidence=r,
-                indicators=r,
-                runtime_snap=None,
-                runtime_prev_snap=None,
-                indicators_with_v4=r,
-                legs=r,
-                have=have,
-                need=need,
-                ok_soft=ok_soft,
-                rule_score=rule_score,
-                exec_risk_norm=exec_risk_norm,
-                exec_risk_bps=exec_risk_bps,
-                ml_scenario=ml_scenario,
-            )
-        elif builder == build_meta_features_v2:
-             feat, _ = builder(
                 evidence=r,
                 indicators=r,
                 runtime_snap=None,
@@ -206,14 +175,14 @@ def build_features_from_rows(rows: List[Dict[str, Any]], schema_name: str) -> Li
                 exec_risk_bps=exec_risk_bps,
                 ml_scenario=ml_scenario,
             )
-            
+
         feats.append(feat)
     return feats
 
 
-def write_prom_textfile(path: Path, metrics: Dict[str, float], labels: Optional[Dict[str, str]] = None) -> None:
+def write_prom_textfile(path: Path, metrics: dict[str, float], labels: dict[str, str] | None = None) -> None:
     labels = labels or {}
-    def fmt_labels(d: Dict[str, str]) -> str:
+    def fmt_labels(d: dict[str, str]) -> str:
         if not d:
             return ""
         parts = [f'{k}="{str(v).replace("\\", "\\\\").replace("\"", "\\\"")}"' for k, v in d.items()]
@@ -229,10 +198,10 @@ def write_prom_textfile(path: Path, metrics: Dict[str, float], labels: Optional[
     os.replace(str(tmp), str(path))
 
 
-def compute_report(df: pd.DataFrame, model: MetaModelLR, label_col: str, r_col: str, group_cols: List[str]) -> Dict[str, Any]:
+def compute_report(df: pd.DataFrame, model: MetaModelLR, label_col: str, r_col: str, group_cols: list[str]) -> dict[str, Any]:
     y = df[label_col].astype(int).to_numpy()
     rows = df.to_dict(orient="records")
-    
+
     schema_name = getattr(model, "schema_name", META_FEAT_V1_NAME)
     feats = build_features_from_rows(rows, schema_name)
     p = np.array([model.predict_proba(f) for f in feats], dtype=float)
@@ -245,8 +214,8 @@ def compute_report(df: pd.DataFrame, model: MetaModelLR, label_col: str, r_col: 
     ece, bins = ece_score(p, y, n_bins=10)
     pr_auc = average_precision(p, y)
 
-    rep: Dict[str, Any] = {}
-    
+    rep: dict[str, Any] = {}
+
     # NEW (P4b): Nested 'metrics' and 'counts' for downstream parsers (ramp, dashboard)
     rep["counts"] = {
         "n": n,
@@ -267,7 +236,7 @@ def compute_report(df: pd.DataFrame, model: MetaModelLR, label_col: str, r_col: 
     rep["pr_auc"] = pr_auc
 
     rep["ece_bins"] = [asdict(b) for b in bins]
-    
+
     # TopK (fixed)
     for k in [50, 100, 200, 500, 1000]:
         if len(y) >= k:
@@ -288,7 +257,7 @@ def compute_report(df: pd.DataFrame, model: MetaModelLR, label_col: str, r_col: 
         exp_r = float(np.mean(r))
         rep["expectancy_r"] = exp_r
         rep["metrics"]["expectancy_r"] = exp_r
-        
+
         # expectancy on top buckets (same pct list)
         order = np.argsort(-p)
         # Re-compute TopPct for expectancy_r
@@ -348,7 +317,7 @@ def main() -> int:
             kk = f"precision_at_{k}"
             if kk in report:
                 metrics[f"meta_quality_{kk}"] = float(report[kk])
-        
+
         schema_name = getattr(model, "schema_name", META_FEAT_V1_NAME)
         write_prom_textfile(Path(args.prom_textfile), metrics, labels={"schema": str(schema_name)})
 

@@ -1,15 +1,14 @@
-import math
 
 import pytest
 
+from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
 from services.execution_cost_ema import (
     ExecCostEmaConfig,
     build_exec_cost_ema_key,
-    update_exec_cost_ema,
     read_exec_cost_ema_bps,
     session_from_ts_ms,
+    update_exec_cost_ema,
 )
-from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
 
 
 class FakeRedis:

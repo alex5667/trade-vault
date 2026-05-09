@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Contract tests: outbox envelope → dispatcher parse → target delivery.
 Checks:
@@ -10,11 +11,9 @@ Checks:
 """
 
 import json
-import time
 import unittest
-from typing import Any, Dict, Optional
-from unittest.mock import MagicMock, patch, call
-
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -26,7 +25,7 @@ def _make_envelope(
     ts_ms: int = 1_700_000_000_000,
     schema_version: int = 1,
     side: str = "LONG",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build minimal OutboxEnvelope field dict the way to_stream_fields() produces."""
     return {
         "signal_id": signal_id,
@@ -185,8 +184,8 @@ class TestOutboxWriterMetricsBeingCalled(unittest.TestCase):
     def test_dedup_hit_incremented_on_duplicate_write(self):
         """При записи дубликата, OUTBOX_DEDUP_HIT_TOTAL.inc() вызывается."""
         try:
-            from core.outbox_writer import OutboxWriter, OutboxWriterConfig, OUTBOX_DEDUP_HIT_TOTAL
             from core.outbox_envelope import OutboxEnvelope
+            from core.outbox_writer import OUTBOX_DEDUP_HIT_TOTAL, OutboxWriter, OutboxWriterConfig
         except ImportError:
             self.skipTest("core.outbox_writer или core.outbox_envelope недоступны")
 
@@ -220,8 +219,8 @@ class TestOutboxWriterMetricsBeingCalled(unittest.TestCase):
     def test_latency_histogram_observe_called_on_success(self):
         """При успешном XADD, OUTBOX_WRITE_LATENCY_SECONDS.observe() вызывается."""
         try:
-            from core.outbox_writer import OutboxWriter, OutboxWriterConfig, OUTBOX_WRITE_LATENCY_SECONDS
             from core.outbox_envelope import OutboxEnvelope
+            from core.outbox_writer import OUTBOX_WRITE_LATENCY_SECONDS, OutboxWriter, OutboxWriterConfig
         except ImportError:
             self.skipTest("core.outbox_writer недоступен")
 

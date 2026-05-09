@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """OF Inputs DLQ/Quarantine drilldown (P96).
 
 Prints quick triage info (top dq_code / err_prefix, sample payloads).
@@ -15,19 +16,19 @@ import argparse
 import json
 import os
 from collections import Counter
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis.asyncio as aioredis
 
 
-def _json_loads(s: str) -> Dict[str, Any]:
+def _json_loads(s: str) -> dict[str, Any]:
     try:
         return json.loads(s)
     except Exception:
         return {"_raw": s}
 
 
-async def _read_tail(r: aioredis.Redis, stream: str, count: int) -> List[Tuple[str, Dict[str, str]]]:
+async def _read_tail(r: aioredis.Redis, stream: str, count: int) -> list[tuple[str, dict[str, str]]]:
     try:
         items = await r.xrevrange(stream, max='+', min='-', count=count)
         # items: List[(id, {field:value})]
@@ -36,7 +37,7 @@ async def _read_tail(r: aioredis.Redis, stream: str, count: int) -> List[Tuple[s
         return []
 
 
-def _extract_ctx(fields: Dict[str, str]) -> Dict[str, Any]:
+def _extract_ctx(fields: dict[str, str]) -> dict[str, Any]:
     payload = fields.get('payload') or ''
     ctx = _json_loads(payload)
     return ctx
@@ -66,8 +67,8 @@ async def main() -> None:
     dlq_dq = Counter()
     for _id, fields in dlq_items:
         ctx = _extract_ctx(fields)
-        dlq_prefix[str(ctx.get('err_prefix', 'na'))] += 1
-        dq = str(ctx.get('dq_code', '') or 'na')
+        dlq_prefix[(ctx.get('err_prefix', 'na'))] += 1
+        dq = (ctx.get('dq_code', '') or 'na')
         dlq_dq[dq] += 1
 
     print('Top err_prefix:', dlq_prefix.most_common(10))
@@ -87,7 +88,7 @@ async def main() -> None:
     q_dq = Counter()
     for _id, fields in q_items:
         ctx = _extract_ctx(fields)
-        q_dq[str(ctx.get('dq_code', 'na'))] += 1
+        q_dq[(ctx.get('dq_code', 'na'))] += 1
 
     print('Top dq_code:', q_dq.most_common(10))
 

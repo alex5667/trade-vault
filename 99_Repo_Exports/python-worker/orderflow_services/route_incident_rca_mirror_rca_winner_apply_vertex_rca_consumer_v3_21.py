@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
 import uuid
-from typing import Any, Dict, Tuple, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -39,13 +40,13 @@ HANDLER_MODE = os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_VERTEX_R
 
 POLL_INTERVAL_SEC = 2.0
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_vertex_rca_runs_total", "Runs", ("status", "decision"))
@@ -58,13 +59,13 @@ LAST_RUN = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_vertex_rca_last
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
     }
 
-async def generate_deterministic_result(request_id: str, bundle_json: str) -> Dict[str, Any]:
+async def generate_deterministic_result(request_id: str, bundle_json: str) -> dict[str, Any]:
     try:
         parsed = json.loads(bundle_json)
         desc = parsed.get("trigger", {}).get("description", "unknown")
@@ -72,13 +73,13 @@ async def generate_deterministic_result(request_id: str, bundle_json: str) -> Di
     except Exception:
         desc = "unknown"
         sev = "info"
-        
+
     dominant_finding = "policy_mismatch"
     if "ROLLBACK_MTTR" in desc:
         dominant_finding = "system_lag_or_persistence_issue"
     elif "verify_keep_rate" in desc:
         dominant_finding = "model_hallucination_or_mismatch"
-        
+
     return {
         "result_id": f"rca_res_{uuid.uuid4().hex[:8]}",
         "request_id": request_id,
@@ -98,16 +99,16 @@ async def generate_deterministic_result(request_id: str, bundle_json: str) -> Di
         }
     }
 
-async def handle_request(mode: str, request_id: str, bundle_json: str) -> Dict[str, Any]:
+async def handle_request(mode: str, request_id: str, bundle_json: str) -> dict[str, Any]:
     if mode == "MOCK_SLOW":
         await asyncio.sleep(1.0)
         return await generate_deterministic_result(request_id, bundle_json)
-    
+
     # Defaults to DETERMINISTIC (we don't have LLM call configured in this env)
     return await generate_deterministic_result(request_id, bundle_json)
 
 
-async def persist_result(db_url: str, res: Dict[str, Any]) -> None:
+async def persist_result(db_url: str, res: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -139,12 +140,12 @@ async def main() -> None:  # pragma: no cover
     start_http_server(PORT)
     if UP:
         UP.set(1)
-        
+
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     db_url = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
-    
+
     last_id = "0-0"
-    
+
     try:
         last_metric = await r.hgetall(LAST_RESULT_METRIC)
         if last_metric:
@@ -157,52 +158,52 @@ async def main() -> None:  # pragma: no cover
         started = time.perf_counter()
         status = "ok"
         decision = "none"
-        
+
         try:
             res_stream = await r.xread({REQUESTS_STREAM: last_id}, count=10, block=int(POLL_INTERVAL_SEC * 1000))
             if res_stream:
                 for stream_name, messages in res_stream:
                     for msg_id, fields in messages:
                         last_id = msg_id.decode() if isinstance(msg_id, bytes) else msg_id
-                        
+
                         decoded = decode_dict(fields)
                         bundle_json = decoded.get("bundle_json", "{}")
-                        
+
                         # Generate ID for request for tracking (normally ID is from stream)
                         req_id = f"req_{msg_id.replace('-', '_')}"
-                        
+
                         result = await handle_request(HANDLER_MODE, req_id, bundle_json)
                         decision = "BUILT_RESULT"
-                        
+
                         result_json = json.dumps(result)
-                        
+
                         await r.xadd(RESULTS_STREAM, {
                             "request_id": req_id,
                             "result_id": result["result_id"],
                             "result_json": result_json,
                             "ts_ms": str(now_ms())
                         }, maxlen=MAXLEN, approximate=True)
-                        
+
                         await r.hset(LAST_RESULT_METRIC, "status", "built")
                         await r.hset(LAST_RESULT_METRIC, "request_id", req_id)
                         await r.hset(LAST_RESULT_METRIC, "ts_ms", str(now_ms()))
-                        
+
                         if RESULTS_TOTAL:
                             RESULTS_TOTAL.labels(severity=result["severity"], provider_mode=result["provider"]).inc()
-                            
+
                         await persist_result(db_url, result)
-                
+
             if LAST_RUN:
                 LAST_RUN.set(time.time())
-                
-        except Exception as exc:
+
+        except Exception:
             status = "error"
         finally:
             if RUNS:
                 RUNS.labels(status=status, decision=decision).inc()
             if LAT:
                 LAT.observe(max(time.perf_counter() - started, 0.0))
-                
+
             if not res_stream:
                 await asyncio.sleep(POLL_INTERVAL_SEC)
 

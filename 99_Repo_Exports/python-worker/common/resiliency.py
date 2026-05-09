@@ -1,11 +1,13 @@
 
+import logging
 import os
 import time
-import logging
-from typing import Dict, Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
+import contextlib
 
 # Common throttle map for sampled logs
-_DBG_LAST: Dict[str, float] = {}
+_DBG_LAST: dict[str, float] = {}
 
 def get_debug_interval() -> float:
     """Get the sampled debug interval from environment variable or default."""
@@ -41,10 +43,10 @@ def safe_call_fail_open(
     key: str,
     fn: Callable[..., Any],
     args: tuple[Any, ...] = (),
-    kwargs: Optional[dict[str, Any]] = None,
+    kwargs: dict[str, Any] | None = None,
     ctx: Any = None,
     dq_flag: str = "",
-    append_flag_fn: Optional[Callable[[Any, str], None]] = None,
+    append_flag_fn: Callable[[Any, str], None] | None = None,
 ) -> bool:
     """
     Unified fail-open wrapper for critical paths.
@@ -66,10 +68,8 @@ def safe_call_fail_open(
     except Exception as e:
         # 1) DQ flag if applicable
         if ctx is not None and dq_flag and append_flag_fn is not None:
-            try:
+            with contextlib.suppress(Exception):
                 append_flag_fn(ctx, dq_flag)
-            except Exception:
-                pass
 
         # 2) Sampled observer log
         sampled_debug(logger, key, "fail-open: %s err=%r", key, e)

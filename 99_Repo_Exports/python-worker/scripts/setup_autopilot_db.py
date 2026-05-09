@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 import os
+
 import psycopg2
 
 DEFAULT_DSN = "postgresql://postgres:postgres@localhost:5432/scanner_analytics"

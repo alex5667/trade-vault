@@ -1,20 +1,19 @@
+from domain.evidence_keys import MetaKeys
+
 # python-worker/tests/test_build_of_dataset.py
 """
 Unit tests for build_of_dataset.py
 """
 import json
-import tempfile
 import os
-
-import pytest
+import tempfile
 
 from tools.build_of_dataset import (
-    iter_ndjson,
     build_trade_index,
     extract_features,
     extract_trade_labels,
-    make_label_binary,
     main,
+    make_label_binary,
 )
 
 
@@ -25,7 +24,7 @@ def test_build_trade_index():
         f.write('{"sid": "s2", "r_mult": -0.8, "pnl": -50.0}\n')
         f.write('{"sid": "s3", "r_mult": 0.3, "pnl": 20.0}\n')
         temp_path = f.name
-    
+
     try:
         idx = build_trade_index(temp_path)
         assert len(idx) == 3
@@ -65,7 +64,7 @@ def test_extract_features():
             "meta_veto": 0,
         },
     }
-    
+
     feat = extract_features(replay_row)
     assert feat["sid"] == "test-sid"
     assert feat["symbol"] == "BTCUSDT"
@@ -74,7 +73,7 @@ def test_extract_features():
     assert feat["exec_risk_bps"] == 12.0
     assert feat["leg_ofi_leg"] == 1
     assert feat["leg_fp_edge_absorb"] == 1
-    assert feat["meta_p"] == 0.65
+    assert feat[MetaKeys.P] == 0.65
 
 
 def test_extract_trade_labels():
@@ -87,7 +86,7 @@ def test_extract_trade_labels():
             "close_reason": "TP1",
         },
     }
-    
+
     lab = extract_trade_labels(tr)
     assert lab["r_mult"] == 1.2
     assert lab["pnl"] == 120.0
@@ -132,28 +131,28 @@ def test_main_end_to_end():
         }
         f.write(json.dumps(replay_row) + "\n")
         replay_path = f.name
-    
+
     # Create trades file
     with tempfile.NamedTemporaryFile(mode='w', suffix='.ndjson', delete=False) as f:
         f.write('{"sid": "s1", "r_mult": 1.5, "pnl": 100.0, "risk_usd": 100.0}\n')
         trades_path = f.name
-    
+
     # Create output file
     with tempfile.NamedTemporaryFile(mode='w', suffix='.ndjson', delete=False) as f:
         out_path = f.name
-    
+
     try:
         import sys
         old_argv = sys.argv
         sys.argv = ["test", "--replay", replay_path, "--trades", trades_path, "--out", out_path, "--pos-th", "0.5", "--neg-th", "-0.5", "--min-n", "1"]
-        
+
         try:
             main()
         finally:
             sys.argv = old_argv
-        
+
         # Check output
-        with open(out_path, "r") as f:
+        with open(out_path) as f:
             lines = f.readlines()
             assert len(lines) == 1
             row = json.loads(lines[0])

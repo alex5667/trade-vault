@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -26,11 +27,13 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+from zoneinfo import ZoneInfo
 
 import redis
-from zoneinfo import ZoneInfo
+
 from core.redis_keys import RedisStreams as RS
+import contextlib
 
 
 def _now_ms() -> int:
@@ -68,10 +71,8 @@ class RedisLock:
           return 0
         end
         """
-        try:
+        with contextlib.suppress(Exception):
             self.r.eval(lua, 1, self.key, self.token)
-        except Exception:
-            pass
 
 
 def build_proposal_buttons(sid: str) -> str:
@@ -87,13 +88,13 @@ def build_proposal_buttons(sid: str) -> str:
 
 
 def send_telegram_report(r: "redis.Redis", *, stream: str, text: str, ts_ms: int,
-                         buttons: Optional[str] = None) -> None:
+                         buttons: str | None = None) -> None:
     """
     notify_worker.py accepts:
       {"type":"report","text":"...","buttons":"[[...]]"}
     Keep payload small enough; Telegram HTML supported by your notifier.
     """
-    msg: Dict[str, str] = {
+    msg: dict[str, str] = {
         "type": "report",
         "ts_ms": str(int(ts_ms)),
         "text": text,
@@ -103,7 +104,7 @@ def send_telegram_report(r: "redis.Redis", *, stream: str, text: str, ts_ms: int
     r.xadd(stream, msg, maxlen=20000, approximate=True)
 
 
-def run_pipeline(*, redis_url: str, window_hours: float, window_days: int, out_dir: str) -> Tuple[str, Dict[str, Any]]:
+def run_pipeline(*, redis_url: str, window_hours: float, window_days: int, out_dir: str) -> tuple[str, dict[str, Any]]:
     """
     Runs exporter + tuner in-process by shelling out via python -m is avoided.
     We import the modules for determinism and speed.
@@ -122,7 +123,7 @@ def run_pipeline(*, redis_url: str, window_hours: float, window_days: int, out_d
     with open(nd_path, "w", encoding="utf-8") as f:
         for rec in iter_position_closed(
             r=r,
-            stream=os.getenv("TRADE_EVENTS_STREAM", "events:trades"),
+            stream=os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES),
             since_ms=since_ms,
             batch=int(os.getenv("TM_EXPORT_BATCH", "2000")),
             max_items=int(os.getenv("TM_EXPORT_MAX_ITEMS", "1000000")),
@@ -131,7 +132,7 @@ def run_pipeline(*, redis_url: str, window_hours: float, window_days: int, out_d
             n += 1
 
     rows = []
-    with open(nd_path, "r", encoding="utf-8") as f:
+    with open(nd_path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -148,7 +149,7 @@ def run_pipeline(*, redis_url: str, window_hours: float, window_days: int, out_d
     return md, out
 
 
-def maybe_write_proposal(r: "redis.Redis", *, proposal: Dict[str, Any]) -> Optional[str]:
+def maybe_write_proposal(r: "redis.Redis", *, proposal: dict[str, Any]) -> str | None:
     """
     Optional: store proposal into cfg:suggestions:* for manual approvals.
     This does NOT apply anything automatically.
@@ -218,12 +219,10 @@ def main() -> int:
         try:
             md, out = run_pipeline(redis_url=redis_url, window_hours=window_hours, window_days=window_days, out_dir=out_dir)
             # Persist last report snapshot for UI/debug
-            try:
+            with contextlib.suppress(Exception):
                 r.set("reports:tm_policy_tuner:last", json.dumps(out, ensure_ascii=False, separators=(",", ":")), ex=86400)
-            except Exception:
-                pass
             # Try to write proposal and attach approve/reject buttons
-            buttons_json: Optional[str] = None
+            buttons_json: str | None = None
             try:
                 sid = maybe_write_proposal(r, proposal=out)
                 if sid:
@@ -234,10 +233,8 @@ def main() -> int:
                                  buttons=buttons_json)
         except Exception as e:
             # Fail-open: send minimal error report (still visible)
-            try:
+            with contextlib.suppress(Exception):
                 send_telegram_report(r, stream=notify_stream, text=f"<b>TM Autopilot ERROR</b>\n{_s(e)}", ts_ms=_now_ms())
-            except Exception:
-                pass
         finally:
             lock.release()
 

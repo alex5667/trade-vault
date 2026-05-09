@@ -1,7 +1,5 @@
 from types import SimpleNamespace
 
-import pytest
-
 # поправьте импорт под ваш проект
 from handlers.main_loop_service import MainLoopService
 

@@ -1,7 +1,8 @@
 import json
 import logging
 import os
-from typing import Any, Dict
+from typing import Any
+
 import psycopg2.extras
 
 from services.atr_release_gate_service import build_scorecard, record_release_decision
@@ -11,7 +12,7 @@ logger = logging.getLogger("atr_release_gate_telegram")
 _GRAPH_GATE_ENABLE = os.getenv("ATR_GRAPH_RELEASE_GATE_ENABLE", "0") == "1"
 
 
-def render_scorecard_message(change_id: str) -> Dict[str, Any]:
+def render_scorecard_message(change_id: str) -> dict[str, Any]:
     """Build a standard Telegram message for a release scorecard."""
     try:
         scorecard = build_scorecard(change_id)
@@ -87,7 +88,7 @@ def render_scorecard_message(change_id: str) -> Dict[str, Any]:
     }
 
 
-def _render_graph_board() -> Dict[str, Any]:
+def _render_graph_board() -> dict[str, Any]:
     """Phase 8.2 — render equivalence check board (last 10)."""
     try:
         from services.analytics_db import get_conn
@@ -121,7 +122,7 @@ def _render_graph_board() -> Dict[str, Any]:
     return {"text": "\n".join(lines), "parse_mode": "HTML"}
 
 
-def _render_drift_board() -> Dict[str, Any]:
+def _render_drift_board() -> dict[str, Any]:
     """Phase 8.2 — render open release drift board."""
     try:
         from services.analytics_db import get_conn
@@ -154,7 +155,7 @@ def _render_drift_board() -> Dict[str, Any]:
     return {"text": "\n".join(lines), "parse_mode": "HTML"}
 
 
-def _render_cutover_status() -> Dict[str, Any]:
+def _render_cutover_status() -> dict[str, Any]:
     """Phase 8.2 — render current cutover readiness status."""
     try:
         from services.analytics_db import get_conn
@@ -181,7 +182,7 @@ def _render_cutover_status() -> Dict[str, Any]:
     return {"text": text, "parse_mode": "HTML"}
 
 
-def handle_telegram_callback(callback_query: Dict[str, Any]) -> Dict[str, Any]:
+def handle_telegram_callback(callback_query: dict[str, Any]) -> dict[str, Any]:
     """Handle /release callback actions from the Operator."""
     data      = callback_query.get("data", "")
     from_user = callback_query.get("from", {}).get("username", "unknown_user")

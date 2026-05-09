@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Fail-open stage metrics.
 
 Several hot-path services emit simple counters/histograms for monitoring.
@@ -8,10 +9,10 @@ This module centralizes best-effort metric emission.
 """
 
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 
-def _get_metrics(handler: Any) -> Optional[Any]:
+def _get_metrics(handler: Any) -> Any | None:
     # Try a few common patterns without importing heavy dependencies.
     if handler is None:
         return None
@@ -22,7 +23,7 @@ def _get_metrics(handler: Any) -> Optional[Any]:
     return None
 
 
-def _counter(obj: Any, name: str) -> Optional[Any]:
+def _counter(obj: Any, name: str) -> Any | None:
     for attr in ("counter", "get_counter", "c"):
         fn = getattr(obj, attr, None)
         if fn is None:
@@ -40,7 +41,7 @@ def _counter(obj: Any, name: str) -> Optional[Any]:
         return None
 
 
-def _hist(obj: Any, name: str) -> Optional[Any]:
+def _hist(obj: Any, name: str) -> Any | None:
     for attr in ("hist", "histogram", "get_hist", "h"):
         fn = getattr(obj, attr, None)
         if fn is None:
@@ -92,52 +93,52 @@ def dist(host: Any, name: str, value: float, *, kind: str = "", symbol="", **ext
     _obs(_get_metrics(host), str(name), float(value), _tags(kind, symbol, **extra_tags))
 
 
-def _inc(m: Any, name: str, value: int = 1, tags: Optional[Dict[str, str]] = None) -> None:
+def _inc(m: Any, name: str, value: int = 1, tags: dict[str, str] | None = None) -> None:
     try:
         if m is None:
             return
-        if hasattr(m, "inc") and callable(getattr(m, "inc")):
+        if hasattr(m, "inc") and callable(m.inc):
             m.inc(name, value=value, tags=tags or {})
             return
-        if hasattr(m, "incr") and callable(getattr(m, "incr")):
+        if hasattr(m, "incr") and callable(m.incr):
             m.incr(name, value=value, tags=tags or {})
             return
-        if hasattr(m, "counter") and callable(getattr(m, "counter")):
+        if hasattr(m, "counter") and callable(m.counter):
             m.counter(name, value=value, tags=tags or {})
             return
-        if hasattr(m, "count") and callable(getattr(m, "count")):
+        if hasattr(m, "count") and callable(m.count):
             m.count(name, value=value, tags=tags or {})
             return
     except Exception:
         return
 
 
-def _obs(m: Any, name: str, value: float, tags: Optional[Dict[str, str]] = None) -> None:
+def _obs(m: Any, name: str, value: float, tags: dict[str, str] | None = None) -> None:
     try:
         if m is None:
             return
-        if hasattr(m, "observe") and callable(getattr(m, "observe")):
+        if hasattr(m, "observe") and callable(m.observe):
             m.observe(name, value=value, tags=tags or {})
             return
-        if hasattr(m, "histogram") and callable(getattr(m, "histogram")):
+        if hasattr(m, "histogram") and callable(m.histogram):
             m.histogram(name, value=value, tags=tags or {})
             return
-        if hasattr(m, "timing") and callable(getattr(m, "timing")):
+        if hasattr(m, "timing") and callable(m.timing):
             m.timing(name, value=value, tags=tags or {})
             return
-        if hasattr(m, "gauge") and callable(getattr(m, "gauge")):
+        if hasattr(m, "gauge") and callable(m.gauge):
             m.gauge(name, value=value, tags=tags or {})
             return
     except Exception:
         return
 
 
-def _tags(kind: str = "", symbol="", cfg_hash: str = "", **extra: str) -> Dict[str, str]:
-    t: Dict[str, str] = {}
+def _tags(kind: str = "", symbol="", cfg_hash: str = "", **extra: str) -> dict[str, str]:
+    t: dict[str, str] = {}
     if kind:
         t["kind"] = str(kind)
     if symbol:
-        t["symbol"] = str(symbol)
+        t["symbol"] = symbol
     if cfg_hash:
         t["cfg_hash"] = str(cfg_hash)
     else:

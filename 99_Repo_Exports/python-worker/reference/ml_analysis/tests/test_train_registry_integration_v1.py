@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for Feature Registry ↔ train_edge_stack_v1_oof integration.
 
 Покрывает:
@@ -23,8 +24,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -413,12 +413,11 @@ class TestBuildDatasetChoices:
         """v4 должен быть в choices (раньше не было)."""
         try:
             import argparse
-            # Собираем argparser напрямую через небольшой хак — проверяем что v4 не вызывает ошибку
-            from ml_analysis.tools.build_edge_stack_dataset_from_redis import main  # noqa: F401
+            import contextlib
+            import io
+
             # Проверяем что парсер принимает v4 без ошибки
             import sys as _sys
-            import io
-            import contextlib
 
             # argparse throws SystemExit for --help; we need another way.
             # Inspect the choices from the parser directly via patching argv.
@@ -426,6 +425,9 @@ class TestBuildDatasetChoices:
             # Since this is hard to do without running the full parser,
             # we just verify v4 is in the spec choices string in the file.
             import ml_analysis.tools.build_edge_stack_dataset_from_redis as _mod
+
+            # Собираем argparser напрямую через небольшой хак — проверяем что v4 не вызывает ошибку
+            from ml_analysis.tools.build_edge_stack_dataset_from_redis import main  # noqa: F401
             source = Path(_mod.__file__).read_text(encoding="utf-8")
             assert '"v4"' in source or "'v4'" in source, (
                 "Ожидаем 'v4' в choices --feature_schema_ver в build_edge_stack_dataset_from_redis"

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-import json
-import sys
-import urllib.request
-import urllib.parse
 import os
+import sys
+import urllib.parse
+import urllib.request
 
 # Credentials are read from environment variables — never hardcode secrets.
 # Usage: TELEGRAM_BOT_TOKEN=xxx TELEGRAM_CHAT_ID=yyy python send_autopilot_report_direct.py

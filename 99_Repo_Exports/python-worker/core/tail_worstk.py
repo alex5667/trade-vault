@@ -1,7 +1,10 @@
 from __future__ import annotations
+
+import heapq
+import math
 from dataclasses import dataclass
-from typing import List, Dict, Any, Tuple
-import heapq, math
+from typing import Any
+
 
 @dataclass
 class WorstK:
@@ -15,7 +18,7 @@ class WorstK:
       - export/import for persistence in Redis
     """
     k: int = 200
-    _h: List[float] = None  # heap of (-x)
+    _h: list[float] = None  # heap of (-x)
     _sum: float = 0.0
     _sumsq: float = 0.0
 
@@ -38,7 +41,7 @@ class WorstK:
             self._sum -= float(rm)
             self._sumsq -= float(rm) * float(rm)
 
-    def mean_std(self) -> Tuple[float, float]:
+    def mean_std(self) -> tuple[float, float]:
         n = len(self._h)
         if n <= 0:
             return 0.0, 0.0
@@ -48,13 +51,13 @@ class WorstK:
             var = 0.0
         return float(mu), float(var ** 0.5)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         # store actual x values for deterministic reload (K small)
         xs = [-v for v in self._h]
         return {"k": int(self.k), "xs": xs}
 
     @staticmethod
-    def from_dict(d: Dict[str, Any]) -> "WorstK":
+    def from_dict(d: dict[str, Any]) -> WorstK:
         k = int(d.get("k", 200) or 200)
         xs = d.get("xs", [])
         w = WorstK(k=k)

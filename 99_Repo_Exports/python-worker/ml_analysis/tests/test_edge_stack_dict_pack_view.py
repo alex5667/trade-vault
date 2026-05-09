@@ -3,8 +3,8 @@ import pytest
 
 def test_dict_pack_view_enables_scaler_in_feature_row():
     try:
-        from services.ml_confirm_gate import MLConfirmGate, _DictPackModelView
         from core.feature_engineering import RobustScalerPack  # noqa: F401
+        from services.ml_confirm_gate import MLConfirmGate, _DictPackModelView
     except Exception as e:
         pytest.skip(f"required modules not importable: {e}", allow_module_level=True)
 

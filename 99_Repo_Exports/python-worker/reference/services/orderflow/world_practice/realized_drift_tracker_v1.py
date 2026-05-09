@@ -15,9 +15,8 @@ Design goals:
 """
 
 import math
-from dataclasses import dataclass
-from typing import Deque, Dict, Tuple
 from collections import deque
+from dataclasses import dataclass
 
 
 def _dir_sign(direction: str) -> float:
@@ -57,8 +56,8 @@ class RealizedDriftTrackerV1:
         self.max_pending = int(max(8, max_pending))
 
         # Each pending item: (due_ts_ms, direction, px0, bucket)
-        self._pending: Deque[Tuple[int, str, float, str]] = deque()
-        self._st: Dict[str, _BucketState] = {}
+        self._pending: deque[tuple[int, str, float, str]] = deque()
+        self._st: dict[str, _BucketState] = {}
 
     def on_signal(self, *, ts_ms: int, direction: str, px0: float, bucket: str) -> None:
         """Arm a realized drift evaluation at ts_ms + horizon."""
@@ -67,8 +66,8 @@ class RealizedDriftTrackerV1:
             px0f = float(px0)
             if not math.isfinite(px0f) or px0f <= 0:
                 return
-            b = str(bucket or "NORMAL")
-            d = str(direction or "").upper()
+            b = (bucket or "NORMAL")
+            d = (direction or "").upper()
             if d not in ("LONG", "SHORT"):
                 return
 
@@ -80,9 +79,9 @@ class RealizedDriftTrackerV1:
         except Exception:
             return
 
-    def update(self, *, ts_ms: int, px_now: float) -> Dict[str, int]:
+    def update(self, *, ts_ms: int, px_now: float) -> dict[str, int]:
         """Process due evaluations. Returns dict bucket->n_processed."""
-        out: Dict[str, int] = {}
+        out: dict[str, int] = {}
 
         try:
             now = int(ts_ms)
@@ -129,9 +128,9 @@ class RealizedDriftTrackerV1:
 
         return out
 
-    def snapshot(self, bucket: str) -> Dict[str, float]:
+    def snapshot(self, bucket: str) -> dict[str, float]:
         """Return current stats for bucket (safe defaults if none)."""
-        b = str(bucket or "NORMAL")
+        b = (bucket or "NORMAL")
         st = self._st.get(b)
         if st is None:
             return {

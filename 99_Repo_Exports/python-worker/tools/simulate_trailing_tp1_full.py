@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from __future__ import annotations
+
 """
 Полноценная симуляция TRAILING_TP1_OFFSET_ATR для калибровки.
 
@@ -12,9 +13,7 @@ from __future__ import annotations
 
 
 import argparse
-import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
 
 import psycopg2
 import psycopg2.extras
@@ -75,7 +74,7 @@ def fetch_trades(
     source: str,
     symbol: str,
     limit: int,
-) -> List[TradeRow]:
+) -> list[TradeRow]:
     """
     Берём только сделки с tp1_hit = TRUE и trailing_started = TRUE.
     Используем trades_closed таблицу.
@@ -110,7 +109,7 @@ def fetch_trades(
         cur.execute(sql, {"source": source, "symbol": symbol, "limit": limit})
         rows = cur.fetchall()
 
-    trades: List[TradeRow] = []
+    trades: list[TradeRow] = []
     for r in rows:
         trades.append(
             TradeRow(
@@ -137,7 +136,7 @@ def fetch_ticks(
     symbol: str,
     start_ts_ms: int,
     end_ts_ms: int,
-) -> List[Tick]:
+) -> list[Tick]:
     """
     Загружаем тики из таблицы ticks между start_ts_ms и end_ts_ms.
     """
@@ -153,7 +152,7 @@ def fetch_ticks(
         cur.execute(sql, {"symbol": symbol, "start_ts_ms": start_ts_ms, "end_ts_ms": end_ts_ms})
         rows = cur.fetchall()
 
-    ticks: List[Tick] = []
+    ticks: list[Tick] = []
     for r in rows:
         ticks.append(Tick(ts_ms=int(r["ts_ms"]), price=float(r["price"])))
     return ticks
@@ -171,7 +170,7 @@ def compute_r(
     return sign * (price - entry_price) / risk_per_unit
 
 
-def find_tp1_hit_ts(ticks: List[Tick], trade: TradeRow) -> int:
+def find_tp1_hit_ts(ticks: list[Tick], trade: TradeRow) -> int:
     """
     Находим timestamp достижения TP1 в исторических данных.
     """
@@ -195,7 +194,7 @@ def find_tp1_hit_ts(ticks: List[Tick], trade: TradeRow) -> int:
 def simulate_trade_for_offset(
     trade: TradeRow,
     offset_mult: float,
-    ticks: List[Tick],
+    ticks: list[Tick],
     use_mfe_exit: bool = False,
     eps: float = 1e-8,
 ) -> SimResult:
@@ -297,7 +296,7 @@ def simulate_trade_for_offset(
     )
 
 
-def aggregate_stats(results: List[SimResult]) -> OffsetStats:
+def aggregate_stats(results: list[SimResult]) -> OffsetStats:
     offset_mult = results[0].offset_mult if results else 0.0
     n = len(results)
     if n == 0:
@@ -349,7 +348,7 @@ def run_calibration(
     dsn: str,
     source: str,
     symbol: str,
-    offset_mult_list: List[float],
+    offset_mult_list: list[float],
     limit: int,
     use_mfe_exit: bool,
 ) -> None:
@@ -363,7 +362,7 @@ def run_calibration(
             return
 
         # Для каждой сделки заранее грузим тики
-        trade_ticks: Dict[int, List[Tick]] = {}
+        trade_ticks: dict[int, list[Tick]] = {}
         for t in trades:
             # Добавляем буфер в 5 минут после exit_ts_ms
             end_ts_ms = t.exit_ts_ms + (5 * 60 * 1000)  # 5 minutes in ms
@@ -371,10 +370,10 @@ def run_calibration(
             trade_ticks[t.id] = ticks
             print(f"Trade {t.id}: loaded {len(ticks)} ticks from {t.entry_ts_ms} to {end_ts_ms}")
 
-        stats_per_offset: List[OffsetStats] = []
+        stats_per_offset: list[OffsetStats] = []
 
         for offset_mult in offset_mult_list:
-            results_for_offset: List[SimResult] = []
+            results_for_offset: list[SimResult] = []
             for t in trades:
                 ticks = trade_ticks.get(t.id, [])
                 if not ticks:
@@ -445,7 +444,7 @@ def run_calibration(
         conn.close()
 
 
-def parse_offset_list(s: str) -> List[float]:
+def parse_offset_list(s: str) -> list[float]:
     return [float(x.strip()) for x in s.split(",") if x.strip()]
 
 

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import importlib.util
 import json
 import os
 import shutil
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _load_registry_helpers():
@@ -36,8 +36,8 @@ def _load_registry_helpers():
 ensure_dir, version_stamp, write_json_atomic, promote_bundle_dir = _load_registry_helpers()
 
 
-def _load_json(path: str) -> Dict[str, Any]:
-    with open(path, 'r', encoding='utf-8') as f:
+def _load_json(path: str) -> dict[str, Any]:
+    with open(path, encoding='utf-8') as f:
         obj = json.load(f)
     if not isinstance(obj, dict):
         raise ValueError(f'expected dict json: {path}')
@@ -49,7 +49,7 @@ def _copy2(src: str, dst: str) -> None:
     shutil.copy2(src, dst)
 
 
-def build_bundle(*, exec_cost_model_path: str, rule_success_model_path: str, registry_dir: str, gate_cfg_path: Optional[str] = None, out_bundle_dir: Optional[str] = None, kind: str = 'ofc_ctx_bundle', promote_dir: Optional[str] = None) -> Dict[str, Any]:
+def build_bundle(*, exec_cost_model_path: str, rule_success_model_path: str, registry_dir: str, gate_cfg_path: str | None = None, out_bundle_dir: str | None = None, kind: str = 'ofc_ctx_bundle', promote_dir: str | None = None) -> dict[str, Any]:
     registry_dir = ensure_dir(registry_dir)
     version = version_stamp()
     bundle_dir = Path(out_bundle_dir) if out_bundle_dir else Path(registry_dir) / f'{kind}.{version}'
@@ -67,9 +67,9 @@ def build_bundle(*, exec_cost_model_path: str, rule_success_model_path: str, reg
         'kind': kind,
         'bundle_version': version,
         'created_ts_ms': get_ny_time_millis(),
-        'exec_cost_model_ver': str(exec_cost.get('version', '')),
-        'rule_success_model_ver': str(rule_success.get('version', '')),
-        'gate_cfg_ver': str(gate_cfg.get('version', 'gate_v1')),
+        'exec_cost_model_ver': (exec_cost.get('version', '')),
+        'rule_success_model_ver': (rule_success.get('version', '')),
+        'gate_cfg_ver': (gate_cfg.get('version', 'gate_v1')),
     }
     write_json_atomic(str(bundle_dir / 'manifest.json'), manifest)
     _copy2(exec_cost_model_path, str(bundle_dir / 'exec_cost_model.json'))
@@ -82,7 +82,7 @@ def build_bundle(*, exec_cost_model_path: str, rule_success_model_path: str, reg
     return {'bundle_dir': str(bundle_dir), 'version': version, 'pointer': pointer, 'manifest': manifest}
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description='Build and optionally promote OFC contextual bundle')
     ap.add_argument('--exec_cost_model_path', required=True)
     ap.add_argument('--rule_success_model_path', required=True)

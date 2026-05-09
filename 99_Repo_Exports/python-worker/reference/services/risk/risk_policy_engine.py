@@ -49,13 +49,14 @@ ENV (per-tier limits, X = A | B | C):
   RISK_TIER_X_BASE_RISK_PCT
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional
 import os
 import time
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from typing import Any
 
 try:
-    from prometheus_client import Counter, Gauge, Histogram, REGISTRY
+    from prometheus_client import REGISTRY, Counter, Gauge, Histogram
 except Exception:  # pragma: no cover
     Counter = Gauge = Histogram = None  # type: ignore
     REGISTRY = None  # type: ignore
@@ -173,7 +174,7 @@ def _f(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _i_env(name: str, default: int) -> int:
@@ -181,7 +182,7 @@ def _i_env(name: str, default: int) -> int:
     try:
         return int(float(os.getenv(name, str(default))))
     except Exception:
-        return int(default)
+        return default
 
 
 def _f_env(name: str, default: float) -> float:
@@ -189,7 +190,7 @@ def _f_env(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)))
     except Exception:
-        return float(default)
+        return default
 
 
 def _b_env(name: str, default: bool) -> bool:
@@ -202,7 +203,7 @@ def _b_env(name: str, default: bool) -> bool:
 
 def _tier(v: Any) -> str:
     """Normalise tier string: A/B/C only, default B."""
-    s = str(v or "").strip().upper()
+    s = (v or "").strip().upper()
     return s if s in {"A", "B", "C"} else "B"
 
 
@@ -232,7 +233,7 @@ class TierPolicy:
     max_concurrent_positions: int   # Max open positions on this symbol simultaneously
     base_risk_pct: float            # Base risk budget as % of equity per trade
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "leverage_cap": float(self.leverage_cap),
@@ -272,13 +273,13 @@ class RiskPolicyLimits:
         "LTCUSDT", "BCHUSDT", "AVAXUSDT",     )
 
     @classmethod
-    def from_env(cls) -> "RiskPolicyLimits":
+    def from_env(cls) -> RiskPolicyLimits:
         """Construct limits from environment variables with safe fallbacks."""
         def _f_l(name: str, default: float) -> float:
             try:
                 return float(os.getenv(name, str(default)))
             except Exception:
-                return float(default)
+                return default
 
         def _b_l(name: str, default: bool) -> bool:
             v = os.getenv(name)
@@ -370,7 +371,7 @@ class RiskPolicyInput:
     cluster: str
     tier: str
     requested_notional_usd: float
-    current_positions: List[RiskPosition] = field(default_factory=list)
+    current_positions: list[RiskPosition] = field(default_factory=list)
     equity_usd: float = 0.0                # Account equity (used for ratio computation)
     daily_pnl_pct: float = 0.0             # Today's realized PnL as % of equity (< 0 = loss)
     stop_distance_bps: float = 0.0         # Planned stop distance in bps (for per-trade sizing)
@@ -392,15 +393,15 @@ class RiskPolicyDecision:
     adjusted_notional_usd: float  # Effective notional after risk budget + caps (0 if denied)
     leverage_cap: float           # Max leverage for this symbol tier
     risk_multiplier: float        # 1.0 = full budget, < 1.0 = tightened
-    reasons: List[str]
-    snapshot: Dict[str, Any]
+    reasons: list[str]
+    snapshot: dict[str, Any]
     tier_policy: TierPolicy
     maker_policy_allowed: bool    # Whether maker execution is allowed this tick
     min_confidence_required: float
     watchdog_timeout_ms: int
     effective_execution_policy: str  # "MAKER_FIRST" | "SAFETY_FIRST"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "level": self.level,
             "allow_trade_publish": bool(self.allow_trade_publish),
@@ -419,7 +420,7 @@ class RiskPolicyDecision:
 
 # ── Tier inference ────────────────────────────────────────────────────────────
 
-def infer_symbol_tier(symbol: Any, limits: Optional[RiskPolicyLimits] = None) -> str:
+def infer_symbol_tier(symbol: Any, limits: RiskPolicyLimits | None = None) -> str:
     """Infer the risk tier for a symbol.
 
     Tier A: BTC / ETH (deep liquid markets)
@@ -429,7 +430,7 @@ def infer_symbol_tier(symbol: Any, limits: Optional[RiskPolicyLimits] = None) ->
     Uses RISK_TIER_A_SYMBOLS / RISK_TIER_B_SYMBOLS ENV vars via limits.
     """
     lim = limits or RiskPolicyLimits.from_env()
-    sym = str(symbol or "").strip().upper()
+    sym = (symbol or "").strip().upper()
     if sym in set(lim.tier_a_symbols):
         return "A"
     if sym in set(lim.tier_b_symbols):
@@ -451,7 +452,7 @@ def _count_positions(positions: Iterable[RiskPosition], *, symbol: str) -> int:
 
 # ── Core engine ───────────────────────────────────────────────────────────────
 
-def evaluate_risk_policy(inp: RiskPolicyInput, limits: Optional[RiskPolicyLimits] = None) -> RiskPolicyDecision:
+def evaluate_risk_policy(inp: RiskPolicyInput, limits: RiskPolicyLimits | None = None) -> RiskPolicyDecision:
     """Evaluate portfolio risk and return a publish decision.
 
     P4.5: records decision_latency_ms and clamp_ratio in the returned snapshot.
@@ -510,7 +511,7 @@ def evaluate_risk_policy(inp: RiskPolicyInput, limits: Optional[RiskPolicyLimits
     level = RISK_ALLOW
     allow = True
     risk_multiplier = 1.0
-    reasons: List[str] = []
+    reasons: list[str] = []
     # Maker policy: tier must allow it AND infra must not be degraded
     maker_allowed = bool(tier_policy.maker_allowed) and not bool(inp.infra_degraded)
     effective_execution_policy = "MAKER_FIRST" if (maker_allowed and bool(inp.maker_policy_requested)) else "SAFETY_FIRST"
@@ -716,6 +717,6 @@ PortfolioRiskLimits = RiskPolicyLimits
 PortfolioRiskDecision = RiskPolicyDecision
 
 
-def evaluate_portfolio_risk(inp: RiskPolicyInput, limits: Optional[RiskPolicyLimits] = None) -> RiskPolicyDecision:
+def evaluate_portfolio_risk(inp: RiskPolicyInput, limits: RiskPolicyLimits | None = None) -> RiskPolicyDecision:
     """Backward-compatible alias for evaluate_risk_policy()."""
     return evaluate_risk_policy(inp, limits)

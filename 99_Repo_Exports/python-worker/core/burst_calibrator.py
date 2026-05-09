@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
 
 
 @dataclass
@@ -29,7 +28,7 @@ class BurstCalibrator:
     pressure_extreme_per_min: float = 200.0
     max_age_mult: float = 3.0
 
-    def compute(self, *, gap_p50_ms: float, cand_per_min: float) -> Tuple[int, int]:
+    def compute(self, *, gap_p50_ms: float, cand_per_min: float) -> tuple[int, int]:
         # Start from base
         w = int(self.base_window_ms)
 
@@ -54,5 +53,5 @@ class BurstCalibrator:
         if cand_per_min < self.pressure_hi_per_min:
              # For low pressure, we allow it to be at least base_max_age
              max_age = max(max_age, self.base_max_age_ms)
-             
+
         return w, max_age

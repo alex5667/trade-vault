@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 P1-1 regression: exchange_ts_ms is preserved immutably; missing exchange ts → dq_tradeable=False.
 
@@ -11,7 +12,7 @@ Coverage:
 
 import unittest
 
-from services.orderflow.tick_processor import coerce_event_ts_ms, _msgid_to_ms
+from services.orderflow.tick_processor import _msgid_to_ms, coerce_event_ts_ms
 
 
 class TestCoerceEventTsMs(unittest.TestCase):
@@ -98,7 +99,6 @@ class TestExchangeTsMsImmutable(unittest.TestCase):
         now = 1_700_000_060_000
         payload_ts_ms = 0
         msg_id = "1700000060000-0"
-        from services.orderflow.configuration import _safe_int
         event_ts_ms, ts_source = coerce_event_ts_ms(
             msg_id=msg_id, payload_ts_ms=payload_ts_ms, now_ms=now, max_ts_skew_ms=5_000,
         )

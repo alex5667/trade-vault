@@ -2,8 +2,8 @@
 """
 Tests for VolatilityService - normalization, bytes handling, cache functionality.
 """
-import pytest
 from unittest.mock import Mock, patch
+
 from handlers.volatility_service import VolatilityService
 
 

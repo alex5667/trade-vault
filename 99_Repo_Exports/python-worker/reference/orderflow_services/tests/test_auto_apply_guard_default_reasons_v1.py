@@ -1,12 +1,13 @@
 from __future__ import annotations
+
 """v13: test that DEFAULT_REASONS includes all required block sources.
 
 Fail-closed contract: if any source is missing from DEFAULT_REASONS, auto-apply
 guard will NOT check it by default, breaking fail-closed guarantees.
 """
 
-import sys
 import os
+import sys
 
 # Ensure both module trees are importable from python-worker root
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))

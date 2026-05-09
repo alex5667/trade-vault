@@ -1,8 +1,8 @@
 from __future__ import annotations
+
 """Tests that external example adapters (Go/TypeScript) exist and contain expected identifiers."""
 
 import os
-import sys
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -18,9 +18,9 @@ def test_external_examples_exist():
     assert os.path.isfile(ts_path), f"Missing: {ts_path}"
     assert os.path.isfile(readme_path), f"Missing: {readme_path}"
 
-    with open(go_path, 'r', encoding='utf-8') as f:
+    with open(go_path, encoding='utf-8') as f:
         go = f.read()
-    with open(ts_path, 'r', encoding='utf-8') as f:
+    with open(ts_path, encoding='utf-8') as f:
         ts = f.read()
 
     assert 'go_ingest' in go

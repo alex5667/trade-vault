@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Circuit Breaker State Management (P69).
 
 Handles hysteresis (anti-flap) for circuit breaker policy modes.
@@ -19,12 +20,11 @@ Redis Keys:
     - updated_at: int (last tick processed)
 """
 
+import logging
+from typing import Any
+
 from utils.time_utils import get_ny_time_millis
 
-
-import time
-import logging
-from typing import Tuple, Dict, Any
 try:
     import redis.asyncio as aioredis
 except Exception:  # pragma: no cover
@@ -41,30 +41,30 @@ class CircuitBreakerState:
         change_count_ttl_s: int = 3600
     ):
         self.redis = redis
-        self.symbol = str(symbol).strip().upper()
+        self.symbol = symbol.strip().upper()
         self.min_dwell_ms = int(min_dwell_s * 1000)
         self.min_consecutive = int(min_consecutive)
         self.change_count_ttl_s = int(change_count_ttl_s)
-        
+
         self.key = f"cb:policy:state:{self.symbol}"
         self.logger = logging.getLogger(f"cb_state_{self.symbol}")
-        
+
         # Local cache to avoid reading Redis on every tick if possible?
         # For now, we read/write Redis to be robust across restarts/workers.
         # But for high-frequency ticks, we might want to optimize.
         # Given "anti-flap" is the goal, reading Redis is safer for consistency.
         # However, we can perform read-modify-write via Lua or optimistic locking if strict,
-        # but for policy modes (rare changes), a simple fetch-update is likely fine 
+        # but for policy modes (rare changes), a simple fetch-update is likely fine
         # or best-effort. Actually, we should probably cache the 'effective' mode locally
         # and only hit Redis on potential transitions?
         # Let's start with local cache + async Redis sync for state transitions to keep latency low.
-        
+
         self._local_mode: str = "ok"  # Fail-open default
         self._local_ts: int = 0
         self._last_loaded_ms: int = 0
         self._reload_interval_ms: int = 5000  # Sync with Redis every 5s just in case
-        
-    async def update(self, raw_mode: str, ts_ms: int) -> Tuple[str, Dict[str, Any]]:
+
+    async def update(self, raw_mode: str, ts_ms: int) -> tuple[str, dict[str, Any]]:
         """
         Update state with new raw_mode observation.
         
@@ -81,14 +81,14 @@ class CircuitBreakerState:
         # We need the full state from Redis to verify 'pending' counts.
         # If we want to avoid Redis RTT on every tick, we can only do it if raw == effective.
         # If raw != effective, we MUST check if we are transitioning.
-        
+
         # Fast path: consistency
         if raw_mode == self._local_mode:
             # Reset pending counters if we match current mode?
             # Yes, flap interruption resets the counter.
             # We can do this async or periodically to save Redis writes.
             # But strictly, we should clear 'pending' in Redis if it was set.
-            # Optimization: only clear if we know we had pending? 
+            # Optimization: only clear if we know we had pending?
             # Let's return local mode and assume pending clears on transition failure or timeout.
             return self._local_mode, {"hysteresis": "fast_match"}
 
@@ -104,7 +104,7 @@ class CircuitBreakerState:
         except Exception as e:
             self.logger.warning(f"Failed to load CB state: {e}")
 
-    async def _process_transition(self, raw_mode: str, ts_ms: int) -> Tuple[str, Dict[str, Any]]:
+    async def _process_transition(self, raw_mode: str, ts_ms: int) -> tuple[str, dict[str, Any]]:
         try:
              # Fetch authoritative state
             data = await self.redis.hgetall(self.key)
@@ -112,11 +112,11 @@ class CircuitBreakerState:
             changed_at = int(data.get("changed_at", 0)) if data else 0
             pending_mode = data.get("pending_mode", "") if data else ""
             pending_count = int(data.get("pending_count", 0)) if data else 0
-            
+
             # Update local cache while we are here
             self._local_mode = current_mode
             self._local_ts = changed_at
-            
+
             debug = {
                 "raw": raw_mode,
                 "cur": current_mode,
@@ -130,21 +130,21 @@ class CircuitBreakerState:
                 if pending_mode:
                      await self.redis.hdel(self.key, "pending_mode", "pending_count")
                 return current_mode, debug
-            
+
             # Check consecutive
             if raw_mode == pending_mode:
                 new_count = pending_count + 1
             else:
                 # Start new sequence
                 new_count = 1
-            
+
             # Save the potential new state/count in Redis?
             # We must persist it to track consecutive counts across ticks.
-            
+
             should_switch = False
             elapsed = ts_ms - changed_at
             dwell_passed = elapsed >= self.min_dwell_ms
-            
+
             if new_count >= self.min_consecutive:
                 if dwell_passed:
                     should_switch = True
@@ -163,9 +163,9 @@ class CircuitBreakerState:
                     "updated_at": get_ny_time_millis()
                 })
                 pipe.hdel(self.key, "pending_mode", "pending_count")
-                
+
                 await pipe.execute()
-                
+
                 self._local_mode = raw_mode
                 self._local_ts = ts_ms
                 debug["switched"] = True
@@ -180,7 +180,7 @@ class CircuitBreakerState:
                     "updated_at": get_ny_time_millis()
                 })
                 return current_mode, debug
-                
+
         except Exception as e:
             self.logger.error(f"Transition error: {e}")
             return self._local_mode, {"error": str(e)}

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Prometheus metrics для TP1 Trailing System.
 
@@ -9,8 +8,7 @@ Prometheus metrics для TP1 Trailing System.
 - Latency обработки событий
 """
 
-from prometheus_client import Counter, Histogram, Gauge, Info
-
+from prometheus_client import Counter, Gauge, Histogram, Info
 
 # Counters
 tp_events_total = Counter(
@@ -80,53 +78,53 @@ class TrailingMetrics:
     """
     Wrapper для удобной работы с метриками.
     """
-    
+
     @staticmethod
     def record_event(event_type: str, symbol: str):
         """Записать обработанное событие."""
         tp_events_total.labels(event_type=event_type, symbol=symbol).inc()
-    
+
     @staticmethod
     def record_trailing_started(symbol: str, profile: str):
         """Записать запуск трейлинга."""
         trailing_started_total.labels(symbol=symbol, profile=profile).inc()
         active_trailing_positions.labels(symbol=symbol).inc()
-    
+
     @staticmethod
     def record_trailing_failed(symbol: str, reason: str):
         """Записать ошибку запуска трейлинга."""
         trailing_failed_total.labels(symbol=symbol, reason=reason).inc()
-    
+
     @staticmethod
     def record_signal_without_flag(symbol: str):
         """Записать сигнал без флага trail_after_tp1."""
         signals_without_trail_flag.labels(symbol=symbol).inc()
-    
+
     @staticmethod
     def record_signal_not_found(symbol: str):
         """Записать отсутствие сигнала в Redis."""
         signals_not_found.labels(symbol=symbol).inc()
-    
+
     @staticmethod
     def record_trailing_stopped(symbol: str):
         """Записать остановку трейлинга."""
         active_trailing_positions.labels(symbol=symbol).dec()
-    
+
     @staticmethod
     def time_event_processing(event_type: str):
         """Context manager для измерения времени обработки события."""
         return event_processing_duration.labels(event_type=event_type).time()
-    
+
     @staticmethod
     def time_trailing_command():
         """Context manager для измерения latency команды трейлинга."""
         return trailing_command_latency.time()
-    
+
     @staticmethod
     def set_pending_events(stream: str, group: str, count: int):
         """Установить количество pending событий."""
         pending_events.labels(stream=stream, group=group).set(count)
-    
+
     @staticmethod
     def set_system_info(version: str, default_profile: str):
         """Установить информацию о системе."""
@@ -138,17 +136,17 @@ class TrailingMetrics:
 
 if __name__ == "__main__":
     # Тестирование метрик
-    from prometheus_client import generate_latest, REGISTRY
-    
+    from prometheus_client import REGISTRY, generate_latest
+
     # Имитация работы
     TrailingMetrics.set_system_info("1.0.0", "rocket_v1")
-    
+
     TrailingMetrics.record_event("TP1_HIT")
     TrailingMetrics.record_trailing_started("rocket_v1")
-    
+
     TrailingMetrics.record_event("TP2_HIT")
     TrailingMetrics.record_trailing_stopped("")
-    
+
     # Генерация метрик
     print("=== Prometheus Metrics ===")
     print(generate_latest(REGISTRY).decode('utf-8'))

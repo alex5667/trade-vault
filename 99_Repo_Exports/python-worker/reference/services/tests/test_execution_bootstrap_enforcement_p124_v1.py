@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """P1.2.4 — execution bootstrap orchestration enforcement tests.
 
 Verifies:
@@ -7,16 +8,15 @@ Verifies:
   - The HTTP health server exposes /api/execution-bootstrap/incident/latest
     and /api/execution-bootstrap/runbook/latest with correct content.
 """
-from pathlib import Path
 import importlib.util
 import json
 import socket
 import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 import threading
-import time
 import urllib.request
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 # python-worker/orderflow_services/tests/ -> parents[2] = python-worker/
 PYTHON_WORKER_ROOT = Path(__file__).resolve().parents[2]
 # repo root is one level above python-worker/

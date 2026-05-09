@@ -1,5 +1,6 @@
 from news_pipeline.llm_client import GeminiHTTPClient
 
+
 def test_parse_response_candidates_text_json():
     c = GeminiHTTPClient()
     raw = {

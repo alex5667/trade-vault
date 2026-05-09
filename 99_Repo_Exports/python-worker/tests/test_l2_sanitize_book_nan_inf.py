@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import math
-
-from dataclasses import dataclass
-
 from handlers.confirmations.l2_common import sanitize_book
 from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level
 

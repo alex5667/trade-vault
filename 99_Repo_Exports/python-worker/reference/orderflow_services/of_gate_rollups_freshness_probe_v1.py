@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """of_gate_rollups_freshness_probe_v1.py
 
 Probe DB rollup freshness for OF-gate ok_rate continuous aggregates.
@@ -25,15 +26,14 @@ Exit:
   2: failed (db error / missing views / empty buckets)
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import datetime as dt
 import os
 import sys
-import time
-import datetime as dt
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import psycopg2  # type: ignore
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -66,12 +66,12 @@ def dt_to_ms(x: Any) -> int:
     if isinstance(x, dt.datetime):
         # TimescaleDB returns naive UTC datetimes; attach UTC tzinfo for correct conversion
         if x.tzinfo is None:
-            x = x.replace(tzinfo=dt.timezone.utc)
+            x = x.replace(tzinfo=dt.UTC)
         return int(x.timestamp() * 1000)
     return 0
 
 
-def query_max_bucket(conn, view: str) -> Tuple[int, int]:
+def query_max_bucket(conn, view: str) -> tuple[int, int]:
     """SELECT max(bucket) FROM <view> and return (bucket_ts_ms, age_sec).
 
     Returns (0, 0) when the view is empty or bucket is NULL.
@@ -88,7 +88,7 @@ def query_max_bucket(conn, view: str) -> Tuple[int, int]:
         return b_ms, age_s
 
 
-def hset_redis(redis_url: str, key: str, mapping: Dict[str, Any]) -> None:
+def hset_redis(redis_url: str, key: str, mapping: dict[str, Any]) -> None:
     """Write all fields in mapping to Redis hash key (best-effort, fail-open)."""
     if not redis or not redis_url:
         return
@@ -117,7 +117,7 @@ def main() -> None:
     view_5m = env("OF_GATE_ROLLUPS_VIEW_5M", default="of_gate_ok_rate_5m")
     view_1h = env("OF_GATE_ROLLUPS_VIEW_1H", default="of_gate_ok_rate_1h")
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "last_run_ts_ms": now_ms(),
         "view_5m": view_5m,
         "view_1h": view_1h,

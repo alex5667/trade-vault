@@ -1,9 +1,4 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
-
-import json
-import time
-from typing import Any
 
 from orderflow_services.strategy_research_stats_alert_policy_override_v1 import (
     clear_override,
@@ -11,6 +6,7 @@ from orderflow_services.strategy_research_stats_alert_policy_override_v1 import 
     override_key,
     set_override,
 )
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:

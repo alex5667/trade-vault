@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Zombie Position Janitor
 ========================
@@ -25,16 +26,15 @@ Metrics:
   zombie_janitor_run_duration_sec  — Histogram of scan durations
 """
 
-import json
 import logging
 import os
 import signal
 import sys
 import time
-from typing import Optional
 
 import redis
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+import contextlib
 
 # ── Logging ──────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -80,7 +80,7 @@ def _connect_redis() -> redis.Redis:
     sys.exit(1)
 
 
-def _get_position_age_sec(r: redis.Redis, pos_id: str) -> Optional[float]:
+def _get_position_age_sec(r: redis.Redis, pos_id: str) -> float | None:
     """Get position age in seconds from order:{pos_id} hash."""
     try:
         # Try multiple timestamp fields in priority order
@@ -159,14 +159,12 @@ def run_cleanup(r: redis.Redis) -> int:
 
                 if not DRY_RUN:
                     # Save close reason to hash before removal
-                    try:
+                    with contextlib.suppress(Exception):
                         r.hset(f"order:{pos_id}", mapping={
                             "closed": "1",
                             "close_reason": "ZOMBIE_JANITOR",
                             "close_ts_ms": str(int(now_sec * 1000)),
                         })
-                    except Exception:
-                        pass
 
                     r.srem(ORDERS_OPEN, pos_id)
                     REMOVED.labels(symbol=symbol, reason=reason).inc()

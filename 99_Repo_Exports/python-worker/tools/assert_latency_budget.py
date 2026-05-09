@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Assert latency and throughput budgets from benchmark results.
 
 Enforces performance SLAs:
@@ -22,7 +23,7 @@ def main() -> None:
     ap.add_argument("--throughput-min", type=float, default=float(os.getenv("THROUGHPUT_MIN", "2000") or 2000), help="min required throughput in calls/s (default: 2000)")
     args = ap.parse_args()
 
-    rep = json.loads(open(args.bench_json, "r", encoding="utf-8").read())
+    rep = json.loads(open(args.bench_json, encoding="utf-8").read())
     p99 = float(rep.get("p99_us", 0.0))
     thr = float(rep.get("throughput_calls_per_s", 0.0))
 

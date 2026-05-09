@@ -1,15 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
 
 from common.redis_errors import retry_redis_operation
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -37,7 +36,7 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """
     Calculate percentile from sorted list.
     
@@ -56,7 +55,7 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 300000) -> List[Dict[str, Any]]:
+def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 300000) -> list[dict[str, Any]]:
     """
     Read messages from Redis stream within time window.
     
@@ -74,7 +73,7 @@ def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: i
         List of message dicts with _ts_ms field added, sorted by timestamp
     """
     end_ms = start_ms + window_ms
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -132,29 +131,29 @@ def main() -> None:
     start_ms = _now_ms() - window_ms
     rows = _read_stream_window(r, args.stream, start_ms, window_ms)
 
-    lat_ms: List[float] = []
-    pedge: List[float] = []
+    lat_ms: list[float] = []
+    pedge: list[float] = []
     allow_n = 0
     abstain_n = 0
     miss_n = 0
     err_n = 0
-    conf: List[float] = []
+    conf: list[float] = []
 
     for d in rows:
         pedge.append(_f(d.get("p_edge", 0.0), 0.0))
         # Support both latency_ms and latency_us fields
-        if str(d.get("latency_ms", "") or "").strip() != "":
+        if (d.get("latency_ms", "") or "").strip() != "":
             lat_ms.append(_f(d.get("latency_ms", 0.0), 0.0))
         else:
             lat_ms.append(_f(d.get("latency_us", 0.0), 0.0) / 1000.0)
         allow_n += 1 if _i(d.get("allow", 0), 0) == 1 else 0
         abstain_n += 1 if _i(d.get("abstain", 0), 0) == 1 else 0
-        st = str(d.get("status", "") or "").upper()
+        st = (d.get("status", "") or "").upper()
         miss_flag = _i(d.get("missing", d.get("missing_n", 0)), 0) > 0 or st.startswith("MISSING")
         miss_n += 1 if miss_flag else 0
-        err_s = str(d.get("err", d.get("error", "")) or "").strip()
+        err_s = (d.get("err", d.get("error", "")) or "").strip()
         err_n += 1 if err_s != "" else 0
-        if str(d.get("conf", "") or "").strip() != "":
+        if (d.get("conf", "") or "").strip() != "":
             conf.append(_f(d.get("conf", 0.0), 0.0))
 
     n = len(rows)

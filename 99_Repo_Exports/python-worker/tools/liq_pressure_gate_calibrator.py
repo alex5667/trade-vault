@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Liq Pressure Gate Calibrator (LiqPressureGate — P2d).
 
@@ -29,12 +31,10 @@ ENV:
   RECS_HMAC_SECRET               for bundle signing
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import collections
-import hmac
 import hashlib
+import hmac
 import json
 import logging
 import math
@@ -44,9 +44,12 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -54,10 +57,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Mode ladder: each step requires calibration data to proceed to next
 # ---------------------------------------------------------------------------
-MODE_LADDER: List[str] = ["off", "boost", "penalty", "both", "enforce"]
+MODE_LADDER: list[str] = ["off", "boost", "penalty", "both", "enforce"]
 
 
-def _next_mode(current_mode: str) -> Optional[str]:
+def _next_mode(current_mode: str) -> str | None:
     """Return the next mode on the ladder, or None if already at the top."""
     c = current_mode.strip().lower()
     try:
@@ -123,10 +126,10 @@ def _safe_int(v: Any, default: int = 0) -> int:
 def query_decisions_from_stream(
     r: redis.Redis,
     hours: float,
-    symbol_filter: Optional[str] = None,
+    symbol_filter: str | None = None,
     stream: str = "decisions:final",
     batch: int = 2000,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Scan `decisions:final` stream for the last `hours` hours.
 
@@ -142,7 +145,7 @@ def query_decisions_from_stream(
     since_ms = get_ny_time_millis() - int(hours * 3_600_000)
     start_id = f"{since_ms}-0"
 
-    decisions: Dict[str, Dict[str, Any]] = {}
+    decisions: dict[str, dict[str, Any]] = {}
     cur = start_id
 
     logger.info(f"Reading stream '{stream}' from {start_id} (last {hours:.0f}h)...")
@@ -181,17 +184,17 @@ def query_decisions_from_stream(
 
             # Only include if gate was active (boost key present and mode not off)
             # We check the presence of liq_pressure_reason as the sentinel
-            liq_reason = str(indicators.get("liq_pressure_reason") or "")
+            liq_reason = (indicators.get("liq_pressure_reason") or "")
             liq_boost = _safe_float(indicators.get("liq_pressure_boost"), -1.0)
             if liq_boost < 0:
                 # Key absent → gate was "off", skip
                 continue
 
-            sid = str(rec.get("sid") or "").strip()
+            sid = (rec.get("sid") or "").strip()
             if not sid:
                 continue
 
-            symbol = str(rec.get("symbol") or "").upper()
+            symbol = (rec.get("symbol") or "").upper()
             if symbol_filter and symbol != symbol_filter.upper():
                 continue
 
@@ -203,7 +206,7 @@ def query_decisions_from_stream(
                 "liq_q_align": _safe_int(indicators.get("liq_q_align"), 0),
                 "liq_ofi_align": _safe_int(indicators.get("liq_ofi_align"), 0),
                 "symbol":      symbol,
-                "direction":   str(rec.get("direction") or "").upper(),
+                "direction":   (rec.get("direction") or "").upper(),
                 "ts_ms":       _safe_int(rec.get("ts_ms"), 0),
             },
 
@@ -215,7 +218,7 @@ def query_decisions_from_stream(
 # Step 2 — load closed trades
 # ---------------------------------------------------------------------------
 
-def _load_trades(hours: float) -> Dict[str, Dict[str, Any]]:
+def _load_trades(hours: float) -> dict[str, dict[str, Any]]:
     """
     Export closed trades via tools/export_trade_closed_ndjson.py.
     Returns dict: sid → {r_mult, symbol, direction}
@@ -241,29 +244,27 @@ def _load_trades(hours: float) -> Dict[str, Dict[str, Any]]:
         logger.error(f"export_trade_closed_ndjson.py failed: {exc}")
         return {}
 
-    trades: Dict[str, Dict[str, Any]] = {}
+    trades: dict[str, dict[str, Any]] = {}
     try:
-        with open(trades_path, "r", encoding="utf-8") as f:
+        with open(trades_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 try:
                     t = json.loads(line)
-                    sid = str(t.get("sid") or "").strip()
+                    sid = (t.get("sid") or "").strip()
                     if sid:
                         trades[sid] = {
                             "r_mult":    _safe_float(t.get("r_mult"), 0.0),
-                            "symbol":    str(t.get("symbol") or "").upper(),
+                            "symbol":    (t.get("symbol") or "").upper(),
                             "direction": str(t.get("direction") or t.get("side") or "").upper(),
                         },
                 except Exception:
                     pass
     finally:
-        try:
+        with contextlib.suppress(Exception):
             os.unlink(trades_path)
-        except Exception:
-            pass
 
     logger.info(f"Closed trades loaded: {len(trades)}")
     return trades
@@ -273,18 +274,18 @@ def _load_trades(hours: float) -> Dict[str, Dict[str, Any]]:
 # Step 3 — compute stats
 # ---------------------------------------------------------------------------
 
-def _mean(vals: List[float]) -> float:
+def _mean(vals: list[float]) -> float:
     return statistics.mean(vals) if vals else 0.0
 
 
-def _median(vals: List[float]) -> float:
+def _median(vals: list[float]) -> float:
     return statistics.median(vals) if vals else 0.0
 
 
 def compute_stats(
-    decisions: Dict[str, Dict[str, Any]],
-    trades: Dict[str, Dict[str, Any]],
-) -> Dict[str, Any]:
+    decisions: dict[str, dict[str, Any]],
+    trades: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
     """
     Join decisions + trades by sid.
 
@@ -293,11 +294,11 @@ def compute_stats(
       pass_group   — liq_boost == 0 (gate saw neutral / no alignment)
     """
     joined = 0
-    boost_r: List[float] = []
-    pass_r:  List[float] = []
-    veto_r:  List[float] = []
-    reasons: Dict[str, int] = collections.Counter()
-    by_symbol: Dict[str, Dict[str, Any]] = {}
+    boost_r: list[float] = []
+    pass_r:  list[float] = []
+    veto_r:  list[float] = []
+    reasons: dict[str, int] = collections.Counter()
+    by_symbol: dict[str, dict[str, Any]] = {}
 
     for sid, dec in decisions.items():
         trade = trades.get(sid)
@@ -330,7 +331,7 @@ def compute_stats(
             s["pass_r"].append(r)
 
     # Flatten by_symbol
-    by_sym_flat: Dict[str, Any] = {}
+    by_sym_flat: dict[str, Any] = {}
     for sym, s in sorted(by_symbol.items()):
         by_sym_flat[sym] = {
             "boost_count":  s["boost_count"],
@@ -360,10 +361,10 @@ def compute_stats(
 
 
 def _should_propose(
-    stats: Dict[str, Any],
+    stats: dict[str, Any],
     min_boost_hits: int,
     min_r_delta: float,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Return (should_propose, reason_msg).
     Propose when boost R-mean is notably better than pass R-mean.
@@ -392,7 +393,7 @@ def _check_guards(
     pending_key: str,
     step_ts_key: str,
     holddown_h: float,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Returns (blocked, reason).
     blocked=True → skip proposal.
@@ -422,7 +423,7 @@ def _current_mode(r: redis.Redis, cfg_key: str = "cfg:crypto_orderflow") -> str:
     """Read liq_pressure_gate_mode from Redis cfg hash. Default 'off'."""
     try:
         v = r.hget(cfg_key, "liq_pressure_gate_mode")
-        return str(v or "off").strip().lower()
+        return (v or "off").strip().lower()
     except Exception:
         return "off"
 
@@ -431,7 +432,7 @@ def _current_mode(r: redis.Redis, cfg_key: str = "cfg:crypto_orderflow") -> str:
 # Step 6 — Build and send Telegram proposal
 # ---------------------------------------------------------------------------
 
-def _fmt_by_symbol(by_sym: Dict[str, Any]) -> str:
+def _fmt_by_symbol(by_sym: dict[str, Any]) -> str:
     if not by_sym:
         return "—"
     lines = []
@@ -447,7 +448,7 @@ def _fmt_by_symbol(by_sym: Dict[str, Any]) -> str:
 
 def create_and_send_proposal(
     r: redis.Redis,
-    stats: Dict[str, Any],
+    stats: dict[str, Any],
     hours: float,
     current_mode: str,
     next_mode: str,
@@ -522,7 +523,7 @@ def create_and_send_proposal(
         ]
     ]
 
-    notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+    notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     r.xadd(
         notify_stream,
         {

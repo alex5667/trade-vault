@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """dq_threshold_eval_harness_p112.py
 
 Goal
@@ -42,23 +43,24 @@ import io
 import json
 import math
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 
 def _utc_hour(ts_ms: int) -> int:
-    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
     return int(dt.hour)
 
 
 def _open_text(path: str) -> io.TextIOBase:
     if path.endswith(".gz"):
         return gzip.open(path, "rt", encoding="utf-8")
-    return open(path, "r", encoding="utf-8")
+    return open(path, encoding="utf-8")
 
 
-def _as_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
+def _as_payload(obj: dict[str, Any]) -> dict[str, Any]:
     """Normalize record to a payload dict.
 
     Some archives store {payload: <dict>} or {payload: "{...}"}.
@@ -77,7 +79,7 @@ def _as_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
     return obj
 
 
-def _pick_ts_ms(p: Dict[str, Any]) -> int:
+def _pick_ts_ms(p: dict[str, Any]) -> int:
     for k in ("ts_ms", "timestamp_ms", "t_ms"):
         v = p.get(k)
         if isinstance(v, (int, float)) and v > 0:
@@ -91,11 +93,11 @@ def _pick_ts_ms(p: Dict[str, Any]) -> int:
     return 0
 
 
-def _sym(p: Dict[str, Any]) -> str:
-    return str(p.get("symbol") or "").upper().strip()
+def _sym(p: dict[str, Any]) -> str:
+    return (p.get("symbol") or "").upper().strip()
 
 
-def _indicators(p: Dict[str, Any]) -> Dict[str, Any]:
+def _indicators(p: dict[str, Any]) -> dict[str, Any]:
     ind = p.get("indicators") or {}
     if isinstance(ind, str) and ind.strip().startswith("{"):
         try:
@@ -122,11 +124,11 @@ class Hist:
     def __init__(self, cfg: HistCfg):
         self.cfg = cfg
         n_bins = int(math.ceil((cfg.max_v - cfg.min_v) / cfg.step))
-        self.bins: List[int] = [0] * max(1, n_bins)
+        self.bins: list[int] = [0] * max(1, n_bins)
         self.n: int = 0
         self.sum: float = 0.0
-        self.min_seen: Optional[float] = None
-        self.max_seen: Optional[float] = None
+        self.min_seen: float | None = None
+        self.max_seen: float | None = None
 
     def add(self, x: float) -> None:
         if not math.isfinite(x):
@@ -160,7 +162,7 @@ class Hist:
                 return self.cfg.min_v + (i + 0.5) * self.cfg.step
         return float(self.cfg.max_v)
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "n": int(self.n),
             "min": float(self.min_seen) if self.min_seen is not None else None,
@@ -182,7 +184,7 @@ class SymAgg:
     n_with_gap_samples: int = 0
 
 
-def _iter_payloads_from_ndjson(path: str, max_records: int = 0) -> Iterator[Dict[str, Any]]:
+def _iter_payloads_from_ndjson(path: str, max_records: int = 0) -> Iterator[dict[str, Any]]:
     n = 0
     with _open_text(path) as f:
         for line in f:
@@ -206,7 +208,7 @@ def _iter_payloads_from_archive(
     start_ts_ms: int,
     end_ts_ms: int,
     max_records: int = 0,
-) -> Iterator[Dict[str, Any]]:
+) -> Iterator[dict[str, Any]]:
     try:
         from ml_analysis.tools.replay_inputs_reader_v1 import ReplayInputsReader  # type: ignore
     except Exception as e:
@@ -223,7 +225,7 @@ def _iter_payloads_from_archive(
             break
 
 
-def _suggest_thresholds_from_p99(p99: float, default_soft: float, default_hard: float, default_extreme: float) -> Dict[str, Any]:
+def _suggest_thresholds_from_p99(p99: float, default_soft: float, default_hard: float, default_extreme: float) -> dict[str, Any]:
     """Heuristic suggestions based on p99.
 
     Rationale
@@ -247,8 +249,8 @@ def _write_text(path: str, content: str) -> None:
         f.write(content)
 
 
-def _render_md(report: Dict[str, Any]) -> str:
-    lines: List[str] = []
+def _render_md(report: dict[str, Any]) -> str:
+    lines: list[str] = []
     lines.append("# DQ threshold eval (p112)")
     lines.append("")
     params = report.get("params", {})
@@ -337,8 +339,8 @@ def main() -> None:
     def _new_agg() -> SymAgg:
         return SymAgg(gap=Hist(gap_cfg), tick_seq=Hist(ema_cfg), book_seq=Hist(ema_cfg))
 
-    by_symbol: Dict[str, SymAgg] = {}
-    by_hour: Dict[int, SymAgg] = {h: _new_agg() for h in range(24)}
+    by_symbol: dict[str, SymAgg] = {}
+    by_hour: dict[int, SymAgg] = {h: _new_agg() for h in range(24)}
     global_agg = _new_agg()
 
     if args.inputs:
@@ -436,7 +438,7 @@ def main() -> None:
         },
     }
 
-    report: Dict[str, Any] = {
+    report: dict[str, Any] = {
         "params": {
             "inputs": str(args.inputs or ""),
             "archive_dir": str(args.archive_dir or ""),

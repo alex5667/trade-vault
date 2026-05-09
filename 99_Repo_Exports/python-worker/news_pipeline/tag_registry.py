@@ -1,10 +1,10 @@
 # news_pipeline/tag_registry.py
 from __future__ import annotations
 
-import os
 import importlib
+import os
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Dict, Iterable, Optional
 
 MASK64 = (1 << 64) - 1
 
@@ -16,10 +16,10 @@ class TagRegistry:
     - tag -> bit position (0..63)
     - tag -> primary_tag_id (int)
     """
-    tag_bits: Dict[str, int]
-    primary_tag_id: Dict[str, int]
+    tag_bits: dict[str, int]
+    primary_tag_id: dict[str, int]
 
-    def bitpos(self, tag: str) -> Optional[int]:
+    def bitpos(self, tag: str) -> int | None:
         return self.tag_bits.get(tag)
 
     def bit(self, tag: str) -> int:
@@ -40,7 +40,7 @@ class TagRegistry:
         return int(self.primary_tag_id.get(tag, default))
 
 
-def _load_from_module(mod_name: str) -> Optional[TagRegistry]:
+def _load_from_module(mod_name: str) -> TagRegistry | None:
     try:
         m = importlib.import_module(mod_name)
     except Exception:
@@ -76,8 +76,8 @@ def load_tag_registry() -> TagRegistry:
         m = importlib.import_module("news_pipeline.models")
         # ожидаем что там TAG_... уже в виде 1<<bit
         # построим TAG_BITS из этих констант грубо (по позиции первого установленного бита)
-        tb: Dict[str, int] = {}
-        pr: Dict[str, int] = {}
+        tb: dict[str, int] = {}
+        pr: dict[str, int] = {}
         for name in dir(m):
             if name.startswith("TAG_"):
                 val = getattr(m, name)

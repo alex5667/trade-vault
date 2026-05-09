@@ -1,22 +1,24 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import logging
 import os
-import time
+
+from utils.time_utils import get_ny_time_millis
 
 try:
-    from .time_contract import utc_epoch_ms, monotonic_ms
+    from .time_contract import monotonic_ms, utc_epoch_ms
 except Exception:
-    from time_contract import utc_epoch_ms, monotonic_ms
-from typing import Any, Dict, List, Optional
+    from time_contract import monotonic_ms, utc_epoch_ms
+from typing import Any
 
+from common.decision_trace import DecisionTrace, build_sidecar_meta, ensure_trace, set_summary_fields, trace_enabled
 from common.json_fast import dumps1
 from common.json_safe import to_json_safe
-from common.decision_trace import DecisionTrace, ensure_trace, set_summary_fields, trace_enabled, build_sidecar_meta
-from common.outbox_contract import contract_check_best_effort, strip_forbidden_keys, FORBIDDEN_TARGET_KEYS
+from common.outbox_contract import FORBIDDEN_TARGET_KEYS, contract_check_best_effort, strip_forbidden_keys
 from common.payload_fingerprint import fingerprint_tradeable_payload
-from core.redis_keys import RedisStreams as RS, RedisKeyPrefixes as RK
+from core.redis_keys import RedisKeyPrefixes as RK
+from core.redis_keys import RedisStreams as RS
+import contextlib
 
 # Alias for external consumers
 dumps_env = dumps1
@@ -30,13 +32,13 @@ OUTBOX_META_PREFIX = os.getenv("OUTBOX_META_PREFIX", RK.OUTBOX_META)
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_meta(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _sanitize_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
     """
     Trade-safe: drop diagnostics/heavy keys no matter what caller passes.
     This prevents accidental "trace/events/parts_full/payload_meta" leaks into tradeable envelope.
     """
     deny = {"trace", "events", "parts_full", "payload_meta", "raw_trace", "decision_trace"}
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     if not isinstance(meta, dict):
         return out
     for k, v in meta.items():
@@ -53,15 +55,15 @@ def build_outbox_envelope(
     ctx: Any = None,
     kind: str = "",
     symbol="",
-    notify_payload: Optional[Dict[str, Any]] = None,
-    signal_stream: Optional[str] = None,
-    signal_stream_payload: Optional[Dict[str, Any]] = None,
-    audit_stream: Optional[str] = None,
-    audit_payload: Optional[Dict[str, Any]] = None,
-    mt5_payload: Optional[Dict[str, Any]] = None,
-    meta: Optional[Dict[str, Any]] = None,
-    trace: Optional[DecisionTrace] = None,
-) -> Dict[str, Any]:
+    notify_payload: dict[str, Any] | None = None,
+    signal_stream: str | None = None,
+    signal_stream_payload: dict[str, Any] | None = None,
+    audit_stream: str | None = None,
+    audit_payload: dict[str, Any] | None = None,
+    mt5_payload: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
+    trace: DecisionTrace | None = None,
+) -> dict[str, Any]:
     """
     Build outbox envelope v2.
 
@@ -70,15 +72,15 @@ def build_outbox_envelope(
       - envelope contains only trace_id + trace_summary (short)
       - full trace stored in sidecar OUTBOX_META_PREFIX+sid (written by OutboxWriter)
     """
-    sid_s = str(sid or "").strip()
-    env: Dict[str, Any] = {
+    sid_s = (sid or "").strip()
+    env: dict[str, Any] = {
         "sid": sid_s,
         "ts_ms": get_ny_time_millis(),
         "targets": {},
         "meta": {},
     }
     if symbol:
-        env["symbol"] = str(symbol)
+        env["symbol"] = symbol
     if kind:
         env["kind"] = str(kind)
 
@@ -88,7 +90,7 @@ def build_outbox_envelope(
     except Exception:
         env["meta"] = {}
 
-    targets: Dict[str, Any] = {}
+    targets: dict[str, Any] = {}
 
     # notify
     if isinstance(notify_payload, dict):
@@ -124,7 +126,7 @@ def build_outbox_envelope(
 
     # TRACE (summary only in env; full trace lives in sidecar)
     try:
-        tr: Optional[DecisionTrace] = trace
+        tr: DecisionTrace | None = trace
         if tr is None and ctx is not None and trace_enabled():
             # create/restore trace on ctx (fail-open)
             tr = ensure_trace(ctx, sid=sid_s)
@@ -158,7 +160,7 @@ def build_outbox_envelope(
     return env_safe
 
 
-def build_trace_sidecar_meta(*, sid: str, trace: DecisionTrace) -> Dict[str, Any]:
+def build_trace_sidecar_meta(*, sid: str, trace: DecisionTrace) -> dict[str, Any]:
     """
     Canonical sidecar payload stored by OutboxWriter into OUTBOX_META_PREFIX+sid.
     Keep this as a thin wrapper for call sites/tests.
@@ -168,7 +170,7 @@ def build_trace_sidecar_meta(*, sid: str, trace: DecisionTrace) -> Dict[str, Any
     return build_sidecar_meta(trace)
 
 
-def outbox_stream_record(env: Dict[str, Any]) -> Dict[str, str]:
+def outbox_stream_record(env: dict[str, Any]) -> dict[str, str]:
     """
     SignalDispatcher._parse_envelope() expects fields["data"] to be JSON string.
     Use centralized compact serializer for hot-path.
@@ -188,7 +190,7 @@ def _producer_instance_id() -> str:
     return str(os.getenv("PRODUCER_INSTANCE_ID") or f"{host}:{os.getpid()}")
 
 
-def _default_working_type_policy(payload: Dict[str, Any], meta: Dict[str, Any]) -> Dict[str, Any]:
+def _default_working_type_policy(payload: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
     """Merge working-type policy from payload/meta, falling back to ENV defaults (MARK_PRICE)."""
     src = payload.get("working_type_policy") or meta.get("working_type_policy") or {}
     if not isinstance(src, dict):
@@ -201,14 +203,14 @@ def _default_working_type_policy(payload: Dict[str, Any], meta: Dict[str, Any]) 
     return out
 
 
-def _default_exit_policy(payload: Dict[str, Any], meta: Dict[str, Any]) -> Dict[str, Any]:
+def _default_exit_policy(payload: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
     """Merge exit policy from payload/meta, filling missing keys from ENV."""
     src = payload.get("exit_policy") or meta.get("exit_policy") or {}
     if not isinstance(src, dict):
         src = {}
     out = dict(src)
     out.setdefault("mode", os.getenv("EXIT_POLICY_MODE", "SAFETY_FIRST"))
-    out.setdefault("maker_tp_ladder", str(out.get("mode", "")).upper() == "MAKER_FIRST")
+    out.setdefault("maker_tp_ladder", (out.get("mode", "")).upper() == "MAKER_FIRST")
     out.setdefault("watchdog_timeout_ms", int(os.getenv("TP_LIMIT_WATCHDOG_TIMEOUT_MS", "4000")))
     out.setdefault(
         "market_fallback",
@@ -217,7 +219,7 @@ def _default_exit_policy(payload: Dict[str, Any], meta: Dict[str, Any]) -> Dict[
     return out
 
 
-def _normalize_execution_policy(payload: Dict[str, Any], meta: Dict[str, Any]) -> str:
+def _normalize_execution_policy(payload: dict[str, Any], meta: dict[str, Any]) -> str:
     """Resolve execution_policy to SAFETY_FIRST or MAKER_FIRST (unknown values default to SAFETY_FIRST)."""
     raw = str(
         payload.get("execution_policy")
@@ -227,19 +229,19 @@ def _normalize_execution_policy(payload: Dict[str, Any], meta: Dict[str, Any]) -
     return raw if raw in {"SAFETY_FIRST", "MAKER_FIRST"} else "SAFETY_FIRST"
 
 
-def _risk_snapshot(payload: Dict[str, Any], meta: Dict[str, Any]) -> Dict[str, Any]:
+def _risk_snapshot(payload: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
     """Extract risk_snapshot dict from payload or meta (fail-open → {})."""
     src = payload.get("risk_snapshot") or meta.get("risk_snapshot") or {}
     return dict(src) if isinstance(src, dict) else {}
 
 
-def _decision_id(sid: str, payload: Dict[str, Any], meta: Dict[str, Any]) -> str:
+def _decision_id(sid: str, payload: dict[str, Any], meta: dict[str, Any]) -> str:
     """Stable decision identifier for correlation across replay/SoT streams."""
     raw = payload.get("decision_id") or meta.get("decision_id")
     return str(raw or sid)
 
 
-def _schema_ver(payload: Dict[str, Any], meta: Dict[str, Any]) -> str:
+def _schema_ver(payload: dict[str, Any], meta: dict[str, Any]) -> str:
     """Schema version tag for envelope compatibility checks."""
     raw = (
         payload.get("schema_ver")
@@ -249,10 +251,10 @@ def _schema_ver(payload: Dict[str, Any], meta: Dict[str, Any]) -> str:
     return str(raw)
 
 
-def _derive_req_targets(targets_obj: Dict[str, Any]) -> List[str]:
+def _derive_req_targets(targets_obj: dict[str, Any]) -> list[str]:
     """Derive dispatcher target names from targets payload dict (best-effort)."""
     t = targets_obj or {}
-    out: List[str] = []
+    out: list[str] = []
     if t.get("notify"):
         out.append("notify")
     if t.get("signal_stream_payload") is not None:
@@ -268,16 +270,14 @@ def _derive_req_targets(targets_obj: Dict[str, Any]) -> List[str]:
     return out
 
 
-def build_trace_sidecar_meta_from_ctx(*, ctx: Any, sid: str) -> Dict[str, Any]:
+def build_trace_sidecar_meta_from_ctx(*, ctx: Any, sid: str) -> dict[str, Any]:
     """Build sidecar meta for DecisionTrace (stored outside tradeable payload)."""
     try:
         trace: DecisionTrace = ensure_trace(ctx, sid=sid)
     except Exception:
         trace = DecisionTrace(trace_id=str(sid), sid=str(sid))
-    try:
+    with contextlib.suppress(Exception):
         set_summary_fields(trace)
-    except Exception:
-        pass
     side = build_sidecar_meta(trace)
     # Backward-compat: some components expect key 'trace' instead of 'decision_trace'.
     try:
@@ -291,11 +291,11 @@ def build_trace_sidecar_meta_from_ctx(*, ctx: Any, sid: str) -> Dict[str, Any]:
 def build_envelope(
     *,
     sid: str,
-    payload: Dict[str, Any],
-    targets_obj: Optional[Dict[str, Any]] = None,
-    meta: Optional[Dict[str, Any]] = None,
+    payload: dict[str, Any],
+    targets_obj: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
     ctx: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build outbox envelope (tradeable payload + routing meta/targets).
 
     Hard guarantees:
@@ -306,11 +306,11 @@ def build_envelope(
         * req_targets
         * payload_sha1 + payload_bytes (fingerprint of envelope excluding those keys)
     """
-    env: Dict[str, Any] = {}
+    env: dict[str, Any] = {}
     # Tradeable payload fields at top-level (best-effort strip forbidden keys)
     if isinstance(payload, dict):
         try:
-            from common.outbox_contract import strip_forbidden_keys, FORBIDDEN_TRADEABLE_KEYS
+            from common.outbox_contract import FORBIDDEN_TRADEABLE_KEYS, strip_forbidden_keys
             clean_payload = strip_forbidden_keys(payload, FORBIDDEN_TRADEABLE_KEYS)
             env.update(clean_payload)
         except Exception:
@@ -321,9 +321,9 @@ def build_envelope(
     env.setdefault("ts_publish_ms", env["ts_ms"])
     env.setdefault("mono_ms", monotonic_ms())
 
-    t_obj: Dict[str, Any] = targets_obj if isinstance(targets_obj, dict) else {}
-    m_obj: Dict[str, Any] = meta if isinstance(meta, dict) else {}
-    p_obj: Dict[str, Any] = payload if isinstance(payload, dict) else {}
+    t_obj: dict[str, Any] = targets_obj if isinstance(targets_obj, dict) else {}
+    m_obj: dict[str, Any] = meta if isinstance(meta, dict) else {}
+    p_obj: dict[str, Any] = payload if isinstance(payload, dict) else {}
 
     # P3 contract: tradeable payload is a concrete execution intent rather than
     # a raw signal. Materialize stable policy/risk/timing fields at the envelope
@@ -356,16 +356,12 @@ def build_envelope(
         pass
 
     # Ensure required targets set survives retries (dispatcher relies on meta.req_targets).
-    try:
+    with contextlib.suppress(Exception):
         m_obj.setdefault("req_targets", _derive_req_targets(t_obj))
-    except Exception:
-        pass
 
     # Always publish the expected trace sidecar key for dispatcher.
-    try:
+    with contextlib.suppress(Exception):
         m_obj.setdefault("trace_meta_key", OUTBOX_META_PREFIX + str(sid))
-    except Exception:
-        pass
 
     # P3.3: downstream recovery must treat orders:exec as the source of truth.
     # We annotate the authoritative event stream and keep orders:state:* as a
@@ -414,9 +410,9 @@ def build_entry_policy_diag_event(
     stage: str,
     name: str,
     reason_code: str,
-    metrics: Optional[Dict[str, Any]] = None,
-    extra: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    metrics: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Create a bounded diagnostics-only event.
 
     This is explicitly NOT a tradeable signal envelope.
@@ -440,9 +436,9 @@ def build_entry_policy_diag_event(
 
 def emit_entry_policy_diag_best_effort(
     redis: Any,
-    event: Dict[str, Any],
+    event: dict[str, Any],
     *,
-    stream: Optional[str] = None,
+    stream: str | None = None,
     maxlen: int = 100_000,
 ) -> bool:
     """Best-effort emit to diagnostics stream.
@@ -461,10 +457,10 @@ def emit_entry_policy_diag_best_effort(
 
         # Use approximate trimming to keep XADD cheap.
         try:
-            redis.xadd(stream_name, {"sid": str(event.get("sid", "")), "data": payload}, maxlen=maxlen, approximate=True)
+            redis.xadd(stream_name, {"sid": (event.get("sid", "")), "data": payload}, maxlen=maxlen, approximate=True)
         except TypeError:
             # Some redis clients use different argument names.
-            redis.xadd(stream_name, {"sid": str(event.get("sid", "")), "data": payload}, maxlen=50000)
+            redis.xadd(stream_name, {"sid": (event.get("sid", "")), "data": payload}, maxlen=50000)
         return True
     except Exception:
         return False

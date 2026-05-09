@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import math
-from typing import Optional, Tuple, Any
+from typing import Any
+
 
 class VolatilityService:
     # NOTE: this is a patch template; apply to your real file that already contains
@@ -10,7 +11,7 @@ class VolatilityService:
     def __init__(self, redis: Any):
         self.redis = redis
 
-    def _load_tracker_atr_from_redis_with_ts(self, key: str) -> Tuple[Optional[float], Optional[int]]:
+    def _load_tracker_atr_from_redis_with_ts(self, key: str) -> tuple[float | None, int | None]:
         """
         Load ATR value AND its timestamp from Redis.
 
@@ -31,7 +32,7 @@ class VolatilityService:
         except Exception:
             return None, None
 
-    def _load_tracker_atr_from_redis(self, key: str) -> Optional[float]:
+    def _load_tracker_atr_from_redis(self, key: str) -> float | None:
         """
         Backward-compatible old method (returns only ATR).
         Prefer _load_tracker_atr_from_redis_with_ts() in code that builds ctx.

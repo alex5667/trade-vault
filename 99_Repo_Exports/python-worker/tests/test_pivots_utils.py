@@ -1,4 +1,4 @@
-from handlers.data_processor import normalize_pivots_input, nearest_pivot
+from handlers.data_processor import nearest_pivot, normalize_pivots_input
 
 
 def test_normalize_pivots_bundle():

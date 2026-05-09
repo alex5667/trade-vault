@@ -5,6 +5,7 @@ import os
 import time
 
 import redis
+import contextlib
 
 
 def _redis():
@@ -53,23 +54,23 @@ def apply_one(key: str) -> bool:
     if not raw:
         return False
     proposal = json.loads(raw)
-    proposal_id = str(proposal.get("proposal_id") or "")
+    proposal_id = (proposal.get("proposal_id") or "")
     if not proposal_id:
         return False
-    
+
+    from services.atr_policy_state_store import transition_snapshot
     from services.atr_policy_workflow import (
-        proposal_key,
-        decision_key,
         active_key,
         active_prev_key,
+        decision_key,
+        proposal_key,
     )
-    from services.atr_policy_state_store import transition_snapshot
-    
+
     raw_decision = r.get(decision_key(proposal_id))
     if not raw_decision:
         return False
     decision = json.loads(raw_decision)
-    action = str(decision.get("action") or "").upper()
+    action = (decision.get("action") or "").upper()
 
     import psycopg2
     conn = psycopg2.connect(_dsn(), connect_timeout=5, application_name="atr_promotion_policy_apply_runner")
@@ -99,8 +100,8 @@ def apply_one(key: str) -> bool:
 
             try:
                 from services.atr_promotion_policy_metrics import (
+                    atr_promotion_policy_active_total,
                     atr_promotion_policy_apply_total,
-                    atr_promotion_policy_active_total
                 )
                 atr_promotion_policy_apply_total.labels(
                     stop_ttl_mode=proposal.get('stop_ttl_mode', 'canary'),
@@ -134,16 +135,14 @@ def apply_one(key: str) -> bool:
                     from services.atr_policy_rollback_watcher import rollback_to_last_good
                     rollback_to_last_good(
                         proposal, r,
-                        trigger_reason=str(verify_result.get("reason_code", "VERIFY_FAIL_POST_APPLY")),
+                        trigger_reason=(verify_result.get("reason_code", "VERIFY_FAIL_POST_APPLY")),
                     )
                 except Exception:
                     pass
 
             # Update reconcile timestamp
-            try:
+            with contextlib.suppress(Exception):
                 r.set("atr_policy:reconcile:last_success_ts_ms", int(time.time() * 1000))
-            except Exception:
-                pass
 
             conn.commit()
             return True

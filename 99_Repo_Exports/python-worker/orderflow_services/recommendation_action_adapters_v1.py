@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
 import copy
 import json
-import time
+from dataclasses import dataclass
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 ALLOWED_ACTIONS = {
     "propose_threshold_canary",
@@ -50,7 +50,7 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _to_float(v: Any) -> Optional[float]:
+def _to_float(v: Any) -> float | None:
     try:
         x = float(v)
         if x != x:
@@ -60,7 +60,7 @@ def _to_float(v: Any) -> Optional[float]:
         return None
 
 
-def _bounded_threshold_change(current: float, proposed: float, max_delta: float, floor: float, ceil: float) -> Tuple[bool, float, str]:
+def _bounded_threshold_change(current: float, proposed: float, max_delta: float, floor: float, ceil: float) -> tuple[bool, float, str]:
     if proposed < floor or proposed > ceil:
         return False, current, "THRESHOLD_OUT_OF_BOUNDS"
     if abs(proposed - current) > max_delta:
@@ -73,16 +73,16 @@ def apply_recommendation_adapter(
     action_type: str,
     target_kind: str,
     target_ref: str,
-    recommendation_json: Dict[str, Any],
-    current_state: Dict[str, Any],
+    recommendation_json: dict[str, Any],
+    current_state: dict[str, Any],
     dry_run: bool,
     max_threshold_delta: float = 0.03,
     threshold_floor: float = 0.0,
     threshold_ceil: float = 1.0,
 ) -> AdapterResult:
-    action_type = str(action_type or "")
-    target_kind = str(target_kind or "")
-    target_ref = str(target_ref or "")
+    action_type = (action_type or "")
+    target_kind = (target_kind or "")
+    target_ref = (target_ref or "")
     rec = copy.deepcopy(recommendation_json or {})
     before = copy.deepcopy(current_state or {})
     after = copy.deepcopy(before)
@@ -94,7 +94,7 @@ def apply_recommendation_adapter(
     if target_kind not in ALLOWED_TARGET_KINDS:
         return AdapterResult(False, dry_run, action_type, target_kind, target_ref, stable_json(before), stable_json(after), stable_json({}), stable_json({}), "TARGET_KIND_NOT_ALLOWED")
 
-    patch: Dict[str, Any] = {}
+    patch: dict[str, Any] = {}
 
     if action_type == "freeze_candidate":
         after["promotion_state"] = "FROZEN"

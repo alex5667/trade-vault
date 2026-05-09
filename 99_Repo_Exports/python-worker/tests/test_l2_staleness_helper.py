@@ -1,4 +1,3 @@
-import time
 from dataclasses import dataclass
 
 from common.metrics2 import extract_ts_ms, is_stale

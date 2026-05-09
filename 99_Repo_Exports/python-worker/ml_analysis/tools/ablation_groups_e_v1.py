@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Drop-group ablation for E-block (Hawkes/VPIN/limit-add) + auto-denylist.
 
 Offline only (no runtime changes).
@@ -18,12 +19,12 @@ import datetime as _dt
 import json
 import math
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
-
 from sklearn.ensemble import HistGradientBoostingClassifier  # type: ignore
 from sklearn.impute import SimpleImputer  # type: ignore
 from sklearn.linear_model import LogisticRegression  # type: ignore
@@ -37,17 +38,17 @@ from ml_analysis.common.feature_groups_e_v1 import build_e_groups, group_feature
 def _safe_float(x: Any, d: float = 0.0) -> float:
     try:
         if x is None:
-            return float(d)
+            return d
         v = float(x)
         if not math.isfinite(v):
-            return float(d)
+            return d
         return float(v)
     except Exception:
-        return float(d)
+        return d
 
 
 def _normalize_regime(x: Any) -> str:
-    s = str(x or "").strip().lower()
+    s = (x or "").strip().lower()
     if s in ("trend", "range", "other"):
         return s
     if s in ("flat", "consolidation"):
@@ -76,7 +77,7 @@ class Fold:
     test_idx: np.ndarray
 
 
-def make_time_folds(ts_ms: np.ndarray, *, n_splits: int, purge_ms: int, min_train_rows: int) -> List[Fold]:
+def make_time_folds(ts_ms: np.ndarray, *, n_splits: int, purge_ms: int, min_train_rows: int) -> list[Fold]:
     t = np.asarray(ts_ms, dtype=np.int64)
     order = np.argsort(t)
     n = len(order)
@@ -85,7 +86,7 @@ def make_time_folds(ts_ms: np.ndarray, *, n_splits: int, purge_ms: int, min_trai
 
     n_splits = int(max(2, n_splits))
     bounds = np.linspace(0, n, n_splits + 1).astype(int)
-    folds: List[Fold] = []
+    folds: list[Fold] = []
     for i in range(1, len(bounds) - 1):
         test_lo = int(bounds[i])
         test_hi = int(bounds[i + 1])
@@ -102,7 +103,7 @@ def make_time_folds(ts_ms: np.ndarray, *, n_splits: int, purge_ms: int, min_trai
 
 
 def _fit_model(model_name: str, random_state: int) -> Pipeline:
-    m = str(model_name or "gbdt").strip().lower()
+    m = (model_name or "gbdt").strip().lower()
     if m in ("lr", "logreg", "logit"):
         return Pipeline(
             steps=[
@@ -147,7 +148,7 @@ def _ensure_dir(p: str) -> None:
     os.makedirs(p, exist_ok=True)
 
 
-def _write_csv(path: str, rows: List[Dict[str, Any]], fieldnames: Sequence[str]) -> None:
+def _write_csv(path: str, rows: list[dict[str, Any]], fieldnames: Sequence[str]) -> None:
     _ensure_dir(os.path.dirname(os.path.abspath(path)) or ".")
     with open(path, "w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(fieldnames))
@@ -167,30 +168,30 @@ def _load_df(path: str) -> pd.DataFrame:
     raise SystemExit(f"Unsupported data_path format: {p}")
 
 
-def _read_meta(meta_json: str) -> Dict[str, Any]:
-    obj = json.loads(open(meta_json, "r", encoding="utf-8").read())
+def _read_meta(meta_json: str) -> dict[str, Any]:
+    obj = json.loads(open(meta_json, encoding="utf-8").read())
     if not isinstance(obj, dict):
         raise SystemExit("meta_json must be a dict")
     return obj
 
 
-def _build_key_to_col(meta: Dict[str, Any]) -> Dict[str, str]:
+def _build_key_to_col(meta: dict[str, Any]) -> dict[str, str]:
     col_map = meta.get("column_map")
     if isinstance(col_map, dict) and col_map:
-        out: Dict[str, str] = {}
+        out: dict[str, str] = {}
         for fn, col in col_map.items():
             out[normalize_feature_key(str(fn))] = str(col)
         return out
     feat_names = list(meta.get("feature_names") or [])
     col_names = list(meta.get("column_names") or [])
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     if feat_names and col_names and len(feat_names) == len(col_names):
         for fn, col in zip(feat_names, col_names):
             out[normalize_feature_key(str(fn))] = str(col)
     return out
 
 
-def _metrics(y: np.ndarray, p: np.ndarray, top_frac: float) -> Dict[str, float]:
+def _metrics(y: np.ndarray, p: np.ndarray, top_frac: float) -> dict[str, float]:
     yb = np.asarray(y, dtype=np.int8)
     pb = np.clip(np.asarray(p, dtype=np.float64), 1e-9, 1.0 - 1e-9)
     auc = float(roc_auc_score(yb, pb)) if (yb.sum() > 0 and yb.sum() < len(yb)) else 0.5
@@ -248,8 +249,8 @@ def main() -> int:
 
     # Full feature columns
     all_keys_sorted = sorted(key_to_col.keys())
-    full_cols: List[str] = []
-    full_keys: List[str] = []
+    full_cols: list[str] = []
+    full_keys: list[str] = []
     for k in all_keys_sorted:
         c = key_to_col.get(k)
         if c and c in df.columns:
@@ -263,7 +264,7 @@ def main() -> int:
     grouped = group_features(full_keys, groups)
     want_groups = [s.strip() for s in str(args.groups).split(",") if s.strip()]
     grouped = {k: v for (k, v) in grouped.items() if k in want_groups}
-    group_cols: Dict[str, List[str]] = {}
+    group_cols: dict[str, list[str]] = {}
     for g, keys in grouped.items():
         cols = []
         for k in sorted(keys):
@@ -281,7 +282,7 @@ def main() -> int:
     y_all = np.asarray([int(_safe_float(v, 0.0) > 0.5) for v in y_all], dtype=np.int8)
     regimes = np.asarray([_normalize_regime(x) for x in df[regime_col].to_numpy()], dtype=object) if regime_col in df.columns else np.asarray(["other"] * len(df), dtype=object)
 
-    variants: List[Tuple[str, List[str]]] = [("full", full_cols)]
+    variants: list[tuple[str, list[str]]] = [("full", full_cols)]
     for g, cols in group_cols.items():
         if not cols:
             continue
@@ -289,13 +290,13 @@ def main() -> int:
         kept = [c for c in full_cols if c not in drop]
         variants.append((f"drop_{g}", kept))
 
-    overall_rows: List[Dict[str, Any]] = []
-    by_regime_rows: List[Dict[str, Any]] = []
+    overall_rows: list[dict[str, Any]] = []
+    by_regime_rows: list[dict[str, Any]] = []
 
-    baseline_metrics: Optional[Dict[str, float]] = None
-    baseline_by_regime: Dict[str, Dict[str, float]] = {}
-    baseline_fold_models: List[Tuple[Pipeline, np.ndarray]] = []
-    baseline_fold_cols: Optional[List[str]] = None
+    baseline_metrics: dict[str, float] | None = None
+    baseline_by_regime: dict[str, dict[str, float]] = {}
+    baseline_fold_models: list[tuple[Pipeline, np.ndarray]] = []
+    baseline_fold_cols: list[str] | None = None
 
     for v_name, cols in variants:
         X = df[cols].to_numpy(dtype=np.float64, copy=False)
@@ -378,9 +379,9 @@ def main() -> int:
         raise SystemExit("Baseline folds missing; cannot compute permutation importance")
 
     # E feature columns in baseline
-    e_keys: List[str] = sorted({k for ks in grouped.values() for k in ks})
-    e_cols: List[str] = []
-    e_col_idx: List[int] = []
+    e_keys: list[str] = sorted({k for ks in grouped.values() for k in ks})
+    e_cols: list[str] = []
+    e_col_idx: list[int] = []
     for k in e_keys:
         col = key_to_col.get(k)
         if not col:
@@ -420,7 +421,7 @@ def main() -> int:
             imp_sum2[j] += imp * imp
             imp_n[j] += 1
 
-    imp_rows: List[Dict[str, Any]] = []
+    imp_rows: list[dict[str, Any]] = []
     for k, col, s, s2, n in zip(e_keys, e_cols, imp_sum, imp_sum2, imp_n):
         if int(n) <= 0:
             continue
@@ -436,12 +437,12 @@ def main() -> int:
         ["feature", "column", "perm_auc_drop_mean", "perm_auc_drop_std", "n_folds"],
     )
 
-    deny_keys: List[str] = []
+    deny_keys: list[str] = []
     for r in imp_rows:
         if len(deny_keys) >= int(args.deny_max_features):
             break
         if float(r.get("perm_auc_drop_mean", 0.0)) <= float(args.deny_min_perm_auc_drop):
-            deny_keys.append(str(r.get("feature")))
+            deny_keys.append((r.get("feature")))
 
     deny_obj = {
         "ver": "v1",

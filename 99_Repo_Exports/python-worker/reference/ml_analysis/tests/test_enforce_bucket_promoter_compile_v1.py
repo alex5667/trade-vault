@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 import py_compile
 from pathlib import Path

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import pytest
 from dataclasses import dataclass
+
+import pytest
 
 from handlers.confirmations.engine import ConfirmationsEngine
 from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level

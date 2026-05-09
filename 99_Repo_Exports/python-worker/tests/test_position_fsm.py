@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 tests/test_position_fsm.py — P1-9: Unit tests for explicit PositionFSM.
 
@@ -13,8 +14,6 @@ Coverage:
 """
 
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
 
 import pytest
 
@@ -26,7 +25,6 @@ from domain.position_fsm import (
     PositionStatus,
     fsm_from_position,
 )
-
 
 # ---------------------------------------------------------------------------
 # Minimal stub of PositionState (avoids importing the full domain)

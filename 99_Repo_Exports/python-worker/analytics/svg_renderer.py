@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 SVG Renderer - Генерация ROC и Confusion Matrix в SVG без PIL/matplotlib.
 
@@ -15,10 +16,8 @@ SVG Renderer - Генерация ROC и Confusion Matrix в SVG без PIL/matp
 """
 
 import os
-from typing import List, Dict
 
 from common.log import setup_logger
-
 
 logger = setup_logger("SVGRenderer")
 
@@ -100,7 +99,7 @@ def _axis(width: int, height: int, pad: int = 40) -> str:
 
 
 def roc_svg(
-    points: List[Dict[str, float]],
+    points: list[dict[str, float]],
     auc: float,
     width: int = 640,
     height: int = 420,

@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Telegram Reporter Extended - Расширенные отчёты с графиками в Telegram.
 
@@ -15,7 +17,7 @@ Telegram Reporter Extended - Расширенные отчёты с график
 
 import os
 import time
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 import redis
 
@@ -42,7 +44,7 @@ class TelegramReporterExt:
     и опциональными PNG графиками.
     """
 
-    def __init__(self, redis_url: Optional[str] = None):
+    def __init__(self, redis_url: str | None = None):
         """
         Инициализация репортера.
         
@@ -61,14 +63,14 @@ class TelegramReporterExt:
             self.logger.error(f"❌ Ошибка подключения к Redis: {e}")
             raise
 
-        self.stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+        self.stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
         if _HAS_MPL:
             self.logger.info("✅ Matplotlib доступен, графики будут генерироваться")
         else:
             self.logger.warning("⚠️ Matplotlib недоступен, графики отключены")
 
-    def _push_text(self, group_id: str, title: str, lines: List[str]):
+    def _push_text(self, group_id: str, title: str, lines: list[str]):
         """Отправка текстового сообщения"""
         try:
             text = f"<b>{title}</b>\n" + "\n".join(lines)
@@ -124,9 +126,9 @@ class TelegramReporterExt:
         *,
         strategy: str,
         symbol: str,
-        roc_points: List[Dict[str, Any]],
+        roc_points: list[dict[str, Any]],
         auc: float,
-        summary: Dict[str, Any]
+        summary: dict[str, Any]
     ):
         """
         Отправка ROC отчёта с графиком.

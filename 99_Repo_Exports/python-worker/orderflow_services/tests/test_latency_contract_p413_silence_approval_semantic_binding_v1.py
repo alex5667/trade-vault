@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P4.13 semantic approval binding workflow tests.
 
 Tests that the dual-control approval is invalidated when gate_reason_code,

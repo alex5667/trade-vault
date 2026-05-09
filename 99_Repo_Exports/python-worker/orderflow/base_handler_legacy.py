@@ -1,18 +1,19 @@
+from __future__ import annotations
+
+import json
+import math
+import os
+import statistics
+import time
+
+from core.redis_keys import RedisStreams as RS
+
 # orderflow/base_handler_legacy.py
 # DEPRECATED: This is the legacy monolithic version of BaseOrderFlowHandler.
 # New code should use handlers.base_orderflow_handler.BaseOrderFlowHandler instead.
-
-from __future__ import annotations
 from utils.time_utils import get_ny_time_millis
+import contextlib
 
-import os
-import statistics
-import json
-import time
-import math
-from typing import Optional, Tuple
-
-from core.redis_keys import RedisStreams as RS
 
 # ======================================================================================
 # Pure helper for deterministic tests:
@@ -29,7 +30,7 @@ def load_tracker_atr_from_redis_hmget(
     timeframe_to_ms_fn: any,
     logger: any,
     warning_logged: bool,
-) -> Tuple[Optional[float], Optional[int], bool]:
+) -> tuple[float | None, int | None, bool]:
     """
     Fail-open + testable parser for Redis ATR tracker.
     Returns:
@@ -39,10 +40,8 @@ def load_tracker_atr_from_redis_hmget(
         atr_str, last_close_str = redis_client.hmget(key, "atr", "lastCloseTime")
     except Exception as exc:
         if not warning_logged:
-            try:
+            with contextlib.suppress(Exception):
                 logger.warning("ATR read failed %s: %s", key, exc)
-            except Exception:
-                pass
         return None, None, True
 
     if not atr_str:
@@ -55,7 +54,7 @@ def load_tracker_atr_from_redis_hmget(
     if val <= 0.0 or not math.isfinite(val):
         return None, None, warning_logged
 
-    atr_ts_ms: Optional[int] = None
+    atr_ts_ms: int | None = None
     if last_close_str:
         try:
             atr_ts_ms = int(last_close_str)
@@ -89,7 +88,7 @@ def load_tracker_atr_from_redis_hmget(
     timeframe_to_ms_fn: any,
     logger: any,
     warning_logged: bool,
-) -> Tuple[Optional[float], Optional[int], bool]:
+) -> tuple[float | None, int | None, bool]:
     """
     Fail-open + testable parser for Redis ATR tracker.
     Returns:
@@ -99,10 +98,8 @@ def load_tracker_atr_from_redis_hmget(
         atr_str, last_close_str = redis_client.hmget(key, "atr", "lastCloseTime")
     except Exception as exc:
         if not warning_logged:
-            try:
+            with contextlib.suppress(Exception):
                 logger.warning("ATR read failed %s: %s", key, exc)
-            except Exception:
-                pass
         return None, None, True
 
     if not atr_str:
@@ -115,7 +112,7 @@ def load_tracker_atr_from_redis_hmget(
     if val <= 0.0 or not math.isfinite(val):
         return None, None, warning_logged
 
-    atr_ts_ms: Optional[int] = None
+    atr_ts_ms: int | None = None
     if last_close_str:
         try:
             atr_ts_ms = int(last_close_str)
@@ -136,30 +133,31 @@ def load_tracker_atr_from_redis_hmget(
 
 # Детерминированный парсер/классификатор для 6.1 (юнит-тестируемый)
 from handlers.tick_parser import Tick as ParsedTick
-from handlers.tick_parser import parse_tick as _parse_tick_pure
 from handlers.tick_parser import classify_delta as _classify_delta_pure
+from handlers.tick_parser import parse_tick as _parse_tick_pure
 
 # Record & Replay (6.2)
 try:
     from replay.recorder import ReplayRecorder
 except Exception:
     ReplayRecorder = None  # type: ignore
-from common.tick_time import TickTimeGuard, TickTimePolicy, SanitizeResult
-from common.steady_clock import SteadyClock
-from common.time_quarantine import BadTimeQuarantine, BadTimeQuarantinePolicy
-from common.deque_utils import ensure_bounded_deque
 import threading
+
+from common.deque_utils import ensure_bounded_deque
+from common.steady_clock import SteadyClock
+from common.tick_time import SanitizeResult, TickTimeGuard, TickTimePolicy
+from common.time_quarantine import BadTimeQuarantine, BadTimeQuarantinePolicy
 
 # ---- Minimal metrics instrumentation (fail-open) ----
 # Важно: этот импорт НЕ должен ломать рантайм.
 try:
     from common.metrics2 import (
-        NoopMetrics,
+        EventRateTracker,
         LagTracker,
         MissingRateTracker,
-        EventRateTracker,
-        safe_float,
+        NoopMetrics,
         normalize_ts_ms,
+        safe_float,
         should_drop_by_watermark,
     )
     from common.signal_metrics import SignalMetrics
@@ -172,67 +170,59 @@ except Exception:  # pragma: no cover
     normalize_ts_ms = None  # type: ignore
     should_drop_by_watermark = None  # type: ignore
     SignalMetrics = None
-from core.dependency_policy import ensure_dependency_defaults
-import hashlib
 import uuid
 from abc import ABC, abstractmethod
-from collections import deque, defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List, Tuple, cast, Literal
+from datetime import UTC
+from typing import Any, Literal
 
-from common.log import setup_logger
-from config.gpu_config import GPU_MIN_N
-from enum import Enum
-
-from core.performance_optimizer import (
-    get_optimized_redis_client,
-    PivotPointsCache,
-    ATRCache,
-)
-from core.dual_redis_client import get_dual_signals_redis
-from core.instrument_config import OrderFlowConfig, SymbolSpecs, get_config
-from core.signal_outbox import SignalOutboxPublisher, OutboxSettings
-from core.redis_stream_consumer import SyncRedisStreamHelper
-
-from signals.pivots import compute_daily_pivots, is_near_level_atr
-from signals.atr import ATR
-from core.htf_levels import HTFLevelsProvider, HTFLevels  # type: ignore
-from core.signal_context import SignalContext
-from core.local_calibration import LocalCalibrationManager
-from signals.detectors import obi_from_book, weak_progress as check_weak_progress
-from signals.risk_levels import compute_levels
-from services.pnl_math import calculate_position_size, get_symbol_info
-from signals.orderbook_l2_tracker import L2BookTracker, L2Snapshot
-from services.l3_lite_tracker import L3LiteTracker
-from services.l3_queue_events_proxy import L3QueueEventsProxy, L3BucketStats
-from services.queue_eta_estimator import QueueETAEvaluator
-from services.burstiness_tracker import BurstinessTracker, BurstStats
-from services.touch_level_tracker import TouchLevelTracker, TouchSnapshot
-from core.unified_signal_formatter import Signal, UnifiedSignalFormatter, create_signal
-from common.robust_stats import RobustZscoreMADRolling
-from common.gpu_service import get_gpu_service
-from common.backoff import Backoff, sleep_s
-from common.redis_errors import is_transient_error as is_transient_redis_error
-from common.dlq_sanitize import sanitize_for_dlq
-from common.time_norm import normalize_epoch_ms
-from typing import Literal
-from handlers.signal_types import MarketRegime
-from core.local_calibration import LocalCalibrationManager
-from core.sessions import get_session_from_ts
-from core.regime import classify_regime
-# Lazy import to avoid circular dependency: from signal_scoring import SignalScoringEngine, ScoringConfig, SignalContext as ScoringSignalContext
-
-# Import new modular services
-from regime.market_regime_service import MarketRegimeService, RegimeSnapshot
-from geometry.htf_levels import HTFLevelsService, HTFLevelsProvider as GeometryHTFLevelsProvider
 from calibration.local_calibration_service import LocalCalibrationService
-from local_calibration.store import LocalCalibrationStore as LCStoreV2, eval_local_quantile
+from common.backoff import Backoff, sleep_s
+from common.dlq_sanitize import sanitize_for_dlq
+from common.gpu_service import get_gpu_service
+from common.log import setup_logger
+from common.redis_errors import is_transient_error as is_transient_redis_error
+from common.robust_stats import RobustZscoreMADRolling
+from common.time_norm import normalize_epoch_ms
+from config.gpu_config import GPU_MIN_N
+from core.dependency_policy import ensure_dependency_defaults
+from core.dual_redis_client import get_dual_signals_redis
+from core.htf_levels import HTFLevels, HTFLevelsProvider  # type: ignore
+from core.instrument_config import OrderFlowConfig, SymbolSpecs, get_config
+from core.performance_optimizer import (
+    ATRCache,
+    PivotPointsCache,
+    get_optimized_redis_client,
+)
+from core.redis_stream_consumer import SyncRedisStreamHelper
+from core.signal_context import SignalContext
+from core.signal_outbox import OutboxSettings, SignalOutboxPublisher
+from core.unified_signal_formatter import Signal
+from geometry.htf_levels import HTFLevelsService
+from handlers.signal_types import MarketRegime
+from local_calibration.store import LocalCalibrationStore as LCStoreV2
+from local_calibration.store import eval_local_quantile
+from regime import BlackZoneScheduler, RegimeRuntimeState, RegimeSample
+
+# Lazy import to avoid circular dependency: from signal_scoring import SignalScoringEngine, ScoringConfig, SignalContext as ScoringSignalContext
+# Import new modular services
+from regime.market_regime_service import MarketRegimeService
+from services.burstiness_tracker import BurstinessTracker, BurstStats
+from services.l3_lite_tracker import L3LiteTracker
+from services.l3_queue_events_proxy import L3BucketStats, L3QueueEventsProxy
+from services.pnl_math import calculate_position_size
+from services.queue_eta_estimator import QueueETAEvaluator
+from services.touch_level_tracker import TouchLevelTracker, TouchSnapshot
+from signals.atr import ATR
+from signals.detectors import weak_progress as check_weak_progress
+from signals.orderbook_l2_tracker import L2BookTracker, L2Snapshot
+from signals.pivots import compute_daily_pivots
+from signals.risk_levels import compute_levels
 
 # Import unified pipeline (now local to orderflow package)
-from .unified_pipeline import UnifiedSignalPipeline, OrderflowContext, SignalContext
-from regime import RegimeRuntimeState, BlackZoneScheduler, RegimeSample
-from handlers.experiment_manager import get_experiment_manager
-
+from .unified_pipeline import OrderflowContext, SignalContext, UnifiedSignalPipeline
+import contextlib
 
 ZoneType = Literal[
     "PDH", "PDL", "PDM",         # previous day high/low/mid
@@ -245,23 +235,23 @@ ZoneType = Literal[
 @dataclass
 class LiquidityContext:
     # L2 / кластер вокруг цены
-    near_wall_side: Optional[Literal["bid", "ask"]] = None
-    near_wall_price: Optional[float] = None
-    near_wall_size: Optional[float] = None        # абсолютный размер
-    near_wall_size_z: Optional[float] = None      # z-score к "нормальной" глубине
+    near_wall_side: Literal["bid", "ask"] | None = None
+    near_wall_price: float | None = None
+    near_wall_size: float | None = None        # абсолютный размер
+    near_wall_size_z: float | None = None      # z-score к "нормальной" глубине
 
-    depth_5_vol: Optional[float] = None           # суммарный объём в 5-ти уровнях
-    depth_5_z: Optional[float] = None
+    depth_5_vol: float | None = None           # суммарный объём в 5-ти уровнях
+    depth_5_z: float | None = None
 
     # связь агрессии с ликвидностью
-    aggr_vol_at_wall: Optional[float] = None      # объём ударов по стене
-    aggr_to_rest_ratio: Optional[float] = None    # aggr_vol_at_wall / near_wall_size
+    aggr_vol_at_wall: float | None = None      # объём ударов по стене
+    aggr_to_rest_ratio: float | None = None    # aggr_vol_at_wall / near_wall_size
 
     # примитивная классификация: разбор / поглощение / ничего
-    pattern: Optional[Literal["absorption", "break", "none"]] = None
+    pattern: Literal["absorption", "break", "none"] | None = None
 
     # итоговый score [0..1]
-    liquidity_context_score: Optional[float] = None
+    liquidity_context_score: float | None = None
 
 
 @dataclass
@@ -351,7 +341,7 @@ class SignalTypeConf:
     min_raw_score: float            # минимальный |raw_score| (например, z-score сигнала)
 
     # режимы рынка
-    allowed_regimes: Tuple[MarketRegime, ...]
+    allowed_regimes: tuple[MarketRegime, ...]
     prefer_trend: bool = False
     prefer_range: bool = False
     forbid_strong_trend: bool = False
@@ -421,7 +411,7 @@ class RegimeConfig:
     daily_open_range_bps_min_for_trend: float = 60.0
 
     # bias по сессиям
-    session_bias_default: Dict[str, float] = field(default_factory=lambda: {
+    session_bias_default: dict[str, float] = field(default_factory=lambda: {
         "asia": 0.0,
         "london": 0.1,
         "ny": 0.05,
@@ -447,7 +437,7 @@ class RegimeConfig:
     regime_range_threshold: float = -0.35
 
     @classmethod
-    def from_env(cls) -> "RegimeConfig":
+    def from_env(cls) -> RegimeConfig:
         import os
         return cls(
             atr_period=int(os.getenv("REGIME_ATR_PERIOD", "14")),
@@ -483,10 +473,10 @@ class MarketRegimeService:
         self._log = logger
 
         # history[symbol] = deque[(ts, close, daily_open)]
-        self._history: Dict[str, deque[Tuple[float, float, float]]] = defaultdict(
+        self._history: dict[str, deque[tuple[float, float, float]]] = defaultdict(
             lambda: deque(maxlen=240)  # ~4 часа по 1m, настраивается
         )
-        self._last_state: Dict[str, RegimeState] = {}
+        self._last_state: dict[str, RegimeState] = {}
 
         # история режима по инструментам
         self._regime_history: dict[str, deque[RegimeSample]] = defaultdict(
@@ -509,8 +499,8 @@ class MarketRegimeService:
 
     def _compute_daily_open_metrics(
         self,
-        hist: deque[Tuple[float, float, float]],
-    ) -> Tuple[float, float]:
+        hist: deque[tuple[float, float, float]],
+    ) -> tuple[float, float]:
         """
         hist: deque[(ts, close, daily_open)]
         return: (current_range_bps, crossings_freq)
@@ -542,11 +532,11 @@ class MarketRegimeService:
 
     # --- scoring regime TREND / RANGE ---
 
-    def _decide_regime(self, f: RegimeFeatures) -> Tuple[MarketRegime, float]:
+    def _decide_regime(self, f: RegimeFeatures) -> tuple[MarketRegime, float]:
         cfg = self._cfg
 
         # 1) TREND score ∈ [0,1]
-        trend_parts: List[float] = []
+        trend_parts: list[float] = []
 
         # ATR в верхних квантилях
         if f.atr_quantile_1d > cfg.atr_quantile_trend_thr:
@@ -599,7 +589,7 @@ class MarketRegimeService:
         trend_score = sum(trend_parts) / len(trend_parts)
 
         # 2) RANGE score ∈ [0,1]
-        range_parts: List[float] = []
+        range_parts: list[float] = []
 
         # ATR в нижних квантилях
         if f.atr_quantile_1d < cfg.atr_quantile_range_thr:
@@ -744,11 +734,11 @@ class MarketRegimeService:
         self._last_state[symbol] = state
         return state
 
-    def last_state(self, symbol: str) -> Optional[RegimeState]:
+    def last_state(self, symbol: str) -> RegimeState | None:
         """Можно использовать для логов / визуализации по времени."""
         return self._last_state.get(symbol)
 
-    def _update_regime_history(self, ctx: "OrderflowContext", bar_index: int | None = None) -> None:
+    def _update_regime_history(self, ctx: OrderflowContext, bar_index: int | None = None) -> None:
         if ctx.symbol is None or ctx.last_price is None:
             return
 
@@ -795,7 +785,7 @@ class MarketRegimeService:
 
     def _build_geo_zone_hits(
         self,
-        ctx: "OrderflowContext",
+        ctx: OrderflowContext,
         htf: HTFLevels,
     ) -> list[GeoZoneHit]:
         hits: list[GeoZoneHit] = []
@@ -907,7 +897,7 @@ class MarketRegimeService:
         bias = 1.0 - 2.0 * max(0.0, min(1.0, cross_rate))  # [0..1] → [+1..-1]
         return bias
 
-    def _detect_regime_from_ctx(self, ctx: "OrderflowContext") -> MarketRegime:
+    def _detect_regime_from_ctx(self, ctx: OrderflowContext) -> MarketRegime:
         # 1) обновляем историю (для daily_open_cross_freq)
         self._update_regime_history(ctx)
 
@@ -960,7 +950,7 @@ class Tick:
     last: float
     volume: float
     flags: int
-    is_buyer_maker: Optional[bool] = None
+    is_buyer_maker: bool | None = None
 
 
 @dataclass
@@ -973,7 +963,7 @@ class OrderflowContext:
     obi_avg: float
     obi_sustained: bool
     atr: float
-    pivots: Optional[Dict[str, float]]
+    pivots: dict[str, float] | None
     delta_window: deque
     current_delta: float
     delta_bucket: float
@@ -983,7 +973,7 @@ class OrderflowContext:
     realized_ema_bps: float = 0.0
     adverse_ratio_ema: float = 0.0
     market_mode: str = "mixed"
-    
+
     # L2 metrics (from book snapshots)
     obi_20: float = 0.0
     obi_avg_20: float = 0.0
@@ -1066,7 +1056,7 @@ class OrderflowContext:
 
     # Confidence model (optional)
     confidence: float = 0.0
-    confidence_breakdown: Dict[str, float] = field(default_factory=dict)
+    confidence_breakdown: dict[str, float] = field(default_factory=dict)
 
     # Market regime
     regime: MarketRegime = MarketRegime.UNKNOWN
@@ -1105,7 +1095,7 @@ class OrderflowContext:
 
     # --- NEW: режим ---
     market_regime_score: float = 0.0
-    regime_features: Optional[RegimeFeatures] = None
+    regime_features: RegimeFeatures | None = None
 
     # геометрия
     geo_zone_hits: list[GeoZoneHit] | None = None
@@ -1138,7 +1128,7 @@ class OrderflowContext:
 
     # Golden pattern flags
     is_golden_pattern: bool = False
-    golden_pattern_label: Optional[str] = None
+    golden_pattern_label: str | None = None
 
     # Signal family для regime guard (контроль качества)
     family: str = "unknown"        # "volatilitySpike", "weakProgress", "deltaSpikeZ_OBI", ...
@@ -1159,7 +1149,7 @@ class OrderflowContext:
     # Experiment layer fields
     experiment_id: str | None = None           # ID активного эксперимента
     experiment_variant: str | None = None      # "control" | "treatment"
-    experiment_config: Dict[str, Any] = field(default_factory=dict)  # конфиг эксперимента
+    experiment_config: dict[str, Any] = field(default_factory=dict)  # конфиг эксперимента
 
     obi_5: float = 0.0
     obi_50: float = 0.0
@@ -1173,8 +1163,8 @@ class OrderflowContext:
 
     # L3 scoring results (для отладки)
     _l3_score: float = 0.0
-    _l3_terms: Optional[Dict[str, float]] = None
-    _l3_profile: Optional[Dict[str, float]] = None
+    _l3_terms: dict[str, float] | None = None
+    _l3_profile: dict[str, float] | None = None
 
     # 4.1: Dependency policies (fail-open/fail-closed)
     data_quality_flags: list[str] = field(default_factory=list)
@@ -1191,7 +1181,7 @@ class PublishResult:
     dedup: bool  # дедуп сработал (или публикация отключена/подавлена)
 
 
-def _parse_bool(v: Any) -> Optional[bool]:
+def _parse_bool(v: Any) -> bool | None:
     if v is None:
         return None
     if isinstance(v, bool):
@@ -1215,10 +1205,10 @@ def _to_str(x) -> str:
 
 
 def robust_zscore_mad(
-    values: List[float], 
-    last_value: float, 
+    values: list[float],
+    last_value: float,
     eps: float = 1e-12,
-    gpu_service: Optional[Any] = None
+    gpu_service: Any | None = None
 ) -> float:
     """
     Robust Z-score через median/MAD.
@@ -1245,12 +1235,12 @@ def robust_zscore_mad(
         try:
             import numpy as np
             arr = np.array(values, dtype=np.float32)
-            
+
             # Используем GPU для median
             median = float(np.median(arr))  # NumPy median, GPU service может оптимизировать
             abs_dev = np.abs(arr - median)
             mad = float(np.median(abs_dev))
-            
+
             if mad <= eps:
                 return 0.0
             return 0.6745 * (last_value - median) / mad
@@ -1299,17 +1289,17 @@ class BaseOrderFlowHandler(ABC):
     def __init__(
         self,
         symbol: str,
-        config: Optional[OrderFlowConfig] = None,
+        config: OrderFlowConfig | None = None,
         *,
         source_name: str = "OrderFlow",
         signal_stream_prefix: str = "signals:orderflow",
-        htf_provider: Optional[HTFLevelsProvider] = None,
-        local_calibration: Optional[LCStoreV2] = None,
-        unified_pipeline: Optional["UnifiedSignalPipeline"] = None,
+        htf_provider: HTFLevelsProvider | None = None,
+        local_calibration: LCStoreV2 | None = None,
+        unified_pipeline: UnifiedSignalPipeline | None = None,
         # New modular services
-        regime_service: Optional[MarketRegimeService] = None,
-        geometry_service: Optional[HTFLevelsService] = None,
-        calibration_service: Optional[LocalCalibrationService] = None,
+        regime_service: MarketRegimeService | None = None,
+        geometry_service: HTFLevelsService | None = None,
+        calibration_service: LocalCalibrationService | None = None,
     ):
         self.symbol = symbol
         self.config = config or get_config(symbol, use_env=True)
@@ -1358,7 +1348,7 @@ class BaseOrderFlowHandler(ABC):
         self.signal_stream = self._get_signal_stream()
 
         # notify throttling
-        self.notify_signal_counter_key = os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", "notify:telegram:signal_counter")
+        self.notify_signal_counter_key = os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", RS.NOTIFY_SIGNAL_COUNTER)
         try:
             self.notify_signal_every_n = max(1, int(os.getenv("CRYPTO_NOTIFY_SIGNAL_EVERY_N", "1")))
         except ValueError:
@@ -1408,8 +1398,11 @@ class BaseOrderFlowHandler(ABC):
         # NEW: Unified Signal Execution System
         try:
             from signal_exec import (
-                SignalService, ExecutionPlanner, SignalPerformanceTracker,
-                SignalRepository, SignalBus
+                ExecutionPlanner,
+                SignalBus,
+                SignalPerformanceTracker,
+                SignalRepository,
+                SignalService,
             )
 
             # Initialize components
@@ -1451,12 +1444,12 @@ class BaseOrderFlowHandler(ABC):
 
         # signal chatter controls
         self.level_cooldown_ms = int(os.getenv("LEVEL_SIGNAL_COOLDOWN_MS", "15000"))
-        self._last_level_signal_ts: Dict[Tuple[str, str], int] = {}
+        self._last_level_signal_ts: dict[tuple[str, str], int] = {}
         self.breakout_min_dist_atr = float(os.getenv("BREAKOUT_MIN_DIST_ATR", "0.0"))
-        
+
         # breakout: strict OBI confirmation (по умолчанию строго)
         self.breakout_require_obi = os.getenv("BREAKOUT_REQUIRE_OBI", "true").lower() == "true"
-        
+
         # per-signal Z thresholds (optional; defaults preserve previous behavior)
         self.breakout_z_threshold = float(os.getenv("BREAKOUT_Z_THRESHOLD", str(self.config.delta_z_threshold)))
         self.absorption_z_threshold = float(os.getenv("ABSORPTION_Z_THRESHOLD", str(self.config.delta_z_threshold)))
@@ -1470,7 +1463,7 @@ class BaseOrderFlowHandler(ABC):
             "MAIN_Z_THRESHOLD",
             str(min(self.config.delta_z_threshold, self.breakout_z_threshold, self.absorption_z_threshold)),
         ))
-        
+
         # absorption gating (optional: allow disabling weak_progress hard requirement)
         self.absorption_require_weak_progress = os.getenv("ABSORPTION_REQUIRE_WEAK_PROGRESS", "true").lower() == "true"
 
@@ -1485,11 +1478,11 @@ class BaseOrderFlowHandler(ABC):
         else:
             # Create default pipeline with all services
             try:
-                from signals.unified_pipeline import UnifiedSignalPipeline
-                from signals.golden_pattern_service import GoldenPatternService
                 from signals.calibration_service import CalibrationService
                 from signals.exec_filters import ExecFiltersGroup
+                from signals.golden_pattern_service import GoldenPatternService
                 from signals.signal_publisher import SignalPublisher
+                from signals.unified_pipeline import UnifiedSignalPipeline
 
                 # Create services
                 golden_logic = GoldenPatternService()
@@ -1540,7 +1533,7 @@ class BaseOrderFlowHandler(ABC):
         self.robust_backend = os.getenv("ROBUST_Z_BACKEND", "auto")
         self.delta_window = deque(maxlen=self.config.delta_window_ticks)
         self.delta_bucket_ms = int(os.getenv("DELTA_BUCKET_MS", "1000"))
-        self._bucket_id: Optional[int] = None
+        self._bucket_id: int | None = None
         self._bucket_sum = 0.0
         self._last_bucket_value = 0.0
         self.max_zero_buckets = int(os.getenv("DELTA_BUCKET_MAX_ZERO_FILL", "3"))
@@ -1557,7 +1550,7 @@ class BaseOrderFlowHandler(ABC):
             wall_mult=self.l2_wall_mult,
             wall_max_dist_bps=self.l2_wall_max_dist_bps,
         )
-        self._l2_last: Optional[L2Snapshot] = None
+        self._l2_last: L2Snapshot | None = None
 
         # ----- Touch-level tracker (drop@touch, traded@touch, refill/depletion tags)
         tick_size = float(getattr(self.specs, "tick_size", 0.0) or 0.0)
@@ -1571,9 +1564,9 @@ class BaseOrderFlowHandler(ABC):
             max_touch_ticks=int(os.getenv("TOUCH_MAX_TOUCH_TICKS", "1")),
             book_fresh_ms=int(os.getenv("TOUCH_BOOK_FRESH_MS", "250")),
         )
-        
+
         # ✅ GPU Batch Buffering: буфер для батч обработки книг
-        self._book_buffer: List[Dict[str, Any]] = []
+        self._book_buffer: list[dict[str, Any]] = []
         self._book_buffer_max = int(os.getenv("L2_BATCH_SIZE", "10"))
         self._book_buffer_timeout_ms = int(os.getenv("L2_BATCH_TIMEOUT_MS", "100"))
         # book batch buffering timestamps
@@ -1587,7 +1580,7 @@ class BaseOrderFlowHandler(ABC):
             min_dt_ms=int(os.getenv("L3_LITE_MIN_DT_MS", "80")),
             enabled=self.l3_lite_enabled,
         )
-        self._l3_last_stats: Optional[L3BucketStats] = None
+        self._l3_last_stats: L3BucketStats | None = None
         # rolling robust z (GPU-aware ring buffer)
         self._delta_rr = RobustZscoreMADRolling(
             window_size=self.config.delta_window_ticks,
@@ -1602,9 +1595,9 @@ class BaseOrderFlowHandler(ABC):
         l3_alpha = float(os.getenv("L3_TAKER_RATE_EMA_ALPHA", "0.12"))
         self.l3_queue = L3QueueEventsProxy(bucket_ms=self.delta_bucket_ms, alpha=l3_alpha)
         self.l3_eps = float(os.getenv("L3_EPS", "1e-9"))
-        
+
         # ETA evaluator (depth / taker_rate -> time-to-fill proxy)
-        self.eta_eval: Optional[QueueETAEvaluator] = None
+        self.eta_eval: QueueETAEvaluator | None = None
         try:
             self.eta_eval = QueueETAEvaluator(eps=self.l3_eps)
         except Exception:
@@ -1622,7 +1615,7 @@ class BaseOrderFlowHandler(ABC):
             fano_window_buckets=burst_fano_window_buckets,
             dt_alpha=burst_dt_alpha,
         )
-        self._burst_last_stats: Optional[BurstStats] = None
+        self._burst_last_stats: BurstStats | None = None
 
         # ---- Burst/quality gates (bucket-level) ----
         self.min_trades_breakout = int(os.getenv("MIN_TRADES_BREAKOUT", "20"))
@@ -1630,7 +1623,7 @@ class BaseOrderFlowHandler(ABC):
         self.fano_min = float(os.getenv("FANO_MIN", "1.5"))
         self.flip_ratio_max = float(os.getenv("FLIP_RATIO_MAX", "0.70"))
         self.imbalance_min = float(os.getenv("IMBALANCE_MIN", "0.20"))  # OBI proxy
-        
+
         # Execution-quality gating (burstiness + OBI + ETA)
         self.exec_filters_enabled = os.getenv("EXEC_FILTERS_ENABLED", "true").lower() == "true"
         # optional ETA gates (seconds)
@@ -1655,7 +1648,7 @@ class BaseOrderFlowHandler(ABC):
         self.atr_calculator = ATR(period=14)
 
         # pivots
-        self.daily_pivots: Optional[Dict[str, float]] = None
+        self.daily_pivots: dict[str, float] | None = None
         self.last_pivot_date = None
 
         # bar range for weak progress (minute bar)
@@ -1664,7 +1657,7 @@ class BaseOrderFlowHandler(ABC):
         self.bar_start_ts = 0
 
         # breakout cross - use previous evaluation price (bucket boundary), not every tick
-        self._prev_eval_price: Optional[float] = None
+        self._prev_eval_price: float | None = None
 
         # snapshot
         self.snap_prefix = os.getenv("SNAP_PREFIX", "signal:snap:")
@@ -1720,12 +1713,12 @@ class BaseOrderFlowHandler(ABC):
             "L2: k_small=%d k_large=%d wall_mult=%.1f wall_max_dist_bps=%.1f",
             self.__class__.__name__, symbol, self.source_name,
             self.tick_stream, self.book_stream,
-            self.main_z_threshold, self.breakout_z_threshold, 
+            self.main_z_threshold, self.breakout_z_threshold,
             self.absorption_z_threshold, self.extreme_z_threshold,
             self.config.obi_threshold,
             self.delta_bucket_ms,
             self.breakout_require_obi,
-            self.obi_use_fraction, self.obi_min_samples, 
+            self.obi_use_fraction, self.obi_min_samples,
             self.obi_min_fraction, self.absorption_require_weak_progress,
             self.l2_k_small, self.l2_k_large, self.l2_wall_mult, self.l2_wall_max_dist_bps,
         )
@@ -1733,7 +1726,7 @@ class BaseOrderFlowHandler(ABC):
     def _now_ms(self) -> int:
         return get_ny_time_millis()
 
-    def _parse_tick(self, raw: Any) -> Optional[ParsedTick]:
+    def _parse_tick(self, raw: Any) -> ParsedTick | None:
         """
         Wrapper над чистой функцией parse_tick.
         Важно:
@@ -1751,18 +1744,14 @@ class BaseOrderFlowHandler(ABC):
     def _replay_record_tick(self, tick_payload: dict[str, Any]) -> None:
         rr = getattr(self, "_replay_recorder", None)
         if rr is not None:
-            try:
+            with contextlib.suppress(Exception):
                 rr.record_tick(tick_payload)
-            except Exception:
-                pass
 
     def _replay_record_ctx(self, ctx: Any) -> None:
         rr = getattr(self, "_replay_recorder", None)
         if rr is not None:
-            try:
+            with contextlib.suppress(Exception):
                 rr.record_ctx(ctx)
-            except Exception:
-                pass
 
     @abstractmethod
     def _get_symbol_specs(self) -> SymbolSpecs:
@@ -1826,7 +1815,7 @@ class BaseOrderFlowHandler(ABC):
         )
         return any(t in name for t in tokens) or any(t in msg for t in tokens)
 
-    def _sanitize_dlq_payload(self, payload: Dict[str, Any]) -> Dict[str, str]:
+    def _sanitize_dlq_payload(self, payload: dict[str, Any]) -> dict[str, str]:
         return sanitize_for_dlq(
             payload,
             max_depth=int(os.getenv("DLQ_MAX_DEPTH", "3")),
@@ -1835,10 +1824,10 @@ class BaseOrderFlowHandler(ABC):
 
     def _try_add_dlq_or_backoff(
         self,
-        consumer: "SyncRedisStreamHelper",
-        dlq_payload: Dict[str, Any],
+        consumer: SyncRedisStreamHelper,
+        dlq_payload: dict[str, Any],
         *,
-        backoff: "Backoff",
+        backoff: Backoff,
         where: str,
     ) -> bool:
         """
@@ -1887,7 +1876,7 @@ class BaseOrderFlowHandler(ABC):
         self._last_l2_warn_ms = now_ms
         return True
 
-    def _calc_l2_age_ms(self, *, tick_ts: object, book_ts: object) -> Tuple[int, int]:
+    def _calc_l2_age_ms(self, *, tick_ts: object, book_ts: object) -> tuple[int, int]:
         """
         Возвращает (tick_ts_ms, l2_age_ms) с нормализацией единиц.
         l2_age_ms считается как tick_ts_ms - book_ts_ms (может быть отрицательным при skew).
@@ -2368,8 +2357,8 @@ class BaseOrderFlowHandler(ABC):
         """
         from core.config import (
             CONFIDENCE_SCALE,
-            GOLDEN_SCORE_MULTIPLIER,
             FINAL_SCORE_MAX,
+            GOLDEN_SCORE_MULTIPLIER,
         )
 
         # 1) нормализуем confidence
@@ -2391,14 +2380,14 @@ class BaseOrderFlowHandler(ABC):
 
 
 
-    def _create_execution_plan(self, ctx: OrderflowContext) -> Optional["ExecutionPlan"]:
+    def _create_execution_plan(self, ctx: OrderflowContext) -> ExecutionPlan | None:
         """
         Создает план исполнения для сигнала.
         Использует ExecutionPlanner из signal_execution модуля.
         """
         try:
             from signal_exec import ExecutionPlanner
-            from signal_execution import ExtendedSignalContext, SymbolSetupConfig, AccountState
+            from signal_execution import ExtendedSignalContext, SymbolSetupConfig
 
             # Конвертируем SignalContext в ExtendedSignalContext
             extended_ctx = ExtendedSignalContext(
@@ -2460,7 +2449,7 @@ class BaseOrderFlowHandler(ABC):
             self.logger.exception("Failed to create execution plan")
             return None
 
-    def _save_execution_plan(self, plan: "ExecutionPlan") -> None:
+    def _save_execution_plan(self, plan: ExecutionPlan) -> None:
         """
         Сохраняет план исполнения в базу данных.
         """
@@ -2473,6 +2462,7 @@ class BaseOrderFlowHandler(ABC):
         """Публикует entry_candidate в stream:trade:entry_candidate для SMT entry policy."""
         try:
             import json
+
             from utils.time_utils import get_ny_time_millis
             _ts_now = get_ny_time_millis()
             entry_payload = {
@@ -2498,7 +2488,7 @@ class BaseOrderFlowHandler(ABC):
         except Exception as e:
             self.logger.exception(f"Failed to publish signal to entry_candidate: {e}")
 
-    def _execution_plan_to_dict(self, plan: Optional["ExecutionPlan"]) -> Optional[dict]:
+    def _execution_plan_to_dict(self, plan: ExecutionPlan | None) -> dict | None:
         """
         Конвертирует ExecutionPlan в словарь для payload.
         """
@@ -2545,7 +2535,7 @@ class BaseOrderFlowHandler(ABC):
             min_conf = self._get_min_confidence_for_symbol(ctx.symbol)
             return getattr(ctx, 'confidence', 0.0) >= min_conf
 
-    def _update_geometry_liquidity_context(self, ctx: "OrderflowContext", price: float, ts: float) -> None:
+    def _update_geometry_liquidity_context(self, ctx: OrderflowContext, price: float, ts: float) -> None:
         """
         Обновление геометрии и ликвидности перед скорингом.
         Дефолтная реализация: просто дергаем attach_хукы.
@@ -2601,7 +2591,7 @@ class BaseOrderFlowHandler(ABC):
         max_levels: int = 10,
         max_dist_bps: float = 15.0,
         size_z_thr: float = 1.5,
-    ) -> tuple[Optional[str], Optional[L2Level], Optional[float]]:
+    ) -> tuple[str | None, L2Level | None, float | None]:
         price = ctx.last_price
         if price is None:
             return None, None, None
@@ -2736,7 +2726,7 @@ class BaseOrderFlowHandler(ABC):
         return score
 
     # ---------- context attachment methods ----------
-    def _attach_geometry_context(self, ctx: "OrderflowContext", bar: "BarSample") -> None:
+    def _attach_geometry_context(self, ctx: OrderflowContext, bar: BarSample) -> None:
         """
         Наполнить контекст геометрией: HTF уровни, попадания в зоны, локальные экстремумы.
         """
@@ -2845,7 +2835,7 @@ class BaseOrderFlowHandler(ABC):
             ts=None,  # TODO: convert from bar.ts
         )
 
-    def _generate_signals_unified(self, bar: BarSample) -> list["Signal"]:
+    def _generate_signals_unified(self, bar: BarSample) -> list[Signal]:
         """
         DEPRECATED: Legacy adapter for unified signal generation.
         Now converts BarSample to OrderflowContext and delegates to UnifiedSignalPipeline.
@@ -2902,10 +2892,8 @@ class BaseOrderFlowHandler(ABC):
             # Add other fields as needed for compatibility
         )
         # Fail-open propagation if OrderflowContext doesn't yet declare atr_ts_ms
-        try:
+        with contextlib.suppress(Exception):
             of.atr_ts_ms = _atr_ts_ms
-        except Exception:
-            pass
         return of
 
     def _should_emit_signal(self, ctx: SignalContext) -> bool:
@@ -2918,7 +2906,7 @@ class BaseOrderFlowHandler(ABC):
 
         return self._unified_pipeline.should_emit(ctx)
 
-    def _build_signal_from_context(self, ctx: SignalContext, bar: BarSample) -> "Signal":
+    def _build_signal_from_context(self, ctx: SignalContext, bar: BarSample) -> Signal:
         """
         Build Signal object from unified context.
         Base implementation - subclasses should override.
@@ -2949,7 +2937,7 @@ class BaseOrderFlowHandler(ABC):
         streams = [self.tick_stream, self.book_stream, self.l3_stream]
         consumer.ensure_groups(streams)
 
-        fail_counts: Dict[Tuple[str, str], int] = {}
+        fail_counts: dict[tuple[str, str], int] = {}
         next_claim_at = 0
         claim_start_ids = {self.tick_stream: "0-0", self.book_stream: "0-0", self.l3_stream: "0-0"}
 
@@ -3109,9 +3097,9 @@ class BaseOrderFlowHandler(ABC):
     def _claim_and_process_pending(
         self,
         consumer: SyncRedisStreamHelper,
-        streams: List[str],
-        start_ids: Dict[str, str],
-        fail_counts: Dict[Tuple[str, str], int],
+        streams: list[str],
+        start_ids: dict[str, str],
+        fail_counts: dict[tuple[str, str], int],
         backoff: Backoff,
     ) -> bool:
         any_msgs = False
@@ -3189,10 +3177,8 @@ class BaseOrderFlowHandler(ABC):
 
                 if ok:
                     fail_counts.pop(key, None)
-                    try:
+                    with contextlib.suppress(Exception):
                         consumer.ack(m.stream, m.msg_id)
-                    except Exception:
-                        pass
                 else:
                     all_ok = False
 
@@ -3205,11 +3191,11 @@ class BaseOrderFlowHandler(ABC):
 
     # -------------------- parsing --------------------
 
-    def _parse_tick(self, fields: Dict[str, Any]) -> Optional[Tick]:
+    def _parse_tick(self, fields: dict[str, Any]) -> Tick | None:
         if not fields:
             return None
 
-        is_buyer_maker: Optional[bool] = None
+        is_buyer_maker: bool | None = None
         tick_json = None
 
         if "data" in fields:
@@ -3252,15 +3238,15 @@ class BaseOrderFlowHandler(ABC):
 
         return Tick(
             ts=int(ts),
-            bid=bid, 
-            ask=ask, 
-            last=last, 
-            volume=volume, 
+            bid=bid,
+            ask=ask,
+            last=last,
+            volume=volume,
             flags=flags,
             is_buyer_maker=is_buyer_maker
         )
 
-    def _parse_book(self, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_book(self, fields: dict[str, Any]) -> dict[str, Any] | None:
         if not fields:
             return None
         raw = fields.get("data") or fields.get("payload")
@@ -3304,10 +3290,8 @@ class BaseOrderFlowHandler(ABC):
             self._update_geometry_liquidity_context(ctx)
         except Exception:
             # Логируем, но не ломаем обработку бакета
-            try:
+            with contextlib.suppress(Exception):
                 self.logger.exception("update_geometry_liquidity_context failed (fail-open)")
-            except Exception:
-                pass
 
     def _track_dependency_metrics(self, ctx: Any) -> None:
         """
@@ -3321,7 +3305,7 @@ class BaseOrderFlowHandler(ABC):
             self._dq_l3_total = total
             self._dq_l3_missing = missing
             # сохраняем в ctx для аудит/логов/эмиттера
-            setattr(ctx, "l3_missing_rate", float(missing) / float(max(1, total)))
+            ctx.l3_missing_rate = float(missing) / float(max(1, total))
         except Exception:
             # метрики не должны ломать обработку
             pass
@@ -3336,10 +3320,8 @@ class BaseOrderFlowHandler(ABC):
         # (state updates still happen above; we just skip emission).
         now_ms2 = int(self._steady_clock.now_ms())
         if self._bad_time_quarantine.is_quarantined(now_ms2):
-            try:
+            with contextlib.suppress(Exception):
                 self._inc_metric("signals.skipped.bad_time_quarantine", 1)
-            except Exception:
-                pass
         else:
             use_legacy = bool(getattr(self, "_use_legacy_path", False))
             pipe = getattr(self, "_unified_pipeline", None)
@@ -3349,10 +3331,8 @@ class BaseOrderFlowHandler(ABC):
                     pipe.process(ctx)
                     return
                 except Exception as e:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.logger.exception(f"UnifiedSignalPipeline failed, falling back to legacy: {e}")
-                    except Exception:
-                        pass
 
             # ------------------------------------------------------------------
             # 6.2 Record ctx at bucket boundary (after all attach/fallback)
@@ -3428,10 +3408,8 @@ class BaseOrderFlowHandler(ABC):
                 return
 
         # перезаписываем tick.ts нормализованным значением (важно для bucket boundary и всех downstream вычислений)
-        try:
+        with contextlib.suppress(Exception):
             tick.ts = int(ts_ms)
-        except Exception:
-            pass
 
         # basic price sanity (минимально, без попыток "лечить" рынок)
         try:
@@ -3480,10 +3458,8 @@ class BaseOrderFlowHandler(ABC):
             lag_ms = now_ms - ts_ms
             if self._tick_lag is not None:
                 self._tick_lag.update(lag_ms)
-                try:
+                with contextlib.suppress(Exception):
                     self._tick_lag.maybe_export(m2)
-                except Exception:
-                    pass
 
         now_ms = int(get_ny_time_millis())
 
@@ -3526,7 +3502,7 @@ class BaseOrderFlowHandler(ABC):
 
         # Optional: record raw tick snapshot (small, before any transforms)
         # NOTE: keep payload compact; do NOT dump huge objects here.
-        try:
+        with contextlib.suppress(Exception):
             self._replay_record_tick(
                 {
                     "ts": int(getattr(tick, "ts", 0) or 0),
@@ -3537,8 +3513,6 @@ class BaseOrderFlowHandler(ABC):
                     "flags": int(getattr(tick, "flags", 0) or 0),
                 }
             )
-        except Exception:
-            pass
         # Минимальная валидация "плохих тиков" для ticks_dropped_bad.
         # Важно: это НЕ заменяет вашу основную логику drop/watermark (она в другом блоке),
         # это только метрика качества входа.
@@ -3607,21 +3581,17 @@ class BaseOrderFlowHandler(ABC):
             self.burst.on_trade(ts=int(tick.ts), side=side)
 
             # L3LiteTracker hook (override in crypto)
-            try:
+            with contextlib.suppress(Exception):
                 self._l3_on_tick_trade(tick, signed_delta=delta)
-            except Exception:
-                pass
 
             # Touch-level tracker: кормим сделки
-            try:
+            with contextlib.suppress(Exception):
                 self.touch.on_trade(
                     ts=int(tick.ts),
                     price=float(tick.last or 0.0),
                     qty=float(tick.volume or 0.0),
                     side=int(side),
                 )
-            except Exception:
-                pass
 
         # 3) тяжёлое считаем только на границе бакета
         if closed_bucket_id is None:
@@ -3668,13 +3638,11 @@ class BaseOrderFlowHandler(ABC):
             if hlc and "O" in hlc:
                 daily_open = float(hlc["O"])
             elif hasattr(self, "daily_open"):
-                daily_open = getattr(self, "daily_open")
+                daily_open = self.daily_open
 
         if daily_ohlc is not None:
-            try:
+            with contextlib.suppress(Exception):
                 daily_open = float(getattr(daily_ohlc, "open", getattr(daily_ohlc, "O", None)))
-            except Exception:
-                pass
 
         if daily_open is not None and last_price is not None and daily_open > 0.0:
             rel = abs(last_price - daily_open) / daily_open
@@ -3759,10 +3727,8 @@ class BaseOrderFlowHandler(ABC):
         # Любой код, который использует HLC/ATR fallback, должен выставлять:
         #   self._last_hlc_fallback_used = True
         # Тогда здесь флаг попадёт в ctx и будет промаркирован как "hlc_fallback".
-        try:
-            setattr(ctx, "hlc_fallback_used", bool(getattr(self, "_last_hlc_fallback_used", False)))
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            ctx.hlc_fallback_used = bool(getattr(self, "_last_hlc_fallback_used", False))
 
         # Attach data from new modular services
         self._attach_modular_services_data(ctx)
@@ -3832,10 +3798,8 @@ class BaseOrderFlowHandler(ABC):
                 pass
         else:
             # 4.1: HTF levels недоступны -> geometry_score = 0.1 (нейтраль), без veto
-            try:
+            with contextlib.suppress(Exception):
                 ctx.geometry_score = float(getattr(ctx, "geometry_score", 0.1) or 0.1)
-            except Exception:
-                pass
             flags = self._dq_flags(ctx)
             if "htf_missing" not in flags:
                 flags.append("htf_missing")
@@ -4043,13 +4007,13 @@ class BaseOrderFlowHandler(ABC):
         if hasattr(self, "_update_geometry_liquidity_context"):
             try:
                 self._update_geometry_liquidity_context(ctx)
-            except Exception as e:
+            except Exception:
                 # fail-open: не роняем генерацию сигналов из-за HTF/геометрии
                 try:
                     flags = getattr(ctx, "data_quality_flags", None) or []
                     if isinstance(flags, list) and "geo_exception" not in flags:
                         flags.append("geo_exception")
-                        setattr(ctx, "data_quality_flags", flags)
+                        ctx.data_quality_flags = flags
                 except Exception:
                     pass
 
@@ -4074,7 +4038,7 @@ class BaseOrderFlowHandler(ABC):
                 flags = getattr(ctx, "data_quality_flags", None) or []
                 if isinstance(flags, list) and "quality_gate_exception" not in flags:
                     flags.append("quality_gate_exception")
-                    setattr(ctx, "data_quality_flags", flags)
+                    ctx.data_quality_flags = flags
             except Exception:
                 pass
 
@@ -4083,15 +4047,13 @@ class BaseOrderFlowHandler(ABC):
         try:
             ensure_dependency_defaults(ctx)
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 self.logger.exception("ensure_dependency_defaults failed (fail-open)")
-            except Exception:
-                pass
 
         # Bucket boundary финализация + генерация сигналов
         self._handle_bucket_boundary(ctx, mid)
 
-    def _extract_top1(self, x: Any) -> Tuple[float, float]:
+    def _extract_top1(self, x: Any) -> tuple[float, float]:
         """Извлекает top1 (price, qty) из массива уровней."""
         if not x:
             return 0.0, 0.0
@@ -4110,7 +4072,7 @@ class BaseOrderFlowHandler(ABC):
                 return 0.0, 0.0
         return 0.0, 0.0
 
-    def _extract_top_levels(self, book_data: Dict[str, Any], side: str, n: int = 3) -> List[Tuple[float, float]]:
+    def _extract_top_levels(self, book_data: dict[str, Any], side: str, n: int = 3) -> list[tuple[float, float]]:
         """Извлекает top N уровней из book_data для указанной стороны."""
         keys = [side]
         if side == "bids":
@@ -4126,7 +4088,7 @@ class BaseOrderFlowHandler(ABC):
         if not arr or not isinstance(arr, list):
             return []
 
-        out: List[Tuple[float, float]] = []
+        out: list[tuple[float, float]] = []
         for i in range(min(n, len(arr))):
             lvl = arr[i]
             try:
@@ -4143,7 +4105,7 @@ class BaseOrderFlowHandler(ABC):
                 continue
         return out
 
-    def _process_book(self, book_data: Dict[str, Any]) -> None:
+    def _process_book(self, book_data: dict[str, Any]) -> None:
         """
         Обработка Order Book с полными L2-метриками и батч-оптимизацией.
         
@@ -4206,7 +4168,7 @@ class BaseOrderFlowHandler(ABC):
 
         self._book_buffer.clear()
         self._book_buffer_last_flush_ts = ts
-    
+
     def _process_l2_snapshot(self, snap: Any, ts: int) -> None:
         """
         Обработка L2 snapshot (вынесено для переиспользования).
@@ -4244,7 +4206,7 @@ class BaseOrderFlowHandler(ABC):
 
     # -------------------- delta logic --------------------
 
-    def _feed_delta_bucket(self, delta: float, ts: int) -> Optional[int]:
+    def _feed_delta_bucket(self, delta: float, ts: int) -> int | None:
         """
         Bucketization по bucket_id (ts // bucket_ms).
         Возвращает ID закрытого бакета, когда предыдущий бакет закрыт и записан в delta_window.
@@ -4319,7 +4281,7 @@ class BaseOrderFlowHandler(ABC):
 
     # -------------------- OBI logic --------------------
 
-    def _obi_sustained_eval(self, samples: List[float], thr: float) -> Tuple[float, bool]:
+    def _obi_sustained_eval(self, samples: list[float], thr: float) -> tuple[float, bool]:
         """
         Оценка sustained OBI по фракции сэмплов, подтверждающих направление.
         
@@ -4362,7 +4324,7 @@ class BaseOrderFlowHandler(ABC):
         while self._obi_state_20 and ts - self._obi_state_20[0][0] > duration_ms:
             self._obi_state_20.popleft()
 
-    def _get_obi(self, ts: int) -> Tuple[float, float, bool, float, float, bool]:
+    def _get_obi(self, ts: int) -> tuple[float, float, bool, float, float, bool]:
         """
         Возвращает OBI на двух глубинах (5 и 20 уровней).
         
@@ -4411,7 +4373,7 @@ class BaseOrderFlowHandler(ABC):
             tags["venue"] = str(ven)
         return tags
 
-    def _m_inc(self, name: str, value: int = 1, tags: Optional[dict[str, Any]] = None) -> None:
+    def _m_inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:
         m = getattr(self, "_m2", None)
         if m is None or not hasattr(m, "inc"):
             return
@@ -4424,7 +4386,7 @@ class BaseOrderFlowHandler(ABC):
         # --- 4.2 also harden fast micro update against future ticks
         try:
             nm = int(self._steady_clock.now_ms())
-            res: Optional[SanitizeResult] = self._tick_time.sanitize_ts_ms(getattr(tick, "ts", None), now_ms=nm)
+            res: SanitizeResult | None = self._tick_time.sanitize_ts_ms(getattr(tick, "ts", None), now_ms=nm)
             if res is None:
                 return
             if self._drop_bad_time and res.drop_reason is not None:
@@ -4438,7 +4400,7 @@ class BaseOrderFlowHandler(ABC):
 
             # keep legacy lag gate (stricter), after sanitize
             if int(getattr(self, "max_tick_lag_ms", 0) or 0) > 0:
-                if (nm - int(res.ts_ms)) > int(getattr(self, "max_tick_lag_ms")):
+                if (nm - int(res.ts_ms)) > int(self.max_tick_lag_ms):
                     return
             tick.ts = int(res.ts_ms)
         except Exception:
@@ -4499,7 +4461,7 @@ class BaseOrderFlowHandler(ABC):
         self.daily_pivots = piv
         self._pivot_cache.set_pivots(cache_key, piv)
 
-    def _load_yesterday_hlc(self) -> Optional[Dict[str, float]]:
+    def _load_yesterday_hlc(self) -> dict[str, float] | None:
         """
         1) pivots:latest:{symbol}
         2) pivots:latest (dict с ключом symbol или просто HLC)
@@ -4529,7 +4491,7 @@ class BaseOrderFlowHandler(ABC):
 
         return self._calculate_hlc_from_ticks()
 
-    def _calculate_hlc_from_ticks(self) -> Dict[str, float]:
+    def _calculate_hlc_from_ticks(self) -> dict[str, float]:
         """
         HLC за ~24 часа на основе тикового потока.
         Поддержка legacy + JSON-in-data.
@@ -4539,8 +4501,8 @@ class BaseOrderFlowHandler(ABC):
             cutoff_ms = now_ms - 24 * 60 * 60 * 1000
             min_id = f"{cutoff_ms}-0"
 
-            prices: List[float] = []
-            last_price: Optional[float] = None
+            prices: list[float] = []
+            last_price: float | None = None
 
             ticks = self.redis_ticks.xrevrange(self.tick_stream, max="+", min=min_id, count=10000) or []
             for _, fields in ticks:
@@ -4577,7 +4539,7 @@ class BaseOrderFlowHandler(ABC):
         except Exception:
             return self._get_default_hlc()
 
-    def _get_default_hlc(self) -> Dict[str, float]:
+    def _get_default_hlc(self) -> dict[str, float]:
         return {"H": 1.0, "L": 0.9, "C": 0.95}
 
     # -------------------- ATR --------------------
@@ -4591,10 +4553,8 @@ class BaseOrderFlowHandler(ABC):
           This allows downstream gates to use ctx.of.atr_ts_ms without signature changes.
         """
         # Reset per-call ATR timestamp marker (prevents leaking previous value).
-        try:
+        with contextlib.suppress(Exception):
             self._last_atr_ts_ms = None
-        except Exception:
-            pass
 
         # сбрасываем маркер на каждом вызове (в реале вы зовёте _get_atr много раз,
         # но bucket-boundary нас интересует "последний" источник)
@@ -4613,20 +4573,16 @@ class BaseOrderFlowHandler(ABC):
 
         # internal: фиксируем происхождение ATR (чтобы hlc_fallback корректно переживал cache-hit)
         if not hasattr(self, "_atr_source_cache"):
-            try:
+            with contextlib.suppress(Exception):
                 self._atr_source_cache = {}
-            except Exception:
-                pass
         src_cache = getattr(self, "_atr_source_cache", None) or {}
         src_key = (getattr(self, "symbol", ""), atr_tf_cache)
 
         cached = self._atr_cache.get_atr(self.symbol, atr_tf_cache)
         if cached is not None:
             origin = src_cache.get(src_key) if isinstance(src_cache, dict) else None
-            try:
+            with contextlib.suppress(Exception):
                 self._last_hlc_fallback_used = (atr_source == "auto" and origin == "redis")
-            except Exception:
-                pass
             return cached
 
         # auto/local: prefer tick-fed ATR
@@ -4638,17 +4594,13 @@ class BaseOrderFlowHandler(ABC):
             if v_local and v_local > 0:
                 # Tick-fed ATR: its "timestamp" is effectively now/current bucket.
                 # This is good enough for staleness gates (it should never be stale).
-                try:
+                with contextlib.suppress(Exception):
                     self._last_atr_ts_ms = int(ts) if ts else None
-                except Exception:
-                    pass
                 self._atr_cache.set_atr(self.symbol, atr_tf_cache, v_local)
                 if isinstance(src_cache, dict):
                     src_cache[src_key] = "local"
-                try:
+                with contextlib.suppress(Exception):
                     self._last_hlc_fallback_used = False
-                except Exception:
-                    pass
                 return v_local
 
         # redis/auto: candles-derived ATR from Redis
@@ -4668,37 +4620,27 @@ class BaseOrderFlowHandler(ABC):
                     src_cache[src_key] = "redis"
                 # atrh:* в вашем проекте заполняется candles-worker => помечаем hlc_fallback
                 # (если не хотите считать это fallback — переименуйте флаг, но смысл 4.1 сохранится)
-                try:
+                with contextlib.suppress(Exception):
                     self._quality_flags_bucket.add("hlc_fallback")
-                except Exception:
-                    pass
-                try:
+                with contextlib.suppress(Exception):
                     self._last_hlc_fallback_used = (atr_source == "auto")
-                except Exception:
-                    pass
                 return v_redis
 
         # fallback estimate => ухудшаем качество данных
-        try:
+        with contextlib.suppress(Exception):
             self._quality_flags_bucket.add("atr_fallback")
-        except Exception:
-            pass
         # Estimated ATR has no reliable candle timestamp.
-        try:
+        with contextlib.suppress(Exception):
             self._last_atr_ts_ms = None
-        except Exception:
-            pass
         v_est = self._estimate_atr(price)
         self._atr_cache.set_atr(self.symbol, atr_tf_cache, v_est)
         if isinstance(src_cache, dict):
             src_cache[src_key] = "estimate"
-        try:
+        with contextlib.suppress(Exception):
             self._last_hlc_fallback_used = False
-        except Exception:
-            pass
         return v_est
 
-    def _get_atr_with_ts(self, price: float, ts: int) -> Tuple[float, Optional[int]]:
+    def _get_atr_with_ts(self, price: float, ts: int) -> tuple[float, int | None]:
         """
         Get ATR value and its timestamp.
 
@@ -4722,20 +4664,16 @@ class BaseOrderFlowHandler(ABC):
 
         # internal: фиксируем происхождение ATR (чтобы hlc_fallback корректно переживал cache-hit)
         if not hasattr(self, "_atr_source_cache"):
-            try:
+            with contextlib.suppress(Exception):
                 self._atr_source_cache = {}
-            except Exception:
-                pass
         src_cache = getattr(self, "_atr_source_cache", None) or {}
         src_key = (getattr(self, "symbol", ""), atr_tf_cache)
 
         cached = self._atr_cache.get_atr(self.symbol, atr_tf_cache)
         if cached is not None:
             origin = src_cache.get(src_key) if isinstance(src_cache, dict) else None
-            try:
+            with contextlib.suppress(Exception):
                 self._last_hlc_fallback_used = (atr_source == "auto" and origin == "redis")
-            except Exception:
-                pass
             # For cached values, we don't have timestamp, so return None for ts
             return cached, None
 
@@ -4749,10 +4687,8 @@ class BaseOrderFlowHandler(ABC):
                 self._atr_cache.set_atr(self.symbol, atr_tf_cache, v_local)
                 if isinstance(src_cache, dict):
                     src_cache[src_key] = "local"
-                try:
+                with contextlib.suppress(Exception):
                     self._last_hlc_fallback_used = False
-                except Exception:
-                    pass
                 return v_local, None  # Local ATR doesn't have timestamp
 
         # redis/auto: candles-derived ATR from Redis
@@ -4767,21 +4703,15 @@ class BaseOrderFlowHandler(ABC):
                     src_cache[src_key] = "redis"
                 # atrh:* в вашем проекте заполняется candles-worker => помечаем hlc_fallback
                 # (если не хотите считать это fallback — переименуйте флаг, но смысл 4.1 сохранится)
-                try:
+                with contextlib.suppress(Exception):
                     self._quality_flags_bucket.add("hlc_fallback")
-                except Exception:
-                    pass
-                try:
+                with contextlib.suppress(Exception):
                     self._last_hlc_fallback_used = (atr_source == "auto")
-                except Exception:
-                    pass
                 return v_redis, ts_redis
 
         # fallback estimate => ухудшаем качество данных
-        try:
+        with contextlib.suppress(Exception):
             self._quality_flags_bucket.add("atr_fallback")
-        except Exception:
-            pass
         v_est = self._estimate_atr(price)
         self._atr_cache.set_atr(self.symbol, atr_tf_cache, v_est)
         if isinstance(src_cache, dict):
@@ -4796,17 +4726,13 @@ class BaseOrderFlowHandler(ABC):
         flags = getattr(ctx, "data_quality_flags", None)
         if flags is None:
             flags = []
-            try:
-                setattr(ctx, "data_quality_flags", flags)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                ctx.data_quality_flags = flags
         # если кто-то положил tuple/str — нормализуем мягко
         if not isinstance(flags, list):
             flags = list(flags) if flags else []
-            try:
-                setattr(ctx, "data_quality_flags", flags)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                ctx.data_quality_flags = flags
         return flags
 
     def _mark_hlc_fallback_flag(self, ctx: Any) -> None:
@@ -4833,11 +4759,11 @@ class BaseOrderFlowHandler(ABC):
         if "l3_missing" not in flags:
             flags.append("l3_missing")
 
-    def _load_tracker_atr_from_redis(self, timeframe: str, current_ts: int) -> Optional[float]:
+    def _load_tracker_atr_from_redis(self, timeframe: str, current_ts: int) -> float | None:
         val, _ts = self._load_tracker_atr_from_redis_with_ts(timeframe, current_ts)
         return val
 
-    def _load_tracker_atr_from_redis_with_ts(self, timeframe: str, current_ts: int) -> Tuple[Optional[float], Optional[int]]:
+    def _load_tracker_atr_from_redis_with_ts(self, timeframe: str, current_ts: int) -> tuple[float | None, int | None]:
         """
         ATR tracker reader with timestamp.
         Reads:
@@ -4860,13 +4786,11 @@ class BaseOrderFlowHandler(ABC):
             logger=self.logger,
             warning_logged=bool(getattr(self, "_redis_atr_warning_logged", False)),
         )
-        try:
+        with contextlib.suppress(Exception):
             self._redis_atr_warning_logged = bool(logged)
-        except Exception:
-            pass
         return val, atr_ts_ms
 
-    def _load_tracker_atr_from_redis_with_ts(self, timeframe: str, current_ts: int) -> Tuple[Optional[float], Optional[int]]:
+    def _load_tracker_atr_from_redis_with_ts(self, timeframe: str, current_ts: int) -> tuple[float | None, int | None]:
         """
         ATR tracker reader with timestamp.
         Reads:
@@ -4889,13 +4813,11 @@ class BaseOrderFlowHandler(ABC):
             logger=self.logger,
             warning_logged=bool(getattr(self, "_redis_atr_warning_logged", False)),
         )
-        try:
+        with contextlib.suppress(Exception):
             self._redis_atr_warning_logged = bool(logged)
-        except Exception:
-            pass
         return val, atr_ts_ms
 
-    def _load_legacy_atr_from_redis(self) -> Optional[float]:
+    def _load_legacy_atr_from_redis(self) -> float | None:
         try:
             raw = self.redis.get(f"ta:last:atr:{self.symbol}")
             if not raw:
@@ -5022,7 +4944,7 @@ class BaseOrderFlowHandler(ABC):
         signal = self._unified_pipeline.process(ctx)
         return signal is not None
 
-    def _custom_signal_conditions(self, ctx: OrderflowContext) -> Optional[Dict[str, Any]]:
+    def _custom_signal_conditions(self, ctx: OrderflowContext) -> dict[str, Any] | None:
         return None
 
     def _apply_experiment_filters(self, ctx: OrderflowContext, signal_type: str) -> bool:
@@ -5121,7 +5043,7 @@ class BaseOrderFlowHandler(ABC):
         except Exception:
             return "touch(err)"
 
-    def _ctx_l2_debug(self, ctx: OrderflowContext) -> Dict[str, Any]:
+    def _ctx_l2_debug(self, ctx: OrderflowContext) -> dict[str, Any]:
         """
         Полный набор micro + L2 + L3-lite полей для indicators и audit_payload.
         """
@@ -5190,7 +5112,7 @@ class BaseOrderFlowHandler(ABC):
             "touch_is_stale": bool(getattr(ctx, "touch_is_stale", True)),
         }
 
-    def _nearest_pivot_key(self, price: float, pivots: Dict[str, float]) -> str:
+    def _nearest_pivot_key(self, price: float, pivots: dict[str, float]) -> str:
         if not pivots:
             return "na"
         best_k = "na"
@@ -5205,7 +5127,7 @@ class BaseOrderFlowHandler(ABC):
                 best_k = str(k)
         return best_k
 
-    def _breakout_cross_info(self, price: float, up: bool, pivots: Dict[str, float]) -> Optional[str]:
+    def _breakout_cross_info(self, price: float, up: bool, pivots: dict[str, float]) -> str | None:
         """
         Проверяет пересечение pivot уровня между предыдущей оценкой (bucket boundary) и текущей.
         """
@@ -5230,7 +5152,7 @@ class BaseOrderFlowHandler(ABC):
 
     # -------------------- publishing --------------------
 
-    def _extend_outbox_envelope(self, envelope: Dict[str, Any], signal: Signal, ctx: OrderflowContext) -> None:
+    def _extend_outbox_envelope(self, envelope: dict[str, Any], signal: Signal, ctx: OrderflowContext) -> None:
         """
         Hook для наследников: расширение envelope (например crypto->manual-signals).
         """
@@ -5240,7 +5162,7 @@ class BaseOrderFlowHandler(ABC):
         self,
         ctx: OrderflowContext,
         signal_type: str,
-    ) -> tuple[Optional[float], Optional[Dict[str, float]]]:
+    ) -> tuple[float | None, dict[str, float] | None]:
         """
         Универсальный хук для вычисления confidence с использованием нового SignalScoringEngine.
 
@@ -5323,7 +5245,7 @@ class BaseOrderFlowHandler(ABC):
         strength: float,
         reason: str,
         ctx: OrderflowContext,
-        confidence_value: Optional[float] = None,
+        confidence_value: float | None = None,
         entry_tag: str = "",
     ) -> PublishResult:
         # ---- build signal ----
@@ -5360,7 +5282,7 @@ class BaseOrderFlowHandler(ABC):
         if len(tps) >= 3:
             tps[2] = ctx.price + (tps[2] - ctx.price) * tp3_shift
         levels["tp_levels"] = tps
-        
+
         # ✅ Рассчитываем lot на основе риска (после того как SL определен)
         # Для крипты возвращается (lot, position_size_usd, deposit, leverage)
         lot, position_size_usd, deposit, leverage = calculate_position_size(
@@ -5407,8 +5329,8 @@ class BaseOrderFlowHandler(ABC):
 
         # Regime guard: проверка состояния сигнала и черных зон
         try:
-            from datetime import datetime, timezone
-            now = datetime.now(timezone.utc)
+            from datetime import datetime
+            now = datetime.now(UTC)
 
             # 1) Проверка черных зон по новостям
             mode = self.black_zone_scheduler.mode_for(
@@ -5488,7 +5410,7 @@ class BaseOrderFlowHandler(ABC):
 
         # ctx → dict
         if hasattr(ctx, "to_dict"):
-            ctx_dict: Dict[str, Any] = ctx.to_dict()
+            ctx_dict: dict[str, Any] = ctx.to_dict()
         else:
             ctx_dict = ctx.__dict__.copy()
 
@@ -5599,7 +5521,7 @@ class BaseOrderFlowHandler(ABC):
             "distAtrThreshold": self.config.dist_atr_threshold,
         }
 
-        signal_payload: Dict[str, Any] = {
+        signal_payload: dict[str, Any] = {
             "symbol": self.symbol,
             "label": label,
             "side": side,
@@ -5656,7 +5578,8 @@ class BaseOrderFlowHandler(ABC):
         if final_conf >= min_conf and final_conf > 0 and self._signal_service:
             try:
                 # Создаем unified SignalContext из существующего ctx
-                from signal_exec import SignalContext as UnifiedSignalContext, Side, AccountState
+                from signal_exec import AccountState, Side
+                from signal_exec import SignalContext as UnifiedSignalContext
 
                 # Определяем side
                 signal_side = Side.LONG if side.lower().startswith('l') else Side.SHORT
@@ -5675,7 +5598,7 @@ class BaseOrderFlowHandler(ABC):
                     symbol=self.symbol,
                     setup_type=signal_type,
                     side=signal_side,
-                    ts_signal=datetime.fromtimestamp(ts / 1000, tz=timezone.utc),
+                    ts_signal=datetime.fromtimestamp(ts / 1000, tz=UTC),
                     price_at_signal=float(ctx.price),
                     atr_1m=getattr(ctx, 'atr_14_1m', 1.0),
                     tick_size=getattr(ctx, 'tick_size', 0.01),
@@ -5739,7 +5662,7 @@ class BaseOrderFlowHandler(ABC):
 
     # === L3-Lite stream processing ===
 
-    def _parse_l3_event(self, fields: Dict[str, Any]) -> Optional[Any]:
+    def _parse_l3_event(self, fields: dict[str, Any]) -> Any | None:
         """Parse L3-Lite event from Redis stream message."""
         try:
             from regime.l3_lite_models import L3LiteEvent
@@ -5794,7 +5717,7 @@ class BaseOrderFlowHandler(ABC):
         m2 = getattr(self, "_m2", None)
         try:
             if m2 is not None:
-                m2.inc("signals_veto", 1, tags={"kind": str(kind), "reason": str(reason)})
+                m2.inc("signals_veto", 1, tags={"kind": str(kind), "reason": reason})
         except Exception:
             return
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Binance USDⓈ-M User Data Stream worker.
@@ -22,7 +23,10 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
+
+from core.redis_keys import RedisStreams as RS
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -74,13 +78,13 @@ class NormalizedUserStreamEvent:
     side: str
     status: str
     execution_type: str
-    order_id: Optional[int]
-    client_order_id: Optional[str]
-    algo_id: Optional[int]
-    client_algo_id: Optional[str]
-    raw: Dict[str, Any]
+    order_id: int | None
+    client_order_id: str | None
+    algo_id: int | None
+    client_algo_id: str | None
+    raw: dict[str, Any]
 
-    def to_redis_fields(self) -> Dict[str, str]:
+    def to_redis_fields(self) -> dict[str, str]:
         return {
             "event_type": str(self.event_type),
             "event_time_ms": str(self.event_time_ms),
@@ -110,7 +114,7 @@ class BinanceUserStreamWorker:
         # Redis and HTTP client: injected InMemoryRedis/mock for tests, or real prod connections
         self.r = redis_client if redis_client is not None else redis.from_url(self.redis_url, decode_responses=True)
         self.client = client if client is not None else BinanceFuturesClient.from_env(prefix=(os.getenv("BINANCE_USER_STREAM_PREFIX") or "BINANCE_"))
-        self.listen_key: Optional[str] = None
+        self.listen_key: str | None = None
         self._last_event_time_ms: int = 0
         try:
             if USER_STREAM_CONNECTED is not None:
@@ -121,7 +125,7 @@ class BinanceUserStreamWorker:
     def _cache_key(self, kind: str, ref: str) -> str:
         return f"{self.cache_prefix}{kind}:{ref}"
 
-    def _status_doc(self) -> Dict[str, Any]:
+    def _status_doc(self) -> dict[str, Any]:
         """Read the current status doc from Redis (returns {} on any error)."""
         try:
             raw = self.r.get(self.status_key)
@@ -140,25 +144,23 @@ class BinanceUserStreamWorker:
         doc = self._status_doc()
         doc.update({k: v for k, v in patch.items() if v is not None})
         doc['updated_at_ms'] = _ms_now()
-        try:
+        with contextlib.suppress(Exception):
             self.r.set(self.status_key, json.dumps(doc, ensure_ascii=False), ex=self.cache_ttl_sec)
-        except Exception:
-            pass
 
-    def _normalise(self, payload: Dict[str, Any]) -> Optional[NormalizedUserStreamEvent]:
-        e = str(payload.get("e") or "").upper()
+    def _normalise(self, payload: dict[str, Any]) -> NormalizedUserStreamEvent | None:
+        e = (payload.get("e") or "").upper()
         event_time_ms = int(payload.get("E") or 0)
         if e == "ORDER_TRADE_UPDATE":
             order = payload.get("o") or {}
             return NormalizedUserStreamEvent(
                 event_type=e,
                 event_time_ms=event_time_ms,
-                symbol=str(order.get("s") or ""),
-                side=str(order.get("S") or ""),
-                status=str(order.get("X") or ""),
-                execution_type=str(order.get("x") or ""),
+                symbol=(order.get("s") or ""),
+                side=(order.get("S") or ""),
+                status=(order.get("X") or ""),
+                execution_type=(order.get("x") or ""),
                 order_id=int(order.get("i")) if order.get("i") not in (None, "") else None,
-                client_order_id=str(order.get("c") or "") or None,
+                client_order_id=(order.get("c") or "") or None,
                 algo_id=None,
                 client_algo_id=None,
                 raw=payload,
@@ -169,13 +171,13 @@ class BinanceUserStreamWorker:
                 event_type=e,
                 event_time_ms=event_time_ms,
                 symbol=str(algo.get("s") or payload.get("s") or ""),
-                side=str(algo.get("S") or ""),
+                side=(algo.get("S") or ""),
                 status=str(algo.get("X") or algo.get("x") or ""),
                 execution_type=str(algo.get("x") or payload.get("x") or ""),
                 order_id=None,
                 client_order_id=None,
                 algo_id=int(algo.get("algoId")) if algo.get("algoId") not in (None, "") else None,
-                client_algo_id=str(algo.get("clientAlgoId") or "") or None,
+                client_algo_id=(algo.get("clientAlgoId") or "") or None,
                 raw=payload,
             )
         return None
@@ -193,10 +195,10 @@ class BinanceUserStreamWorker:
         fields["ingest_ts_ms"] = str(_ms_now())
         fields["ingest_mono_ms"] = str(_mono_ms())
         try:
-            self.r.xadd(self.stream_key, fields, maxlen=50000)
-            
-            exec_stream = os.getenv("EXEC_STREAM", "orders:exec")
-            
+            self.r.xadd(self.stream_key, fields, maxlen=50000, approximate=True)
+
+            exec_stream = os.getenv("EXEC_STREAM", RS.ORDERS_EXEC)
+
             if event.client_order_id:
                 self.r.set(self._cache_key("order", event.client_order_id), json.dumps({"event": fields, "order": event.raw.get("o") or {}}, ensure_ascii=False), ex=self.cache_ttl_sec)
                 try:
@@ -209,15 +211,15 @@ class BinanceUserStreamWorker:
                             "symbol": str(event.symbol),
                             "action": "reconcile",
                             "status": str(event.status),
-                            "filled_qty": str(order_data.get("z") or "0"),
-                            "avg_price": str(order_data.get("ap") or "0"),
+                            "filled_qty": (order_data.get("z") or "0"),
+                            "avg_price": (order_data.get("ap") or "0"),
                             "client_order_id": str(event.client_order_id),
                             "binance_order_id": str(event.order_id) if event.order_id else "",
                             "ts_event_ms": str(event.event_time_ms),
                             "ts_ms": str(_ms_now()),
                             "mono_ms": str(_mono_ms())
                         }
-                        self.r.xadd(exec_stream, exec_fields, maxlen=50000)
+                        self.r.xadd(exec_stream, exec_fields, maxlen=50000, approximate=True)
                 except Exception:
                     pass
 
@@ -238,7 +240,7 @@ class BinanceUserStreamWorker:
                             "ts_ms": str(_ms_now()),
                             "mono_ms": str(_mono_ms())
                         }
-                        self.r.xadd(exec_stream, exec_fields, maxlen=50000)
+                        self.r.xadd(exec_stream, exec_fields, maxlen=50000, approximate=True)
                 except Exception:
                     pass
             # Update richer status contract required by ExecutionBootstrapSupervisor

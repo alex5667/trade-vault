@@ -1,7 +1,7 @@
-from utils.time_utils import get_ny_time_millis
-import time
 
 import pytest
+
+from utils.time_utils import get_ny_time_millis
 
 
 class FakePipeline:
@@ -128,9 +128,10 @@ def test_tickloop_attach_does_not_call_redis():
 
 
 def test_attach_fallback_to_extra_when_ctx_has_no_news_attr():
+    from dataclasses import dataclass
+
     from contexts import NewsFeatures
     from news_pipeline.enricher_shadow import NewsEnricherShadow
-    from dataclasses import dataclass
 
     fake = FakeRedis(hashes={})
     enricher = NewsEnricherShadow(redis=fake, per_symbol_cache_ms=0, max_age_ms=0)

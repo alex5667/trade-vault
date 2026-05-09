@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for tick_processor timestamp-resolution → DQ-validate pipeline.
 
@@ -13,9 +14,8 @@ P0 contract under test:
 
 import unittest
 
-from services.orderflow.tick_processor import coerce_event_ts_ms, _msgid_to_ms
 from core.dq_policy import TickDQPolicy
-
+from services.orderflow.tick_processor import _msgid_to_ms, coerce_event_ts_ms
 
 NOW_MS = 1_700_000_100_000  # fixed wall clock
 

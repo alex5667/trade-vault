@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+
 import pytest
 
 from signals.level_enricher import attach_trade_levels_to_ctx

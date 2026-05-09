@@ -1,8 +1,9 @@
-import pytest
-import time
-from pathlib import Path
 import importlib.util
 import sys
+import time
+from pathlib import Path
+
+import pytest
 
 mod_path = Path(__file__).parent.parent / 'binance_executor.py'
 spec = importlib.util.spec_from_file_location('binance_executor_intent', mod_path)

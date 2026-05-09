@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Iterator, Optional
+from collections.abc import Iterator
+from typing import Any
+import contextlib
 
 
 class JsonlWriter:
@@ -24,26 +26,22 @@ class JsonlWriter:
         if self.flush:
             self._fh.flush()
             if self.fsync:
-                try:
+                with contextlib.suppress(Exception):
                     os.fsync(self._fh.fileno())
-                except Exception:
-                    pass
 
     def close(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self._fh.close()
-        except Exception:
-            pass
 
 
-def iter_jsonl(path: str, *, max_lines: Optional[int] = None) -> Iterator[dict[str, Any]]:
+def iter_jsonl(path: str, *, max_lines: int | None = None) -> Iterator[dict[str, Any]]:
     """
     Итератор по JSONL:
       - пропускает битые строки (fail-open)
       - max_lines ограничивает чтение (удобно для быстрой отладки)
     """
     n = 0
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         for line in fh:
             if max_lines is not None and n >= max_lines:
                 break

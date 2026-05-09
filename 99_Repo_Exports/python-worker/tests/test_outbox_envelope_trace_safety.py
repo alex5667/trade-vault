@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
@@ -23,7 +23,7 @@ def test_build_outbox_envelope_trace_safe_no_events(monkeypatch: pytest.MonkeyPa
     # Форсим "trace enabled" и делаем ensure_trace / serialize_trace_from_ctx детерминированными
     monkeypatch.setattr(mod, "trace_enabled", lambda: True)
 
-    def _ensure_trace(ctx: Any, sid: str, symbol="", kind: str = "") -> Dict[str, Any]:
+    def _ensure_trace(ctx: Any, sid: str, symbol="", kind: str = "") -> dict[str, Any]:
         return {"trace_id": "TID123", "events": [{"type": "gate", "name": "x"}]}
 
     monkeypatch.setattr(mod, "ensure_trace", _ensure_trace)

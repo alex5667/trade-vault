@@ -28,25 +28,32 @@
 # ------------------------------------------------------------
 
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Dict, List, Optional, Tuple
 
 import redis
 
 from common.log import setup_logger
 from common.redis_errors import is_redis_stream_error
-from core.recs_contract import sign_bundle_id, verify_sig, RecBundle
+from core.recs_contract import RecBundle, sign_bundle_id, verify_sig
 from services.recs_store import (
-    get_bundle as store_get_bundle,
-    get_status as store_get_status,
-    set_status as store_set_status,
-    append_audit as store_append_audit,
     AUDIT_KEY,
 )
+from services.recs_store import (
+    append_audit as store_append_audit,
+)
+from services.recs_store import (
+    get_bundle as store_get_bundle,
+)
+from services.recs_store import (
+    get_status as store_get_status,
+)
+from services.recs_store import (
+    set_status as store_set_status,
+)
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("RecsCallbackWorker")
 
@@ -103,7 +110,7 @@ _ALLOWED_USERS = _csv_set(RECS_ALLOWED_USER_IDS)
 _ALLOWED_CHATS = _csv_set(RECS_ALLOWED_CHAT_IDS)
 
 
-def _allowed(who: Dict[str, str]) -> bool:
+def _allowed(who: dict[str, str]) -> bool:
     """
     Checks if user is allowed to approve recommendations.
     
@@ -116,8 +123,8 @@ def _allowed(who: Dict[str, str]) -> bool:
     Returns:
         True if user is allowed, False otherwise
     """
-    uid = str(who.get("user_id", "") or "")
-    cid = str(who.get("chat_id", "") or "")
+    uid = (who.get("user_id", "") or "")
+    cid = (who.get("chat_id", "") or "")
     if _ALLOWED_USERS and uid not in _ALLOWED_USERS:
         return False
     if _ALLOWED_CHATS and cid not in _ALLOWED_CHATS:
@@ -172,7 +179,7 @@ def _ensure_group(r: redis.Redis) -> None:
 
 
 
-def _format_preview(bundle_id: str, who: dict, changes: List[Tuple[str, Optional[str], str, str]], total_ops: int) -> str:
+def _format_preview(bundle_id: str, who: dict, changes: list[tuple[str, str | None, str, str]], total_ops: int) -> str:
     """
     Renders HTML-safe-ish preview (bot uses HTML parsing in reports).
     
@@ -186,7 +193,7 @@ def _format_preview(bundle_id: str, who: dict, changes: List[Tuple[str, Optional
     Returns:
         HTML-formatted preview text
     """
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"<b>Recommendations preview</b>  id=<code>{bundle_id}</code>")
     uname = who.get("username", "") or ""
     lines.append(f"user=<code>{uname}</code> uid=<code>{who.get('user_id','')}</code> chat=<code>{who.get('chat_id','')}</code>")
@@ -250,20 +257,20 @@ def _preview_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
     else:
         # Fallback for dict format
         ops = [op for op in (b.get("ops") or []) if isinstance(op, dict) and op.get("op") in ("HSET", "SET")]
-    
+
     if not ops:
         _notify(r, f"recs preview: <code>{bundle_id}</code> -> <b>empty ops</b>")
         return "empty_ops"
 
     # Read old values
-    changes: List[Tuple[str, Optional[str], str, str]] = []
+    changes: list[tuple[str, str | None, str, str]] = []
     for op in ops[:PREVIEW_MAX_OPS]:
-        op_type = str(op.get("op", ""))
-        key = str(op.get("key", ""))
-        newv = str(op.get("value", ""))
-        
+        op_type = (op.get("op", ""))
+        key = (op.get("key", ""))
+        newv = (op.get("value", ""))
+
         if op_type == "HSET":
-            field = str(op.get("field", ""))
+            field = (op.get("field", ""))
             old = r.hget(key, field)
             oldv = "" if old is None else str(old)
             changes.append((key, field, oldv, newv))
@@ -287,7 +294,7 @@ def _preview_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
     return "previewed"
 
 
-def _notify(r: redis.Redis, text: str, buttons: Optional[list] = None) -> None:
+def _notify(r: redis.Redis, text: str, buttons: list | None = None) -> None:
     """
     Sends notification to notify:telegram stream.
     
@@ -354,21 +361,21 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
         else:
             # Fallback for dict format
             ops = [op for op in (b.get("ops") or []) if isinstance(op, dict) and op.get("op") in ("HSET", "SET")]
-        
+
         if not ops:
             return "empty_ops"
 
         # Audit old values and prepare operations
         audit_rows = []
         pipe = r.pipeline()
-        
+
         for op in ops:
-            op_type = str(op.get("op", ""))
-            key = str(op.get("key", ""))
-            newv = str(op.get("value", ""))
-            
+            op_type = (op.get("op", ""))
+            key = (op.get("key", ""))
+            newv = (op.get("value", ""))
+
             if op_type == "HSET":
-                field = str(op.get("field", ""))
+                field = (op.get("field", ""))
                 old = r.hget(key, field)
                 old_null = 1 if old is None else 0
                 oldv = "" if old is None else str(old)
@@ -380,7 +387,7 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
                 oldv = "" if old is None else str(old)
                 audit_rows.append({"op": "SET", "key": key, "old": oldv, "old_null": old_null, "new": newv})
                 pipe.set(key, newv)
-        
+
         pipe.execute()
 
         ts_ms = _now_ms()
@@ -390,7 +397,7 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
             store_append_audit(r, bundle_id, a, RECS_TTL_SEC)
 
         store_set_status(r, bundle_id, "APPLIED", RECS_TTL_SEC)
-        
+
         # --- record last meta ramp apply (for DiD windows) ---
         try:
             # Handle both RecBundle object and dict format
@@ -398,7 +405,7 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
                 meta = getattr(b, "meta", None)
             else:
                 meta = b.get("meta") if isinstance(b, dict) else None
-            
+
             if isinstance(meta, dict) and meta.get("kind") == "meta_enforce_ramp":
                 # ts_ms is apply timestamp we already computed
                 r.set(os.getenv("META_RAMP_LAST_APPLIED_MS_KEY", "meta:ramp:last_applied_ms"), str(ts_ms), ex=RECS_TTL_SEC)
@@ -411,7 +418,7 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
                 r.set(os.getenv("META_RAMP_LAST_BUNDLE_ID_KEY", "meta:ramp:last_bundle_id"), str(bundle_id), ex=RECS_TTL_SEC)
         except Exception:
             pass
-        
+
         # --- record freeze/unfreeze state for meta cells ---
         try:
             # Handle both RecBundle object and dict format
@@ -419,7 +426,7 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
                 meta = getattr(b, "meta", None)
             else:
                 meta = b.get("meta") if isinstance(b, dict) else None
-            
+
             if isinstance(meta, dict) and meta.get("kind") == "meta_enforce_freeze_cells":
                 # Store per cell in Redis hash meta:freeze:cells  (cell -> json)
                 hkey = os.getenv("META_FREEZE_REGISTRY_KEY", "meta:freeze:cells")
@@ -468,7 +475,7 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
                 for ck in cells:
                     if isinstance(ck, str):
                         r.hdel(hkey, ck)
-            
+
             # --- staged unfreeze progress registry ---
             if isinstance(meta, dict) and meta.get("kind") == "meta_enforce_unfreeze_stage":
                 reg_freeze = os.getenv("META_FREEZE_REGISTRY_KEY", "meta:freeze:cells")
@@ -501,8 +508,8 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
                         "bucket": bucket,
                         "stage": stage,
                         "applied_ms": ts_ms,
-                        "target_share": str(restore_map.get(ck, "")),
-                        "restore_final": str(restore_final.get(ck, "")),
+                        "target_share": (restore_map.get(ck, "")),
+                        "restore_final": (restore_final.get(ck, "")),
                         "prev_share": prev.get((cfg_key, field), ""),
                         "field": field,
                         "cfg_key": cfg_key,
@@ -521,7 +528,7 @@ def _apply_bundle(r: redis.Redis, bundle_id: str, who: dict) -> str:
                 r.expire(reg_freeze, RECS_TTL_SEC)
         except Exception:
             pass
-        
+
         return "applied"
     finally:
         # Release lock
@@ -721,7 +728,7 @@ def main() -> None:
                 else:
                     # Re-raise non-NOGROUP ResponseErrors
                     raise
-            
+
             if not resp:
                 continue
 
@@ -730,11 +737,11 @@ def main() -> None:
                 for msg_id, fields in msgs:
                     try:
                         # bot-nest writes all fields as strings
-                        cb = str(fields.get("callback", "") or "")
-                        ts = str(fields.get("timestamp", "") or "")
-                        chat_id = str(fields.get("chat_id", "") or "")
-                        user_id = str(fields.get("user_id", "") or "")
-                        username = str(fields.get("username", "") or "")
+                        cb = (fields.get("callback", "") or "")
+                        ts = (fields.get("timestamp", "") or "")
+                        chat_id = (fields.get("chat_id", "") or "")
+                        user_id = (fields.get("user_id", "") or "")
+                        username = (fields.get("username", "") or "")
 
                         who = {"timestamp": ts, "chat_id": chat_id, "user_id": user_id, "username": username}
 

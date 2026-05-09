@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for prometheus_alerts_slippage_calibrator_health_v1.yml (V10).
 
 Validates that the alert YAML in both orderflow_services/ and
@@ -11,13 +12,11 @@ Works without a running Prometheus instance.
 """
 
 
-import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 import yaml
-
 
 BASE = Path(__file__).parent.parent  # orderflow_services/tests/../ = orderflow_services/
 
@@ -36,13 +35,13 @@ def _alert_yaml_path(tree: str) -> Path:
     raise ValueError(f"Unknown tree: {tree}")
 
 
-def _load_yaml(path: Path) -> Dict[str, Any]:
+def _load_yaml(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
-def _get_all_alerts(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
-    alerts: List[Dict[str, Any]] = []
+def _get_all_alerts(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    alerts: list[dict[str, Any]] = []
     for group in doc.get("groups", []):
         for rule in group.get("rules", []):
             if "alert" in rule:
@@ -62,7 +61,7 @@ EXPECTED_ALERTS = {
 
 @pytest.mark.parametrize("tree", ["orderflow_services", "tick_flow_full"])
 class TestSlippageCalibratorHealthAlerts:
-    def _alerts(self, tree: str) -> List[Dict[str, Any]]:
+    def _alerts(self, tree: str) -> list[dict[str, Any]]:
         p = _alert_yaml_path(tree)
         doc = _load_yaml(p)
         return _get_all_alerts(doc)
@@ -89,7 +88,7 @@ class TestSlippageCalibratorHealthAlerts:
         """Alert names must be unique within the file."""
         alerts = self._alerts(tree)
         names = [a["alert"] for a in alerts]
-        seen: Dict[str, int] = {}
+        seen: dict[str, int] = {}
         for name in names:
             seen[name] = seen.get(name, 0) + 1
         duplicates = {k: v for k, v in seen.items() if v > 1}

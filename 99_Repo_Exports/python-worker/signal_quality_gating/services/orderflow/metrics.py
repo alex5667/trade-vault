@@ -1,10 +1,11 @@
 
-from typing import List, Dict, Set, Tuple
 import logging
 import re
-from prometheus_client import Counter, Gauge, Histogram, REGISTRY
 
-def _get_or_create_prom_counter(name: str, documentation: str, labelnames: List[str] = None):
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram
+
+
+def _get_or_create_prom_counter(name: str, documentation: str, labelnames: list[str] = None):
     try:
         if labelnames:
             return Counter(name, documentation, labelnames)
@@ -17,7 +18,7 @@ def _get_or_create_prom_counter(name: str, documentation: str, labelnames: List[
                 return collector
         raise
 
-def _get_or_create_prom_gauge(name: str, documentation: str, labelnames: List[str] = None):
+def _get_or_create_prom_gauge(name: str, documentation: str, labelnames: list[str] = None):
     try:
         if labelnames:
             return Gauge(name, documentation, labelnames)
@@ -29,7 +30,7 @@ def _get_or_create_prom_gauge(name: str, documentation: str, labelnames: List[st
                 return collector
         raise
 
-def _get_or_create_prom_histogram(name: str, documentation: str, labelnames: List[str] = None, buckets: List[float] = None):
+def _get_or_create_prom_histogram(name: str, documentation: str, labelnames: list[str] = None, buckets: list[float] = None):
     try:
         if labelnames:
             return Histogram(name, documentation, labelnames, buckets=buckets or Histogram.DEFAULT_BUCKETS)
@@ -87,7 +88,7 @@ trade_close_joiner_backfill_drop_total = _get_or_create_prom_counter(
 # Metrics for silent errors
 silent_errors_total = _get_or_create_prom_counter(
     "silent_errors_total",
-    "Total silent errors (except: pass blocks)",
+    "Total silent errors (except Exception: pass blocks)",
     ["kind", "symbol", "where"]
 )
 
@@ -766,7 +767,7 @@ feature_missing_total = _get_or_create_prom_counter(
 # ---------------------------
 
 # Curated keys we explicitly track for coverage (low cardinality, high signal)
-_DEFAULT_COVERAGE_KEYS: Tuple[str, ...] = (
+_DEFAULT_COVERAGE_KEYS: tuple[str, ...] = (
     "reclaim",
     "obi_stable",
     "iceberg_strict",
@@ -785,10 +786,10 @@ _DEFAULT_COVERAGE_KEYS: Tuple[str, ...] = (
 )
 
 # Allowlist for schema drift detection (keep reasonably broad; update as you add new confirmations)
-_DEFAULT_ALLOW_KEYS: Set[str] = set(_DEFAULT_COVERAGE_KEYS)
+_DEFAULT_ALLOW_KEYS: set[str] = set(_DEFAULT_COVERAGE_KEYS)
 
 # Aliases (schema compat) — for drift tracking & completeness checks
-_ALIAS_MAP: Dict[str, str] = {
+_ALIAS_MAP: dict[str, str] = {
     "ice_strict": "iceberg_strict",
     "sweep": "sweep",  # kept for legacy detection; canonical are sweep_eqh/sweep_eql
 }
@@ -880,10 +881,10 @@ def record_confirmation_seen(symbol: str, conf: str) -> None:
         k = _CONFIRM_KEY_ALIAS.get(k_raw, k_raw)
         if not k:
             return
-        confirmation_seen_total.labels(symbol=str(symbol), key=str(k)).inc()
+        confirmation_seen_total.labels(symbol=symbol, key=str(k)).inc()
         if k_raw not in _CONFIRM_KEY_ALIAS:
             # Note: confirmation_unknown_total handles schema drift detection
-            confirmation_unknown_total.labels(symbol=str(symbol), key=str(k_raw)).inc()
+            confirmation_unknown_total.labels(symbol=symbol, key=str(k_raw)).inc()
     except Exception:
         return
 
@@ -895,10 +896,10 @@ def record_evidence_used(symbol: str, session: str, conf: str) -> None:
             return
         if k not in _EVIDENCE_KEYS:
             return
-        evidence_used_total.labels(symbol=str(symbol), key=str(k)).inc()
+        evidence_used_total.labels(symbol=symbol, key=str(k)).inc()
         if session:
             # Session label is critical for dashboard filtering
-            evidence_used_total_session.labels(symbol=str(symbol), session=str(session), key=str(k)).inc()
+            evidence_used_total_session.labels(symbol=symbol, session=str(session), key=str(k)).inc()
     except Exception:
         return
 
@@ -912,7 +913,7 @@ confirmations_per_signal_hist = _get_or_create_prom_histogram(
 
 # Protect Prometheus from cardinality explosion on truly broken runs
 _UNKNOWN_KEYS_MAX = 64
-_UNKNOWN_KEYS_SEEN: Set[str] = set()
+_UNKNOWN_KEYS_SEEN: set[str] = set()
 
 def _label_unknown_key(key: str) -> str:
     if key in _UNKNOWN_KEYS_SEEN:
@@ -944,11 +945,11 @@ def _parse_confirm_key(c: str) -> str:
 
 def track_confirmations(
     symbol: str,
-    confirmations: List[str],
+    confirmations: list[str],
     side: str = "",
     kind: str = "",
-    allow_keys: Set[str] = None,
-    coverage_keys: Tuple[str, ...] = None,
+    allow_keys: set[str] = None,
+    coverage_keys: tuple[str, ...] = None,
 ) -> None:
     """
     High-ROI drift/coverage tracker:
@@ -964,7 +965,7 @@ def track_confirmations(
         cov = coverage_keys or _DEFAULT_COVERAGE_KEYS
         allow = allow_keys or _DEFAULT_ALLOW_KEYS
 
-        keys: Set[str] = set()
+        keys: set[str] = set()
         for c in (confirmations or []):
             k = _parse_confirm_key(str(c))
             if not k:

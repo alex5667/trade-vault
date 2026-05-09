@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import pytest
-from core.of_confirm_contract import OFConfirmV3, pack_bits, BIT_A, BIT_B, BIT_C
-from core.strong_of_gate import eval_reversal, eval_continuation
+from core.of_confirm_contract import BIT_A, BIT_B, BIT_C, OFConfirmV3, pack_bits
+from core.strong_of_gate import eval_continuation, eval_reversal
 
 
 def test_pack_bits():

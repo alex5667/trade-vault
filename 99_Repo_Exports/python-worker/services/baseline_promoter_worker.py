@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Baseline promoter worker: handles baseline:* callbacks from Telegram.
 
 Listens to bot:callbacks stream for baseline:preview/confirm/rollback/reject/cancel actions.
@@ -15,22 +16,20 @@ Usage:
   (reads ENV vars for Redis, auth, baseline paths)
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import hmac
 import hashlib
+import hmac
 import json
 import os
 import shutil
 import time
-from typing import Dict, Optional
 
 import redis
 
 from common.log import setup_logger
-from core.redis_keys import RedisStreams as RS
-from common.redis_errors import is_redis_stream_error, is_redis_connection_error, is_redis_timeout_error
+from common.redis_errors import is_redis_connection_error, is_redis_stream_error, is_redis_timeout_error
 from core.redis_client import get_redis, wait_for_redis
+from core.redis_keys import RedisStreams as RS
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("BaselinePromoterWorker")
 
@@ -64,7 +63,7 @@ _ALLOWED_USERS = _csv_set(RECS_ALLOWED_USER_IDS)
 _ALLOWED_CHATS = _csv_set(RECS_ALLOWED_CHAT_IDS)
 
 
-def _allowed(who: Dict[str, str]) -> bool:
+def _allowed(who: dict[str, str]) -> bool:
     """
     Checks if user is allowed to approve baseline updates.
     
@@ -74,8 +73,8 @@ def _allowed(who: Dict[str, str]) -> bool:
     Returns:
         True if user is allowed, False otherwise
     """
-    uid = str(who.get("user_id", "") or "")
-    cid = str(who.get("chat_id", "") or "")
+    uid = (who.get("user_id", "") or "")
+    cid = (who.get("chat_id", "") or "")
     if _ALLOWED_USERS and uid not in _ALLOWED_USERS:
         return False
     if _ALLOWED_CHATS and cid not in _ALLOWED_CHATS:
@@ -91,7 +90,7 @@ def _sign(bid: str) -> str:
 
 def _verify(bid: str, sig: str) -> bool:
     """Verifies bundle_id signature using hmac.compare_digest."""
-    return hmac.compare_digest(_sign(bid), str(sig or ""))
+    return hmac.compare_digest(_sign(bid), (sig or ""))
 
 
 def _ensure_group(r: redis.Redis) -> None:
@@ -103,7 +102,7 @@ def _ensure_group(r: redis.Redis) -> None:
         pass
 
 
-def _notify(r: redis.Redis, text: str, buttons: Optional[list] = None) -> None:
+def _notify(r: redis.Redis, text: str, buttons: list | None = None) -> None:
     """Sends notification to notify:telegram stream."""
     fields = {"type": "report", "text": text, "ts": str(_now_ms())}
     if buttons is not None:
@@ -111,7 +110,7 @@ def _notify(r: redis.Redis, text: str, buttons: Optional[list] = None) -> None:
     r.xadd(NOTIFY_TELEGRAM_STREAM, fields, maxlen=200000, approximate=True)
 
 
-def _get_bundle(r: redis.Redis, bid: str) -> Optional[dict]:
+def _get_bundle(r: redis.Redis, bid: str) -> dict | None:
     """Reads baseline bundle from Redis."""
     raw = r.get(f"baseline:bundle:{bid}")
     if not raw:
@@ -152,7 +151,7 @@ def _preview(r: redis.Redis, bid: str, who: dict) -> None:
 
     diff_path = b.get("diff_path", "")
     try:
-        rep = json.loads(open(diff_path, "r", encoding="utf-8").read())
+        rep = json.loads(open(diff_path, encoding="utf-8").read())
     except Exception:
         rep = {}
 
@@ -289,7 +288,7 @@ def main() -> None:
     except Exception as e:
         logger.error(f"Failed to connect to Redis: {e}")
         raise
-    
+
     _ensure_group(r)
 
     logger.info("Starting baseline promoter worker: stream=%s, group=%s, consumer=%s", BOT_CALLBACKS_STREAM, GROUP, CONSUMER)
@@ -324,18 +323,18 @@ def main() -> None:
                 logger.warning("Redis is loading dataset, retrying in 2s...")
                 time.sleep(2)
                 continue
-            
+
             if not resp:
                 continue
             for _stream, msgs in resp:
                 for msg_id, fields in msgs:
                     try:
-                        cb = str(fields.get("callback", "") or "")
+                        cb = (fields.get("callback", "") or "")
                         who = {
-                            "timestamp": str(fields.get("timestamp", "") or ""),
-                            "chat_id": str(fields.get("chat_id", "") or ""),
-                            "user_id": str(fields.get("user_id", "") or ""),
-                            "username": str(fields.get("username", "") or ""),
+                            "timestamp": (fields.get("timestamp", "") or ""),
+                            "chat_id": (fields.get("chat_id", "") or ""),
+                            "user_id": (fields.get("user_id", "") or ""),
+                            "username": (fields.get("username", "") or ""),
                         }
                         if not _allowed(who):
                             _notify(r, "baseline: <b>denied</b> (not allowed)")

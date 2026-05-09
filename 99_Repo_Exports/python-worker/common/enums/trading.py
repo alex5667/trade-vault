@@ -1,6 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
-class Direction(str, Enum):
+
+class Direction(StrEnum):
     LONG = "LONG"
     SHORT = "SHORT"
 
@@ -10,7 +11,7 @@ class Direction(str, Enum):
     def to_side_int(self) -> int:
         return 1 if self == Direction.LONG else -1
 
-class Side(str, Enum):
+class Side(StrEnum):
     BUY = "BUY"
     SELL = "SELL"
 

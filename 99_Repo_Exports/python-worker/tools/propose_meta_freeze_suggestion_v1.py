@@ -1,22 +1,23 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import html
 import json
 import os
 import secrets
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _notify(r: redis.Redis, text: str, sid: Optional[str] = None) -> None:
-    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+def _notify(r: redis.Redis, text: str, sid: str | None = None) -> None:
+    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     payload = {"type": "report", "text": text, "ts": str(now_ms())}
     if sid:
         payload["sid"] = sid
@@ -28,11 +29,11 @@ def emit_meta_freeze_suggestion(
     *,
     prefix: str,
     scope: str,
-    symbols: List[str],
+    symbols: list[str],
     cfg_prefix: str,
     freeze: int,
     freeze_mode: str,
-    report: Dict[str, Any],
+    report: dict[str, Any],
     ttl_sec: int,
 ) -> str:
     """Emit a proposal into cfg:suggestions approval/apply contour.
@@ -43,7 +44,7 @@ def emit_meta_freeze_suggestion(
       {prefix}:latest:meta_freeze:{scope} -> sid
     """
     freeze = 1 if int(freeze) != 0 else 0
-    freeze_mode = str(freeze_mode or "OPEN").upper()
+    freeze_mode = (freeze_mode or "OPEN").upper()
     ttl_sec = int(ttl_sec or 86400)
 
     sid = f"meta_freeze:{now_ms()}:{secrets.token_hex(4)}"
@@ -51,7 +52,7 @@ def emit_meta_freeze_suggestion(
     appr_key = f"{prefix}:approvals:{sid}"
     latest_key = f"{prefix}:latest:meta_freeze:{scope}"
 
-    ops: List[Dict[str, str]] = []
+    ops: list[dict[str, str]] = []
     for sym in symbols:
         hk = f"{cfg_prefix}{sym}"
         ops.append({"op": "HSET", "key": hk, "field": "meta_model_freeze", "value": str(freeze)})
@@ -112,7 +113,7 @@ def main() -> None:
     syms = [s.strip().upper() for s in str(args.symbols or "").split(",") if s.strip()]
     scope = str(args.scope or "ALL").strip().upper()
 
-    report: Dict[str, Any] = {}
+    report: dict[str, Any] = {}
     if args.report_json:
         try:
             report = json.loads(args.report_json)

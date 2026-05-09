@@ -4,10 +4,10 @@ import json
 import math
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
-from domain.time_utils import normalize_ts_ms, session_from_ts_ms
 from domain.gate_profile import strict_enabled
+from domain.time_utils import normalize_ts_ms, session_from_ts_ms
 from handlers.crypto_orderflow.utils.drift_reader import (
     drift_active_key_v1,
     drift_active_key_v2,
@@ -28,11 +28,11 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
             return float(v)
     except Exception:
         pass
-    return float(default)
+    return default
 
 
 def _canon_tf(x: Any) -> str:
-    s = str(x or "").strip().lower()
+    s = (x or "").strip().lower()
     return s or "na"
 
 
@@ -42,12 +42,12 @@ def _b2s(x: Any) -> str:
     return str(x)
 
 
-def _hgetall_str(redis_client: Any, key: str) -> Dict[str, str]:
+def _hgetall_str(redis_client: Any, key: str) -> dict[str, str]:
     try:
         raw = redis_client.hgetall(key) or {}
     except Exception:
         return {}
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     try:
         for k, v in dict(raw).items():
             out[_b2s(k)] = _b2s(v)
@@ -56,7 +56,7 @@ def _hgetall_str(redis_client: Any, key: str) -> Dict[str, str]:
     return out
 
 
-def _hset_map(redis_client: Any, key: str, mapping: Dict[str, Any]) -> None:
+def _hset_map(redis_client: Any, key: str, mapping: dict[str, Any]) -> None:
     """
     Compatible with both:
       - redis-py: hset(name, mapping={...})
@@ -94,7 +94,7 @@ class DriftConfig:
     diag_stream: str
 
     @classmethod
-    def from_env(cls) -> "DriftConfig":
+    def from_env(cls) -> DriftConfig:
         strict = strict_enabled()
         # Default profile vs strict profile (can be overridden by ENV).
         d_base_alpha = "0.01" if strict else "0.005"
@@ -112,7 +112,7 @@ class DriftConfig:
             tighten_mult=_safe_float(os.getenv("FEATURE_DRIFT_TIGHTEN_MULT", d_mult), float(d_mult)),
             min_samples=int(_safe_float(os.getenv("FEATURE_DRIFT_MIN_SAMPLES", d_min_n), int(d_min_n))),
             active_ttl_ms=int(_safe_float(os.getenv("FEATURE_DRIFT_ACTIVE_TTL_MS", d_ttl), int(d_ttl))),
-            diag_stream=str(os.getenv("FEATURE_DRIFT_DIAG_STREAM", "") or "").strip(),
+            diag_stream=(os.getenv("FEATURE_DRIFT_DIAG_STREAM", "") or "").strip(),
         )
 
 
@@ -137,11 +137,11 @@ class FeatureDriftAlarm:
       - depth_min_20  (STRICT from ctx.depth_bid_20/ctx.depth_ask_20)
     """
 
-    def __init__(self, *, cfg: Optional[DriftConfig] = None) -> None:
+    def __init__(self, *, cfg: DriftConfig | None = None) -> None:
         self.cfg = cfg or DriftConfig.from_env()
 
     @classmethod
-    def from_env(cls) -> "FeatureDriftAlarm":
+    def from_env(cls) -> FeatureDriftAlarm:
         return cls(cfg=DriftConfig.from_env())
 
     def update(self, *, redis_client: Any, ctx: Any, symbol: str, kind: str) -> None:
@@ -189,7 +189,7 @@ class FeatureDriftAlarm:
         fast_a = float(cfg.fast_alpha)
         eps = 1e-9
 
-        updated: Dict[str, Any] = {"n": str(n2), "last_ts_ms": str(int(tsm))}
+        updated: dict[str, Any] = {"n": str(n2), "last_ts_ms": str(int(tsm))}
 
         # Track maximum drift feature.
         best_score = 0.0
@@ -288,12 +288,12 @@ class FeatureDriftAlarm:
             except Exception:
                 pass
 
-    def _extract_features(self, ctx: Any) -> Dict[str, float]:
+    def _extract_features(self, ctx: Any) -> dict[str, float]:
         """
         STRICT extraction for depth fields:
           depth_bid_5, depth_ask_5, depth_bid_20, depth_ask_20
         """
-        out: Dict[str, float] = {}
+        out: dict[str, float] = {}
 
         obi = _safe_float(getattr(ctx, "obi", None) or getattr(ctx, "obi_val", None), float("nan"))
         if math.isfinite(obi):

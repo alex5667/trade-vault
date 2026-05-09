@@ -3,17 +3,17 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Any, Dict, List
+from typing import Any
 
-import numpy as np
 import joblib  # type: ignore
+import numpy as np
 
 from core.ml_feature_schema import build_features
 
 
-def load_payload_ndjson(path: str) -> List[Dict[str, Any]]:
+def load_payload_ndjson(path: str) -> list[dict[str, Any]]:
     out = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -49,9 +49,9 @@ def main() -> None:
             out = {
                 "sid": inp.get("sid"),
                 "ts_ms": int(inp.get("ts_ms", 0)),
-                "symbol": str(inp.get("symbol","")),
-                "scenario": str(inp.get("scenario","")),
-                "direction": str(inp.get("direction","")),
+                "symbol": (inp.get("symbol","")),
+                "scenario": (inp.get("scenario","")),
+                "direction": (inp.get("direction","")),
                 "p_edge": p,
                 "p_min": float(args.p_min),
                 "allow": int(p >= float(args.p_min)),

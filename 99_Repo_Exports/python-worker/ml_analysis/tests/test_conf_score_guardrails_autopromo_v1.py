@@ -1,9 +1,7 @@
-# -*- coding: utf-8 -*-
-import time
 
 from orderflow_services.conf_score_guardrails_autopromo_controller_v1 import (
-    extract_health_metrics,
     evaluate_canary,
+    extract_health_metrics,
 )
 
 

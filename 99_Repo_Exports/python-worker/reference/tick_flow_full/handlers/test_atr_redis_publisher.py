@@ -2,7 +2,6 @@
 """
 Tests for AtrRedisPublisher - pipeline, keys, ttl, float parsing.
 """
-import pytest
 from unittest.mock import Mock
 
 from handlers.atr_redis_publisher import AtrRedisPublisher

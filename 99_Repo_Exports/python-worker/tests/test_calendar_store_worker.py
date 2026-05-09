@@ -1,10 +1,8 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
-
-import time
 
 from news_pipeline.calendar_store_worker import CalendarStoreWorker
 from tests.fake_redis import FakeRedis  # type: ignore
+from utils.time_utils import get_ny_time_millis
 
 
 def test_calendar_store_updates_next_event():

@@ -20,12 +20,13 @@ Usage:
     python3 -m tools.telegram_labeler
 """
 
-import os
 import asyncio
+import os
+
 import httpx
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
-from aiogram.types import Message, FSInputFile
+from aiogram.types import FSInputFile, Message
 
 # Configuration
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -62,21 +63,21 @@ async def cmd_start(message: Message):
 async def cmd_obi(message: Message):
     """Send OBI timeline PNG."""
     symbol = get_symbol_from_message(message)
-    
+
     await message.answer(f"📊 Fetching OBI timeline for {symbol}...")
-    
+
     try:
         url = f"{OBI_HOST}/render/obi.png?symbol={symbol}&last=300"
-        
+
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.get(url)
             response.raise_for_status()
-            
+
             # Save to temp file
             tmp_path = f"/tmp/obi_{symbol}.png"
             with open(tmp_path, "wb") as f:
                 f.write(response.content)
-        
+
         # Send photo
         photo = FSInputFile(tmp_path)
         await message.answer_photo(
@@ -91,21 +92,21 @@ async def cmd_obi(message: Message):
 async def cmd_depth(message: Message):
     """Send depth profile PNG."""
     symbol = get_symbol_from_message(message)
-    
+
     await message.answer(f"📊 Fetching depth profile for {symbol}...")
-    
+
     try:
         url = f"{OBI_HOST}/render/depth.png?symbol={symbol}"
-        
+
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.get(url)
             response.raise_for_status()
-            
+
             # Save to temp file
             tmp_path = f"/tmp/depth_{symbol}.png"
             with open(tmp_path, "wb") as f:
                 f.write(response.content)
-        
+
         # Send photo
         photo = FSInputFile(tmp_path)
         await message.answer_photo(
@@ -122,26 +123,26 @@ async def cmd_events(message: Message):
     parts = (message.text or "").split()
     symbol = (parts[1] if len(parts) > 1 else DEFAULT_SYMBOL).upper()
     last = int(parts[2]) if len(parts) > 2 else 10
-    
+
     try:
         url = f"{OBI_HOST}/events/pull?symbol={symbol}&last={last}"
-        
+
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.get(url)
-            
+
             if response.status_code != 200:
                 await message.answer(f"📊 {symbol}: No events data available")
                 return
-            
+
             data = response.json().get("events", [])
-        
+
         if not data:
             await message.answer(f"📊 {symbol}: No recent events")
             return
-        
+
         # Format events
         lines = [f"📊 <b>{symbol} OBI Events</b> (last {len(data)}):\n"]
-        
+
         for evt in data:
             kind_emoji = "🟢" if "up" in evt["kind"] else "🔴"
             lines.append(
@@ -149,9 +150,9 @@ async def cmd_events(message: Message):
                 f"   OBI: <b>{evt['obi']:.3f}</b>\n"
                 f"   Duration: {int(evt['duration_ms'])}ms\n"
             )
-        
+
         await message.answer("\n".join(lines), parse_mode="HTML")
-        
+
     except Exception as e:
         await message.answer(f"❌ Failed to fetch events for {symbol}: {e}")
 
@@ -160,30 +161,30 @@ async def cmd_events(message: Message):
 async def cmd_status(message: Message):
     """Send current OBI status."""
     symbol = get_symbol_from_message(message)
-    
+
     try:
         url = f"{OBI_HOST}/features/obi?symbol={symbol}&last=1"
-        
+
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.get(url)
-            
+
             if response.status_code != 200:
                 await message.answer(f"📊 {symbol}: No data from OBI service")
                 return
-            
+
             data = response.json()
-        
+
         threshold = data.get("threshold", 0.0)
         points = data.get("points", [])
-        
+
         if not points:
             await message.answer(f"📊 {symbol}: No OBI data yet")
             return
-        
+
         last_point = points[-1]
         obi = last_point.get("obi_signed", 0.0)
         count = data.get("count", 0)
-        
+
         # Status emoji
         if abs(obi) >= threshold:
             status_emoji = "🟢⬆️" if obi > 0 else "🔴⬇️"
@@ -191,7 +192,7 @@ async def cmd_status(message: Message):
         else:
             status_emoji = "⚪"
             status_text = "Neutral"
-        
+
         message_text = (
             f"{status_emoji} <b>{symbol} OBI Status</b>\n\n"
             f"Current OBI: <code>{obi:.3f}</code>\n"
@@ -199,16 +200,16 @@ async def cmd_status(message: Message):
             f"Status: <b>{status_text}</b>\n"
             f"Data points: {count}"
         )
-        
+
         await message.answer(message_text, parse_mode="HTML")
-        
+
     except Exception as e:
         await message.answer(f"❌ Failed to fetch status for {symbol}: {e}")
 
 
 async def main():
     """Main entry point."""
-    print(f"🤖 Telegram Labeler Bot starting...")
+    print("🤖 Telegram Labeler Bot starting...")
     print(f"   Bot Token: {BOT_TOKEN[:10]}***")
     print(f"   OBI Host: {OBI_HOST}")
     print(f"   Default Symbol: {DEFAULT_SYMBOL}")
@@ -222,10 +223,10 @@ async def main():
     print("   /task [QUESTION] - Ask the Antigravity LLM metrics questions")
     print()
     print("🚀 Bot starting polling...")
-    
+
     from services.telegram_bot_commands import register_task_command
     register_task_command(dp, bot)
-    
+
     await dp.start_polling(bot)
 
 

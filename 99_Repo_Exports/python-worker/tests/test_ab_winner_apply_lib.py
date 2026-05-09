@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 from services.ab_winner_apply_lib import apply_sid_if_ready
 
+
 class TestABWinnerApplyLib(unittest.IsolatedAsyncioTestCase):
     async def test_apply_calls_eval_with_expected_keys(self):
         r = AsyncMock()

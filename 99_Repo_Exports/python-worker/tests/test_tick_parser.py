@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+
 import pytest
 
-from handlers.tick_parser import Tick, parse_tick, classify_delta, FLAG_TRADE, FLAG_BUY, FLAG_SELL
+from handlers.tick_parser import FLAG_BUY, FLAG_SELL, FLAG_TRADE, Tick, classify_delta, parse_tick
 
 
 def test_parse_tick_flat_dict_ms() -> None:

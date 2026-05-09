@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """bbo_ts_writer — Redis Stream → Timescale bbo_ts table (Phase B1).
@@ -42,18 +43,16 @@ import json
 import logging
 import os
 import socket
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
     import redis.asyncio as aioredis  # type: ignore
 except Exception:  # pragma: no cover
     aioredis = None
 
-from services.posttrade.redis_stream_dlq import publish_dlq
 from services.posttrade.bbo_ts_writer_metrics import build_metrics, start_metrics_server
-
+from services.posttrade.redis_stream_dlq import publish_dlq
 
 logger = logging.getLogger("bbo_ts_writer")
 
@@ -86,7 +85,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _loads_json(v: Any) -> Optional[dict]:
+def _loads_json(v: Any) -> dict | None:
     if v is None:
         return None
     if isinstance(v, dict):
@@ -105,7 +104,7 @@ def _loads_json(v: Any) -> Optional[dict]:
         return None
 
 
-def _parse_stream_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
+def _parse_stream_fields(fields: dict[Any, Any]) -> dict[str, Any]:
     # Standard contract: JSON in field `payload`.
     if b"payload" in fields:
         obj = _loads_json(fields.get(b"payload"))
@@ -114,7 +113,7 @@ def _parse_stream_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
         obj = _loads_json(fields.get("payload"))
         return obj or {}
     # Fallback: treat fields as raw
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         try:
             kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
@@ -124,7 +123,7 @@ def _parse_stream_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def _validate_payload(p: Dict[str, Any]) -> Tuple[bool, str]:
+def _validate_payload(p: dict[str, Any]) -> tuple[bool, str]:
     for k in ("ts_ms", "symbol", "venue", "bid", "ask", "mid"):
         if k not in p or p.get(k) in (None, ""):
             return False, f"missing:{k}"
@@ -148,7 +147,7 @@ class PgWriter:
             import psycopg2  # type: ignore
             return psycopg2.connect(self.dsn)
 
-    def insert_rows(self, rows: List[Dict[str, Any]]) -> int:
+    def insert_rows(self, rows: list[dict[str, Any]]) -> int:
         if not rows:
             return 0
         conn = self._connect()
@@ -170,9 +169,9 @@ class PgWriter:
                         "bid": float(r["bid"]),
                         "ask": float(r["ask"]),
                         "mid": float(r["mid"]),
-                        "producer": str(r.get("producer") or ""),
+                        "producer": (r.get("producer") or ""),
                         "schema_version": int(r.get("schema_version") or 1),
-                        "stream_id": str(r.get("stream_id") or ""),
+                        "stream_id": (r.get("stream_id") or ""),
                     }
                 )
             cur.executemany(sql, params)
@@ -196,7 +195,7 @@ class Cfg:
     metrics_port: int
 
     @staticmethod
-    def from_env() -> "Cfg":
+    def from_env() -> Cfg:
         host = socket.gethostname()
         return Cfg(
             redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
@@ -263,8 +262,8 @@ async def main() -> None:
                     pass
                 continue
 
-            rows: List[Dict[str, Any]] = []
-            ack_ids: List[str] = []
+            rows: list[dict[str, Any]] = []
+            ack_ids: list[str] = []
             for _stream, msgs in res:
                 for mid, fields in msgs:
                     mid_s = mid.decode() if isinstance(mid, (bytes, bytearray)) else str(mid)
@@ -297,12 +296,12 @@ async def main() -> None:
                     rows.append(
                         {
                             "ts_ms": ts_ms,
-                            "sym": str(payload.get("symbol") or "").upper(),
-                            "venue": str(payload.get("venue") or "binance").lower(),
+                            "sym": (payload.get("symbol") or "").upper(),
+                            "venue": (payload.get("venue") or "binance").lower(),
                             "bid": float(payload.get("bid")),
                             "ask": float(payload.get("ask")),
                             "mid": float(payload.get("mid")),
-                            "producer": str(payload.get("producer") or ""),
+                            "producer": (payload.get("producer") or ""),
                             "schema_version": int(payload.get("schema_version") or 1),
                             "stream_id": mid_s,
                         }

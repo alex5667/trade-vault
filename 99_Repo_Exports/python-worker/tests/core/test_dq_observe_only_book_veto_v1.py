@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from core.dq_observe_only import apply_observe_only_book_veto
 
 

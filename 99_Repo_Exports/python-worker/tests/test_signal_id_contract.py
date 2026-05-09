@@ -1,12 +1,13 @@
 """P0.5 — signal_id must use canonical generate_signal_id algorithm, not MD5."""
 from __future__ import annotations
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from common.normalization import SIGNAL_ID_ALGO_V1, generate_signal_id
 from services.signal_preprocess import preprocess_signal_for_publish
-from common.normalization import generate_signal_id, SIGNAL_ID_ALGO_V1
 
 
 def _run(**kwargs) -> dict:

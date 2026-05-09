@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 from domain.time_utils import normalize_ts_ms, session_from_ts_ms
 
@@ -11,10 +11,10 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _boolish(x: Any) -> bool:
@@ -56,7 +56,7 @@ def _set_nx_compat(redis_client: Any, key: str, value: str, ttl_s: int) -> bool:
         return False
 
 
-def _hset_compat(redis_client: Any, key: str, mapping: Dict[str, Any]) -> None:
+def _hset_compat(redis_client: Any, key: str, mapping: dict[str, Any]) -> None:
     if redis_client is None:
         return
     try:
@@ -84,8 +84,8 @@ def _expire_compat(redis_client: Any, key: str, ttl_s: int) -> None:
 def update_slippage_ema(
     redis_client: Any,
     *,
-    closed: Dict[str, Any],
-    pos: Optional[Dict[str, Any]] = None,
+    closed: dict[str, Any],
+    pos: dict[str, Any] | None = None,
 ) -> None:
     """
     Writer for:
@@ -157,12 +157,12 @@ def update_slippage_ema(
         k2 = f"slipema:v2:{sym}:{venue}:{sess}:{tf}:{knd}"
         k1 = f"slipema:{sym}:{venue}:{sess}"
 
-        def _read_hash(key: str) -> Dict[str, str]:
+        def _read_hash(key: str) -> dict[str, str]:
             try:
                 h = redis_client.hgetall(key) or {}
             except Exception:
                 return {}
-            out: Dict[str, str] = {}
+            out: dict[str, str] = {}
             for kk, vv in dict(h).items():
                 ks = kk.decode("utf-8", errors="ignore") if isinstance(kk, (bytes, bytearray)) else str(kk)
                 vs = vv.decode("utf-8", errors="ignore") if isinstance(vv, (bytes, bytearray)) else str(vv)

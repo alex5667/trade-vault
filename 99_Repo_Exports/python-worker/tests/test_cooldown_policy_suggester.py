@@ -1,5 +1,6 @@
 from services.cooldown_policy_suggester_service import propose_from_group
 
+
 def test_propose_bumps_on_blocked_thin():
     cur = {"cooldown_reversal_sec": 30, "cooldown_continuation_sec": 15, "pressure_hi_sps": 0.12}
     out = propose_from_group(cur, blocked=100, replaced=40, emit_pending=3, emit_current=1,

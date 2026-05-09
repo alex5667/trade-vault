@@ -1,11 +1,10 @@
-import os
-import time
+import argparse
 import json
 import logging
-import argparse
+import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any
+from typing import Any
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -21,29 +20,29 @@ def prune_archives(
     keep_last_days: int = 3,
     max_total_gb: float = 100.0,
     dry_run: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Prune old archives based on age and total size occupancy."""
     path = Path(archive_dir)
     if not path.exists():
         logger.error(f"Directory {archive_dir} does not exist")
         return {"error": "not_found"}
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff_date = now - timedelta(days=retention_days)
     keep_last_cutoff = now - timedelta(days=keep_last_days)
 
     files = sorted(list(path.glob('*.ndjson*')), key=os.path.getmtime)
     deleted_count = 0
     deleted_size_gb = 0.0
-    
+
     # Prune by age
     for f in files:
-        mtime = datetime.fromtimestamp(f.stat().st_mtime, timezone.utc)
+        mtime = datetime.fromtimestamp(f.stat().st_mtime, UTC)
         if mtime < cutoff_date:
             # Check if it's protected by keep_last (shouldn't be if retention > keep_last)
             if mtime > keep_last_cutoff:
                 continue
-                
+
             size_gb = f.stat().st_size / (1024**3)
             logger.info(f"{'[DRY RUN] ' if dry_run else ''}Pruning old file: {f.name} (age: {(now - mtime).days} days, size: {size_gb:.4f} GB)")
             if not dry_run:
@@ -59,8 +58,8 @@ def prune_archives(
     if current_size_gb > max_total_gb:
         logger.info(f"Directory size {current_size_gb:.2f} GB exceeds limit {max_total_gb:.2f} GB. Pruning more...")
         for f in files:
-            mtime = datetime.fromtimestamp(f.stat().st_mtime, timezone.utc)
-            # Never prune files from 'keep_last' window unless strictly necessary? 
+            mtime = datetime.fromtimestamp(f.stat().st_mtime, UTC)
+            # Never prune files from 'keep_last' window unless strictly necessary?
             # Usually we respect keep_last as emergency buffer.
             if mtime > keep_last_cutoff:
                 logger.warning(f"Skipping {f.name} - inside protected 'keep_last' window")
@@ -73,7 +72,7 @@ def prune_archives(
             deleted_count += 1
             deleted_size_gb += size_gb
             current_size_gb -= size_gb
-            
+
             if current_size_gb <= max_total_gb:
                 break
 
@@ -87,27 +86,27 @@ def update_manifest(archive_dir: str):
     """Create/update a manifest file with list of archives and their time ranges."""
     path = Path(archive_dir)
     manifest_path = path / "manifest.json"
-    
+
     files = sorted(list(path.glob('*.ndjson*')), key=os.path.getmtime)
     inventory = []
-    
+
     for f in files:
         if f.name == "manifest.json":
             continue
-        mtime = datetime.fromtimestamp(f.stat().st_mtime, timezone.utc)
+        mtime = datetime.fromtimestamp(f.stat().st_mtime, UTC)
         inventory.append({
             "name": f.name,
             "size_bytes": f.stat().st_size,
             "mtime": mtime.isoformat()
         })
-        
+
     manifest = {
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         "total_files": len(inventory),
         "total_size_gb": sum(i['size_bytes'] for i in inventory) / (1024**3),
         "inventory": inventory
     }
-    
+
     # Atomic write
     tmp_path = manifest_path.with_suffix(".tmp")
     with open(tmp_path, 'w') as f:
@@ -122,9 +121,9 @@ if __name__ == "__main__":
     parser.add_argument("--keep-last-days", type=int, default=3, help="Days to always keep (protection)")
     parser.add_argument("--max-gb", type=float, default=100.0, help="Max total archive size in GB")
     parser.add_argument("--dry-run", action="store_true", help="Don't actually delete files")
-    
+
     args = parser.parse_args()
-    
+
     logger.info(f"Starting maintenance on {args.dir}")
     stats = prune_archives(
         args.dir,
@@ -133,7 +132,7 @@ if __name__ == "__main__":
         max_total_gb=args.max_gb,
         dry_run=args.dry_run
     )
-    
+
     if "error" not in stats:
         logger.info(f"Maintenance finished. Deleted: {stats['deleted_count']} files ({stats['deleted_size_gb']:.4f} GB). Remaining: {stats['remaining_size_gb']:.2f} GB")
         update_manifest(args.dir)

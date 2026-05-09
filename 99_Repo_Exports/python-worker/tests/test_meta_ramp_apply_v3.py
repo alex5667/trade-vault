@@ -1,12 +1,14 @@
-import unittest
-import json
-import os
-import tempfile
 import io
+import json
+import tempfile
 import time
+import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from tools.meta_ramp_apply_v3 import main, _min_hold_active, Quality, _trend_gate
+
+from domain.evidence_keys import MetaKeys
+from tools.meta_ramp_apply_v3 import Quality, _min_hold_active, _trend_gate, main
+
 
 class TestMetaRampApplyV3(unittest.TestCase):
     def setUp(self):
@@ -26,7 +28,7 @@ class TestMetaRampApplyV3(unittest.TestCase):
             }
         }
         self.report_path.write_text(json.dumps(self.report_data))
-        
+
         self.model_path = Path(self.test_dir.name) / "model.json"
         self.model_data = {"schema_name": "meta_feat_v5"}
         self.model_path.write_text(json.dumps(self.model_data))
@@ -73,7 +75,7 @@ class TestMetaRampApplyV3(unittest.TestCase):
             "ramp_ece_max__meta_feat_v5": "0.08",
             "meta_ramp_last_change_ts__meta_feat_v5": str(int(time.time()) - 100000)
         }
-        
+
         with patch("sys.stdout", new=io.StringIO()) as fake_out:
             test_args = [
                 "meta_ramp_apply_v3.py",
@@ -83,13 +85,13 @@ class TestMetaRampApplyV3(unittest.TestCase):
             ]
             with patch("sys.argv", test_args):
                 main()
-        
+
         # Verify ramp up: 0.10 + 0.05 = 0.15
         calls = [c for c in mock_r.hset.call_args_list if c[1].get('name') == "settings:dynamic_cfg" or c[0][0] == "settings:dynamic_cfg"]
         self.assertTrue(len(calls) > 0)
         patch_data = calls[0][1].get("mapping") or calls[0][0][1]
-        
-        self.assertAlmostEqual(float(patch_data["meta_enforce_share"]), 0.15)
+
+        self.assertAlmostEqual(float(patch_data[MetaKeys.ENFORCE_SHARE]), 0.15)
         self.assertEqual(patch_data["meta_model_mode"], "ENFORCE")
 
     @patch("redis.Redis.from_url")
@@ -105,7 +107,7 @@ class TestMetaRampApplyV3(unittest.TestCase):
             "meta_ramp_last_change_ts__meta_feat_v5": str(int(time.time()) - 100),
             "ramp_min_hold_s__meta_feat_v5": "3600"
         }
-        
+
         with patch("sys.stdout", new=io.StringIO()) as fake_out:
             test_args = [
                 "meta_ramp_apply_v3.py",
@@ -115,12 +117,12 @@ class TestMetaRampApplyV3(unittest.TestCase):
             ]
             with patch("sys.argv", test_args):
                 main()
-        
+
         # Should NOT increase
         calls = [c for c in mock_r.hset.call_args_list if c[1].get('name') == "settings:dynamic_cfg" or c[0][0] == "settings:dynamic_cfg"]
         self.assertTrue(len(calls) > 0)
         patch_data = calls[0][1].get("mapping") or calls[0][0][1]
-        self.assertAlmostEqual(float(patch_data["meta_enforce_share"]), 0.10)
+        self.assertAlmostEqual(float(patch_data[MetaKeys.ENFORCE_SHARE]), 0.10)
         self.assertIn("HOLD_MIN_HOLD", str(patch_data["meta_ramp_last_decision"]))
 
 if __name__ == "__main__":

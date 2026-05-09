@@ -8,19 +8,15 @@ Covers:
   - Robust parameter selection (median of qualifying folds)
   - Edge cases (too few trades, all folds below min_oos_pf)
 """
-import pytest
-from unittest.mock import MagicMock
-from typing import List, Sequence
+from collections.abc import Sequence
 
 from calibrate.walk_forward_calibrator import (
-    WalkForwardCalibrator,
     OOSMetrics,
-    OOSFoldResult,
+    WalkForwardCalibrator,
     WalkForwardResult,
     make_expanding_folds,
     make_sliding_folds,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fold generation tests
@@ -86,7 +82,7 @@ class TestMakeSlidingFolds:
 # ---------------------------------------------------------------------------
 
 
-def _make_trades(n: int) -> List[dict]:
+def _make_trades(n: int) -> list[dict]:
     """Create n dummy trade dicts."""
     return [{"id": i, "r_return": 0.5 if i % 3 != 0 else -0.3} for i in range(n)]
 

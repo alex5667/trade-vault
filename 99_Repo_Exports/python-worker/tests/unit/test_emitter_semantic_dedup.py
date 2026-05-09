@@ -1,6 +1,6 @@
-import pytest
 
 from handlers.emitter.unified_signal_emitter import UnifiedSignalEmitter
+
 
 class FakeOutbox:
     def __init__(self):

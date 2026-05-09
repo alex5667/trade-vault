@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Protocol, Dict, List, Any, Optional
-import json
+from typing import Any, Protocol
 
 from common.log import setup_logger
-from local_calibration.store import LocalCalibrationStore as LCStoreV2, eval_local_quantile
+from local_calibration.store import LocalCalibrationStore as LCStoreV2
+from local_calibration.store import eval_local_quantile
 
 
 class SupportsCalibrationContext(Protocol):
@@ -14,10 +14,10 @@ class SupportsCalibrationContext(Protocol):
     symbol: str
     ts_event_ms: int
     # Metrics to calibrate - using existing interface
-    metrics: Dict[str, Any]
-    calibrated: Dict[str, Any]
-    session: Optional[str] = None
-    regime_label: Optional[str] = None
+    metrics: dict[str, Any]
+    calibrated: dict[str, Any]
+    session: str | None = None
+    regime_label: str | None = None
 
 
 class LocalCalibrationService:
@@ -28,12 +28,12 @@ class LocalCalibrationService:
     the current calibration system.
     """
 
-    def __init__(self, store: LCStoreV2, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, store: LCStoreV2, config: dict[str, Any] | None = None):
         self._store = store
         self._cfg = config or self._default_config()
         self.logger = setup_logger("LocalCalibrationService")
 
-    def _default_config(self) -> Dict[str, Any]:
+    def _default_config(self) -> dict[str, Any]:
         return {
             "default_extreme_z": 2.0,  # Default z-score threshold for extreme values
             "metrics_to_calibrate": [
@@ -103,7 +103,7 @@ class LocalCalibrationService:
             "p90": cfg.q98 if cfg else None,  # Using q98 as approximation for p90
         }
 
-    def get_calibration_stats(self, symbol: str, session: str = "mixed", regime: str = "mixed") -> Dict[str, Any]:
+    def get_calibration_stats(self, symbol: str, session: str = "mixed", regime: str = "mixed") -> dict[str, Any]:
         """Get calibration statistics for a symbol/session/regime combination"""
         stats = {}
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 ML Confirm Gate Calibrator.
 
@@ -35,20 +37,19 @@ ENV vars:
   ML_CAL_STEP_TS_KEY          meta:ml_cal:last_step_ms
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
-import hmac
 import hashlib
+import hmac
 import json
 import logging
 import os
 import secrets
 import sys
 import time
-from typing import Dict, List, Optional, Tuple
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 logging.basicConfig(
     level=logging.INFO,
@@ -120,7 +121,7 @@ def _precision_threshold(next_level: float) -> float:
         return default
 
 
-def _ladder_next(cur: float) -> Optional[float]:
+def _ladder_next(cur: float) -> float | None:
     """Return next ladder level, or None if already at top."""
     for lv in LADDER_LEVELS:
         if cur + 1e-9 < lv:
@@ -130,12 +131,12 @@ def _ladder_next(cur: float) -> Optional[float]:
 
 # ────────────────────────────────────────── stream reader ─────────────────── #
 
-def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, str]]:
+def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, str]]:
     """
     Read stream entries from `since_ms` timestamp onwards.
     Returns list of field-dicts (Redis stream message bodies).
     """
-    results: List[Dict[str, str]] = []
+    results: list[dict[str, str]] = []
     start_id = f"{since_ms}-0"
     page = 500
     last_id = start_id
@@ -156,9 +157,9 @@ def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int
     return results
 
 
-def _read_stream_recent(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, str]]:
+def _read_stream_recent(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, str]]:
     """XREVRANGE-based reader for trades:closed (newest first, filtered by ts_ms field)."""
-    results: List[Dict[str, str]] = []
+    results: list[dict[str, str]] = []
     last_id = "+"
     page = 500
 
@@ -186,7 +187,7 @@ def _collect_analytics(
     r: redis.Redis,
     hours: float,
     max_scan: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Read metrics:ml_confirm and trades:closed, join by sid.
 
@@ -218,7 +219,7 @@ def _collect_analytics(
     logger.info(f"  → {len(trades_events)} trades:closed events")
 
     # Build trades lookup by sid
-    trades_by_sid: Dict[str, Dict[str, str]] = {}
+    trades_by_sid: dict[str, dict[str, str]] = {}
     for ev in trades_events:
         sid = str(ev.get("sid") or ev.get("signal_id") or "").strip()
         if sid and sid not in trades_by_sid:
@@ -237,8 +238,8 @@ def _collect_analytics(
 
     for ev in ml_events:
         allow = _i(ev.get("allow"), 1)
-        mode = str(ev.get("mode") or "SHADOW").upper()
-        sid = str(ev.get("sid") or "").strip()
+        mode = (ev.get("mode") or "SHADOW").upper()
+        sid = (ev.get("sid") or "").strip()
         ok_rule = _i(ev.get("ok_rule"), 0)
 
         if allow == 0:
@@ -291,7 +292,7 @@ def _collect_analytics(
 
 # ─────────────────────────────────────────── champion cfg read/write ──────── #
 
-def _load_champion_cfg(r: redis.Redis, key: str) -> Dict:
+def _load_champion_cfg(r: redis.Redis, key: str) -> dict:
     raw = r.get(key)
     if not raw:
         return {}
@@ -302,13 +303,13 @@ def _load_champion_cfg(r: redis.Redis, key: str) -> Dict:
         return {}
 
 
-def _save_champion_cfg(r: redis.Redis, key: str, cfg: Dict) -> None:
+def _save_champion_cfg(r: redis.Redis, key: str, cfg: dict) -> None:
     r.set(key, json.dumps(cfg, ensure_ascii=False, separators=(",", ":")))
 
 
 # ───────────────────────────────────────────── holddown check ─────────────── #
 
-def _holddown_ok(r: redis.Redis, step_ts_key: str, holddown_h: float) -> Tuple[bool, float]:
+def _holddown_ok(r: redis.Redis, step_ts_key: str, holddown_h: float) -> tuple[bool, float]:
     """Returns (ok, hours_since_last_step)."""
     raw = r.get(step_ts_key)
     if not raw:
@@ -325,11 +326,11 @@ def _holddown_ok(r: redis.Redis, step_ts_key: str, holddown_h: float) -> Tuple[b
 
 def _build_proposal_bundle(
     champion_key: str,
-    cfg: Dict,
+    cfg: dict,
     next_share: float,
     secret: str,
     ttl: int = 86400,
-) -> Tuple[str, str, Dict]:
+) -> tuple[str, str, dict]:
     """Create recs bundle that patches enforce_share in champion cfg JSON."""
     bid = secrets.token_hex(6)
     sig = _sign(bid, secret)
@@ -364,7 +365,7 @@ def _send_telegram_proposal(
     cur_share: float,
     next_share: float,
     hours: float,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     notify_stream: str,
     is_reminder: bool = False,
 ) -> None:
@@ -413,10 +414,10 @@ def _send_telegram_proposal(
 def _should_propose(
     *,
     next_share: float,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     holddown_ok: bool,
     min_veto_hits: int,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Returns (should_propose, reason).
     All conditions must be satisfied.
@@ -485,7 +486,7 @@ def main() -> None:
     pending_key = os.getenv("ML_CAL_PENDING_KEY", "meta:ml_cal:pending")
     step_ts_key = os.getenv("ML_CAL_STEP_TS_KEY", "meta:ml_cal:last_step_ms")
     holddown_h = float(os.getenv("ML_CAL_ENFORCE_HOLDDOWN_H", "72"))
-    notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+    notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_ttl = int(os.getenv("ML_CAL_BUNDLE_TTL_SEC", "86400"))
     reminder_sec = int(os.getenv("ML_CAL_REMINDER_SEC", "1800"))
@@ -632,7 +633,7 @@ def _wait_for_decision(
     cur_share: float,
     next_share: float,
     hours: float,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     notify_stream: str,
     reminder_sec: int,
     step_ts_key: str,

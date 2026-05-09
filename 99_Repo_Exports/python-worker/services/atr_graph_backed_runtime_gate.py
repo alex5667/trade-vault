@@ -1,8 +1,8 @@
+import json
 import logging
 import uuid
-import json
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from services.analytics_db import get_conn
 from services.atr_effective_state_resolver import EffectiveStateResolver
@@ -15,33 +15,33 @@ class ATRGraphBackedRuntimeGateService:
     Also handles equivalence checking against the legacy routing decisions.
     """
 
-    _graph_state_cache: Dict[str, Any] = {}
+    _graph_state_cache: dict[str, Any] = {}
     # Increased from 5s → 30s: with 5+ symbols a 5s TTL causes frequent DB stampedes
     # (5 symbols × 12 calls/min = 60 DB queries/min vs 10 at 30s TTL).
     _graph_state_cache_ttl: float = 30.0
     _MAX_CACHE_SIZE: int = 5000
 
     @staticmethod
-    def build_graph_runtime_state(scope_value: str) -> Dict[str, Any]:
+    def build_graph_runtime_state(scope_value: str) -> dict[str, Any]:
         """Reads graph-backed effective state (with TTL cache to protect ThreadPool/DB)"""
         import time
         now = time.time()
-        
+
         cached = ATRGraphBackedRuntimeGateService._graph_state_cache.get(scope_value)
         if cached and (now - cached['ts'] < ATRGraphBackedRuntimeGateService._graph_state_cache_ttl):
             return cached['data']
 
         eff_state = EffectiveStateResolver.resolve_from_graph("symbol", scope_value)
-        
+
         # Keep cache size bounded
         if len(ATRGraphBackedRuntimeGateService._graph_state_cache) > ATRGraphBackedRuntimeGateService._MAX_CACHE_SIZE:
             ATRGraphBackedRuntimeGateService._graph_state_cache.clear()
-            
+
         ATRGraphBackedRuntimeGateService._graph_state_cache[scope_value] = {'ts': now, 'data': eff_state}
         return eff_state
 
     @staticmethod
-    def decide_runtime_from_graph(signal: Dict[str, Any], scope_value: str) -> str:
+    def decide_runtime_from_graph(signal: dict[str, Any], scope_value: str) -> str:
         """
         Returns 'allow', 'clip', or 'deny' based on graph state.
         Mapping:
@@ -52,7 +52,7 @@ class ATRGraphBackedRuntimeGateService:
         try:
             eff_state = ATRGraphBackedRuntimeGateService.build_graph_runtime_state(scope_value)
             state_str = eff_state.get("states", {}).get("effective_runtime_state", "normal")
-            
+
             precedence = EffectiveStateResolver._get_precedence(state_str)
             if precedence >= 20: # no_new_risk, scope_frozen, venue_frozen, hard_freeze
                 return "deny"
@@ -62,7 +62,7 @@ class ATRGraphBackedRuntimeGateService:
                 return "allow"
         except Exception as e:
             logger.error(f"Error deciding runtime from graph for {scope_value}: {e}")
-            # Fail-open / fallback to allow. 
+            # Fail-open / fallback to allow.
             # In publisher, if this fails, we will usually fall back to legacy if legacy is active.
             return "allow"
 
@@ -87,13 +87,13 @@ class ATRGraphBackedRuntimeGateService:
         status = "passed"
         if legacy_decision != graph_decision:
             status = "failed"
-            
+
         # Optimization: Only record 1% of successful equivalence checks to save DB I/O on hot path
         if status == "passed":
             import random
             if random.random() > 0.01:
                 return
-            
+
         check_id = f"rt_chk_{uuid.uuid4().hex[:12]}"
         created_at = datetime.utcnow()
         summary = {
@@ -110,7 +110,7 @@ class ATRGraphBackedRuntimeGateService:
                     (check_id, scope_value, legacy_decision, graph_decision, status, summary_json, created_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    check_id, scope_value, legacy_decision, graph_decision, status, 
+                    check_id, scope_value, legacy_decision, graph_decision, status,
                     json.dumps(summary), created_at
                 ))
                 conn.commit()
@@ -125,7 +125,7 @@ class ATRGraphBackedRuntimeGateService:
     def emit_runtime_drift(legacy_decision: str, graph_decision: str, scope_value: str) -> None:
         drift_kind = "decision_mismatch"
         reason_code = f"{legacy_decision}_vs_{graph_decision}_mismatch"
-        
+
         # Severity evaluation
         # legacy=deny, graph=allow -> critical
         # legacy=clip, graph=allow -> critical
@@ -158,7 +158,7 @@ class ATRGraphBackedRuntimeGateService:
                     (drift_id, scope_value, drift_kind, severity, status, reason_code, drift_json, created_at)
                     VALUES (%s, %s, %s, %s, 'open', %s, %s, %s)
                 """, (
-                    drift_id, scope_value, drift_kind, severity, reason_code, 
+                    drift_id, scope_value, drift_kind, severity, reason_code,
                     json.dumps(drift_json), datetime.utcnow()
                 ))
                 conn.commit()
@@ -167,7 +167,7 @@ class ATRGraphBackedRuntimeGateService:
             logger.error(f"Failed to emit runtime gate drift: {e}")
 
     @staticmethod
-    def mark_runtime_cutover_readiness(status: str, summary: Dict[str, Any]) -> None:
+    def mark_runtime_cutover_readiness(status: str, summary: dict[str, Any]) -> None:
         """
         not_ready | shadow_healthy | ready_for_canary | ready_for_live
         """

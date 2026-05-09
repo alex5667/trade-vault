@@ -1,23 +1,24 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 ATR floor tier selection (deterministic)
 Fixes the "broken chain": floors(t0/t1/t2) must be mapped to atr_bps_th by regime.
 """
 
 
-from typing import Any, Dict, Tuple
+from typing import Any
 
 
 def compute_atr_bps_threshold(
     *,
     regime: str,
-    cfg: Dict[str, Any],
+    cfg: dict[str, Any],
     t0: float,
     t1: float,
     t2: float,
-) -> Tuple[int, str, float]:
-    rg = str(regime or "na").lower()
+) -> tuple[int, str, float]:
+    rg = (regime or "na").lower()
 
     tier = int(cfg.get("atr_floor_tier_default", 1))
     if rg in ("trend", "trending_bull", "trending_bear"):

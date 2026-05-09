@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 # Shared timestamp/session utils (hardening)
 try:
@@ -37,13 +37,13 @@ class SlippageEmaConfig:
     prefix: str = "slipema:"
 
     @staticmethod
-    def from_env() -> "SlippageEmaConfig":
+    def from_env() -> SlippageEmaConfig:
         return SlippageEmaConfig(
             enabled=_env_bool("EXEC_SLIPPAGE_EMA_ENABLED", True),
             alpha=float(os.getenv("EXEC_SLIPPAGE_EMA_ALPHA", "0.05")),
             min_samples_to_trust=int(os.getenv("EXEC_SLIPPAGE_EMA_MIN_SAMPLES", "20")),
             ttl_s=int(os.getenv("EXEC_SLIPPAGE_EMA_TTL_S", str(3600 * 24 * 30))),
-            prefix=str(os.getenv("EXEC_SLIPPAGE_EMA_PREFIX", "slipema:")),
+            prefix=os.getenv("EXEC_SLIPPAGE_EMA_PREFIX", "slipema:"),
         )
 
 
@@ -56,7 +56,7 @@ def _canon_tf(tf: str) -> str:
 
 
 def _canon_dim(x: Any, default: str = "na") -> str:
-    s = str(x or "").strip()
+    s = (x or "").strip()
     return s if s else default
 
 
@@ -127,7 +127,7 @@ def update_slippage_ema(
             if isinstance(x, bytes):
                 return x.decode("utf-8", errors="ignore")
             return str(x)
-        hh: Dict[str, str] = { _s(k): _s(v) for k, v in dict(h).items() } if isinstance(h, dict) else {}
+        hh: dict[str, str] = { _s(k): _s(v) for k, v in dict(h).items() } if isinstance(h, dict) else {}
 
         n0 = int(float(hh.get("samples") or 0))
         ema0 = float(hh.get("ema_slip_bps") or 0.0)

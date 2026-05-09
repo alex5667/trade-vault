@@ -1,7 +1,8 @@
-from utils.time_utils import get_ny_time_millis
-import json
+
 import pytest
-import time
+
+from utils.time_utils import get_ny_time_millis
+
 
 @pytest.fixture
 def sample_position_closed_event():

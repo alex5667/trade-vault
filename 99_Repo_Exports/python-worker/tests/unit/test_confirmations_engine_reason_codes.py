@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from common.reason_codes import ReasonCode
 from handlers.confirmations.engine import ConfirmationsEngine
 

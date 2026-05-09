@@ -3,9 +3,6 @@ from __future__ import annotations
 import json
 from enum import Enum
 
-import pytest
-
-
 # NOTE:
 # Adjust import path if your module is located differently.
 from handlers.crypto_orderflow_handler import CryptoOrderFlowHandler

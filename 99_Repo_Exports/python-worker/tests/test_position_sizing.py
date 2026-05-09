@@ -1,6 +1,8 @@
 
 import unittest
-from services.position_sizing import calculate_qty_fixed_risk, round_price_conservative, SizingResult
+
+from services.position_sizing import calculate_qty_fixed_risk, round_price_conservative
+
 
 class TestPositionSizing(unittest.TestCase):
     def test_calculate_qty_fixed_risk(self):
@@ -35,18 +37,19 @@ class TestPositionSizing(unittest.TestCase):
 
         # LONG SL (Below): 99.1 -> 99.5 (Ceil/Tighter). 99.6 -> 100.0 (Ceil).
         self.assertEqual(round_price_conservative(99.1, tick, 1, is_tp=False), 99.5)
-        
-        # SHORT TP (Below): 99.1 -> 99.5 (Ceil/Closer). 
+
+        # SHORT TP (Below): 99.1 -> 99.5 (Ceil/Closer).
         self.assertEqual(round_price_conservative(99.1, tick, -1, is_tp=True), 99.5)
-        
+
         self.assertEqual(round_price_conservative(100.9, tick, -1, is_tp=False), 100.5)
 
     def test_percent_risk_fallback(self):
         # Env mock
         import os
-        from unittest.mock import patch, MagicMock
-        from services.position_sizing import apply_position_sizing_to_ctx
+        from unittest.mock import MagicMock, patch
+
         from common.balance_provider import _GLOBAL_CACHE
+        from services.position_sizing import apply_position_sizing_to_ctx
         _GLOBAL_CACHE.invalidate()   # ensure cache is clean
 
         ctx = MagicMock()
@@ -70,23 +73,24 @@ class TestPositionSizing(unittest.TestCase):
             with patch("common.dq_flags.append_dq_flag") as mock_dq:
                 cfg = {"TP_MODE": "RR"}
                 apply_position_sizing_to_ctx(ctx, cfg, "BTCUSDT")
-                
+
                 self.assertEqual(ctx.risk_usd, 5.0)
                 self.assertEqual(ctx.qty, 2.5)
                 self.assertTrue(ctx.sizing_ok)
 
     def test_failure_dq(self):
         import os
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from services.position_sizing import apply_position_sizing_to_ctx
-        
+
         ctx = MagicMock()
         ctx.stop_dist = 0.0 # Invalid
         ctx.entry_price = 100.0
-        
+
         with patch.dict(os.environ, {"RISK_USD_PER_TRADE": "10"}), \
              patch("common.dq_flags.append_dq_flag") as mock_dq:
-             
+
              apply_position_sizing_to_ctx(ctx, {"TP_MODE": "RR"}, "BTCUSDT")
              mock_dq.assert_called_with(ctx, "sizing_no_levels")
 

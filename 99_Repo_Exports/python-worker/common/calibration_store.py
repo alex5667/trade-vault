@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Dict, Any, List, Tuple
 import json
+import logging
 import os
 import time
-import logging
+from dataclasses import dataclass
+from typing import Any
 
 from common.isotonic_calibration import IsotonicCalibrator, sanitize_breakpoints
 
@@ -93,18 +93,18 @@ class CalibStore:
         *,
         min_samples: int = 300,
         reload_sec: int = 30,
-        logger: Optional[logging.Logger] = None,
+        logger: logging.Logger | None = None,
     ) -> None:
-        self.path = str(path or "")
+        self.path = (path or "")
         self.min_samples = int(min_samples)
         self.reload_sec = int(reload_sec)
         self.log = logger or logging.getLogger(__name__)
 
-        self._groups: Dict[str, CalibGroup] = {}
+        self._groups: dict[str, CalibGroup] = {}
         self._last_mtime: float = 0.0
         self._last_reload_ts: float = 0.0
         # Rate-limited warnings to keep hot paths quiet.
-        self._warn_last_ts: Dict[str, float] = {}
+        self._warn_last_ts: dict[str, float] = {}
         self._warn_every_sec: float = float(os.getenv("CALIB_WARN_EVERY_SEC", "30") or "30")
 
         # eager initial load (fail-open)
@@ -138,17 +138,17 @@ class CalibStore:
             return
 
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
+            with open(self.path, encoding="utf-8") as f:
                 obj = json.load(f)
             raw_groups = (obj or {}).get("groups", {}) or {}
-            out: Dict[str, CalibGroup] = {}
+            out: dict[str, CalibGroup] = {}
             for key, v in raw_groups.items():
                 vv = v or {}
                 if vv.get("type") != "isotonic":
                     continue
                 x = list(vv.get("x", []) or [])
                 p = list(vv.get("p", []) or [])
-                mode = str(vv.get("mode", "linear") or "linear").strip().lower()
+                mode = (vv.get("mode", "linear") or "linear").strip().lower()
                 n = int(vv.get("n", 0) or 0)
                 # sanitize_breakpoints can throw on broken content -> skip group (fail-open)
                 try:
@@ -182,7 +182,7 @@ class CalibStore:
             # fail-open: keep old groups if any, but log once per reload attempt
             self._warn_rl("calib_load_failed", "CalibStore.load failed: %s", repr(e))
 
-    def maybe_reload(self, now_ts: Optional[float] = None) -> None:
+    def maybe_reload(self, now_ts: float | None = None) -> None:
         """
         Дешёвый re-load:
           - не чаще reload_sec
@@ -204,7 +204,7 @@ class CalibStore:
             return
         self.load()
 
-    def _pick(self, keys: List[str]) -> Tuple[Optional[CalibGroup], Optional[str]]:
+    def _pick(self, keys: list[str]) -> tuple[CalibGroup | None, str | None]:
         """
         Общая логика выбора группы с учётом min_samples и базовой валидации.
         Fail-open: если группа плохая/малая — просто пропускаем.
@@ -224,7 +224,7 @@ class CalibStore:
         return None, None
 
 
-    def get_group(self, *, kind: str, symbol: str, side: Any = None) -> Tuple[Optional[CalibGroup], Optional[str]]:
+    def get_group(self, *, kind: str, symbol: str, side: Any = None) -> tuple[CalibGroup | None, str | None]:
         """
         Единственный публичный API выбора группы.
         Возвращает (group, key), где key — фактический выбранный ключ.
@@ -233,11 +233,11 @@ class CalibStore:
           - если side не задан -> ищем side:* и legacy (без side)
           - если side задан -> сначала side-aware ключи, затем side:*, затем legacy
         """
-        kind_s = str(kind or "*")
-        symbol_s = str(symbol or "*")
+        kind_s = (kind or "*")
+        symbol_s = (symbol or "*")
         side_s = _norm_side(side) if side is not None else "*"
 
-        keys: List[str] = []
+        keys: list[str] = []
         # Side-aware (most specific first)
         if side is not None:
             keys.extend([
@@ -266,11 +266,11 @@ class CalibStore:
             return g, k
         return self._pick(keys_legacy)
 
-    def get_group_obj(self, *, kind: str, symbol: str, side: Any = None) -> Optional[CalibGroup]:
+    def get_group_obj(self, *, kind: str, symbol: str, side: Any = None) -> CalibGroup | None:
         """Convenience wrapper when only group is needed."""
         g, _k = self.get_group(kind=kind, symbol=symbol, side=side)
         return g
 
-    def get(self, *, kind: str, symbol: str, side: Any = None) -> Optional[IsotonicCalibrator]:
+    def get(self, *, kind: str, symbol: str, side: Any = None) -> IsotonicCalibrator | None:
         g, _k = self.get_group(kind=kind, symbol=symbol, side=side)
         return g.calibrator if g else None

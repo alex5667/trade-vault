@@ -5,7 +5,6 @@ HTF (Higher Time Frame) levels provider.
 Заглушки для совместимости с существующим кодом.
 """
 
-from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 
 
@@ -13,7 +12,7 @@ from dataclasses import dataclass
 class HTFLevels:
     """HTF уровни для символа."""
     symbol: str
-    levels: Dict[str, List[float]] = None
+    levels: dict[str, list[float]] = None
 
     def __post_init__(self):
         if self.levels is None:
@@ -24,9 +23,9 @@ class HTFLevelsProvider:
     """Провайдер HTF уровней."""
 
     def __init__(self):
-        self._cache: Dict[str, HTFLevels] = {}
+        self._cache: dict[str, HTFLevels] = {}
 
-    def get_levels(self, symbol: str) -> Optional[HTFLevels]:
+    def get_levels(self, symbol: str) -> HTFLevels | None:
         """
         Получить HTF уровни для символа.
 
@@ -43,9 +42,9 @@ class RedisHTFLevelsProvider:
 
     def __init__(self, redis_client):
         self.redis = redis_client
-        self._cache: Dict[str, HTFLevels] = {}
+        self._cache: dict[str, HTFLevels] = {}
 
-    def get_levels(self, symbol: str) -> Optional[HTFLevels]:
+    def get_levels(self, symbol: str) -> HTFLevels | None:
         """
         Получить HTF уровни для символа из Redis.
 

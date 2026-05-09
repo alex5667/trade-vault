@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -14,13 +15,13 @@ except Exception:  # pragma: no cover
 
 from prometheus_client import Counter, Gauge, start_http_server
 
+from core.redis_stream_consumer import AsyncRedisStreamHelper
 from orderflow_services.recommendation_action_adapters_v1 import (
     ALLOWED_ACTIONS,
     REPLAY_REQUIRED_ACTIONS,
     apply_recommendation_adapter,
     stable_json,
 )
-
 
 APPLY_REQ_STREAM = os.getenv("ML_RECOMMENDATION_APPLY_REQUESTS_STREAM", "stream:ml:recommendation_apply_requests")
 APPLY_RESULTS_STREAM = os.getenv("ML_RECOMMENDATION_APPLY_RESULTS_STREAM", "stream:ml:recommendation_apply_results")
@@ -43,11 +44,11 @@ class ApplyDecision:
     ok: bool
     status: str
     reason_code: str
-    result_payload: Dict[str, Any]
+    result_payload: dict[str, Any]
 
 
-def _decode(fields: Dict[Any, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _decode(fields: dict[Any, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         vv = v.decode() if isinstance(v, (bytes, bytearray)) else str(v)
@@ -72,13 +73,13 @@ def state_key(target_kind: str, target_ref: str) -> str:
     return f"{STATE_PREFIX}:{target_kind}:{target_ref}"
 
 
-def evaluate_apply_request(payload: Dict[str, Any], current_state: Dict[str, Any], *, mode: str = MODE) -> ApplyDecision:
-    action_type = str(payload.get("action_type", ""))
-    replay_status = str(payload.get("replay_status", "UNKNOWN")).upper()
-    approval_status = str(payload.get("approval_status", "PENDING")).upper()
+def evaluate_apply_request(payload: dict[str, Any], current_state: dict[str, Any], *, mode: str = MODE) -> ApplyDecision:
+    action_type = (payload.get("action_type", ""))
+    replay_status = (payload.get("replay_status", "UNKNOWN")).upper()
+    approval_status = (payload.get("approval_status", "PENDING")).upper()
     recommendation_json = _json(payload.get("recommendation_json", {}), {})
-    target_kind = str(payload.get("target_kind", ""))
-    target_ref = str(payload.get("target_ref", ""))
+    target_kind = (payload.get("target_kind", ""))
+    target_ref = (payload.get("target_ref", ""))
 
     if action_type not in ALLOWED_ACTIONS:
         return ApplyDecision(False, "BLOCKED", "ACTION_NOT_ALLOWED", {"action_type": action_type})
@@ -110,13 +111,13 @@ def evaluate_apply_request(payload: Dict[str, Any], current_state: Dict[str, Any
     })
 
 
-def evaluate_rollback_request(payload: Dict[str, Any], current_state: Dict[str, Any], *, mode: str = MODE) -> ApplyDecision:
+def evaluate_rollback_request(payload: dict[str, Any], current_state: dict[str, Any], *, mode: str = MODE) -> ApplyDecision:
     rollback_json = _json(payload.get("rollback_json", {}), {})
     if not rollback_json or "before" not in rollback_json:
         return ApplyDecision(False, "BLOCKED", "ROLLBACK_PAYLOAD_INVALID", {})
-    action_type = str(rollback_json.get("action_type", "rollback"))
-    target_kind = str(rollback_json.get("target_kind", payload.get("target_kind", "")))
-    target_ref = str(rollback_json.get("target_ref", payload.get("target_ref", "")))
+    action_type = (rollback_json.get("action_type", "rollback"))
+    target_kind = (rollback_json.get("target_kind", payload.get("target_kind", "")))
+    target_ref = (rollback_json.get("target_ref", payload.get("target_ref", "")))
     before = rollback_json.get("before", {})
     status = "ROLLED_BACK" if mode == "COMMIT" else "DRY_RUN"
     return ApplyDecision(True, status, "OK", {
@@ -132,7 +133,7 @@ def evaluate_rollback_request(payload: Dict[str, Any], current_state: Dict[str, 
     })
 
 
-async def _process_apply(redis_cli: Any, msg_id: str, payload: Dict[str, str]) -> None:
+async def _process_apply(redis_cli: Any, msg_id: str, payload: dict[str, str]) -> None:
     target_kind = payload.get("target_kind", "")
     target_ref = payload.get("target_ref", "")
     key = state_key(target_kind, target_ref)
@@ -174,7 +175,7 @@ async def _process_apply(redis_cli: Any, msg_id: str, payload: Dict[str, str]) -
     }, maxlen=200000, approximate=True)
 
 
-async def _process_rollback(redis_cli: Any, msg_id: str, payload: Dict[str, str]) -> None:
+async def _process_rollback(redis_cli: Any, msg_id: str, payload: dict[str, str]) -> None:
     target_kind = payload.get("target_kind", "")
     target_ref = payload.get("target_ref", "")
     key = state_key(target_kind, target_ref)
@@ -202,17 +203,35 @@ async def main() -> None:  # pragma: no cover
     start_http_server(port)
     EXECUTOR_UP.set(1)
     redis_cli = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
-    try:
-        await redis_cli.xgroup_create(APPLY_REQ_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
-    try:
-        await redis_cli.xgroup_create(ROLLBACK_REQ_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
+
+    helper = AsyncRedisStreamHelper(client=redis_cli, group=GROUP, consumer=CONSUMER)
+    await helper.ensure_groups([APPLY_REQ_STREAM, ROLLBACK_REQ_STREAM], start_id="0")
+
+    pel_state = {APPLY_REQ_STREAM: "0-0", ROLLBACK_REQ_STREAM: "0-0"}
+
     while True:
         EXECUTOR_LAST_RUN.set(time.time())
-        rows = await redis_cli.xreadgroup(GROUP, CONSUMER, {APPLY_REQ_STREAM: ">", ROLLBACK_REQ_STREAM: ">"}, count=100, block=5000)
+
+        # 1. PEL Recovery
+        pending_apply_start, pending_apply = await helper.claim_pending(
+            APPLY_REQ_STREAM, min_idle_ms=5000, count=100, start_id=pel_state[APPLY_REQ_STREAM]
+        )
+        pel_state[APPLY_REQ_STREAM] = pending_apply_start
+
+        pending_rollback_start, pending_rollback = await helper.claim_pending(
+            ROLLBACK_REQ_STREAM, min_idle_ms=5000, count=100, start_id=pel_state[ROLLBACK_REQ_STREAM]
+        )
+        pel_state[ROLLBACK_REQ_STREAM] = pending_rollback_start
+
+        rows = []
+        if pending_apply:
+            rows.append([APPLY_REQ_STREAM, [(m.msg_id, m.fields) for m in pending_apply]])
+        if pending_rollback:
+            rows.append([ROLLBACK_REQ_STREAM, [(m.msg_id, m.fields) for m in pending_rollback]])
+
+        if not rows:
+            rows = await helper.read({APPLY_REQ_STREAM: ">", ROLLBACK_REQ_STREAM: ">"}, count=100, block=5000) or []
+
         for stream_name, messages in rows:
             sname = stream_name.decode() if isinstance(stream_name, (bytes, bytearray)) else str(stream_name)
             for msg_id, fields in messages:
@@ -223,7 +242,7 @@ async def main() -> None:  # pragma: no cover
                     else:
                         await _process_rollback(redis_cli, msg_id.decode() if isinstance(msg_id, (bytes, bytearray)) else str(msg_id), payload)
                 finally:
-                    await redis_cli.xack(sname, GROUP, msg_id)
+                    await helper.ack(sname, msg_id.decode() if isinstance(msg_id, (bytes, bytearray)) else str(msg_id))
 
 
 if __name__ == "__main__":  # pragma: no cover

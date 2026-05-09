@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
+
 import pytest
 
 from handlers.confirmations.l2_confirmations import L2ConfirmBreakout

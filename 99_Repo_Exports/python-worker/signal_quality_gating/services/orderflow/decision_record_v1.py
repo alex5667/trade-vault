@@ -1,4 +1,7 @@
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+
 """Unified Decision Record (v1).
 
 Implements plan steps:
@@ -20,13 +23,12 @@ It records both:
 - final_recommended: what the binding matrix recommends
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
-import time
 import zlib
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _env_bool(name: str, default: str = "0") -> bool:
@@ -38,7 +40,7 @@ def _env_float(name: str, default: str) -> float:
     try:
         return float(os.getenv(name, default))
     except Exception:
-        return float(default)
+        return default
 
 
 def _env_int(name: str, default: str) -> int:
@@ -67,7 +69,7 @@ def _stable_sample(s: str, rate: float) -> bool:
 deterministic_sample = _stable_sample
 
 
-def _safe_get(d: Any, path: Tuple[str, ...], default: Any = None) -> Any:
+def _safe_get(d: Any, path: tuple[str, ...], default: Any = None) -> Any:
     cur = d
     for k in path:
         if not isinstance(cur, dict) or k not in cur:
@@ -76,25 +78,25 @@ def _safe_get(d: Any, path: Tuple[str, ...], default: Any = None) -> Any:
     return cur
 
 
-def _normalize_ml_state(ml: Dict[str, Any]) -> str:
+def _normalize_ml_state(ml: dict[str, Any]) -> str:
     """Best-effort normalize ML decision state."""
     if not isinstance(ml, dict) or not ml:
         return "off"
 
     # Common hints
     for k in ("state", "decision", "ml_state"):
-        v = str(ml.get(k, "") or "").strip().lower()
+        v = (ml.get(k, "") or "").strip().lower()
         if v in {"allow", "deny", "abstain", "off", "error"}:
             return v
 
-    mode = str(ml.get("mode", "") or "").strip().lower()
+    mode = (ml.get("mode", "") or "").strip().lower()
     if mode in {"", "off", "disabled", "none"}:
         return "off"
 
     if ml.get("error") or ml.get("err") or ml.get("exception"):
         return "error"
 
-    if bool(ml.get("abstain", False)) or "abstain" in str(ml.get("kind", "") or "").lower():
+    if bool(ml.get("abstain", False)) or "abstain" in (ml.get("kind", "") or "").lower():
         return "abstain"
 
     # Most code paths expose allow=True/False
@@ -107,7 +109,7 @@ def _normalize_ml_state(ml: Dict[str, Any]) -> str:
 from services.orderflow.decision_binding_v1 import bind_rule_ml_v1
 
 
-def _dq_state_from_indicators(indicators: Dict[str, Any]) -> str:
+def _dq_state_from_indicators(indicators: dict[str, Any]) -> str:
     try:
         dh = float(indicators.get("data_health", 1.0) or 1.0)
     except Exception:
@@ -122,7 +124,7 @@ def _dq_state_from_indicators(indicators: Dict[str, Any]) -> str:
         src_ok = 1
 
     # Optional tick_time decisions
-    ttd = str(indicators.get("tick_time_decision", "") or "").lower()
+    ttd = (indicators.get("tick_time_decision", "") or "").lower()
     if ttd in {"drop", "reject", "quarantine"}:
         return "bad"
 
@@ -137,19 +139,19 @@ def _dq_state_from_indicators(indicators: Dict[str, Any]) -> str:
     return "ok"
 
 
-def _drift_state_from_indicators(indicators: Dict[str, Any]) -> str:
+def _drift_state_from_indicators(indicators: dict[str, Any]) -> str:
     # P50/P51: indicators.drift struct
     d = indicators.get("drift")
     if isinstance(d, dict):
         # drift_state_24h: 0, 1, 2 or "ok","warn","block"
-        raw = str(d.get("drift_state_24h", "") or "").lower()
+        raw = (d.get("drift_state_24h", "") or "").lower()
         if raw in {"0", "ok"}: return "ok"
         if raw in {"1", "warn"}: return "warn"
         if raw in {"2", "block", "fail", "veto"}: return "block"
         if raw: return raw
 
     # Fallback to direct indicators if not in drift struct
-    v = str(indicators.get("drift_state", "") or "").lower()
+    v = (indicators.get("drift_state", "") or "").lower()
     if v in {"ok", "bad", "na", "block", "warn"}:
         return v
     return "na"
@@ -158,11 +160,11 @@ def _drift_state_from_indicators(indicators: Dict[str, Any]) -> str:
 def build_decision_record_v1(
     *,
     runtime: Any,
-    signal: Dict[str, Any],
+    signal: dict[str, Any],
     stage: str,
     final_actual: str,
     veto_reason: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a decision record from the enriched signal dict."""
 
     indicators = signal.get("indicators") if isinstance(signal.get("indicators"), dict) else {}
@@ -199,7 +201,7 @@ def build_decision_record_v1(
     )
 
     # Keep record compact: store essentials + a pointer to heavy snapshots
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "version": 1,
         "ts_ms": int(ts_ms),
         "sid": sid,
@@ -207,7 +209,7 @@ def build_decision_record_v1(
         "direction": str(signal.get("direction") or signal.get("side") or "").upper(),
         "stage": str(stage),
         "final_actual": str(final_actual),
-        "final_veto_reason": str(veto_reason or ""),
+        "final_veto_reason": (veto_reason or ""),
         "final_recommended": rec.get("action"),
         "final_recommended_soft": int(rec.get("soft", 0) or 0),
         "final_recommended_source": rec.get("source"),
@@ -216,8 +218,8 @@ def build_decision_record_v1(
         "drift_state": drift_state,
         "drift_psi_max_24h": float(drift.get("psi_max_24h", 0.0) or 0.0),
         "drift_z_max_24h": float(drift.get("feature_drift_max_z_24h", 0.0) or 0.0),
-        "drift_top_feature_psi": str(drift.get("drift_top_feature_psi", "") or ""),
-        "drift_top_feature_z": str(drift.get("drift_top_feature_z", "") or ""),
+        "drift_top_feature_psi": (drift.get("drift_top_feature_psi", "") or ""),
+        "drift_top_feature_z": (drift.get("drift_top_feature_z", "") or ""),
         "drift_last_ts_ms": int(float(drift.get("drift_last_ts_ms", 0) or 0)),
         "binding_recommended_action": rec.get("action"),
         "binding_recommended_reason_code": rec.get("reason_code"),
@@ -235,16 +237,16 @@ def build_decision_record_v1(
         },
         "ml": {
             "state": ml_state,
-            "mode": str(ml.get("mode", "") or ""),
-            "kind": str(ml.get("kind", "") or ""),
+            "mode": (ml.get("mode", "") or ""),
+            "kind": (ml.get("kind", "") or ""),
             "allow": int(bool(ml.get("allow", True))),
-            "bucket": str(ml.get("bucket", "") or ""),
+            "bucket": (ml.get("bucket", "") or ""),
             "p_edge": float(ml.get("p_edge", 0.0) or 0.0),
             "p_min": float(ml.get("p_min", 0.0) or 0.0),
             "score": float(ml.get("score", 0.0) or 0.0),
             "floor": float(ml.get("floor", 0.0) or 0.0),
             "latency_us": int(float(ml.get("latency_us", 0) or 0) or 0),
-            "model_ver": str(ml.get("model_ver", ml.get("ver", "")) or ""),
+            "model_ver": (ml.get("model_ver", ml.get("ver", "")) or ""),
         },
         "inputs": {
             "tick_ts_ms": int(indicators.get("tick_ts", ts_ms) or ts_ms),
@@ -256,25 +258,25 @@ def build_decision_record_v1(
             "liq_score": float(indicators.get("liq_score", 0.0) or 0.0),
         },
         "meta": {
-            "meta_enforce_applied": int(ev.get("meta_enforce_applied", 0) or 0),
-            "meta_enforce_share": float(ev.get("meta_enforce_share", 1.0) or 1.0),
-            "meta_enforce_bucket": str(ev.get("meta_enforce_bucket", "") or ""),
-            "meta_p": float(ev.get("meta_p", -1.0) or -1.0),
-            "meta_veto": int(ev.get("meta_veto", 0) or 0),
+            "meta_enforce_applied": int(ev.get(MetaKeys.ENFORCE_APPLIED, 0) or 0),
+            "meta_enforce_share": float(ev.get(MetaKeys.ENFORCE_SHARE, 1.0) or 1.0),
+            "meta_enforce_bucket": (ev.get("meta_enforce_bucket", "") or ""),
+            "meta_p": float(ev.get(MetaKeys.P, -1.0) or -1.0),
+            "meta_veto": int(ev.get(MetaKeys.VETO, 0) or 0),
         },
         # P68: policy fields (fail-open)
         "policy": {
-            "ver": str(indicators.get("policy_ver", "") or ""),
-            "regime": str(indicators.get("policy_regime", "") or ""),
-            "reason": str(indicators.get("policy_reason", "") or ""),
+            "ver": (indicators.get("policy_ver", "") or ""),
+            "regime": (indicators.get("policy_regime", "") or ""),
+            "reason": (indicators.get("policy_reason", "") or ""),
             "force_rule_strong_only": bool(int(indicators.get("policy_force_rule_strong_only", 0) or 0)),
             "disable_ml_enforce": bool(int(indicators.get("policy_disable_ml_enforce", 0) or 0)),
-            "policy_dq_state": str(indicators.get("policy_dq_state", indicators.get("dq_state", ""))),
-            "policy_drift_state": str(indicators.get("policy_drift_state", indicators.get("drift_state", ""))),
+            "policy_dq_state": (indicators.get("policy_dq_state", indicators.get("dq_state", ""))),
+            "policy_drift_state": (indicators.get("policy_drift_state", indicators.get("drift_state", ""))),
             # P69
-            "policy_raw_mode": str(indicators.get("policy_raw_mode", "")),
-            "policy_effective_mode": str(indicators.get("policy_effective_mode", "")),
-            "policy_hysteresis_debug": str(indicators.get("policy_hysteresis_debug", "")),
+            "policy_raw_mode": (indicators.get("policy_raw_mode", "")),
+            "policy_effective_mode": (indicators.get("policy_effective_mode", "")),
+            "policy_hysteresis_debug": (indicators.get("policy_hysteresis_debug", "")),
             "policy_changed": bool(int(indicators.get("policy_changed", 0) or 0)),
         },
     }
@@ -294,7 +296,7 @@ def build_decision_record_v1(
 async def maybe_write_decision_record_v1(
     *,
     runtime: Any,
-    signal: Dict[str, Any],
+    signal: dict[str, Any],
     stage: str,
     final_actual: str,
     veto_reason: str = "",
@@ -313,7 +315,7 @@ async def maybe_write_decision_record_v1(
         # metrics are optional
         try:
             from services.orderflow.metrics import decision_record_sampled_out_total
-            decision_record_sampled_out_total.labels(symbol=str(signal.get("symbol") or "unknown"), stage=str(stage)).inc()
+            decision_record_sampled_out_total.labels(symbol=(signal.get("symbol") or "unknown"), stage=str(stage)).inc()
         except Exception:
             pass
         return
@@ -351,7 +353,7 @@ async def maybe_write_decision_record_v1(
                 "symbol": str(record["symbol"]),
                 "ts_ms": str(record["ts_ms"]),
                 "stage": str(record["stage"]),
-                "reason_code": str(record.get("final_recommended_reason_code") or ""),
+                "reason_code": (record.get("final_recommended_reason_code") or ""),
                 "payload": payload,
             },
             maxlen=maxlen,
@@ -376,7 +378,7 @@ async def maybe_write_decision_record_v1(
                     "symbol": str(record["symbol"]),
                     "ts_ms": str(record["ts_ms"]),
                     "stage": str(record["stage"]),
-                    "reason_code": str(record.get("final_recommended_reason_code") or ""),
+                    "reason_code": (record.get("final_recommended_reason_code") or ""),
                     "payload": payload,
                 },
                 maxlen=maxlen,
@@ -402,7 +404,8 @@ async def maybe_write_decision_record_v1(
 
 # P62 Adapters
 
-from typing import TypedDict, List
+from typing import TypedDict
+
 
 class DecisionRecordV1(TypedDict, total=False):
     ver: str
@@ -417,21 +420,21 @@ class DecisionRecordV1(TypedDict, total=False):
     rule_reason_code_top1: str
     ml_enabled: bool
     ml_state: str
-    ml_p_cal: Optional[float]
+    ml_p_cal: float | None
     ml_model_ver: str
-    ml_latency_ms: Optional[float]
+    ml_latency_ms: float | None
     ml_error: str
     dq_state: str
-    dq_flags: List[str]
+    dq_flags: list[str]
     drift_state: str
-    drift_flags: List[str]
+    drift_flags: list[str]
     actual_action: str
     actual_reason_code: str
     recommended_action: str
     recommended_reason_code: str
     meta_enforce_cov_bucket: str
     meta_enforce_applied: bool
-    payload_summary: Dict[str, Any]
+    payload_summary: dict[str, Any]
 
     # P68: circuit breaker / policy application (optional)
     policy_ver: str
@@ -449,7 +452,7 @@ class DecisionRecordV1(TypedDict, total=False):
     policy_changed: bool
 
 
-def extract_fields_best_effort(stub: Dict[str, Any]) -> Dict[str, Any]:
+def extract_fields_best_effort(stub: dict[str, Any]) -> dict[str, Any]:
     """Extract decision fields from a loose stub/signal dict."""
     indicators = stub.get("indicators", {})
 
@@ -489,7 +492,7 @@ def extract_fields_best_effort(stub: Dict[str, Any]) -> Dict[str, Any]:
         "ml_enabled": bool(ml),
         "ml_state": ml_state,
         "ml_p_cal": None, # complex to extract without full signal
-        "ml_model_ver": str(ml.get("ver", "")),
+        "ml_model_ver": (ml.get("ver", "")),
         "ml_latency_ms": None,
         "ml_error": "",
         "dq_state": dq_state,
@@ -531,10 +534,10 @@ async def write_decision_record(redis_client: Any, record: DecisionRecordV1) -> 
         # We use a reduced field set for the stream to save bandwidth/storage
         stream_fields = {
             "sid": str(sid),
-            "symbol": str(record.get("symbol", "")),
-            "ts_ms": str(record.get("decision_ts_ms", 0)),
+            "symbol": (record.get("symbol", "")),
+            "ts_ms": (record.get("decision_ts_ms", 0)),
             "stage": "early_veto", # or extract from record if present
-            "reason_code": str(record.get("actual_reason_code", "")),
+            "reason_code": (record.get("actual_reason_code", "")),
             "payload": payload
         }
 

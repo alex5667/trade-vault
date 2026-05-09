@@ -1,5 +1,6 @@
 from orderflow_services.route_incident_rca_mirror_rca_winner_apply_verification_loop_v3_17 import verify_exposures
 
+
 def test_verify_exposures_keep_applied():
     exposures = [
         {"role": "primary", "arm": "vertex_candidate"},
@@ -10,7 +11,7 @@ def test_verify_exposures_keep_applied():
     ]
     target_mode = "SHADOW"
     target_primary = "vertex_candidate"
-    
+
     # Needs at least 5 exposures (based on default MIN_EXPOSURES logic handled centrally)
     decision, reason, rates = verify_exposures(exposures, target_mode, target_primary)
     assert decision == "KEEP_APPLIED"
@@ -29,12 +30,12 @@ def test_verify_exposures_rollback_low_primary_match():
     ]
     target_mode = "SHADOW"
     target_primary = "vertex_candidate"
-    
+
     # 1 primary out of 6 total = 16% < 80% default threshold
     decision, reason, rates = verify_exposures(exposures, target_mode, target_primary)
     assert decision == "ROLLBACK_PREVIOUS_POLICY"
     assert "LOW_PRIMARY_MATCH_RATE" in reason
-    
+
 def test_verify_exposures_rollback_unexpected_primary():
     exposures = [
         {"role": "primary", "arm": "deterministic"},
@@ -45,7 +46,7 @@ def test_verify_exposures_rollback_unexpected_primary():
     ]
     target_mode = "SHADOW"
     target_primary = "vertex_candidate"
-    
+
     # 2 unexpected primary out of 5 = 40% > 20% default threshold
     decision, reason, rates = verify_exposures(exposures, target_mode, target_primary)
     assert decision == "ROLLBACK_PREVIOUS_POLICY"
@@ -56,7 +57,7 @@ def test_verify_exposures_hold_insufficient():
     exposures = [
         {"role": "primary", "arm": "vertex_candidate"},
     ]
-    
+
     decision, reason, rates = verify_exposures(exposures, "SHADOW", "vertex_candidate")
     assert decision == "HOLD"
     assert "insufficient_exposures" in reason

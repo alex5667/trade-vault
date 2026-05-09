@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Cross-check Redis execution state against Redis orders:exec and SQL journal.
 
@@ -22,10 +24,9 @@ returns a non-zero code only when configured critical thresholds are exceeded.
 import argparse
 import json
 import os
-import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
-
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import asdict, dataclass
+from typing import Any
 
 # Fields that must be consistent across all three views
 STATE_FIELDS = ("symbol", "status", "fsm_state", "execution_policy", "position_side")
@@ -47,7 +48,7 @@ def _i(v: Any, default: int = 0) -> int:
             return default
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _s(v: Any) -> str:
@@ -55,7 +56,7 @@ def _s(v: Any) -> str:
     return "" if v is None else str(v)
 
 
-def _loads(value: Any) -> Dict[str, Any]:
+def _loads(value: Any) -> dict[str, Any]:
     """Deserialise a Redis value to dict; silently return {} on any error."""
     if value is None:
         return {}
@@ -92,7 +93,7 @@ class ConsistencySummary:
     warning_mismatches: int
     stream_missing_suppressed: int
     redis_state_missing_suppressed: int
-    mismatches: List[Dict[str, Any]]
+    mismatches: list[dict[str, Any]]
 
 
 class RedisExecutionReader:
@@ -103,7 +104,7 @@ class RedisExecutionReader:
         self.state_prefix = state_prefix
         self.exec_stream = exec_stream
 
-    def iter_state(self) -> Iterator[Tuple[str, Dict[str, Any]]]:
+    def iter_state(self) -> Iterator[tuple[str, dict[str, Any]]]:
         """Scan ``orders:state:*`` keys and yield (sid, doc)."""
         for key in self.redis.scan_iter(match=f"{self.state_prefix}*"):
             doc = _loads(self.redis.get(key))
@@ -111,13 +112,13 @@ class RedisExecutionReader:
             if sid:
                 yield sid, doc
 
-    def latest_stream_events(self, count: int = 20000) -> Dict[str, Dict[str, Any]]:
+    def latest_stream_events(self, count: int = 20000) -> dict[str, dict[str, Any]]:
         """Return the latest ``orders:exec`` stream event per sid.
 
         Reads the most recent *count* entries via XREVRANGE (newest-first) and
         keeps only the first (= latest) payload seen for each sid.
         """
-        latest: Dict[str, Dict[str, Any]] = {}
+        latest: dict[str, dict[str, Any]] = {}
         rows = self.redis.xrevrange(self.exec_stream, '+', '-', count=count)
         # xrevrange returns newest-first. Keep first seen per sid as latest.
         for stream_id, fields in rows:
@@ -135,13 +136,13 @@ class SQLExecutionReader:
     def __init__(self, conn: Any):
         self.conn = conn
 
-    def load_orders(self) -> Dict[str, Dict[str, Any]]:
+    def load_orders(self) -> dict[str, dict[str, Any]]:
         """Load all rows from ``execution_orders`` keyed by sid."""
         sql = (
             "SELECT sid, symbol, action, status, fsm_state, execution_policy, position_side, state_jsonb "
             "FROM execution_orders"
         )
-        out: Dict[str, Dict[str, Any]] = {}
+        out: dict[str, dict[str, Any]] = {}
         with self.conn.cursor() as cur:
             cur.execute(sql)
             for sid, symbol, action, status, fsm_state, execution_policy, position_side, state_jsonb in cur.fetchall():
@@ -156,13 +157,13 @@ class SQLExecutionReader:
                 out[_s(sid)] = doc
         return out
 
-    def load_protection_refs(self) -> Dict[str, Dict[str, Any]]:
+    def load_protection_refs(self) -> dict[str, dict[str, Any]]:
         """Load protection algo references from ``execution_protection_refs``."""
         sql = (
             "SELECT sid, symbol, sl_algo_id, tp1_algo_id, tp2_algo_id, tp3_algo_id, trail_algo_id "
             "FROM execution_protection_refs"
         )
-        out: Dict[str, Dict[str, Any]] = {}
+        out: dict[str, dict[str, Any]] = {}
         with self.conn.cursor() as cur:
             cur.execute(sql)
             for sid, symbol, sl_algo_id, tp1_algo_id, tp2_algo_id, tp3_algo_id, trail_algo_id in cur.fetchall():
@@ -182,9 +183,9 @@ def compare_execution_views(
     redis_state: Mapping[str, Mapping[str, Any]],
     stream_latest: Mapping[str, Mapping[str, Any]],
     sql_orders: Mapping[str, Mapping[str, Any]],
-    sql_refs: Optional[Mapping[str, Mapping[str, Any]]] = None,
-    sid_prefix_allowlist: Optional[Tuple[str, ...]] = None,
-) -> Tuple[List[ConsistencyMismatch], int, int]:
+    sql_refs: Mapping[str, Mapping[str, Any]] | None = None,
+    sid_prefix_allowlist: tuple[str, ...] | None = None,
+) -> tuple[list[ConsistencyMismatch], int, int]:
     """Compare the three execution views and return (mismatches, stream_missing_suppressed, redis_state_missing_suppressed).
 
     Parameters
@@ -211,7 +212,7 @@ def compare_execution_views(
       no stream event are flagged — that indicates a true gap.
     """
     sql_refs = sql_refs or {}
-    mismatches: List[ConsistencyMismatch] = []
+    mismatches: list[ConsistencyMismatch] = []
     stream_missing_suppressed = 0
     redis_state_missing_suppressed = 0
     all_sids = set(redis_state) | set(stream_latest) | set(sql_orders)
@@ -356,7 +357,7 @@ def run_check(
     state_prefix: str,
     exec_stream: str,
     stream_count: int = 50000,
-    sid_prefix_allowlist: Optional[Tuple[str, ...]] = None,
+    sid_prefix_allowlist: tuple[str, ...] | None = None,
 ) -> ConsistencySummary:
     """Full consistency check: connect, collect, compare, summarise.
 
@@ -388,7 +389,7 @@ def run_check(
     )
 
 
-def _parse_prefix_allowlist(raw: str) -> Optional[Tuple[str, ...]]:
+def _parse_prefix_allowlist(raw: str) -> tuple[str, ...] | None:
     """Parse a comma-separated SID prefix allowlist from an env/CLI string.
 
     Returns ``None`` (= no filter) when the string is empty or whitespace-only.
@@ -400,14 +401,14 @@ def _parse_prefix_allowlist(raw: str) -> Optional[Tuple[str, ...]]:
     return tuple(parts) if parts else None
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description='Check consistency between Redis orders state/stream and SQL execution journal.'
     )
     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
     parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
     parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
-    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC))
     parser.add_argument('--stream-count', type=int, default=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '50000')))
     parser.add_argument('--report-path', default=os.getenv('EXEC_CONSISTENCY_REPORT_PATH', ''))
     parser.add_argument('--critical-threshold', type=int, default=int(os.getenv('EXEC_CONSISTENCY_CRITICAL_THRESHOLD', '1')))

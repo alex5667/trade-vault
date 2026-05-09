@@ -11,11 +11,11 @@ Unified entrypoint for SRE checks:
 Usage:
   python3 -m tools.sre_monitor_all_v3 --emit-metrics --notify
 """
-import os
-import sys
-import subprocess
 import argparse
 import logging
+import os
+import subprocess
+import sys
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("sre_monitor_v3")
@@ -41,12 +41,12 @@ def main():
     base = os.path.dirname(__file__)
     # Optional: auto-downgrade meta ENFORCE per coverage bucket based on outcomes (P33)
     enable_meta_cov_outcome = bool(int(os.getenv("ENABLE_META_COV_OUTCOME_AUTO_APPLY", "0") or 0))
-    
+
     flags = []
     if args.emit_metrics: flags.append("--emit-metrics")
     if args.notify: flags.append("--notify")
     if args.dry_run: flags.append("--dry-run")
-    
+
     # Specific flags for specific tools
     notify_flags = []
     if args.emit_suggestions:
@@ -86,7 +86,7 @@ def main():
     for tool_def in tools:
         tool_script = tool_def[0]
         tool_extra_args = tool_def[1] if len(tool_def) > 1 else []
-        
+
         # Tools that do NOT accept standard flags (--emit-metrics, --notify, --dry-run)
         no_flags_tools = {
             "signal_quality_kpi_worker_v1.py",
@@ -94,7 +94,7 @@ def main():
             "of_gate_metrics_contract_check_v1.py"
         }
         actual_flags = [] if tool_script in no_flags_tools else flags
-        
+
         full_cmd = [py, os.path.join(base, tool_script)] + actual_flags + tool_extra_args
         rc = run_tool(full_cmd)
         logger.info(f"Tool {tool_script} exited with {rc}")
@@ -103,7 +103,7 @@ def main():
     # 0 = OK, 1 = Error/Exception, 2 = Alert found
     # We return the worst status (2 > 1 > 0)
     max_rc = max(exit_codes) if exit_codes else 0
-    
+
     logger.info(f"All monitors finished. Max exit code: {max_rc}")
     sys.exit(max_rc)
 

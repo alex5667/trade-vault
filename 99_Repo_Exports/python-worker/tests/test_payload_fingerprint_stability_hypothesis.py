@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from common.payload_fingerprint import fingerprint_tradeable_payload
-
 
 json_leaf = st.one_of(
     st.none(),

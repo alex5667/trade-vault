@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 BalanceProvider — динамический источник баланса счёта для сайзинга позиций.
 
@@ -15,15 +16,15 @@ ENV:
   ACCOUNT_DEPOSIT_USD       статичный fallback в USDT                      (default: 1000)
   ACCOUNT_SNAPSHOT_KEY      Redis-ключ snapshot                             (default: account:snapshot:binance_usdtm)
 """
-from utils.time_utils import get_ny_time_millis
-
 import json
 import logging
 import os
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def _env_float(name: str, default: float) -> float:
             return float(v)
     except Exception:
         pass
-    return float(default)
+    return default
 
 
 def _env_str(name: str, default: str) -> str:
@@ -65,9 +66,9 @@ class _InProcessCache:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._entry: Optional[_CacheEntry] = None
+        self._entry: _CacheEntry | None = None
 
-    def get(self, ttl_s: float) -> Optional[_CacheEntry]:
+    def get(self, ttl_s: float) -> _CacheEntry | None:
         with self._lock:
             if self._entry is not None and self._entry.age_s() < ttl_s:
                 return self._entry
@@ -123,7 +124,7 @@ class BalanceProvider:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_env(cls, *, redis_client: Any = None, binance_client: Any = None) -> "BalanceProvider":
+    def from_env(cls, *, redis_client: Any = None, binance_client: Any = None) -> BalanceProvider:
         """Собрать провайдер из ENV vars."""
         return cls(
             redis_client=redis_client,
@@ -136,7 +137,7 @@ class BalanceProvider:
         )
 
     @classmethod
-    def from_ctx(cls, ctx: Any) -> "BalanceProvider":
+    def from_ctx(cls, ctx: Any) -> BalanceProvider:
         """
         Собрать провайдер из execution context.
         ctx.balance_provider → возвращаем если это BalanceProvider.
@@ -164,7 +165,7 @@ class BalanceProvider:
         _, available = self._resolve()
         return available
 
-    def get_balances(self) -> Tuple[float, float]:
+    def get_balances(self) -> tuple[float, float]:
         """Вернуть (wallet_balance, available_balance)."""
         return self._resolve()
 
@@ -176,7 +177,7 @@ class BalanceProvider:
     # Internal resolution chain
     # ------------------------------------------------------------------
 
-    def _resolve(self) -> Tuple[float, float]:
+    def _resolve(self) -> tuple[float, float]:
         # 1. In-process cache
         cached = _GLOBAL_CACHE.get(self._cache_ttl_s)
         if cached is not None:
@@ -204,7 +205,7 @@ class BalanceProvider:
             return r
         return self._static_fallback("all_sources_failed")
 
-    def _try_redis_snapshot(self) -> Optional[Tuple[float, float]]:
+    def _try_redis_snapshot(self) -> tuple[float, float] | None:
         """Читает account:snapshot из Redis. None если недоступно или устарело."""
         if self._redis is None:
             return None
@@ -244,7 +245,7 @@ class BalanceProvider:
             log.warning("[BalanceProvider] Redis read error: %s", exc)
             return None
 
-    def _try_binance_rest(self) -> Optional[Tuple[float, float]]:
+    def _try_binance_rest(self) -> tuple[float, float] | None:
         """Прямой вызов GET /fapi/v2/account. None если нет клиента или ошибка."""
         if self._binance is None:
             # Попытка lazy-init из ENV
@@ -279,7 +280,7 @@ class BalanceProvider:
             log.warning("[BalanceProvider] Binance REST error: %s", exc)
             return None
 
-    def _static_fallback(self, reason: str) -> Tuple[float, float]:
+    def _static_fallback(self, reason: str) -> tuple[float, float]:
         """Последний резерв — ACCOUNT_DEPOSIT_USD."""
         deposit = _env_float("ACCOUNT_DEPOSIT_USD", self._static_deposit)
         if deposit <= 0:

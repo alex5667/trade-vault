@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any, Dict, Iterable, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 JSON_SCALARS = (str, int, float, bool, type(None))
 
@@ -71,7 +72,7 @@ def assert_json_safe(
 
 
 def assert_tradeable_dict(
-    d: Dict[str, Any],
+    d: dict[str, Any],
     *,
     where: str,
     max_json_bytes: int = DEFAULT_MAX_JSON_BYTES,
@@ -81,7 +82,7 @@ def assert_tradeable_dict(
         raise AssertionError(f"{where}: expected dict, got {type(d).__name__}")
 
     # Запрет ключей
-    for k in d.keys():
+    for k in d:
         ks = str(k)
         if ks in forbidden_keys:
             raise AssertionError(f"{where}: forbidden key: {ks}")
@@ -98,7 +99,7 @@ def assert_tradeable_dict(
         raise AssertionError(f"{where}: json bytes too large: {len(raw)} > {max_json_bytes}")
 
 
-def assert_outbox_sidecar_meta(meta: Dict[str, Any], *, where: str) -> None:
+def assert_outbox_sidecar_meta(meta: dict[str, Any], *, where: str) -> None:
     """
     Sidecar meta тоже должно быть JSON-safe, но может быть больше.
     Главное: payload_meta должен быть namespace-ом и НЕ ломать schema/trace поля.

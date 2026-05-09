@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for P91 LOB pressure smoke-check orchestration in of_timers_worker.
 
 Covers:
@@ -36,10 +37,9 @@ WORKERS = [
 @pytest.mark.parametrize("worker_mod", WORKERS)
 def test_disabled_by_env(worker_mod):
     w = _reload(worker_mod)
-    with patch.dict(os.environ, {"ENABLE_LOB_PRESSURE_SMOKE": "0"}):
-        with patch.object(w, "run_tool_rc") as mock_run:
-            assert w.run_lob_pressure_smoke_check() is True
-            mock_run.assert_not_called()
+    with patch.dict(os.environ, {"ENABLE_LOB_PRESSURE_SMOKE": "0"}), patch.object(w, "run_tool_rc") as mock_run:
+        assert w.run_lob_pressure_smoke_check() is True
+        mock_run.assert_not_called()
 
 
 @pytest.mark.parametrize("worker_mod", WORKERS)

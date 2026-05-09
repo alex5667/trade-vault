@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -41,7 +42,7 @@ LAT = _hist("ml_operator_routing_incident_route_rca_routing_rollback_latency_sec
 LAST_RUN = _gauge("ml_operator_routing_incident_route_rca_routing_rollback_last_run_ts_seconds", "Last timestamp")
 
 def now_ms() -> int: return get_ny_time_millis()
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 async def ensure_group(r: Any, stream: str, group: str) -> None:
@@ -67,14 +68,14 @@ async def run_loop(r: Any) -> None:
                     inc_id = row.get("incident_id", "unknown")
                     baseline_route_json = row.get("baseline_route_json", "{}")
                     baseline_route = json.loads(baseline_route_json)
-                    
+
                     # Rollback execution logic
                     rollback_success = "false"
                     if mode == "COMMIT" and baseline_route:
                         route_key = "cfg:ml:operator_routing_incident_route_rca_routing:default"
                         await r.hset(route_key, mapping=baseline_route)
                         rollback_success = "true"
-                    
+
                     rollback_result = {
                         "incident_id": inc_id,
                         "status": "SUCCESS" if rollback_success == "true" or mode == "DRY_RUN" else "FAILED",
@@ -82,16 +83,16 @@ async def run_loop(r: Any) -> None:
                         "applied": rollback_success,
                         "ts_ms": now_ms()
                     }
-                    
+
                     await r.xadd(OUT_STREAM, rollback_result, maxlen=MAXLEN, approximate=True)
                     await r.xadd(JOURNAL_STREAM, rollback_result, maxlen=MAXLEN, approximate=True)
                     await r.xadd(AUDIT_STREAM, rollback_result, maxlen=MAXLEN, approximate=True)
-                    
+
                     await r.xack(IN_STREAM, GROUP, msg_id)
                 except Exception:
                     status = "error"
                     await r.xack(IN_STREAM, GROUP, msg_id)
-                    
+
         if LAST_RUN: LAST_RUN.set(time.time())
     except Exception:
         status = "error"

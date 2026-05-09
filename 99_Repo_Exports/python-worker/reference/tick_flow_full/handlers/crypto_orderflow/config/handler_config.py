@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import os
-import time
 import hashlib
-import math
-from typing import Any, Dict, Optional, Tuple
+import os
+from typing import Any
 
-from common.runtime_snapshot import RuntimeSnapshot
-from common.math_safe import safe_float, finite_or
 from common.dq_flags import append_dq_flag
+from common.math_safe import safe_float
+from common.runtime_snapshot import RuntimeSnapshot
 from handlers.crypto_orderflow.utils.risk_cfg_resolver import RiskCfgResolver
+
 
 class CryptoOrderFlowConfigManager:
     """
@@ -21,7 +20,7 @@ class CryptoOrderFlowConfigManager:
         self._handler = handler
         self._symbol = symbol
         self._config = config
-        self._runtime: Optional[RuntimeSnapshot] = None
+        self._runtime: RuntimeSnapshot | None = None
         self._risk_resolver = RiskCfgResolver()
 
     @property
@@ -57,10 +56,10 @@ class CryptoOrderFlowConfigManager:
             rt = RuntimeSnapshot.load()
             self._runtime = rt
             return rt
-        
+
         # Soft refresh attempt (fail-open)
         # Note: Original code tried to call rt.maybe_refresh(redis=r) which might not exist
-        # on RuntimeSnapshot from common.runtime_snapshot. We preserve the try-block 
+        # on RuntimeSnapshot from common.runtime_snapshot. We preserve the try-block
         # structure but if methods coincide with common lib, it works.
         try:
             r = getattr(self._handler, "redis", None)
@@ -71,11 +70,11 @@ class CryptoOrderFlowConfigManager:
                     return rt2
         except Exception:
             pass
-    def resolve_risk_cfg(self) -> Dict[str, Any]:
+    def resolve_risk_cfg(self) -> dict[str, Any]:
         """Resolves symbol-specific risk configuration."""
         return self._risk_resolver.resolve(str(self.symbol))
 
-    def min_conf_thresholds(self, symbol: str) -> Tuple[float, float]:
+    def min_conf_thresholds(self, symbol: str) -> tuple[float, float]:
         """Replaces per-call os.getenv parsing."""
         rt = self.get_runtime_snapshot()
         return float(rt.min_conf(symbol)), float(rt.min_conf_factor(symbol))
@@ -94,7 +93,7 @@ class CryptoOrderFlowConfigManager:
                     return float(v)
             except Exception:
                 pass
-        
+
         # fallback: env default
         sym = str(getattr(ctx, "symbol", "") or self.symbol)
         return self._sym_env_float("EDGE_FEES_BPS_DEFAULT", sym, 4.0)
@@ -117,7 +116,7 @@ class CryptoOrderFlowConfigManager:
             if fv > 0:
                 rs = float(fv)
                 break
-        
+
         # 2) Fallback from spread_bps
         spread_bps = 0.0
         sb = safe_float(getattr(ctx, "spread_bps", None), default=0.0)
@@ -155,8 +154,8 @@ class CryptoOrderFlowConfigManager:
             tp1 = getattr(ctx, "tp1_price", None) or getattr(ctx, "tp1", None)
             entry = getattr(ctx, "entry_price", None) or getattr(ctx, "price", None)
             try:
-                tp1f = float(tp1) if tp1 is not None else None
-                enf = float(entry) if entry is not None else px
+                tp1f = tp1 if tp1 is not None else None
+                enf = entry if entry is not None else px
             except Exception:
                 tp1f = None
                 enf = px
@@ -169,13 +168,13 @@ class CryptoOrderFlowConfigManager:
             if stop_dist is None:
                 sl = getattr(ctx, "sl_price", None) or getattr(ctx, "sl", None)
                 try:
-                    slf = float(sl) if sl is not None else None
+                    slf = sl if sl is not None else None
                     stop_dist = abs(px - slf) if slf is not None else None
                 except Exception:
                     stop_dist = None
-            
+
             try:
-                sd = float(stop_dist) if stop_dist is not None else 0.0
+                sd = stop_dist if stop_dist is not None else 0.0
             except Exception:
                 sd = 0.0
 
@@ -184,7 +183,7 @@ class CryptoOrderFlowConfigManager:
                 rr = float(tp_rr) if tp_rr is not None else 1.0
             except Exception:
                 rr = 1.0
-            
+
             if sd > 0 and rr > 0:
                 return (sd * rr) / px * 10_000.0
 
@@ -192,10 +191,10 @@ class CryptoOrderFlowConfigManager:
         if mode == "atr":
             atr = getattr(ctx, "atr", None) or getattr(ctx, "atr_1m", None) or getattr(ctx, "atr_intraday", None)
             try:
-                atrf = float(atr) if atr is not None else 0.0
+                atrf = atr if atr is not None else 0.0
             except Exception:
                 atrf = 0.0
-            
+
             mult = 1.0
             tp_atr_mults = getattr(self.config, "tp_atr_mults", None)
             try:
@@ -222,14 +221,14 @@ class CryptoOrderFlowConfigManager:
         except Exception:
             return str(v)
 
-    def build_config_params_from_cfg(self) -> Dict[str, Any]:
+    def build_config_params_from_cfg(self) -> dict[str, Any]:
         """
         Build config_params for sidecar meta (NOT payload).
         """
         cfg = self.config
         if cfg is None:
             return {}
-        
+
         raw = {
             "delta_window_ticks": getattr(cfg, "delta_window_ticks", None),
             "delta_z_threshold": getattr(cfg, "delta_z_threshold", None),
@@ -252,7 +251,7 @@ class CryptoOrderFlowConfigManager:
         # Minimize size: remove None
         return {k: v for k, v in raw.items() if v is not None}
 
-    def stable_signal_id(self, payload: Dict[str, Any]) -> str:
+    def stable_signal_id(self, payload: dict[str, Any]) -> str:
         """
         Stable signal_id for replay/regression tests.
         Key: symbol|kind|side|ts_bucket|level_price_rounded|venue|timeframe
@@ -260,21 +259,21 @@ class CryptoOrderFlowConfigManager:
         ts = int(payload.get("ts", 0) or 0)
         bucket_ms = int(os.getenv("OUTBOX_SEM_DEDUP_BUCKET_MS", "1000") or 1000)
         ts_bucket = (ts // max(bucket_ms, 1)) * max(bucket_ms, 1)
-        
-        lvl = payload.get("level_price", None)
+
+        lvl = payload.get("level_price")
         try:
             lvl_f = float(lvl) if lvl is not None else 0.0
         except Exception:
             lvl_f = 0.0
-        
+
         lvl_dec = int(os.getenv("OUTBOX_SEM_DEDUP_LEVEL_DECIMALS", "2") or 2)
         lvl_r = round(lvl_f, max(0, lvl_dec))
 
-        sym = str(payload.get("symbol", "") or "")
-        kind = str(payload.get("kind", "") or "")
-        side = str(payload.get("side", "") or "")
+        sym = (payload.get("symbol", "") or "")
+        kind = (payload.get("kind", "") or "")
+        side = (payload.get("side", "") or "")
         venue = str(payload.get("venue", "") or payload.get("exchange", "") or "")
-        tf = str(payload.get("timeframe", "") or "")
-        
+        tf = (payload.get("timeframe", "") or "")
+
         base = f"{sym}|{kind}|{side}|{ts_bucket}|{lvl_r}|{venue}|{tf}"
         return hashlib.sha1(base.encode("utf-8")).hexdigest()

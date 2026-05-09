@@ -1,28 +1,29 @@
 from services.stats_aggregator import extract_empirical_triplet
 
+
 def test_extract_empirical_triplet_prefer_tp1_snapshot():
     # Arrange
     trade = {
         "regime": "trend",
-        
+
         # Global MFE/MAE (end of trade)
         "mfe_pnl": 500.0,
         "mae_pnl": -200.0,
-        
+
         # TP1 snapshot (earlier) - PREFERRED if tp1_hit=1
         "mfe_pnl_at_tp1": 100.0,
         "mae_pnl_before_tp1": -50.0,
-        
+
         "tp1_hit": 1,
-        
+
         # Helper fields for bps calc
         "entry_price": 10000,
         "qty": 1.0,  # notional = 10000
     }
-    
+
     # Act
     res = extract_empirical_triplet(trade)
-    
+
     # Assert
     # 100 / 10000 = 1% = 100 bps
     # 50 / 10000 = 0.5% = 50 bps
@@ -41,10 +42,10 @@ def test_extract_empirical_triplet_fallback_global():
         "entry_price": 1000,
         "qty": 10.0, # notional 10000
     }
-    
+
     # Act
     res = extract_empirical_triplet(trade)
-    
+
     # Assert
     # 200/10000 = 200 bps
     # 100/10000 = 100 bps

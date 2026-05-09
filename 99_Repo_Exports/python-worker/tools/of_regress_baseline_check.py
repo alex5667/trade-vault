@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Golden regression harness: baseline inputs → candidate output → diff → alert/fail.
 
 Compares baseline engine replay output with candidate output and reports mismatches.
@@ -12,14 +13,14 @@ Usage:
 import argparse
 import json
 import os
-import time
 from collections import Counter
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from collections.abc import Iterator
+from typing import Any
 
 
-def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
+def iter_ndjson(path: str) -> Iterator[dict[str, Any]]:
     """Iterator over NDJSON lines."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -27,7 +28,7 @@ def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
             yield json.loads(s)
 
 
-def _get(r: Dict[str, Any], key: str) -> Any:
+def _get(r: dict[str, Any], key: str) -> Any:
     """Extract value from row, checking both top-level and evidence dict."""
     if key in r:
         return r.get(key)
@@ -37,7 +38,7 @@ def _get(r: Dict[str, Any], key: str) -> Any:
     return None
 
 
-def row_key(r: Dict[str, Any]) -> str:
+def row_key(r: dict[str, Any]) -> str:
     """Generate unique key for row matching (sid or composite)."""
     sid = r.get("sid")
     if sid:
@@ -49,7 +50,7 @@ def row_key(r: Dict[str, Any]) -> str:
 FIELDS = ["ok", "score", "have", "need", "scenario", "reason", "scenario_v4", "need_reason"]
 
 
-def diff(baseline_path: str, cand_path: str, *, symbol="") -> Dict[str, Any]:
+def diff(baseline_path: str, cand_path: str, *, symbol="") -> dict[str, Any]:
     """
     Compare baseline and candidate outputs.
     
@@ -64,7 +65,7 @@ def diff(baseline_path: str, cand_path: str, *, symbol="") -> Dict[str, Any]:
     """
     base = {}
     for r in iter_ndjson(baseline_path):
-        if symbol and str(r.get("symbol","")).upper() != symbol.upper():
+        if symbol and (r.get("symbol","")).upper() != symbol.upper():
             continue
         base[row_key(r)] = r
 
@@ -76,7 +77,7 @@ def diff(baseline_path: str, cand_path: str, *, symbol="") -> Dict[str, Any]:
     by_reason = Counter()
 
     for r in iter_ndjson(cand_path):
-        if symbol and str(r.get("symbol","")).upper() != symbol.upper():
+        if symbol and (r.get("symbol","")).upper() != symbol.upper():
             continue
         k = row_key(r)
         b = base.get(k)

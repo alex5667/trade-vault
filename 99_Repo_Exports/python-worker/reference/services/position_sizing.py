@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import math
 import os
 from dataclasses import dataclass
+
 
 @dataclass(frozen=True)
 class SizingResult:
@@ -18,7 +20,7 @@ def _env_float(name: str, default: float) -> float:
             return float(v)
     except Exception:
         pass
-    return float(default)
+    return default
 
 def calculate_qty_fixed_risk(
     risk_usd: float,
@@ -57,21 +59,21 @@ def calculate_qty_fixed_risk(
     # 2. Check min_lot
     if qty < min_lot:
         return SizingResult(qty, risk_usd, qty * entry_price, False, "min_lot")
-    
+
     # 3. Check min_notional
     notional = qty * entry_price
     risk_bump_flag = False
-    
+
     if notional < min_notional:
          # Must increase qty to meet min_notional
          # This WILL increase risk > target_risk for small accounts/stops
          req_qty = min_notional / entry_price
          if lot_step > 0:
              req_qty = math.ceil(req_qty / lot_step) * lot_step
-         
+
          if req_qty > max_lot:
               return SizingResult(qty, risk_usd, notional, False, "min_notional_impossible")
-         
+
          qty = req_qty
          risk_bump_flag = True
 
@@ -80,7 +82,7 @@ def calculate_qty_fixed_risk(
     reason = "ok"
     if risk_bump_flag:
         reason = "min_notional_bumps_risk"
-    
+
     return SizingResult(qty, actual_risk, qty * entry_price, True, reason)
 
 def round_price_conservative(price: float, tick_size: float, side_int: int, is_tp: bool = True) -> float:
@@ -95,9 +97,9 @@ def round_price_conservative(price: float, tick_size: float, side_int: int, is_t
     """
     if tick_size <= 1e-12:
         return price
-        
+
     steps = price / tick_size
-    
+
     if side_int > 0: # LONG
         if is_tp:
             # TP Above: Round DOWN -> smaller price -> closer
@@ -116,9 +118,9 @@ def round_price_conservative(price: float, tick_size: float, side_int: int, is_t
     return final
 
 def apply_position_sizing_to_ctx(
-    ctx: Any, 
-    cfg: Dict[str, Any], 
-    symbol: str, 
+    ctx: Any,
+    cfg: Dict[str, Any],
+    symbol: str,
     logger: Any = None
 ) -> None:
     """
@@ -127,14 +129,14 @@ def apply_position_sizing_to_ctx(
     Writes ctx.qty, ctx.risk_usd, or appends DQ flags.
     """
     try:
-        tp_mode = str(cfg.get("TP_MODE") or "").upper()
+        tp_mode = (cfg.get("TP_MODE") or "").upper()
         if tp_mode != "RR":
             return
 
         # 1. Config Check
         # Priority: RISK_USD_PER_TRADE > RISK_PERCENT * ACCOUNT_DEPOSIT_USD
         risk_usd = _env_float("RISK_USD_PER_TRADE", 0.0)
-        
+
         if risk_usd <= 0:
             # Fallback to percentage risk
             deposit = _env_float("ACCOUNT_DEPOSIT_USD", 0.0)
@@ -187,18 +189,18 @@ def apply_position_sizing_to_ctx(
         # 1. Config Check
         # Priority: RISK_USD_PER_TRADE > RISK_PERCENT * ACCOUNT_DEPOSIT_USD
         risk_usd = _env_float("RISK_USD_PER_TRADE", 0.0)
-        
+
         if risk_usd <= 0:
             # Fallback to percentage risk
             deposit_v = _env_float("ACCOUNT_DEPOSIT_USD", 0.0)
             if deposit_v <= 0:
                  # Try ctx
                  deposit_v = float(getattr(ctx, "deposit_usd", 0.0) or 0.0)
-            
+
             risk_pct = _env_float("RISK_PERCENT", 0.0)
             if deposit_v > 0 and risk_pct > 0:
                 risk_usd = deposit_v * (risk_pct / 100.0)
-        
+
         if risk_usd <= 0:
             return
 
@@ -231,19 +233,19 @@ def apply_position_sizing_to_ctx(
         )
 
         if res.ok:
-            setattr(ctx, "qty", res.qty)
-            setattr(ctx, "risk_usd", res.risk_usd) # actual risk
-            setattr(ctx, "risk_usd_target", float(risk_usd))
-            setattr(ctx, "sl_dist", sl_dist) # canonical
-            setattr(ctx, "sizing_ok", True)
-            
+            ctx.qty = res.qty
+            ctx.risk_usd = res.risk_usd # actual risk
+            ctx.risk_usd_target = float(risk_usd)
+            ctx.sl_dist = sl_dist # canonical
+            ctx.sizing_ok = True
+
             if "min_notional_bumps_risk" in res.reason:
                  from common.dq_flags import append_dq_flag
                  append_dq_flag(ctx, "sizing_min_notional_bumps_risk")
         else:
             from common.dq_flags import append_dq_flag
             append_dq_flag(ctx, f"sizing_failed_{res.reason}")
-            
+
     except Exception as e:
         if logger:
              logger.error(f"Sizing error: {e}")

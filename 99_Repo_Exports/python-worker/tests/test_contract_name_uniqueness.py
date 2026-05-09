@@ -1,10 +1,13 @@
 """P0.4 — No duplicate class names with different shapes across contract modules."""
 from __future__ import annotations
 
-import sys, os
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import dataclasses
+
 import pytest
 
 
@@ -54,8 +57,9 @@ def test_registry_ofinputs_shape_differs_from_core():
 
 def test_execution_contracts_forbid_extra():
     """OrderIntentV1 and ExecutionEventV1 must reject unknown fields."""
-    from common.contracts.registry import OrderIntentV1, ExecutionEventV1
     from pydantic import ValidationError
+
+    from common.contracts.registry import ExecutionEventV1, OrderIntentV1
 
     with pytest.raises(ValidationError):
         OrderIntentV1(

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import sys
-from typing import Any, Callable, Dict, List
+from collections.abc import Callable
+from typing import Any
 
-from core.replay_io import iter_ndjson, write_ndjson, topdiff, stable_json
+from core.replay_io import iter_ndjson, topdiff, write_ndjson
 
 
-def import_callable(path: str) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
+def import_callable(path: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Import callable by 'module:function'."""
     if ":" not in path:
         raise ValueError("--runner must be module:function")
@@ -32,7 +32,7 @@ def main() -> int:
 
     runner = import_callable(args.runner)
 
-    outs: List[Dict[str, Any]] = []
+    outs: list[dict[str, Any]] = []
     for i, row in enumerate(iter_ndjson(args.inputs)):
         if args.limit and i >= args.limit:
             break
@@ -46,14 +46,14 @@ def main() -> int:
     if args.compare_baseline:
         base_rows = list(iter_ndjson(args.compare_baseline))
         keys = [k.strip() for k in args.keys.split(",") if k.strip()]
-        
+
         # Backwards compatibility for older baselines
         for r in base_rows:
             if "ok" in r and "decision" not in r:
                 r["decision"] = r["ok"]
             if "ml_prob" not in r:
                 r["ml_prob"] = 0.0
-                
+
         n_changed, diffs = topdiff(base_rows, outs, keys=keys, top_k=20)
         print(f"rows={min(len(base_rows), len(outs))} changed={n_changed}")
         for d in diffs:

@@ -1,16 +1,18 @@
 # calibration_service.py
 from __future__ import annotations
+
 """
 Calibration functionality extracted from base_orderflow_handler.py
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import math
 import os
-import time
-from typing import Optional, Dict, Any, TYPE_CHECKING, Callable, Tuple
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
+from utils.time_utils import get_ny_time_millis
+
 
 # from common.log import setup_logger
 def setup_logger(name):
@@ -28,7 +30,7 @@ class CalibrationService:
 
     # default thresholds when cfg is missing (metric-specific)
     # mode: "abs" | "gt" | "lt"
-    _DEFAULT_METRIC_DEFAULTS: Dict[str, Tuple[str, float]] = {
+    _DEFAULT_METRIC_DEFAULTS: dict[str, tuple[str, float]] = {
         "deltaSpike_z": ("abs", 2.0),
         "obi": ("abs", 0.8),                 # if OBI is normalized [-1..1]
         "absorption_score": ("gt", 0.15),    # tune per your scale
@@ -46,8 +48,8 @@ class CalibrationService:
         redis_client: Any = None,
         config_manager: Any = None,
         *,
-        quantile_fn: Optional[Callable[[Any, float], float]] = None,
-        cfg_cache_ttl_ms: Optional[int] = None,
+        quantile_fn: Callable[[Any, float], float] | None = None,
+        cfg_cache_ttl_ms: int | None = None,
     ):
         self.symbol = symbol
         self.local_calibration = local_calibration
@@ -58,7 +60,7 @@ class CalibrationService:
 
         # cache for cfg lookups (hot path)
         # key -> (cfg | None, expires_at_ms)
-        self._cfg_cache: Dict[Tuple[str, str, str, str], Tuple[Any, int]] = {}
+        self._cfg_cache: dict[tuple[str, str, str, str], tuple[Any, int]] = {}
         if cfg_cache_ttl_ms is None:
             cfg_cache_ttl_ms = int(os.getenv("CALIBRATION_CFG_CACHE_TTL_MS", "300000"))  # 5m
         self._cfg_cache_ttl_ms = int(cfg_cache_ttl_ms)
@@ -98,11 +100,11 @@ class CalibrationService:
         mode: str,
         is_extreme: bool,
         threshold: float,
-        quantile: Optional[float],
+        quantile: float | None,
         q90: Any,
         q95: Any,
         q98: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Stable calibrated payload (always the same keys)."""
         out = {
             "value": value,
@@ -121,7 +123,7 @@ class CalibrationService:
 
     def _apply_metric_calibration(
         self,
-        ctx: "CoreSignalContext",
+        ctx: CoreSignalContext,
         metric_name: str,
         *,
         default_extreme_z: float = 2.0,
@@ -191,7 +193,7 @@ class CalibrationService:
         if cfg and cdf_points is not None:
             qfn = self._quantile_fn
             if qfn is None and hasattr(self.local_calibration, "eval_local_quantile"):
-                qfn = getattr(self.local_calibration, "eval_local_quantile")
+                qfn = self.local_calibration.eval_local_quantile
             if qfn is not None:
                 try:
                     quantile = float(qfn(cdf_points, v))
@@ -232,7 +234,7 @@ class CalibrationService:
             q98=getattr(cfg, "q98", None) if cfg else None,
         )
 
-    def _apply_local_calibration(self, ctx: "CoreSignalContext") -> None:
+    def _apply_local_calibration(self, ctx: CoreSignalContext) -> None:
         """
         Apply local calibration to key metrics.
         Falls back to defaults if no local calibration available.
@@ -254,16 +256,16 @@ class CalibrationService:
         for flag_name in ["weak_progress"]:
             self._apply_metric_calibration(ctx, flag_name)
 
-    def calibrate_context(self, ctx: "CoreSignalContext") -> None:
+    def calibrate_context(self, ctx: CoreSignalContext) -> None:
         """Apply all calibration to context."""
         self._apply_local_calibration(ctx)
 
-    def get_calibrated_trailing_params(self) -> Dict[str, Any]:
+    def get_calibrated_trailing_params(self) -> dict[str, Any]:
         """
         Читает откалиброванные параметры из Redis symbol_specs.
         Возвращает параметры для трейлинга или fallback на значения из конфига.
         """
-        def _fallback() -> Dict[str, Any]:
+        def _fallback() -> dict[str, Any]:
             return {
                 "stop_atr_mult": 2.0,
                 "rr_levels": [2.0, 3.0, 5.0],

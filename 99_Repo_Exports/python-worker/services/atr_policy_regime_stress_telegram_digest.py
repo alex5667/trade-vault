@@ -1,9 +1,9 @@
-import os
-import json
-import redis
 import logging
+import os
+
+import redis
+
 from core.redis_keys import RedisStreams as RS
-from typing import Dict, Any
 
 logger = logging.getLogger("atr_policy_regime_stress_telegram_digest")
 
@@ -12,7 +12,7 @@ def _redis():
 
 def run_once() -> int:
     r = _redis()
-    
+
     chat_id = os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID")
     if not chat_id:
         logger.warning("ATR_POLICY_TELEGRAM_CHAT_ID is missing.")
@@ -20,8 +20,8 @@ def run_once() -> int:
 
     # Collect current stats
     keys = r.keys("state:atr_stress:*")
-    stress_states: Dict[str, list] = {}
-    
+    stress_states: dict[str, list] = {}
+
     for k in keys:
         sym = k.split(":")[-1]
         if not sym:
@@ -29,13 +29,13 @@ def run_once() -> int:
         st = r.get(k)
         if st and st != "normal":
              stress_states.setdefault(st, []).append(sym)
-             
+
     if not stress_states:
          return 0
 
     lines = ["📉 <b>ATR Regime/Stress Digest</b>\n"]
     lines.append("<b>Stress states:</b>")
-    
+
     for st, syms in stress_states.items():
         if len(syms) > 5:
              lines.append(f"- {len(syms)} symbols in {st}")
@@ -50,7 +50,7 @@ def run_once() -> int:
     lines.append("- Stress limits applied dynamically by capital allocator/gates.")
 
     msg = "\n".join(lines)
-    
+
     notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     try:
         r.xadd(notify_stream, {

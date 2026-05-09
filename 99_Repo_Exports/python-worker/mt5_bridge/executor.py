@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Plan Executor - Execution Logic for MT5 Bridge
 
@@ -11,8 +12,7 @@ Plan Executor - Execution Logic for MT5 Bridge
 
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from datetime import UTC, datetime
 
 from .models import Mt5ExecutionPlan
 
@@ -37,8 +37,8 @@ class ActivePlanState:
     """
     plan: Mt5ExecutionPlan
     entered: bool = False
-    tickets: List[int] = field(default_factory=list)  # MT5 ticket numbers
-    entered_at: Optional[datetime] = None
+    tickets: list[int] = field(default_factory=list)  # MT5 ticket numbers
+    entered_at: datetime | None = None
 
 
 class PlanExecutor:
@@ -65,7 +65,7 @@ class PlanExecutor:
 
         self.mt5 = mt5
         self.bar_seconds = bar_seconds
-        self._plans: Dict[str, ActivePlanState] = {}
+        self._plans: dict[str, ActivePlanState] = {}
 
     def add_plan(self, plan: Mt5ExecutionPlan) -> None:
         """
@@ -173,10 +173,10 @@ class PlanExecutor:
 
         Вызывается в основном цикле с небольшой периодичностью.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # 1) Удаляем протухшие планы (TTL истек и не вошли)
-        to_delete: List[str] = []
+        to_delete: list[str] = []
         for signal_id, st in self._plans.items():
             if self._is_expired(st.plan, now) and not st.entered:
                 to_delete.append(signal_id)

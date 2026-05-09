@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Trade Events Contract — A3 V2.
 
 Строгий, но fail-open контракт для событий events:trades (POSITION_CLOSED).
@@ -41,8 +41,7 @@ import hashlib
 import json
 import math
 import re
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # --------------------------------------------------------------------------- #
 # Тяжёлые аналитические поля, которые НИКОГДА не должны попасть в Redis Stream.
@@ -71,7 +70,7 @@ _SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 # Private helpers (unit-testable, no IO)
 # --------------------------------------------------------------------------- #
 
-def _safe_int_ms(v: Any) -> Optional[int]:
+def _safe_int_ms(v: Any) -> int | None:
     """Конвертирует v в epoch ms (int). Возвращает None при невалидном значении."""
     if v is None:
         return None
@@ -85,7 +84,7 @@ def _safe_int_ms(v: Any) -> Optional[int]:
     return i if i > _MIN_EPOCH_MS else None
 
 
-def _safe_str(v: Any) -> Optional[str]:
+def _safe_str(v: Any) -> str | None:
     """Возвращает str(v) или None если v is None/пустая строка."""
     if v is None:
         return None
@@ -140,9 +139,9 @@ def _json_dumps(v: Any) -> str:
 def _make_event_id(
     event_type: str,
     sid: str,
-    ts: Optional[int],
-    pnl: Optional[str] = None,
-    position_id: Optional[str] = None,
+    ts: int | None,
+    pnl: str | None = None,
+    position_id: str | None = None,
 ) -> str:
     """Детерминированный SHA1 для идемпотентности.
 
@@ -155,11 +154,11 @@ def _make_event_id(
 
 def _compute_fee_bps(
     *,
-    fees_usd: Optional[float],
-    turnover_roundtrip: Optional[float],
-    qty: Optional[float],
-    price: Optional[float],
-) -> Optional[float]:
+    fees_usd: float | None,
+    turnover_roundtrip: float | None,
+    qty: float | None,
+    price: float | None,
+) -> float | None:
     """Вычислить fee_bps из имеющихся данных (best-effort)."""
     try:
         f = float(fees_usd) if fees_usd is not None else None
@@ -190,7 +189,7 @@ def _compute_fee_bps(
 # Public API
 # --------------------------------------------------------------------------- #
 
-def strip_heavy_fields(evt: Dict[str, Any]) -> Dict[str, Any]:
+def strip_heavy_fields(evt: dict[str, Any]) -> dict[str, Any]:
     """Убрать тяжёлые аналитические поля из события.
 
     Работает in-place? — нет, возвращает новый dict (не мутирует входной).
@@ -199,8 +198,8 @@ def strip_heavy_fields(evt: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def normalize_position_closed_event(
-    doc: Dict[str, Any],
-) -> Tuple[Dict[str, str], List[str]]:
+    doc: dict[str, Any],
+) -> tuple[dict[str, str], list[str]]:
     """Нормализовать событие POSITION_CLOSED в канонический Redis-формат (V2).
 
     V2: возвращает (normalized_dict, errors_list).
@@ -215,11 +214,11 @@ def normalize_position_closed_event(
         Tuple: (dict[str, str] готов для redis.xadd(), list[str] ошибок).
     """
     d = dict(doc or {})
-    errs: List[str] = []
-    out: Dict[str, str] = {}
+    errs: list[str] = []
+    out: dict[str, str] = {}
 
     # 1. event_type — всегда POSITION_CLOSED при нормализации через этот модуль
-    out["event_type"] = str(d.get("event_type") or "POSITION_CLOSED")
+    out["event_type"] = (d.get("event_type") or "POSITION_CLOSED")
     if out["event_type"] != "POSITION_CLOSED":
         errs.append("event_type!=POSITION_CLOSED")
         out["event_type"] = "POSITION_CLOSED"
@@ -429,7 +428,7 @@ def normalize_position_closed_event(
     return out, errs
 
 
-def validate_position_closed_event(doc: Dict[str, Any]) -> Tuple[bool, List[str]]:
+def validate_position_closed_event(doc: dict[str, Any]) -> tuple[bool, list[str]]:
     """Валидировать событие POSITION_CLOSED.
 
     V2: Принимает raw dict (не нормализованный) — нормализация происходит внутри.

@@ -1,13 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
 import uuid
-from typing import Any, Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis
@@ -34,14 +36,14 @@ def _loads(value: Any, default: Any) -> Any:
         return default
 
 
-def snapshot_to_batch_item(model_id: str, h: Dict[str, Any]) -> Dict[str, Any]:
+def snapshot_to_batch_item(model_id: str, h: dict[str, Any]) -> dict[str, Any]:
     return {
         "model_id": model_id,
         "family": h.get("family", "unknown"),
         "kind": h.get("kind", "unknown"),
         "status": h.get("status", "unknown"),
         "promotion_state": h.get("promotion_state", "unknown"),
-        "champion_flag": str(h.get("champion_flag", "0")) in {"1", "true", "True"},
+        "champion_flag": (h.get("champion_flag", "0")) in {"1", "true", "True"},
         "latency_p95_max_ms": float(h.get("latency_p95_max_ms", 0.0) or 0.0),
         "error_rate_max": float(h.get("error_rate_max", 0.0) or 0.0),
         "missing_critical_rate_max": float(h.get("missing_critical_rate_max", 0.0) or 0.0),
@@ -53,17 +55,17 @@ def snapshot_to_batch_item(model_id: str, h: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def select_suspicious_snapshots(rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    include_ok = str(os.getenv("ML_BATCH_REVIEW_INCLUDE_OK", "0") or "0") == "1"
+def select_suspicious_snapshots(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    include_ok = (os.getenv("ML_BATCH_REVIEW_INCLUDE_OK", "0") or "0") == "1"
     for h in rows:
-        status = str(h.get("status") or "unknown").lower()
+        status = (h.get("status") or "unknown").lower()
         if include_ok or status in {"warning", "critical"}:
             out.append(h)
     return out
 
 
-def group_batch_items(items: List[Dict[str, Any]], max_items: int) -> List[List[Dict[str, Any]]]:
+def group_batch_items(items: list[dict[str, Any]], max_items: int) -> list[list[dict[str, Any]]]:
     max_items = max(1, int(max_items))
     return [items[i:i + max_items] for i in range(0, len(items), max_items)]
 
@@ -84,13 +86,13 @@ def main() -> None:
             suspicious = select_suspicious_snapshots(rows)
             SELECTED.set(len(suspicious))
             if suspicious:
-                items = [snapshot_to_batch_item(str(h.get("model_id") or "unknown"), h) for h in suspicious]
+                items = [snapshot_to_batch_item((h.get("model_id") or "unknown"), h) for h in suspicious]
                 for chunk in group_batch_items(items, max_items=max_items):
                     family = str(chunk[0].get("family") or "unknown") if chunk else "unknown"
                     ts_ms = get_ny_time_millis()
                     batch_scope = {
-                        "families": sorted(list({str(x.get("family") or "unknown") for x in chunk})),
-                        "model_ids": [str(x.get("model_id") or "unknown") for x in chunk],
+                        "families": sorted(list({(x.get("family") or "unknown") for x in chunk})),
+                        "model_ids": [(x.get("model_id") or "unknown") for x in chunk],
                         "item_count": len(chunk),
                     }
                     payload = {
@@ -99,8 +101,8 @@ def main() -> None:
                         "ts_ms": ts_ms,
                         "task_type": "fleet_batch_triage",
                         "priority": "low",
-                        "prompt_version": str(os.getenv("ML_TRIAGE_PROMPT_VERSION", "ml_triage_v1")),
-                        "policy_version": str(os.getenv("ML_TRIAGE_POLICY_VERSION", "policy_v1")),
+                        "prompt_version": os.getenv("ML_TRIAGE_PROMPT_VERSION", "ml_triage_v1"),
+                        "policy_version": os.getenv("ML_TRIAGE_POLICY_VERSION", "policy_v1"),
                         "batch_scope_json": batch_scope,
                         "items_json": chunk,
                     }

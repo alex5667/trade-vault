@@ -2,12 +2,9 @@
 
 from ml_analysis.golden_replay.compare import (
     _as_float,
-    _is_number,
     diff_objects,
     float_close,
-    stable_hash,
 )
-
 
 # ── _as_float edge cases ─────────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 MT5 Client - MetaTrader5 API Wrapper
 
@@ -8,8 +9,6 @@ MT5 Client - MetaTrader5 API Wrapper
 
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Optional
 
 import MetaTrader5 as mt5
 
@@ -136,8 +135,8 @@ class Mt5Client:
         symbol: str,
         is_buy: bool,
         volume_lots: float,
-        sl_price: Optional[float],
-        tp_price: Optional[float],
+        sl_price: float | None,
+        tp_price: float | None,
         comment: str = "",
     ):
         """

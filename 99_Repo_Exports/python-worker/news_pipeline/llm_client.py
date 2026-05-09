@@ -9,7 +9,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMClient:
-    def analyze(self, *, title: str, url: str, source: str) -> Dict[str, Any]:
+    def analyze(self, *, title: str, url: str, source: str) -> dict[str, Any]:
         raise NotImplementedError
 
 
@@ -30,7 +30,7 @@ def _clamp01(x: float) -> float:
     return _clamp(x, 0.0, 1.0)
 
 
-def _extract_json_obj(text: str) -> Optional[dict]:
+def _extract_json_obj(text: str) -> dict | None:
     """Extract the first JSON object from LLM output.
 
     Gemini иногда возвращает JSON внутри markdown или с префиксом/суффиксом.
@@ -127,7 +127,7 @@ class GeminiHTTPClient(LLMClient):
             "exchange", "hack", "etf", "liquidation", "macro",
         }
 
-    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
+    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> dict[str, Any]:
         if not self.api_key:
             # fail-open
             return {"risk": 0.0, "surprise": 0.0, "tags": [], "primary_tag": "", "confidence": 0.0, "summary": ""}
@@ -180,7 +180,7 @@ class GeminiHTTPClient(LLMClient):
                 risk = float(obj.get("risk", 0.0) or 0.0)
                 surprise = float(obj.get("surprise", 0.0) or 0.0)
                 conf = float(obj.get("confidence", 0.0) or 0.0)
-                summary = str(obj.get("summary") or "")[:200]
+                summary = (obj.get("summary") or "")[:200]
 
                 tags = obj.get("tags") or []
                 if not isinstance(tags, list):
@@ -246,7 +246,7 @@ class NvidiaDeepSeekClient(LLMClient):
             "exchange", "hack", "etf", "liquidation", "macro",
         }
 
-    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
+    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> dict[str, Any]:
         if not self.api_key:
             return {"risk": 0.0, "surprise": 0.0, "tags": [], "primary_tag": "", "confidence": 0.0, "summary": ""}
 
@@ -299,7 +299,7 @@ class NvidiaDeepSeekClient(LLMClient):
                 risk = float(obj.get("risk", 0.0) or 0.0)
                 surprise = float(obj.get("surprise", 0.0) or 0.0)
                 conf = float(obj.get("confidence", 0.0) or 0.0)
-                summary_out = str(obj.get("summary") or "")[:200]
+                summary_out = (obj.get("summary") or "")[:200]
 
                 tags = obj.get("tags") or []
                 if not isinstance(tags, list):
@@ -355,7 +355,7 @@ class NvidiaQwenClient(LLMClient):
             "exchange", "hack", "etf", "liquidation", "macro",
         }
 
-    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
+    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> dict[str, Any]:
         if not self.api_key:
             return {"risk": 0.0, "surprise": 0.0, "tags": [], "primary_tag": "", "confidence": 0.0, "summary": ""}
 
@@ -410,7 +410,7 @@ class NvidiaQwenClient(LLMClient):
                 risk = float(obj.get("risk", 0.0) or 0.0)
                 surprise = float(obj.get("surprise", 0.0) or 0.0)
                 conf = float(obj.get("confidence", 0.0) or 0.0)
-                summary_out = str(obj.get("summary") or "")[:200]
+                summary_out = (obj.get("summary") or "")[:200]
 
                 tags = obj.get("tags") or []
                 if not isinstance(tags, list):
@@ -469,7 +469,7 @@ class OllamaDeepSeekClient(LLMClient):
             "exchange", "hack", "etf", "liquidation", "macro",
         }
 
-    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
+    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> dict[str, Any]:
         prompt = (
             "Return ONLY a compact JSON object with keys:\n"
             "risk (0..1 float), surprise (-1..1 float), confidence (0..1 float),\n"
@@ -513,7 +513,7 @@ class OllamaDeepSeekClient(LLMClient):
                 risk = float(obj.get("risk", 0.0) or 0.0)
                 surprise = float(obj.get("surprise", 0.0) or 0.0)
                 conf = float(obj.get("confidence", 0.0) or 0.0)
-                summary_out = str(obj.get("summary") or "")[:200]
+                summary_out = (obj.get("summary") or "")[:200]
 
                 tags = obj.get("tags") or []
                 if not isinstance(tags, list):
@@ -572,7 +572,7 @@ class OllamaMinipcClient(LLMClient):
             "exchange", "hack", "etf", "liquidation", "macro",
         }
 
-    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
+    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> dict[str, Any]:
         prompt = (
             "Return ONLY a compact JSON object with keys:\n"
             "risk (0..1 float), surprise (-1..1 float), confidence (0..1 float),\n"
@@ -616,7 +616,7 @@ class OllamaMinipcClient(LLMClient):
                 risk = float(obj.get("risk", 0.0) or 0.0)
                 surprise = float(obj.get("surprise", 0.0) or 0.0)
                 conf = float(obj.get("confidence", 0.0) or 0.0)
-                summary_out = str(obj.get("summary") or "")[:200]
+                summary_out = (obj.get("summary") or "")[:200]
 
                 tags = obj.get("tags") or []
                 if not isinstance(tags, list):
@@ -670,7 +670,7 @@ class FallbackLLMClient(LLMClient):
         self.clients = clients
 
     @classmethod
-    def build_default(cls) -> "FallbackLLMClient":
+    def build_default(cls) -> FallbackLLMClient:
         """Создать цепочку из всех доступных клиентов в том порядке, в котором они пробуются."""
         return cls([
             GeminiHTTPClient(),
@@ -681,7 +681,7 @@ class FallbackLLMClient(LLMClient):
             OllamaMinipcClient(),
         ])
 
-    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
+    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> dict[str, Any]:
         last_res = None
         for client in self.clients:
             client_name = type(client).__name__
@@ -724,7 +724,7 @@ class NvidiaKimiClient(LLMClient):
             "exchange", "hack", "etf", "liquidation", "macro",
         }
 
-    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> Dict[str, Any]:
+    def analyze(self, *, title: str, url: str, source: str, summary: str = "") -> dict[str, Any]:
         if not self.api_key:
             return {"risk": 0.0, "surprise": 0.0, "tags": [], "primary_tag": "", "confidence": 0.0, "summary": ""}
 
@@ -778,7 +778,7 @@ class NvidiaKimiClient(LLMClient):
                 risk = float(obj.get("risk", 0.0) or 0.0)
                 surprise = float(obj.get("surprise", 0.0) or 0.0)
                 conf = float(obj.get("confidence", 0.0) or 0.0)
-                summary_out = str(obj.get("summary") or "")[:200]
+                summary_out = (obj.get("summary") or "")[:200]
 
                 tags = obj.get("tags") or []
                 if not isinstance(tags, list):

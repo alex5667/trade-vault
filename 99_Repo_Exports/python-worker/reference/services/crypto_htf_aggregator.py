@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """
 Crypto HTF Levels Aggregator.
@@ -17,13 +18,12 @@ Consumes `candles:data` stream и публикует результаты в Red
 Использует consumer group для at-most-once delivery.
 """
 
+import json
 import os
 import sys
-import json
-import time
-from typing import Dict, List, Optional
-from collections import defaultdict
 import threading
+import time
+from collections import defaultdict
 
 # Добавляем путь к core для импорта
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,7 +64,7 @@ class HTFAggregator:
         self.is_running = False
 
         # Хранилище исторических данных: symbol -> timeframe -> bars
-        self.history: Dict[str, Dict[str, List[Dict]]] = defaultdict(lambda: defaultdict(list))
+        self.history: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
 
         print("✅ Crypto HTF Aggregator инициализирован")
         print(f"   Candles Stream: {CANDLES_STREAM}")
@@ -153,7 +153,7 @@ class HTFAggregator:
             print(f"❌ Критическая ошибка HTF Aggregator: {e}")
             raise
 
-    def _process_candle(self, fields: Dict) -> None:
+    def _process_candle(self, fields: dict) -> None:
         """
         Обрабатывает одну свечу из стрима.
 
@@ -199,7 +199,7 @@ class HTFAggregator:
             print(f"❌ Ошибка обработки свечи: {e}, fields: {fields}")
             raise
 
-    def _update_all_htf_levels(self) -> List[str]:
+    def _update_all_htf_levels(self) -> list[str]:
         """Обновляет HTF уровни для всех символов."""
         updated_symbols = []
 
@@ -215,7 +215,7 @@ class HTFAggregator:
 
         return updated_symbols
 
-    def _calculate_htf_levels(self, symbol: str) -> Optional[Dict]:
+    def _calculate_htf_levels(self, symbol: str) -> dict | None:
         """
         Вычисляет HTF уровни для символа на основе исторических данных.
         """
@@ -265,7 +265,7 @@ class HTFAggregator:
             print(f"❌ Ошибка расчета HTF уровней для {symbol}: {e}")
             return None
 
-    def _save_htf_levels(self, symbol: str, htf_data: Dict) -> None:
+    def _save_htf_levels(self, symbol: str, htf_data: dict) -> None:
         """Сохраняет HTF уровни в Redis."""
         try:
             # Основной ключ с данными

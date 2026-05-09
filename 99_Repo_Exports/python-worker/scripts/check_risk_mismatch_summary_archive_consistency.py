@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """P5X: Check consistency between risk_mismatch_summary_mv and the hot+archive mismatch ledger.
@@ -31,7 +32,6 @@ Usage
 import argparse
 import json
 import os
-import time
 from pathlib import Path
 
 try:
@@ -152,25 +152,24 @@ def main() -> int:
     """
 
     try:
-        with psycopg.connect(args.dsn) as conn:
-            with conn.cursor() as cur:
-                cur.execute(query)
-                cols = [d.name for d in cur.description]
-                for row in cur.fetchall():
-                    item = {k: row[i] for i, k in enumerate(cols)}
-                    mismatch = False
-                    # Check integer exact-match fields
-                    for key in ('quarantine_count', 'distinct_sid_count', 'max_repeated_count'):
-                        if (item.get(f'mv_{key}') or 0) != (item.get(f'expected_{key}') or 0):
-                            mismatch = True
-                    # Check float fields with epsilon tolerance
-                    for key in ('avg_repeated_count', 'avg_mismatch_rate'):
-                        a = float(item.get(f'mv_{key}') or 0.0)
-                        b = float(item.get(f'expected_{key}') or 0.0)
-                        if abs(a - b) > 1e-6:
-                            mismatch = True
-                    item['mismatch'] = mismatch
-                    report['rows'].append(item)
+        with psycopg.connect(args.dsn) as conn, conn.cursor() as cur:
+            cur.execute(query)
+            cols = [d.name for d in cur.description]
+            for row in cur.fetchall():
+                item = {k: row[i] for i, k in enumerate(cols)}
+                mismatch = False
+                # Check integer exact-match fields
+                for key in ('quarantine_count', 'distinct_sid_count', 'max_repeated_count'):
+                    if (item.get(f'mv_{key}') or 0) != (item.get(f'expected_{key}') or 0):
+                        mismatch = True
+                # Check float fields with epsilon tolerance
+                for key in ('avg_repeated_count', 'avg_mismatch_rate'):
+                    a = float(item.get(f'mv_{key}') or 0.0)
+                    b = float(item.get(f'expected_{key}') or 0.0)
+                    if abs(a - b) > 1e-6:
+                        mismatch = True
+                item['mismatch'] = mismatch
+                report['rows'].append(item)
     except psycopg.OperationalError as e:
         print(f"Warning: Database connection failed (transient): {e}")
         return 1

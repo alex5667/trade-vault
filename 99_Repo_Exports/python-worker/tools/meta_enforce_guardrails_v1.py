@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+
 """meta_enforce_guardrails_v1.py
 
 P31: Safety guardrails for meta-model ENFORCE.
@@ -36,13 +39,12 @@ Key written (cfg2)
 - (on trigger) meta_model_freeze=1, meta_freeze_mode=OPEN, meta_freeze_reason, meta_freeze_ts_ms
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -75,9 +77,9 @@ def _loads_maybe_json(v: Any) -> Any:
     return v
 
 
-def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
-    payload_obj: Optional[Dict[str, Any]] = None
+def _parse_entry(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    payload_obj: dict[str, Any] | None = None
     for k, v in fields.items():
         ks = k.decode("utf-8", "replace") if isinstance(k, (bytes, bytearray)) else str(k)
         out[ks] = _loads_maybe_json(v)
@@ -106,8 +108,8 @@ def _i(x: Any, default: int = 0) -> int:
         return default
 
 
-def read_recent(r: Any, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+def read_recent(r: Any, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -129,16 +131,16 @@ def read_recent(r: Any, stream: str, since_ms: int, max_scan: int) -> List[Dict[
     return rows
 
 
-def load_cfg2(r: Any, key: str) -> Dict[str, Any]:
+def load_cfg2(r: Any, key: str) -> dict[str, Any]:
     d = r.hgetall(key) or {}
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in d.items():
         out[str(k)] = _loads_maybe_json(v)
     return out
 
 
-def write_cfg2(r: Any, key: str, patch: Dict[str, Any]) -> None:
-    m: Dict[str, str] = {}
+def write_cfg2(r: Any, key: str, patch: dict[str, Any]) -> None:
+    m: dict[str, str] = {}
     for k, v in patch.items():
         if isinstance(v, (dict, list)):
             m[k] = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
@@ -180,13 +182,13 @@ def main() -> int:
         return 1
 
     meta_enable = _i(cfg2.get("meta_model_enable", 0), 0)
-    meta_mode = str(cfg2.get("meta_model_mode", "SHADOW") or "SHADOW").upper()
+    meta_mode = (cfg2.get("meta_model_mode", "SHADOW") or "SHADOW").upper()
     meta_freeze = _i(cfg2.get("meta_model_freeze", 0), 0)
 
     last_change = _i(cfg2.get("meta_enforce_guard_last_change_ms", 0), 0)
     too_soon = (now_ms() - last_change) < int(args.min_hold_sec) * 1000
 
-    decision: Dict[str, Any] = {
+    decision: dict[str, Any] = {
         "ts_ms": now_ms(),
         "stream": str(args.stream),
         "lookback_min": int(args.lookback_min),
@@ -234,9 +236,9 @@ def main() -> int:
     # Filter to meta samples (payload includes meta_enable/meta_mode from evidence).
     frows = []
     for d in rows:
-        if str(d.get("meta_mode", "") or "").upper() != "ENFORCE":
+        if (d.get(MetaKeys.MODE, "") or "").upper() != "ENFORCE":
             continue
-        if _i(d.get("meta_enable", 0), 0) != 1:
+        if _i(d.get(MetaKeys.ENABLE, 0), 0) != 1:
             continue
         frows.append(d)
 
@@ -252,21 +254,21 @@ def main() -> int:
 
     canary = 0
     blocked = 0
-    covs_canary: List[float] = []
+    covs_canary: list[float] = []
     cov_bad = 0
 
     for d in frows:
-        if _i(d.get("meta_enforce_applied", 0), 0) == 1:
+        if _i(d.get(MetaKeys.ENFORCE_APPLIED, 0), 0) == 1:
             canary += 1
-            cov = _f(d.get("meta_feature_coverage", float("nan")), float("nan"))
+            cov = _f(d.get(MetaKeys.FEATURE_COVERAGE, float("nan")), float("nan"))
             if cov == cov:
                 covs_canary.append(float(cov))
                 if cov < float(args.cov_c_ge):
                     cov_bad += 1
 
-            veto = _i(d.get("meta_veto", 0), 0) == 1
+            veto = _i(d.get(MetaKeys.VETO, 0), 0) == 1
             ok = _i(d.get("ok", 0), 0) == 1
-            reason = str(d.get("reason", "") or "")
+            reason = (d.get("reason", "") or "")
             # Attribute to meta only if reason clearly indicates meta veto.
             if veto and (not ok) and ("meta_veto" in reason):
                 blocked += 1

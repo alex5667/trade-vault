@@ -11,9 +11,10 @@ Features:
 - logs retention status
 """
 
+import logging
 import os
 import sys
-import logging
+
 import psycopg2
 
 # Configuration
@@ -53,24 +54,24 @@ def manual_cleanup(cur):
 
 def main():
     logger.info("Starting Archive Cleanup Job...")
-    
+
     try:
         conn = psycopg2.connect(PG_DSN)
         conn.autocommit = True
-        
+
         with conn.cursor() as cur:
             # 1. Check TimescaleDB policies
             check_retention_policies(cur)
-            
+
             # 2. Manual cleanup
             manual_cleanup(cur)
-            
+
             # 3. Optimize (VACUUM ANALYZE) metadata table
             cur.execute("VACUUM ANALYZE archive_metadata;")
-            
+
         logger.info("Cleanup job completed successfully.")
         conn.close()
-        
+
     except Exception as e:
         logger.error(f"Cleanup job failed: {e}")
         sys.exit(1)

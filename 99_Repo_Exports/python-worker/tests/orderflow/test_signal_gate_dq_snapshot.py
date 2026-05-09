@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 P0-1 regression: SignalGate._build_dq_snapshot reads correct runtime fields.
 
@@ -10,7 +11,7 @@ Coverage:
 
 import types
 import unittest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 
 def _make_runtime(
@@ -72,7 +73,6 @@ class TestBuildDQSnapshot(unittest.TestCase):
 
     def test_reads_retry_queue_not_q(self):
         """outbox_backlog must come from _retry_queue, not _q."""
-        from services.orderflow.signal_gate import SignalGate
         try:
             from services.redis_dq_policy import RedisDQSnapshot
         except ImportError:
@@ -87,7 +87,6 @@ class TestBuildDQSnapshot(unittest.TestCase):
         assert snap.outbox_backlog == 7
 
     def test_stale_tick_produces_nonzero_staleness(self):
-        from services.orderflow.signal_gate import SignalGate
         try:
             from services.redis_dq_policy import RedisDQSnapshot
         except ImportError:
@@ -106,7 +105,6 @@ class TestBuildDQSnapshot(unittest.TestCase):
 
     def test_zero_tick_ts_gives_zero_staleness(self):
         """If last_tick_ts_ms is 0 (not yet received), staleness must be 0 (unknown, not 'now - 0')."""
-        from services.orderflow.signal_gate import SignalGate
         try:
             from services.redis_dq_policy import RedisDQSnapshot
         except ImportError:

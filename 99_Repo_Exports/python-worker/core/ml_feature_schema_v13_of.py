@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 v13_of — Feature schema v13 (OrderFlow), pinned snapshot + advanced volatility/liquidity/toxicity extensions.
 
@@ -33,7 +34,6 @@ Design notes
 """
 
 
-from typing import List
 
 SCHEMA_HASH = "7838afd8be98"
 
@@ -52,7 +52,7 @@ except ImportError:
 # Sources: Garman & Klass (1980), Parkinson (1980), Yang & Zhang (2000)
 # ---------------------------------------------------------------------------
 
-_GROUP_NA_VOLATILITY: List[str] = [
+_GROUP_NA_VOLATILITY: list[str] = [
     "garman_klass_vol",   # GK estimator: 0.5·ln(H/L)² − (2ln2−1)·ln(C/O)²
                           # 5–8× more accurate than close-to-close; captures intraday extremes
     "parkinson_vol",      # Parkinson: √(1/(4N·ln2) · Σ ln(H/L)²)
@@ -70,7 +70,7 @@ _GROUP_NA_VOLATILITY: List[str] = [
 # Sources: Amihud (2002), Corwin & Schultz (2012), Hasbrouck (1991)
 # ---------------------------------------------------------------------------
 
-_GROUP_NB_LIQUIDITY: List[str] = [
+_GROUP_NB_LIQUIDITY: list[str] = [
     "amihud_illiquidity",         # |return| / volume_USD rolling 20 bars
                                   # Realized price impact per $1 traded (vs depth-based impact_proxy)
     "corwin_schultz_spread",      # Implicit bid-ask spread from H/L prices
@@ -87,7 +87,7 @@ _GROUP_NB_LIQUIDITY: List[str] = [
 # Sources: Easley, López de Prado, O'Hara (2012)
 # ---------------------------------------------------------------------------
 
-_GROUP_NC_TOXICITY: List[str] = [
+_GROUP_NC_TOXICITY: list[str] = [
     "pin_estimate",           # Probability of Informed Trading (Easley-O'Hara EM model)
                               # Structural model vs VPIN (volume proxy); correlation ~0.55
     "lambda_asym",            # |Kyle_λ_buy − Kyle_λ_sell| / avg(λ)
@@ -104,7 +104,7 @@ _GROUP_NC_TOXICITY: List[str] = [
 # Pipeline: go-worker REST polling → Redis hash, fail-open
 # ---------------------------------------------------------------------------
 
-_GROUP_ND_CROSS_ASSET: List[str] = [
+_GROUP_ND_CROSS_ASSET: list[str] = [
     "btc_dominance_momentum",  # Δ(BTC dominance %) over 1h
                                # Direct BTC↔alts rotation (vs alt_season_index beta-proxy)
     "oi_weighted_funding",     # Σ(FR_i × OI_i) / Σ(OI_i) market-wide
@@ -123,7 +123,7 @@ _GROUP_ND_CROSS_ASSET: List[str] = [
 # Sources: Biais & Weill (2009), Gençay & Gradojevic (2010)
 # ---------------------------------------------------------------------------
 
-_GROUP_NE_ENTROPY: List[str] = [
+_GROUP_NE_ENTROPY: list[str] = [
     "price_entropy_50",          # Shannon entropy of binned returns (50 ticks, 10 bins)
                                  # Predictability: low entropy = trending, high = random walk
     "order_size_gini",           # Gini coefficient of trade sizes in window
@@ -138,7 +138,7 @@ _GROUP_NE_ENTROPY: List[str] = [
 # Sources: Lo & MacKinlay (1988), Ornstein-Uhlenbeck process
 # ---------------------------------------------------------------------------
 
-_GROUP_NF_MEAN_REVERSION: List[str] = [
+_GROUP_NF_MEAN_REVERSION: list[str] = [
     "half_life_mean_reversion",  # OU process t½ from Ornstein-Uhlenbeck fit (rolling)
                                  # Actionable time window (vs hurst_exp_50 = regime type)
     "adf_pvalue_50",             # p-value from Augmented Dickey-Fuller test (50 ticks)
@@ -152,7 +152,7 @@ _GROUP_NF_MEAN_REVERSION: List[str] = [
 # Domain-logic cross-products; low corr by construction
 # ---------------------------------------------------------------------------
 
-_GROUP_NX_INTERACTIONS: List[str] = [
+_GROUP_NX_INTERACTIONS: list[str] = [
     "vpin_x_funding",           # VPIN × sign(funding_rate) — toxic flow + carry crowding
     "hurst_x_vol_regime",       # hurst_exp_50 × vol_regime_code — trending in volatile regime
     "entropy_x_spread",         # price_entropy_50 × spread_bps — chaos + expensive entry
@@ -165,7 +165,7 @@ _GROUP_NX_INTERACTIONS: List[str] = [
 # Final composite key list — V13_OF_NUMERIC_KEYS (sorted for determinism)
 # ---------------------------------------------------------------------------
 
-V13_OF_NUMERIC_KEYS: List[str] = sorted(set(
+V13_OF_NUMERIC_KEYS: list[str] = sorted(set(
     _V12_OF_BASE
     + _GROUP_NA_VOLATILITY
     + _GROUP_NB_LIQUIDITY
@@ -186,7 +186,7 @@ if _V12_OF_BASE:
     )
 
 
-def get_v13_of_numeric_keys() -> List[str]:
+def get_v13_of_numeric_keys() -> list[str]:
     """Return sorted list of numeric indicator keys for v13_of."""
     return list(V13_OF_NUMERIC_KEYS)
 

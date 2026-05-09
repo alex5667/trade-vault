@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Root cause analysis for scenario mismatch.
 
 Analyzes the specific mismatch case to understand why scenario changed from continuation to none.
@@ -11,11 +12,10 @@ Usage:
 import argparse
 import json
 import os
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 
-def _get(r: Dict[str, Any], key: str) -> Any:
+def _get(r: dict[str, Any], key: str) -> Any:
     """Extract value from row, checking both top-level and evidence dict."""
     if key in r:
         return r.get(key)
@@ -25,7 +25,7 @@ def _get(r: Dict[str, Any], key: str) -> Any:
     return None
 
 
-def row_key(r: Dict[str, Any]) -> str:
+def row_key(r: dict[str, Any]) -> str:
     """Generate unique key for row matching."""
     sid = r.get("sid")
     if sid:
@@ -33,9 +33,9 @@ def row_key(r: Dict[str, Any]) -> str:
     return f"{r.get('symbol','')}|{r.get('ts_ms',0)}|{r.get('direction','')}"
 
 
-def find_row_by_key(path: str, target_key: str) -> Optional[Dict[str, Any]]:
+def find_row_by_key(path: str, target_key: str) -> dict[str, Any] | None:
     """Find row by key in NDJSON file."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -47,22 +47,22 @@ def find_row_by_key(path: str, target_key: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def analyze_scenario_mismatch(baseline_path: str, candidate_path: str, key: str) -> Dict[str, Any]:
+def analyze_scenario_mismatch(baseline_path: str, candidate_path: str, key: str) -> dict[str, Any]:
     """Analyze why scenario changed for a specific key."""
     baseline_row = find_row_by_key(baseline_path, key)
     candidate_row = find_row_by_key(candidate_path, key)
-    
+
     if not baseline_row:
         return {"error": f"Key not found in baseline: {key}"}
     if not candidate_row:
         return {"error": f"Key not found in candidate: {key}"}
-    
+
     base_scn = str(_get(baseline_row, "scenario_v4") or _get(baseline_row, "scenario") or "")
     cand_scn = str(_get(candidate_row, "scenario_v4") or _get(candidate_row, "scenario") or "")
-    
+
     base_reason = str(_get(baseline_row, "reason") or "")
     cand_reason = str(_get(candidate_row, "reason") or "")
-    
+
     # Extract all relevant fields
     analysis = {
         "key": key,
@@ -89,13 +89,13 @@ def analyze_scenario_mismatch(baseline_path: str, candidate_path: str, key: str)
         "changes": {},
         "root_cause_hypothesis": [],
     }
-    
+
     # Compare all fields
     fields_to_compare = [
         "scenario", "scenario_v4", "reason", "ok", "score", "have", "need",
         "exec_risk_norm", "gate_bits", "need_reason",
     ]
-    
+
     for field in fields_to_compare:
         base_val = _get(baseline_row, field)
         cand_val = _get(candidate_row, field)
@@ -104,7 +104,7 @@ def analyze_scenario_mismatch(baseline_path: str, candidate_path: str, key: str)
                 "baseline": base_val,
                 "candidate": cand_val,
             }
-    
+
     # Root cause analysis
     if base_scn == "continuation" and cand_scn == "none":
         analysis["root_cause_hypothesis"].append(
@@ -125,7 +125,7 @@ def analyze_scenario_mismatch(baseline_path: str, candidate_path: str, key: str)
         analysis["root_cause_hypothesis"].append(
             "  3. Change in div handling logic (commit 636e6de9: div = None if cvd_q == 1)"
         )
-    
+
     if analysis["changes"].get("need"):
         base_need = analysis["changes"]["need"]["baseline"]
         cand_need = analysis["changes"]["need"]["candidate"]
@@ -136,23 +136,23 @@ def analyze_scenario_mismatch(baseline_path: str, candidate_path: str, key: str)
             analysis["root_cause_hypothesis"].append(
                 "When scenario='none', no legs are required, so need=0"
             )
-    
+
     return analysis
 
 
-def print_analysis(analysis: Dict[str, Any]) -> None:
+def print_analysis(analysis: dict[str, Any]) -> None:
     """Print detailed analysis."""
     if "error" in analysis:
         print(f"Error: {analysis['error']}")
         return
-    
+
     print("=" * 80)
     print("SCENARIO MISMATCH ROOT CAUSE ANALYSIS")
     print("=" * 80)
     print()
     print(f"Key: {analysis['key']}")
     print()
-    
+
     print("Baseline:")
     base = analysis["baseline"]
     print(f"  scenario: {base['scenario']}")
@@ -161,7 +161,7 @@ def print_analysis(analysis: Dict[str, Any]) -> None:
     print(f"  ok: {base['ok']}, score: {base['score']}, have: {base['have']}, need: {base['need']}")
     print(f"  exec_risk_norm: {base['exec_risk_norm']}")
     print()
-    
+
     print("Candidate:")
     cand = analysis["candidate"]
     print(f"  scenario: {cand['scenario']}")
@@ -170,24 +170,24 @@ def print_analysis(analysis: Dict[str, Any]) -> None:
     print(f"  ok: {cand['ok']}, score: {cand['score']}, have: {cand['have']}, need: {cand['need']}")
     print(f"  exec_risk_norm: {cand['exec_risk_norm']}")
     print()
-    
+
     if analysis["changes"]:
         print("Changed fields:")
         for field, change in analysis["changes"].items():
             print(f"  {field}: {change['baseline']} -> {change['candidate']}")
         print()
-    
+
     if analysis["root_cause_hypothesis"]:
         print("Root Cause Hypothesis:")
         for hypothesis in analysis["root_cause_hypothesis"]:
             print(f"  {hypothesis}")
         print()
-    
+
     print("=" * 80)
     print("RECOMMENDATIONS")
     print("=" * 80)
     print()
-    
+
     if base["scenario"] == "continuation" and cand["scenario"] == "none":
         print("⚠️  This is an EXPECTED change due to code modification:")
         print()
@@ -219,10 +219,10 @@ def main() -> None:
     ap.add_argument("--find-latest", action="store_true", help="Find latest baseline/candidate from OUT_DIR")
     ap.add_argument("--out-dir", default=os.getenv("OUT_DIR", "/var/lib/trade/of_reports/out"), help="Output directory")
     args = ap.parse_args()
-    
+
     baseline_path = args.baseline
     candidate_path = args.candidate
-    
+
     if args.find_latest or not baseline_path or not candidate_path:
         from tools.analyze_regress_diff import find_latest_diff
         found = find_latest_diff(args.out_dir)
@@ -232,20 +232,20 @@ def main() -> None:
                 baseline_path = found_baseline
             if not candidate_path and found_candidate:
                 candidate_path = found_candidate
-    
+
     if not baseline_path or not candidate_path:
         print("Error: baseline and candidate paths required")
         print("  Use --baseline and --candidate, or --find-latest")
         return
-    
+
     if not os.path.exists(baseline_path):
         print(f"Error: baseline not found: {baseline_path}")
         return
-    
+
     if not os.path.exists(candidate_path):
         print(f"Error: candidate not found: {candidate_path}")
         return
-    
+
     analysis = analyze_scenario_mismatch(baseline_path, candidate_path, args.key)
     print_analysis(analysis)
 

@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import hashlib
 import json
 import os
 import time
-from typing import Any, Dict, Tuple, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -52,13 +53,13 @@ HASH_SALT = os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_EXPERIMENT_
 
 POLL_INTERVAL_SEC = 2.0
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_experiment_runs_total", "Runs", ("status", "decision"))
@@ -70,36 +71,36 @@ LAST_RUN = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_experiment_last
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
     }
 
-def resolve_multi_arm(bundle_id: str, weights: Dict[str, int]) -> str:
+def resolve_multi_arm(bundle_id: str, weights: dict[str, int]) -> str:
     total = sum(weights.values())
     if total <= 0:
         return PRIMARY_ARM
-        
+
     h = hashlib.sha256(f"{bundle_id}:{HASH_SALT}".encode()).hexdigest()
     val = int(h[:8], 16) % total
-    
+
     cumulative = 0
     # Sort for deterministic distribution logic
     for arm, w in sorted(weights.items()):
         cumulative += w
         if val < cumulative:
             return arm
-            
+
     return PRIMARY_ARM
 
-def compute_exposures(mode: str, bundle_id: str, weights: Dict[str, int]) -> List[Dict[str, str]]:
+def compute_exposures(mode: str, bundle_id: str, weights: dict[str, int]) -> list[dict[str, str]]:
     if mode == "DISABLED":
         return []
-        
+
     if mode == "SINGLE_ARM":
         return [{"arm": PRIMARY_ARM, "type": "primary", "decision": "SINGLE_ARM_ASSIGNED"}]
-        
+
     if mode == "SHADOW":
         res = [{"arm": PRIMARY_ARM, "type": "primary", "decision": "SHADOW_PRIMARY_ASSIGNED"}]
         try:
@@ -109,11 +110,11 @@ def compute_exposures(mode: str, bundle_id: str, weights: Dict[str, int]) -> Lis
         except Exception:
             pass
         return res
-        
+
     if mode == "MULTI_ARM":
         assigned = resolve_multi_arm(bundle_id, weights)
         return [{"arm": assigned, "type": "primary", "decision": "MULTI_ARM_ASSIGNED"}]
-        
+
     return []
 
 def get_stream_for_arm(arm: str) -> str:
@@ -125,21 +126,21 @@ def get_stream_for_arm(arm: str) -> str:
         return LOCAL_STREAM
     return DETERMINISTIC_STREAM
 
-def build_payload(arm: str, bundle_json: str) -> Dict[str, str]:
+def build_payload(arm: str, bundle_json: str) -> dict[str, str]:
     base = {
         "task_family": "route_incident_rca_mirror_rca_winner_apply_rca",
         "bundle_json": bundle_json,
         "source": APP_NAME,
         "ts_ms": str(now_ms())
     }
-    
+
     if arm == "local_fallback_candidate":
         base["task_type"] = "vertex_unavailable_fallback" # reuse local struct
     elif arm == "vertex_candidate":
-        base["task_type"] = "route_incident_rca_mirror_rca_winner_apply_rca" 
+        base["task_type"] = "route_incident_rca_mirror_rca_winner_apply_rca"
     else:
         base["task_type"] = "route_incident_rca_mirror_rca_winner_apply_deterministic"
-        
+
     return base
 
 async def persist_exposure(db_url: str, bundle_id: str, arm: str, exp_type: str, severity: str, mode: str) -> None:
@@ -174,10 +175,10 @@ async def main() -> None:  # pragma: no cover
     start_http_server(PORT)
     if UP:
         UP.set(1)
-        
+
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     db_url = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
-    
+
     last_id = "0-0"
     try:
         last_metric = await r.hgetall(LAST_METRIC)
@@ -185,7 +186,7 @@ async def main() -> None:  # pragma: no cover
             last_id = "$"
     except Exception:
         pass
-        
+
     try:
         weights = json.loads(ARM_WEIGHTS_JSON)
     except Exception:
@@ -195,24 +196,24 @@ async def main() -> None:  # pragma: no cover
         started = time.perf_counter()
         status = "ok"
         decision = "none"
-        
+
         try:
             res_stream = await r.xread({BUNDLES_STREAM: last_id}, count=10, block=int(POLL_INTERVAL_SEC * 1000))
             if res_stream:
                 for stream_name, messages in res_stream:
                     for msg_id, fields in messages:
                         last_id = msg_id.decode() if isinstance(msg_id, bytes) else msg_id
-                        
+
                         decoded = decode_dict(fields)
                         bundle_id = decoded.get("bundle_id", "unknown")
                         bundle_json = decoded.get("bundle_json", "{}")
-                        
+
                         try:
                             parsed = json.loads(bundle_json)
                             severity = parsed.get("trigger", {}).get("severity", "unknown")
                         except Exception:
                             severity = "unknown"
-                            
+
                         # Gating
                         if severity not in ALLOW_SEVERITIES:
                             decision = "GATED_SEVERITY"
@@ -222,17 +223,17 @@ async def main() -> None:  # pragma: no cover
                             exposures = compute_exposures(EXPERIMENT_MODE, bundle_id, weights)
                             if exposures:
                                 decision = "COMPUTED_EXPOSURES"
-                                
+
                             for exp in exposures:
                                 arm = exp["arm"]
                                 exp_type = exp["type"]
                                 dec = exp["decision"]
-                                
+
                                 # Publish to target stream
                                 target_stream = get_stream_for_arm(arm)
                                 payload = build_payload(arm, bundle_json)
                                 await r.xadd(target_stream, payload, maxlen=MAXLEN, approximate=True)
-                                
+
                                 # Log exposure
                                 exp_payload = {
                                     "bundle_id": bundle_id,
@@ -244,9 +245,9 @@ async def main() -> None:  # pragma: no cover
                                 }
                                 await r.xadd(EXPOSURES_STREAM, exp_payload, maxlen=MAXLEN, approximate=True)
                                 await persist_exposure(db_url, bundle_id, arm, exp_type, severity, EXPERIMENT_MODE)
-                                
+
                                 if EXPOSURES: EXPOSURES.labels(arm=arm, severity=severity, mode=EXPERIMENT_MODE).inc()
-                                
+
                             # Record overall decision
                             await r.xadd(DECISIONS_STREAM, {
                                 "bundle_id": bundle_id,
@@ -254,22 +255,22 @@ async def main() -> None:  # pragma: no cover
                                 "exposures": json.dumps(exposures),
                                 "ts_ms": str(now_ms())
                             }, maxlen=MAXLEN, approximate=True)
-                            
+
                         await r.hset(LAST_METRIC, "bundle_id", bundle_id)
                         await r.hset(LAST_METRIC, "decision", decision)
                         await r.hset(LAST_METRIC, "ts_ms", str(now_ms()))
-                
+
             if LAST_RUN:
                 LAST_RUN.set(time.time())
-                
-        except Exception as exc:
+
+        except Exception:
             status = "error"
         finally:
             if RUNS:
                 RUNS.labels(status=status, decision=decision).inc()
             if LAT:
                 LAT.observe(max(time.perf_counter() - started, 0.0))
-                
+
             if not res_stream:
                 await asyncio.sleep(POLL_INTERVAL_SEC)
 

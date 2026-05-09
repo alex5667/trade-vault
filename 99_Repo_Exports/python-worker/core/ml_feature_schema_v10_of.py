@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 v10_of — Feature schema v10 (OrderFlow), pinned snapshot + stream-proven extensions.
 
@@ -25,7 +26,6 @@ Design notes
 """
 
 
-from typing import List
 
 SCHEMA_HASH = "bc489cb596eb"
 
@@ -35,7 +35,7 @@ SCHEMA_HASH = "bc489cb596eb"
 # V9_OF base keys (128 — copied verbatim for auditability)
 # ---------------------------------------------------------------------------
 
-_V9_OF_BASE: List[str] = [
+_V9_OF_BASE: list[str] = [
     "abs_lvl_calib_n",
     "abs_lvl_eff_quote_th",
     "abs_lvl_min_quote_delta",
@@ -170,7 +170,7 @@ _V9_OF_BASE: List[str] = [
 # Group 1 — already published in signals:of:inputs, absent from v9_of (16 keys)
 # ---------------------------------------------------------------------------
 
-_GROUP1_STREAM_PROVEN: List[str] = [
+_GROUP1_STREAM_PROVEN: list[str] = [
     # RSI momentum
     "rsi_price",           # RSI on price — momentum/divergence with CVD
     "rsi_cvd",             # RSI on cumulative delta flow
@@ -200,7 +200,7 @@ _GROUP1_STREAM_PROVEN: List[str] = [
 # Group 2A — Adverse Selection / VPIN extension (4 keys)
 # ---------------------------------------------------------------------------
 
-_GROUP2A_ADVERSE_SELECTION: List[str] = [
+_GROUP2A_ADVERSE_SELECTION: list[str] = [
     "vpin_rolling",        # |buy_vol_N - sell_vol_N| / total_vol_N — flow toxicity [0,1]
     "taker_lambda",        # Hawkes λ: rate of aggressive taker orders
     "maker_cancel_ratio",  # cancels / (cancels + fills) — MM behavior proxy
@@ -211,7 +211,7 @@ _GROUP2A_ADVERSE_SELECTION: List[str] = [
 # Group 2B — Order Book microstructure (4 keys, restored from v4_of + new)
 # ---------------------------------------------------------------------------
 
-_GROUP2B_ORDERBOOK: List[str] = [
+_GROUP2B_ORDERBOOK: list[str] = [
     "book_slope_bid",       # Linear slope of bid-side depth curve (5 levels)
     "book_slope_ask",       # Linear slope of ask-side depth curve (5 levels)
     "book_imbalance_5lvl",  # (depth_bid_5 - depth_ask_5) / (depth_bid_5 + depth_ask_5)
@@ -223,7 +223,7 @@ _GROUP2B_ORDERBOOK: List[str] = [
 # Group 2C — Momentum / Technical Analysis (5 keys)
 # ---------------------------------------------------------------------------
 
-_GROUP2C_MOMENTUM: List[str] = [
+_GROUP2C_MOMENTUM: list[str] = [
     "microbar_range_bps",    # Micro-bar price range in bps (was in v4_of)
     "microbar_body_bps",     # Micro-bar body size vs range
     "microbar_vwap_mid_bps", # VWAP deviation from mid-price in bps
@@ -235,7 +235,7 @@ _GROUP2C_MOMENTUM: List[str] = [
 # Group 2D — Execution Quality / post-trade rolling averages (4 keys)
 # ---------------------------------------------------------------------------
 
-_GROUP2D_EXEC_QUALITY: List[str] = [
+_GROUP2D_EXEC_QUALITY: list[str] = [
     "mae_r",                  # Max Adverse Excursion ratio — rolling avg (last-N trades)
     "mfe_r",                  # Max Favorable Excursion ratio — rolling avg (last-N trades)
     "slippage_realized_bps",  # Actual slippage vs expected_slippage_bps (rolling avg)
@@ -246,7 +246,7 @@ _GROUP2D_EXEC_QUALITY: List[str] = [
 # Group 2E — Context / External market data (4 keys, fail-open until go-worker)
 # ---------------------------------------------------------------------------
 
-_GROUP2E_CONTEXT: List[str] = [
+_GROUP2E_CONTEXT: list[str] = [
     "btc_corr_5m",          # Rolling 5-min correlation of symbol with BTC returns
     "funding_rate_bps",     # Perpetual funding rate in bps (carry risk)
     "open_interest_delta",  # Change in open interest (normalised USD)
@@ -257,7 +257,7 @@ _GROUP2E_CONTEXT: List[str] = [
 # Final composite key list — V10_OF_NUMERIC_KEYS (165 keys, sorted for determinism)
 # ---------------------------------------------------------------------------
 
-V10_OF_NUMERIC_KEYS: List[str] = sorted(set(
+V10_OF_NUMERIC_KEYS: list[str] = sorted(set(
     _V9_OF_BASE
     + _GROUP1_STREAM_PROVEN
     + _GROUP2A_ADVERSE_SELECTION
@@ -276,7 +276,7 @@ assert _EXPECTED_MIN <= len(V10_OF_NUMERIC_KEYS) <= _EXPECTED_MAX, (
 )
 
 
-def get_v10_of_numeric_keys() -> List[str]:
+def get_v10_of_numeric_keys() -> list[str]:
     """Return sorted list of numeric indicator keys for v10_of."""
     return list(V10_OF_NUMERIC_KEYS)
 

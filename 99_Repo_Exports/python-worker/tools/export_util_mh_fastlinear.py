@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Export a trained UtilMH joblib model to a portable FASTLINEAR JSON.
 
 This is meant to satisfy the online "one function" requirement:
@@ -21,7 +22,8 @@ Notes:
 import argparse
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
+import contextlib
 
 try:
     import joblib  # type: ignore
@@ -29,28 +31,26 @@ except Exception:
     joblib = None  # type: ignore
 
 
-def _get_attr_any(obj: Any, names: List[str]) -> Any:
+def _get_attr_any(obj: Any, names: list[str]) -> Any:
     for n in names:
         if hasattr(obj, n):
             return getattr(obj, n)
     return None
 
 
-def _extract_linear_estimator(model: Any) -> Optional[Any]:
+def _extract_linear_estimator(model: Any) -> Any | None:
     """Best-effort: unwrap pipelines and return an estimator that has coef_ & intercept_."""
     if model is None:
         return None
     # sklearn Pipeline
-    if hasattr(model, "named_steps") and isinstance(getattr(model, "named_steps"), dict):
+    if hasattr(model, "named_steps") and isinstance(model.named_steps, dict):
         # prefer 'model' or last step
-        ns = getattr(model, "named_steps")
+        ns = model.named_steps
         if "model" in ns:
             model = ns["model"]
         else:
-            try:
+            with contextlib.suppress(Exception):
                 model = list(ns.values())[-1]
-            except Exception:
-                pass
     if hasattr(model, "coef_") and hasattr(model, "intercept_"):
         return model
     return None
@@ -80,7 +80,7 @@ def main() -> int:
         "by_horizon",
     ])
 
-    weights: Dict[str, Dict[str, Any]] = {}
+    weights: dict[str, dict[str, Any]] = {}
 
     if isinstance(by_h, dict) and by_h:
         for h, est in by_h.items():
@@ -88,15 +88,15 @@ def main() -> int:
             lin = _extract_linear_estimator(est)
             if not lin:
                 continue
-            coef = [float(x) for x in list(getattr(lin, "coef_"))]
-            intercept = float(getattr(lin, "intercept_"))
+            coef = [float(x) for x in list(lin.coef_)]
+            intercept = float(lin.intercept_)
             weights[str(h_i)] = {"intercept": intercept, "coef": coef, "unc": 0.0}
     else:
         # fallback: maybe the whole model is already linear
         lin = _extract_linear_estimator(m)
         if lin:
-            coef = [float(x) for x in list(getattr(lin, "coef_"))]
-            intercept = float(getattr(lin, "intercept_"))
+            coef = [float(x) for x in list(lin.coef_)]
+            intercept = float(lin.intercept_)
             # single horizon unknown -> 0
             weights["0"] = {"intercept": intercept, "coef": coef, "unc": 0.0}
 

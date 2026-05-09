@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -37,10 +36,10 @@ class OBIStabilityTracker:
         self.deadband = float(deadband)
         self.grace_ms = int(grace_ms)
 
-        self._samples: Deque[_Sample] = deque()
+        self._samples: deque[_Sample] = deque()
         self._dir: int = 0
-        self._dir_start_ts_ms: Optional[int] = None
-        self._last_ts_ms: Optional[int] = None
+        self._dir_start_ts_ms: int | None = None
+        self._last_ts_ms: int | None = None
 
     def reset(self) -> None:
         self._samples.clear()
@@ -48,7 +47,7 @@ class OBIStabilityTracker:
         self._dir_start_ts_ms = None
         self._last_ts_ms = None
 
-    def update(self, *, ts_ms: int, obi: float) -> Tuple[float, float]:
+    def update(self, *, ts_ms: int, obi: float) -> tuple[float, float]:
         """Add a new sample and return (stability_score, stable_secs)."""
         ts_ms = int(ts_ms)
         obi = float(obi)
@@ -86,7 +85,7 @@ class OBIStabilityTracker:
             return -1
         return 0
 
-    def _last_non_none_ts(self) -> Optional[int]:
+    def _last_non_none_ts(self) -> int | None:
         for s in reversed(self._samples):
             if s.dir != 0:
                 return s.ts_ms
@@ -100,7 +99,7 @@ class OBIStabilityTracker:
         while self._samples and self._samples[0].ts_ms < cut:
             self._samples.popleft()
 
-    def _compute(self) -> Tuple[float, float]:
+    def _compute(self) -> tuple[float, float]:
         # stable_secs
         stable_secs = 0.0
         if self._dir != 0 and self._dir_start_ts_ms is not None and self._last_ts_ms is not None:

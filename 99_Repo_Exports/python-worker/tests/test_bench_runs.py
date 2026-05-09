@@ -1,10 +1,8 @@
 from __future__ import annotations
+
 """Test bench_of_confirm_engine.py runs and returns JSON (optional, not in CI)."""
 
 
-import json
-import tempfile
-from pathlib import Path
 
 from tools.bench_of_confirm_engine import pctl
 

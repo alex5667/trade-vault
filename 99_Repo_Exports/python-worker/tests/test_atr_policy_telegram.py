@@ -1,9 +1,9 @@
-import pytest
-import os
-import json
 from unittest import mock
+
+import pytest
+
 from services import atr_policy_telegram_callback_worker as cb
-from services import atr_policy_telegram_ops as ops
+
 
 @pytest.fixture(autouse=True)
 def mock_env(monkeypatch):
@@ -20,13 +20,13 @@ def test_parse_callback():
 def test_is_allowed():
     # Denied by chat_id
     assert not cb._is_allowed({"user_id": "1001", "chat_id": "-9999"})
-    
+
     # Allowed by user_id
     assert cb._is_allowed({"user_id": "1001", "chat_id": "-12345"})
-    
+
     # Allowed by username
     assert cb._is_allowed({"username": "Auth_User", "chat_id": "-12345"})
-    
+
     # Denied by identity
     assert not cb._is_allowed({"user_id": "9999", "username": "bad_user", "chat_id": "-12345"})
 
@@ -38,7 +38,7 @@ def test_handle_event_approve(m_record, m_ack, m_redis):
     m_redis.return_value = r_mock
     # Mock dedup nx true
     r_mock.set.return_value = True
-    
+
     m_record.return_value = True
 
     evt = {
@@ -78,7 +78,7 @@ def test_handle_event_show(m_pub, m_ack, m_redis):
     r_mock = mock.MagicMock()
     m_redis.return_value = r_mock
     r_mock.set.return_value = True
-    
+
     r_mock.get.return_value = '{"proposal_id":"prop999", "status":"SUBMITTED"}'
 
     evt = {

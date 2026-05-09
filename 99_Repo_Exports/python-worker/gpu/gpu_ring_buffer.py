@@ -22,11 +22,10 @@ When CuPy is unavailable the class works with numpy arrays held in RAM.
 The public API is identical; `backend` attribute indicates "gpu" or "cpu".
 """
 import logging
-from typing import Optional, Tuple
-
-from common.gpu_service import is_gpu_available, get_gpu_service
 
 import numpy as np
+
+from common.gpu_service import is_gpu_available
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +97,7 @@ def _cpu_median(arr: np.ndarray) -> float:
     return float(0.5 * (part[mid - 1] + part[mid]))
 
 
-def _cpu_mad_median(arr: np.ndarray) -> Tuple[float, float]:
+def _cpu_mad_median(arr: np.ndarray) -> tuple[float, float]:
     """Return (median, MAD) using O(N log N) approach for correctness."""
     med = float(np.median(arr))
     mad = float(np.median(np.abs(arr - med)))
@@ -131,7 +130,7 @@ class GPURingBuffer:
         window_size: int = 500,
         min_n: int = 16,
         eps: float = 1e-12,
-        use_gpu: Optional[bool] = None,
+        use_gpu: bool | None = None,
     ) -> None:
         self.window_size = max(8, int(window_size))
         self.min_n = max(2, int(min_n))
@@ -169,7 +168,7 @@ class GPURingBuffer:
         self._pinned_mem = pinned_mem  # keep reference alive
 
         # Permanent device array
-        self._dev_buf: "cp.ndarray" = cp.zeros(n, dtype=cp.float32)
+        self._dev_buf: cp.ndarray = cp.zeros(n, dtype=cp.float32)
         self._stream = cp.cuda.Stream(non_blocking=True)
 
     def _init_cpu(self) -> None:
@@ -208,7 +207,7 @@ class GPURingBuffer:
         if self._count < self.window_size:
             self._count += 1
 
-    def compute_stats(self) -> Tuple[float, float, int]:
+    def compute_stats(self) -> tuple[float, float, int]:
         """
         Return (median, MAD, n) over the current window contents.
         Only the two scalar results are transferred back to CPU.
@@ -253,7 +252,7 @@ class GPURingBuffer:
             return s[mid]
         return (s[mid - 1] + s[mid]) * cp.float32(0.5)
 
-    def _gpu_stats(self, n: int) -> Tuple[float, float, int]:
+    def _gpu_stats(self, n: int) -> tuple[float, float, int]:
         try:
             # Sync outstanding async copies before reading
             self._stream.synchronize()
@@ -261,7 +260,7 @@ class GPURingBuffer:
             # Build logical view of filled window (ring-wrap aware)
             if n < self.window_size:
                 # Buffer not yet full: linear slice [0:n]
-                view: "cp.ndarray" = self._dev_buf[:n]
+                view: cp.ndarray = self._dev_buf[:n]
             else:
                 # Full ring — contiguous view from _head onward
                 start = self._head % self.window_size
@@ -285,7 +284,7 @@ class GPURingBuffer:
     # ------------------------------------------------------------------
     # Internal compute — CPU path
     # ------------------------------------------------------------------
-    def _cpu_stats(self, n: int) -> Tuple[float, float, int]:
+    def _cpu_stats(self, n: int) -> tuple[float, float, int]:
         if n < self.window_size:
             arr = self._cpu_buf[:n].copy()
         else:
@@ -297,7 +296,7 @@ class GPURingBuffer:
         med, mad = _cpu_mad_median(arr)
         return med, mad, n
 
-    def _cpu_stats_fallback(self, n: int) -> Tuple[float, float, int]:
+    def _cpu_stats_fallback(self, n: int) -> tuple[float, float, int]:
         """Emergency CPU path when GPU errors out (uses host pinned buffer)."""
         if n < self.window_size:
             arr = np.array(self._host_buf[:n], dtype=np.float64)

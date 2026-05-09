@@ -1,4 +1,5 @@
 import types
+
 import pytest
 
 from common.gate_cache import cached_call, cached_call_exc
@@ -89,7 +90,7 @@ class DummyLevels:
         self.calls = 0
     def attach(self, ctx):
         self.calls += 1
-        setattr(ctx, "tp1_price", 123.0)
+        ctx.tp1_price = 123.0
 
 def test_attach_levels_called_once():
     ctx = types.SimpleNamespace()

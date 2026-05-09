@@ -1,5 +1,6 @@
 from core.ml_feature_schema_v3 import MLFeatureSchemaV3
 
+
 def test_schema_v3_len():
     s = MLFeatureSchemaV3()
     x = s.vectorize(

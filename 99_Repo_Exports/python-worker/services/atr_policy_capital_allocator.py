@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import os
 import time
-import math
+
 import psycopg2
 import psycopg2.extras
 import redis
+
 
 def _dsn():
     return (
@@ -25,7 +26,7 @@ def _clip(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 def _cert_mult(status: str) -> float:
-    status = str(status or "")
+    status = (status or "")
     if status == "passed":
         return 1.0
     if status in {"failed", "stale"}:
@@ -92,12 +93,12 @@ def run_once() -> int:
                 instability_pen = float(r.get(f"state:atr_instability_pen_bps:{scope}") or 0.0)
 
                 edge_net_bps = pnl - slip - spread_cost_bps - fee_bps - dd_pen - instability_pen
-                
+
                 # Portfolio Concentration Control
-                cluster = str(r.get(f"cfg:atr_symbol_cluster:{row['symbol']}") or "unclassified")
+                cluster = (r.get(f"cfg:atr_symbol_cluster:{row['symbol']}") or "unclassified")
                 cluster_open = float(r.get(f"state:atr_portfolio:open_risk_pct:factor:{cluster}") or 0.0)
                 cluster_cap = float(r.get(f"cfg:atr_portfolio:max_factor_cluster_risk_pct:factor:{cluster}") or 0.0)
-                
+
                 concentration_mult = 1.0
                 if cluster_cap > 0.0:
                     util = cluster_open / cluster_cap
@@ -105,7 +106,7 @@ def run_once() -> int:
 
                 # Regime/Stress multiplier logic
                 regime = str(r.get(f"state:atr_regime:{row['symbol']}") or row.get('regime') or "unknown")
-                stress = str(r.get(f"state:atr_stress:{row['symbol']}") or "normal")
+                stress = (r.get(f"state:atr_stress:{row['symbol']}") or "normal")
                 regime_mult = float(r.get(f"cfg:atr_regime_risk_mult:{regime}:{stress}:{layer}:{rollout_stage}") or 1.0)
 
                 score = _relu(edge_net_bps) \
@@ -133,7 +134,7 @@ def run_once() -> int:
         min_mult = float(os.getenv("ATR_ALLOC_MIN_RISK_MULT", "0.25"))
         max_mult = float(os.getenv("ATR_ALLOC_MAX_RISK_MULT", "1.50"))
         max_share = float(os.getenv("ATR_ALLOC_MAX_SHARE", "0.40"))
-        
+
         observe_only = os.getenv("ATR_POLICY_ALLOCATOR_OBSERVE_ONLY", "1") == "1"
 
         with conn, conn.cursor() as cur:
@@ -181,9 +182,9 @@ def run_once() -> int:
                 ))
 
                 scope = _scope_key(x, x["layer"])
-                
-                # Update Redis config keys, but avoid if we're entirely disabled (though OBSERVE_ONLY means we might still write to redis, but gate ignores it. Actually, wait. 
-                # If observe_only, we can perhaps write with a different prefix, or the gate handles observe_only? 
+
+                # Update Redis config keys, but avoid if we're entirely disabled (though OBSERVE_ONLY means we might still write to redis, but gate ignores it. Actually, wait.
+                # If observe_only, we can perhaps write with a different prefix, or the gate handles observe_only?
                 # The user wrote "budget gate ignores allocator keys" for observe_only. Let's write them normally, and the gate can check observe_only.
                 r.set(f"cfg:atr_alloc:risk_pct_mult:{scope}", str(float(risk_mult)))
                 r.set(f"cfg:atr_alloc:max_open_risk_pct:{scope}", str(float(target_open_risk)))
@@ -203,9 +204,9 @@ def run_once() -> int:
                     json.dumps(state, ensure_ascii=False, sort_keys=True),
                 ))
                 written += 1
-                
+
             conn.commit()
-            
+
         return written
     finally:
         conn.close()

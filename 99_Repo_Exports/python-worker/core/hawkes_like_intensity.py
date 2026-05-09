@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Hawkes-like intensity proxies (cheap, online, O(1)).
 
 Purpose
@@ -55,7 +56,7 @@ We keep state in a plain dict (json-safe):
 
 import math
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
 def _f(v: Any, d: float = 0.0) -> float:
@@ -66,7 +67,7 @@ def _f(v: Any, d: float = 0.0) -> float:
         return d
 
 
-def _cfg_or_env(cfg: Optional[Dict[str, Any]], cfg_key: str, env_key: str, default: float) -> float:
+def _cfg_or_env(cfg: dict[str, Any] | None, cfg_key: str, env_key: str, default: float) -> float:
     if cfg and cfg_key in cfg:
         return _f(cfg.get(cfg_key), default)
     return _f(os.getenv(env_key, str(default)), default)
@@ -85,14 +86,14 @@ def _decay(beta: float, dt_s: float) -> float:
 
 
 def update_hawkes_like(
-    state: Optional[Dict[str, Any]],
+    state: dict[str, Any] | None,
     *,
     now_ts_ms: int,
     dt_s: float,
-    rates: Dict[str, float],
-    cfg: Optional[Dict[str, Any]] = None,
+    rates: dict[str, float],
+    cfg: dict[str, Any] | None = None,
     eps: float = 1e-9,
-) -> Tuple[Dict[str, Any], Dict[str, float]]:
+) -> tuple[dict[str, Any], dict[str, float]]:
     """Update hawkes-like state and return (state, snapshot).
 
     Args:
@@ -108,7 +109,7 @@ def update_hawkes_like(
     Returns:
         (new_state, snapshot)
     """
-    st: Dict[str, Any] = dict(state or {})
+    st: dict[str, Any] = dict(state or {})
 
     beta = _cfg_or_env(cfg, "hawkes_beta", "HKS_BETA", 1.2)
     d = _decay(beta, float(dt_s))
@@ -151,7 +152,7 @@ def update_hawkes_like(
         lam = float(mu) + float(a) * float(S)
         return lam if math.isfinite(lam) else 0.0
 
-    snap: Dict[str, float] = {
+    snap: dict[str, float] = {
         "hawkes_dt_s": float(dt_s),
 
         # New split intensities

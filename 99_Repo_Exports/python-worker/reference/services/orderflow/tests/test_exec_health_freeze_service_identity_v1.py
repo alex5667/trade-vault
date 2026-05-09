@@ -1,4 +1,9 @@
-from services.orderflow.exec_health_freeze_service_identity import build_service_identity_contract, evaluate_client_list_against_contract, normalize_client_entry, verify_entry_against_expected
+from services.orderflow.exec_health_freeze_service_identity import (
+    build_service_identity_contract,
+    evaluate_client_list_against_contract,
+    normalize_client_entry,
+    verify_entry_against_expected,
+)
 
 
 def test_contract_contains_expected_services():

@@ -3,12 +3,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
 
+from core.redis_keys import STREAM_RETENTION
+from core.redis_keys import RedisStreams as RS
 from services.atr_policy_guardrails import evaluate_guardrails
 from services.atr_policy_operator_bootstrap_service import run_once as run_operator_bootstrap_once
+import contextlib
 
 
 def _redis():
@@ -16,7 +19,7 @@ def _redis():
 
 
 def _chat_id() -> str:
-    return str(os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
+    return (os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
 
 
 def _top_pending() -> int:
@@ -33,24 +36,24 @@ def _top_active() -> int:
         return 3
 
 
-def _notify(text: str, buttons: List[List[Dict[str, str]]] | None = None) -> bool:
-    payload: Dict[str, Any] = {"text": text}
+def _notify(text: str, buttons: list[list[dict[str, str]]] | None = None) -> bool:
+    payload: dict[str, Any] = {"text": text}
     if buttons:
         payload["buttons"] = json.dumps(buttons, ensure_ascii=False)
     cid = _chat_id()
     if cid:
         payload["chat_id"] = cid
     try:
-        _redis().xadd("notify:telegram", payload, maxlen=10000, approximate=True)
+        _redis().xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=STREAM_RETENTION[RS.NOTIFY_TELEGRAM], approximate=True)
         return True
     except Exception:
         return False
 
 
-def _scan_active_keys() -> List[str]:
+def _scan_active_keys() -> list[str]:
     r = _redis()
     cur = 0
-    out: List[str] = []
+    out: list[str] = []
     while True:
         cur, keys = r.scan(cur, match="cfg:atr_policy:active:*", count=10000)
         out.extend(keys)
@@ -67,31 +70,31 @@ def _active_ref_key(ref: str) -> str:
     return f"cfg:atr_policy:active_ref:{ref}"
 
 
-def _store_active_refs(keys: List[str]) -> None:
+def _store_active_refs(keys: list[str]) -> None:
     r = _redis()
     ttl = int(os.getenv("ATR_POLICY_TELEGRAM_PACK_REF_TTL_SEC", "86400") or 86400)
     for k in keys:
         r.set(_active_ref_key(_active_ref(k)), k, ex=ttl)
 
 
-def _pending_items() -> List[Dict[str, Any]]:
+def _pending_items() -> list[dict[str, Any]]:
     r = _redis()
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     ids = sorted(list(r.smembers("queue:atr_policy:pending") or []))
     for pid in ids[: _top_pending()]:
         raw = r.get(f"cfg:proposals:atr_policy:{pid}")
         if not raw:
             continue
         obj = json.loads(raw)
-        if str(obj.get("status") or "") != "SUBMITTED":
+        if (obj.get("status") or "") != "SUBMITTED":
             continue
         out.append(obj)
     return out
 
 
-def _active_items() -> List[Tuple[str, Dict[str, Any]]]:
+def _active_items() -> list[tuple[str, dict[str, Any]]]:
     r = _redis()
-    rows: List[Tuple[str, Dict[str, Any]]] = []
+    rows: list[tuple[str, dict[str, Any]]] = []
     keys = _scan_active_keys()[: _top_active()]
     _store_active_refs(keys)
     for key in keys:
@@ -120,7 +123,7 @@ def build_pack_text() -> str:
         lines.append("- none")
     else:
         for p in pending:
-            pid = str(p.get("proposal_id") or "")[:8]
+            pid = (p.get("proposal_id") or "")[:8]
             g = evaluate_guardrails(obj=p, action="APPROVE", is_active=False)
             badge = "🟢" if g["risk_class"] == "SAFE" else "🟡" if g["risk_class"] == "WARN" else "🔴"
             lines.append(
@@ -145,11 +148,11 @@ def build_pack_text() -> str:
     return "\n".join(lines)
 
 
-def build_pack_buttons() -> List[List[Dict[str, str]]]:
+def build_pack_buttons() -> list[list[dict[str, str]]]:
     pending = _pending_items()
     active = _active_items()
 
-    buttons: List[List[Dict[str, str]]] = [
+    buttons: list[list[dict[str, str]]] = [
         [
             {"text": "🔄 Refresh", "callback": "atrpack:refresh"},
             {"text": "📋 Menu", "callback": "atrsum:menu"},
@@ -157,7 +160,7 @@ def build_pack_buttons() -> List[List[Dict[str, str]]]:
     ]
 
     for p in pending:
-        pid = str(p.get("proposal_id") or "")
+        pid = (p.get("proposal_id") or "")
         short = pid[:8]
         buttons.append([
             {"text": f"✅ A {p.get('symbol','')} {short}", "callback": f"atrpack:approve:{pid}"},
@@ -188,15 +191,13 @@ def publish_ops_pack() -> bool:
 
 def resolve_active_ref(ref: str) -> str:
     r = _redis()
-    key = str(r.get(_active_ref_key(ref)) or "")
+    key = (r.get(_active_ref_key(ref)) or "")
     if key:
         return key
     # Phase 4.4: on-demand operator UX restore
-    try:
+    with contextlib.suppress(Exception):
         run_operator_bootstrap_once()
-    except Exception:
-        pass
-    return str(r.get(_active_ref_key(ref)) or "")
+    return (r.get(_active_ref_key(ref)) or "")
 
 if __name__ == "__main__":
     print(publish_ops_pack())

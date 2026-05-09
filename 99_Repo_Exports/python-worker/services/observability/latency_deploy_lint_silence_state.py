@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Redis-backed ack/silence helpers for latency deploy-lint notifier control.
@@ -22,7 +23,7 @@ commit the notifier silence.
 
 from dataclasses import dataclass
 from typing import Any
-import time
+import contextlib
 
 
 def _i(v: Any, d: int = 0) -> int:
@@ -111,7 +112,7 @@ def parse_silence_state(raw: dict[str, str] | None, *, now_ms: int | None = None
     raw = dict(raw or {})
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
     until_ms = _i(raw.get('silence_until_ts_ms'), 0)
-    active = str(raw.get('silence_active', '0')) == '1' and until_ms > now_ms
+    active = (raw.get('silence_active', '0')) == '1' and until_ms > now_ms
     remaining_s = int(max(0, (until_ms - now_ms) / 1000.0)) if active else 0
     ttl_expired_ts_ms = _i(raw.get('ttl_expired_ts_ms'), 0)
     ttl_expired = ttl_expired_ts_ms > 0
@@ -147,7 +148,7 @@ def parse_silence_state(raw: dict[str, str] | None, *, now_ms: int | None = None
         policy_last_limit_ts_ms=_i(raw.get('policy_last_limit_ts_ms'), 0),
         policy_last_deny_ts_ms=_i(raw.get('policy_last_deny_ts_ms'), 0),
         policy_last_deny_reason=_s(raw.get('policy_last_deny_reason')),
-        policy_current_override_active=str(raw.get('policy_current_override_active', '0')) == '1',
+        policy_current_override_active=(raw.get('policy_current_override_active', '0')) == '1',
         policy_current_override_ticket=_s(raw.get('policy_current_override_ticket')),
         policy_current_override_operator=_s(raw.get('policy_current_override_operator')),
         policy_current_override_ts_ms=_i(raw.get('policy_current_override_ts_ms'), 0),
@@ -155,7 +156,7 @@ def parse_silence_state(raw: dict[str, str] | None, *, now_ms: int | None = None
         policy_last_override_operator=_s(raw.get('policy_last_override_operator')),
         policy_last_override_ts_ms=_i(raw.get('policy_last_override_ts_ms'), 0),
         # P4.10 dual-control fields
-        dual_control_required=str(raw.get('dual_control_required', '0')) == '1',
+        dual_control_required=(raw.get('dual_control_required', '0')) == '1',
         dual_control_request_id=_s(raw.get('dual_control_request_id')),
         dual_control_prepared_by=_s(raw.get('dual_control_prepared_by')),
         dual_control_approved_by=_s(raw.get('dual_control_approved_by')),
@@ -269,7 +270,7 @@ def evaluate_ack_policy(
 def has_silence_ttl_expired(raw: dict[str, str] | None, *, now_ms: int | None = None) -> bool:
     raw = dict(raw or {})
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
-    if str(raw.get('silence_active', '0')) != '1':
+    if (raw.get('silence_active', '0')) != '1':
         return False
     until_ms = _i(raw.get('silence_until_ts_ms'), 0)
     return until_ms > 0 and now_ms >= until_ms
@@ -365,10 +366,8 @@ def record_dual_control_denial(
         'last_action_reason': str(deny_reason),
     })
     r.hset(skey, mapping=mapping)
-    try:
+    with contextlib.suppress(Exception):
         r.expire(skey, max(1, int(ttl_s)))
-    except Exception:
-        pass
     event_id = _xadd_best_effort(r, ops_stream, {
         'ts_ms': str(now_ms),
         'kind': 'latency_deploy_lint_ack_silence_dual_control_denied',
@@ -376,7 +375,7 @@ def record_dual_control_denial(
         'operator': str(operator),
         'ticket': str(ticket),
         'escalation_ticket': str(escalation_ticket),
-        'reason': str(reason),
+        'reason': reason,
         'requested_silence_duration_s': str(max(1, int(silence_minutes)) * 60),
         'dual_control_denied_reason': str(deny_reason),
     })
@@ -455,17 +454,15 @@ def upsert_ack_silence(
             'last_action_reason': str(policy.denied_reason),
         })
         r.hset(skey, mapping=mapping)
-        try:
+        with contextlib.suppress(Exception):
             r.expire(skey, max(int(ttl_s), 1))
-        except Exception:
-            pass
         event_id = _xadd_best_effort(r, ops_stream, {
             'ts_ms': str(now_ms),
             'kind': 'latency_deploy_lint_ack_silence_policy_denied',
             'purpose': str(purpose),
             'operator': str(operator),
             'ticket': str(ticket),
-            'reason': str(reason),
+            'reason': reason,
             'policy_limit_kind': str(policy.limit_kind),
             'policy_denied_reason': str(policy.denied_reason),
             'requested_silence_duration_s': str(silence_minutes * 60),
@@ -485,7 +482,7 @@ def upsert_ack_silence(
         'ack_ts_ms': str(now_ms),
         'ack_operator': str(operator),
         'ack_ticket': str(ticket),
-        'ack_reason': str(reason),
+        'ack_reason': reason,
         'ack_count': str(_i(prev.get('ack_count'), 0) + 1),
         'gate_active_at_ack': '1' if gate_active else '0',
         'ttl_expired_ts_ms': '0',
@@ -515,13 +512,11 @@ def upsert_ack_silence(
         'last_action_ts_ms': str(now_ms),
         'last_action_operator': str(operator),
         'last_action_ticket': str(ticket),
-        'last_action_reason': str(reason),
+        'last_action_reason': reason,
     })
     r.hset(skey, mapping=mapping)
-    try:
+    with contextlib.suppress(Exception):
         r.expire(skey, max(int(ttl_s), silence_minutes * 60, 1))
-    except Exception:
-        pass
     # Emit appropriate audit event: override or normal ack
     event_kind = 'latency_deploy_lint_ack_silence_policy_override' if policy.override_active else 'latency_deploy_lint_ack_silence_set'
     event_id = _xadd_best_effort(r, ops_stream, {
@@ -530,7 +525,7 @@ def upsert_ack_silence(
         'purpose': str(purpose),
         'operator': str(operator),
         'ticket': str(ticket),
-        'reason': str(reason),
+        'reason': reason,
         'silence_until_ts_ms': str(until_ms),
         'silence_duration_s': str(silence_minutes * 60),
         'gate_active': '1' if gate_active else '0',
@@ -563,7 +558,7 @@ def clear_ack_silence(r: Any, *, prefix: str, purpose: str, operator: str, ticke
         'unsilence_ts_ms': str(now_ms),
         'unsilence_operator': str(operator),
         'unsilence_ticket': str(ticket),
-        'unsilence_reason': str(reason),
+        'unsilence_reason': reason,
         'policy_current_override_active': '0',
         'policy_current_override_ticket': '',
         'policy_current_override_operator': '',
@@ -572,20 +567,18 @@ def clear_ack_silence(r: Any, *, prefix: str, purpose: str, operator: str, ticke
         'last_action_ts_ms': str(now_ms),
         'last_action_operator': str(operator),
         'last_action_ticket': str(ticket),
-        'last_action_reason': str(reason),
+        'last_action_reason': reason,
     })
     r.hset(skey, mapping=mapping)
-    try:
+    with contextlib.suppress(Exception):
         r.expire(skey, max(1, int(ttl_s)))
-    except Exception:
-        pass
     event_id = _xadd_best_effort(r, ops_stream, {
         'ts_ms': str(now_ms),
         'kind': 'latency_deploy_lint_ack_silence_cleared',
         'purpose': str(purpose),
         'operator': str(operator),
         'ticket': str(ticket),
-        'reason': str(reason),
+        'reason': reason,
     })
     if event_id:
         r.hset(skey, mapping={'last_event_id': event_id})
@@ -623,10 +616,8 @@ def mark_silence_ttl_expired(r: Any, *, prefix: str, purpose: str, ttl_s: int, o
         'last_action_reason': 'silence_ttl_expired',
     })
     r.hset(skey, mapping=mapping)
-    try:
+    with contextlib.suppress(Exception):
         r.expire(skey, max(1, int(ttl_s)))
-    except Exception:
-        pass
     event_id = _xadd_best_effort(r, ops_stream, {
         'ts_ms': str(now_ms),
         'kind': 'latency_deploy_lint_silence_ttl_expired',

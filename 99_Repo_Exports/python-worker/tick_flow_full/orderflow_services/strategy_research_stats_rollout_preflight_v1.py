@@ -9,14 +9,12 @@ preflight wrappers.
 
 import argparse
 import os
-import sys
-from typing import Any, Dict
+from typing import Any
 
 from orderflow_services.strategy_research_stats_gate_v1 import (
     evaluate_strategy_research_stats_gate,
     gate_check_message,
 )
-
 
 EXIT_BLOCK = 24
 EXIT_INVALID = 25
@@ -31,14 +29,14 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(float(raw))
     except Exception:
-        return int(default)
+        return default
 
 
 def evaluate_rollout_preflight(
     *,
     purpose: str,
     client: Any | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if _env_int('ENABLE_STRATEGY_RESEARCH_STATS_HARD_GATE', 1) != 1:
         return {
             'status': 'ok',
@@ -58,12 +56,12 @@ def evaluate_rollout_preflight(
         fail_closed_missing=fail_closed_missing,
         client=client,
     )
-    if str(state.get('reason') or '') == 'state_missing_allowed' and fail_closed_missing == 1 and configured_gate_mode in ('soft', 'hard'):
+    if (state.get('reason') or '') == 'state_missing_allowed' and fail_closed_missing == 1 and configured_gate_mode in ('soft', 'hard'):
         state = dict(state)
         state['status'] = 'invalid' if configured_gate_mode == 'hard' else 'soft'
         state['reason'] = 'state_missing'
         state['gate_mode'] = configured_gate_mode
-    status = str(state.get('status') or 'ok').strip().lower()
+    status = (state.get('status') or 'ok').strip().lower()
     invalid_as_block = _env_int('STRATEGY_RESEARCH_STATS_INVALID_AS_BLOCK', 1) == 1
     block_exit = _env_int('STRATEGY_RESEARCH_STATS_PREFLIGHT_EXIT_CODE', EXIT_BLOCK)
     invalid_exit = _env_int('STRATEGY_RESEARCH_STATS_PREFLIGHT_INVALID_EXIT_CODE', EXIT_INVALID)
@@ -88,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     result = evaluate_rollout_preflight(purpose=args.purpose)
     if result.get('allowed'):
-        if str(result.get('status') or '') in ('soft', 'invalid'):
+        if (result.get('status') or '') in ('soft', 'invalid'):
             print(gate_check_message(result, purpose=args.purpose))
         return 0
     print(gate_check_message(result, purpose=args.purpose))

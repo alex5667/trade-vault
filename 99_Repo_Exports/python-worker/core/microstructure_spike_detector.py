@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
 """
 MicrostructureSpikeDetector — детектор всплесков.
 """
 
-from dataclasses import dataclass
-from collections import deque
-from typing import Deque, Dict
-import numpy as np
 import time
+from collections import deque
+from dataclasses import dataclass
+
+import numpy as np
 
 
 @dataclass
@@ -22,13 +21,13 @@ class SpikeConfig:
 class MicrostructureSpikeDetector:
     def __init__(self, cfg: SpikeConfig):
         self.cfg = cfg
-        self.mid_q: Deque[float] = deque(maxlen=cfg.win_ticks)
-        self.ts_q: Deque[float] = deque(maxlen=cfg.win_ticks)
-        self.delta_q: Deque[float] = deque(maxlen=cfg.win_ticks)
-        self.speed_q: Deque[float] = deque(maxlen=cfg.win_ticks)
-        self.range_q: Deque[float] = deque(maxlen=cfg.win_ticks)
+        self.mid_q: deque[float] = deque(maxlen=cfg.win_ticks)
+        self.ts_q: deque[float] = deque(maxlen=cfg.win_ticks)
+        self.delta_q: deque[float] = deque(maxlen=cfg.win_ticks)
+        self.speed_q: deque[float] = deque(maxlen=cfg.win_ticks)
+        self.range_q: deque[float] = deque(maxlen=cfg.win_ticks)
 
-    def update(self, bid: float, ask: float, volume: float = 1.0, delta_hint: float = None, ts_ms: int = None) -> Dict:
+    def update(self, bid: float, ask: float, volume: float = 1.0, delta_hint: float = None, ts_ms: int = None) -> dict:
         ts = ts_ms / 1000.0 if ts_ms else time.time()
         mid = (bid + ask) / 2.0 if (bid and ask) else 0.0
 
@@ -55,7 +54,7 @@ class MicrostructureSpikeDetector:
         def z(x):
             if len(x) < 10:
                 return 0.0
-            
+
             # Пытаемся использовать GPU сервис
             try:
                 from services.gpu_compute_service import get_gpu_service
@@ -66,7 +65,7 @@ class MicrostructureSpikeDetector:
                     return float(z_scores[-1]) if len(z_scores) > 0 else 0.0
             except Exception:
                 pass  # Fallback to CPU
-            
+
             # CPU fallback
             a = np.array(x, dtype=float)
             m, s = a.mean(), a.std()

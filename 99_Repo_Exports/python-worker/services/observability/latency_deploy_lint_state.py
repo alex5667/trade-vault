@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Redis-backed state helpers for latency deploy-lint results.
@@ -9,8 +10,9 @@ be exported to Prometheus/Grafana and used to detect *persistent* configuration
 problems instead of only one-off failures.
 """
 
-from typing import Any, Mapping
-import time
+from collections.abc import Mapping
+from typing import Any
+import contextlib
 
 
 def _i(v: Any, d: int = 0) -> int:
@@ -23,7 +25,7 @@ def _i(v: Any, d: int = 0) -> int:
 def _clean_codes(values: list[str] | tuple[str, ...] | None) -> list[str]:
     out: list[str] = []
     for raw in values or []:
-        s = str(raw or '').strip()
+        s = (raw or '').strip()
         if not s:
             continue
         out.append(s)
@@ -100,19 +102,17 @@ def update_deploy_lint_state(
         'gate_reason_code': 'persistent_config_drift' if gate_active else ('ok' if ok else 'transient_config_drift'),
         'error_codes': ','.join(errors) if errors else 'ok',
         'warning_codes': ','.join(warnings) if warnings else 'none',
-        'compose_file': str(checks.get('compose_file', '')),
-        'wrapper_file': str(checks.get('wrapper_file', '')),
-        'unit_file': str(checks.get('unit_file', '')),
-        'env_file': str(checks.get('env_file', '')),
+        'compose_file': (checks.get('compose_file', '')),
+        'wrapper_file': (checks.get('wrapper_file', '')),
+        'unit_file': (checks.get('unit_file', '')),
+        'env_file': (checks.get('env_file', '')),
         'missing_runtime_env': ','.join(checks.get('missing_runtime_env') or []) or 'none',
         'missing_env_file_vars': ','.join(checks.get('missing_env_file_vars') or []) or 'none',
     }
 
     r.hset(skey, mapping=mapping)
-    try:
+    with contextlib.suppress(Exception):
         r.expire(skey, max(1, int(ttl_s)))
-    except Exception:
-        pass
 
     if gate_active:
         gate_mapping = {
@@ -127,14 +127,10 @@ def update_deploy_lint_state(
             'error_codes': mapping['error_codes'],
         }
         r.hset(gkey, mapping=gate_mapping)
-        try:
+        with contextlib.suppress(Exception):
             r.expire(gkey, max(1, int(ttl_s)))
-        except Exception:
-            pass
     else:
-        try:
+        with contextlib.suppress(Exception):
             r.delete(gkey)
-        except Exception:
-            pass
 
     return mapping

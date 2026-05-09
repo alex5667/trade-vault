@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Test for SID normalization and deterministic sampling.
 
@@ -12,14 +12,15 @@ Tests:
 
 
 import pytest
+
 from services.ml_confirm_gate import (
+    _canonical_sid,
     _make_sid,
     _normalize_sid,
-    _canonical_sid,
+    _should_sample,
+    _stable_hash_u64,
     _stable_sample,
     _stable_u01,
-    _stable_hash_u64,
-    _should_sample,
 )
 
 
@@ -110,18 +111,18 @@ class TestDeterministicSampling:
     def test_should_sample(self):
         """Test _should_sample function"""
         key = "crypto-of:BTCUSDT:1234567890"
-        
+
         # Rate 1.0 always returns True
         assert _should_sample(key, rate=1.0, salt="test") is True
-        
+
         # Rate 0.0 always returns False
         assert _should_sample(key, rate=0.0, salt="test") is False
-        
+
         # Same key+salt -> same decision
         result1 = _should_sample(key, rate=0.5, salt="test")
         result2 = _should_sample(key, rate=0.5, salt="test")
         assert result1 == result2
-        
+
         # Different salt -> may be different
         result3 = _should_sample(key, rate=0.5, salt="different")
         # May be same or different, but should be deterministic

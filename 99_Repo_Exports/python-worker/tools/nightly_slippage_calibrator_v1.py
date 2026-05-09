@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import os
-import logging
 import asyncio
-from typing import Dict, List, Tuple, Any, Optional
+import logging
+import os
+from typing import Any
 
 import asyncpg
+import contextlib
 
 try:
     import redis.asyncio as aioredis  # type: ignore
@@ -23,17 +24,17 @@ def _env_float(name: str, default: str) -> float:
     try:
         return float(os.getenv(name, default))
     except Exception:
-        return float(default)
+        return default
 
 
 def _env_int(name: str, default: str) -> int:
     try:
         return int(os.getenv(name, default))
     except Exception:
-        return int(default)
+        return default
 
 
-def _quantile(xs: List[float], q: float) -> float:
+def _quantile(xs: list[float], q: float) -> float:
     """Deterministic quantile without numpy (Hyndman-Fan type 7, same as numpy default)."""
     if not xs:
         return 0.0
@@ -55,7 +56,7 @@ def _safe_f(v: Any, d: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(d)
+        return d
 
 
 async def run() -> bool:
@@ -73,10 +74,8 @@ async def run() -> bool:
         conn = await asyncpg.connect(db_url)
     except Exception as e:
         logger.error("DB connect failed: %s", e)
-        try:
+        with contextlib.suppress(Exception):
             await r.aclose()
-        except Exception:
-            pass
         return False
 
     # Calibration hyperparameters (all tunable via ENV)
@@ -106,10 +105,10 @@ async def run() -> bool:
     logger.info("Querying v_exec_slippage_eval (lookback=%dd)", lookback_days)
     rows = await conn.fetch(query)
 
-    groups: Dict[Tuple[str, str], List[float]] = {}
+    groups: dict[tuple[str, str], list[float]] = {}
     for row in rows:
-        sym    = str(row.get("sym") or "")
-        bucket = str(row.get("exec_regime_bucket") or "NORMAL")
+        sym    = (row.get("sym") or "")
+        bucket = (row.get("exec_regime_bucket") or "NORMAL")
         spread = _safe_f(row.get("spread_bps"), 0.0)
         proxy  = _safe_f(row.get("impact_proxy"), 0.0)
         size   = _safe_f(row.get("size_usd"), 0.0)
@@ -167,10 +166,8 @@ async def run() -> bool:
                     sym, bucket, n, q, c_fit, c_new, old)
 
     await conn.close()
-    try:
+    with contextlib.suppress(Exception):
         await r.aclose()
-    except Exception:
-        pass
 
     logger.info("done: updated=%d", updated)
     return True

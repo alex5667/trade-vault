@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Integration tests for stream_archiver.py
 
@@ -20,18 +21,13 @@ Or directly:
 import asyncio
 import json
 import os
-import time
-from typing import Dict, Any
 
+# Import the archiver components
 import psycopg2
 import pytest
 
-# Import the archiver components
-import sys
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from services.archivers.stream_archiver import StreamArchiver, PgWriter, PgCfg
-
+from services.archivers.stream_archiver import PgCfg, PgWriter, StreamArchiver
 
 # Test configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -91,7 +87,7 @@ def cleanup_postgres(pg_connection):
 async def test_entry_audit_flow_minimal(redis_client, pg_connection, cleanup_redis, cleanup_postgres):
     """Test basic entry_audit archival flow"""
     r = redis_client
-    
+
     # Add test messages to Redis stream
     test_messages = [
         {
@@ -108,12 +104,12 @@ async def test_entry_audit_flow_minimal(redis_client, pg_connection, cleanup_red
             "ts_ms": get_ny_time_millis(),
         },
     ]
-    
+
     stream_ids = []
     for msg in test_messages:
         sid = await r.xadd(TEST_ENTRY_STREAM, {"data": json.dumps(msg)})
         stream_ids.append(sid)
-    
+
     # Create archiver with test configuration
     os.environ["TRADE_ENTRY_AUDIT_STREAM"] = TEST_ENTRY_STREAM
     os.environ["ENTRY_AUDIT_CG"] = "test_cg_entry"
@@ -123,13 +119,13 @@ async def test_entry_audit_flow_minimal(redis_client, pg_connection, cleanup_red
     os.environ["ENTRY_AUDIT_DLQ_STREAM"] = TEST_ENTRY_DLQ
     os.environ["ENTRY_AUDIT_ARCHIVE_ENABLED"] = "1"
     os.environ["POSITION_EVENTS_ARCHIVE_ENABLED"] = "0"
-    
+
     pg = PgWriter(PgCfg(dsn=PG_DSN))
     archiver = StreamArchiver(r, pg)
-    
+
     # Create consumer group
     await archiver._ensure_group(TEST_ENTRY_STREAM, "test_cg_entry")
-    
+
     # Process one batch
     resp = await r.xreadgroup(
         groupname="test_cg_entry",
@@ -138,11 +134,11 @@ async def test_entry_audit_flow_minimal(redis_client, pg_connection, cleanup_red
         count=10,
         block=1000
     )
-    
+
     assert resp, "Should have received messages from stream"
     _, msgs = resp[0]
     assert len(msgs) == 2, "Should have 2 messages"
-    
+
     # Parse and insert
     rows = []
     ack_ids = []
@@ -150,28 +146,28 @@ async def test_entry_audit_flow_minimal(redis_client, pg_connection, cleanup_red
         payload = json.loads(fields.get("data"))
         rows.append(archiver._entry_row(mid, payload))
         ack_ids.append(mid)
-    
+
     # Insert into PostgreSQL
     pg.insert_entry_audit_batch(rows)
-    
+
     # Acknowledge messages
     await r.xack(TEST_ENTRY_STREAM, "test_cg_entry", *ack_ids)
-    
+
     # Verify PostgreSQL data
     with pg_connection.cursor() as cur:
         cur.execute("SELECT stream_id, symbol, decision FROM entry_policy_audit WHERE stream_id = ANY(%s)", (ack_ids,))
         results = cur.fetchall()
-        
+
         assert len(results) == 2, "Should have 2 rows in PostgreSQL"
-        
+
         symbols = {row[1] for row in results}
         assert "BTCUSDT" in symbols
         assert "ETHUSDT" in symbols
-        
+
         decisions = {row[2] for row in results}
         assert "ALLOW" in decisions
         assert "DENY" in decisions
-    
+
     # Verify pending list is empty
     pending = await r.xpending(TEST_ENTRY_STREAM, "test_cg_entry")
     assert pending["pending"] == 0, "Pending list should be empty after ack"
@@ -180,7 +176,7 @@ async def test_entry_audit_flow_minimal(redis_client, pg_connection, cleanup_red
 async def test_position_events_flow(redis_client, pg_connection, cleanup_redis, cleanup_postgres):
     """Test position_events archival flow with event type filtering"""
     r = redis_client
-    
+
     # Add test messages to Redis stream
     test_messages = [
         {
@@ -210,12 +206,12 @@ async def test_position_events_flow(redis_client, pg_connection, cleanup_redis, 
             "ts_ms": get_ny_time_millis(),
         },
     ]
-    
+
     stream_ids = []
     for msg in test_messages:
         sid = await r.xadd(TEST_EVENTS_STREAM, {"data": json.dumps(msg)})
         stream_ids.append(sid)
-    
+
     # Create archiver with test configuration
     os.environ["TRADE_EVENTS_STREAM"] = TEST_EVENTS_STREAM
     os.environ["POSITION_EVENTS_CG"] = "test_cg_events"
@@ -226,13 +222,13 @@ async def test_position_events_flow(redis_client, pg_connection, cleanup_redis, 
     os.environ["POSITION_EVENTS_TYPES"] = "TP_HIT,TRAILING_MOVE,SL_ADJUST"
     os.environ["ENTRY_AUDIT_ARCHIVE_ENABLED"] = "0"
     os.environ["POSITION_EVENTS_ARCHIVE_ENABLED"] = "1"
-    
+
     pg = PgWriter(PgCfg(dsn=PG_DSN))
     archiver = StreamArchiver(r, pg)
-    
+
     # Create consumer group
     await archiver._ensure_group(TEST_EVENTS_STREAM, "test_cg_events")
-    
+
     # Process one batch
     resp = await r.xreadgroup(
         groupname="test_cg_events",
@@ -241,41 +237,41 @@ async def test_position_events_flow(redis_client, pg_connection, cleanup_redis, 
         count=10,
         block=1000
     )
-    
+
     assert resp, "Should have received messages from stream"
     _, msgs = resp[0]
     assert len(msgs) == 4, "Should have 4 messages"
-    
+
     # Parse and insert (filter by type)
     rows = []
     ack_ids = []
     for mid, fields in msgs:
         payload = json.loads(fields.get("data"))
         et = payload.get("type")
-        
+
         if et in archiver.events_types:
             rows.append(archiver._event_row(mid, payload, et))
             ack_ids.append(mid)
         else:
             # Still ack filtered messages
             await r.xack(TEST_EVENTS_STREAM, "test_cg_events", mid)
-    
+
     # Should have filtered out POSITION_CLOSED
     assert len(rows) == 3, "Should have 3 rows after filtering"
-    
+
     # Insert into PostgreSQL
     pg.insert_position_events_batch(rows)
-    
+
     # Acknowledge messages
     await r.xack(TEST_EVENTS_STREAM, "test_cg_events", *ack_ids)
-    
+
     # Verify PostgreSQL data
     with pg_connection.cursor() as cur:
         cur.execute("SELECT stream_id, event_type, order_id FROM position_events WHERE stream_id = ANY(%s)", (ack_ids,))
         results = cur.fetchall()
-        
+
         assert len(results) == 3, "Should have 3 rows in PostgreSQL"
-        
+
         event_types = {row[1] for row in results}
         assert "TP_HIT" in event_types
         assert "SL_ADJUST" in event_types
@@ -286,10 +282,10 @@ async def test_position_events_flow(redis_client, pg_connection, cleanup_redis, 
 async def test_dlq_on_parse_error(redis_client, pg_connection, cleanup_redis, cleanup_postgres):
     """Test that parse errors are sent to DLQ"""
     r = redis_client
-    
+
     # Add invalid message to Redis stream
     invalid_msg_id = await r.xadd(TEST_ENTRY_STREAM, {"data": "not-valid-json"})
-    
+
     # Create archiver
     os.environ["TRADE_ENTRY_AUDIT_STREAM"] = TEST_ENTRY_STREAM
     os.environ["ENTRY_AUDIT_CG"] = "test_cg_dlq"
@@ -297,13 +293,13 @@ async def test_dlq_on_parse_error(redis_client, pg_connection, cleanup_redis, cl
     os.environ["ENTRY_AUDIT_DLQ_STREAM"] = TEST_ENTRY_DLQ
     os.environ["ENTRY_AUDIT_ARCHIVE_ENABLED"] = "1"
     os.environ["POSITION_EVENTS_ARCHIVE_ENABLED"] = "0"
-    
+
     pg = PgWriter(PgCfg(dsn=PG_DSN))
     archiver = StreamArchiver(r, pg)
-    
+
     # Create consumer group
     await archiver._ensure_group(TEST_ENTRY_STREAM, "test_cg_dlq")
-    
+
     # Process message
     resp = await r.xreadgroup(
         groupname="test_cg_dlq",
@@ -312,11 +308,11 @@ async def test_dlq_on_parse_error(redis_client, pg_connection, cleanup_redis, cl
         count=1,
         block=1000
     )
-    
+
     assert resp, "Should have received message"
     _, msgs = resp[0]
     mid, fields = msgs[0]
-    
+
     # Try to parse (should fail and go to DLQ)
     try:
         payload = json.loads(fields.get("data"))
@@ -326,11 +322,11 @@ async def test_dlq_on_parse_error(redis_client, pg_connection, cleanup_redis, cl
         await archiver._dlq(TEST_ENTRY_DLQ, TEST_ENTRY_STREAM, mid, f"parse_error:{e}", {"fields": fields})
         # Ack the message
         await r.xack(TEST_ENTRY_STREAM, "test_cg_dlq", mid)
-    
+
     # Verify DLQ has the message
     dlq_msgs = await r.xrange(TEST_ENTRY_DLQ, "-", "+")
     assert len(dlq_msgs) > 0, "DLQ should have messages"
-    
+
     dlq_msg_id, dlq_fields = dlq_msgs[0]
     assert dlq_fields["stream"] == TEST_ENTRY_STREAM
     assert dlq_fields["stream_id"] == mid
@@ -340,7 +336,7 @@ async def test_dlq_on_parse_error(redis_client, pg_connection, cleanup_redis, cl
 async def test_idempotency(redis_client, pg_connection, cleanup_redis, cleanup_postgres):
     """Test that duplicate inserts are handled via ON CONFLICT DO NOTHING"""
     r = redis_client
-    
+
     # Add test message
     msg = {
         "symbol": "BTCUSDT",
@@ -348,20 +344,20 @@ async def test_idempotency(redis_client, pg_connection, cleanup_redis, cleanup_p
         "ts_ms": get_ny_time_millis(),
     }
     msg_id = await r.xadd(TEST_ENTRY_STREAM, {"data": json.dumps(msg)})
-    
+
     # Create archiver
     pg = PgWriter(PgCfg(dsn=PG_DSN))
     archiver = StreamArchiver(r, pg)
-    
+
     # Parse row
     row = archiver._entry_row(msg_id, msg)
-    
+
     # Insert once
     pg.insert_entry_audit_batch([row])
-    
+
     # Insert again (should be ignored due to ON CONFLICT)
     pg.insert_entry_audit_batch([row])
-    
+
     # Verify only one row exists
     with pg_connection.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM entry_policy_audit WHERE stream_id = %s", (msg_id,))
@@ -373,31 +369,31 @@ async def test_idempotency(redis_client, pg_connection, cleanup_redis, cleanup_p
 async def run_all_tests():
     """Run all tests manually (without pytest)"""
     from redis.asyncio import Redis
-    
+
     print("Starting integration tests...")
-    
+
     redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
     pg_connection = psycopg2.connect(PG_DSN)
-    
+
     try:
         print("\n1. Testing entry_audit flow...")
         await test_entry_audit_flow_minimal(redis_client, pg_connection, None, None)
         print("   ✅ PASSED")
-        
+
         print("\n2. Testing position_events flow with filtering...")
         await test_position_events_flow(redis_client, pg_connection, None, None)
         print("   ✅ PASSED")
-        
+
         print("\n3. Testing DLQ on parse error...")
         await test_dlq_on_parse_error(redis_client, pg_connection, None, None)
         print("   ✅ PASSED")
-        
+
         print("\n4. Testing idempotency...")
         await test_idempotency(redis_client, pg_connection, None, None)
         print("   ✅ PASSED")
-        
+
         print("\n✅ All integration tests passed!")
-        
+
     finally:
         await redis_client.close()
         pg_connection.close()

@@ -1,21 +1,21 @@
 from __future__ import annotations
 
+import math
+import os
 from dataclasses import dataclass
 from typing import Any
-import os
-import math
 
-from handlers.confirmations.l2_common import sanitize_book, best_bid_ask, spread_bps, is_crossed, top_wall_notional
+from handlers.confirmations.l2_common import best_bid_ask, is_crossed, sanitize_book, spread_bps, top_wall_notional
 
 
 def _f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
 @dataclass(frozen=True)

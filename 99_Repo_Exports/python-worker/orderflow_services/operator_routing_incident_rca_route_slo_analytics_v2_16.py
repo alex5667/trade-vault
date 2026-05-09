@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -40,7 +41,7 @@ RUNS = _counter("ml_operator_routing_incident_rca_route_slo_runs_total", "Runs",
 LAST_RUN = _gauge("ml_operator_routing_incident_rca_route_slo_last_run_ts_seconds", "Last timestamp")
 
 def now_ms() -> int: return get_ny_time_millis()
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 async def load_history(r: Any) -> tuple[int, int, int]:
@@ -78,14 +79,14 @@ async def run_loop(r: Any) -> None:
                 except Exception:
                     status = "error"
                     await r.xack(IN_STREAM, GROUP, msg_id)
-        
+
         if total_new > 0:
             success_rate = success_new / total_new if total_new else 1.0
-            
+
             reasons = []
             if success_rate < MIN_SUCCESS_RATE:
                 reasons.append("ROUTE_SUCCESS_RATE_LOW")
-                
+
             rollup = {
                 "total": total_new,
                 "success": success_new,
@@ -97,7 +98,7 @@ async def run_loop(r: Any) -> None:
             }
             await r.xadd(OUT_STREAM, rollup, maxlen=MAXLEN, approximate=True)
             await r.hset(METRICS_HASH, mapping=rollup)
-            
+
         if LAST_RUN: LAST_RUN.set(time.time())
     except Exception:
         status = "error"

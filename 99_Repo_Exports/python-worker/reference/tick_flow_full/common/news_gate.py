@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
 @dataclass
@@ -11,7 +11,7 @@ class NewsBlock:
     blocked: bool
     reason: str
     until_ts_ms: int
-    meta: Dict[str, Any]
+    meta: dict[str, Any]
 
 
 @dataclass
@@ -27,8 +27,8 @@ class GateDecision:
     hard_reason: str
     until_ts_ms: int
     risk_factor_bps: int  # 0..10000
-    dq_flags: Dict[str, Any]
-    meta: Dict[str, Any]
+    dq_flags: dict[str, Any]
+    meta: dict[str, Any]
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -83,7 +83,7 @@ class NewsGate:
         cal_agg_prefix: str = "calendar:agg:",
         # soft gate
         soft_enabled: bool = True,
-        soft_window_sec: Optional[int] = None,
+        soft_window_sec: int | None = None,
         soft_grade_min: int = 2,
         soft_grade2_bps: int = 5000,
         soft_grade3_bps: int = 3500,
@@ -113,7 +113,7 @@ class NewsGate:
         self.soft_news_k = float(soft_news_k)
         self.soft_news_min_bps = int(soft_news_min_bps)
 
-    def _manual(self, now_ts_ms: int, symbols: Optional[Tuple[str, ...]] = None) -> Optional[NewsBlock]:
+    def _manual(self, now_ts_ms: int, symbols: tuple[str, ...] | None = None) -> NewsBlock | None:
         try:
             raw = self.redis.get(self.manual_key)
             if not raw:
@@ -133,13 +133,13 @@ class NewsGate:
                     allow_u = {str(x).upper() for x in allow}
                     if not any(str(s).upper() in allow_u for s in symbols):
                         return None
-            reason = str(d.get("reason", "manual_hi_impact") or "manual_hi_impact")
+            reason = (d.get("reason", "manual_hi_impact") or "manual_hi_impact")
             meta = {"src": "manual", "reason": reason}
             return NewsBlock(blocked=True, reason=reason, until_ts_ms=until_ts_ms, meta=meta)
         except Exception:
             return None
 
-    def _calendar_fields(self) -> Dict[str, Any]:
+    def _calendar_fields(self) -> dict[str, Any]:
         try:
             d = self.redis.hgetall(self.cal_key) or {}
             return d if isinstance(d, dict) else {}
@@ -150,16 +150,16 @@ class NewsGate:
         self,
         *,
         now_ts_ms: int,
-        symbols: Optional[Tuple[str, ...]] = None,
+        symbols: tuple[str, ...] | None = None,
         # optional news features (pass from ctx.news to get full soft-gate)
-        news_risk: Optional[float] = None,
-        news_grade_id: Optional[int] = None,
-        confidence: Optional[float] = None,
-        horizon_sec: Optional[int] = None,
-        asof_ts_ms: Optional[int] = None,
+        news_risk: float | None = None,
+        news_grade_id: int | None = None,
+        confidence: float | None = None,
+        horizon_sec: int | None = None,
+        asof_ts_ms: int | None = None,
     ) -> GateDecision:
-        dq: Dict[str, Any] = {}
-        meta: Dict[str, Any] = {}
+        dq: dict[str, Any] = {}
+        meta: dict[str, Any] = {}
 
         if now_ts_ms <= 0:
             dq["no_ts"] = True
@@ -198,7 +198,7 @@ class NewsGate:
             dq["calendar_missing_event_ts_ms"] = True
 
         title = str(cal.get("title", "") or cal.get("event_title", "") or "")
-        ev_id = str(cal.get("event_id", "") or "")
+        ev_id = (cal.get("event_id", "") or "")
 
         meta.update(
             {
@@ -287,7 +287,7 @@ class NewsGate:
             meta=meta,
         )
 
-    def check(self, *, now_ts_ms: int, symbols: Optional[Tuple[str, ...]] = None) -> NewsBlock:
+    def check(self, *, now_ts_ms: int, symbols: tuple[str, ...] | None = None) -> NewsBlock:
         """Backward-compatible hard-block API."""
         d = self.decide(now_ts_ms=now_ts_ms, symbols=symbols)
         return NewsBlock(

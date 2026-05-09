@@ -1,16 +1,14 @@
 # handlers/experiment_metrics.py
 
-from typing import List, Tuple, Optional
 import math
-from collections import defaultdict
 
 
-def _mean(xs: List[float]) -> float:
+def _mean(xs: list[float]) -> float:
     """Вычисляет среднее значение списка"""
     return float(sum(xs) / len(xs)) if xs else 0.0
 
 
-def _std(xs: List[float]) -> float:
+def _std(xs: list[float]) -> float:
     """Вычисляет стандартное отклонение"""
     n = len(xs)
     if n < 2:
@@ -20,7 +18,7 @@ def _std(xs: List[float]) -> float:
     return float(math.sqrt(max(var, 0.0)))
 
 
-def expectancy_r(rs: List[float]) -> float:
+def expectancy_r(rs: list[float]) -> float:
     """
     Математическое ожидание результата в R (средний результат сделки)
 
@@ -33,7 +31,7 @@ def expectancy_r(rs: List[float]) -> float:
     return _mean(rs)
 
 
-def sharpe_r(rs: List[float]) -> float:
+def sharpe_r(rs: list[float]) -> float:
     """
     Sharpe ratio для результатов в R
 
@@ -52,7 +50,7 @@ def sharpe_r(rs: List[float]) -> float:
     return mu / sd
 
 
-def max_drawdown_r(rs: List[float]) -> float:
+def max_drawdown_r(rs: list[float]) -> float:
     """
     Максимальная просадка в R (отрицательное значение)
 
@@ -80,7 +78,7 @@ def max_drawdown_r(rs: List[float]) -> float:
     return max_dd  # отрицательный
 
 
-def cl_ratio(rs: List[float]) -> float:
+def cl_ratio(rs: list[float]) -> float:
     """
     C/L ratio = expectancy / |avg_loss_R|
 
@@ -106,7 +104,7 @@ def cl_ratio(rs: List[float]) -> float:
     return exp_val / abs(avg_loss)
 
 
-def winrate(rs: List[float]) -> float:
+def winrate(rs: list[float]) -> float:
     """
     Доля прибыльных сделок
 
@@ -123,9 +121,9 @@ def winrate(rs: List[float]) -> float:
 
 
 def precision_recall(
-    success_flags: List[bool],
-    traded_flags: List[bool],
-) -> Tuple[float, float, float]:
+    success_flags: list[bool],
+    traded_flags: list[bool],
+) -> tuple[float, float, float]:
     """
     Вычисляет precision, recall, f1-score для фильтра
 
@@ -163,7 +161,7 @@ def precision_recall(
 
 
 def calculate_experiment_metrics(
-    pnl_rs: List[float],
+    pnl_rs: list[float],
     success_threshold_r: float = 0.2,
 ) -> dict:
     """
@@ -198,8 +196,8 @@ def calculate_experiment_metrics(
 
 
 def compare_variants(
-    control_rs: List[float],
-    treatment_rs: List[float],
+    control_rs: list[float],
+    treatment_rs: list[float],
     success_threshold_r: float = 0.2,
 ) -> dict:
     """
@@ -235,7 +233,7 @@ def is_experiment_successful(
     target_metric: str,
     min_improvement: float = 0.05,
     max_dd_worsening: float = 0.1,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Определяет, успешен ли эксперимент на основе целевой метрики
 

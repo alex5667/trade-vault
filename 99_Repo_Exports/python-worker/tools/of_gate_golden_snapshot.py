@@ -1,16 +1,18 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
 
-from core.ok_fields import parse_ok_fields, get_scenario, get_ts_ms
+from core.ok_fields import get_scenario, get_ts_ms, parse_ok_fields
+from domain.evidence_keys import MetaKeys
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -35,7 +37,7 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     xs = sorted(xs)
@@ -44,9 +46,9 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 800000) -> List[Dict[str, Any]]:
+def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 800000) -> list[dict[str, Any]]:
     end_ms = start_ms + window_ms
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -76,13 +78,13 @@ def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: i
     return rows
 
 
-def _group_key(d: Dict[str, Any]) -> str:
-    sym = str(d.get("symbol", "") or "").upper() or "NA"
+def _group_key(d: dict[str, Any]) -> str:
+    sym = (d.get("symbol", "") or "").upper() or "NA"
     scen = get_scenario(d)
     return f"{sym}|{scen}"
 
 
-def compute_snapshot(rows: List[Dict[str, Any]], *, dh_bad_th: float) -> Dict[str, Any]:
+def compute_snapshot(rows: list[dict[str, Any]], *, dh_bad_th: float) -> dict[str, Any]:
     n = len(rows)
     lat = []
     ml_lat = []
@@ -104,7 +106,7 @@ def compute_snapshot(rows: List[Dict[str, Any]], *, dh_bad_th: float) -> Dict[st
         ok_i, soft_i = parse_ok_fields(d)
         ok += 1 if ok_i == 1 else 0
         soft += 1 if soft_i == 1 else 0
-        meta_veto += 1 if _i(d.get("meta_veto", 0), 0) == 1 else 0
+        meta_veto += 1 if _i(d.get(MetaKeys.VETO, 0), 0) == 1 else 0
         book_bad += 1 if _i(d.get("book_health_ok", 1), 1) == 0 else 0
         src_bad += 1 if _i(d.get("source_consistency_ok", 1), 1) == 0 else 0
         dh = _f(d.get("data_health", 1.0), 1.0)
@@ -160,8 +162,8 @@ def compute_snapshot(rows: List[Dict[str, Any]], *, dh_bad_th: float) -> Dict[st
     return snap
 
 
-def diff_snapshot(base: Dict[str, Any], cur: Dict[str, Any], *, topk: int = 20) -> Dict[str, Any]:
-    def get(d: Dict[str, Any], path: List[str], default: float = 0.0) -> float:
+def diff_snapshot(base: dict[str, Any], cur: dict[str, Any], *, topk: int = 20) -> dict[str, Any]:
+    def get(d: dict[str, Any], path: list[str], default: float = 0.0) -> float:
         x: Any = d
         for p in path:
             if not isinstance(x, dict) or p not in x:
@@ -216,7 +218,7 @@ def main() -> None:
     ap.add_argument("--write-baseline", type=int, default=int(os.getenv("OF_GOLDEN_WRITE_BASELINE", "0")))
     ap.add_argument("--fail-on-drift", type=int, default=int(os.getenv("OF_GOLDEN_FAIL_ON_DRIFT", "1")))
     ap.add_argument("--notify", type=int, default=int(os.getenv("OF_GOLDEN_NOTIFY", "1")))
-    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"))
+    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM))
 
     ap.add_argument("--min-n", type=int, default=int(os.getenv("OF_GOLDEN_MIN_N", "500")))
     ap.add_argument("--max-abs-dok", type=float, default=float(os.getenv("OF_GOLDEN_MAX_ABS_DOK", "0.05")))
@@ -246,7 +248,7 @@ def main() -> None:
         print(json.dumps({"ok": True, "mode": "baseline_written", "baseline": args.baseline, "candidate": cur_path}, ensure_ascii=False, indent=2))
         return
 
-    with open(args.baseline, "r", encoding="utf-8") as f:
+    with open(args.baseline, encoding="utf-8") as f:
         base = json.load(f)
 
     diff = diff_snapshot(base, cur, topk=20)
@@ -286,10 +288,8 @@ def main() -> None:
         )
         import html
         safe_msg = html.escape(msg)
-        try:
+        with contextlib.suppress(Exception):
             r.xadd(args.notify_stream, {"type": "report", "subtype": "of_gate_golden", "ts_ms": str(_now_ms()), "text": safe_msg}, maxlen=200000, approximate=True)
-        except Exception:
-            pass
 
     print(json.dumps({"ok": True, "candidate": cur_path, "diff": diff_path, "fail": fail, "reasons": reasons}, ensure_ascii=False, indent=2))
     if int(args.fail_on_drift) == 1 and fail:

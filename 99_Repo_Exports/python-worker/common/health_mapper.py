@@ -1,5 +1,6 @@
-from typing import Any, Dict, Optional
 import math
+from typing import Any
+
 
 class HealthMetricsMapper:
     """
@@ -15,7 +16,7 @@ class HealthMetricsMapper:
             return float("nan")
 
     @staticmethod
-    def _to_opt_float(x: Any) -> Optional[float]:
+    def _to_opt_float(x: Any) -> float | None:
         if x is None:
             return None
         try:
@@ -27,7 +28,7 @@ class HealthMetricsMapper:
             return None
 
     @classmethod
-    def extract(cls, symbol: str, ctx: Any) -> Dict[str, Any]:
+    def extract(cls, symbol: str, ctx: Any) -> dict[str, Any]:
         """
         Safely extract metrics from context, handling missing attributes gracefully.
         """

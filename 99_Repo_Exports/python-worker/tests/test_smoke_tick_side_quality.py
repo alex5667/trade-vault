@@ -6,7 +6,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from tools.smoke_tick_side_quality import parse_tick_fields, summarize_ticks, TickSample
+from tools.smoke_tick_side_quality import TickSample, parse_tick_fields, summarize_ticks
 
 
 class TestSmokeTickSideQuality(unittest.TestCase):

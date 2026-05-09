@@ -1,13 +1,10 @@
 from __future__ import annotations
+
 """
 Tests for analyzer_worker lease-based idempotency.
 """
 
-import json
-import os
-from unittest.mock import Mock, patch
-
-import pytest
+from unittest.mock import Mock
 
 from news_pipeline.analyzer_worker import NewsAnalyzerWorker
 

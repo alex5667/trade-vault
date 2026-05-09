@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from core.book_evidence import compute_obi_flags, compute_iceberg_flags
+from core.book_evidence import compute_iceberg_flags, compute_obi_flags
 
 
 def test_obi_staleness_and_dir_match():

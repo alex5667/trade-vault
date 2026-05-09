@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Threshold Tuner - Автоматический подбор порога для confidence/score.
 
@@ -15,16 +17,15 @@ Threshold Tuner - Автоматический подбор порога для 
 - Автоматическая калибровка
 """
 
-import os
 import json
+import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-from common.log import setup_logger
-
-from analytics.repository import Repository, Signal, Order
-from analytics.metrics import roc_from_signals, calculate_confusion_matrix, calculate_precision_recall
+from analytics.metrics import calculate_confusion_matrix, calculate_precision_recall, roc_from_signals
+from analytics.repository import Order, Repository, Signal
 from analytics.roc_store import ROCStore
+from common.log import setup_logger
 
 
 class ThresholdTuner:
@@ -51,7 +52,7 @@ class ThresholdTuner:
         self.r = repo.r
 
         self.ctrl_stream = os.getenv("AGG_HUB_CONTROL_STREAM", "aggregated_hub:control")
-        self.notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+        self.notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
         self.roc_store = ROCStore(os.getenv("REDIS_URL"))
 
@@ -61,9 +62,9 @@ class ThresholdTuner:
 
     def _extract_scores_labels(
         self,
-        signals: List[Signal],
-        order_by_signal: Dict[str, Order]
-    ) -> List[Tuple[float, int]]:
+        signals: list[Signal],
+        order_by_signal: dict[str, Order]
+    ) -> list[tuple[float, int]]:
         """Извлечение пар (score, label) из сигналов и ордеров"""
         pairs = []
 
@@ -92,10 +93,10 @@ class ThresholdTuner:
         *,
         strategy: str,
         symbol: str,
-        signals: List[Signal],
-        orders: List[Order],
+        signals: list[Signal],
+        orders: list[Order],
         emit_telegram: bool = True
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Подбор оптимального порога и публикация.
         
@@ -234,7 +235,7 @@ class ThresholdTuner:
             self.logger.error(f"❌ Ошибка тюнинга порога: {e}", exc_info=True)
             return None
 
-    def get_threshold(self, strategy: str, symbol: str) -> Optional[Dict[str, Any]]:
+    def get_threshold(self, strategy: str, symbol: str) -> dict[str, Any] | None:
         """
         Получение текущего порога.
         

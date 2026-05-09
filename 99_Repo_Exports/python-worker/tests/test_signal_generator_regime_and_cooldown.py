@@ -1,4 +1,5 @@
 import types
+
 import pytest
 
 # Подстройте импорты под ваш проект
@@ -68,7 +69,7 @@ def make_ctx(**kw):
     ctx.level_price = kw.get("level_price", 101.0)
 
     # pivots (может быть None)
-    ctx.pivots = kw.get("pivots", None)
+    ctx.pivots = kw.get("pivots")
     return ctx
 
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 ml_confirm_stream_sre_monitor.py
 
@@ -17,8 +18,6 @@ Cooldown stored in Redis key: sre:ml_confirm_stream:last_alert_ts_ms
 import argparse
 import json
 import os
-import sys
-import time
 import urllib.parse
 import urllib.request
 
@@ -27,7 +26,7 @@ try:
 except Exception:
     redis = None  # type: ignore
 
-from tools.check_ml_confirm_stream_health import compute_health, _parse_entry, _now_ms  # type: ignore
+from tools.check_ml_confirm_stream_health import _now_ms, _parse_entry, compute_health  # type: ignore
 
 
 def _send_telegram(token: str, chat_id: str, text: str) -> None:

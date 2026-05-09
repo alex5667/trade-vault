@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P3.3-ops-complete test: runbook server /api/rebuild/latest endpoint.
 
 Verifies that:

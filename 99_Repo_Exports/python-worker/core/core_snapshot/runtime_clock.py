@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """tick_flow_full.core.runtime_clock
 
 Monotonic runtime clock helpers.
@@ -20,8 +21,6 @@ If you do not have an event timestamp, prefer leaving runtime_start_ts_ms=None.
 
 import time
 from dataclasses import dataclass
-from typing import Optional
-
 
 _MONO_START = time.monotonic()
 
@@ -34,7 +33,7 @@ def uptime_sec() -> float:
     return 0.0 if u < 0.0 else float(u)
 
 
-def runtime_start_ts_ms(event_ts_ms: Optional[int] = None) -> Optional[int]:
+def runtime_start_ts_ms(event_ts_ms: int | None = None) -> int | None:
     """Best-effort epoch-ms process start timestamp.
 
     Preferred usage: pass an *event timestamp* (e.g., current tick ts in ms)
@@ -55,10 +54,10 @@ class RuntimeClockSnapshot:
     """Convenience bundle for downstream code (DQ gate, decision records)."""
 
     uptime_sec: float
-    runtime_start_ts_ms: Optional[int]
+    runtime_start_ts_ms: int | None
 
 
-def snapshot(event_ts_ms: Optional[int] = None) -> RuntimeClockSnapshot:
+def snapshot(event_ts_ms: int | None = None) -> RuntimeClockSnapshot:
     """Return (uptime_sec, runtime_start_ts_ms) in one call."""
     return RuntimeClockSnapshot(
         uptime_sec=uptime_sec(),

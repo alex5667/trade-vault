@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
 import math
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -12,7 +12,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Compute percentile (0.0 to 1.0)."""
     if not xs:
         return 0.0
@@ -28,7 +28,7 @@ def ece_bin(p: float, y: int, n_bins: int = 10) -> int:
     return b
 
 
-def agg_outcomes(rows: List[Dict[str, Any]], *, n_bins: int = 10) -> Dict[str, Any]:
+def agg_outcomes(rows: list[dict[str, Any]], *, n_bins: int = 10) -> dict[str, Any]:
     """Aggregate outcome metrics: Brier, ECE, win rate, R-mult stats.
     
     Computes:
@@ -130,7 +130,7 @@ def agg_outcomes(rows: List[Dict[str, Any]], *, n_bins: int = 10) -> Dict[str, A
     return out
 
 
-def agg_health_ml_confirm(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def agg_health_ml_confirm(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate health metrics from ml_confirm stream.
     
     Computes:
@@ -154,7 +154,7 @@ def agg_health_ml_confirm(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     p = []
     for r in rows:
         missing += 1 if int(float(r.get("missing", 0) or 0)) == 1 else 0
-        err += 1 if (str(r.get("err", "")) or "").strip() != "" else 0
+        err += 1 if ((r.get("err", "")) or "").strip() != "" else 0
         lat.append(_f(r.get("latency_ms", 0.0), 0.0))
         p.append(_f(r.get("p_edge", 0.0), 0.0))
     return {
@@ -166,7 +166,7 @@ def agg_health_ml_confirm(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def agg_exec_risk(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def agg_exec_risk(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate exec_risk_norm metrics (for range exec-risk segment veto).
     
     Computes:

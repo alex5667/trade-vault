@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Core time utilities.
 
 This module exists to provide a stable import path for time normalization across
@@ -10,7 +11,8 @@ Public API:
 """
 
 
-from typing import Any, Dict
+from typing import Any
+
 from common.time_norm import normalize_epoch_ms as _normalize_epoch_ms
 
 
@@ -28,7 +30,7 @@ def normalize_epoch_ms(x: Any) -> int:
         return 0
 
 
-def extract_tick_ts_ms(tick: Dict[str, Any]) -> int:
+def extract_tick_ts_ms(tick: dict[str, Any]) -> int:
     """Extract best-effort event timestamp (ms) from a tick payload.
     
     Semantic priority chain:

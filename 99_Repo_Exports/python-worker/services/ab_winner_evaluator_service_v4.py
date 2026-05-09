@@ -1,12 +1,19 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
-import os, json, time, asyncio
-from dataclasses import dataclass
-from typing import Any, Dict
-import redis.asyncio as aioredis # type: ignore
 
-from core.lcb_r_adj import PenaltyCfg, compute_r_and_adj, thresholds_for, lcb
+import asyncio
+import json
+import os
+from dataclasses import dataclass
+from typing import Any
+
+import redis.asyncio as aioredis  # type: ignore
+
+from core.lcb_r_adj import PenaltyCfg, compute_r_and_adj, lcb, thresholds_for
 from core.tail_worstk import WorstK
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
+
 
 def _now_ms() -> int:
     return get_ny_time_millis()
@@ -37,10 +44,10 @@ class Welford:
     def std(self) -> float:
         if self.n <= 1: return 0.0
         return (self.m2 / float(self.n - 1)) ** 0.5
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {"n": int(self.n), "mean": float(self.mean), "m2": float(self.m2)}
     @staticmethod
-    def from_dict(d: Dict[str, Any]) -> "Welford":
+    def from_dict(d: dict[str, Any]) -> Welford:
         w = Welford()
         try:
             w.n = int(d.get("n", 0) or 0)
@@ -62,7 +69,7 @@ class ABWinnerEvaluatorV4:
     def __init__(self) -> None:
         redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.r = aioredis.from_url(redis_url, decode_responses=True, socket_connect_timeout=10, socket_timeout=30, max_connections=10)
-        self.stream = os.getenv("AB_EVENTS_STREAM", "events:trades")
+        self.stream = os.getenv("AB_EVENTS_STREAM", RS.EVENTS_TRADES)
         self.group = os.getenv("AB_EVAL_GROUP", "ab-eval-v4")
         self.consumer = os.getenv("AB_EVAL_CONSUMER", f"c-{os.getpid()}")
         self.block_ms = int(os.getenv("AB_EVAL_BLOCK_MS", "2000"))
@@ -94,7 +101,7 @@ class ABWinnerEvaluatorV4:
     def _key(self, sym: str, rg: str, grp: str, scn: str, arm: str) -> str:
         return f"{self.prefix}:{sym}:{rg}:{grp}:{scn}:{arm}"
 
-    async def _load_state(self, key: str) -> Dict[str, Any]:
+    async def _load_state(self, key: str) -> dict[str, Any]:
         try:
             raw = await self.r.get(key)
             if not raw:
@@ -106,13 +113,11 @@ class ABWinnerEvaluatorV4:
         except Exception:
             return {"w": Welford().to_dict(), "tail": WorstK(k=self.tail_k).to_dict()}
 
-    async def _save_state(self, key: str, payload: Dict[str, Any]) -> None:
-        try:
+    async def _save_state(self, key: str, payload: dict[str, Any]) -> None:
+        with contextlib.suppress(Exception):
             await self.r.set(key, json.dumps(payload, separators=(",", ":"), ensure_ascii=False), ex=self.ttl_sec)
-        except Exception:
-            pass
 
-    async def _process_closed(self, ev: Dict[str, Any]) -> None:
+    async def _process_closed(self, ev: dict[str, Any]) -> None:
         et = _s(ev.get("event_type", ev.get("event", ""))).upper()
         if et != "POSITION_CLOSED":
             return
@@ -184,10 +189,8 @@ class ABWinnerEvaluatorV4:
                         if isinstance(fields, dict):
                             await self._process_closed(fields)
                     finally:
-                        try:
+                        with contextlib.suppress(Exception):
                             await self.r.xack(self.stream, self.group, mid)
-                        except Exception:
-                            pass
 
 async def _main() -> None:
     await ABWinnerEvaluatorV4().run_forever()

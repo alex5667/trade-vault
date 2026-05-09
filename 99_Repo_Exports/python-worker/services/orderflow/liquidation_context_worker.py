@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """liquidation_context_worker.py — Rolling liquidation stress aggregator.
 
 Reads ``stream:liq_evt`` (Redis Stream, XREADGROUP), aggregates rolling 60-second
@@ -54,10 +55,10 @@ import logging
 import math
 import os
 import time
-from collections import defaultdict, deque
+from collections import deque
 from dataclasses import asdict, dataclass
 from statistics import median
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ class LiqContextSnapshot:
 
 # ─── Math helpers ─────────────────────────────────────────────────────────────
 
-def _robust_z(x: float, history: List[float]) -> float:
+def _robust_z(x: float, history: list[float]) -> float:
     """MAD-based robust z-score, capped ±50. Returns 0.0 if history < 10."""
     if len(history) < 10:
         return 0.0
@@ -130,7 +131,7 @@ def _parse_float(v: Any, default: float = 0.0) -> float:
 
 
 def _parse_str(v: Any) -> str:
-    return str(v or "").strip()
+    return (v or "").strip()
 
 
 def _now_ms() -> int:
@@ -146,9 +147,9 @@ class _SymbolWindow:
         self._window_ms = window_ms
         self._stress_z_thr = stress_z_thr
         # (ts_ms, side, notional)
-        self._events: Deque[Tuple[int, str, float]] = deque()
+        self._events: deque[tuple[int, str, float]] = deque()
         # rolling imbalance history for z-score
-        self._imbalance_hist: List[float] = []
+        self._imbalance_hist: list[float] = []
         self._history_max = history_max
 
     def push(self, evt: LiqEvent) -> None:
@@ -208,13 +209,13 @@ class _SymbolWindow:
 
 # ─── Event parser ─────────────────────────────────────────────────────────────
 
-def _parse_liq_event(raw_fields: Dict[bytes, bytes]) -> Optional[LiqEvent]:
+def _parse_liq_event(raw_fields: dict[bytes, bytes]) -> LiqEvent | None:
     """Parse a Redis Stream message into a LiqEvent.
 
     Supports both direct field dict and nested JSON payload.
     """
     try:
-        def _b(k: str) -> Optional[str]:
+        def _b(k: str) -> str | None:
             v = raw_fields.get(k.encode()) or raw_fields.get(k)
             return v.decode("utf-8", errors="replace") if isinstance(v, bytes) else str(v) if v is not None else None
 
@@ -229,7 +230,7 @@ def _parse_liq_event(raw_fields: Dict[bytes, bytes]) -> Optional[LiqEvent]:
             payload = {}
 
         # Resolve fields: prefer flat fields, fallback to payload dict
-        def _get(key: str) -> Optional[str]:
+        def _get(key: str) -> str | None:
             v = _b(key)
             if v is not None:
                 return v
@@ -284,7 +285,7 @@ class LiquidationContextWorker:
         await worker.stop()
     """
 
-    def __init__(self, redis, *, cfg: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, redis, *, cfg: dict[str, Any] | None = None) -> None:
         self._redis = redis
         cfg = cfg or {}
 
@@ -298,12 +299,12 @@ class LiquidationContextWorker:
         self._stress_z_thr: float = float(cfg.get("stress_z_thr") or os.getenv("LIQ_CONTEXT_STRESS_Z_THR", _DEFAULT_STRESS_Z_THR))
         self._history_max: int = int(cfg.get("history_max") or os.getenv("LIQ_CONTEXT_HISTORY_MAX", _DEFAULT_HISTORY_MAX))
 
-        self._windows: Dict[str, _SymbolWindow] = {}
+        self._windows: dict[str, _SymbolWindow] = {}
         self._stop_event = asyncio.Event()
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
 
         # Publish interval: write snapshots every poll cycle for active symbols
-        self._last_publish: Dict[str, int] = {}
+        self._last_publish: dict[str, int] = {}
         self._publish_interval_ms = self._poll_ms  # publish each cycle
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -319,7 +320,7 @@ class LiquidationContextWorker:
         if self._task:
             try:
                 await asyncio.wait_for(self._task, timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+            except (TimeoutError, asyncio.CancelledError):
                 self._task.cancel()
         logger.info("liq_ctx: worker stopped")
 
@@ -339,7 +340,7 @@ class LiquidationContextWorker:
                     block=int(self._poll_ms),
                 )
 
-                ids_to_ack: List[str] = []
+                ids_to_ack: list[str] = []
                 if messages:
                     for _stream_name, entries in messages:
                         for msg_id, fields in entries:
@@ -400,10 +401,10 @@ class LiquidationContextWorker:
 
 # ─── Sync read helper for gate ─────────────────────────────────────────────────
 
-def read_liq_context_sync(redis, *, symbol: str) -> Optional[Dict[str, Any]]:
+def read_liq_context_sync(redis, *, symbol: str) -> dict[str, Any] | None:
     """Synchronous read of ctx:liq:{SYMBOL}. Returns dict or None (fail-open)."""
     try:
-        raw = redis.get(CTX_LIQ_PREFIX + str(symbol or "").upper())
+        raw = redis.get(CTX_LIQ_PREFIX + (symbol or "").upper())
         if raw is None:
             return None
         if isinstance(raw, bytes):
@@ -413,10 +414,10 @@ def read_liq_context_sync(redis, *, symbol: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def aread_liq_context(redis, *, symbol: str) -> Optional[Dict[str, Any]]:
+async def aread_liq_context(redis, *, symbol: str) -> dict[str, Any] | None:
     """Async read of ctx:liq:{SYMBOL}. Returns dict or None (fail-open)."""
     try:
-        raw = await redis.get(CTX_LIQ_PREFIX + str(symbol or "").upper())
+        raw = await redis.get(CTX_LIQ_PREFIX + (symbol or "").upper())
         if raw is None:
             return None
         if isinstance(raw, bytes):

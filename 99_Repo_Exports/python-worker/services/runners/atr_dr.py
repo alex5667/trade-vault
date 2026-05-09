@@ -1,5 +1,6 @@
-import time
 import logging
+import time
+
 from services.atr_disaster_recovery_service import ATRDisasterRecoveryService
 
 logger = logging.getLogger("atr_dr_runner")
@@ -7,7 +8,7 @@ logger = logging.getLogger("atr_dr_runner")
 def main():
     logging.basicConfig(level=logging.INFO)
     logger.info("ATR Disaster Recovery Daemon starting in SHADOW MODE (ENFORCE=0).")
-    
+
     while True:
         try:
             # The DR service usually operates on manual trigger or Telegram integration

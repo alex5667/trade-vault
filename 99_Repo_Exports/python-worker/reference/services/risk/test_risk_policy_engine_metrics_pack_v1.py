@@ -1,7 +1,7 @@
 """Tests for risk_policy_engine P4.5 metrics pack: latency and clamp_ratio in snapshot."""
-from pathlib import Path
 import importlib.util
 import sys
+from pathlib import Path
 
 # Load module standalone without needing the full services package installed
 mod_path = Path(__file__).resolve().parent / 'risk_policy_engine.py'

@@ -17,14 +17,15 @@ Inputs (choose one):
 
 import argparse
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import pandas as pd
 
 
-def _read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def _read_ndjson(path: str) -> Iterable[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -38,22 +39,22 @@ def _read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
 def _safe_float(v: Any, default: float = 0.0) -> float:
     try:
         if v is None:
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _safe_int(v: Any, default: int = 0) -> int:
     try:
         if v is None:
-            return int(default)
+            return default
         return int(v)
     except Exception:
-        return int(default)
+        return default
 
 
-def _parse_regime(row: Dict[str, Any]) -> str:
+def _parse_regime(row: dict[str, Any]) -> str:
     # Prefer explicit market_mode/market_regime
     mm = str(row.get("market_mode") or row.get("market_regime") or "").lower()
     if mm.startswith("momentum") or mm.startswith("trend"):
@@ -83,9 +84,9 @@ _ALLOW = {
 }
 
 
-def _extract_flags_from_any(row: Dict[str, Any]) -> Dict[str, int]:
+def _extract_flags_from_any(row: dict[str, Any]) -> dict[str, int]:
     """Extract confirmation flags (0/1) from a dataset/replay row."""
-    flags: Dict[str, int] = {}
+    flags: dict[str, int] = {}
 
     def _put(k: str, v: Any = 1) -> None:
         k = (k or "").strip()
@@ -157,7 +158,7 @@ class TuneCfg:
     uplift_min: float = 0.002
     max_w: float = 0.08
     base_scale: float = 0.25
-    synergy_pairs: Tuple[Tuple[str, str], ...] = (
+    synergy_pairs: tuple[tuple[str, str], ...] = (
         ("sweep", "reclaim"),
         ("sweep_eqh", "reclaim"),
         ("sweep_eql", "reclaim"),
@@ -166,7 +167,7 @@ class TuneCfg:
     )
 
 
-def _uplift_stats(df: pd.DataFrame, mask: pd.Series) -> Tuple[float, float, int]:
+def _uplift_stats(df: pd.DataFrame, mask: pd.Series) -> tuple[float, float, int]:
     """Return (mean_r, winrate, n). Expects columns: r_mult, y"""
     sub = df.loc[mask]
     n = int(len(sub))
@@ -184,7 +185,7 @@ def _weight_from_uplift(uplift_r: float, uplift_wr: float, cfg: TuneCfg) -> floa
     return max(min(w, cfg.max_w), -cfg.max_w)
 
 
-def tune(df: pd.DataFrame, cfg: TuneCfg) -> Dict[str, Any]:
+def tune(df: pd.DataFrame, cfg: TuneCfg) -> dict[str, Any]:
     """Return conf_score_weight_tuning dict."""
     # normalize
     if "r_mult" not in df.columns:
@@ -212,7 +213,7 @@ def tune(df: pd.DataFrame, cfg: TuneCfg) -> Dict[str, Any]:
             rows.append(d)
         df = pd.DataFrame(rows)
 
-    out: Dict[str, Any] = {"by_regime": {}, "meta": {}}
+    out: dict[str, Any] = {"by_regime": {}, "meta": {}}
     out["meta"].update(
         {
             "min_n_key": cfg.min_n_key,
@@ -223,7 +224,7 @@ def tune(df: pd.DataFrame, cfg: TuneCfg) -> Dict[str, Any]:
     )
 
     # baseline per regime
-    baselines: Dict[str, Dict[str, Any]] = {}
+    baselines: dict[str, dict[str, Any]] = {}
     for reg in ("trend", "range", "neutral"):
         m = df["regime"] == reg
         mean_r, wr, n = _uplift_stats(df, m)
@@ -257,16 +258,16 @@ def tune(df: pd.DataFrame, cfg: TuneCfg) -> Dict[str, Any]:
             out["by_regime"][reg][f"bonus_{k}"] = float(w)
 
     # Synergy (pair uplift beyond sum of singles)
-    synergy_by_regime: Dict[str, Dict[str, float]] = {}
-    synergy_global: Dict[str, float] = {}
+    synergy_by_regime: dict[str, dict[str, float]] = {}
+    synergy_global: dict[str, float] = {}
     for reg in ("trend", "range", "neutral"):
         if baselines[reg]["n"] < cfg.min_n_regime:
             continue
 
         base_mean_r = float(baselines[reg]["mean_r"])
         base_wr = float(baselines[reg]["winrate"])
-        
-        bucket_out: Dict[str, float] = {}
+
+        bucket_out: dict[str, float] = {}
         for a, b in cfg.synergy_pairs:
             if a not in df.columns or b not in df.columns:
                 continue
@@ -282,11 +283,11 @@ def tune(df: pd.DataFrame, cfg: TuneCfg) -> Dict[str, Any]:
             w = _weight_from_uplift(uplift_r, uplift_wr, cfg)
             # synergy weights should be smaller than single bonuses
             w = max(min(w, cfg.max_w / 2), -cfg.max_w / 2)
-            
+
             key = f"{a}+{b}"
             bucket_out[key] = float(w)
             synergy_global[key] = float(max(synergy_global.get(key, 0.0), w))
-            
+
         if bucket_out:
             synergy_by_regime[reg] = bucket_out
 

@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 import redis
-
 
 _LUA_RENEW = """if redis.call("GET", KEYS[1]) == ARGV[1] then
   return redis.call("PEXPIRE", KEYS[1], ARGV[2])
@@ -40,7 +38,7 @@ class LeaderLock:
     ttl_ms: int
 
     @classmethod
-    def new(cls, *, r: redis.Redis, key: str, ttl_sec: float = 8.0, prefix: str = "py") -> "LeaderLock":
+    def new(cls, *, r: redis.Redis, key: str, ttl_sec: float = 8.0, prefix: str = "py") -> LeaderLock:
         value = f"{prefix}:{time.time_ns()}"
         return cls(r=r, key=key, value=value, ttl_ms=int(ttl_sec * 1000))
 

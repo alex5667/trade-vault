@@ -1,13 +1,15 @@
 from __future__ import annotations
+
 import hashlib
 import json
 import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 from utils.time_utils import get_ny_time_millis
+import contextlib
 
 """
 DecisionTrace v2 (сквозной, fail-open)
@@ -31,7 +33,7 @@ DecisionTrace v2 (сквозной, fail-open)
 # ---------------------------------------------------------------------
 # Runtime config caching (hot-path hardening)
 # ---------------------------------------------------------------------
-_CFG: Dict[str, Any] = {"loaded_mono_ms": 0.0}
+_CFG: dict[str, Any] = {"loaded_mono_ms": 0.0}
 
 def _mono_ms() -> float:
     return time.perf_counter() * 1000.0
@@ -41,7 +43,7 @@ def _now_ms() -> int:
 
 def _get_env_bool(name: str, default: bool) -> bool:
     try:
-        v = str(os.getenv(name, "1" if default else "0") or "").strip().lower()
+        v = (os.getenv(name, "1" if default else "0") or "").strip().lower()
         return v in {"1", "true", "yes", "y", "on"}
     except Exception:
         return default
@@ -58,7 +60,7 @@ def _get_env_float(name: str, default: float) -> float:
     except Exception:
         return default
 
-def _cfg_refresh_if_needed() -> Dict[str, Any]:
+def _cfg_refresh_if_needed() -> dict[str, Any]:
     now = _mono_ms()
     ttl_ms = float(max(1000.0, _get_env_int("DECISION_TRACE_CFG_REFRESH_MS", 5000)))
     if (now - float(_CFG.get("loaded_mono_ms") or 0.0)) < ttl_ms:
@@ -133,7 +135,7 @@ class Span:
 # ---------------------------------------------------------------------
 # DecisionTrace Core
 # ---------------------------------------------------------------------
-EventDict = Dict[str, Any]
+EventDict = dict[str, Any]
 
 def _trim_str(v: Any, n: int = 512) -> Any:
     try:
@@ -143,7 +145,7 @@ def _trim_str(v: Any, n: int = 512) -> Any:
     except Exception:
         return v
 
-def _cap_events(events: List[EventDict], max_events: int) -> List[EventDict]:
+def _cap_events(events: list[EventDict], max_events: int) -> list[EventDict]:
     if max_events <= 0:
         return []
     if len(events) <= max_events:
@@ -157,36 +159,36 @@ class DecisionTrace:
     sid: str = ""
     symbol=""
     kind: str = ""
-    tags: Dict[str, Any] = field(default_factory=dict)
-    events: List[EventDict] = field(default_factory=list)
+    tags: dict[str, Any] = field(default_factory=dict)
+    events: list[EventDict] = field(default_factory=list)
 
     @staticmethod
     def new(*, sid: str = "", trace_id: str = "") -> DecisionTrace:
-        tid = str(trace_id or "").strip() or uuid.uuid4().hex
+        tid = (trace_id or "").strip() or uuid.uuid4().hex
         return DecisionTrace(
             trace_id=tid,
             created_ts_ms=_now_ms(),
-            sid=str(sid or ""),
+            sid=(sid or ""),
         )
 
     @staticmethod
-    def from_env(env: Dict[str, Any]) -> DecisionTrace:
+    def from_env(env: dict[str, Any]) -> DecisionTrace:
         try:
             tid = str(env.get("trace_id") or env.get("corr_id") or env.get("correlation_id") or "").strip()
-            sid = str(env.get("sid") or "").strip()
+            sid = (env.get("sid") or "").strip()
             tr = env.get("trace")
             if isinstance(tr, dict):
-                out = DecisionTrace.new(sid=sid, trace_id=tid or str(tr.get("trace_id") or ""))
+                out = DecisionTrace.new(sid=sid, trace_id=tid or (tr.get("trace_id") or ""))
                 out.sid = str(tr.get("sid") or sid or "")
-                out.symbol = str(tr.get("symbol") or "")
-                out.kind = str(tr.get("kind") or "")
+                out.symbol = (tr.get("symbol") or "")
+                out.kind = (tr.get("kind") or "")
                 evs = tr.get("events")
                 if isinstance(evs, list):
                     out.events = [e for e in evs if isinstance(e, dict)]
                 return out
             return DecisionTrace.new(sid=sid, trace_id=tid)
         except Exception:
-            return DecisionTrace.new(sid=str(env.get("sid") or ""), trace_id=str(env.get("trace_id") or ""))
+            return DecisionTrace.new(sid=(env.get("sid") or ""), trace_id=(env.get("trace_id") or ""))
 
     def add(
         self,
@@ -196,16 +198,16 @@ class DecisionTrace:
         ok: bool,
         veto: bool = False,
         reason_code: str = "",
-        metrics: Optional[Dict[str, Any]] = None,
-        duration_ms: Optional[float] = None,
+        metrics: dict[str, Any] | None = None,
+        duration_ms: float | None = None,
         etype: str = "gate",
-        extra: Optional[Dict[str, Any]] = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         try:
-            ev: Dict[str, Any] = {
-                "type": str(etype or ""),
-                "stage": str(where or ""),
-                "name": str(name or ""),
+            ev: dict[str, Any] = {
+                "type": (etype or ""),
+                "stage": (where or ""),
+                "name": (name or ""),
                 "t_ms": _now_ms(),
             }
             if etype == "gate":
@@ -218,13 +220,13 @@ class DecisionTrace:
             else:
                 ev["ok"] = bool(ok)
                 ev["veto"] = bool(veto)
-                ev["reason_code"] = str(reason_code or "")
+                ev["reason_code"] = (reason_code or "")
 
             if duration_ms is not None:
                 ev["duration_ms"] = float(duration_ms)
 
             if isinstance(metrics, dict) and metrics:
-                safe_m: Dict[str, Any] = {}
+                safe_m: dict[str, Any] = {}
                 for i, (k, v) in enumerate(metrics.items()):
                     if i >= 32: break
                     safe_m[str(k)] = _trim_str(v, 256)
@@ -242,7 +244,7 @@ class DecisionTrace:
         except Exception:
             pass
 
-    def to_dict(self, *, max_events: Optional[int] = None) -> Dict[str, Any]:
+    def to_dict(self, *, max_events: int | None = None) -> dict[str, Any]:
         try:
             mx = int(max_events) if isinstance(max_events, int) and max_events > 0 else int(_cfg_refresh_if_needed().get("max_events", 400))
             evs = _cap_events([e for e in self.events if isinstance(e, dict)], mx)
@@ -271,27 +273,27 @@ def ensure_trace(ctx: Any, *, sid: str = "", trace_id: str = "") -> DecisionTrac
     except Exception:
         pass
 
-    tid = str(trace_id or "").strip()
+    tid = (trace_id or "").strip()
     if not tid:
         tid = getattr(ctx, "trace_id", "") or getattr(ctx, "corr_id", "") or ""
-    
+
     tr2 = DecisionTrace.new(sid=sid, trace_id=tid)
     try:
-        setattr(ctx, "_decision_trace_obj", tr2)
-        setattr(ctx, "trace_id", tr2.trace_id)
-        setattr(ctx, "corr_id", tr2.trace_id)
+        ctx._decision_trace_obj = tr2
+        ctx.trace_id = tr2.trace_id
+        ctx.corr_id = tr2.trace_id
     except Exception:
         pass
     return tr2
 
-def get_trace_obj(ctx: Any) -> Optional[DecisionTrace]:
+def get_trace_obj(ctx: Any) -> DecisionTrace | None:
     try:
         tr = getattr(ctx, "_decision_trace_obj", None)
         return tr if isinstance(tr, DecisionTrace) else None
     except Exception:
         return None
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     try:
         tr = get_trace_obj(ctx)
         if isinstance(tr, DecisionTrace):
@@ -304,7 +306,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
         pass
     return {}
 
-def make_trace_summary(trace: Union[DecisionTrace, Dict[str, Any], None]) -> str:
+def make_trace_summary(trace: DecisionTrace | dict[str, Any] | None) -> str:
     if trace is None: return ""
     try:
         cfg = _cfg_refresh_if_needed()
@@ -313,10 +315,10 @@ def make_trace_summary(trace: Union[DecisionTrace, Dict[str, Any], None]) -> str
             d = trace.to_dict(max_events=64)
         else:
             d = trace if isinstance(trace, dict) else {}
-        
-        tid = str(d.get("trace_id") or "")
-        sid = str(d.get("sid") or "")
-        
+
+        tid = (d.get("trace_id") or "")
+        sid = (d.get("sid") or "")
+
         g_ok = g_veto = t_ok = t_fail = 0
         last_veto = ""
         evs = d.get("events") or []
@@ -341,14 +343,14 @@ def make_trace_summary(trace: Union[DecisionTrace, Dict[str, Any], None]) -> str
     except Exception:
         return ""
 
-def set_summary_fields(env: Dict[str, Any], tr: Optional[Union[DecisionTrace, Dict[str, Any]]]) -> None:
+def set_summary_fields(env: dict[str, Any], tr: DecisionTrace | dict[str, Any] | None) -> None:
     if not isinstance(env, dict) or tr is None:
         return
     try:
         if isinstance(tr, DecisionTrace):
             tid = str(tr.trace_id or "")
         else:
-            tid = str(tr.get("trace_id") or "") if isinstance(tr, dict) else ""
+            tid = (tr.get("trace_id") or "") if isinstance(tr, dict) else ""
         if tid:
             env["trace_id"] = tid
             env["corr_id"] = tid
@@ -357,11 +359,11 @@ def set_summary_fields(env: Dict[str, Any], tr: Optional[Union[DecisionTrace, Di
         pass
 
 def to_dict_bounded(
-    trace: Union[DecisionTrace, Dict[str, Any], None],
+    trace: DecisionTrace | dict[str, Any] | None,
     *,
     max_events: int = 64,
     max_bytes: int = 16_000,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if trace is None:
         return {}
     if isinstance(trace, DecisionTrace):
@@ -396,7 +398,7 @@ def to_dict_bounded(
 
     return d
 
-def build_sidecar_meta(trace: Union[DecisionTrace, Dict[str, Any]]) -> Dict[str, Any]:
+def build_sidecar_meta(trace: DecisionTrace | dict[str, Any]) -> dict[str, Any]:
     try:
         cfg = _cfg_refresh_if_needed()
         max_bytes = int(cfg.get("sidecar_max_bytes", 120_000) or 120_000)
@@ -406,9 +408,9 @@ def build_sidecar_meta(trace: Union[DecisionTrace, Dict[str, Any]]) -> Dict[str,
         else:
             d = trace if isinstance(trace, dict) else {}
 
-        meta: Dict[str, Any] = {
+        meta: dict[str, Any] = {
             "schema": "decision_trace_sidecar:v1",
-            "trace_id": str(d.get("trace_id") or ""),
+            "trace_id": (d.get("trace_id") or ""),
             "trace_summary": make_trace_summary(d),
             "decision_trace": d,
             "updated_ms": _now_ms(),
@@ -438,11 +440,11 @@ def trace_gate(
     passed: bool,
     veto: bool = False,
     reason_code: str = "",
-    metrics: Optional[Dict[str, Any]] = None,
-    duration_ms: Optional[float] = None,
+    metrics: dict[str, Any] | None = None,
+    duration_ms: float | None = None,
 ) -> None:
     if not trace_enabled(): return
-    try:
+    with contextlib.suppress(Exception):
         ensure_trace(ctx).add(
             where=stage,
             name=name,
@@ -453,8 +455,6 @@ def trace_gate(
             duration_ms=duration_ms,
             etype="gate",
         )
-    except Exception:
-        pass
 
 def trace_target(
     ctx: Any,
@@ -463,11 +463,11 @@ def trace_target(
     target: str,
     ok: bool,
     reason_code: str = "",
-    metrics: Optional[Dict[str, Any]] = None,
-    duration_ms: Optional[float] = None,
+    metrics: dict[str, Any] | None = None,
+    duration_ms: float | None = None,
 ) -> None:
     if not trace_enabled(): return
-    try:
+    with contextlib.suppress(Exception):
         ensure_trace(ctx).add(
             where=stage,
             name=str(target),
@@ -479,16 +479,14 @@ def trace_target(
             etype="target",
             extra={"target": str(target)},
         )
-    except Exception:
-        pass
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     if not patch_events: return
     try:
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -496,7 +494,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
             except Exception: pass
         elif isinstance(raw, dict):
             obj = raw
-        
+
         merged = patch_trace_sidecar_obj(obj, patch_events)
         ttl = redis.ttl(key)
         val = json.dumps(merged, ensure_ascii=False, separators=(",", ":"))
@@ -507,13 +505,13 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
     except Exception:
         pass
 
-def patch_trace_sidecar_obj(sidecar: Dict[str, Any], patch_events: List[Dict[str, Any]]) -> Dict[str, Any]:
+def patch_trace_sidecar_obj(sidecar: dict[str, Any], patch_events: list[dict[str, Any]]) -> dict[str, Any]:
     try:
         out = dict(sidecar or {})
         tr = out.get("trace") or out.get("decision_trace")
         if not isinstance(tr, dict):
             tr = {"v": 1, "events": []}
-        
+
         evs = tr.get("events") or []
         if not isinstance(evs, list): evs = []
 
@@ -527,7 +525,7 @@ def patch_trace_sidecar_obj(sidecar: Dict[str, Any], patch_events: List[Dict[str
 
         for e in patch_events or []:
             if not isinstance(e, dict): continue
-            if str(e.get("type") or "") == "target" and str(e.get("stage") or "") == "dispatcher":
+            if (e.get("type") or "") == "target" and (e.get("stage") or "") == "dispatcher":
                 se = _sanitize_target_patch_event(e)
                 eid = _target_event_eid(se) if dedup_on else ""
                 if eid and eid in seen: continue
@@ -551,7 +549,7 @@ def patch_trace_sidecar_obj(sidecar: Dict[str, Any], patch_events: List[Dict[str
     except Exception:
         return dict(sidecar or {})
 
-def _target_event_eid(ev: Dict[str, Any]) -> str:
+def _target_event_eid(ev: dict[str, Any]) -> str:
     try:
         if ev.get("stage") != "dispatcher" or ev.get("type") != "target":
             return ""
@@ -564,9 +562,9 @@ def _target_event_eid(ev: Dict[str, Any]) -> str:
     except Exception:
         return ""
 
-def _sanitize_target_patch_event(ev: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_target_patch_event(ev: dict[str, Any]) -> dict[str, Any]:
     try:
-        out: Dict[str, Any] = {"type": "target", "stage": "dispatcher"}
+        out: dict[str, Any] = {"type": "target", "stage": "dispatcher"}
         out["target"] = str(ev.get("target") or ev.get("name") or "")
         out["ok"] = bool(ev.get("ok", False))
         if "reason_code" in ev: out["reason_code"] = _trim_str(ev.get("reason_code"), 64)
@@ -579,7 +577,7 @@ def _sanitize_target_patch_event(ev: Dict[str, Any]) -> Dict[str, Any]:
         return {}
 
 # --- Compatibility Aliases ---
-def build_trace_summary(tr: Union[DecisionTrace, Dict[str, Any]]) -> str:
+def build_trace_summary(tr: DecisionTrace | dict[str, Any]) -> str:
     return make_trace_summary(tr)
 
 def emit_trace_event(ctx: Any, **kwargs) -> None:

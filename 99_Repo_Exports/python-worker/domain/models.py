@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Literal
 
 _models_logger = logging.getLogger(__name__)
 
@@ -10,7 +10,7 @@ Side = Literal["LONG", "SHORT"]
 
 # #14: Canonical schema versions — cross-validate on any startup/test boundary.
 # Bump these when the payload contract changes and update consumers accordingly.
-EXPECTED_SCHEMA_VERSIONS: Dict[str, int] = {
+EXPECTED_SCHEMA_VERSIONS: dict[str, int] = {
     "SignalNorm": 1,
     "TradeClosed": 2,
 }
@@ -48,9 +48,9 @@ class SignalNorm:
     qty: float
     quantity: float
     sl: float
-    tp_levels: List[float]
+    tp_levels: list[float]
     trail_profile: str = ""
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
     payload_schema_version: int = 1
     entry_tag: str = ""
     schema_version: int = 1
@@ -59,10 +59,10 @@ class SignalNorm:
     # Optional: populated by the envelope builder; kept here so SignalNorm
     # fully carries the observability contract and callsites don't need to
     # reconstruct these from separate state.
-    event_id: Optional[str] = None        # UUID4 assigned at signal origination
-    ingest_time_ms: Optional[int] = None  # wall-clock ms when signal entered the pipeline
-    trace_id: Optional[str] = None        # propagated from tick/kline source if available
-    quality_flags: Optional[int] = None   # bitmask: 0 = fully clean
+    event_id: str | None = None        # UUID4 assigned at signal origination
+    ingest_time_ms: int | None = None  # wall-clock ms when signal entered the pipeline
+    trace_id: str | None = None        # propagated from tick/kline source if available
+    quality_flags: int | None = None   # bitmask: 0 = fully clean
 
     def __post_init__(self) -> None:  # #13: qty/quantity consistency guard
         """Sync qty ↔ quantity and warn on divergence.
@@ -109,7 +109,7 @@ class TradeEvent:
     direction: Side
     ts_ms: int
     v: int = 1
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -117,20 +117,20 @@ class TradeClosed:
     schema_version: int = 2
 
     # --- identity / slicing ---
-    trade_id: Optional[str] = None
-    signal_id: Optional[str] = None
-    symbol: Optional[str] = None
-    regime: Optional[str] = None
-    session: Optional[str] = None
-    scenario: Optional[str] = None          # reversal / continuation
-    entry_reason: Optional[str] = None
+    trade_id: str | None = None
+    signal_id: str | None = None
+    symbol: str | None = None
+    regime: str | None = None
+    session: str | None = None
+    scenario: str | None = None          # reversal / continuation
+    entry_reason: str | None = None
 
     # --- execution ---
-    side: Optional[str] = None              # LONG/SHORT
-    qty: Optional[float] = None
-    quantity: Optional[float] = None
-    entry_px: Optional[float] = None
-    exit_px: Optional[float] = None
+    side: str | None = None              # LONG/SHORT
+    qty: float | None = None
+    quantity: float | None = None
+    entry_px: float | None = None
+    exit_px: float | None = None
 
     def __post_init__(self) -> None:  # #13: qty/quantity consistency guard
         """Sync qty ↔ quantity and warn on divergence.
@@ -160,19 +160,19 @@ class TradeClosed:
         except Exception:
             pass
 
-    fees_usd: Optional[float] = None
-    spread_bps_at_entry: Optional[float] = None
-    slippage_bps_est: Optional[float] = None
-    book_age_ms: Optional[int] = None
+    fees_usd: float | None = None
+    spread_bps_at_entry: float | None = None
+    slippage_bps_est: float | None = None
+    book_age_ms: int | None = None
 
     # --- excursions / timing ---
-    mae_bps: Optional[float] = None
-    mfe_bps: Optional[float] = None
-    time_to_mfe_ms: Optional[int] = None
-    hold_ms: Optional[int] = None
+    mae_bps: float | None = None
+    mfe_bps: float | None = None
+    time_to_mfe_ms: int | None = None
+    hold_ms: int | None = None
 
     # features snapshot (trimmed)
-    features: Optional[Dict[str, Any]] = None
+    features: dict[str, Any] | None = None
 
     # existing identity / legacy compatibility
     order_id: str = ""
@@ -285,15 +285,15 @@ class TradeClosed:
     # -------------------------------------------------------------------------
     atr: float = 0.0
     sl: float = 0.0
-    tp_levels: List[float] = field(default_factory=list)
+    tp_levels: list[float] = field(default_factory=list)
     tp1_price: float = 0.0
-    signal_payload: Dict[str, Any] = field(default_factory=dict)
+    signal_payload: dict[str, Any] = field(default_factory=dict)
 
     # Signal & Shadow Analytics
     is_virtual: bool = False
     v_gate_status: str = "na"  # na / passed / failed
     v_gate_reason: str = ""
-    
+
     # -------------------------------------------------------------------------
     # Phase 3.1: runtime adoption
     # -------------------------------------------------------------------------
@@ -320,7 +320,7 @@ class TradeClosed:
     atr_recovery_run_id: str = ""
     atr_restore_cert_id: str = ""
     atr_restore_cert_status: str = ""
-    atr_policy_snapshot_json: Dict[str, Any] = field(default_factory=dict)
+    atr_policy_snapshot_json: dict[str, Any] = field(default_factory=dict)
 
     # Phase 5: ATR selection metadata for post-trade analytics
     atr_sel_tf: str = ""
@@ -332,7 +332,7 @@ class TradeClosed:
     meta_enforce_applied: int = -1
 
     # telemetry/health
-    _health_snapshot: Optional[Dict[str, Any]] = None
+    _health_snapshot: dict[str, Any] | None = None
 
     # dynamic enrichment
     kind: str = ""
@@ -358,15 +358,15 @@ class PositionState:
     remaining_qty: float
 
     sl: float
-    tp_levels: List[float]
+    tp_levels: list[float]
     atr: float = 0.0
 
     tp_hits: int = 0
     tp1_hit: bool = False
     tp2_hit: bool = False
     tp3_hit: bool = False
-    tp_fill_prices: Dict[int, float] = field(default_factory=dict)
-    tp_fill_times: Dict[int, int] = field(default_factory=dict)
+    tp_fill_prices: dict[int, float] = field(default_factory=dict)
+    tp_fill_times: dict[int, int] = field(default_factory=dict)
 
     closed: bool = False
     exit_ts_ms: int = 0
@@ -398,25 +398,25 @@ class PositionState:
     one_r_money: float = 0.0
 
     # --- track when extremes happened (epoch ms) (P0) ---
-    max_price_seen_ts_ms: Optional[int] = None
-    min_price_seen_ts_ms: Optional[int] = None
+    max_price_seen_ts_ms: int | None = None
+    min_price_seen_ts_ms: int | None = None
 
     # --- entry metadata (P0) ---
-    # some fields like entry_ts_ms/entry_px already exist above with same/similar names; 
+    # some fields like entry_ts_ms/entry_px already exist above with same/similar names;
     # we'll use these specific names for the PnL decomposition contract.
-    p0_entry_ts_ms: Optional[int] = None
-    p0_entry_px: Optional[float] = None
-    p0_side: Optional[str] = None
-    p0_qty: Optional[float] = None
-    p0_signal_id: Optional[str] = None
-    p0_regime: Optional[str] = None
-    p0_session: Optional[str] = None
-    p0_scenario: Optional[str] = None
-    p0_entry_reason: Optional[str] = None
-    p0_spread_bps_at_entry: Optional[float] = None
-    p0_slippage_bps_est: Optional[float] = None
-    p0_book_age_ms: Optional[int] = None
-    p0_features_snapshot: Optional[Dict[str, Any]] = None
+    p0_entry_ts_ms: int | None = None
+    p0_entry_px: float | None = None
+    p0_side: str | None = None
+    p0_qty: float | None = None
+    p0_signal_id: str | None = None
+    p0_regime: str | None = None
+    p0_session: str | None = None
+    p0_scenario: str | None = None
+    p0_entry_reason: str | None = None
+    p0_spread_bps_at_entry: float | None = None
+    p0_slippage_bps_est: float | None = None
+    p0_book_age_ms: int | None = None
+    p0_features_snapshot: dict[str, Any] | None = None
 
     # --- AB attribution (optional, used by winner suggester) ---
     ab_arm: str = "A"
@@ -428,7 +428,7 @@ class PositionState:
     entry_zone_id: str = ""
 
     # сырой сигнал для отладки/аудита
-    signal_payload: Dict[str, Any] = field(default_factory=dict)
+    signal_payload: dict[str, Any] = field(default_factory=dict)
 
     # Signal & Shadow Analytics
     is_virtual: bool = False
@@ -472,8 +472,8 @@ class PositionState:
     # These dicts are later serialized into TradeClosed.{mfe_pnl_t,mae_pnl_t}
     # as JSON and written into Redis by infra/redis_repo.save_closed().
     # -------------------------------------------------------------------------
-    mfe_pnl_t: Dict[int, float] = field(default_factory=dict)
-    mae_pnl_t: Dict[int, float] = field(default_factory=dict)
+    mfe_pnl_t: dict[int, float] = field(default_factory=dict)
+    mae_pnl_t: dict[int, float] = field(default_factory=dict)
 
     # dynamic enrichment
     kind: str = ""
@@ -548,8 +548,8 @@ class PositionState:
     #   - adverse_bps_running держит текущее running-max до "фиксации" бакета.
     #   - adverse_bps_t фиксируется один раз, когда elapsed >= bucket.
     # -------------------------------------------------------------------------
-    adverse_bps_running: Dict[int, float] = field(default_factory=dict)
-    adverse_bps_t: Dict[int, float] = field(default_factory=dict)
+    adverse_bps_running: dict[int, float] = field(default_factory=dict)
+    adverse_bps_t: dict[int, float] = field(default_factory=dict)
 
     # -- tick activity tracking (orphan guard) --
     # Обновляются при каждом тике on_tick. Используются _is_orphan_expired(),
@@ -572,7 +572,7 @@ class PositionState:
     horizon_profile_source: str = ""
     horizon_profile_conf: float = 0.0
     horizon_reason_code: str = ""
-    horizon_reason_details: Dict[str, Any] = field(default_factory=dict)
+    horizon_reason_details: dict[str, Any] = field(default_factory=dict)
 
     atr_mode: str = ""
     atr_tf_ms: int = 0
@@ -587,7 +587,7 @@ class PositionState:
     vol_ratio_fast_slow: float = 1.0
     vol_ratio_z: float = 0.0
 
-    horizon_contract: Dict[str, Any] = field(default_factory=dict)
+    horizon_contract: dict[str, Any] = field(default_factory=dict)
 
 
     # -------------------------------------------------------------------------

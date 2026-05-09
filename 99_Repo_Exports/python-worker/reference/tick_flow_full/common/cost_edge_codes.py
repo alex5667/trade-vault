@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from typing import List
 
 
 def env_truthy(name: str, default: str = "0") -> bool:
@@ -16,7 +15,7 @@ def env_truthy(name: str, default: str = "0") -> bool:
         return False
 
 
-def cost_edge_reason_codes(primary_reason: str) -> List[str]:
+def cost_edge_reason_codes(primary_reason: str) -> list[str]:
     """
     Unified Cost/Edge veto reason-code mapping.
 
@@ -28,7 +27,7 @@ def cost_edge_reason_codes(primary_reason: str) -> List[str]:
         to keep existing dashboards alive during rollout.
       - default is OFF.
     """
-    r = str(primary_reason or "VETO_EDGE_COST_UNKNOWN")
+    r = (primary_reason or "VETO_EDGE_COST_UNKNOWN")
     out = [r]
     if env_truthy("EDGE_DUAL_EMIT_LEGACY_THIN_COST", "0"):
         out.append("VETO_EDGE_THIN_COST")

@@ -1,5 +1,5 @@
-import pytest
-from core.ok_fields import parse_ok_fields, get_scenario, get_ts_ms, intish
+from core.ok_fields import get_scenario, get_ts_ms, intish, parse_ok_fields
+
 
 def test_intish():
     assert intish(None, 42) == 42
@@ -35,11 +35,11 @@ def test_parse_ok_fields():
     # Test top-level ok
     assert parse_ok_fields({"ok": 1}) == (1, 0)
     assert parse_ok_fields({"ok_soft": 1}) == (0, 1)
-    
+
     # Test nested in payload
     row = {"payload": '{"rule_ok": 1, "ok_soft": "true"}'}
     assert parse_ok_fields(row) == (1, 1)
-    
+
     # Test nested in evidence
     row = {"evidence": '{"ok_rule": 0, "soft_ok": "1"}'}
     assert parse_ok_fields(row) == (0, 1)

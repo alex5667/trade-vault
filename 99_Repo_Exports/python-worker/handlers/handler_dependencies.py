@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Optional, Any
+from typing import Any
+
 
 @dataclass
 class HandlerDependencies:
@@ -8,46 +9,46 @@ class HandlerDependencies:
     Passed via DI container/factory to avoid circular imports and runtime import hell.
     """
     # Core Infrastructure
-    health_metrics: Optional[Any] = None
-    health_monitor: Optional[Any] = None
-    
+    health_metrics: Any | None = None
+    health_monitor: Any | None = None
+
     # Analysis & Indicators
-    liquidity_analyzer: Optional[Any] = None
-    atr_indicator: Optional[Any] = None
-    levels_manager: Optional[Any] = None
-    
+    liquidity_analyzer: Any | None = None
+    atr_indicator: Any | None = None
+    levels_manager: Any | None = None
+
     # L2/L3 Services
-    l3_queue: Optional[Any] = None
-    queue_eta: Optional[Any] = None
-    burst_tracker: Optional[Any] = None
-    
+    l3_queue: Any | None = None
+    queue_eta: Any | None = None
+    burst_tracker: Any | None = None
+
     # Geometry / Regimes
-    extrema_service: Optional[Any] = None
-    regime_service: Optional[Any] = None
-    
+    extrema_service: Any | None = None
+    regime_service: Any | None = None
+
     # Execution / Signals
-    execution_setup: Optional[Any] = None
-    outbox_publisher: Optional[Any] = None
-    scoring_engine: Optional[Any] = None
-    unified_pipeline: Optional[Any] = None
-    
+    execution_setup: Any | None = None
+    outbox_publisher: Any | None = None
+    scoring_engine: Any | None = None
+    unified_pipeline: Any | None = None
+
     # Signal Exec Components (Heavy)
-    signal_service: Optional[Any] = None
-    execution_planner: Optional[Any] = None
-    signal_repo: Optional[Any] = None
-    signal_bus: Optional[Any] = None
-    performance_tracker: Optional[Any] = None
-    
+    signal_service: Any | None = None
+    execution_planner: Any | None = None
+    signal_repo: Any | None = None
+    signal_bus: Any | None = None
+    performance_tracker: Any | None = None
+
     # GPU
-    gpu_processor: Optional[Any] = None
-    
+    gpu_processor: Any | None = None
+
     # Calibration
-    local_calibration: Optional[Any] = None
-    calibration_service_cls: Optional[Any] = None
+    local_calibration: Any | None = None
+    calibration_service_cls: Any | None = None
 
     # Service Classes (for late instantiation)
-    cooldown_service_cls: Optional[Any] = None
-    
+    cooldown_service_cls: Any | None = None
+
     def __post_init__(self):
         """Helpers to validate or log missing dependencies if needed."""
         pass

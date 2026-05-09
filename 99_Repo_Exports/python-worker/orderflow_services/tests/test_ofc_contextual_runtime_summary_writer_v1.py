@@ -41,7 +41,7 @@ def test_write_summary_once_emits_textfile(tmp_path: Path):
 }
 """, encoding='utf-8')
     summary = write_summary_once(
-        state_path=str(state_path),
+        state_path=state_path,
         redis_url='',
         summary_key='',
         textfile_path=str(textfile),

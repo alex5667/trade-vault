@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Regression tests: _build_payload must apply _normalize_ts_ms to ts field.
 
 Before the fix, _build_payload used:
@@ -18,9 +19,7 @@ Tests here verify:
 
 import time
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from handlers.crypto_orderflow.pipeline.orchestrator import SignalOrchestrator
 

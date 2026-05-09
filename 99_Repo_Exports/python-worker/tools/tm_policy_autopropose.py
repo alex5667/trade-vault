@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Auto-propose EntryPolicyOverridesV1 based on tm_policy_tuner JSON.
 
@@ -12,16 +12,15 @@ Does NOT auto-apply: approvals workflow remains.
 apply_kind="overrides_v1"
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import hashlib
 import json
 import os
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -46,9 +45,9 @@ def propose_overrides_v1(
     group: str = "default",
     latest_prefix: str = "cfg:suggestions:entry_policy:latest:autopilot",
     meta_prefix: str = "cfg:suggestions:entry_policy:meta",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     r = redis.from_url(redis_url, decode_responses=True)
-    with open(reco_json_path, "r", encoding="utf-8") as f:
+    with open(reco_json_path, encoding="utf-8") as f:
         reco = json.loads(f.read() or "{}")
     g = (group or "default").strip().lower()
     now = _now_ms()

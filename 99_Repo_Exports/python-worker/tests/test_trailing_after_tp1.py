@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from types import SimpleNamespace
 
 from domain.handlers import maybe_arm_trailing_after_tp1
 from domain.models import PositionState

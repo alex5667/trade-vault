@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -23,9 +25,8 @@ import argparse
 import json
 import os
 import sys
-import time
-from typing import Any, Dict, List
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import redis
@@ -37,7 +38,7 @@ except Exception:
     dq_freeze_decision = None
 
 
-def _try_load_cfg2(redis_url: str) -> Dict[str, Any]:
+def _try_load_cfg2(redis_url: str) -> dict[str, Any]:
     if not redis_url:
         return {}
     try:
@@ -55,8 +56,8 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
         return default
 
 
-def _load_json(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def _load_json(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -71,7 +72,7 @@ def main() -> None:
     ap.add_argument("--dataset-parquet", required=True, help="Path to nightly parquet dataset")
     ap.add_argument("--fallback-model-json", default="", help="Optional fallback model if primary missing")
     ap.add_argument("--report-json", default="", help="Optional quality report JSON to apply DQ latch")
-    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), help="Redis stream for fallback notification")
+    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), help="Redis stream for fallback notification")
 
     # Thresholds
     ap.add_argument("--max-miss-mean", type=float, default=float(os.getenv("META_GUARD_MAX_MISS_MEAN", "0.05")))
@@ -104,7 +105,7 @@ def main() -> None:
 
     # P30: Initialize control variables
     freeze = False
-    reason: List[str] = []
+    reason: list[str] = []
 
     # 1. Load Artefacts
     r_state = _get_redis_client(args.redis_url)
@@ -188,7 +189,7 @@ def main() -> None:
             print(f"INFO: Model Schema: {schema_name}")
             print(f"INFO: Active Critical Features: {args.crit_features}")
 
-            cfg2: Dict[str, Any] = _try_load_cfg2(getattr(args, "redis_url", ""))
+            cfg2: dict[str, Any] = _try_load_cfg2(getattr(args, "redis_url", ""))
 
             # --- P16: DQ latch from quality report ---
             if (not args.ignore_dq) and args.report_json and dq_freeze_decision is not None:

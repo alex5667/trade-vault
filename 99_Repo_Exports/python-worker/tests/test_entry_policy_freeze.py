@@ -91,10 +91,10 @@ def test_freeze_v1_serialization_roundtrip():
         created_ts_ms=123456,
         metrics={"spread_z_p95": 3.5},
     )
-    
+
     json_str = fz1.to_json()
     fz2, err = EntryPolicyFreezeV1.from_json(json_str)
-    
+
     assert err == ""
     assert fz2.symbol == fz1.symbol
     assert fz2.mode == fz1.mode

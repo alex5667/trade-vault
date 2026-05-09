@@ -1,11 +1,10 @@
 
-import sys
-import os
 
 # Adjust path to include python-worker
 # [AUTOGRAVITY CLEANUP] sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from core.crypto_signal_formatter import CryptoSignal, CryptoSignalFormatter
+
 
 def test_pepe_formatting():
     # Simulate a 1000PEPEUSDT signal
@@ -14,7 +13,7 @@ def test_pepe_formatting():
     # 1000PEPEUSDT SHORT @ 0.01
     # ATR=0.00
     # p_delta=787769.00
-    
+
     signal = CryptoSignal(
         sid="crypto-of:1000PEPEUSDT:1767762339475",
         symbol="1000PEPEUSDT",

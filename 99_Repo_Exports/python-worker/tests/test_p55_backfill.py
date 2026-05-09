@@ -1,14 +1,17 @@
 import json
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
+
 from tools.close_backfill_replay_v1 import (
-    extract_close_fields,
-    build_trades_closed_payload,
-    is_position_closed,
     Cfg,
+    build_trades_closed_payload,
     decision_get,
-    json_loads_safe
+    extract_close_fields,
+    is_position_closed,
+    json_loads_safe,
 )
+
 
 def test_extract_close_fields():
     # Test common field extraction
@@ -57,9 +60,9 @@ def test_build_trades_closed_payload():
         "drift_state": "ok"
     }
     label_win_r_min = 0.5
-    
+
     payload = build_trades_closed_payload(sid, close_ev, decision, label_win_r_min)
-    
+
     assert payload["sid"] == sid
     assert payload["symbol"] == "BTCUSDT"
     assert payload["close_ts_ms"] == 1740000000000
@@ -79,12 +82,12 @@ def test_decision_get():
         dedup_ttl_sec=0, label_win_r_min=0, direct_join=True,
         scan_batch=0, max_count=0, metrics_hash=""
     )
-    
+
     # Test GET
     r.get.return_value = json.dumps({"sid": "sid1", "drift_state": "ok"}).encode()
     dec = decision_get(r, cfg, "sid1")
     assert dec["sid"] == "sid1"
-    
+
     # Test HGET fallback
     r.get.return_value = None
     r.hget.return_value = json.dumps({"sid": "sid2", "drift_state": "warn"}).encode()

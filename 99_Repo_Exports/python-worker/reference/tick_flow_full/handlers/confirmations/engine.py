@@ -1,17 +1,14 @@
 from __future__ import annotations
 
 import math
-import os
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
-import inspect
-from common.qf_codes import QF
-from signal_scoring.reason_registry import normalize_reason, reason_code_to_u16
-from common.u16_pack import pack_u16_list
-from common.math_safe import safe_float, clamp01, finite_or
-from common.feature_flags import FeatureFlagsManager, FeatureFlagsSnapshot
+from common.math_safe import clamp01, safe_float
 from common.metrics import METRICS
+from common.qf_codes import QF
+from common.u16_pack import pack_u16_list
+from signal_scoring.reason_registry import normalize_reason, reason_code_to_u16
 
 
 @dataclass(frozen=True)
@@ -118,7 +115,7 @@ class ConfirmationsEngine:
         try:
             METRICS.inc(
                 "signals_veto_total",
-                labels={"kind": str(kind or "unknown"), "reason_code": str(reason_code), "ff_mask": str(int(ff_mask))},
+                labels={"kind": (kind or "unknown"), "reason_code": str(reason_code), "ff_mask": str(int(ff_mask))},
             )
         except Exception:
             pass
@@ -205,7 +202,7 @@ class ConfirmationsEngine:
         ctx: Any,
         l2: Any,
         l3: Any,
-        level_price: Optional[float],
+        level_price: float | None,
     ) -> Validation:
         k = (kind or "").lower()
         # ---- вывод стороны без изменения сигнатуры validate() ----
@@ -241,7 +238,7 @@ class ConfirmationsEngine:
         flags: list[int] = []
         parts: dict[str, float] = {}
 
-        k = str(kind or "").strip().lower()
+        k = (kind or "").strip().lower()
 
         # total counters для rate-графиков (denominator)
         if self._metrics is not None:
@@ -311,7 +308,7 @@ class ConfirmationsEngine:
             parts.update(dict(getattr(r, "parts", {}) or {}))
             # Если валидатор предоставляет доп. словарь флагов, вмерживаем в parts (для логов/отладки)
             if isinstance(getattr(r, "flags", None), dict):
-                parts.update(dict(getattr(r, "flags") or {}))
+                parts.update(dict(r.flags or {}))
             if bool(getattr(r, "veto", False)):
                 # "super-hard" уровень:
                 #   Всегда нормализуем в structured reason_code и вычисляем стабильный uint16.

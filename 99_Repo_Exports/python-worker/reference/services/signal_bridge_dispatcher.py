@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
+
 from common.log import setup_logger
 from common.transient import is_transient_error
-from core.redis_stream_consumer import SyncRedisStreamHelper
 from core.dual_redis_client import get_dual_signals_redis
+from core.redis_stream_consumer import SyncRedisStreamHelper
 
 logger = setup_logger("SignalBridgeDispatcher")
 
@@ -62,7 +63,7 @@ class SignalBridgeDispatcher:
         self._last_claim_mono = 0.0
         self._claim_cursor = "0-0"
 
-        self._sha: Optional[str] = None
+        self._sha: str | None = None
 
     def _ensure_script(self) -> str:
         if self._sha:
@@ -129,7 +130,7 @@ class SignalBridgeDispatcher:
                 except Exception:
                     pass
 
-    def _handle_one(self, stream: str, msg_id: str, fields: Dict[str, Any]) -> bool:
+    def _handle_one(self, stream: str, msg_id: str, fields: dict[str, Any]) -> bool:
         raw = fields.get("data")
         if not raw:
             return True
@@ -158,7 +159,7 @@ class SignalBridgeDispatcher:
 
         # manual: payload={"stream": "...", "data": {...}}
         sid = str(payload.get("sid") or payload.get("data", {}).get("sid") or msg_id)
-        target_stream = str(payload.get("stream") or "")
+        target_stream = (payload.get("stream") or "")
         data = payload.get("data")
         if not target_stream or data is None:
             return True

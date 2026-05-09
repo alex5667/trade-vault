@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 ML Scorer V3 Training Script — Binary Classification model for signal confidence scoring.
 
@@ -23,8 +25,6 @@ Usage:
     --feature_schema_ver v12_of
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import hashlib
 import json
@@ -32,11 +32,14 @@ import logging
 import math
 import os
 import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
+
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # GPU / CPU array backend (CuPy preferred, numpy fallback)
@@ -59,12 +62,12 @@ except ImportError:
     psycopg2 = None  # type: ignore
 
 try:
-    import lightgbm as lgb
+    import lightgbm as lgb  # type: ignore[import]
 except ImportError:
     lgb = None  # type: ignore
 
 try:
-    from imblearn.under_sampling import RandomUnderSampler
+    from imblearn.under_sampling import RandomUnderSampler  # type: ignore[import]
 except ImportError:
     RandomUnderSampler = None
 
@@ -81,28 +84,28 @@ logger = logging.getLogger("ml_scorer_v2_train")
 
 def _f(x: Any, default: float = 0.0) -> float:
     try:
-        v = float(x) if x is not None else float(default)
-        return v if math.isfinite(v) else float(default)
+        v = float(x) if x is not None else default
+        return v if math.isfinite(v) else default
     except Exception:
-        return float(default)
+        return default
 
 
 def _sha256_16(items: Sequence[str]) -> str:
-    payload = "\n".join(str(x) for x in items).encode("utf-8")
+    payload = "\n".join(x for x in items).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:16]
 
 
 def _median(xs: Sequence[float]) -> float:
-    ys = sorted(float(x) for x in xs)
+    ys = sorted(x for x in xs)
     n = len(ys)
     if n == 0:
         return 0.0
     m = n // 2
-    return float(ys[m]) if n % 2 == 1 else float(0.5 * (ys[m - 1] + ys[m]))
+    return ys[m] if n % 2 == 1 else 0.5 * (ys[m - 1] + ys[m])
 
 
 def _mad(xs: Sequence[float], center: float) -> float:
-    return _median([abs(float(x) - center) for x in xs])
+    return _median([abs(x - center) for x in xs])
 
 
 def _winsorize(arr: np.ndarray, sigma: float = 3.0) -> np.ndarray:
@@ -145,7 +148,7 @@ class PurgedEmbargoTimeSeriesSplit:
     embargo_ms: int = 120_000  # 2 min
     min_train: int = 500
 
-    def split(self, ts_ms: Sequence[int]) -> Iterable[Tuple[np.ndarray, np.ndarray]]:
+    def split(self, ts_ms: Sequence[int]) -> Iterable[tuple[np.ndarray, np.ndarray]]:
         order = np.argsort(np.asarray(ts_ms, dtype=np.int64), kind="mergesort")
         n = len(order)
         if n == 0:
@@ -201,7 +204,7 @@ def _get_dsn() -> str:
     )
 
 
-def fetch_training_data(lookback_days: int) -> Optional[Any]:
+def fetch_training_data(lookback_days: int) -> Any | None:
     """Fetch joined signal_facts + trade_performance from PostgreSQL."""
     if psycopg2 is None:
         logger.error("psycopg2 not installed — cannot fetch from DB")
@@ -256,6 +259,8 @@ def fetch_training_data(lookback_days: int) -> Optional[Any]:
         conn = psycopg2.connect(dsn)
         cur = conn.cursor()
         cur.execute(query)
+        if cur.description is None:
+            raise ValueError("No column metadata returned from cursor")
         cols = [desc[0] for desc in cur.description]
         rows = cur.fetchall()
         cur.close()
@@ -307,13 +312,13 @@ DERIVED_FEATURES = [
 ]
 
 
-def _build_feature_names() -> List[str]:
+def _build_feature_names() -> list[str]:
     return [f"f_{c}" for c in NUMERIC_FEATURES] + DERIVED_FEATURES
 
 
-def _build_feature_row(row_dict: Dict[str, Any]) -> List[float]:
+def _build_feature_row(row_dict: dict[str, Any]) -> list[float]:
     """Build feature vector from a row dict."""
-    out: List[float] = []
+    out: list[float] = []
 
     # Raw numeric features (with robust scaling applied later)
     for col in NUMERIC_FEATURES:
@@ -345,7 +350,7 @@ def _build_feature_row(row_dict: Dict[str, Any]) -> List[float]:
     for val in out:
         if abs(val) > 10.0:  # Simple threshold, assuming most raw values aren't frequently > 10 unless extreme (will be robustly scaled later anyway, but helpful raw context)
             outlier_count += 1.0
-            
+
     out.append(outlier_count)
     out.append(1.0 if outlier_count > 0 else 0.0)
 
@@ -353,15 +358,15 @@ def _build_feature_row(row_dict: Dict[str, Any]) -> List[float]:
 
 
 def _fit_robust_scaler(
-    X: np.ndarray, feature_names: List[str]
-) -> Dict[str, Dict[str, float]]:
+    X: np.ndarray, feature_names: list[str]
+) -> dict[str, dict[str, float]]:
     """Fit median/MAD robust scaler per feature.
 
     GPU-accelerated: transfers full matrix to GPU once, computes
     median + MAD for all columns in batch. ~10-50× faster on GPU
     for typical N=2000-50000 training samples.
     """
-    params: Dict[str, Dict[str, float]] = {}
+    params: dict[str, dict[str, float]] = {}
     if _GPU and cp is not None and X.shape[0] >= 200:
         try:
             X_gpu = cp.asarray(X, dtype=cp.float64)
@@ -390,8 +395,8 @@ def _fit_robust_scaler(
 
 def _apply_robust_scaler(
     X: np.ndarray,
-    feature_names: List[str],
-    params: Dict[str, Dict[str, float]],
+    feature_names: list[str],
+    params: dict[str, dict[str, float]],
 ) -> np.ndarray:
     """Apply robust scaler in-place."""
     out = X.copy()
@@ -407,7 +412,7 @@ def _apply_robust_scaler(
 # Target engineering
 # ---------------------------------------------------------------------------
 
-def _compute_target(row_dict: Dict[str, Any]) -> float:
+def _compute_target(row_dict: dict[str, Any]) -> float:
     """Compute binary target (1.0 if pnl_r >= 0.3 else 0.0).
     
     NOTE: pnl_r is clipped to [-10, 10] as a guard against
@@ -425,14 +430,14 @@ def _compute_target(row_dict: Dict[str, Any]) -> float:
 def train_model(
     X: np.ndarray,
     y: np.ndarray,
-    ts_ms: List[int],
+    ts_ms: list[int],
     *,
     n_splits: int = 5,
     purge_ms: int = 300_000,
     embargo_ms: int = 120_000,
-) -> Tuple[Any, np.ndarray, Dict[str, float]]:
+) -> tuple[Any, np.ndarray, dict[str, float]]:
     """Train LightGBM binary classifier with OOF evaluation and RUS."""
-    import lightgbm as lgb
+    import lightgbm as lgb  # type: ignore[import]
     if lgb is None:
         raise SystemExit("lightgbm is required: pip install lightgbm")
 
@@ -508,7 +513,7 @@ def train_model(
 
         preds = model.predict(X_va)
         oof_preds[va_idx] = preds
-        
+
         # Calculate top 5% hit rate
         k_fold = max(1, int(0.05 * len(va_idx)))
         noisy_preds = preds + np.random.uniform(0, 1e-9, size=preds.shape)
@@ -553,7 +558,7 @@ def train_model(
     y_oof = y[mask]
     p_oof = oof_preds[mask]
 
-    from sklearn.metrics import roc_auc_score, log_loss
+    from sklearn.metrics import log_loss, roc_auc_score
 
     try:
         roc_auc = float(roc_auc_score(y_oof, p_oof))
@@ -598,7 +603,7 @@ def train_model(
 
 def _build_r_to_conf01_isotonic(
     y_oof: np.ndarray, p_oof: np.ndarray
-) -> Optional[Any]:
+) -> Any | None:
     """Fit isotonic regression: predicted_R → P(R > 0) → conf01."""
     try:
         from sklearn.isotonic import IsotonicRegression  # type: ignore
@@ -695,13 +700,13 @@ def main() -> int:
     # 5. Winsorize target - DISABLED FOR CLASSIFICATION
     # y = _winsorize(y, sigma=args.winsorize_sigma)
 
-    # We do NOT drop outliers here because we WANT the model to see extreme climax spikes 
+    # We do NOT drop outliers here because we WANT the model to see extreme climax spikes
     # and learn that they lead to y=0. Dropping them forces the tree to extrapolate into them and give false positives.
-    
+
     # 6. Fit robust scaler
     scaler_params = _fit_robust_scaler(X, feature_names)
     X_scaled = _apply_robust_scaler(X, feature_names, scaler_params)
-    
+
 
     # 7. Train
     model, oof_preds, metrics = train_model(
@@ -721,7 +726,7 @@ def main() -> int:
         r = _get_redis()
         if r is not None:
             _notify_telegram(r, err_msg)
-        
+
         logger.error("ROC-AUC too low (%.2f < 0.50). Model not saved.", metrics["roc_auc_oof"])
         return 1
 
@@ -730,7 +735,7 @@ def main() -> int:
     calibrator = _build_r_to_conf01_isotonic(y[oof_mask], oof_preds[oof_mask])
 
     # 10. Package and save as CANDIDATE (not yet promoted)
-    out_pack: Dict[str, Any] = {
+    out_pack: dict[str, Any] = {
         "schema_version": 2,
         "kind": "ml_scorer_v3",
         "model": model,
@@ -777,7 +782,7 @@ def main() -> int:
 # Telegram Approval Flow
 # ---------------------------------------------------------------------------
 
-NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", "notify:telegram")
+NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 PENDING_PREFIX = "ml_scorer:pending"
 PENDING_TTL = int(os.getenv("ML_SCORER_PENDING_TTL_SEC", "86400") or 86400)
 REMINDER_SEC = int(os.getenv("ML_SCORER_REMINDER_SEC", "1800") or 1800)
@@ -801,7 +806,7 @@ def _get_redis():
         return None
 
 
-def _format_approval_report(metrics: Dict[str, float], n_samples: int) -> str:
+def _format_approval_report(metrics: dict[str, float], n_samples: int) -> str:
     """Format Telegram report with model metrics."""
     roc_auc = metrics.get("roc_auc_oof", 0)
     logloss = metrics.get("logloss_oof", 0)
@@ -812,7 +817,7 @@ def _format_approval_report(metrics: Dict[str, float], n_samples: int) -> str:
     y_mean_val = metrics.get("y_mean_val", y_mean)
 
     expert_audit = ""
-    # We compare top5 hit rate against the validation mean, because global y_mean 
+    # We compare top5 hit rate against the validation mean, because global y_mean
     # includes ancient bull markets causing non-stationary skew.
     if top5 < y_mean_val:
         expert_audit = (
@@ -857,7 +862,7 @@ def _build_approval_buttons(run_id: str) -> list:
 
 
 def _create_pending(
-    r, run_id: str, metrics: Dict, n_samples: int,
+    r, run_id: str, metrics: dict, n_samples: int,
     candidate_path: str, production_path: str, report: str,
 ) -> None:
     """Store pending approval in Redis."""
@@ -882,7 +887,7 @@ def _create_pending(
 
 def _notify_telegram(r, message: str, buttons: list = None) -> None:
     """Publish message to notify:telegram stream."""
-    fields: Dict[str, str] = {
+    fields: dict[str, str] = {
         "type": "report",
         "text": message,
         "parse_mode": "HTML",
@@ -898,7 +903,7 @@ def _notify_telegram(r, message: str, buttons: list = None) -> None:
 
 
 def _send_approval_request(
-    args, metrics: Dict, n_samples: int,
+    args, metrics: dict, n_samples: int,
     candidate_path: str, production_path: str,
 ) -> None:
     """Send Telegram approval request and start reminder loop."""
@@ -922,7 +927,7 @@ def _send_approval_request(
 # Auto-promote / auto-reject (approval=0 mode)
 # ---------------------------------------------------------------------------
 
-def _load_champion_metrics(r) -> Optional[Dict[str, Any]]:
+def _load_champion_metrics(r) -> dict[str, Any] | None:
     """Загрузить метрики текущего чемпиона из Redis."""
     try:
         raw = r.get(CHAMPION_METRICS_KEY)
@@ -935,7 +940,7 @@ def _load_champion_metrics(r) -> Optional[Dict[str, Any]]:
 
 
 def _save_champion_metrics(
-    r, metrics: Dict[str, Any], candidate_path: str, production_path: str
+    r, metrics: dict[str, Any], candidate_path: str, production_path: str
 ) -> None:
     """Сохранить метрики нового чемпиона в Redis после успешного promote."""
     champion = {
@@ -959,9 +964,9 @@ def _notify_auto_result(
     r,
     decision: str,
     reason: str,
-    metrics: Dict[str, Any],
+    metrics: dict[str, Any],
     n_samples: int,
-    champ_roc: Optional[float],
+    champ_roc: float | None,
     promoted: bool,
 ) -> None:
     """Отправить авто-решение в Telegram без кнопок."""
@@ -1012,7 +1017,7 @@ def _notify_auto_result(
 
 def _auto_promote_or_reject(
     args,
-    metrics: Dict[str, Any],
+    metrics: dict[str, Any],
     n_samples: int,
     candidate_path: str,
     production_path: str,
@@ -1033,7 +1038,7 @@ def _auto_promote_or_reject(
         # Первая модель — нет с чем сравнивать, принимаем
         decision = "PROMOTE"
         reason = "no_champion_yet"
-        champ_roc: Optional[float] = None
+        champ_roc: float | None = None
         logger.info("Auto-promote: no champion found — first model, accepting automatically")
     else:
         champ_roc = float(champion["metrics"].get("roc_auc_oof", 0.0))

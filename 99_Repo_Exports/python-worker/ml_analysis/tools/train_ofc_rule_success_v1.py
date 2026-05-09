@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
-import math
 import os
 import time
-from typing import Any, Dict, Iterator, List, Optional
+from collections.abc import Iterator
+from typing import Any
+
+from domain.evidence_keys import CtxKeys
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _iter_jsonl(path: str) -> Iterator[Dict[str, Any]]:
-    with open(path, 'r', encoding='utf-8') as f:
+def _iter_jsonl(path: str) -> Iterator[dict[str, Any]]:
+    with open(path, encoding='utf-8') as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -28,7 +30,7 @@ def _iter_jsonl(path: str) -> Iterator[Dict[str, Any]]:
                 yield obj
 
 
-def _write_json_atomic(path: str, obj: Dict[str, Any]) -> None:
+def _write_json_atomic(path: str, obj: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)) or '.', exist_ok=True)
     tmp = f"{path}.tmp"
     with open(tmp, 'w', encoding='utf-8') as f:
@@ -42,14 +44,14 @@ def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _to_int(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _clip01(x: float) -> float:
@@ -60,11 +62,11 @@ def _clip01(x: float) -> float:
     return float(x)
 
 
-def train_rule_success_model(rows_jsonl: str, *, out_model_json: str, out_report_json: str, min_group_rows: int = 50, beta_prior: float = 5.0) -> Dict[str, Any]:
-    all_pairs: List[tuple[float, int]] = []
-    groups: Dict[str, List[tuple[float, int]]] = {}
+def train_rule_success_model(rows_jsonl: str, *, out_model_json: str, out_report_json: str, min_group_rows: int = 50, beta_prior: float = 5.0) -> dict[str, Any]:
+    all_pairs: list[tuple[float, int]] = []
+    groups: dict[str, list[tuple[float, int]]] = {}
     for row in _iter_jsonl(rows_jsonl):
-        ctx_key = str(row.get('ctx_key') or 'global')
+        ctx_key = (row.get(CtxKeys.KEY) or 'global')
         score = _clip01(_to_float(row.get('raw_score'), 0.0))
         y = 1 if _to_int(row.get('label_rule_success'), 0) == 1 else 0
         groups.setdefault(ctx_key, []).append((score, y))
@@ -82,7 +84,7 @@ def train_rule_success_model(rows_jsonl: str, *, out_model_json: str, out_report
         'p_rule_cal': float(global_pos_rate),
         'score_min_ctx': float(max(0.50, min(0.80, global_pos_rate))),
     }
-    model_groups: Dict[str, Dict[str, Any]] = {}
+    model_groups: dict[str, dict[str, Any]] = {}
     for key, vals in groups.items():
         n = len(vals)
         if n < int(min_group_rows):
@@ -119,7 +121,7 @@ def train_rule_success_model(rows_jsonl: str, *, out_model_json: str, out_report
     return {'model': model, 'report': report}
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description='Train OFC rule-success group model from JSONL dataset')
     ap.add_argument('--rows_jsonl', required=True)
     ap.add_argument('--out_model_json', required=True)

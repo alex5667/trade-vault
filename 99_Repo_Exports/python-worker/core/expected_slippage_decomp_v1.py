@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
 import math
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -23,17 +23,17 @@ def _f(x: Any, d: float = 0.0) -> float:
     """Safe float conversion; returns d on any error or non-finite value."""
     try:
         v = float(x)
-        return v if math.isfinite(v) else float(d)
+        return v if math.isfinite(v) else d
     except Exception:
-        return float(d)
+        return d
 
 
 def expected_slippage_decomp_bps(
     *,
     spread_bps: float,
     impact_proxy: float,
-    cfg: Dict[str, Any],
-    order_size_usd: Optional[float] = None,
+    cfg: dict[str, Any],
+    order_size_usd: float | None = None,
 ) -> SlippageDecompResult:
     """Compute expected slippage (bps) as: half_spread + k * |impact_proxy| * size_scale.
 

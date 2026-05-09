@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """P84: OF-Gate DLQ fixed-then-replay pipeline (operator tool).
 
 What it does
@@ -31,17 +33,17 @@ Usage
     --allow-fixes add_schema_name,add_schema_version,coerce_schema_version_int,normalize_ts_ms,ts_from_stream_id,default_missing_legs_empty,coerce_missing_legs_to_json,stringify_missing_legs \
     --require-fix,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import time
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any
 
 from orderflow_services.of_gate_dlq_fix_hints_registry_p84 import FixHint, hint_for
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def env(name: str, default: str) -> str:
@@ -113,9 +115,9 @@ def _load_contract():
     # Prefer canonical location
     try:
         from services.orderflow.of_gate_metrics_contract import (  # type: ignore
+            derive_reason_code,
             enrich_schema_fields,
             validate_of_gate_row,
-            derive_reason_code,
         )
 
         return enrich_schema_fields, validate_of_gate_row, derive_reason_code
@@ -123,18 +125,18 @@ def _load_contract():
         pass
     try:
         from tick_flow_full.common.of_gate_metrics_contract import (  # type: ignore
+            derive_reason_code,
             enrich_schema_fields,
             validate_of_gate_row,
-            derive_reason_code,
         )
 
         return enrich_schema_fields, validate_of_gate_row, derive_reason_code
     except Exception:
         pass
     from ok_rate_logic.of_gate_metrics_contract import (  # type: ignore
+        derive_reason_code,
         enrich_schema_fields,
         validate_of_gate_row,
-        derive_reason_code,
     )
 
     return enrich_schema_fields, validate_of_gate_row, derive_reason_code
@@ -152,7 +154,7 @@ class DLQEntry:
     payload: Any
 
 
-def _parse_dlq_entry(dlq_id: Any, fields: Dict[Any, Any]) -> Optional[DLQEntry]:
+def _parse_dlq_entry(dlq_id: Any, fields: dict[Any, Any]) -> DLQEntry | None:
     dlq_id_s = str(_decode(dlq_id))
     f = {str(_decode(k)): _decode(v) for k, v in (fields or {}).items()}
 
@@ -164,7 +166,7 @@ def _parse_dlq_entry(dlq_id: Any, fields: Dict[Any, Any]) -> Optional[DLQEntry]:
     return DLQEntry(dlq_id_s, src_stream, src_stream_id, err, payload)
 
 
-def _coerce_int01(v: Any) -> Optional[int]:
+def _coerce_int01(v: Any) -> int | None:
     if v is None:
         return None
     if isinstance(v, bool):
@@ -182,7 +184,7 @@ def _coerce_int01(v: Any) -> Optional[int]:
     return None
 
 
-def _normalize_ts_ms(v: Any) -> Optional[int]:
+def _normalize_ts_ms(v: Any) -> int | None:
     try:
         if v is None:
             return None
@@ -199,7 +201,7 @@ def _normalize_ts_ms(v: Any) -> Optional[int]:
     return x
 
 
-def _parse_stream_payload_from_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
+def _parse_stream_payload_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
     """Best-effort parse of original stream payload from message fields.""",
     raw = fields.get("data")
     if raw is None:
@@ -219,7 +221,7 @@ def _parse_stream_payload_from_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
     return dict(fields)
 
 
-def _payload_for_fix(entry: DLQEntry) -> Dict[str, Any]:
+def _payload_for_fix(entry: DLQEntry) -> dict[str, Any]:
     """Return a dict payload suitable for fix+validate.
 
     Handles parse_error DLQ entries where payload is {"fields": {...}}.
@@ -235,7 +237,7 @@ def _payload_for_fix(entry: DLQEntry) -> Dict[str, Any]:
     return {"_raw_payload": p}
 
 
-def _coerce_schema_version(v: Any) -> Optional[int]:
+def _coerce_schema_version(v: Any) -> int | None:
     if v is None:
         return None
     try:
@@ -247,10 +249,10 @@ def _coerce_schema_version(v: Any) -> Optional[int]:
             return None
 
 
-def _safe_fix_payload(payload: Dict[str, Any], stream_id_hint: str) -> Tuple[Dict[str, Any], List[str]]:
+def _safe_fix_payload(payload: dict[str, Any], stream_id_hint: str) -> tuple[dict[str, Any], list[str]]:
     """Apply conservative fixes. Returns (new_payload, fixes_applied).""",
     p = dict(payload)
-    fixes: List[str] = []
+    fixes: list[str] = []
 
     # Ensure schema markers exist (additive)
     if not p.get("schema_name"):
@@ -317,10 +319,10 @@ def _safe_fix_payload(payload: Dict[str, Any], stream_id_hint: str) -> Tuple[Dic
     return p, fixes
 
 
-def _validate(payload: Dict[str, Any]) -> Tuple[bool, str]:
+def _validate(payload: dict[str, Any]) -> tuple[bool, str]:
     try:
         ok, code = validate_of_gate_row(payload)
-        return bool(ok), str(code or "")
+        return bool(ok), (code or "")
     except Exception as e:
         return False, f"validate_exc:{type(e).__name__}"
 
@@ -342,11 +344,11 @@ def _notify_stream_name() -> str:
         os.getenv("TELEGRAM_NOTIFY_STREAM")
         or os.getenv("NOTIFY_TELEGRAM_STREAM")
         or os.getenv("CRYPTO_NOTIFY_STREAM")
-        or "notify:telegram"
+        or RS.NOTIFY_TELEGRAM
     )
 
 
-def _xadd_best_effort(r, stream: str, fields: Dict[str, Any], maxlen: int = 200000) -> None:
+def _xadd_best_effort(r, stream: str, fields: dict[str, Any], maxlen: int = 200000) -> None:
     payload = {
         k: (v if isinstance(v, (str, bytes, bytearray, int, float)) else json.dumps(v, ensure_ascii=False))
         for k, v in fields.items()
@@ -354,12 +356,12 @@ def _xadd_best_effort(r, stream: str, fields: Dict[str, Any], maxlen: int = 2000
     r.xadd(stream, payload, maxlen=maxlen, approximate=True)
 
 
-def _parse_allow_fixes(s: str) -> Set[str]:
+def _parse_allow_fixes(s: str) -> set[str]:
     items = [x.strip() for x in (s or "").split(",")]
     return {x for x in items if x}
 
 
-def _fixes_allowed(fixes: List[str], allow: Set[str]) -> bool:
+def _fixes_allowed(fixes: list[str], allow: set[str]) -> bool:
     if not allow:
         return True
     return all(f in allow for f in fixes)
@@ -379,10 +381,10 @@ def triage(args: argparse.Namespace) -> int:
 
     total = 0
     fixable = 0
-    by_dq: Dict[str, int] = {}
-    by_hint: Dict[str, int] = {}
-    by_stream: Dict[str, int] = {}
-    by_err: Dict[str, int] = {}
+    by_dq: dict[str, int] = {}
+    by_hint: dict[str, int] = {}
+    by_stream: dict[str, int] = {}
+    by_err: dict[str, int] = {}
 
     for s in streams:
         by_stream.setdefault(s, 0)
@@ -423,7 +425,7 @@ def triage(args: argparse.Namespace) -> int:
     print(out)
 
     if args.notify:
-        try:
+        with contextlib.suppress(Exception):
             _xadd_best_effort(
                 r,
                 _notify_stream_name(),
@@ -434,8 +436,6 @@ def triage(args: argparse.Namespace) -> int:
                     "severity": "warn" if total > 0 else "info",
                 }
             )
-        except Exception:
-            pass
 
     return 0
 
@@ -505,17 +505,15 @@ def replay(args: argparse.Namespace) -> int:
                     continue
 
                 if delete_after:
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xdel(source, e.dlq_id)
-                    except Exception:
-                        pass
             else:
                 print(f"DRYRUN replay OK: dlq_id={e.dlq_id} -> {tgt} fixes={fixes}")
         else:
             still_bad += 1
             h: FixHint = hint_for(dq_code, e.err)
             if move_unfixable and commit:
-                try:
+                with contextlib.suppress(Exception):
                     r.xadd(
                         out_stream_unfixable,
                         {
@@ -530,8 +528,6 @@ def replay(args: argparse.Namespace) -> int:
                         }, maxlen=200000,
                         approximate=True,
                     )
-                except Exception:
-                    pass
             if not commit:
                 print(f"DRYRUN still bad: dlq_id={e.dlq_id} dq_code={dq_code} hint={h.hint_code}")
 
@@ -646,7 +642,7 @@ def auto(args: argparse.Namespace) -> int:
     print(out)
 
     if notify:
-        try:
+        with contextlib.suppress(Exception):
             _xadd_best_effort(
                 r,
                 _notify_stream_name(),
@@ -657,8 +653,6 @@ def auto(args: argparse.Namespace) -> int:
                     "severity": "warn" if totals["seen"] else "info",
                 }
             )
-        except Exception:
-            pass
 
     # Exit 2 if anything still bad (useful for cron/timers)
     return 2 if totals["still_bad"] or totals["replay_write_failed"] else 0

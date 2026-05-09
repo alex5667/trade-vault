@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Универсальный сервис ордерфлоу для крипто‑фьючерсов Binance USDT-M.
 
@@ -13,67 +15,33 @@ from __future__ import annotations
 """
 
 
+import asyncio
 import json
+import logging
 import os
 import time
-import asyncio
-from utils.task_manager import safe_create_task
-
-import logging
-from typing import Any, Dict, Optional
-
-
-
-
-from core.atr_tf_calibrator import ATRTfCalibrator
-from core.atr_sanity import ATRSanity
-
-
-
-
-from services.orderflow.metrics import (
-    log_silent_error
-)
-from services.orderflow.utils import (
-    _should_sample
-)
-from services.orderflow.runtime import SymbolRuntime
-from services.orderflow.signal_pipeline import SignalPipeline
-from services.orderflow.market_state import MarketStateService
-
-
-
-
-
-
-
-
-
-from core.of_confirm_engine import OFConfirmEngine
-from services.periodic_reporter import check_and_trigger_report
-
-
-
-
-# Consolidated core imports
-
-
-
-
-from services.async_signal_publisher import AsyncSignalPublisher
-
+from typing import Any
 
 import redis.asyncio as aioredis
 
+from core.atr_sanity import ATRSanity
+from core.atr_tf_calibrator import ATRTfCalibrator
+from core.microbar import MicroBar
+from core.of_confirm_engine import OFConfirmEngine
 
-from services.orderflow.components.tick_processor import TickProcessor
+# Consolidated core imports
+from services.async_signal_publisher import AsyncSignalPublisher
 from services.orderflow.components.bar_processor import BarProcessor
 from services.orderflow.components.book_processor import BookProcessor
-
-
-from services.signal_confidence import ConfidenceScorer, ConfidenceConfig
-from core.microbar import MicroBar
-
+from services.orderflow.components.tick_processor import TickProcessor
+from services.orderflow.market_state import MarketStateService
+from services.orderflow.metrics import log_silent_error
+from services.orderflow.runtime import SymbolRuntime
+from services.orderflow.signal_pipeline import SignalPipeline
+from services.orderflow.utils import _should_sample
+from services.periodic_reporter import check_and_trigger_report
+from services.signal_confidence import ConfidenceConfig, ConfidenceScorer
+from utils.task_manager import safe_create_task
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Настройки по умолчанию
@@ -114,8 +82,8 @@ _symbols_added_counter = 0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-from utils.atr_cache import get_atr_cache, ATRCache
-
+from utils.atr_cache import ATRCache, get_atr_cache
+import contextlib
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Runtime для одного символа
@@ -130,7 +98,7 @@ from utils.atr_cache import get_atr_cache, ATRCache
 class OrderFlowStrategy:
     def __init__(self, redis: aioredis.Redis, ticks: aioredis.Redis, publisher: AsyncSignalPublisher,
                  of_engine: OFConfirmEngine, calib_svc=None,
-                 notify_client: Optional[aioredis.Redis] = None, notify_stream: str = "notify:telegram"):
+                 notify_client: aioredis.Redis | None = None, notify_stream: str = RS.NOTIFY_TELEGRAM):
         self.redis = redis
         self.ticks = ticks
         self.publisher = publisher
@@ -276,7 +244,7 @@ class OrderFlowStrategy:
             log_silent_error(exc, 'config_update_failure', runtime.symbol if runtime else "unknown", '_maybe_poll_symbol_overrides')
             return
 
-    async def _burst_audit(self, *, runtime, now_ms: int, event: str, payload: Dict[str, Any], indicators: Dict[str, Any], extra: Dict[str, Any]) -> None:
+    async def _burst_audit(self, *, runtime, now_ms: int, event: str, payload: dict[str, Any], indicators: dict[str, Any], extra: dict[str, Any]) -> None:
         """
         Low-volume audit for cooldown floods and best-of-burst selection.
         Fail-open. Uses deterministic sampling.
@@ -330,7 +298,7 @@ class OrderFlowStrategy:
 
     # ── Основные рабочие циклы ────────────────────────────────────────────────
 
-    async def publish_signal(self, runtime: SymbolRuntime, signal: Dict[str, Any]) -> None:
+    async def publish_signal(self, runtime: SymbolRuntime, signal: dict[str, Any]) -> None:
         """Delegate to SignalPipeline."""
         if self.signal_pipeline:
             await self.signal_pipeline.publish_signal(runtime, signal)
@@ -368,17 +336,15 @@ class OrderFlowStrategy:
             except Exception:
                 pass
 
-    async def process_tick(self, runtime: SymbolRuntime, tick: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def process_tick(self, runtime: SymbolRuntime, tick: dict[str, Any]) -> dict[str, Any] | None:
         """
         Delegate to TickProcessor.
         """
         # 1. Update CVD State (Side/Delta tracking)
         # This is critical for microbar delta_sum and cvd_close
         if runtime.cvd_state:
-            try:
+            with contextlib.suppress(Exception):
                 runtime.cvd_state.update(tick)
-            except Exception:
-                pass
 
         # 2. Update Microbar Aggregator
         # This generates the microbars that populate events:microbar_closed
@@ -402,7 +368,7 @@ class OrderFlowStrategy:
         # 3. Delegate to TickProcessor for signal generation
         return await self.tick_processor.process_tick(runtime, tick)
 
-    async def process_book(self, runtime: SymbolRuntime, payload: Dict[str, Any], ingest_ts_ms: int) -> bool:
+    async def process_book(self, runtime: SymbolRuntime, payload: dict[str, Any], ingest_ts_ms: int) -> bool:
         """
         Delegate to BookProcessor.
         """

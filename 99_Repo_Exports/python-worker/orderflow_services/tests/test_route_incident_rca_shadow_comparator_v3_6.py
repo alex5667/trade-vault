@@ -54,6 +54,7 @@ def test_compare_rows_detects_drift():
 
 import pytest
 
+
 @pytest.mark.asyncio
 async def test_refresh_pending_metrics_throttled():
     """scan_iter must not be called twice within METRICS_REFRESH_INTERVAL_SEC."""

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Unified SignalContext for the entire scanner_infra pipeline.
 
@@ -10,16 +11,16 @@ All microstructure (deltaSpikeZ, OBI, weakProgress etc.) goes into features/tags
 """
 
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 from .models import (
-    Side,
     AccountState,
-    SwingPoint,
     HTFLevel,
     OrderBookSnapshot,
+    Side,
+    SwingPoint,
 )
 
 
@@ -56,24 +57,24 @@ class SignalContext:
     account_state: AccountState
 
     # microstructural levels for stop/targets
-    local_swings: List[SwingPoint] = field(default_factory=list)
-    htf_levels: List[HTFLevel] = field(default_factory=list)
+    local_swings: list[SwingPoint] = field(default_factory=list)
+    htf_levels: list[HTFLevel] = field(default_factory=list)
 
     # order book snapshot (if want to use later in execution logic)
-    orderbook: Optional[OrderBookSnapshot] = None
+    orderbook: OrderBookSnapshot | None = None
 
     # custom model features: deltaSpikeZ, OBI, volumeSpikeZ ...
-    features: Dict[str, float] = field(default_factory=dict)
+    features: dict[str, float] = field(default_factory=dict)
 
     # any additional data
-    extra: Dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
     # override for signal lifetime (if want to pull from Timescale)
-    ttd_expiry_bars: Optional[int] = None
+    ttd_expiry_bars: int | None = None
 
     # --- serialization for Redis/Timescale ---
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert dataclass → dict → JSON-compatible structure.
         Nested dataclasses also converted to dict.
@@ -131,7 +132,7 @@ class SignalContext:
         return payload
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SignalContext":
+    def from_dict(cls, data: dict[str, Any]) -> SignalContext:
         """
         Reverse operation (if want to restore context from Redis/Timescale).
         """

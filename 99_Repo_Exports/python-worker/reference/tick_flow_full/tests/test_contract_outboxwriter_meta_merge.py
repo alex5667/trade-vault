@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from services.candidate_emit_pipeline_v2 import CandidateFrame, OutboxWriter
 from common.contracts.tradeable_contracts import assert_outbox_sidecar_meta
+from services.candidate_emit_pipeline_v2 import CandidateFrame, OutboxWriter
 
 
 class FakeEmitter:

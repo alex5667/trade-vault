@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Quick script to check recent closed trades from Redis stream"""
-import redis
-import json
 from datetime import datetime, timedelta
+
+import redis
 
 # Connect to Redis
 r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
@@ -25,7 +25,7 @@ total_checked = 0
 for msg_id, fields in entries:
     total_checked += 1
     exit_ts_ms = fields.get('exit_ts_ms')
-    
+
     if exit_ts_ms:
         exit_ts = int(exit_ts_ms)
         if exit_ts >= hour_ago_ms:
@@ -34,9 +34,9 @@ for msg_id, fields in entries:
             pnl_net = float(fields.get('pnl_net', 0))
             r_multiple = float(fields.get('r_multiple', 0))
             close_reason = fields.get('close_reason', 'N/A')
-            
+
             exit_dt = datetime.fromtimestamp(exit_ts / 1000)
-            
+
             recent_trades.append({
                 'exit_time': exit_dt,
                 'symbol': symbol,
@@ -47,14 +47,14 @@ for msg_id, fields in entries:
                 'sid': fields.get('sid', 'N/A')
             })
 
-print(f"\n📊 РЕЗУЛЬТАТЫ:")
+print("\n📊 РЕЗУЛЬТАТЫ:")
 print(f"Всего проверено записей: {total_checked}")
 print(f"Закрытых сделок за последний час: {len(recent_trades)}")
 
 if recent_trades:
-    print(f"\n🔍 ДЕТАЛИ СДЕЛОК (последние 20):")
+    print("\n🔍 ДЕТАЛИ СДЕЛОК (последние 20):")
     print("-" * 80)
-    
+
     for i, trade in enumerate(recent_trades[:20], 1):
         pnl_indicator = "✅" if trade['pnl_net'] > 0 else "❌"
         print(f"\n{i}. {pnl_indicator} {trade['symbol']} {trade['direction']}")
@@ -62,13 +62,13 @@ if recent_trades:
         print(f"   PnL: ${trade['pnl_net']:.2f} | R: {trade['r_multiple']:.2f}")
         print(f"   Причина: {trade['close_reason']}")
         print(f"   SID: {trade['sid'][:50]}...")
-    
+
     # Summary statistics
     total_pnl = sum(t['pnl_net'] for t in recent_trades)
     winners = len([t for t in recent_trades if t['pnl_net'] > 0])
     losers = len([t for t in recent_trades if t['pnl_net'] < 0])
-    
-    print(f"\n📈 СТАТИСТИКА:")
+
+    print("\n📈 СТАТИСТИКА:")
     print(f"   Общий PnL: ${total_pnl:.2f}")
     print(f"   Profitable: {winners} ({100*winners/len(recent_trades):.1f}%)")
     print(f"   Losers: {losers} ({100*losers/len(recent_trades):.1f}%)")

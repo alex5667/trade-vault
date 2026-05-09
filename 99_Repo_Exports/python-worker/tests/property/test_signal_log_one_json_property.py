@@ -1,13 +1,12 @@
-import math
 from types import SimpleNamespace
 
 import pytest
 
 hypothesis = pytest.importorskip("hypothesis")
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from common.signal_log_one_json import build_signal_one_json_obj
-
 
 finite_floats = st.floats(allow_nan=True, allow_infinity=True, width=64)
 

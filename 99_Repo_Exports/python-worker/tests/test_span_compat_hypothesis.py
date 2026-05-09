@@ -1,4 +1,3 @@
-import pytest
 
 
 def test_span_ms_proxy_works_in_all_modes():

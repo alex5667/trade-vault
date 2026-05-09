@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 confidence_conformal_v1.py
 
@@ -29,13 +29,12 @@ Env
 - CONF_CONFORMAL_RELOAD_TTL_SEC: reload interval
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:
@@ -61,11 +60,11 @@ class ConformalModel:
     schema_version: str
     alpha: float
     global_qhat: float
-    buckets: Dict[str, float]
+    buckets: dict[str, float]
     trained_ts_ms: int
     source_path: str
 
-    def qhat_for(self, symbol: str, kind: str) -> Tuple[float, str]:
+    def qhat_for(self, symbol: str, kind: str) -> tuple[float, str]:
         """Return (qhat, bucket_used)."""
         if self.buckets:
             bk = _bkey(symbol, kind)
@@ -77,7 +76,7 @@ class ConformalModel:
                 return float(self.buckets[bs]), bs
         return float(self.global_qhat), "*"
 
-    def predict_set(self, p: float, qhat: float) -> Dict[str, Any]:
+    def predict_set(self, p: float, qhat: float) -> dict[str, Any]:
         """
         Returns dict:
           cp_set_size: 1 or 2
@@ -104,26 +103,26 @@ class ConformalModel:
         }
 
 
-_CACHE: Dict[str, Any] = {
+_CACHE: dict[str, Any] = {
     "model": None,
     "loaded_ts_ms": 0,
     "mtime": 0.0,
 }
 
 
-def _load_model(path: str) -> Optional[ConformalModel]:
+def _load_model(path: str) -> ConformalModel | None:
     if not path:
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
-        schema_version = str(obj.get("schema_version") or "conf_conformal_v1")
+        schema_version = (obj.get("schema_version") or "conf_conformal_v1")
         alpha = float(obj.get("alpha") or 0.10)
         global_qhat = float(obj.get("global_qhat") or 0.50)
         buckets = obj.get("buckets") or {}
         trained_ts_ms = int(obj.get("trained_ts_ms") or 0)
         # Normalize bucket keys to str->float
-        b2: Dict[str, float] = {}
+        b2: dict[str, float] = {}
         if isinstance(buckets, dict):
             for k, v in buckets.items():
                 try:
@@ -142,7 +141,7 @@ def _load_model(path: str) -> Optional[ConformalModel]:
         return None
 
 
-def get_model() -> Optional[ConformalModel]:
+def get_model() -> ConformalModel | None:
     path = os.getenv("CONF_CONFORMAL_PATH", "").strip()
     ttl_sec = int(os.getenv("CONF_CONFORMAL_RELOAD_TTL_SEC", "60"))
     now = now_ms()
@@ -157,7 +156,7 @@ def get_model() -> Optional[ConformalModel]:
     except Exception:
         mtime = 0.0
 
-    m: Optional[ConformalModel] = _CACHE.get("model")
+    m: ConformalModel | None = _CACHE.get("model")
     loaded_ts = int(_CACHE.get("loaded_ts_ms") or 0)
     last_mtime = float(_CACHE.get("mtime") or 0.0)
 
@@ -171,7 +170,7 @@ def get_model() -> Optional[ConformalModel]:
     return m
 
 
-def apply_conformal_binary(*, p: Optional[float], symbol: str, kind: str) -> Dict[str, Any]:
+def apply_conformal_binary(*, p: float | None, symbol: str, kind: str) -> dict[str, Any]:
     """
     Apply CP to a calibrated probability p.
 

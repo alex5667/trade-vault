@@ -15,9 +15,11 @@ Usage:
 """
 
 import os
-from fastapi import FastAPI
 from dataclasses import dataclass
+
 import redis
+from fastapi import FastAPI
+
 from core.redis_keys import RedisStreams as RS
 
 # Config
@@ -55,7 +57,7 @@ def receive_notification(notification: OBINotification):
     """
     # Format message
     emoji = "🟢⬆️" if "up" in notification.type else "🔴⬇️"
-    
+
     text = (
         f"{emoji} **OBI Event: {notification.symbol}**\n\n"
         f"Type: {notification.type}\n"
@@ -63,7 +65,7 @@ def receive_notification(notification: OBINotification):
         f"Duration: {notification.duration_ms}ms sustained\n"
         f"Time: {notification.ts}"
     )
-    
+
     # Send to Telegram
     try:
         r.xadd(
@@ -74,7 +76,7 @@ def receive_notification(notification: OBINotification):
                 "source": "obi_events"
             }
         , maxlen=50000)
-        
+
         return {"ok": True, "forwarded": True}
     except Exception as e:
         print(f"⚠️  Failed to send notification: {e}")
@@ -92,7 +94,7 @@ if __name__ == "__main__":
     print(f"🚀 Notification Receiver starting on port {PORT}...")
     print(f"   Forwarding to: {NOTIFY_STREAM}")
     print()
-    
+
     uvicorn.run(
         "services.notify_receiver:app",
         host="127.0.0.1",

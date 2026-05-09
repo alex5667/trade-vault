@@ -17,7 +17,8 @@ Env:
 
 import math
 import os
-from typing import Any, Dict, Iterable, Optional, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 
 def _isfinite(x: float) -> bool:
@@ -38,7 +39,7 @@ def _is_primitive(v: Any) -> bool:
     return v is None or isinstance(v, (str, int, float, bool))
 
 
-def _safe_small_list(v: Any, *, max_n: int) -> Optional[list[Any]]:
+def _safe_small_list(v: Any, *, max_n: int) -> list[Any] | None:
     if not isinstance(v, (list, tuple)):
         return None
     if len(v) > max_n:
@@ -52,12 +53,12 @@ def _safe_small_list(v: Any, *, max_n: int) -> Optional[list[Any]]:
     return out
 
 
-def _safe_small_dict(v: Any, *, max_n: int) -> Optional[Dict[str, Any]]:
+def _safe_small_dict(v: Any, *, max_n: int) -> dict[str, Any] | None:
     if not isinstance(v, dict):
         return None
     if len(v) > max_n:
         return None
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, x in v.items():
         if not isinstance(k, (str, int)):
             return None
@@ -68,7 +69,7 @@ def _safe_small_dict(v: Any, *, max_n: int) -> Optional[Dict[str, Any]]:
 
 
 # Stable core fields used by scoring/debug dashboards
-DEFAULT_CTX_FIELDS: Tuple[str, ...] = (
+DEFAULT_CTX_FIELDS: tuple[str, ...] = (
     # identity
     "ts",
     "ts_utc",
@@ -123,10 +124,10 @@ DEFAULT_CTX_FIELDS: Tuple[str, ...] = (
 )
 
 
-def _export_compact(ctx: Any, *, fields: Iterable[str]) -> Dict[str, Any]:
+def _export_compact(ctx: Any, *, fields: Iterable[str]) -> dict[str, Any]:
     max_list = max(16, int(os.getenv("REPLAY_RECORD_MAX_LIST", "256") or 256))
     max_dict = max(16, int(os.getenv("REPLAY_RECORD_MAX_DICT", "256") or 256))
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k in fields:
         if not hasattr(ctx, k):
             continue
@@ -146,7 +147,7 @@ def _export_compact(ctx: Any, *, fields: Iterable[str]) -> Dict[str, Any]:
     return out
 
 
-def _export_full(ctx: Any) -> Dict[str, Any]:
+def _export_full(ctx: Any) -> dict[str, Any]:
     """
     Full mode: export all public attributes that are primitives/small collections.
     This is useful when replay must preserve more fields than the compact whitelist,
@@ -163,7 +164,7 @@ def _export_full(ctx: Any) -> Dict[str, Any]:
         # last resort: dir() filtering
         keys = [k for k in dir(ctx) if not k.startswith("_")]
 
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k in keys:
         if k.startswith("_"):
             continue
@@ -188,7 +189,7 @@ def _export_full(ctx: Any) -> Dict[str, Any]:
     return out
 
 
-def export_ctx(ctx: Any, *, fields: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+def export_ctx(ctx: Any, *, fields: Iterable[str] | None = None) -> dict[str, Any]:
     mode = (os.getenv("REPLAY_RECORD_CTX_MODE", "compact") or "compact").strip().lower()
     if mode in {"full", "all"}:
         return _export_full(ctx)

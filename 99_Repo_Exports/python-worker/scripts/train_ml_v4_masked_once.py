@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Единоразовый скрипт: Обогащенная ретроспективная фильтрация + переобучение Scorer V4.
 
 Добавляет 7 "золотых" признаков (риск исполнения, дельта, OFI и др.)
 и применяет маскировку по liq_book_stale_ms.
 """
-import argparse, hashlib, json, logging, math, os, shutil, time
+import argparse
+import logging
+import math
+import os
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 import numpy as np
+import contextlib
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("train_v4_enriched")
 
-NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", "notify:telegram")
+NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 MASK_BOOK_STALE_MS_MAX = int(os.getenv("MASK_BOOK_STALE_MS_MAX", "1000"))
 
 def _get_dsn() -> str:
@@ -32,9 +40,8 @@ def _redis():
 
 def _notify(r, text: str):
     if r is None: return
-    try:
+    with contextlib.suppress(Exception):
         r.xadd(NOTIFY_STREAM, {"type":"report","text":text,"parse_mode":"HTML","source":"train_v4_enriched"}, maxlen=50_000)
-    except Exception: pass
 
 # ---------------------------------------------------------------------------
 # Features (Обогащенный набор V4)
@@ -108,7 +115,7 @@ WHERE s.ts > NOW() - INTERVAL '{lookback} days'
 ORDER BY s.ts ASC
 """
 
-def fetch_data(lookback: int) -> Optional[Tuple]:
+def fetch_data(lookback: int) -> tuple | None:
     try:
         import psycopg2
     except ImportError:
@@ -142,7 +149,7 @@ def fetch_data(lookback: int) -> Optional[Tuple]:
 
     total = len(rows)
     log.info("After masking: kept=%d dropped=%d (%.1f%%)", len(kept), drop_book, 100*drop_book/max(1,total))
-    
+
     keep_cols = [c for c in cols if c != "ind_book_stale_ms"]
     keep_idx  = [ci[c] for c in keep_cols]
     rows_out  = [tuple(row[i] for i in keep_idx) for row in kept]
@@ -150,13 +157,13 @@ def fetch_data(lookback: int) -> Optional[Tuple]:
 
 def _f(x, d=0.0):
     try:
-        v = float(x) if x is not None else float(d)
-        return v if math.isfinite(v) else float(d)
-    except Exception: return float(d)
+        v = float(x) if x is not None else d
+        return v if math.isfinite(v) else d
+    except Exception: return d
 
-def _feat(rd: Dict[str, Any]) -> List[float]:
+def _feat(rd: dict[str, Any]) -> list[float]:
     out = [_f(rd.get(c)) for c in NUMERIC_FEATURES]
-    out.append(1.0 if str(rd.get("direction")).upper() == "LONG" else 0.0)
+    out.append(1.0 if (rd.get("direction")).upper() == "LONG" else 0.0)
     c2t = [_f(rd.get(k)) for k in ("l3_cancel_to_trade_bid_5s","l3_cancel_to_trade_ask_5s","l3_cancel_to_trade_bid_20s","l3_cancel_to_trade_ask_20s")]
     out.append(max(c2t) if c2t else 0.0)
     out.append(_f(rd.get("l3_obi_5")) - _f(rd.get("l3_obi_50")))
@@ -187,7 +194,7 @@ def _apply_scaler(X, names, p):
 def train_model(X, y, ts_ms):
     try: import lightgbm as lgb
     except ImportError: raise SystemExit("pip install lightgbm")
-    
+
     params = {"objective":"binary","metric":"auc","verbose":-1,"learning_rate":0.05,
               "num_leaves":31,"min_data_in_leaf":50,"max_depth":5,"feature_fraction":0.8,
               "bagging_fraction":0.8,"bagging_freq":5,"reg_lambda":5.0,"seed":42,"n_jobs":2}
@@ -239,7 +246,7 @@ def main() -> int:
     ap.add_argument("--lookback", type=int, default=90)
     ap.add_argument("--output", type=str, default="/var/lib/trade/ml_models/scorer_v4/scorer_v4.joblib")
     args = ap.parse_args()
-    
+
     try: import joblib
     except ImportError: raise SystemExit("pip install joblib")
 

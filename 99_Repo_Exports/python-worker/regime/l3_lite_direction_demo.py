@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """
 Демонстрация Direction-Aware L3-Lite системы.
@@ -10,9 +11,13 @@ from utils.time_utils import get_ny_time_millis
 """
 
 import time
+
 from regime import (
-    L3LiteMetricsAggregator, L3LiteEvent, BookSnapshot,
-    CryptoConfScorer, CryptoConfScorerConfig,
+    BookSnapshot,
+    CryptoConfScorer,
+    CryptoConfScorerConfig,
+    L3LiteEvent,
+    L3LiteMetricsAggregator,
     SignalQualityMonitor,
     build_signal_snapshot,
 )

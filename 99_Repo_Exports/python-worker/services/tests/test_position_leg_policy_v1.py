@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for position_leg_policy — pure-math scale-in module.
 
 Tests:
@@ -20,11 +21,10 @@ import pytest
 from services.position_leg_policy import (
     PositionLeg,
     blended_entry_price,
-    worst_case_loss_usdt,
-    max_add_qty_for_budget,
     build_scale_in_tp_schema,
+    max_add_qty_for_budget,
+    worst_case_loss_usdt,
 )
-
 
 # ===========================================================================
 # blended_entry_price

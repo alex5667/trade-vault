@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Autopilot Reporter
  - exports closed trades NDJSON (7d)
@@ -10,20 +10,20 @@ Autopilot Reporter
 Runs inside container with a Redis SETNX lock (prevents double-run).
 """
 
-from utils.time_utils import get_ny_time_millis
 import asyncio
+import html
 import json
 import logging
 import os
 import subprocess
 import sys
 import time
-import html
-from typing import List
 
 import redis.asyncio as aioredis
 
 from core.entry_policy_overrides_v1 import EntryPolicyOverridesV1
+from utils.time_utils import get_ny_time_millis
+
 
 def _now_ms() -> int:
     return get_ny_time_millis()
@@ -50,7 +50,7 @@ async def _acquire_lock(r, key: str, ttl_sec: int) -> bool:
     except Exception:
         return False
 
-def _run(cmd: List[str]) -> None:
+def _run(cmd: list[str]) -> None:
     subprocess.check_call(cmd)
 
 async def run_once() -> None:
@@ -91,7 +91,7 @@ async def run_once() -> None:
 
     # 3) Telegram report
     try:
-        with open(tmp_md, "r", encoding="utf-8") as f:
+        with open(tmp_md, encoding="utf-8") as f:
             md = f.read()
         await _send_telegram(r, os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), md)
     except Exception:
@@ -99,7 +99,7 @@ async def run_once() -> None:
 
     # 4) Auto-proposal (kind=overrides_v1)
     try:
-        with open(tmp_json, "r", encoding="utf-8") as f:
+        with open(tmp_json, encoding="utf-8") as f:
             rep = json.load(f)
         winners = list(rep.get("winners") or [])
     except Exception:
@@ -110,12 +110,12 @@ async def run_once() -> None:
     stream = os.getenv("AUTOPILOT_SUGGEST_STREAM", "stream:ab:suggestions")
 
     for w in winners:
-        sym = str(w.get("symbol","")).upper()
-        rg = str(w.get("regime","na")).lower()
-        scn = str(w.get("scenario","na")).lower()
-        grp = str(w.get("group","default")).lower()
-        arm = str(w.get("winner_arm","A")).upper()
-        
+        sym = (w.get("symbol","")).upper()
+        rg = (w.get("regime","na")).lower()
+        scn = (w.get("scenario","na")).lower()
+        grp = (w.get("group","default")).lower()
+        arm = (w.get("winner_arm","A")).upper()
+
         # Consistent with EntryPolicyOverridesV1 schema
         o = EntryPolicyOverridesV1(
             updated_ts_ms=_now_ms(),
@@ -128,7 +128,7 @@ async def run_once() -> None:
             freeze_active=0,
             ab_split_b=int(os.getenv("AB_SPLIT_B", "10")),
             ab_split_c=int(os.getenv("AB_SPLIT_C", "10")),
-            ab_salt=str(os.getenv("AB_SALT", "v1")),
+            ab_salt=os.getenv("AB_SALT", "v1"),
             extra={
                 "src": "autopilot_reporter",
                 "n": int(w.get("n",0) or 0),

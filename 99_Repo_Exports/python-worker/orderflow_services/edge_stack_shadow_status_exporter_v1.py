@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """Prometheus exporter for Edge Stack shadow evaluation status.
 
 Reads a JSON status file produced by `tools.edge_stack_shadow_eval_bundle_v1`
@@ -12,7 +13,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server
 
@@ -21,9 +22,9 @@ def _now_s() -> float:
     return time.time()
 
 
-def _read_json(path: str) -> Optional[Dict[str, Any]]:
+def _read_json(path: str) -> dict[str, Any] | None:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return None
@@ -56,7 +57,7 @@ LAST_UPDATED_MS = Gauge("edge_stack_shadow_last_updated_ts_ms", "Last shadow eva
 CHAMP_BRIER = Gauge("edge_stack_shadow_champion_brier", "Champion brier (cal, no labels)")
 
 
-def _set_model_metrics(blob: Dict[str, Any], model: str) -> None:
+def _set_model_metrics(blob: dict[str, Any], model: str) -> None:
     # blob: {raw:{...}, cal:{...}}
     for cal in ("raw", "cal"):
         m = blob.get(cal) or {}

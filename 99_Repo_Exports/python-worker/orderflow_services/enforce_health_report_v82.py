@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P82: Unified health report for enforce-bucket automation.
 
 Writes a single JSON file suitable for dashboards and SRE on-call.
@@ -24,7 +25,7 @@ ENV:
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def _now_s() -> int:
@@ -33,14 +34,14 @@ def _now_s() -> int:
 
 def _env_str(name: str, default: str) -> str:
     v = os.getenv(name)
-    return str(v).strip() if v is not None and str(v).strip() else str(default)
+    return str(v).strip() if v is not None and str(v).strip() else default
 
 
-def _env_list(name: str, default: str = "") -> List[str]:
-    raw = str(os.getenv(name, default) or "").strip()
+def _env_list(name: str, default: str = "") -> list[str]:
+    raw = (os.getenv(name, default) or "").strip()
     if not raw:
         return []
-    out: List[str] = []
+    out: list[str] = []
     for x in raw.replace(";", ",").split(","):
         x = x.strip()
         if x:
@@ -48,8 +49,8 @@ def _env_list(name: str, default: str = "") -> List[str]:
     return out
 
 
-def _write_json(path: str, obj: Dict[str, Any]) -> None:
-    p = str(path or "").strip()
+def _write_json(path: str, obj: dict[str, Any]) -> None:
+    p = (path or "").strip()
     if not p:
         return
     d = os.path.dirname(p)
@@ -81,7 +82,7 @@ def _db_from_env():
     return psycopg2.connect(dsn)
 
 
-def _get_cfg_buckets(r: Any, key: str) -> Optional[str]:
+def _get_cfg_buckets(r: Any, key: str) -> str | None:
     try:
         v = r.get(key)
         if v is None:
@@ -91,7 +92,7 @@ def _get_cfg_buckets(r: Any, key: str) -> Optional[str]:
         return None
 
 
-def build_report() -> Dict[str, Any]:
+def build_report() -> dict[str, Any]:
     from orderflow_services.enforce_health_gates_v82 import run_staleness_gates
 
     status_files = {
@@ -114,7 +115,7 @@ def build_report() -> Dict[str, Any]:
 
     gates = run_staleness_gates(redis_client=r, db_conn=db, status_files=status_files)
 
-    cfg: Dict[str, Any] = {
+    cfg: dict[str, Any] = {
         "global": {
             "slippage_decomp_enforce_buckets": None,
             "taker_flow_gate_enforce_buckets": None,
@@ -136,10 +137,10 @@ def build_report() -> Dict[str, Any]:
                 ),
             }
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ts_s": _now_s(),
         "apply_blocked": bool(gates.get("blocked")),
-        "severity": str(gates.get("severity")),
+        "severity": (gates.get("severity")),
         "reasons": list(gates.get("reasons") or []),
         "checks": gates.get("checks") or {},
         "cfg": cfg,

@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from core.calendar_flags import (
     calendar_flags_utc,
-    is_end_of_month_utc,
-    is_end_of_quarter_utc,
     day_of_month_utc,
     day_of_quarter_utc,
+    is_end_of_month_utc,
+    is_end_of_quarter_utc,
 )
 from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
 
 
 def _ts_ms(y: int, m: int, d: int, hh: int = 0, mm: int = 0, ss: int = 0) -> int:
-    return int(datetime(y, m, d, hh, mm, ss, tzinfo=timezone.utc).timestamp() * 1000)
+    return int(datetime(y, m, d, hh, mm, ss, tzinfo=UTC).timestamp() * 1000)
 
 
 def test_calendar_flags_utc_boundary_eom_non_leap() -> None:

@@ -1,8 +1,8 @@
 import json
 import logging
-import uuid
 import time
-from typing import Dict, Any, List
+import uuid
+from typing import Any
 
 from services.analytics_db import get_conn
 from services.atr_invariants_registry import get_active_invariants
@@ -16,18 +16,18 @@ class InvariantReplayEngine:
     """
     def __init__(self):
         self.invariants = get_active_invariants()
-    
-    def validate_change(self, baseline: Dict[str, Any], candidate: Dict[str, Any], replay_id: str) -> List[Dict[str, Any]]:
+
+    def validate_change(self, baseline: dict[str, Any], candidate: dict[str, Any], replay_id: str) -> list[dict[str, Any]]:
         """
         Validates change across baseline vs candidate.
         Returns a list of violations.
         """
         violations = []
         active_codes = {inv["reason_code"]: inv for inv in self.invariants}
-        
+
         baseline_signal_id = baseline.get("signal_id", "")
         candidate_signal_id = candidate.get("signal_id", "")
-        
+
         # Stability Check
         if "INV_SIGNAL_ID_STABLE_IN_REPLAY" in active_codes:
             if baseline_signal_id and baseline_signal_id != candidate_signal_id:
@@ -38,23 +38,23 @@ class InvariantReplayEngine:
                     "enforcement_mode": active_codes["INV_SIGNAL_ID_STABLE_IN_REPLAY"]["enforcement_mode"],
                     "details": f"signal_id drifted: {baseline_signal_id} -> {candidate_signal_id}"
                 })
-        
+
         # We can also call the runtime engine checks on the candidate
         from services.atr_invariant_runtime_engine import get_runtime_engine
         runtime_engine = get_runtime_engine()
         runtime_allow, runtime_violations = runtime_engine.validate_signal(candidate)
-        
+
         violations.extend(runtime_violations)
-        
+
         # Persist replay violations via snapshots
         self._persist_snapshot(replay_id, violations, candidate)
-        
+
         return violations
-        
-    def _persist_snapshot(self, replay_id: str, violations: List[Dict[str, Any]], candidate: Dict[str, Any]) -> None:
+
+    def _persist_snapshot(self, replay_id: str, violations: list[dict[str, Any]], candidate: dict[str, Any]) -> None:
         if not violations:
             return
-            
+
         snapshot_id = f"snap_replay_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}"
         try:
             with get_conn() as conn, conn.cursor() as cur:

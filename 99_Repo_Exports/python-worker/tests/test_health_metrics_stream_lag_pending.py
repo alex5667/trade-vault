@@ -1,4 +1,4 @@
-from health_metrics import HealthMetrics, SymbolBucket
+from health_metrics import HealthMetrics
 
 
 class FakePipe:

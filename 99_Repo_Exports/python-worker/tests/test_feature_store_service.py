@@ -1,22 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from news_pipeline.feature_store_service import NewsFeatureStoreService
-from news_pipeline import config
 
 
 class _Pipe:
-    def __init__(self, r: "_RedisStub") -> None:
+    def __init__(self, r: _RedisStub) -> None:
         self._r = r
-        self._cmds: List[Tuple[str, Tuple[Any, ...], Dict[str, Any]]] = []
+        self._cmds: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
 
     def hgetall(self, key: str):
         self._cmds.append(("hgetall", (key,), {}))
         return self
 
-    def hset(self, key: str, mapping: Dict[str, Any]):
+    def hset(self, key: str, mapping: dict[str, Any]):
         self._cmds.append(("hset", (key,), {"mapping": mapping}))
         return self
 
@@ -45,14 +44,14 @@ class _Pipe:
 
 class _RedisStub:
     def __init__(self) -> None:
-        self._hash: Dict[str, Dict[str, str]] = {}
-        self._xadds: List[Tuple[str, Dict[str, str]]] = []
+        self._hash: dict[str, dict[str, str]] = {}
+        self._xadds: list[tuple[str, dict[str, str]]] = []
 
     def pipeline(self):
         return _Pipe(self)
 
-    def xadd(self, stream: str, mapping: Dict[str, Any], maxlen: int = 0, approximate: bool = True):
-        m: Dict[str, str] = {str(k): str(v) for k, v in mapping.items()}
+    def xadd(self, stream: str, mapping: dict[str, Any], maxlen: int = 0, approximate: bool = True):
+        m: dict[str, str] = {str(k): str(v) for k, v in mapping.items()}
         self._xadds.append((str(stream), m))
         return "1-0"
 
@@ -67,7 +66,7 @@ class _A:
     confidence: float
     tags_mask: int
     primary_tag_id: int
-    symbols: List[str]
+    symbols: list[str]
 
 
 def test_feature_store_writes_grade_horizon_and_aliases():

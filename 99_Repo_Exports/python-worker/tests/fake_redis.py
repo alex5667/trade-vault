@@ -2,19 +2,19 @@ class FakePipeline:
     def __init__(self, r):
         self.r = r
         self.ops = []
-    
+
     def hgetall(self, key):
         self.ops.append(("hgetall", key))
         return self
-    
+
     def hset(self, key, mapping):
         self.ops.append(("hset", key, mapping))
         return self
-    
+
     def expire(self, key, ttl):
         self.ops.append(("expire", key, ttl))
         return self
-    
+
     def hmget(self, key, *fields):
         self.ops.append(("hmget", key, fields))
         return self

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """Compare Redis ``orders:state:*`` materialized views against state replayed from ``orders:exec``.
 
@@ -43,7 +44,7 @@ import argparse
 import json
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -51,12 +52,15 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 try:
-    from services.execution_state_replay import rebuild_state_with_fallback, compare_replayed_state
+    from services.execution_state_replay import compare_replayed_state, rebuild_state_with_fallback
 except Exception:  # pragma: no cover
     try:
-        from binance_execution.execution_state_replay import rebuild_state_with_fallback, compare_replayed_state  # type: ignore
+        from binance_execution.execution_state_replay import (  # type: ignore
+            compare_replayed_state,
+            rebuild_state_with_fallback,
+        )
     except Exception:
-        from execution_state_replay import rebuild_state_with_fallback, compare_replayed_state  # type: ignore
+        from execution_state_replay import compare_replayed_state, rebuild_state_with_fallback  # type: ignore
 
 
 # P3.3-ops-complete: QuarantineLedger for structured quarantine records
@@ -93,7 +97,7 @@ def _save_cursor(cursor: str) -> None:
         pass  # Non-critical — next run will start from 0
 
 
-def _loads(value: Any) -> Dict[str, Any]:
+def _loads(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
     if isinstance(value, bytes):
@@ -109,8 +113,8 @@ def _quarantine(
     redis_client: Any,
     *,
     sid: str,
-    mismatch: Dict[str, Any],
-    state_doc: Dict[str, Any],
+    mismatch: dict[str, Any],
+    state_doc: dict[str, Any],
     prefix: str,
     ledger: Any = None,
 ) -> None:
@@ -146,7 +150,7 @@ def _quarantine(
 def main() -> int:
     parser = argparse.ArgumentParser(description='Compare Redis materialized state keys against state replayed from orders:exec.')
     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
-    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC))
     parser.add_argument('--state-prefix', default=(os.getenv('ORDERS_STATE_KEY_PREFIX') or 'orders:state:'))
     parser.add_argument('--checkpoint-prefix', default=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'))
     parser.add_argument('--scan-count', type=int, default=int(os.getenv('EXEC_REPLAY_SCAN_COUNT', '20000')))
@@ -170,7 +174,7 @@ def main() -> int:
     ledger = QuarantineLedgerSink(dsn=args.ledger_dsn) if args.ledger_dsn else None
     prefix = args.state_prefix.rstrip(':') + ':'
     cprefix = args.checkpoint_prefix.rstrip(':') + ':'
-    mismatches: List[Dict[str, Any]] = []
+    mismatches: list[dict[str, Any]] = []
 
     # ---------------------------------------------------------------------------
     # Batched scanning: resume from stored cursor, process up to batch_size SIDs
@@ -212,7 +216,7 @@ def main() -> int:
             processed += 1
             sid = str(key).split(prefix, 1)[-1]
             redis_state = _loads(r.get(key))
-            checkpoint_id = str(r.get(f'{cprefix}{sid}') or '')
+            checkpoint_id = (r.get(f'{cprefix}{sid}') or '')
             replayed = rebuild_state_with_fallback(
                 r,
                 exec_stream=args.exec_stream,

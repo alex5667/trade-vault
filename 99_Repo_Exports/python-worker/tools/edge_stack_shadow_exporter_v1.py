@@ -17,12 +17,13 @@ Metrics:
 - edge_stack_shadow_promoted (0/1)
 """
 
+import logging
 import os
 import sys
 import time
+
 import redis
-import logging
-from prometheus_client import start_http_server, Gauge
+from prometheus_client import Gauge, start_http_server
 
 # Configure logging
 logging.basicConfig(
@@ -55,30 +56,30 @@ def get_gauge(name: str, doc: str = ""):
 def main():
     logger.info(f"Starting Edge Stack Shadow Exporter on port {PORT}")
     start_http_server(PORT)
-    
+
     r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-    
+
     while True:
         try:
             data = r.hgetall(METRICS_KEY)
             if not data:
                 time.sleep(POLL_INTERVAL)
                 continue
-                
+
             # Status
             status = data.get("status", "unknown")
             g_success.set(1 if status == "ok" else 0)
-            
+
             # TS
             ts = float(data.get("updated_ts_ms", 0))
             g_updated.set(ts)
-            
+
             # N
             g_n.set(float(data.get("n_samples", 0)))
-            
+
             # Promoted
             g_promoted.set(float(data.get("promoted", 0)))
-            
+
             # Dynamic metrics for champion/candidate
             # We look for keys starting with champion_ or candidate_ and are numeric
             for k, v in data.items():
@@ -90,12 +91,12 @@ def main():
                         get_gauge(metric_name).set(val)
                     except ValueError:
                         pass
-                        
+
             logger.debug("Metrics updated")
-            
+
         except Exception as e:
             logger.error(f"Error polling Redis: {e}")
-            
+
         time.sleep(POLL_INTERVAL)
 
 if __name__ == "__main__":

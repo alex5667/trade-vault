@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Optional
-import os
 import math
+import os
+from dataclasses import dataclass
+from typing import Any
 
-from handlers.confirmations.l2_quality import L2QualityPolicy, L2Assessment
+from handlers.confirmations.l2_quality import L2Assessment, L2QualityPolicy
 from handlers.confirmations.l3_quality import L3QualityPolicy, apply_l3_policy_to_ctx
 from handlers.geometry.geometry_quality import GeometryQualityPolicy, apply_geometry_policy_to_ctx
 from handlers.metrics.quality_metrics import QualityMetrics
@@ -47,7 +47,7 @@ class QualityGate:
         if arr is None or not isinstance(arr, list):
             arr = []
             try:
-                setattr(ctx, "data_quality_flags", arr)
+                ctx.data_quality_flags = arr
             except Exception:
                 pass
         return arr
@@ -125,7 +125,7 @@ class QualityGate:
         parts["global_quality01"] = q
 
         try:
-            setattr(ctx, "global_quality01", q)
+            ctx.global_quality01 = q
         except Exception:
             pass
 
@@ -169,7 +169,7 @@ class QualityGate:
         parts["quality_score01"] = q
 
         try:
-            setattr(ctx, "quality_score01", q)
+            ctx.quality_score01 = q
         except Exception:
             pass
 

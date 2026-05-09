@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Decision coverage KPI worker (P66-ish).
 
@@ -17,14 +18,14 @@ Design goals:
   - low overhead (bucketed per-minute counts + rolling window subtract on minute advance)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import socket
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple, Optional, List
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _env(name: str, default: str = "") -> str:
@@ -67,7 +68,7 @@ def _parse_json_maybe(v: Any) -> Any:
 
 def _state_norm(v: Any) -> str:
     """Normalize DQ/drift state to one of: ok|warn|block|unknown."""
-    s = str(v or "").strip().lower()
+    s = (v or "").strip().lower()
     if s in ("ok", "warn", "block"):
         return s
     return "unknown"
@@ -89,7 +90,7 @@ def _regime_from_states(dq_state: Any, drift_state: Any) -> str:
     return "unknown"
 
 
-def _decision_ts_ms(fields: Dict[str, Any], stream_id: str) -> int:
+def _decision_ts_ms(fields: dict[str, Any], stream_id: str) -> int:
     """
     Extract decision timestamp (ms) from payload fields.
     Priority: explicit ms fields > seconds fields (normalized) > stream id > now.
@@ -158,16 +159,16 @@ def _ensure_group(r, cfg: Cfg) -> None:
         pass
 
 
-def _hget_counts(r, key: str) -> Dict[str, int]:
+def _hget_counts(r, key: str) -> dict[str, int]:
     """Read per-minute bucket hash and return integer counts per regime."""
     d = r.hgetall(key) or {}
-    out: Dict[str, int] = {}
+    out: dict[str, int] = {}
     for k in ("ok", "warn", "block", "unknown", "total"):
         out[k] = _i(d.get(k), 0)
     return out
 
 
-def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int]:
+def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> tuple[int, dict[str, int], int]:
     """
     Rebuild rolling window sums from per-minute buckets stored in Redis.
     Returns (cur_minute, rolling_counts, last_ts_ms).
@@ -219,7 +220,7 @@ def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int
     return cur_min, rolling, last_ts_ms
 
 
-def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, int]) -> int:
+def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: dict[str, int]) -> int:
     """
     Advance window minute pointer from `from_min` to `to_min`,
     subtracting outgoing minute buckets at the tail of the window.
@@ -247,9 +248,9 @@ def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, 
     return cur
 
 
-def _decode_fields(raw: Dict[str, Any]) -> Dict[str, Any]:
+def _decode_fields(raw: dict[str, Any]) -> dict[str, Any]:
     """Normalize field keys to str."""
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in (raw or {}).items():
         out[str(k)] = v
     return out
@@ -259,11 +260,11 @@ def _process_one(
     r,
     cfg: Cfg,
     stream_id: str,
-    fields: Dict[str, Any],
+    fields: dict[str, Any],
     cur_min: int,
-    rolling: Dict[str, int],
+    rolling: dict[str, int],
     last_ts_ms: int,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """
     Process a single stream message:
       1. Extract timestamp and regime.
@@ -325,7 +326,7 @@ def main() -> int:
     import redis  # type: ignore
 
     r = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
-    
+
     while True:
         try:
             r.ping()

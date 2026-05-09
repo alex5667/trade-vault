@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 from domain.time_utils import normalize_ts_ms
 
@@ -25,7 +25,7 @@ def write_price_latest(
     bid: Any = None,
     ask: Any = None,
     last: Any = None,
-    mid: Optional[Any] = None,
+    mid: Any | None = None,
     venue: str = "na",
 ) -> None:
     """
@@ -51,7 +51,7 @@ def write_price_latest(
         if enabled in ("0", "false", "no", "off"):
             return
 
-        sym = (str(symbol or "").strip().upper())
+        sym = ((symbol or "").strip().upper())
         if not sym:
             return
 
@@ -85,10 +85,10 @@ def write_price_latest(
         except Exception:
             spread_bps = 0.0
 
-        mapping: Dict[str, str] = {
+        mapping: dict[str, str] = {
             "mid": f"{float(m):.10f}",
             "ts_ms": str(int(tsm)),
-            "venue": str(venue or "na"),
+            "venue": (venue or "na"),
         }
 
         # Optional raw fields for debugging/audit. Controlled via env (default on).

@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """of_gate_archiver_exporter_v1.py
 
 Prometheus exporter (P78) for OF-gate archiver + quarantine archiver + rollups refresh status.
@@ -30,13 +31,13 @@ Notes:
   - fail-open if redis client import missing
   - tick loop every 5s; blocking HGETALL,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server  # type: ignore
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -147,13 +148,13 @@ class Exporter:
         # fail-open: exporter works (returns zeros) even if redis library isn't installed
         self.r = redis.Redis.from_url(self.redis_url, decode_responses=False) if redis else None
 
-    def _hgetall(self, key: str) -> Dict[str, Any]:
+    def _hgetall(self, key: str) -> dict[str, Any]:
         """Read Redis hash, return empty dict on any error (fail-open).""",
         if not self.r:
             return {}
         try:
             raw = self.r.hgetall(key) or {}
-            out: Dict[str, Any] = {}
+            out: dict[str, Any] = {}
             for k, v in raw.items():
                 ks = _s(k)
                 out[ks] = v
@@ -161,7 +162,7 @@ class Exporter:
         except Exception:
             return {}
 
-    def _emit(self, kind: str, d: Dict[str, Any]) -> None:
+    def _emit(self, kind: str, d: dict[str, Any]) -> None:
         """Update all gauge metrics for a given archiver kind from its Redis hash dict.""",
         last_run = _i(d.get("last_run_ts_ms"), 0)
         last_stream_id = _s(d.get("last_stream_id"))
@@ -185,7 +186,7 @@ class Exporter:
         GAUGE_INSERTED_TOTAL.labels(kind=kind).set(inserted_total)
         GAUGE_ERROR_TOTAL.labels(kind=kind).set(error_total)
 
-    def _emit_rollups_freshness(self, d: Dict[str, Any]) -> None:
+    def _emit_rollups_freshness(self, d: dict[str, Any]) -> None:
         """Update rollups freshness gauges from Redis hash written by the probe (P80).
 
         Hash fields written by of_gate_rollups_freshness_probe_v1:
@@ -207,7 +208,7 @@ class Exporter:
             # fail-open: never crash the exporter loop
             return
 
-    def _emit_timescale_policies(self, d: Dict[str, Any]) -> None:
+    def _emit_timescale_policies(self, d: dict[str, Any]) -> None:
         """Update Timescale policy probe gauges from Redis hash (P81).
 
         Hash fields written by of_gate_timescale_policy_probe_v1:

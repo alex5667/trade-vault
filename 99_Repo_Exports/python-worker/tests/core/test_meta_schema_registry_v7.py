@@ -5,7 +5,6 @@ Ensures that:
   - The registered (version, hash) tuple exactly matches the code-side values
   - META_SCHEMA_V2P includes meta_feat_v7 (so it is treated as a valid schema for meta-model gating)
 """
-import pytest
 
 from core.meta_features_v7 import (
     META_FEAT_V7_HASH,

@@ -7,6 +7,7 @@ from orderflow_services.conf_score_weight_calibrator_v1 import (
     load_replay_ndjson,
 )
 
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--replay", required=True, help="Path to replay ndjson")

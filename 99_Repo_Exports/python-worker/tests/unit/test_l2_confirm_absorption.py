@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from handlers.confirmations.l2_confirm_absorption import L2ConfirmAbsorption, AbsorptionConfirmCfg
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot, L2Level
 from common.reason_codes import ReasonCode
+from handlers.confirmations.l2_confirm_absorption import AbsorptionConfirmCfg, L2ConfirmAbsorption
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
 
 
 def test_absorption_stale_is_veto_with_reason_code():

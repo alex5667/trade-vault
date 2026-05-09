@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Signal Ensemble — weighted voting layer across independent signal sources.
 
@@ -19,14 +19,13 @@ Algorithm:
 Weights are recalculated hourly by ensemble_weight_calibrator.py based on 30-day
 OOS Sharpe ratio per source.
 """
-from utils.time_utils import get_ny_time_millis
-
 import json
 import logging
-import os
-import time
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     import redis as redis_lib
@@ -48,7 +47,7 @@ class SignalVote:
     direction: str     # "long" | "short" | "neutral"
     confidence: float  # 0..1, raw confidence from the source
     veto: bool = False       # hard block
-    meta: Dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.direction not in ("long", "short", "neutral"):
@@ -63,10 +62,10 @@ class EnsembleDecision:
     action: str       # "long" | "short" | "skip"
     score: float = 0.0
     reason: str = ""
-    votes: Dict[str, Any] = field(default_factory=dict)
+    votes: dict[str, Any] = field(default_factory=dict)
     shadow: bool = True  # True = audit-only, not used for signaling
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -76,8 +75,8 @@ class EnsembleDecision:
 
 def build_orderflow_vote(
     conf: float,
-    side_hint: Optional[str],
-    conf_parts: Dict[str, float],
+    side_hint: str | None,
+    conf_parts: dict[str, float],
 ) -> SignalVote:
     """
     Build an orderflow vote from _compose_confidence output.
@@ -112,7 +111,7 @@ def build_ta_vote(
 
     If keys are missing, returns neutral vote (TA source not yet populated).
     """
-    meta: Dict[str, Any] = {}
+    meta: dict[str, Any] = {}
     direction = "neutral"
     confidence = 0.0
     signals_bullish = 0
@@ -206,8 +205,8 @@ def build_ta_vote(
 
 
 def build_microstructure_vote(
-    m_pro: Dict[str, Any],
-    m_legacy: Dict[str, Any],
+    m_pro: dict[str, Any],
+    m_legacy: dict[str, Any],
     cl: Any,
 ) -> SignalVote:
     """
@@ -272,7 +271,7 @@ def build_microstructure_vote(
 def build_regime_vote(
     r: Any,
     symbol: str,
-    side_hint: Optional[str] = None,
+    side_hint: str | None = None,
 ) -> SignalVote:
     """
     Read regime state from Redis and produce a vote.
@@ -284,7 +283,7 @@ def build_regime_vote(
     - MIXED → votes neutral with low confidence
     - UNKNOWN → veto (insufficient data to decide)
     """
-    meta: Dict[str, Any] = {}
+    meta: dict[str, Any] = {}
     direction = "neutral"
     confidence = 0.0
     veto = False
@@ -293,7 +292,7 @@ def build_regime_vote(
         raw = r.get(f"regime:state:{symbol}")
         if raw:
             data = json.loads(raw)
-            label = str(data.get("label", "unknown")).lower()
+            label = (data.get("label", "unknown")).lower()
             trend_score = float(data.get("trend_score", 0.0))
             range_score = float(data.get("range_score", 0.0))
             meta["label"] = label
@@ -350,7 +349,7 @@ class SignalEnsemble:
     equal weights (0.25) are used.
     """
 
-    SOURCES: List[str] = ["orderflow", "ta_indicators", "microstructure", "regime_filter"]
+    SOURCES: list[str] = ["orderflow", "ta_indicators", "microstructure", "regime_filter"]
 
     # Default equal weights (cold-start / bootstrap)
     DEFAULT_WEIGHT: float = 0.25
@@ -363,7 +362,7 @@ class SignalEnsemble:
         mode: str = "shadow",
         threshold: float = 0.35,
         consensus_ratio: float = 1.5,
-        logger: Optional[logging.Logger] = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         self.r = redis_client
         self.symbol = symbol
@@ -373,7 +372,7 @@ class SignalEnsemble:
         self._log = logger or log
         self._decision_count = 0
 
-    def vote(self, signals: Dict[str, Optional[SignalVote]]) -> EnsembleDecision:
+    def vote(self, signals: dict[str, SignalVote | None]) -> EnsembleDecision:
         """
         Synchronous voting — called from hub step() on each tick that passes
         the confidence threshold.
@@ -387,8 +386,8 @@ class SignalEnsemble:
         shadow = self.mode != "enforce"
         weights = self._get_dynamic_weights()
 
-        vote_details: Dict[str, Any] = {}
-        active_votes: Dict[str, Dict[str, Any]] = {}
+        vote_details: dict[str, Any] = {}
+        active_votes: dict[str, dict[str, Any]] = {}
 
         for source in self.SOURCES:
             sig = signals.get(source)
@@ -462,7 +461,7 @@ class SignalEnsemble:
         self._log_decision(decision)
         return decision
 
-    def _get_dynamic_weights(self) -> Dict[str, float]:
+    def _get_dynamic_weights(self) -> dict[str, float]:
         """Load per-source weights from Redis. Falls back to equal weights."""
         try:
             raw = self.r.hgetall(f"weights:ensemble:{self.symbol}")
@@ -474,7 +473,7 @@ class SignalEnsemble:
                 },
         except Exception:
             pass
-        return {s: self.DEFAULT_WEIGHT for s in self.SOURCES}
+        return dict.fromkeys(self.SOURCES, self.DEFAULT_WEIGHT)
 
     def _get_threshold(self) -> float:
         """Load per-symbol threshold from Redis, fallback to self.threshold."""
@@ -521,11 +520,9 @@ class SignalEnsemble:
                 pass  # non-critical; don't block hot-path
 
         # Store last decision for debug reads
-        try:
+        with contextlib.suppress(Exception):
             self.r.set(
                 f"ensemble:last_decision:{self.symbol}",
                 json.dumps(decision.to_dict(), default=str),
                 ex=300,
             )
-        except Exception:
-            pass

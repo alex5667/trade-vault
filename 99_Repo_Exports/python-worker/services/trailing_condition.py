@@ -1,13 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
 import math
-import time
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, List
+from typing import Any
 
 from services.ev_giveback_stats import GivebackEmaConfig, read_giveback_ema
+from utils.time_utils import get_ny_time_millis
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -29,7 +28,7 @@ def _canon_regime(v: Any) -> str:
     return s if s else "na"
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -73,7 +72,7 @@ class TrailingConditionConfig:
     giveback_min_samples: int
 
     @classmethod
-    def from_env(cls) -> "TrailingConditionConfig":
+    def from_env(cls) -> TrailingConditionConfig:
         enabled = _env_bool("TRAIL_COND_ENABLED", True)
         kinds_allow = _parse_csv_set(os.getenv("TRAIL_COND_KINDS", "breakout,extreme,obi_spike,absorption") or "")
         if not kinds_allow:
@@ -122,12 +121,12 @@ class TrailingDecision:
 
 
 class TrailingConditionEvaluator:
-    def __init__(self, redis_client: Any, *, cfg: Optional[TrailingConditionConfig] = None):
+    def __init__(self, redis_client: Any, *, cfg: TrailingConditionConfig | None = None):
         self.redis = redis_client
         self.cfg = cfg or TrailingConditionConfig.from_env()
         self.gb_cfg = GivebackEmaConfig.from_env()
 
-    def _read_z(self, ctx: Any) -> Optional[float]:
+    def _read_z(self, ctx: Any) -> float | None:
         # Multiple possible names across detectors/pipelines.
         for name in ("z_delta", "delta_z", "z", "raw_score", "zscore"):
             v = _safe_float(getattr(ctx, name, None))
@@ -142,7 +141,7 @@ class TrailingConditionEvaluator:
                     return v
         return None
 
-    def _read_obi(self, ctx: Any) -> Optional[float]:
+    def _read_obi(self, ctx: Any) -> float | None:
         for name in ("obi_avg", "obi_20", "obi", "obi_value"):
             v = _safe_float(getattr(ctx, name, None))
             if v is not None:
@@ -155,7 +154,7 @@ class TrailingConditionEvaluator:
                     return v
         return None
 
-    def _read_obi_sustained(self, ctx: Any) -> Optional[bool]:
+    def _read_obi_sustained(self, ctx: Any) -> bool | None:
         for name in ("obi_sustained", "obi_is_sustained", "obi_stable"):
             v = getattr(ctx, name, None)
             if isinstance(v, bool):
@@ -191,7 +190,7 @@ class TrailingConditionEvaluator:
 
         # ---- momentum gate ----
         momentum_ok = False
-        parts: List[str] = []
+        parts: list[str] = []
 
         if z is not None and abs(float(z)) >= float(self.cfg.z_thr) and self.cfg.z_thr > 0:
             momentum_ok = True
@@ -227,8 +226,8 @@ class TrailingConditionEvaluator:
                 self.redis,
                 cfg=self.gb_cfg,
                 kind=kd,
-                symbol=str(symbol),
-                tf=str(tf or "1m"),
+                symbol=symbol,
+                tf=(tf or "1m"),
                 regime=_canon_regime(regime),
             )
             if st:
@@ -256,7 +255,7 @@ class TrailingConditionEvaluator:
         regime: str,
         *,
         max_stale_ms: int = 172_800_000,  # 48h default
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Read calibrated trailing params from trail:calib:{symbol}:{regime}.
 
@@ -282,7 +281,7 @@ class TrailingConditionEvaluator:
             if not h:
                 return None
 
-            mode = str(h.get("mode") or "shadow")
+            mode = (h.get("mode") or "shadow")
             if mode != "enforce":
                 return None  # shadow mode — don't use calibrated params
 
@@ -299,10 +298,10 @@ class TrailingConditionEvaluator:
 
             return {
                 "callback_atr_mult": float(callback_atr_mult),
-                "activate_offset_bps": float(_safe_float(h.get("activate_offset_bps")) or 5.0),
-                "min_profit_lock_r": float(_safe_float(h.get("min_profit_lock_r")) or 0.1),
+                "activate_offset_bps": _safe_float(h.get("activate_offset_bps") or 5.0),
+                "min_profit_lock_r": _safe_float(h.get("min_profit_lock_r") or 0.1),
                 "mode": mode,
-                "confidence": float(_safe_float(h.get("confidence")) or 0.0),
+                "confidence": _safe_float(h.get("confidence") or 0.0),
                 "n_total": int(float(h.get("n_total") or "0")),
             }
         except Exception:

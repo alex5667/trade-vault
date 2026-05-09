@@ -5,12 +5,11 @@ when model feature missingness is too high.
 """
 
 from types import SimpleNamespace
-from typing import List, Tuple, Set
 
 
 def compute_meta_feature_coverage(
-    model_features: List[str],
-    missing_features: List[str],
+    model_features: list[str],
+    missing_features: list[str],
     max_list: int = 32
 ) -> SimpleNamespace:
     """Calculates coverage stats for meta-model features.
@@ -34,14 +33,14 @@ def compute_meta_feature_coverage(
 
     model_set = set(model_features)
     missing_set = set(missing_features)
-    
+
     # Only care about features that are actually in the model set
     missing_model = [f for f in missing_features if f in model_set]
-    
+
     total = len(model_features)
     missing_cnt = len(missing_model)
     coverage = (total - missing_cnt) / total if total > 0 else 1.0
-    
+
     return SimpleNamespace(
         model_total=total,
         model_missing=missing_cnt,
@@ -56,7 +55,7 @@ def apply_meta_coverage_guard(
     cov: SimpleNamespace,
     min_coverage: float = 0.85,
     max_missing: int = 999
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """Downgrades meta_mode from ENFORCE to SHADOW if coverage is low.
     
     Args:
@@ -80,5 +79,5 @@ def apply_meta_coverage_guard(
 
     if reason:
         return "SHADOW", reason
-    
+
     return "ENFORCE", ""

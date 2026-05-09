@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Low-cardinality latency semantic conventions for cross-service stage timing.
@@ -11,10 +12,8 @@ Goals
 - Optional symbol cardinality control via allowlist/collapse semantics.
 """
 
-from typing import Any, Iterable, Optional, Set
-import math
 import os
-import time
+from typing import Any
 
 SCHEMA_VERSION = 1
 
@@ -53,13 +52,13 @@ def now_wall_ms() -> int:
 def as_int_ms(x: Any, default: int = 0) -> int:
     try:
         if x is None or isinstance(x, bool):
-            return int(default)
+            return default
         if isinstance(x, (int, float)):
             return int(x)
         s = str(x).strip()
-        return int(float(s)) if s else int(default)
+        return int(float(s)) if s else default
     except Exception:
-        return int(default)
+        return default
 
 
 def non_negative_delta_ms(start_ms: Any, end_ms: Any) -> int:
@@ -109,14 +108,14 @@ def compute_contract_deltas(payload: dict[str, Any]) -> dict[str, int]:
     return out
 
 
-def parse_allowlist(raw: Optional[str]) -> Set[str]:
+def parse_allowlist(raw: str | None) -> set[str]:
     if not raw:
         return set()
     return {str(x).strip().upper() for x in str(raw).split(',') if str(x).strip()}
 
 
-def label_symbol(symbol: Any, *, allowlist: Optional[Set[str]] = None, mode: str = "collapse") -> Optional[str]:
-    s = str(symbol or "").strip().upper()
+def label_symbol(symbol: Any, *, allowlist: set[str] | None = None, mode: str = "collapse") -> str | None:
+    s = (symbol or "").strip().upper()
     if not s:
         return None
     allow = allowlist or set()
@@ -124,12 +123,12 @@ def label_symbol(symbol: Any, *, allowlist: Optional[Set[str]] = None, mode: str
         return s
     if s in allow:
         return s
-    if str(mode or 'collapse').strip().lower() == 'drop':
+    if (mode or 'collapse').strip().lower() == 'drop':
         return None
     return '__other__'
 
 
-def default_symbol_allowlist() -> Set[str]:
+def default_symbol_allowlist() -> set[str]:
     return parse_allowlist(os.getenv('LATENCY_CONTRACT_SYMBOL_ALLOWLIST', 'BTCUSDT,ETHUSDT'))
 
 
@@ -185,7 +184,7 @@ def build_external_state_mapping(
     payload: dict[str, Any],
     instance_id: str = '',
     source: str = '',
-    now_ms: Optional[int] = None,
+    now_ms: int | None = None,
 ) -> dict[str, str]:
     """Reference Redis-hash payload for non-Python writers (Go/NestJS).
 
@@ -198,7 +197,7 @@ def build_external_state_mapping(
         'schema_version': str(SCHEMA_VERSION),
         'service': str(service),
         'stage': str(stage),
-        'symbol': str(symbol or '').upper(),
+        'symbol': (symbol or '').upper(),
         'last_duration_ms': str(int(max(0, duration_ms))),
         'last_ts_ms': str(ts_now),
         FIELD_TS_EVENT_MS: str(as_int_ms(payload.get(FIELD_TS_EVENT_MS), 0)),
@@ -208,7 +207,7 @@ def build_external_state_mapping(
         FIELD_TS_WS_EMIT_MS: str(as_int_ms(payload.get(FIELD_TS_WS_EMIT_MS), 0)),
         FIELD_TS_INGEST_SOURCE_MS: str(as_int_ms(payload.get(FIELD_TS_INGEST_SOURCE_MS), 0)),
         FIELD_TS_REDIS_XADD_MS: str(as_int_ms(payload.get(FIELD_TS_REDIS_XADD_MS), 0)),
-        'instance_id': str(instance_id or ''),
-        'source': str(source or ''),
+        'instance_id': (instance_id or ''),
+        'source': (source or ''),
     }
     return mapping

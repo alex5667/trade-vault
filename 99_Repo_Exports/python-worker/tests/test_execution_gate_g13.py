@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 G13 · Execution Gate — Comprehensive Unit Tests (v2)
 
@@ -14,13 +15,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 # Import the service once — metrics register into the default registry.
-import services.execution_gate_service as gate_mod
 from services.execution_gate_service import (
     ExecutionGateService,
-    Proposal,
-    Confirmation,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

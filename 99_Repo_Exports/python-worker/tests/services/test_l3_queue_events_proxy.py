@@ -1,12 +1,10 @@
 
-import pytest
-import sys
-import os
 
 # Add project root to sys.path
 # [AUTOGRAVITY CLEANUP] sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from services.l3_queue_events_proxy import L3QueueEventsProxy, L3BucketStats
+from services.l3_queue_events_proxy import L3BucketStats, L3QueueEventsProxy
+
 
 def test_l3_lite_reconciliation_trades_only():
     """Test that trades without L2 level changes result in zero cancellation rate (only added)."""

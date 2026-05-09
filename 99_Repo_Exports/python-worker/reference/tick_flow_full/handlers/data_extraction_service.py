@@ -1,16 +1,17 @@
 # data_extraction_service.py
 from __future__ import annotations
+
 """
 Data extraction functionality extracted from base_orderflow_handler.py
 """
 
+from collections import deque
+from typing import Any
+
+from contexts import Tick
 from utils.time_utils import get_ny_time_millis
 
-from typing import Optional, Dict, Any, Tuple, List, Deque
-from collections import deque
-import time
 
-from contexts import Tick, SimpleL2Snapshot, L2Level
 # from common.log import setup_logger
 def setup_logger(name):
     import logging
@@ -28,14 +29,14 @@ class DataExtractionService:
         self.enable_legacy_obi = bool(enable_legacy_obi)
 
         # --- bucket tracking (explicit fields; no hasattr-mutation) ---
-        self._current_bucket_id: Optional[int] = None
+        self._current_bucket_id: int | None = None
         self._bucket_sum: float = 0.0
         self._last_bucket_value: float = 0.0
 
         # --- OBI tracking ---
         # keep separate buffers for 5-window and 20-window (do not conflate)
-        self._obi5_samples: Deque[float] = deque(maxlen=200)
-        self._obi20_samples: Deque[float] = deque(maxlen=200)
+        self._obi5_samples: deque[float] = deque(maxlen=200)
+        self._obi20_samples: deque[float] = deque(maxlen=200)
 
         # OBI threshold (can be overridden by env/config if you want later)
         self._obi_thr: float = 0.10
@@ -44,7 +45,7 @@ class DataExtractionService:
         self._obi_sustain_k5: int = 5
         self._obi_sustain_k20: int = 10  # stricter for longer window
 
-    def _extract_top1(self, x: Any) -> Tuple[float, float]:
+    def _extract_top1(self, x: Any) -> tuple[float, float]:
         """Extract top level (price, size) from book data."""
         if not x:
             return 0.0, 0.0
@@ -65,7 +66,7 @@ class DataExtractionService:
 
         return 0.0, 0.0
 
-    def _extract_top_levels(self, book_data: Dict[str, Any], side: str, n: int = 3) -> List[Tuple[float, float]]:
+    def _extract_top_levels(self, book_data: dict[str, Any], side: str, n: int = 3) -> list[tuple[float, float]]:
         """Extract top N levels from book data for specified side."""
         # Try different key variations
         keys = [side]
@@ -115,7 +116,7 @@ class DataExtractionService:
         # buyer is maker -> taker sell -> -1
         return -1 if bool(bm) else 1
 
-    def _feed_delta_bucket(self, delta: float, ts: int, bucket_ms: int, max_zero_buckets: int) -> Optional[int]:
+    def _feed_delta_bucket(self, delta: float, ts: int, bucket_ms: int, max_zero_buckets: int) -> int | None:
         """
         Bucketization by timestamp.
         Returns bucket ID if closed, None if still open.
@@ -153,7 +154,7 @@ class DataExtractionService:
         self._bucket_sum += delta
         return None
 
-    def _obi_sustained_eval(self, samples: List[float], thr: float) -> Tuple[float, bool]:
+    def _obi_sustained_eval(self, samples: list[float], thr: float) -> tuple[float, bool]:
         """Evaluate OBI sustainability."""
         if not samples:
             return 0.0, False
@@ -173,7 +174,7 @@ class DataExtractionService:
         if obi20 is not None:
             self._obi20_samples.append(float(obi20))
 
-    def _get_obi(self, ts: int) -> Tuple[float, float, bool, float, float, bool]:
+    def _get_obi(self, ts: int) -> tuple[float, float, bool, float, float, bool]:
         """Get current OBI state."""
         if not self.enable_legacy_obi:
             # disabled path: force "invalid"
@@ -214,7 +215,7 @@ class DataExtractionService:
         """
         return
 
-    def get_obi_state(self) -> Dict[str, Any]:
+    def get_obi_state(self) -> dict[str, Any]:
         """Get current OBI state summary."""
         current_obi, obi5_avg, obi5_sustained, obi20_avg, obi20_sustained, _ = self._get_obi(get_ny_time_millis())
 

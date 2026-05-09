@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 CryptoSignalFormatter
 
@@ -16,9 +17,11 @@ CryptoSignalFormatter
 """
 
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence
+from datetime import UTC, datetime
+from typing import Any
+
 try:
     from core.telegram_confirmations import build_compact_confirmations
 except Exception:  # pragma: no cover
@@ -36,25 +39,25 @@ class CryptoSignal:
     side: str
     entry: float
     sl: float
-    tp_levels: List[float]
+    tp_levels: list[float]
     lot: float
     atr: float
     confidence: float
     ts: int
     source: str
-    reason_mix: Dict[str, float] = field(default_factory=dict)
+    reason_mix: dict[str, float] = field(default_factory=dict)
     confirmations: Sequence[str] = field(default_factory=list)
-    trail_profile: Optional[str] = None  # Профиль трейлинга (rocket_v1, lock_and_trail, etc.)
+    trail_profile: str | None = None  # Профиль трейлинга (rocket_v1, lock_and_trail, etc.)
     trail_after_tp1: bool = False  # Флаг включения трейлинга после TP1
-    position_size_usd: Optional[float] = None  # Размер позиции в USDT
-    deposit: Optional[float] = None  # Размер депозита для расчета процента
-    leverage: Optional[float] = None  # Плечо для расчета размера с плечом
-    config_params: Optional[Dict[str, Any]] = None  # Параметры конфигурации, использованные для генерации сигнала
-    indicators: Dict[str, Any] = field(default_factory=dict)  # Индикаторы и gate evidence (включая cancellation spike)
-    validation_status: Optional[str] = None  # Статус валидации: "passed", "failed", "bypassed"
-    validation_reason: Optional[str] = None  # Причина статуса валидации
-    atr_sel_tf: Optional[str] = None  # Выбранный таймфрейм ATR
-    atr_sel_age: Optional[int] = None  # Возраст выбранного ATR в мс
+    position_size_usd: float | None = None  # Размер позиции в USDT
+    deposit: float | None = None  # Размер депозита для расчета процента
+    leverage: float | None = None  # Плечо для расчета размера с плечом
+    config_params: dict[str, Any] | None = None  # Параметры конфигурации, использованные для генерации сигнала
+    indicators: dict[str, Any] = field(default_factory=dict)  # Индикаторы и gate evidence (включая cancellation spike)
+    validation_status: str | None = None  # Статус валидации: "passed", "failed", "bypassed"
+    validation_reason: str | None = None  # Причина статуса валидации
+    atr_sel_tf: str | None = None  # Выбранный таймфрейм ATR
+    atr_sel_age: int | None = None  # Возраст выбранного ATR в мс
 
 
 class CryptoSignalFormatter:
@@ -77,7 +80,7 @@ class CryptoSignalFormatter:
         """
         if price == 0:
             return "0.00"
-        
+
         abs_p = abs(price)
         if abs_p < 0.00001:
             return f"{price:.8f}"
@@ -109,10 +112,10 @@ class CryptoSignalFormatter:
         """Собирает текст сообщения."""
 
         direction_emoji = cls.SIDE_EMOJI.get(str(signal.side or "").upper(), "⚪")
-        time_str = datetime.fromtimestamp(signal.ts / 1000, tz=timezone.utc).strftime(
+        time_str = datetime.fromtimestamp(signal.ts / 1000, tz=UTC).strftime(
             "%H:%M:%S %d.%m.%Y UTC"
         )
-        tp_parts: List[str] = []
+        tp_parts: list[str] = []
         stop_dist = abs(signal.entry - signal.sl) or 1e-6
         is_rocket_v1 = (signal.trail_profile == "rocket_v1")
 
@@ -136,7 +139,7 @@ class CryptoSignalFormatter:
                      def_sl = signal.entry - def_dist
                  else:
                      def_sl = signal.entry + def_dist
-                 
+
                  # Если разница существенна, показываем
                  if abs(def_sl - signal.sl) > (signal.entry * 0.0001):
                      def_sl_str = cls._smart_format_price(def_sl)
@@ -152,11 +155,11 @@ class CryptoSignalFormatter:
                 # Для остальных TP показываем RR (и ATR расстояние)
                 rr = abs(tp - signal.entry) / stop_dist
                 rr_str = f"RR {rr:.1f}"
-                
+
                 if signal.atr > 0:
                     dist_atr = abs(tp - signal.entry) / signal.atr
                     rr_str = f"{rr_str}, {dist_atr:.2f} ATR"
-                
+
                 tp_parts.append(f"TP{i} {tp_str} ({rr_str})")
 
         tp_line = "; ".join(tp_parts) if tp_parts else "TP1 n/a"
@@ -168,7 +171,7 @@ class CryptoSignalFormatter:
 
         trailing_profile = signal.trail_profile or "rocket_v1"
         is_trailing_active = (trailing_profile and str(trailing_profile).lower() != "none")
-        
+
         if is_trailing_active:
             mode_str = "после TP1" if signal.trail_after_tp1 else "активен"
             trailing_line = f"🔄 Trailing Stop: ВКЛ ({mode_str}, профиль: {trailing_profile})"
@@ -195,12 +198,12 @@ class CryptoSignalFormatter:
             if signal.deposit:
                 pct = (position_size / signal.deposit) * 100
                 deposit_pct_str = f"{pct:.2f}% dep"
-            
+
             if leverage_val > 1:
                 leverage_size_str = f"{leverage_val:.0f}x"
                 nominal = position_size * leverage_val
                 nominal_size_str = f"{nominal:.2f} USDT"
-        
+
         lot_str = f"{signal.lot} {signal.symbol}" if signal.lot else ""
         position_line = f"Margin {margin_str} ({deposit_pct_str}) Position {nominal_size_str} ({leverage_size_str}) | {lot_str}"
 
@@ -216,14 +219,14 @@ class CryptoSignalFormatter:
         lines.append(f"🔧 Source: {signal.source} | ID: {signal.sid}")
         # ATR тоже форматируем умно
         atr_str = cls._smart_format_price(signal.atr)
-        
+
         # Индикаторы для расширенного вывода
         ind = signal.indicators or {}
         atr_bps = ind.get("atr_bps")
         atr_bps_th = ind.get("atr_bps_th")
         tier = ind.get("atr_floor_tier")
         rg = ind.get("atr_floor_rg") or ind.get("atr_gate_rg") # fallback
-        
+
         atr_line = f"📊 ATR={atr_str}"
         if signal.atr_sel_tf:
             age_s = f"{signal.atr_sel_age/1000:.1f}s" if signal.atr_sel_age is not None else "na"
@@ -232,7 +235,7 @@ class CryptoSignalFormatter:
         if atr_bps is not None and atr_bps_th is not None:
              tier_str = f"T{tier}" if tier is not None else "T?"
              atr_line += f" ({float(atr_bps):.1f} bps) | Th={float(atr_bps_th):.1f} bps ({tier_str}, {rg})"
-        
+
         atr_line += f" | Conf={int(signal.confidence * 100)}%"
         lines.append(atr_line)
 
@@ -261,12 +264,12 @@ class CryptoSignalFormatter:
             z = ind.get("cancel_spike_z_support", 0.0)
             bid_ema = ind.get("cancel_spike_bid_rate_ema", 0.0)
             ask_ema = ind.get("cancel_spike_ask_rate_ema", 0.0)
-            
+
             if is_veto:
                 lines.append(f"🚫 <b>Cancellation Spike Veto</b>: {reason}")
             else:
                 lines.append(f"🔍 <b>Cancellation Spike Monitor</b>: {reason}")
-                
+
             lines.append(f"   ↳ Ratio={ratio:.2f} | Z={z:.2f} | Bid EMA={bid_ema:.2f} | Ask EMA={ask_ema:.2f}")
 
         # Shadow Mode notice
@@ -279,7 +282,7 @@ class CryptoSignalFormatter:
         config_params = signal.config_params
         if config_params and "strong_gate_ok" in config_params:
             strong_ok = int(config_params["strong_gate_ok"])
-        
+
         if strong_ok != -1:
             if strong_ok == 1:
                 lines.append("✅ <b>Strong (Сильный)</b>: Соответствует критериям гейта.")
@@ -292,7 +295,7 @@ class CryptoSignalFormatter:
         return "\n".join(lines)
 
     @classmethod
-    def _format_mix(cls, reason_mix: Dict[str, float]) -> str:
+    def _format_mix(cls, reason_mix: dict[str, float]) -> str:
         """Формирует строку вида mix:p_delta=0.13,..."""
 
         if not reason_mix:

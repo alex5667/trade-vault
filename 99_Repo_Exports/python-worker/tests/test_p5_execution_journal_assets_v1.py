@@ -5,7 +5,6 @@ If the migrations are missing or incomplete, the test fails immediately.
 """
 from pathlib import Path
 
-
 _MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / 'db' / 'migrations'
 
 

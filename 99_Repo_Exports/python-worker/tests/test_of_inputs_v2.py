@@ -2,18 +2,15 @@
 Unit tests for OFInputsV2 contract, serialization, replay, and validation.
 """
 import json
-import tempfile
 import os
-from unittest.mock import Mock
-
-import pytest
+import tempfile
 
 from core.of_inputs_contract import OFInputsV1, OFInputsV2
-from tools.of_engine_replay_from_inputs import (
-    build_runtime_from_inputs,
-    build_cfg_indicators,
-)
 from tools.check_of_inputs_indicators import check_inputs_file
+from tools.of_engine_replay_from_inputs import (
+    build_cfg_indicators,
+    build_runtime_from_inputs,
+)
 
 
 def test_of_inputs_v2_inherits_from_v1():
@@ -39,12 +36,12 @@ def test_of_inputs_v2_inherits_from_v1():
         fp_eff_quote=50000.0,
         fp_quote_delta=10.0,
     )
-    
+
     # Check V1 fields are accessible
     assert v2.symbol == "BTCUSDT"
     assert v2.ts_ms == 1000000
     assert v2.delta_z == 2.5
-    
+
     # Check V2 fields have defaults
     assert v2.ofi == 0.0
     assert v2.ofi_z == 0.0
@@ -90,14 +87,14 @@ def test_of_inputs_v2_serialization():
         fp_edge_absorb_strength=1.5,
         fp_edge_age_ms=1000,
     )
-    
+
     d = v2.to_dict()
-    
+
     # Check V1 fields
     assert d["v"] == 2
     assert d["symbol"] == "BTCUSDT"
     assert d["delta_z"] == 2.5
-    
+
     # Check V2 fields
     assert d["ofi"] == 1.5
     assert d["ofi_z"] == 2.0
@@ -109,7 +106,7 @@ def test_of_inputs_v2_serialization():
     assert d["fp_edge_absorb"] == 1
     assert d["fp_edge_absorb_strength"] == 1.5
     assert d["fp_edge_age_ms"] == 1000
-    
+
     # JSON serialization
     blob = json.dumps(d, ensure_ascii=False)
     parsed = json.loads(blob)
@@ -141,7 +138,7 @@ def test_of_inputs_v1_backward_compatibility():
         fp_eff_quote=50000.0,
         fp_quote_delta=10.0,
     )
-    
+
     d = v1.to_dict()
     assert d["v"] == 1
     assert "ofi" not in d
@@ -170,7 +167,7 @@ def test_build_runtime_from_inputs_v2():
         "fp_edge_age_ms": 1000,
         "weak_progress": 1,
     }
-    
+
     rt = build_runtime_from_inputs(inp)
     assert rt.symbol == "BTCUSDT"
     assert rt.last_regime == "trend"
@@ -195,7 +192,7 @@ def test_build_runtime_from_inputs_v1():
         "iceberg_strict": 1,
         "weak_progress": 1,
     }
-    
+
     rt = build_runtime_from_inputs(inp)
     assert rt.symbol == "BTCUSDT"
     # V1 doesn't have OFI/FP edge, so they should be None or not set
@@ -219,11 +216,11 @@ def test_build_cfg_indicators_v2():
         "fp_edge_absorb_strength": 1.5,
         "fp_edge_age_ms": 1000,
     }
-    
+
     cfg, indicators, absorption = build_cfg_indicators(inp)
     assert cfg["test_param"] == 1.0
     assert indicators["book_health_ok"] == 1
-    
+
     # V2 fields should be propagated to indicators
     assert indicators["ofi"] == 1.5
     assert indicators["ofi_z"] == 2.0
@@ -271,11 +268,11 @@ def test_check_inputs_file_v2():
         "fp_edge_absorb_strength": 1.5,
         "fp_edge_age_ms": 1000,
     }
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.ndjson', delete=False) as f:
         f.write(json.dumps(v2_input) + "\n")
         temp_path = f.name
-    
+
     try:
         results = check_inputs_file(temp_path)
         assert "error" not in results
@@ -311,11 +308,11 @@ def test_check_inputs_file_v1():
         "fp_eff_quote": 50000.0,
         "fp_quote_delta": 10.0,
     }
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.ndjson', delete=False) as f:
         f.write(json.dumps(v1_input) + "\n")
         temp_path = f.name
-    
+
     try:
         results = check_inputs_file(temp_path)
         assert "error" not in results
@@ -350,11 +347,11 @@ def test_check_inputs_file_v2_missing_fields():
         "fp_quote_delta": 10.0,
         # Missing V2 fields
     }
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.ndjson', delete=False) as f:
         f.write(json.dumps(v2_incomplete) + "\n")
         temp_path = f.name
-    
+
     try:
         results = check_inputs_file(temp_path)
         assert "error" not in results

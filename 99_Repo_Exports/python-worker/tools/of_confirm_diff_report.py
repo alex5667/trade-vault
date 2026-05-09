@@ -4,10 +4,10 @@ import argparse
 import json
 import os
 from collections import Counter, defaultdict
-from typing import Any, Dict, List
+from typing import Any
 
 
-def _safe_loads(line: str) -> Dict[str, Any]:
+def _safe_loads(line: str) -> dict[str, Any]:
     try:
         d = json.loads(line)
         return d if isinstance(d, dict) else {}
@@ -15,10 +15,10 @@ def _safe_loads(line: str) -> Dict[str, Any]:
         return {}
 
 
-def _load_ndjson(path: str, *, max_rows: int = 2_000_000) -> Dict[str, Dict[str, Any]]:
-    out: Dict[str, Dict[str, Any]] = {}
+def _load_ndjson(path: str, *, max_rows: int = 2_000_000) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
     n = 0
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             if n >= max_rows:
                 break
@@ -26,7 +26,7 @@ def _load_ndjson(path: str, *, max_rows: int = 2_000_000) -> Dict[str, Dict[str,
             if not line:
                 continue
             row = _safe_loads(line)
-            k = str(row.get("k", "") or "")
+            k = (row.get("k", "") or "")
             if not k:
                 continue
             out[k] = row
@@ -34,9 +34,9 @@ def _load_ndjson(path: str, *, max_rows: int = 2_000_000) -> Dict[str, Dict[str,
     return out
 
 
-def _group_key(row: Dict[str, Any]) -> str:
-    sym = str(row.get("symbol", "") or "NA")
-    sc = str(row.get("scenario_v4", "") or "")
+def _group_key(row: dict[str, Any]) -> str:
+    sym = (row.get("symbol", "") or "NA")
+    sc = (row.get("scenario_v4", "") or "")
     return f"{sym}|{sc}"
 
 
@@ -59,7 +59,7 @@ def main() -> None:
     mism = 0
     mismatch_types = Counter()
     per_group = defaultdict(int)
-    samples: List[Dict[str, Any]] = []
+    samples: list[dict[str, Any]] = []
 
     eps = float(args.score_eps)
 
@@ -76,7 +76,7 @@ def main() -> None:
         diffs = []
         if int(a.get("ok", 0) or 0) != int(b.get("ok", 0) or 0):
             diffs.append("ok")
-        if str(a.get("scenario_v4", "") or "") != str(b.get("scenario_v4", "") or ""):
+        if (a.get("scenario_v4", "") or "") != (b.get("scenario_v4", "") or ""):
             diffs.append("scenario_v4")
         if int(a.get("have", 0) or 0) != int(b.get("have", 0) or 0):
             diffs.append("have")

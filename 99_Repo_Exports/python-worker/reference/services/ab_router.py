@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass
-from typing import Dict
 
 
 @dataclass(frozen=True)
@@ -11,9 +10,9 @@ class Split:
     """Weighted split for arms.
     Example: {"A": 0.8, "B": 0.1, "C": 0.1}
     """
-    w: Dict[str, float]
+    w: dict[str, float]
 
-    def normalized(self) -> "Split":
+    def normalized(self) -> Split:
         s = sum(max(0.0, float(v)) for v in self.w.values())
         if s <= 0:
             return Split({"A": 1.0})
@@ -22,7 +21,7 @@ class Split:
 
 def parse_split(spec: str) -> Split:
     """Parse 'A:0.8,B:0.1,C:0.1' into Split."""
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
     for part in (spec or "").split(","):
         part = part.strip()
         if not part:

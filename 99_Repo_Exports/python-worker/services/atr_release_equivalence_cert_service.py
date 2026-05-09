@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Phase 8.2 — Release Equivalence Cert Service
 (atr_release_equivalence_cert_service.py)
@@ -16,7 +17,7 @@ Intended usage:
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from services.analytics_db import get_conn
@@ -28,7 +29,7 @@ _BOUNDED_SYMBOLS = {"BTCUSDT", "ETHUSDT"}
 
 
 def _gen_id(prefix: str) -> str:
-    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
     return f"{prefix}_{ts}_{uuid.uuid4().hex[:6]}"
 
 
@@ -53,7 +54,7 @@ class ReleaseEquivalenceCertService:
         Persists a cert row in atr_control_plane_certifications and returns the cert dict.
         """
         cert_id = _gen_id("releq_cert")
-        now     = datetime.now(tz=timezone.utc)
+        now     = datetime.now(tz=UTC)
 
         try:
             with get_conn() as conn, conn.cursor(

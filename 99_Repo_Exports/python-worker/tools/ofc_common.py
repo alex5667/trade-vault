@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-
-from dataclasses import dataclass
-
-from typing import Any, Dict, Iterable, Iterator, List, Optional
-
 import json
-
 import math
-
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+from typing import Any
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -61,11 +57,11 @@ class ReplayRuntime:
 
     # evidence
 
-    last_obi_event: Optional[Dict[str, Any]] = None
+    last_obi_event: dict[str, Any] | None = None
 
-    last_iceberg_event: Optional[Dict[str, Any]] = None
+    last_iceberg_event: dict[str, Any] | None = None
 
-    last_ofi_event: Optional[Dict[str, Any]] = None
+    last_ofi_event: dict[str, Any] | None = None
 
     last_bar: Any = None
 
@@ -77,7 +73,7 @@ class ReplayRuntime:
 
     book_churn_hi: int = 0
 
-    dynamic_cfg: Dict[str, Any] = None
+    dynamic_cfg: dict[str, Any] = None
 
     pressure: Any = None
 
@@ -109,9 +105,9 @@ class ReplayRuntime:
 
     @staticmethod
 
-    def from_snapshot(symbol: str, snap: Dict[str, Any]) -> "ReplayRuntime":
+    def from_snapshot(symbol: str, snap: dict[str, Any]) -> ReplayRuntime:
 
-        rt = ReplayRuntime(symbol=str(symbol or ""))
+        rt = ReplayRuntime(symbol=(symbol or ""))
 
         # dict-like events
 
@@ -197,9 +193,9 @@ class ReplayRuntime:
 
 
 
-def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
+def iter_ndjson(path: str) -> Iterator[dict[str, Any]]:
 
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
 
         for line in f:
 
@@ -213,7 +209,7 @@ def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
 
 
 
-def write_ndjson(path: str, rows: Iterable[Dict[str, Any]]) -> None:
+def write_ndjson(path: str, rows: Iterable[dict[str, Any]]) -> None:
 
     with open(path, "w", encoding="utf-8") as f:
 

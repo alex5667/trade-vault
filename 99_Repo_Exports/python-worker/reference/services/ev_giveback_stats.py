@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Optional, Dict
+from typing import Any
 
 # This module is intentionally "fail-open":
 # - If Redis is not available or fields are missing -> do nothing.
@@ -15,7 +15,7 @@ def _env_bool(name: str, default: bool) -> bool:
     return v in {"1", "true", "yes", "on"}
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -37,7 +37,7 @@ def _canon_regime(v: Any) -> str:
     return s if s else "na"
 
 
-def _estimate_notional(entry_price: Optional[float], qty: Optional[float], notional: Optional[float]) -> Optional[float]:
+def _estimate_notional(entry_price: float | None, qty: float | None, notional: float | None) -> float | None:
     # Prefer explicit notional (notional_usd). Fallback: |qty| * entry_price.
     if notional is not None and notional > 1e-12:
         return float(notional)
@@ -50,7 +50,7 @@ def _estimate_notional(entry_price: Optional[float], qty: Optional[float], notio
     return None
 
 
-def _pnl_to_bps(pnl: Optional[float], *, notional: Optional[float]) -> Optional[float]:
+def _pnl_to_bps(pnl: float | None, *, notional: float | None) -> float | None:
     if pnl is None or notional is None or notional <= 1e-12:
         return None
     bps = abs(float(pnl)) / float(notional) * 10_000.0
@@ -82,7 +82,7 @@ class GivebackEmaConfig:
     key_prefix: str = "trailgb"
 
     @classmethod
-    def from_env(cls) -> "GivebackEmaConfig":
+    def from_env(cls) -> GivebackEmaConfig:
         enabled = _env_bool("TRAIL_GIVEBACK_EMA_ENABLED", True)
         try:
             alpha = float(os.getenv("TRAIL_GIVEBACK_EMA_ALPHA", "0.05") or "0.05")
@@ -111,8 +111,8 @@ class GivebackEmaConfig:
         return f"{self.key_prefix}:{kind}:{symbol}:{tf}:{rg}"
 
 
-def _decode_hgetall(h: Dict[Any, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _decode_hgetall(h: dict[Any, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for k, v in (h or {}).items():
         try:
             if isinstance(k, (bytes, bytearray)):
@@ -134,10 +134,10 @@ def update_giveback_ema(
     tf: str,
     regime: str,
     now_ms: int,
-    giveback_pnl: Optional[float],
-    entry_price: Optional[float],
-    qty: Optional[float],
-    notional: Optional[float],
+    giveback_pnl: float | None,
+    entry_price: float | None,
+    qty: float | None,
+    notional: float | None,
 ) -> None:
     """
     Fail-open writer called from StatsAggregator.update_stats() after applied==1.
@@ -195,7 +195,7 @@ def update_giveback_ema(
         return
 
 
-def read_giveback_ema(redis_client: Any, *, cfg: GivebackEmaConfig, kind: str, symbol: str, tf: str, regime: str) -> Optional[Dict[str, Any]]:
+def read_giveback_ema(redis_client: Any, *, cfg: GivebackEmaConfig, kind: str, symbol: str, tf: str, regime: str) -> dict[str, Any] | None:
     """
     Reader used by conditional trailing evaluator.
     Returns dict: {"samples": int, "ema_giveback_bps": float} or None.

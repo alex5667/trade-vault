@@ -12,9 +12,9 @@ def safe_float(x: Any, default: float = float("nan")) -> float:
     """
     try:
         v = float(x)
-        return v if math.isfinite(v) else float(default)
+        return v if math.isfinite(v) else default
     except Exception:
-        return float(default)
+        return default
 
 
 def safe_isfinite(x: Any) -> bool:

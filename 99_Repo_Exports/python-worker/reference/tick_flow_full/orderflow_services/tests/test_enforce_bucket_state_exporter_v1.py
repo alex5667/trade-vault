@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Tests for enforce_bucket_state_exporter_v1.py (P77)
 
@@ -9,24 +8,17 @@ No Prometheus background server is started — gauges are only referenced, not s
 
 import json
 import os
-import sys
-import tempfile
-from unittest.mock import MagicMock
-
-import pytest
 
 # Resolve PYTHONPATH: python-worker root is the test root
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-
 from orderflow_services.enforce_bucket_state_exporter_v1 import (
+    Exporter,
     _as_float,
     _as_int,
     _as_str,
     _load_json,
     _parse_list,
-    Exporter,
 )
-
 
 # ---- unit tests for pure helpers ----
 

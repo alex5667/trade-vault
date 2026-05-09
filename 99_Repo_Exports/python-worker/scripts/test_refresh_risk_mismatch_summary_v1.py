@@ -1,7 +1,7 @@
 """P4.8 test: verify refresh_risk_mismatch_summary.py loads and has expected structure."""
-from pathlib import Path
 import importlib.util
 import sys
+from pathlib import Path
 
 # Load the script as a module without executing __main__
 _p = Path(__file__).resolve().parents[1] / 'scripts' / 'refresh_risk_mismatch_summary.py'

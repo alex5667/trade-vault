@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Prometheus exporter for edge_stack_v1 training bundle status (P59).
 
 Reads Redis hash `metrics:edge_stack_train:last` (or configured key) and exposes gauges:
@@ -29,7 +30,7 @@ ENV:
 
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import redis  # type: ignore
 from prometheus_client import Gauge, start_http_server
@@ -43,20 +44,20 @@ def _as_float(v: Any, d: float = 0.0) -> float:
     """Safely convert Redis string to float."""
     try:
         if v is None:
-            return float(d)
+            return d
         return float(v)
     except Exception:
-        return float(d)
+        return d
 
 
 def _as_int(v: Any, d: int = 0) -> int:
     """Safely convert Redis string to int via float."""
     try:
         if v is None:
-            return int(d)
+            return d
         return int(float(v))
     except Exception:
-        return int(d)
+        return d
 
 
 # Prometheus gauges (low-cardinality, no dynamic labels)
@@ -85,11 +86,11 @@ def main() -> None:
 
     while True:
         try:
-            m: Dict[str, Any] = r.hgetall(metrics_key) or {}
+            m: dict[str, Any] = r.hgetall(metrics_key) or {}
             UP.set(1)
 
             # Derive success from status field
-            status = str(m.get("status", "") or "")
+            status = (m.get("status", "") or "")
             success = 1.0 if status == "ok" else 0.0
             LAST_SUCCESS.set(success)
 

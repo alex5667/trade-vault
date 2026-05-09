@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 import os
-from typing import Any, Dict
+from typing import Any
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
 
 def _redis():
@@ -12,14 +12,14 @@ def _redis():
 
 
 def _notify(text: str) -> bool:
-    payload: Dict[str, Any] = {"text": text}
-    chat_id = str(os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
+    payload: dict[str, Any] = {"text": text}
+    chat_id = (os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
     if chat_id:
         payload["chat_id"] = chat_id
-    return bool(_redis().xadd("notify:telegram", payload, maxlen=5000, approximate=True))
+    return bool(_redis().xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=5000, approximate=True))
 
 
-def publish(result: Dict[str, Any]) -> bool:
+def publish(result: dict[str, Any]) -> bool:
     cert = result.get("cert", {}) if isinstance(result.get("cert"), dict) else {}
     summary = cert.get("summary", {}) if isinstance(cert.get("summary"), dict) else {}
     text = (

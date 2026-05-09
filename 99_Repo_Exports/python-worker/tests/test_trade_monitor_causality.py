@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import pytest
-from unittest.mock import patch
-from services.trade_monitor import TradeMonitorService
 from types import SimpleNamespace
+from unittest.mock import patch
+
+from services.trade_monitor import TradeMonitorService
+
 
 class _SpecStub:
     trailing_profile_default = "rocket_v1"
@@ -17,12 +18,12 @@ def _mk_monitor() -> TradeMonitorService:
     mon._get_spec = lambda symbol: _SpecStub()
     mon.last_warnings = []
     mon.last_infos = []
-    
+
     def log_warning(msg):
         mon.last_warnings.append(str(msg))
     def log_info(msg):
         mon.last_infos.append(str(msg))
-        
+
     mon.logger = SimpleNamespace(
         debug=lambda *a, **k: None,
         info=log_info,
@@ -41,17 +42,17 @@ def _mk_monitor() -> TradeMonitorService:
 @patch("services.trade_monitor.get_ny_time_millis")
 def test_trade_monitor_causality_grace_period(mock_now):
     mon = _mk_monitor()
-    
+
     # 1. Market Time is fixed at T
     T = 1700000000000
     mon._max_tick_ts_ms = T
-    
+
     # 2. Wall Clock is T + 300ms (market lags slightly)
     mock_now.return_value = T + 300
-    
+
     # --- Case 1: Within Grace Period (100ms) ---
     raw = {
-        "sid": "sig-1", "symbol": "BTCUSDT", "tf": "1m", 
+        "sid": "sig-1", "symbol": "BTCUSDT", "tf": "1m",
         "direction": "LONG", "entry": 50000.0, "ts": T + 50
     }
     sig = mon._normalize_signal(raw)
@@ -62,7 +63,7 @@ def test_trade_monitor_causality_grace_period(mock_now):
     # --- Case 2: Beyond Grace, but within Wall Clock ---
     # Total market lag is 300ms (below 5s warning threshold)
     raw_2 = {
-        "sid": "sig-2", "symbol": "BTCUSDT", "tf": "1m", 
+        "sid": "sig-2", "symbol": "BTCUSDT", "tf": "1m",
         "direction": "LONG", "entry": 50000.0, "ts": T + 150
     }
     sig_2 = mon._normalize_signal(raw_2)
@@ -73,7 +74,7 @@ def test_trade_monitor_causality_grace_period(mock_now):
     # Signal is T + 2000ms, while wall clock is only T + 300ms
     # Tolerance is 1000ms, so 2000ms > 300ms + 1000ms -> CLAMP
     raw_3 = {
-        "sid": "sig-3", "symbol": "BTCUSDT", "tf": "1m", 
+        "sid": "sig-3", "symbol": "BTCUSDT", "tf": "1m",
         "direction": "LONG", "entry": 50000.0, "ts": T + 2000
     }
     sig_3 = mon._normalize_signal(raw_3)
@@ -83,16 +84,16 @@ def test_trade_monitor_causality_grace_period(mock_now):
 @patch("services.trade_monitor.get_ny_time_millis")
 def test_trade_monitor_market_lag_warning_explicit(mock_now):
     mon = _mk_monitor()
-    
+
     # Market lags significantly (10 seconds)
     T = 1700000000000
     mon._max_tick_ts_ms = T
     mock_now.return_value = T + 10000 # Wall clock = T + 10s
-    
+
     # Signal is at T + 6000ms (6s ahead of market, but behind wall clock)
     # 6000ms > 5000ms (threshold) -> WARNING
     raw = {
-        "sid": "sig-lag", "symbol": "BTCUSDT", "tf": "1m", 
+        "sid": "sig-lag", "symbol": "BTCUSDT", "tf": "1m",
         "direction": "LONG", "entry": 50000.0, "ts": T + 6000
     }
     sig = mon._normalize_signal(raw)

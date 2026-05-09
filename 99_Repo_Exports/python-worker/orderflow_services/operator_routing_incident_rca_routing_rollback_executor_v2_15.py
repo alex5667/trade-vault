@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -45,7 +46,7 @@ ROLLBACKS = _counter("ml_operator_routing_incident_rca_routing_rollbacks_total",
 
 def now_ms() -> int: return get_ny_time_millis()
 
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 async def ensure_group(r: Any, stream: str, group: str) -> None:
@@ -69,9 +70,9 @@ async def rollback_loop(r: Any) -> None:
                     row = as_dict(payload)
                     route_change_id = row.get("route_change_id", "unknown")
                     reason = row.get("reason", "unknown")
-                    
+
                     action = "ROLLBACK_DRY_RUN"
-                    
+
                     if ROLLBACK_MODE == "COMMIT":
                         action = "ROLLBACK_COMMITTED"
                         await r.hset(GLOBAL_POLICY_HASH, mapping={
@@ -81,25 +82,25 @@ async def rollback_loop(r: Any) -> None:
                             "last_updated_ms": now_ms(),
                             "experiment_source": "rollback"
                         })
-                    
+
                     result = {
                         "route_change_id": route_change_id,
                         "action": action,
                         "reason": reason,
                         "ts_ms": now_ms()
                     }
-                    
+
                     await r.xadd(OUT_STREAM, result, maxlen=MAXLEN, approximate=True)
                     await r.xadd(JOURNAL_STREAM, result, maxlen=MAXLEN, approximate=True)
                     await r.xadd(AUDIT_STREAM, result, maxlen=MAXLEN, approximate=True)
-                    
+
                     if ROLLBACKS: ROLLBACKS.labels(mode=action).inc()
-                    
+
                     await r.xack(IN_STREAM, GROUP, msg_id)
                 except Exception:
                     status = "error"
                     await r.xack(IN_STREAM, GROUP, msg_id)
-                    
+
         if LAST_RUN_TS: LAST_RUN_TS.set(time.time())
     except Exception:
         status = "error"

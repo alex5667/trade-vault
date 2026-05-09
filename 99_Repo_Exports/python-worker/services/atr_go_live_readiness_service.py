@@ -4,16 +4,13 @@ ATR Go-Live Readiness Service (Phase 10.5)
 Final package computation for steady-state go-live approval.
 """
 
-import os
 import json
+import os
 import uuid
-import logging
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List, Optional
+from datetime import UTC, datetime, timedelta
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from prometheus_client import Counter, Gauge, start_http_server
+from psycopg2.extras import RealDictCursor
 
 from common.log import setup_logger
 from services.analytics_db import get_conn
@@ -56,7 +53,7 @@ class ATRGoLiveReadinessService:
     def build_go_live_package(self, conn, target_scope: str, charter_version: str) -> str:
         package_id = self.generate_id("golive")
         logger.info(f"Building initial Go-Live Package: {package_id} for scope: {target_scope}")
-        
+
         # Insert draft
         with conn.cursor() as cur:
             cur.execute("""
@@ -65,7 +62,7 @@ class ATRGoLiveReadinessService:
                 ) VALUES (%s, %s, %s, 'draft', 'PENDING', %s)
             """, (package_id, target_scope, charter_version, json.dumps({})))
             conn.commit()
-            
+
         PROM_GO_LIVE_PACKAGES.labels(package_status="draft", verdict="PENDING").inc()
         return package_id
 
@@ -82,7 +79,7 @@ class ATRGoLiveReadinessService:
     def evaluate_readiness_domains(self, conn, package_id: str, evidence: dict):
         """Evaluate domains based on provided evidence."""
         # This is a reference implementation evaluating explicit rules
-        
+
         with conn.cursor() as cur:
             # 1. signal_and_gates
             sig_status = "passed"
@@ -90,7 +87,7 @@ class ATRGoLiveReadinessService:
             if evidence.get("veto_mix_error") or evidence.get("active_critical_gate_drift"):
                 sig_status = "failed"
                 sig_sev = "critical"
-                
+
             self._assess_domain("signal_and_gates", sig_sev, sig_status, evidence.get("signal_and_gates", {}), conn, package_id)
 
             # 2. dispatch_and_runtime
@@ -99,7 +96,7 @@ class ATRGoLiveReadinessService:
             if evidence.get("unknown_order_bypass") or evidence.get("critical_allow_deny_drift"):
                 disp_status = "failed"
                 disp_sev = "critical"
-                
+
             self._assess_domain("dispatch_and_runtime", disp_sev, disp_status, evidence.get("dispatch_and_runtime", {}), conn, package_id)
 
             # 3. execution
@@ -120,7 +117,7 @@ class ATRGoLiveReadinessService:
             if evidence.get("protective_drift") or evidence.get("be_before_tp1_violation"):
                 prot_status = "failed"
                 prot_sev = "critical"
-                
+
             self._assess_domain("protective_lifecycle", prot_sev, prot_status, evidence.get("protective", {}), conn, package_id)
 
             # 5. control_plane_governance
@@ -129,7 +126,7 @@ class ATRGoLiveReadinessService:
             if evidence.get("charter_compliance_fail") or evidence.get("coverage_audit_fail_critical"):
                 cp_status = "failed"
                 cp_sev = "critical"
-                
+
             self._assess_domain("control_plane_governance", cp_sev, cp_status, evidence.get("control_plane", {}), conn, package_id)
 
             # 6. dr_replay_archive
@@ -138,7 +135,7 @@ class ATRGoLiveReadinessService:
             if evidence.get("dr_restore_fail") or evidence.get("invalid_golden_datasets"):
                 dr_status = "failed"
                 dr_sev = "critical"
-                
+
             self._assess_domain("dr_replay_archive", dr_sev, dr_status, evidence.get("dr_replay", {}), conn, package_id)
 
             conn.commit()
@@ -169,9 +166,9 @@ class ATRGoLiveReadinessService:
                 PROM_GO_LIVE_SIGNOFFS.labels(signer_role=role, status=status).inc()
             conn.commit()
 
-    def compute_final_go_live_verdict(self, conn, package_id: str, constraints_block: Optional[dict] = None) -> str:
+    def compute_final_go_live_verdict(self, conn, package_id: str, constraints_block: dict | None = None) -> str:
         """Calculate and finalize the decision."""
-        
+
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # 1. Check domains
             cur.execute("""
@@ -179,7 +176,7 @@ class ATRGoLiveReadinessService:
                 WHERE package_id = %s
             """, (package_id,))
             checks = cur.fetchall()
-            
+
             critical_fails = sum(1 for c in checks if c["status"] == "failed" and c["severity"] == "critical")
             warnings = sum(1 for c in checks if c["status"] == "warning")
             incomplete_domains = len(REQUIRED_DOMAINS) - len(set(c["domain"] for c in checks))
@@ -190,17 +187,17 @@ class ATRGoLiveReadinessService:
                 WHERE package_id = %s
             """, (package_id,))
             signoffs = cur.fetchall()
-            
+
             approved_roles = set(s["signer_role"] for s in signoffs if s["status"] == "approved")
             rejected_roles = set(s["signer_role"] for s in signoffs if s["status"] == "rejected")
-            
+
             # Determine verdict
             verdict = "GO_LIVE"
             package_status = "signed"
 
             if "protective_owner" in rejected_roles or "technical_owner" in rejected_roles or "execution_owner" in rejected_roles or "control_plane_owner" in rejected_roles:
                 verdict = "NO_GO"
-                
+
             if "protective_owner" in rejected_roles and critical_fails > 0:
                 # Based on requirement: protective_owner reject + critical drift -> NO_GO or ROLLBACK_ONLY
                 verdict = "ROLLBACK_ONLY"
@@ -219,7 +216,7 @@ class ATRGoLiveReadinessService:
             if verdict == "GO_LIVE" and constraints_block:
                 # Might have constraints anyway
                 verdict = "GO_LIVE_WITH_CONSTRAINTS"
-                
+
             if verdict == "GO_LIVE_WITH_CONSTRAINTS" and not constraints_block:
                  verdict = "HOLD" # Invalid: needs constraints
 
@@ -227,7 +224,7 @@ class ATRGoLiveReadinessService:
                 package_status = "rejected"
                 PROM_GO_LIVE_REJECTIONS.labels(reason_code=verdict).inc()
 
-            expires_at = datetime.now(timezone.utc)
+            expires_at = datetime.now(UTC)
             if verdict == "GO_LIVE":
                 expires_at += timedelta(days=30)
             elif verdict == "GO_LIVE_WITH_CONSTRAINTS":
@@ -235,7 +232,7 @@ class ATRGoLiveReadinessService:
                 PROM_GO_LIVE_CONSTRAINTS.inc()
             else:
                 expires_at += timedelta(days=1)
-                
+
             summary = {
                 "critical_fails": critical_fails,
                 "warnings": warnings,
@@ -250,12 +247,12 @@ class ATRGoLiveReadinessService:
                     signed_at = NOW(), expires_at = %s
                 WHERE package_id = %s
             """, (package_status, verdict, json.dumps(summary), expires_at, package_id))
-            
+
             conn.commit()
-            
+
             PROM_GO_LIVE_PACKAGES.labels(package_status=package_status, verdict=verdict).inc()
             logger.info(f"Package {package_id} finalized with verdict: {verdict}")
-            
+
             return verdict
 
     def check_active_package(self, conn, target_scope: str = "global") -> bool:
@@ -278,7 +275,7 @@ class ATRGoLiveReadinessService:
         """
         # ISO week identifier (e.g., 2026-W16)
         week_id = datetime.now().strftime("%G-W%V")
-        
+
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # Check if any package (draft or signed) exists for this week
             cur.execute("""
@@ -286,11 +283,11 @@ class ATRGoLiveReadinessService:
                 WHERE target_scope = %s AND (summary_json->>'week_id') = %s
                 LIMIT 1
             """, (target_scope, week_id))
-            
+
             if not cur.fetchone():
                 logger.info(f"Mandatory Weekly Check: No package for {week_id}. Creating DRAFT.")
                 pkg_id = self.build_go_live_package(conn, target_scope, "1.0.0")
-                
+
                 # Tag it with week_id and run initial evidence collection
                 with conn.cursor() as cur2:
                     cur2.execute("""
@@ -299,7 +296,7 @@ class ATRGoLiveReadinessService:
                         WHERE package_id = %s
                     """, (week_id, pkg_id))
                     conn.commit()
-                
+
                 # Run initial evaluation to highlight gaps early
                 evidence = self.collect_required_evidence(conn)
                 self.evaluate_readiness_domains(conn, pkg_id, evidence)
@@ -314,10 +311,10 @@ def run_mock_ceremony(conn, service: ATRGoLiveReadinessService):
         pkg_id = service.build_go_live_package(conn, target_scope="global", charter_version="1.0.0")
         ev = service.collect_required_evidence(conn)
         service.evaluate_readiness_domains(conn, pkg_id, ev)
-        
+
         signoffs = {role: {"status": "approved", "signer": f"{role}_mock"} for role in REQUIRED_ROLES}
         service.request_signoffs(conn, pkg_id, signoffs)
-        
+
         v = service.compute_final_go_live_verdict(conn, pkg_id)
         logger.info(f"Mock Ceremony Complete. Final verdict: {v}")
     except Exception as e:
@@ -326,8 +323,8 @@ def run_mock_ceremony(conn, service: ATRGoLiveReadinessService):
 
 if __name__ == "__main__":
     import time
-    enable = str(os.getenv("ATR_GO_LIVE_READINESS_ENABLE", "1")).lower() in ("1", "true", "yes")
-    enforce = str(os.getenv("ATR_GO_LIVE_READINESS_ENFORCE", "0")).lower() in ("1", "true", "yes")
+    enable = os.getenv("ATR_GO_LIVE_READINESS_ENABLE", "1").lower() in ("1", "true", "yes")
+    enforce = os.getenv("ATR_GO_LIVE_READINESS_ENFORCE", "0").lower() in ("1", "true", "yes")
     prom_port = int(os.getenv("ATR_GO_LIVE_READINESS_PROM_PORT", "9848"))
 
     if not enable:
@@ -336,12 +333,12 @@ if __name__ == "__main__":
 
     start_http_server(prom_port)
     logger.info(f"Starting ATR Go-Live Readiness Service on port {prom_port} (enforce={enforce})")
-    
+
     svc = ATRGoLiveReadinessService(enable=enable, enforce=enforce)
-    
+
     # Run once at startup then periodically
     last_weekly_check = 0.0
-    
+
     while True:
         try:
             with get_conn() as conn:
@@ -349,7 +346,7 @@ if __name__ == "__main__":
                 if time.monotonic() - last_weekly_check > 3600: # Check once per hour
                     svc.ensure_weekly_draft(conn)
                     last_weekly_check = time.monotonic()
-                
+
                 # 2. Cleanup or other maintenance could go here
                 pass
         except Exception as e:

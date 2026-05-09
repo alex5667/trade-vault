@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 Strong Gate Calibrator — pure computation module (no IO).
 
@@ -23,10 +24,8 @@ Import as:
     from core.strong_gate_calibrator import evaluate_strong_gate, StrongGateCalibResult
 """
 
-import math
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional
-
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -81,9 +80,9 @@ class StrongGateCalibResult:
 
     # Diagnostics
     data_sufficient: bool = False
-    thresholds: Dict[str, float] = field(default_factory=dict)
+    thresholds: dict[str, float] = field(default_factory=dict)
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @property
@@ -100,7 +99,7 @@ class StrongGateCalibResult:
 # ---------------------------------------------------------------------------
 
 def evaluate_strong_gate(
-    outcomes: List[TradeOutcome],
+    outcomes: list[TradeOutcome],
     *,
     window_h: int = 24,
     min_precision: float = 0.55,

@@ -1,9 +1,11 @@
 # domain/calculators.py
 from __future__ import annotations
+
 import math
-from typing import Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 from domain.models import PositionState, Side
+import contextlib
 
 
 def round_to_point(value: float, point: float, mode: str) -> float:
@@ -23,7 +25,7 @@ def calc_trailing_sl(
     trailing_distance: float,
     point: float,
     prev_sl: float
-) -> Optional[float]:
+) -> float | None:
     if trailing_distance <= 0:
         return None
 
@@ -69,7 +71,7 @@ def update_excursions(pos: Any, price: float, ts_ms: int) -> None:
     # LONG: favorable=max, adverse=min
     # SHORT: favorable=min, adverse=max
     try:
-        is_long = bool(getattr(pos, "is_long")() if callable(getattr(pos, "is_long", None)) else (str(getattr(pos, "direction", "")).lower() in {"long", "buy"}))
+        is_long = bool(pos.is_long() if callable(getattr(pos, "is_long", None)) else (str(getattr(pos, "direction", "")).lower() in {"long", "buy"}))
     except Exception:
         is_long = True
 
@@ -87,19 +89,15 @@ def update_excursions(pos: Any, price: float, ts_ms: int) -> None:
     # Обновить глобальные экстремумы (общие для обеих сторон)
     # Если 0.0 -> неинициализировано -> обновляем безусловно
     if cur_max == 0.0 or p > cur_max:
-        try:
-            setattr(pos, "max_price_seen", p)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            pos.max_price_seen = p
         max_seen = p
     else:
         max_seen = cur_max
 
     if cur_min == 0.0 or p < cur_min:
-        try:
-            setattr(pos, "min_price_seen", p)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            pos.min_price_seen = p
         min_seen = p
     else:
         min_seen = cur_min
@@ -116,17 +114,17 @@ def update_excursions(pos: Any, price: float, ts_ms: int) -> None:
     except Exception:
         prev_fav = favorable
         prev_fav_raw = 0.0
-    
+
     # Если 0.0/None, принудительно обновить
     if not prev_fav_raw:
         fav_updated = True
     else:
         fav_updated = (favorable > prev_fav) if is_long else (favorable < prev_fav)
-    
+
     if fav_updated:
         try:
-            setattr(pos, "max_favorable_price", float(favorable))
-            setattr(pos, "max_favorable_ts", int(ts_ms))
+            pos.max_favorable_price = float(favorable)
+            pos.max_favorable_ts = int(ts_ms)
         except Exception:
             pass
 
@@ -138,16 +136,16 @@ def update_excursions(pos: Any, price: float, ts_ms: int) -> None:
     except Exception:
         prev_adv = adverse
         prev_adv_raw = 0.0
-        
+
     if not prev_adv_raw:
         adv_updated = True
     else:
         adv_updated = (adverse < prev_adv) if is_long else (adverse > prev_adv)
-        
+
     if adv_updated:
         try:
-            setattr(pos, "max_adverse_price", float(adverse))
-            setattr(pos, "max_adverse_ts", int(ts_ms))
+            pos.max_adverse_price = float(adverse)
+            pos.max_adverse_ts = int(ts_ms)
         except Exception:
             pass
 
@@ -174,7 +172,7 @@ def snapshot_tp1_excursions(pos: Any, ts_ms: int) -> None:
         pass
 
     try:
-        setattr(pos, "tp1_hit_ts_ms", int(ts_ms))
+        pos.tp1_hit_ts_ms = int(ts_ms)
     except Exception:
         return
 
@@ -187,8 +185,8 @@ def snapshot_tp1_excursions(pos: Any, ts_ms: int) -> None:
         mae_pnl = 0.0
 
     try:
-        setattr(pos, "mfe_pnl_at_tp1", float(mfe_pnl))
-        setattr(pos, "mae_pnl_before_tp1", float(mae_pnl))
+        pos.mfe_pnl_at_tp1 = float(mfe_pnl)
+        pos.mae_pnl_before_tp1 = float(mae_pnl)
     except Exception:
         pass
 

@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Chaos test: Redis disconnect во время XADD.
 
@@ -10,10 +12,8 @@ Chaos test: Redis disconnect во время XADD.
   5. DLQ write failure при _send_dlq → SIGNAL_LOSS_SILENT_TOTAL{reason=dlq_write_failed}.
 """
 
-import json
 import unittest
-from unittest.mock import MagicMock, patch, call, PropertyMock
-import redis as redis_lib  # для ConnectionError
+from unittest.mock import MagicMock, patch
 
 try:
     from redis.exceptions import ConnectionError as RedisConnectionError
@@ -65,7 +65,7 @@ class TestOutboxWriterChaosXadd(unittest.TestCase):
     def test_xadd_latency_not_observed_on_failure(self):
         """При XADD failure latency histogram не должен наблюдаться."""
         try:
-            from core.outbox_writer import OutboxWriter, OutboxWriterConfig, OUTBOX_WRITE_LATENCY_SECONDS
+            from core.outbox_writer import OUTBOX_WRITE_LATENCY_SECONDS, OutboxWriter, OutboxWriterConfig
         except ImportError:
             self.skipTest("core.outbox_writer недоступен")
 
@@ -225,7 +225,7 @@ class TestDispatcherQueueDepthGauges(unittest.TestCase):
         fake_redis.xlen.return_value = 42
 
         with patch.object(OUTBOX_QUEUE_DEPTH, "set") as mock_set:
-            depth = fake_redis.xlen("stream:signals:outbox")
+            depth = fake_redis.xlen(RS.SIGNAL_OUTBOX)
             OUTBOX_QUEUE_DEPTH.set(float(depth))
             mock_set.assert_called_once_with(42.0)
 

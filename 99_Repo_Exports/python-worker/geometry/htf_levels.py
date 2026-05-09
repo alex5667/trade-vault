@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Any, Protocol
-from collections import defaultdict
 from collections import defaultdict
 from datetime import datetime
+from typing import Any, Protocol
 
 from common.log import setup_logger
-from .structures import Level, LevelType, GeometrySnapshot
+
+from .structures import GeometrySnapshot, Level, LevelType
 
 
 class HTFLevelsProvider(Protocol):
     """Interface for HTF levels providers."""
 
-    def get_levels(self, symbol: str) -> Optional[Any]:  # HTFLevels
+    def get_levels(self, symbol: str) -> Any | None:  # HTFLevels
         """Get HTF levels for symbol."""
         ...
 
@@ -30,14 +30,14 @@ class HTFLevelsService:
     - Distance calculations to nearest levels
     """
 
-    def __init__(self, htf_provider: Optional[HTFLevelsProvider] = None, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, htf_provider: HTFLevelsProvider | None = None, config: dict[str, Any] | None = None):
         self._htf_provider = htf_provider
         self._cfg = config or self._default_config()
-        self._levels_by_symbol: Dict[str, List[Level]] = defaultdict(list)
-        self._session_data: Dict[str, Dict[str, Any]] = defaultdict(dict)
+        self._levels_by_symbol: dict[str, list[Level]] = defaultdict(list)
+        self._session_data: dict[str, dict[str, Any]] = defaultdict(dict)
         self.logger = setup_logger("HTFLevelsService")
 
-    def _default_config(self) -> Dict[str, Any]:
+    def _default_config(self) -> dict[str, Any]:
         return {
             "max_levels_per_symbol": 100,
             "level_validity_days": 30,
@@ -217,7 +217,7 @@ class HTFLevelsService:
             session_low_price=session_info.get('low'),
         )
 
-    def _convert_htf_levels(self, htf_levels: Any, symbol: str, ts_event_ms: int) -> List[Level]:
+    def _convert_htf_levels(self, htf_levels: Any, symbol: str, ts_event_ms: int) -> list[Level]:
         """Convert HTFLevels to our Level format"""
         levels = []
 
@@ -242,7 +242,7 @@ class HTFLevelsService:
         ])
 
         return levels
-    def get_levels(self, symbol: str, ts_event_ms: int = 0) -> List[Level]:
+    def get_levels(self, symbol: str, ts_event_ms: int = 0) -> list[Level]:
         """
         Get all active levels for symbol (from provider + local).
         """
@@ -256,5 +256,5 @@ class HTFLevelsService:
         if htf_levels:
              # Convert HTF levels to our Level format
              levels.extend(self._convert_htf_levels(htf_levels, symbol, ts_event_ms))
-        
+
         return levels

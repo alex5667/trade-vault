@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
 from collections import defaultdict, deque
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any
 
 from .crypto_conf_scorer import CryptoConfScorer, CryptoConfScorerConfig
 
@@ -37,8 +37,8 @@ class SignalQualityMetrics:
     market_depth_imbalance: float = 0.0
 
     # Результат (если известен)
-    pnl_r: Optional[float] = None
-    is_win: Optional[bool] = None
+    pnl_r: float | None = None
+    is_win: bool | None = None
 
 
 @dataclass
@@ -72,16 +72,16 @@ class SignalQualityMonitor:
         self.max_history_days = max_history_days
 
         # История сигналов: (symbol, family) -> deque[SignalQualityMetrics]
-        self.signal_history: Dict[tuple[str, str], deque[SignalQualityMetrics]] = defaultdict(
+        self.signal_history: dict[tuple[str, str], deque[SignalQualityMetrics]] = defaultdict(
             lambda: deque(maxlen=1000)
         )
 
         # Текущая статистика
-        self.current_stats: Dict[tuple[str, str], QualityStats] = {}
+        self.current_stats: dict[tuple[str, str], QualityStats] = {}
 
         # Conf scorer для анализа (опционально)
         try:
-            from .crypto_conf_scorer import L3Thresholds, L3Profile
+            from .crypto_conf_scorer import L3Profile, L3Thresholds
             # Создаем базовую конфигурацию по умолчанию
             default_thresholds = L3Thresholds(
                 spread_max_ok_bps=5.0,
@@ -164,7 +164,7 @@ class SignalQualityMonitor:
                     self.logger.debug(f"Recorded result for signal {signal_id}: {pnl_r:+.2f}R ({'WIN' if is_win else 'LOSS'})")
                     break
 
-    def update_stats(self) -> Dict[tuple[str, str], QualityStats]:
+    def update_stats(self) -> dict[tuple[str, str], QualityStats]:
         """Обновить статистику качества для всех символов/семейств."""
 
         for key, history in self.signal_history.items():
@@ -225,7 +225,7 @@ class SignalQualityMonitor:
 
         return dict(self.current_stats)
 
-    def _calculate_correlation(self, x_values: List[float], y_values: List[float]) -> float:
+    def _calculate_correlation(self, x_values: list[float], y_values: list[float]) -> float:
         """Простая корреляция Пирсона."""
         if len(x_values) != len(y_values) or len(x_values) < 2:
             return 0.0
@@ -248,7 +248,7 @@ class SignalQualityMonitor:
         except Exception:
             return 0.0
 
-    def get_quality_report(self, symbol: Optional[str] = None, family: Optional[str] = None) -> str:
+    def get_quality_report(self, symbol: str | None = None, family: str | None = None) -> str:
         """Сгенерировать отчет о качестве сигналов."""
 
         self.update_stats()
@@ -283,7 +283,7 @@ class SignalQualityMonitor:
 
         return "\n".join(lines)
 
-    def get_alerts(self) -> List[str]:
+    def get_alerts(self) -> list[str]:
         """Получить алерты о проблемах качества."""
 
         self.update_stats()

@@ -5,7 +5,6 @@ Tests cover:
   - strict U/u path: missing-seq, dup, reorder, overlap
   - edge cases: bad timestamps, zero expected_interval_ms
 """
-import os
 import sys
 from pathlib import Path
 

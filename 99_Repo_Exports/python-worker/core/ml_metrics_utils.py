@@ -1,10 +1,7 @@
 from __future__ import annotations
-\
 
-import math
-from typing import List, Tuple
 
-def brier_score(y: List[int], p: List[float]) -> float:
+def brier_score(y: list[int], p: list[float]) -> float:
     if not y:
         return 0.0
     s = 0.0
@@ -13,7 +10,7 @@ def brier_score(y: List[int], p: List[float]) -> float:
         s += d * d
     return s / float(len(y))
 
-def ece_score(y: List[int], p: List[float], n_bins: int = 10) -> float:
+def ece_score(y: list[int], p: list[float], n_bins: int = 10) -> float:
     """
     Expected Calibration Error (ECE).
     """
@@ -40,7 +37,7 @@ def ece_score(y: List[int], p: List[float], n_bins: int = 10) -> float:
         ece += frac * abs(avg_p - avg_y)
     return ece
 
-def quantiles(xs: List[float], qs: List[float]) -> List[float]:
+def quantiles(xs: list[float], qs: list[float]) -> list[float]:
     if not xs:
         return [0.0 for _ in qs]
     xs = sorted(xs)
@@ -51,7 +48,7 @@ def quantiles(xs: List[float], qs: List[float]) -> List[float]:
         out.append(float(xs[i]))
     return out
 
-def ks_statistic(a: List[float], b: List[float]) -> float:
+def ks_statistic(a: list[float], b: list[float]) -> float:
     """
     Two-sample KS statistic (simple, no p-value).
     """

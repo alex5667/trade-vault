@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Export OFInputsV1 records from Redis Stream to NDJSON.
 
 Why:
@@ -6,7 +8,7 @@ Why:
   The system writes OFInputsV1 as raw JSON into a Redis Stream field `payload`.
 
 Defaults (per codebase/docker-compose):
-  - stream name: env OF_INPUTS_STREAM or "signals:of:inputs"
+  - stream name: env OF_INPUTS_STREAM or RS.OF_INPUTS
   - field name : env OF_INPUTS_STREAM_FIELD or "payload"
 
 Usage:
@@ -25,18 +27,17 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Dict, Iterable, Iterator, List, Optional, Tuple
-
 
 try:
     # redis-py
     from redis import Redis
-except Exception as exc:  # pragma: no cover
+except Exception:  # pragma: no cover
     Redis = None  # type: ignore
 
 
-DEFAULT_STREAM = "signals:of:inputs"
+DEFAULT_STREAM = RS.OF_INPUTS
 FALLBACK_STREAM = "stream:of:inputs"
 DEFAULT_FIELD = "payload"
 
@@ -64,7 +65,7 @@ def _json_is_valid(s: str) -> bool:
 
 def _next_min_id_exclusive(last_id: str) -> str:
     """Return exclusive XRANGE min bound: "(<id>"."""
-    last_id = str(last_id or "").strip()
+    last_id = (last_id or "").strip()
     if not last_id:
         return "-"
     return f"({last_id}"
@@ -72,7 +73,7 @@ def _next_min_id_exclusive(last_id: str) -> str:
 
 def iter_stream_payloads(
     *,
-    r: "Redis",
+    r: Redis,
     stream: str,
     field: str,
     start_id: str,
@@ -80,8 +81,8 @@ def iter_stream_payloads(
     batch: int,
     max_records: int,
     validate_json: bool,
-    stderr: Optional[object] = None,
-) -> Iterator[Tuple[str, str]]:
+    stderr: object | None = None,
+) -> Iterator[tuple[str, str]]:
     """Yield (redis_id, payload_str) from XRANGE in order.
 
     This function is isolated for unit testing (can be fed a stub Redis).
@@ -100,7 +101,7 @@ def iter_stream_payloads(
             count = min(count, max_records - emitted)
 
         # redis-py XRANGE: returns List[Tuple[id, Dict[field, value]]]
-        items: List[Tuple[str, Dict[str, str]]] = r.xrange(stream, min=cur_min, max=end_id, count=count)
+        items: list[tuple[str, dict[str, str]]] = r.xrange(stream, min=cur_min, max=end_id, count=count)
         if not items:
             return
 
@@ -196,7 +197,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
     stream = args.stream
     # convenience fallback if someone set legacy stream but it's empty

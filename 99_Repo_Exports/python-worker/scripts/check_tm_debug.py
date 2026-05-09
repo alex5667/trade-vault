@@ -8,17 +8,18 @@ sys.path.append("/app")
 
 from services.trade_monitor import TradeMonitorService
 
+
 def check():
     redis_url = os.getenv("REDIS_URL")
     print(f"Testing TradeMonitorService init with REDIS_URL={redis_url}")
-    
+
     # We want to catch the internal exception in _recover_open_positions
     # Since it is caught and logged as warning, we might need to monkeypatch or just check results
-    
+
     try:
         monitor = TradeMonitorService(redis_url=redis_url)
         print(f"SUCCESS: monitor.open_positions count: {len(monitor.open_positions)}")
-        
+
         if len(monitor.open_positions) == 0:
             print("Zero positions recovered. Checking repo manually...")
             rows = monitor.repo.load_open_positions(limit=5000)

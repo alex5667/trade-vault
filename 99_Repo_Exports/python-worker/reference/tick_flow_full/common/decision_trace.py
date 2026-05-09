@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """
@@ -26,12 +27,12 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 # ---------------------------------------------------------------------
 # Runtime config caching (hot-path hardening)
 # ---------------------------------------------------------------------
-_CFG: Dict[str, Any] = {"loaded_mono_ms": 0.0}
+_CFG: dict[str, Any] = {"loaded_mono_ms": 0.0}
 
 
 def _mono_ms() -> float:
@@ -44,13 +45,13 @@ def _now_ms() -> int:
 
 def _get_env_bool(name: str, default: bool) -> bool:
     try:
-        v = str(os.getenv(name, "1" if default else "0") or "").strip().lower()
+        v = (os.getenv(name, "1" if default else "0") or "").strip().lower()
         return v in {"1", "true", "yes", "y", "on"}
     except Exception:
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -73,7 +74,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -84,7 +85,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -116,7 +117,7 @@ def _get_env_int(name: str, default: int) -> int:
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -139,7 +140,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -150,7 +151,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -172,7 +173,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         else:
             redis.set(key, val)
     except Exception:
-        return int(default)
+        return default
 
 
 def _get_env_float(name: str, default: float) -> float:
@@ -182,7 +183,7 @@ def _get_env_float(name: str, default: float) -> float:
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -205,7 +206,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -216,7 +217,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -238,10 +239,10 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         else:
             redis.set(key, val)
     except Exception:
-        return float(default)
+        return default
 
 
-def _cfg_refresh_if_needed() -> Dict[str, Any]:
+def _cfg_refresh_if_needed() -> dict[str, Any]:
     now = _mono_ms()
     ttl_ms = float(max(1000.0, _get_env_int("DECISION_TRACE_CFG_REFRESH_MS", 5000)))
     if (now - float(_CFG.get("loaded_mono_ms") or 0.0)) < ttl_ms:
@@ -268,7 +269,7 @@ def trace_enabled() -> bool:
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -291,7 +292,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -302,7 +303,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -346,7 +347,7 @@ def should_sample(trace_id: str, rate01: float) -> bool:
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -369,7 +370,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -380,7 +381,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -413,7 +414,7 @@ class _MsProxy:
       - passing sp.ms as "duration_ms" (later float(...) works)
     """
     __slots__ = ("_span",)
-    def __init__(self, span: "Span") -> None:
+    def __init__(self, span: Span) -> None:
         self._span = span
     def __call__(self) -> float:
         return self._span._elapsed_ms()
@@ -444,7 +445,7 @@ class Span:
         self._t1 = None  # type: ignore[assignment]
         self.ms = _MsProxy(self)
 
-    def __enter__(self) -> "Span":
+    def __enter__(self) -> Span:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -461,7 +462,7 @@ class Span:
             return 0.0
 
 
-EventDict = Dict[str, Any]
+EventDict = dict[str, Any]
 
 
 def _trim_str(v: Any, n: int = 512) -> Any:
@@ -472,7 +473,7 @@ def _trim_str(v: Any, n: int = 512) -> Any:
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -495,7 +496,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -506,7 +507,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -532,7 +533,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
     return v
 
 
-def _cap_events(events: List[EventDict], max_events: int) -> List[EventDict]:
+def _cap_events(events: list[EventDict], max_events: int) -> list[EventDict]:
     if max_events <= 0:
         return []
     if len(events) <= max_events:
@@ -551,40 +552,40 @@ class DecisionTrace:
     sid: str = ""
     symbol=""
     kind: str = ""
-    tags: Dict[str, Any] = field(default_factory=dict)
-    events: List[EventDict] = field(default_factory=list)
+    tags: dict[str, Any] = field(default_factory=dict)
+    events: list[EventDict] = field(default_factory=list)
 
     @staticmethod
-    def new(*, sid: str = "", trace_id: str = "") -> "DecisionTrace":
-        tid = str(trace_id or "").strip() or uuid.uuid4().hex
+    def new(*, sid: str = "", trace_id: str = "") -> DecisionTrace:
+        tid = (trace_id or "").strip() or uuid.uuid4().hex
         return DecisionTrace(
             trace_id=tid,
             created_ts_ms=_now_ms(),
-            sid=str(sid or ""),
+            sid=(sid or ""),
         )
 
     @staticmethod
-    def from_env(env: Dict[str, Any]) -> "DecisionTrace":
+    def from_env(env: dict[str, Any]) -> DecisionTrace:
         """
         Восстановление из envelope (retry/DLQ).
         Поддерживает env["trace"] (dict), env["trace_id"], env["trace_summary"].
         """
         try:
             tid = str(env.get("trace_id") or env.get("corr_id") or env.get("correlation_id") or "").strip()
-            sid = str(env.get("sid") or "").strip()
+            sid = (env.get("sid") or "").strip()
             tr = env.get("trace")
             if isinstance(tr, dict):
-                out = DecisionTrace.new(sid=sid, trace_id=tid or str(tr.get("trace_id") or ""))
+                out = DecisionTrace.new(sid=sid, trace_id=tid or (tr.get("trace_id") or ""))
                 out.sid = str(tr.get("sid") or sid or "")
-                out.symbol = str(tr.get("symbol") or "")
-                out.kind = str(tr.get("kind") or "")
+                out.symbol = (tr.get("symbol") or "")
+                out.kind = (tr.get("kind") or "")
                 evs = tr.get("events")
                 if isinstance(evs, list):
                     out.events = [e for e in evs if isinstance(e, dict)]
                 return out
             return DecisionTrace.new(sid=sid, trace_id=tid)
         except Exception:
-            return DecisionTrace.new(sid=str(env.get("sid") or ""), trace_id=str(env.get("trace_id") or ""))
+            return DecisionTrace.new(sid=(env.get("sid") or ""), trace_id=(env.get("trace_id") or ""))
 
     def add(
         self,
@@ -594,20 +595,20 @@ class DecisionTrace:
         ok: bool,
         veto: bool = False,
         reason_code: str = "",
-        metrics: Optional[Dict[str, Any]] = None,
-        duration_ms: Optional[float] = None,
+        metrics: dict[str, Any] | None = None,
+        duration_ms: float | None = None,
         etype: str = "gate",
-        extra: Optional[Dict[str, Any]] = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         """
         Универсальный event.
         etype: "gate" | "target" | ...
         """
         try:
-            ev: Dict[str, Any] = {
-                "type": str(etype or ""),
-                "stage": str(where or ""),
-                "name": str(name or ""),
+            ev: dict[str, Any] = {
+                "type": (etype or ""),
+                "stage": (where or ""),
+                "name": (name or ""),
                 "t_ms": _now_ms(),
             }
             if etype == "gate":
@@ -620,7 +621,7 @@ class DecisionTrace:
             else:
                 ev["ok"] = bool(ok)
                 ev["veto"] = bool(veto)
-                ev["reason_code"] = str(reason_code or "")
+                ev["reason_code"] = (reason_code or "")
 
             if duration_ms is not None:
                 try:
@@ -630,7 +631,7 @@ class DecisionTrace:
 
             if isinstance(metrics, dict) and metrics:
                 # минимальная защита от раздувания
-                safe_m: Dict[str, Any] = {}
+                safe_m: dict[str, Any] = {}
                 i = 0
                 for k, v in metrics.items():
                     if i >= 32:
@@ -650,7 +651,7 @@ class DecisionTrace:
         except Exception:
             return
 
-    def to_dict(self, *, max_events: Optional[int] = None) -> Dict[str, Any]:
+    def to_dict(self, *, max_events: int | None = None) -> dict[str, Any]:
         try:
             mx = int(max_events) if isinstance(max_events, int) and max_events > 0 else int(_cfg_refresh_if_needed().get("max_events", 400))
             evs = _cap_events([e for e in self.events if isinstance(e, dict)], mx)
@@ -667,7 +668,7 @@ class DecisionTrace:
             return {"trace_id": str(self.trace_id or ""), "sid": str(self.sid or ""), "events": []}
 
 
-def _count_for_summary(tr: Dict[str, Any]) -> Tuple[int, int, int, int, str]:
+def _count_for_summary(tr: dict[str, Any]) -> tuple[int, int, int, int, str]:
     g_ok = g_veto = t_ok = t_fail = 0
     last_veto = ""
     evs = tr.get("events")
@@ -693,7 +694,7 @@ def _count_for_summary(tr: Dict[str, Any]) -> Tuple[int, int, int, int, str]:
     return g_ok, g_veto, t_ok, t_fail, last_veto
 
 
-def make_trace_summary(trace: Union[DecisionTrace, Dict[str, Any]]) -> str:
+def make_trace_summary(trace: DecisionTrace | dict[str, Any]) -> str:
     """
     Однострочная summary для env/logs.
     Строго bounded по длине (DECISION_TRACE_SUMMARY_MAX_LEN).
@@ -705,8 +706,8 @@ def make_trace_summary(trace: Union[DecisionTrace, Dict[str, Any]]) -> str:
             d = trace.to_dict(max_events=64)
         else:
             d = trace if isinstance(trace, dict) else {}
-        tid = str(d.get("trace_id") or "")
-        sid = str(d.get("sid") or "")
+        tid = (d.get("trace_id") or "")
+        sid = (d.get("sid") or "")
         g_ok, g_veto, t_ok, t_fail, last_veto = _count_for_summary(d)
         s = f"tid={tid} sid={sid} g_ok={g_ok} g_veto={g_veto} t_ok={t_ok} t_fail={t_fail} last_veto={last_veto}"
         s = s.replace("\n", " ").replace("\r", " ").strip()
@@ -717,7 +718,7 @@ def make_trace_summary(trace: Union[DecisionTrace, Dict[str, Any]]) -> str:
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -740,7 +741,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -751,7 +752,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -795,7 +796,7 @@ def ensure_trace(ctx: Any, *, sid: str = "", trace_id: str = "") -> DecisionTrac
         pass
 
     # create new
-    tid = str(trace_id or "").strip()
+    tid = (trace_id or "").strip()
     if not tid:
         try:
             tid = str(getattr(ctx, "trace_id", "") or getattr(ctx, "corr_id", "") or "").strip()
@@ -803,18 +804,18 @@ def ensure_trace(ctx: Any, *, sid: str = "", trace_id: str = "") -> DecisionTrac
             tid = ""
     tr2 = DecisionTrace.new(sid=sid, trace_id=tid)
     try:
-        setattr(ctx, "_decision_trace_obj", tr2)
+        ctx._decision_trace_obj = tr2
     except Exception:
         pass
     try:
-        setattr(ctx, "trace_id", tr2.trace_id)
-        setattr(ctx, "corr_id", tr2.trace_id)
+        ctx.trace_id = tr2.trace_id
+        ctx.corr_id = tr2.trace_id
     except Exception:
         pass
     return tr2
 
 
-def get_trace_obj(ctx: Any) -> Optional[DecisionTrace]:
+def get_trace_obj(ctx: Any) -> DecisionTrace | None:
     """Return DecisionTrace object if attached to ctx (fail-open)."""
     try:
         tr = getattr(ctx, "_decision_trace_obj", None)
@@ -823,7 +824,7 @@ def get_trace_obj(ctx: Any) -> Optional[DecisionTrace]:
         return None
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     JSON-safe dict for FULL trace (events) stored in sidecar.
     Must NEVER be inserted into tradeable envelope.
@@ -837,7 +838,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def set_summary_fields(env: Dict[str, Any], tr: Optional[Union[DecisionTrace, Dict[str, Any]]]) -> None:
+def set_summary_fields(env: dict[str, Any], tr: DecisionTrace | dict[str, Any] | None) -> None:
     """
     В env кладём только:
       - trace_id / corr_id
@@ -850,7 +851,7 @@ def set_summary_fields(env: Dict[str, Any], tr: Optional[Union[DecisionTrace, Di
         if isinstance(tr, DecisionTrace):
             tid = str(tr.trace_id or "")
         else:
-            tid = str(tr.get("trace_id") or "") if isinstance(tr, dict) else ""
+            tid = (tr.get("trace_id") or "") if isinstance(tr, dict) else ""
         if tid:
             env["trace_id"] = tid
             env["corr_id"] = tid  # back-compat alias
@@ -859,7 +860,7 @@ def set_summary_fields(env: Dict[str, Any], tr: Optional[Union[DecisionTrace, Di
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -882,7 +883,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -893,7 +894,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -919,11 +920,11 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
 
 
 def to_dict_bounded(
-    trace: Union[DecisionTrace, Dict[str, Any], None],
+    trace: DecisionTrace | dict[str, Any] | None,
     *,
     max_events: int = 64,
     max_bytes: int = 16_000,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Bounded trace dict for retry/DLQ context.
     Гарантия: JSON <= max_bytes (best-effort), events <= max_events.
@@ -963,7 +964,7 @@ def to_dict_bounded(
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -986,7 +987,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -997,7 +998,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -1024,7 +1025,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
     return d
 
 
-def build_sidecar_meta(trace: Union[DecisionTrace, Dict[str, Any]]) -> Dict[str, Any]:
+def build_sidecar_meta(trace: DecisionTrace | dict[str, Any]) -> dict[str, Any]:
     """
     Canonical sidecar meta (diagnostics-only):
       {
@@ -1044,9 +1045,9 @@ def build_sidecar_meta(trace: Union[DecisionTrace, Dict[str, Any]]) -> Dict[str,
         else:
             d = trace if isinstance(trace, dict) else {}
 
-        meta: Dict[str, Any] = {
+        meta: dict[str, Any] = {
             "schema": "decision_trace_sidecar:v1",
-            "trace_id": str(d.get("trace_id") or ""),
+            "trace_id": (d.get("trace_id") or ""),
             "trace_summary": make_trace_summary(d),
             # COMPAT: dispatcher historically expects "trace" key.
             # Keep BOTH to avoid breaking mixed deployments/tests.
@@ -1074,7 +1075,7 @@ def build_sidecar_meta(trace: Union[DecisionTrace, Dict[str, Any]]) -> Dict[str,
     except Exception:
         return {}
 
-def _sanitize_event_dict(ev: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_event_dict(ev: dict[str, Any]) -> dict[str, Any]:
     """
     HARDENING (sidecar patch):
       - bounded keys count
@@ -1083,7 +1084,7 @@ def _sanitize_event_dict(ev: Dict[str, Any]) -> Dict[str, Any]:
     FAIL-OPEN.
     """
     try:
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         # keep predictable subset first (common keys for target/gate)
         preferred = (
             "type","stage","name","ok","passed","veto","reason_code",
@@ -1101,7 +1102,7 @@ def _sanitize_event_dict(ev: Dict[str, Any]) -> Dict[str, Any]:
             if i >= 24:
                 break
             if ks == "metrics" and isinstance(v, dict):
-                mm: Dict[str, Any] = {}
+                mm: dict[str, Any] = {}
                 j = 0
                 for mk, mv in v.items():
                     if j >= 32:
@@ -1116,7 +1117,7 @@ def _sanitize_event_dict(ev: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         return {}
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -1139,7 +1140,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -1150,7 +1151,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -1176,7 +1177,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
 
 
 def env_trace_append(
-    env: Dict[str, Any],
+    env: dict[str, Any],
     *,
     trace_id: str,
     stage: str,
@@ -1184,8 +1185,8 @@ def env_trace_append(
     passed: bool,
     veto: bool,
     reason_code: str = "",
-    metrics: Optional[Dict[str, Any]] = None,
-    duration_ms: Optional[float] = None,
+    metrics: dict[str, Any] | None = None,
+    duration_ms: float | None = None,
 ) -> None:
     """
     Dispatcher-friendly helper: дописывает event в env["trace"] (bounded later).
@@ -1196,16 +1197,16 @@ def env_trace_append(
     try:
         tr = env.get("trace")
         if not isinstance(tr, dict):
-            tr = {"trace_id": str(trace_id or ""), "sid": str(env.get("sid") or ""), "events": []}
+            tr = {"trace_id": (trace_id or ""), "sid": (env.get("sid") or ""), "events": []}
             env["trace"] = tr
         evs = tr.get("events")
         if not isinstance(evs, list):
             evs = []
             tr["events"] = evs
-        ev: Dict[str, Any] = {
+        ev: dict[str, Any] = {
             "type": "gate",
-            "stage": str(stage or ""),
-            "name": str(name or ""),
+            "stage": (stage or ""),
+            "name": (name or ""),
             "passed": bool(passed) and (not bool(veto)),
             "veto": bool(veto),
             "reason_code": str(reason_code or ("OK" if passed else "VETO")),
@@ -1220,7 +1221,7 @@ def env_trace_append(
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -1243,7 +1244,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -1254,7 +1255,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -1280,14 +1281,14 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
 
 
 def append_env_trace_event(
-    env: Dict[str, Any],
+    env: dict[str, Any],
     *,
     stage: str,
     name: str,
     passed: bool,
     veto: bool,
     reason_code: str = "",
-    metrics: Optional[Dict[str, Any]] = None,
+    metrics: dict[str, Any] | None = None,
 ) -> None:
     # alias for existing call sites
     try:
@@ -1306,7 +1307,7 @@ def append_env_trace_event(
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -1329,7 +1330,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -1340,7 +1341,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -1373,8 +1374,8 @@ def trace_gate(
     passed: bool,
     veto: bool,
     reason_code: str = "",
-    metrics: Optional[Dict[str, Any]] = None,
-    duration_ms: Optional[float] = None,
+    metrics: dict[str, Any] | None = None,
+    duration_ms: float | None = None,
 ) -> None:
     if not trace_enabled():
         return
@@ -1394,7 +1395,7 @@ def trace_gate(
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -1417,7 +1418,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -1428,7 +1429,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -1460,8 +1461,8 @@ def trace_target(
     target: str,
     ok: bool,
     reason_code: str = "",
-    metrics: Optional[Dict[str, Any]] = None,
-    duration_ms: Optional[float] = None,
+    metrics: dict[str, Any] | None = None,
+    duration_ms: float | None = None,
 ) -> None:
     if not trace_enabled():
         return
@@ -1482,7 +1483,7 @@ def trace_target(
         return
 
 
-def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
+def serialize_trace_from_ctx(ctx: Any) -> dict[str, Any]:
     """
     Backward-compatible helper.
     Some older call sites import serialize_trace_from_ctx(...) from this module.
@@ -1505,7 +1506,7 @@ def serialize_trace_from_ctx(ctx: Any) -> Dict[str, Any]:
     return {}
 
 
-def patch_trace_sidecar_obj(sidecar: Dict[str, Any], patch_events: List[Dict[str, Any]]) -> Dict[str, Any]:
+def patch_trace_sidecar_obj(sidecar: dict[str, Any], patch_events: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Pure helper for tests + dispatcher:
       - merges dispatcher patch_events into trace events
@@ -1541,7 +1542,7 @@ def patch_trace_sidecar_obj(sidecar: Dict[str, Any], patch_events: List[Dict[str
             if not isinstance(e, dict):
                 continue
             # sanitize only dispatcher target events; keep others as-is (but still bounded by mx)
-            if str(e.get("type") or "") == "target" and str(e.get("stage") or "") == "dispatcher":
+            if (e.get("type") or "") == "target" and (e.get("stage") or "") == "dispatcher":
                 se = _sanitize_target_patch_event(e)
                 eid = _target_event_eid(se) if dedup_on else ""
                 if eid and eid in seen:
@@ -1578,7 +1579,7 @@ def patch_trace_sidecar_obj(sidecar: Dict[str, Any], patch_events: List[Dict[str
         return dict(sidecar or {})
 
 
-def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[Dict[str, Any]]) -> None:
+def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: list[dict[str, Any]]) -> None:
     """
     Best-effort Redis merge for sidecar key OUTBOX_META_PREFIX+sid.
     Fail-open: never raises.
@@ -1589,7 +1590,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         raw = redis.get(key)
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8", "ignore")
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if isinstance(raw, str) and raw:
             try:
                 j = json.loads(raw)
@@ -1614,7 +1615,7 @@ def patch_trace_sidecar_best_effort(redis: Any, *, key: str, patch_events: List[
         return
 
 
-def _target_event_eid(ev: Dict[str, Any]) -> str:
+def _target_event_eid(ev: dict[str, Any]) -> str:
     """
     Deterministic id for dispatcher target events to prevent sidecar inflation.
 
@@ -1627,10 +1628,10 @@ def _target_event_eid(ev: Dict[str, Any]) -> str:
       - we dedup by (stage,target,attempt,ok) which is stable and sufficient
     """
     try:
-        stage = str(ev.get("stage") or "")
+        stage = (ev.get("stage") or "")
         if stage != "dispatcher":
             return ""
-        et = str(ev.get("type") or "")
+        et = (ev.get("type") or "")
         if et != "target":
             return ""
         # some older code used "name" instead of "target"
@@ -1651,21 +1652,21 @@ def _target_event_eid(ev: Dict[str, Any]) -> str:
         return ""
 
 
-def _sanitize_target_patch_event(ev: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_target_patch_event(ev: dict[str, Any]) -> dict[str, Any]:
     """
     Sidecar-safe target event sanitizer.
     Keeps only known keys (bounded), trims strings.
     FAIL-OPEN.
     """
     try:
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         out["type"] = "target"
-        out["stage"] = str(ev.get("stage") or "dispatcher")
+        out["stage"] = (ev.get("stage") or "dispatcher")
         # prefer "target", but allow "name" for back-compat
         tgt = ev.get("target")
         if tgt is None:
             tgt = ev.get("name")
-        out["target"] = str(tgt or "")
+        out["target"] = (tgt or "")
         out["ok"] = bool(ev.get("ok", False))
         # reason_code / err are optional in your contract
         if "reason_code" in ev:
@@ -1693,7 +1694,7 @@ def _sanitize_target_patch_event(ev: Dict[str, Any]) -> Dict[str, Any]:
 
 # --- Compatibility / Test Helpers (Restored) ---
 
-def build_trace_summary(tr: Union[DecisionTrace, Dict[str, Any]]) -> str:
+def build_trace_summary(tr: DecisionTrace | dict[str, Any]) -> str:
     return make_trace_summary(tr)
 
 def trace_gate(
@@ -1704,8 +1705,8 @@ def trace_gate(
     passed: bool,
     veto: bool = False,
     reason_code: str = "",
-    metrics: Optional[Dict[str, Any]] = None,
-    duration_ms: Optional[float] = None,
+    metrics: dict[str, Any] | None = None,
+    duration_ms: float | None = None,
 ) -> None:
     ensure_trace(ctx).add(
         where=stage,
@@ -1726,8 +1727,8 @@ def emit_trace_event(
     ok: bool,
     veto: bool = False,
     reason_code: str = "",
-    metrics: Optional[Dict[str, Any]] = None,
-    duration_ms: Optional[float] = None,
+    metrics: dict[str, Any] | None = None,
+    duration_ms: float | None = None,
     etype: str = "generic",
 ) -> None:
     ensure_trace(ctx).add(
@@ -1742,9 +1743,9 @@ def emit_trace_event(
     )
 
 def merge_trace_events(
-    trace: Dict[str, Any],
-    patch_events: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    trace: dict[str, Any],
+    patch_events: list[dict[str, Any]],
+) -> dict[str, Any]:
     # Simple merge for tests
     out = dict(trace)
     evs = list(out.get("events", []))
@@ -1757,11 +1758,11 @@ def merge_trace_events(
     out["events"] = evs
     return out
 
-def build_sidecar_meta(ctx: Any, sid: str) -> Dict[str, Any]:
+def build_sidecar_meta(ctx: Any, sid: str) -> dict[str, Any]:
     # Placeholder for import compatibility
     return {}
 
-def patch_trace_sidecar_obj(obj: Dict[str, Any], patch: List[Dict[str, Any]]) -> Dict[str, Any]:
+def patch_trace_sidecar_obj(obj: dict[str, Any], patch: list[dict[str, Any]]) -> dict[str, Any]:
     # Restoring this if it was missing or private
     # It merges patch events into obj["events"]
     out = dict(obj)

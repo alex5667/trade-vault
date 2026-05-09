@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+
 from prometheus_client import Gauge, start_http_server
 
 try:
@@ -18,14 +19,14 @@ def _to_float(v, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _to_int(v, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _redis_client():
@@ -74,7 +75,7 @@ MODES = ("off", "shadow", "tighten_only", "replace_score_veto")
 
 
 def _publish_mode(gauge, selected: str) -> None:
-    selected = str(selected or "").strip().lower()
+    selected = (selected or "").strip().lower()
     for m in MODES:
         gauge.labels(mode=m).set(1.0 if m == selected else 0.0)
 
@@ -114,8 +115,8 @@ def main() -> None:  # pragma: no cover
         RUNTIME_RESTART_COUNT.set(_to_float(runtime_src.get("restart_count", runtime_src.get("runtime_restart_count", 0.0)), 0.0))
         RUNTIME_DEFER_ACTIVE.set(_to_float(runtime_src.get("defer_active", runtime_src.get("runtime_defer_active", 0.0)), 0.0))
         RUNTIME_COOLDOWN_REMAINING.set(_to_float(runtime_src.get("cooldown_remaining_seconds", runtime_src.get("runtime_cooldown_remaining_seconds", 0.0)), 0.0))
-        fp = str(runtime_src.get("active_overlay_fingerprint", runtime_src.get("runtime_active_overlay_fingerprint", "")) or "")[:128]
-        rk = str(runtime_src.get("last_restart_reason_kind", runtime_src.get("runtime_last_restart_reason_kind", "unknown")) or "unknown")[:64]
+        fp = (runtime_src.get("active_overlay_fingerprint", runtime_src.get("runtime_active_overlay_fingerprint", "")) or "")[:128]
+        rk = (runtime_src.get("last_restart_reason_kind", runtime_src.get("runtime_last_restart_reason_kind", "unknown")) or "unknown")[:64]
         RUNTIME_INFO.labels(active_overlay_fingerprint=fp, last_restart_reason_kind=rk).set(1.0)
         time.sleep(interval_s)
 

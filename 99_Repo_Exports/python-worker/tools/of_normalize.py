@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import argparse, json
-from typing import Any, Dict, List
-
+import argparse
+import json
+from typing import Any
 
 KEEP_EVIDENCE = {
     "delta_z", "weak_progress", "sweep_recent", "reclaim_recent",
@@ -13,9 +13,9 @@ KEEP_EVIDENCE = {
 }
 
 
-def load_ndjson(path: str) -> List[Dict[str, Any]]:
+def load_ndjson(path: str) -> list[dict[str, Any]]:
     out = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -31,7 +31,7 @@ def norm_float(x: Any, nd: int = 4) -> Any:
         return x
 
 
-def normalize_of_confirm(payload: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_of_confirm(payload: dict[str, Any]) -> dict[str, Any]:
     e = payload.get("evidence") or {}
     e2 = {}
     for k in KEEP_EVIDENCE:
@@ -39,15 +39,15 @@ def normalize_of_confirm(payload: Dict[str, Any]) -> Dict[str, Any]:
             e2[k] = norm_float(e[k], 4) if isinstance(e[k], (float, int)) else e[k]
     out = {
         "v": int(payload.get("v", payload.get("version", 0)) or 0),
-        "symbol": str(payload.get("symbol", "")),
+        "symbol": (payload.get("symbol", "")),
         "ts_ms": int(payload.get("ts_ms", 0) or 0),
-        "direction": str(payload.get("direction", "")),
-        "scenario": str(payload.get("scenario", "")),
+        "direction": (payload.get("direction", "")),
+        "scenario": (payload.get("scenario", "")),
         "ok": int(payload.get("ok", 0) or 0),
         "have": int(payload.get("have", 0) or 0),
         "need": int(payload.get("need", 0) or 0),
         "gate_bits": int(payload.get("gate_bits", 0) or 0),
-        "reason": str(payload.get("reason", "")),
+        "reason": (payload.get("reason", "")),
         "score": norm_float(payload.get("score", 0.0), 4),
         "evidence": e2,
     }

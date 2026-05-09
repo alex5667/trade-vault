@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 ML Confirm Config Watchdog.
 
@@ -18,16 +20,15 @@ ENV:
     при каждом restore пишем XADD notify:telegram предупреждение.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import logging
 import os
 import sys
 import time
-from typing import Optional
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,7 +42,7 @@ def _now_ms() -> int:
 
 
 def _notify(r: redis.Redis, text: str) -> None:
-    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     try:
         r.xadd(
             stream,
@@ -100,7 +101,7 @@ def run_watchdog_cycle(
     champion_key: str,
     mode: str,
     dry_run: bool = False,
-) -> Optional[bool]:
+) -> bool | None:
     """
     Run one watchdog cycle.
 

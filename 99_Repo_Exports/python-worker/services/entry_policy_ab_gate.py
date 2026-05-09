@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 def regime_group(regime: str) -> str:
@@ -12,7 +11,7 @@ def regime_group(regime: str) -> str:
     return "thin" if rg in ("thin", "news", "illiquid") else "default"
 
 
-def norm_arm(x: Optional[str]) -> str:
+def norm_arm(x: str | None) -> str:
     """
     Normalizes arm to A/B/C. Default is A.
     """
@@ -28,7 +27,7 @@ class ActiveArmDecision:
     reason: str
 
 
-def decide_active_arm(*, cand_arm: str, active_arm_value: Optional[str]) -> ActiveArmDecision:
+def decide_active_arm(*, cand_arm: str, active_arm_value: str | None) -> ActiveArmDecision:
     """
     If active_arm_value is missing/unparseable -> fail-open (do not apply gate).
     Else enforce that only active arm can emit real entry.
@@ -45,6 +44,6 @@ def decide_active_arm(*, cand_arm: str, active_arm_value: Optional[str]) -> Acti
         # shadow_due_to_inactive = bool(act.apply and (not act.is_active))
         # If apply=False, shadow_due_to_inactive is False. So it passes (unless other shadow logic exists).
         return ActiveArmDecision(apply=False, active_arm="NA", is_active=True, reason="NO_ACTIVE_ARM_KEY")
-    
+
     aa = av
     return ActiveArmDecision(apply=True, active_arm=aa, is_active=(ca == aa), reason="OK" if (ca == aa) else "INACTIVE_ARM")

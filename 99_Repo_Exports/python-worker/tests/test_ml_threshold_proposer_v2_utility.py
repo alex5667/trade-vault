@@ -1,28 +1,26 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Tests for ML threshold proposer v2 utility (v7: utility + drift-guard)."""
 
 import json
 import os
 import time
 from unittest.mock import MagicMock, patch
-from typing import Any, Dict, List
-
-import pytest
-import redis
 
 from tools.ml_threshold_proposer_v2_utility import (
-    now_ms,
-    notify,
-    make_bundle_hset,
-    write_bundle,
     _f,
     _i,
-    filter_rows,
-    ece,
     brier,
-    selected_stats,
+    ece,
+    filter_rows,
     impact,
     main,
+    make_bundle_hset,
+    notify,
+    now_ms,
+    selected_stats,
+    write_bundle,
 )
 
 
@@ -41,11 +39,11 @@ def test_notify(mocker):
     mock_redis = MagicMock()
     mock_xadd = MagicMock()
     mock_redis.xadd = mock_xadd
-    
+
     notify(mock_redis, "Test message")
     assert mock_xadd.called
     call_args = mock_xadd.call_args
-    assert call_args[0][0] == os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    assert call_args[0][0] == os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     assert "text" in call_args[0][1]
     assert call_args[0][1]["text"] == "Test message"
 
@@ -55,7 +53,7 @@ def test_notify_with_buttons(mocker):
     mock_redis = MagicMock()
     mock_xadd = MagicMock()
     mock_redis.xadd = mock_xadd
-    
+
     buttons = [[{"text": "Test", "callback": "test:callback"}]]
     notify(mock_redis, "Test", buttons)
     call_args = mock_xadd.call_args
@@ -87,7 +85,7 @@ def test_write_bundle():
     mock_redis = MagicMock()
     mock_set = MagicMock()
     mock_redis.set = mock_set
-    
+
     write_bundle(mock_redis, "test_bid", {"id": "test_bid"}, 3600)
     assert mock_set.call_count == 2
     # Check bundle storage
@@ -191,7 +189,7 @@ def test_main_health_gate_fails(mocker):
     mock_get = MagicMock(return_value=None)
     mock_redis.hgetall = mock_hgetall
     mock_redis.get = mock_get
-    
+
     with patch("tools.ml_threshold_proposer_v2_utility.redis.Redis.from_url", return_value=mock_redis):
         with patch("tools.ml_threshold_proposer_v2_utility.read_recent_stream", return_value=[]):
             with patch("tools.ml_threshold_proposer_v2_utility.agg_health_ml_confirm", return_value={"n": 0}):
@@ -207,10 +205,10 @@ def test_main_no_proposals(mocker):
     mock_get = MagicMock(return_value=None)
     mock_redis.hgetall = mock_hgetall
     mock_redis.get = mock_get
-    
+
     def mock_health_ok():
         return {"n": 200, "missing_rate": 0.01, "err_rate": 0.005, "lat_p99_ms": 5.0}
-    
+
     with patch("tools.ml_threshold_proposer_v2_utility.redis.Redis.from_url", return_value=mock_redis):
         with patch("tools.ml_threshold_proposer_v2_utility.read_recent_stream", return_value=[]):
             with patch("tools.ml_threshold_proposer_v2_utility.agg_health_ml_confirm", return_value=mock_health_ok()):

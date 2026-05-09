@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
 
 """Backfill execution journal tables from Redis `orders:exec` stream.
 
@@ -22,8 +23,9 @@ Design notes
 import argparse
 import json
 import os
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -57,12 +59,12 @@ class ExecSnapshotRow:
 class ProtectionRefsRow:
     sid: str
     symbol: str
-    sl_algo_id: Optional[int]
+    sl_algo_id: int | None
     sl_client_algo_id: str
-    tp1_algo_id: Optional[int]
-    tp2_algo_id: Optional[int]
-    tp3_algo_id: Optional[int]
-    trail_algo_id: Optional[int]
+    tp1_algo_id: int | None
+    tp2_algo_id: int | None
+    tp3_algo_id: int | None
+    trail_algo_id: int | None
     trail_client_algo_id: str
     updated_at_ms: int
 
@@ -71,23 +73,23 @@ def _i(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
-def parse_exec_stream_entry(stream_id: str, fields: Dict[str, Any]) -> ExecEventRow:
+def parse_exec_stream_entry(stream_id: str, fields: dict[str, Any]) -> ExecEventRow:
     payload = {str(k): v for k, v in dict(fields or {}).items()}
     return ExecEventRow(
         stream_id=str(stream_id),
-        sid=str(payload.get("sid") or ""),
-        symbol=str(payload.get("symbol") or ""),
+        sid=(payload.get("sid") or ""),
+        symbol=(payload.get("symbol") or ""),
         event_type=str(payload.get("event_type") or payload.get("action") or "event"),
         event_ts_ms=_i(payload.get("ts_ms") or 0),
         payload_jsonb=json.dumps(payload, ensure_ascii=False, default=str),
     )
 
 
-def derive_snapshot_rows(events: Iterable[ExecEventRow]) -> Tuple[List[ExecSnapshotRow], List[ProtectionRefsRow]]:
-    latest_by_sid: Dict[str, Dict[str, Any]] = {}
+def derive_snapshot_rows(events: Iterable[ExecEventRow]) -> tuple[list[ExecSnapshotRow], list[ProtectionRefsRow]]:
+    latest_by_sid: dict[str, dict[str, Any]] = {}
     for ev in events:
         try:
             payload = json.loads(ev.payload_jsonb)
@@ -109,21 +111,21 @@ def derive_snapshot_rows(events: Iterable[ExecEventRow]) -> Tuple[List[ExecSnaps
         merged["updated_at_ms"] = max(int(merged.get("updated_at_ms") or 0), int(ev.event_ts_ms or 0))
         latest_by_sid[sid] = merged
 
-    snapshots: List[ExecSnapshotRow] = []
-    refs: List[ProtectionRefsRow] = []
+    snapshots: list[ExecSnapshotRow] = []
+    refs: list[ProtectionRefsRow] = []
     for sid, doc in latest_by_sid.items():
         snapshots.append(
             ExecSnapshotRow(
                 sid=sid,
-                symbol=str(doc.get("symbol") or ""),
-                action=str(doc.get("action") or ""),
-                status=str(doc.get("status") or ""),
-                fsm_state=str(doc.get("fsm_state") or ""),
-                execution_policy=str(doc.get("execution_policy") or ""),
-                venue=str(doc.get("venue") or "binance"),
-                position_mode=str(doc.get("position_mode") or ""),
-                position_side=str(doc.get("position_side") or ""),
-                working_type_policy=str(doc.get("working_type_policy") or ""),
+                symbol=(doc.get("symbol") or ""),
+                action=(doc.get("action") or ""),
+                status=(doc.get("status") or ""),
+                fsm_state=(doc.get("fsm_state") or ""),
+                execution_policy=(doc.get("execution_policy") or ""),
+                venue=(doc.get("venue") or "binance"),
+                position_mode=(doc.get("position_mode") or ""),
+                position_side=(doc.get("position_side") or ""),
+                working_type_policy=(doc.get("working_type_policy") or ""),
                 state_jsonb=json.dumps(doc, ensure_ascii=False, default=str),
                 created_at_ms=_i(doc.get("created_at_ms") or doc.get("ts_ms") or 0),
                 updated_at_ms=_i(doc.get("updated_at_ms") or doc.get("ts_ms") or 0),
@@ -132,14 +134,14 @@ def derive_snapshot_rows(events: Iterable[ExecEventRow]) -> Tuple[List[ExecSnaps
         refs.append(
             ProtectionRefsRow(
                 sid=sid,
-                symbol=str(doc.get("symbol") or ""),
+                symbol=(doc.get("symbol") or ""),
                 sl_algo_id=_i(doc.get("sl_algo_id"), 0) or None,
-                sl_client_algo_id=str(doc.get("sl_client_algo_id") or ""),
+                sl_client_algo_id=(doc.get("sl_client_algo_id") or ""),
                 tp1_algo_id=_i(doc.get("tp1_algo_id"), 0) or None,
                 tp2_algo_id=_i(doc.get("tp2_algo_id"), 0) or None,
                 tp3_algo_id=_i(doc.get("tp3_algo_id"), 0) or None,
                 trail_algo_id=_i(doc.get("trail_algo_id"), 0) or None,
-                trail_client_algo_id=str(doc.get("trail_client_algo_id") or ""),
+                trail_client_algo_id=(doc.get("trail_client_algo_id") or ""),
                 updated_at_ms=_i(doc.get("updated_at_ms") or doc.get("ts_ms") or 0),
             )
         )
@@ -222,9 +224,9 @@ def _write_pg(conn: Any, events: Iterable[ExecEventRow], snapshots: Iterable[Exe
                 )
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Backfill execution journal SQL tables from Redis orders:exec stream.")
-    parser.add_argument("--stream", default=os.getenv("EXEC_STREAM", "orders:exec"))
+    parser.add_argument("--stream", default=os.getenv("EXEC_STREAM", RS.ORDERS_EXEC))
     parser.add_argument("--journal-dsn", default=os.getenv("EXECUTION_JOURNAL_DSN", ""))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)

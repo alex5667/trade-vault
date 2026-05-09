@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal
 
 Status = Literal["active", "degraded", "disabled"]
 
@@ -20,6 +20,6 @@ class RegimeState:
     dd_r_window: float = 0.0
     trades_window: int = 0
 
-    disable_until: Optional[datetime] = None
+    disable_until: datetime | None = None
     threshold_mult: float = 1.0
     reason: str = ""

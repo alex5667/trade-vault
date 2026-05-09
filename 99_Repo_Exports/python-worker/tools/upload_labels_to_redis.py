@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+
 import redis
 
 # Utility to bridge manual labeling and training steps
@@ -21,25 +22,25 @@ def main() -> None:
         return
 
     r = redis.Redis.from_url(args.redis_url, decode_responses=True)
-    
+
     count = 0
-    with open(args.path, "r", encoding="utf-8") as f:
+    with open(args.path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            
+
             # Ensure it's valid JSON
             try:
                 json.loads(line)
             except Exception:
                 print(f"WARNING: Skipping invalid JSON line: {line[:50]}...")
                 continue
-                
+
             # Stream expects 'payload' field as per services.tb_labeler_worker_v10_1
             r.xadd(args.stream, {"payload": line}, maxlen=args.maxlen, approximate=True)
             count += 1
-            
+
     print(f"✅ Successfully uploaded {count} labels to Redis stream: {args.stream}")
 
 if __name__ == "__main__":

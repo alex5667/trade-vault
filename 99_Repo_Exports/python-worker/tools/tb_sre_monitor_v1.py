@@ -1,23 +1,24 @@
 # python-worker/tools/tb_sre_monitor_v1.py
 
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import sys
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
 import requests
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
 OF_INPUTS_GROUP = os.getenv("OF_INPUTS_GROUP") or os.getenv("TB_INPUTS_GROUP") or "tb-labeler"
 
 TB_LABELS_STREAM = os.getenv("TB_LABELS_STREAM", "labels:tb")
@@ -28,7 +29,7 @@ TB_LAST_ERR_TS_MS_KEY = os.getenv("TB_LAST_ERR_TS_MS_KEY", "tb:last_err_ts_ms")
 def _parse_stream_id(id_: Any) -> int:
     if isinstance(id_, bytes):
         id_ = id_.decode("utf-8", "ignore")
-    s = str(id_ or "0-0")
+    s = (id_ or "0-0")
     try:
         a, _ = s.split("-", 1)
         return int(a)
@@ -81,7 +82,7 @@ def main() -> int:
         return 0
 
     # compute group lag/pending
-    bad: Dict[str, Any] = {}
+    bad: dict[str, Any] = {}
     try:
         s_info = r.xinfo_stream(OF_INPUTS_STREAM)
         last_id = s_info.get("last-generated-id") or s_info.get("last_generated_id") or b"0-0"
@@ -129,10 +130,8 @@ def main() -> int:
     text = "TB Labeler SRE alert:\n" + json.dumps(bad, ensure_ascii=False)
     _send_telegram(text, dry_run=args.dry_run)
 
-    try:
+    with contextlib.suppress(Exception):
         r.setex(cooldown_key, args.cooldown_sec, str(now))
-    except Exception:
-        pass
     return 2
 
 

@@ -1,15 +1,18 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
 
 from common.ml_labeling import compute_y_and_r_from_closed
 from common.redis_errors import retry_redis_operation
+from core.redis_keys import STREAM_RETENTION
+from core.redis_keys import RedisStreams as RS
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def now_ms() -> int:
@@ -40,13 +43,13 @@ def _as_str(x: Any) -> str:
         return ""
 
 
-def get_bucket_from_dec(dec: Dict[str, Any]) -> str:
+def get_bucket_from_dec(dec: dict[str, Any]) -> str:
     """Extract bucket from decision cache, default to 'other'."""
     b = _as_str(dec.get("bucket") or "").lower()
     return b if b else "other"
 
 
-def load_decision(r: redis.Redis, sid: str) -> Optional[Dict[str, Any]]:
+def load_decision(r: redis.Redis, sid: str) -> dict[str, Any] | None:
     """Load ML decision cache from Redis key ml:dec:{sid}."""
     raw = r.get(f"ml:dec:{sid}")
     if not raw:
@@ -58,7 +61,7 @@ def load_decision(r: redis.Redis, sid: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _emit_aux_metric(r: redis.Redis, kind: str, fields: Dict[str, Any]) -> None:
+def _emit_aux_metric(r: redis.Redis, kind: str, fields: dict[str, Any]) -> None:
     try:
         payload = {"ts_ms": str(now_ms()), "kind": str(kind)}
         payload.update({k: _as_str(v) for k, v in fields.items() if v is not None})
@@ -109,7 +112,7 @@ def main() -> None:
     count = int(os.getenv("ML_OUTCOME_COUNT", "200") or 200)
 
     r_min = float(os.getenv("ML_OUTCOME_R_MIN", "0.50") or 0.50)
-    emit_missing = str(os.getenv("ML_OUTCOME_EMIT_MISSING", "0") or "0").strip() == "1"
+    emit_missing = (os.getenv("ML_OUTCOME_EMIT_MISSING", "0") or "0").strip() == "1"
     missing_ttl = int(os.getenv("ML_OUTCOME_MISSING_DEDUP_TTL_SEC", "3600") or 3600)
 
     # Ensure consumer group exists
@@ -149,27 +152,23 @@ def main() -> None:
                 et = _as_str(fields.get("event_type") or "").upper()
                 if et and et != "POSITION_CLOSED":
                     skipped_total += 1
-                    try:
+                    with contextlib.suppress(Exception):
                         retry_redis_operation(
                             operation=lambda: r.xack(src_stream, group, msg_id),
                             operation_name="xack_skipped",
                             max_retries=3,
                         )
-                    except Exception:
-                        pass
                     continue
 
                 sid = _as_str(fields.get("sid") or "")
                 if not sid:
                     skipped_total += 1
-                    try:
+                    with contextlib.suppress(Exception):
                         retry_redis_operation(
                             operation=lambda: r.xack(src_stream, group, msg_id),
                             operation_name="xack_no_sid",
                             max_retries=3,
                         )
-                    except Exception:
-                        pass
                     continue
 
                 symbol = _as_str(fields.get("symbol") or "").upper()
@@ -197,14 +196,12 @@ def main() -> None:
                         pass
 
                     if not emit_missing:
-                        try:
+                        with contextlib.suppress(Exception):
                             retry_redis_operation(
                                 operation=lambda: r.xack(src_stream, group, msg_id),
                                 operation_name="xack_missing",
                                 max_retries=3,
                             )
-                        except Exception:
-                            pass
                         continue
 
                 # Extract decision fields (or sentinels)
@@ -240,23 +237,19 @@ def main() -> None:
                     if model_ver:
                         out["model_ver"] = _as_str(model_ver)
 
-                try:
+                with contextlib.suppress(Exception):
                     retry_redis_operation(
-                        operation=lambda: r.xadd(out_stream, out, maxlen=700000, approximate=True),
+                        operation=lambda: r.xadd(out_stream, out, maxlen=STREAM_RETENTION.get(out_stream, STREAM_RETENTION[RS.ML_OUTCOME_METRICS]), approximate=True),
                         operation_name="xadd_outcome",
                         max_retries=5,
                     )
-                except Exception:
-                    pass
 
-                try:
+                with contextlib.suppress(Exception):
                     retry_redis_operation(
                         operation=lambda: r.xack(src_stream, group, msg_id),
                         operation_name="xack_success",
                         max_retries=5,
                     )
-                except Exception:
-                    pass
 
                 processed_total += 1
 

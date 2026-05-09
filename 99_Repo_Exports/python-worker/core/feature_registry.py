@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Feature Registry — единый источник правды для набора и порядка ML-фич.
 
 Цель: исключить «column drift» между датасетами, обучением и продом.
@@ -49,10 +50,9 @@ def _check_schema_deprecation(ver: str | int) -> None:
 
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
 
-def _sha256_16(items: List[str]) -> str:
+def _sha256_16(items: list[str]) -> str:
     """16-символьный SHA-256 от упорядоченного списка строк — короткий хэш для логов.
 
     Используется в train_edge_stack_v1_oof для feature_cols_hash в артефакте модели.
@@ -80,12 +80,12 @@ class FeatureSchemaInfo:
     """
 
     ver: str
-    feature_names: List[str]
-    column_names: List[str]
+    feature_names: list[str]
+    column_names: list[str]
     schema_hash: str
 
     # Удобный метод: dict для сохранения в meta.json
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "ver": self.ver,
             "schema_hash": self.schema_hash,
@@ -108,10 +108,10 @@ class EdgeStackFeatureSpec:
     """
 
     ver: str
-    feature_cols: List[str]
+    feature_cols: list[str]
     feature_cols_hash: str
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "ver": self.ver,
             "feature_cols_hash": self.feature_cols_hash,
@@ -124,7 +124,7 @@ class EdgeStackFeatureSpec:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _sha256_of_list(lst: List[str]) -> str:
+def _sha256_of_list(lst: list[str]) -> str:
     """Детерминированный SHA-256 от упорядоченного списка строк."""
     payload = json.dumps(list(lst), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
@@ -146,7 +146,7 @@ def _strip_prefix(name: str) -> str:
     return name
 
 
-def _make_schema_info(ver: str, feature_names: List[str]) -> FeatureSchemaInfo:
+def _make_schema_info(ver: str, feature_names: list[str]) -> FeatureSchemaInfo:
     col_names = [_safe_col(n) for n in feature_names]
     h = _sha256_of_list(feature_names)
     return FeatureSchemaInfo(
@@ -157,7 +157,7 @@ def _make_schema_info(ver: str, feature_names: List[str]) -> FeatureSchemaInfo:
     )
 
 
-def _make_edge_stack_spec(ver: str, feature_cols: List[str]) -> EdgeStackFeatureSpec:
+def _make_edge_stack_spec(ver: str, feature_cols: list[str]) -> EdgeStackFeatureSpec:
     # IMPORTANT: this hash algorithm MUST match _sha256_16() in train_edge_stack_v1_oof.py
     # (line 104: hashlib.sha256("\n".join(items).encode()).hexdigest()[:16])
     # Trainer uses this to validate feature_cols via dataset_report.feature_registry.feature_cols_hash
@@ -174,7 +174,7 @@ def _make_edge_stack_spec(ver: str, feature_cols: List[str]) -> EdgeStackFeature
 # v2 schema — ядро 25 фич (зафиксировано, не менять без смены схемы)
 # ---------------------------------------------------------------------------
 
-_V2_NUM_KEYS: List[str] = [
+_V2_NUM_KEYS: list[str] = [
     "delta_z",
     "ofi_z",
     "ofi_stability_score",
@@ -192,7 +192,7 @@ _V2_NUM_KEYS: List[str] = [
     "rule_need",
 ]
 
-_V2_BOOL_KEYS: List[str] = [
+_V2_BOOL_KEYS: list[str] = [
     "ofi_stable",
     "ofi_dir_ok",
     "obi_stable",
@@ -206,15 +206,15 @@ _V2_BOOL_KEYS: List[str] = [
 
 
 def _build_feature_names(
-    num_keys: List[str],
-    bool_keys: List[str],
+    num_keys: list[str],
+    bool_keys: list[str],
     *,
     with_dir: bool = True,
     with_bucket: bool = True,
     with_time: bool = True,
-) -> List[str]:
+) -> list[str]:
     """Строит feature_names по num+bool ключам + optional блоки."""
-    names: List[str] = []
+    names: list[str] = []
     names += [f"n:{k}" for k in num_keys]
     names += [f"b:{k}" for k in bool_keys]
     if with_dir:
@@ -228,15 +228,15 @@ def _build_feature_names(
 
 
 def _build_edge_stack_cols(
-    num_keys: List[str],
-    bool_keys: List[str],
-) -> List[str]:
+    num_keys: list[str],
+    bool_keys: list[str],
+) -> list[str]:
     """Строит feature_cols в формате build_edge_stack_dataset_from_redis.infer_feature_cols().
 
     Формат: f_{num_key}, direction_BUY, direction_SELL,
             bucket:trend/range/other, hour:0..23, dow:0..6
     """
-    cols: List[str] = []
+    cols: list[str] = []
     # numeric (в том же порядке что num_keys — детерминированно)
     cols += [f"f_{k}" for k in num_keys]
     # direction
@@ -253,7 +253,7 @@ def _build_edge_stack_cols(
 # v3 schema — v2 + online-friendly extras
 # ---------------------------------------------------------------------------
 
-_V3_NUM_KEYS: List[str] = _V2_NUM_KEYS + [
+_V3_NUM_KEYS: list[str] = _V2_NUM_KEYS + [
     # v3 online-friendly extras
     "adverse_proxy",
     "lambda_taker",
@@ -263,7 +263,7 @@ _V3_NUM_KEYS: List[str] = _V2_NUM_KEYS + [
     "hidden_ctx_recent",
 ]
 
-_V3_BOOL_KEYS: List[str] = _V2_BOOL_KEYS  # bool-блок не расширяется в v3
+_V3_BOOL_KEYS: list[str] = _V2_BOOL_KEYS  # bool-блок не расширяется в v3
 
 
 # ---------------------------------------------------------------------------
@@ -313,13 +313,9 @@ def _get_v4_of_keys():
 
 def _get_v5_of_keys():
     """Импортирует num_keys + bool_keys из MLFeatureSchemaV5OF."""
-    try:
-        from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF  # type: ignore
-        schema = MLFeatureSchemaV5OF()
-        return list(schema.num_keys), list(schema.bool_keys)
-    except ImportError:
-        # fallback: best-effort superset over v4_of (keeps code runnable in minimal env)
-        return _get_v4_of_keys()
+    from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF  # type: ignore
+    schema = MLFeatureSchemaV5OF()
+    return list(schema.num_keys), list(schema.bool_keys)
 
 def _get_v5_of_stable_keys():
     """v5_of_stable = v5_of minus denylisted keys."""
@@ -341,13 +337,9 @@ def _get_v5_of_stable_keys():
 
 def _get_v6_of_keys():
     """Импортирует num_keys + bool_keys из MLFeatureSchemaV6OF."""
-    try:
-        from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF  # type: ignore
-        schema = MLFeatureSchemaV6OF()
-        return list(schema.num_keys), list(schema.bool_keys)
-    except ImportError:
-        # fallback: best-effort superset over v5_of (keeps code runnable in minimal env)
-        return _get_v5_of_keys()
+    from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF  # type: ignore
+    schema = MLFeatureSchemaV6OF()
+    return list(schema.num_keys), list(schema.bool_keys)
 
 
 def _get_v6_of_stable_keys():
@@ -370,13 +362,9 @@ def _get_v6_of_stable_keys():
 
 def _get_v7_of_keys():
     """Импортирует num_keys + bool_keys из MLFeatureSchemaV7OF."""
-    try:
-        from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF  # type: ignore
-        schema = MLFeatureSchemaV7OF()
-        return list(schema.num_keys), list(schema.bool_keys)
-    except ImportError:
-        # fallback: best-effort superset over v6_of
-        return _get_v6_of_keys()
+    from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF  # type: ignore
+    schema = MLFeatureSchemaV7OF()
+    return list(schema.num_keys), list(schema.bool_keys)
 
 
 def _get_v7_of_stable_keys():
@@ -398,12 +386,8 @@ def _get_v9_of_keys() -> tuple:
     All 128 keys are numeric (float/int) from indicators dict.
     No separate bool_keys — boolean indicators included as numeric (0/1).
     """
-    try:
-        from core.ml_feature_schema_v9_of import V9_OF_NUMERIC_KEYS  # type: ignore
-        return list(V9_OF_NUMERIC_KEYS), []  # v9_of has no separate bool block
-    except ImportError:
-        # fallback: use v7_of keys
-        return _get_v7_of_keys()
+    from core.ml_feature_schema_v9_of import V9_OF_NUMERIC_KEYS  # type: ignore
+    return list(V9_OF_NUMERIC_KEYS), []  # v9_of has no separate bool block
 
 
 # ---------------------------------------------------------------------------
@@ -424,12 +408,8 @@ def _get_v10_of_keys() -> tuple:
 
     All keys are numeric (float/int); no separate bool block.
     """
-    try:
-        from core.ml_feature_schema_v10_of import V10_OF_NUMERIC_KEYS  # type: ignore
-        return list(V10_OF_NUMERIC_KEYS), []  # v10_of has no separate bool block
-    except ImportError:
-        # fallback: use v9_of keys
-        return _get_v9_of_keys()
+    from core.ml_feature_schema_v10_of import V10_OF_NUMERIC_KEYS  # type: ignore
+    return list(V10_OF_NUMERIC_KEYS), []  # v10_of has no separate bool block
 
 
 # ---------------------------------------------------------------------------
@@ -450,12 +430,8 @@ def _get_v11_of_keys() -> tuple:
 
     All keys are numeric (float/int); no separate bool block.
     """
-    try:
-        from core.ml_feature_schema_v11_of import V11_OF_NUMERIC_KEYS  # type: ignore
-        return list(V11_OF_NUMERIC_KEYS), []  # v11_of has no separate bool block
-    except ImportError:
-        # fallback: use v10_of keys
-        return _get_v10_of_keys()
+    from core.ml_feature_schema_v11_of import V11_OF_NUMERIC_KEYS  # type: ignore
+    return list(V11_OF_NUMERIC_KEYS), []  # v11_of has no separate bool block
 
 
 # ---------------------------------------------------------------------------
@@ -476,12 +452,8 @@ def _get_v12_of_keys() -> tuple:
 
     All keys are numeric (float/int); no separate bool block.
     """
-    try:
-        from core.ml_feature_schema_v12_of import V12_OF_NUMERIC_KEYS  # type: ignore
-        return list(V12_OF_NUMERIC_KEYS), []  # v12_of has no separate bool block
-    except ImportError:
-        # fallback: use v11_of keys
-        return _get_v11_of_keys()
+    from core.ml_feature_schema_v12_of import V12_OF_NUMERIC_KEYS  # type: ignore
+    return list(V12_OF_NUMERIC_KEYS), []  # v12_of has no separate bool block
 
 
 # ---------------------------------------------------------------------------
@@ -503,12 +475,8 @@ def _get_v13_of_keys() -> tuple:
 
     All keys are numeric (float/int); no separate bool block.
     """
-    try:
-        from core.ml_feature_schema_v13_of import V13_OF_NUMERIC_KEYS  # type: ignore
-        return list(V13_OF_NUMERIC_KEYS), []  # v13_of has no separate bool block
-    except ImportError:
-        # fallback: use v12_of keys
-        return _get_v12_of_keys()
+    from core.ml_feature_schema_v13_of import V13_OF_NUMERIC_KEYS  # type: ignore
+    return list(V13_OF_NUMERIC_KEYS), []  # v13_of has no separate bool block
 
 # ---------------------------------------------------------------------------
 # Caches (module-level, deterministic)
@@ -550,8 +518,8 @@ def get_schema_info(ver: str) -> FeatureSchemaInfo:
     Raises:
         ValueError: если версия не поддерживается.
     """
-    v = str(ver or "").strip().lower()
-    
+    v = (ver or "").strip().lower()
+
     _check_schema_deprecation(v)
 
     if v in _SCHEMA_CACHE:
@@ -626,12 +594,12 @@ def get_edge_stack_feature_spec(
     include_direction: bool = True,
     include_scenario: bool = True,
     include_bucket2_onehot: bool = False,
-    include_time_onehot: Optional[bool] = None,
+    include_time_onehot: bool | None = None,
     sort_numeric_keys: bool = True,
     max_numeric: int = 128,
     strict_feature_cols: bool = False,
     forbid_scenario_v4_onehot: bool = False,
-    include_session_onehot: Optional[bool] = None,
+    include_session_onehot: bool | None = None,
 ) -> EdgeStackFeatureSpec:
     """Детерминированный edge-stack feature_cols из MLFeatureSchema (v2/v3/v4_of/v5_of/v6_of/v7_of).
 
@@ -653,8 +621,8 @@ def get_edge_stack_feature_spec(
 
     Backward compat: `get_edge_stack_feature_spec(ver)` (positional) по-прежнему работает.
     """
-    ver = str(schema_ver or "").strip().lower()
-    
+    ver = (schema_ver or "").strip().lower()
+
     _check_schema_deprecation(ver)
 
     # нормализация алиасов
@@ -752,7 +720,7 @@ def get_edge_stack_feature_spec(
             ver = "v5_of"
 
     # Строим f_* колонки детерминированно
-    fkeys: List[str] = []
+    fkeys: list[str] = []
     for k in num_keys:
         s = str(k)
         if s.startswith("n:"):
@@ -777,7 +745,7 @@ def get_edge_stack_feature_spec(
     else:
         # сохраняем порядок схемы, устраняем дубли
         seen: set = set()
-        out_k: List[str] = []
+        out_k: list[str] = []
         for k in fkeys:
             if k not in seen:
                 out_k.append(k)
@@ -789,15 +757,15 @@ def get_edge_stack_feature_spec(
         mn = int(max_numeric)
     except Exception:
         mn = 0
-        
+
     # v9_of/v10_of/v11_of override max_numeric=128 backward-compatible default
     if ver in ("v9_of", "v10_of", "v11_of", "v12_of", "v13_of") and mn == 128:
         mn = 0
-        
+
     if mn > 0 and len(fkeys) > mn:
         fkeys = fkeys[:mn]
 
-    cols: List[str] = [f"f_{k}" for k in fkeys]
+    cols: list[str] = [f"f_{k}" for k in fkeys]
 
     # direction block
     if include_direction:
@@ -805,7 +773,7 @@ def get_edge_stack_feature_spec(
 
     # scenario block
     if include_scenario:
-        prefix = str(scenario_prefix or "bucket:").strip()
+        prefix = (scenario_prefix or "bucket:").strip()
         if prefix == "bucket:":
             cols += ["bucket:trend", "bucket:range", "bucket:other"]
         else:

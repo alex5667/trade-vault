@@ -12,7 +12,8 @@ Adapter contract (minimal):
   - adapter.outbox: object with .items list[dict]
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
+
 from replay.jsonl import iter_jsonl
 
 
@@ -21,12 +22,12 @@ def replay_jsonl(
     adapter: Any,
     path: str,
     type_filter: str = "ctx",
-    max_events: Optional[int] = None,
+    max_events: int | None = None,
 ) -> Any:
     tf = (type_filter or "ctx").strip().lower()
     n = 0
     for rec in iter_jsonl(path, max_lines=max_events):
-        if str(rec.get("type", "")).lower() != tf:
+        if (rec.get("type", "")).lower() != tf:
             continue
         p = rec.get("payload", None)
         if not isinstance(p, dict):

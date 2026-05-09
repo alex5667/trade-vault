@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Валидатор для cfg:ml_confirm:champion (JSON контракт).
 
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 ALLOWED_MODES = {"SHADOW", "CANARY", "ENFORCE"}
 # Per-symbol overrides also allow OFF (to disable ML gate for specific symbols)
@@ -30,8 +31,8 @@ class ModeOverrides:
     by_symbol: e.g. {"BTCUSDT": "ENFORCE", "ETHUSDT": "SHADOW", "DOGEUSDT": "OFF"}
     enforce_share_by_symbol: e.g. {"ETHUSDT": 0.20} (for CANARY routing per-symbol)
     """
-    by_symbol: Dict[str, str] = field(default_factory=dict)
-    enforce_share_by_symbol: Dict[str, float] = field(default_factory=dict)
+    by_symbol: dict[str, str] = field(default_factory=dict)
+    enforce_share_by_symbol: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -44,13 +45,13 @@ class ChampionCfg:
     model_path: str
     mode: str
     enforce_share: float
-    calibrator_path: Optional[str] = None
-    feature_version: Optional[str] = None
-    model_type: Optional[str] = None
-    checksum: Optional[str] = None
-    min_data_ts_ms: Optional[int] = None
-    max_data_ts_ms: Optional[int] = None
-    mode_overrides: Optional[ModeOverrides] = None
+    calibrator_path: str | None = None
+    feature_version: str | None = None
+    model_type: str | None = None
+    checksum: str | None = None
+    min_data_ts_ms: int | None = None
+    max_data_ts_ms: int | None = None
+    mode_overrides: ModeOverrides | None = None
 
 
 class CfgError(ValueError):
@@ -85,21 +86,21 @@ def _as_str(v: Any, field: str) -> str:
     return v.strip()
 
 
-def _validate_mode_overrides(raw: Any) -> Tuple[ModeOverrides, List[str]]:
+def _validate_mode_overrides(raw: Any) -> tuple[ModeOverrides, list[str]]:
     """Validate optional mode_overrides block.
 
     Returns (ModeOverrides, warnings).
     Lenient: invalid entries are skipped with a warning, not fatal.
     """
-    warnings: List[str] = []
+    warnings: list[str] = []
     if raw is None:
         return ModeOverrides(), warnings
     if not isinstance(raw, dict):
         warnings.append(f"mode_overrides: expected dict, got {type(raw).__name__}, skipping")
         return ModeOverrides(), warnings
 
-    by_symbol: Dict[str, str] = {}
-    es_by_symbol: Dict[str, float] = {}
+    by_symbol: dict[str, str] = {}
+    es_by_symbol: dict[str, float] = {}
 
     # by_symbol
     bs = raw.get("by_symbol")
@@ -150,8 +151,8 @@ def _validate_mode_overrides(raw: Any) -> Tuple[ModeOverrides, List[str]]:
 def validate_champion_cfg(
     raw_json: str,
     *,
-    default_enforce_share: Optional[float] = None
-) -> Tuple[ChampionCfg, Dict[str, Any]]:
+    default_enforce_share: float | None = None
+) -> tuple[ChampionCfg, dict[str, Any]]:
     """
     Валидация champion JSON конфига.
     
@@ -223,23 +224,23 @@ def validate_champion_cfg(
     calibrator_path = obj.get("calibrator_path")
     if calibrator_path is not None:
         calibrator_path = _as_str(calibrator_path, "calibrator_path")
-    
+
     feature_version = obj.get("feature_version")
     if feature_version is not None:
         feature_version = _as_str(feature_version, "feature_version")
-    
+
     model_type = obj.get("model_type")
     if model_type is not None:
         model_type = _as_str(model_type, "model_type")
-    
+
     checksum = obj.get("checksum")
     if checksum is not None:
         checksum = _as_str(checksum, "checksum")
-    
+
     min_data_ts_ms = obj.get("min_data_ts_ms")
     if min_data_ts_ms is not None:
         min_data_ts_ms = _as_int(min_data_ts_ms, "min_data_ts_ms")
-    
+
     max_data_ts_ms = obj.get("max_data_ts_ms")
     if max_data_ts_ms is not None:
         max_data_ts_ms = _as_int(max_data_ts_ms, "max_data_ts_ms")

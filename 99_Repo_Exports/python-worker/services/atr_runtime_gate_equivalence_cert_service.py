@@ -1,7 +1,6 @@
 import logging
-import uuid
-from datetime import datetime, timedelta
-from typing import Dict, Any, Tuple
+from datetime import datetime
+from typing import Any
 
 from services.analytics_db import get_conn
 from services.atr_graph_backed_runtime_gate import ATRGraphBackedRuntimeGateService
@@ -15,7 +14,7 @@ class ATRRuntimeGateEquivalenceCertService:
     """
 
     @staticmethod
-    def evaluate_cutover_readiness() -> Tuple[str, Dict[str, Any]]:
+    def evaluate_cutover_readiness() -> tuple[str, dict[str, Any]]:
         status = "not_ready"
         summary = {
             "checked_scopes": 0,
@@ -62,7 +61,7 @@ class ATRRuntimeGateEquivalenceCertService:
                         critical_drifts += d["count"]
                     else:
                         warning_drifts += d["count"]
-                
+
                 summary["critical_drifts"] = critical_drifts
                 summary["warning_drifts"] = warning_drifts
                 summary["rule_checks"]["R5_no_critical_drifts"] = (critical_drifts == 0)
@@ -78,7 +77,7 @@ class ATRRuntimeGateEquivalenceCertService:
                     days_without = (datetime.now(last_crit.tzinfo) - last_crit).days
                 else:
                     days_without = 7  # Assuming good if never happened
-                
+
                 summary["days_without_critical_drift"] = days_without
 
                 # 4. Projection Freshness
@@ -94,7 +93,7 @@ class ATRRuntimeGateEquivalenceCertService:
                 else:
                     # No nodes might mean it's not setup yet, but we shouldn't fail projection freshness strictly
                     projection_fresh = True
-                
+
                 summary["projection_fresh"] = projection_fresh
                 summary["rule_checks"]["R6_projection_fresh"] = projection_fresh
 

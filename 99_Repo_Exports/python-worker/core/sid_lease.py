@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
-
+from typing import Any
 
 _LUA_ACQUIRE = r"""
 -- KEYS[1] = lease_key
@@ -51,12 +50,12 @@ class SidLease:
       - renew/release: compare token внутри Lua
     """
 
-    def __init__(self, redis_client: Any, *, settings: Optional[SidLeaseSettings] = None) -> None:
+    def __init__(self, redis_client: Any, *, settings: SidLeaseSettings | None = None) -> None:
         self.redis = redis_client
         self.settings = settings or SidLeaseSettings()
-        self._sha_acq: Optional[str] = None
-        self._sha_ren: Optional[str] = None
-        self._sha_rel: Optional[str] = None
+        self._sha_acq: str | None = None
+        self._sha_ren: str | None = None
+        self._sha_rel: str | None = None
 
     def key(self, sid: str) -> str:
         return f"{self.settings.prefix}:{sid}"

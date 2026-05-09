@@ -4,9 +4,7 @@ import argparse
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
-
-from tools.ndjson_canary import safe_json_get
+from typing import Any
 
 '''
 Diff report for golden replay outputs (OFConfirmV3 ndjson).
@@ -45,8 +43,8 @@ def row_key(r: dict) -> str:
     return f"{r.get('symbol', '')}|{r.get('ts_ms', 0)}|{r.get('direction', '')}"
 
 
-def load_ndjson(path: Path, symbol_filter: str = "") -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def load_ndjson(path: Path, symbol_filter: str = "") -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as f:
         for line in f:
             s = line.strip()
@@ -54,7 +52,7 @@ def load_ndjson(path: Path, symbol_filter: str = "") -> List[Dict[str, Any]]:
                 continue
             r = json.loads(s)
             if symbol_filter:
-                sym = str(r.get("symbol") or "").upper()
+                sym = (r.get("symbol") or "").upper()
                 if sym != symbol_filter.upper():
                     continue
             out.append(r)
@@ -66,18 +64,18 @@ FIELDS = ["ok", "score", "have", "need", "reason", "scenario", "scenario_v4", "n
 
 def compare(
     *,
-    base_rows: List[Dict[str, Any]],
-    cand_rows: List[Dict[str, Any]],
+    base_rows: list[dict[str, Any]],
+    cand_rows: list[dict[str, Any]],
     score_eps: float = 1e-6,
     max_samples: int = 50,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     base = {row_key(r): r for r in base_rows}
     cand = {row_key(r): r for r in cand_rows}
 
     keys = sorted(set(base.keys()) | set(cand.keys()))
-    missing_in_cand: List[str] = []
-    missing_in_base: List[str] = []
-    mismatches: List[Dict[str, Any]] = []
+    missing_in_cand: list[str] = []
+    missing_in_base: list[str] = []
+    mismatches: list[dict[str, Any]] = []
 
     mismatch_by_field: Counter[str] = Counter()
     mismatch_by_type: Counter[str] = Counter()
@@ -94,7 +92,7 @@ def compare(
             missing_in_cand.append(k)
             continue
 
-        diffs: Dict[str, Any] = {}
+        diffs: dict[str, Any] = {}
         for f in FIELDS:
             val_b = _get(b, f)
             val_c = _get(c, f)

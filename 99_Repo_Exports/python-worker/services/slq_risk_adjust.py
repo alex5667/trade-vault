@@ -1,19 +1,18 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
-import time
-from typing import Any, Dict
+from typing import Any
 
 from common.math_safe import clamp
 from services.slq_store import fetch_slq
+from utils.time_utils import get_ny_time_millis
 
 
 def _envf(name: str, default: str) -> float:
     try:
         return float(os.getenv(name, default) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 def _envi(name: str, default: str) -> int:
@@ -33,7 +32,7 @@ def _side_str(side: Any) -> str:
         s = int(side)
         return "LONG" if s > 0 else "SHORT"
     except Exception:
-        ss = str(side or "").strip().lower()
+        ss = (side or "").strip().lower()
         if ss in {"long", "buy", "1"}:
             return "LONG"
         if ss in {"short", "sell", "-1"}:
@@ -75,8 +74,8 @@ def maybe_apply_slq_to_risk_cfg(
     ctx: Any,
     symbol: str,
     side: Any,
-    cfg: Dict[str, Any],
-) -> Dict[str, Any]:
+    cfg: dict[str, Any],
+) -> dict[str, Any]:
     """
     Returns effective cfg (may be same as input).
     Idempotent: if cfg already has slq_used=1 => returns as-is.
@@ -100,7 +99,7 @@ def maybe_apply_slq_to_risk_cfg(
 
     side_s = _side_str(side)
     bucket = _bucket_from_ctx(ctx)
-    key = f"slq:{str(symbol).upper()}:{side_s}:{bucket}"
+    key = f"slq:{symbol.upper()}:{side_s}:{bucket}"
 
     snap = fetch_slq(redis, key=key)
     if snap is None:
@@ -141,12 +140,12 @@ def maybe_apply_slq_to_risk_cfg(
     # write both: compute_levels/test use UPPERCASE, some runtime might use lowercase
     cfgd["STOP_ATR_MULT"] = float(val)
     cfgd["stop_atr_mult"] = float(val)
-    
+
     # keep mode consistent
     if "STOP_MODE" in cfgd:
         cfgd["STOP_MODE"] = "ATR"
     cfgd["stop_mode"] = "atr"
-    
+
     # meta для наблюдаемости/аналитики
     cfgd["slq_used"] = 1
     cfgd["slq_key"] = key
@@ -156,33 +155,33 @@ def maybe_apply_slq_to_risk_cfg(
     cfgd["slq_tp1_prob"] = float(tp1_prob)
     cfgd["slq_bump_atr"] = float(bump)
     cfgd["slq_original_mult"] = float(base)
-    
+
     # --- Dynamic TP1 Scaling ---
-    # Если мы расширили SL, нужно пропорционально отодвинуть TP1, 
+    # Если мы расширили SL, нужно пропорционально отодвинуть TP1,
     # чтобы сохранить Risk/Reward отношение (обычно ~1.3 для ROCKET V1).
     if val > base and base > 0:
         ratio = val / base
-        
+
         # Пытаемся найти базовый TP1 mult (из конфига или env)
         # 1. Из конфига
         base_tp1 = float(cfgd.get("ROCKET_TP1_ATR_MULT") or 0.0)
-        
+
         # 2. Если нет в конфиге, пробуем ENV (с учетом символа)
         if base_tp1 <= 0:
              # Пробуем symbol specific (e.g. BNB_ROCKET_TP1_ATR_MULT)
-             sym_prefix = str(symbol).split("USD")[0].upper() # Упрощенно
+             sym_prefix = symbol.split("USD")[0].upper() # Упрощенно
              base_tp1 = _envf(f"{sym_prefix}_ROCKET_TP1_ATR_MULT", "0.0")
-        
+
         # 3. Fallback на глобальный ENV или дефолт 0.78
         if base_tp1 <= 0:
              base_tp1 = _envf("ROCKET_TP1_ATR_MULT", "0.78")
-             
+
         # Scale
         new_tp1 = base_tp1 * ratio
-        
+
         # Безопасный кэп для TP1 (не отодвигать слишком далеко, например не дальше 2.0 ATR)
         new_tp1 = clamp(new_tp1, 0.5, 3.0)
-        
+
         cfgd["ROCKET_TP1_ATR_MULT"] = new_tp1
         cfgd["slq_tp1_mult"] = new_tp1
         cfgd["slq_tp1_ratio"] = ratio

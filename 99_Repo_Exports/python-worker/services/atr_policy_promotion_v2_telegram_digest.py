@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+
 import redis
+from core.redis_keys import RedisStreams as RS
+
 
 def _redis():
     return redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
@@ -11,7 +14,7 @@ def run_once() -> bool:
     r = _redis()
     cur = 0
     proposals = []
-    
+
     # We use a cursor loop to get all matching keys
     while True:
         cur, keys = r.scan(cur, match="cfg:suggestions:atr_policy_v2:*", count=10000)
@@ -43,8 +46,8 @@ def run_once() -> bool:
     chat_id = os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "")
     if chat_id:
         payload["chat_id"] = chat_id
-    
-    r.xadd("notify:telegram", payload, maxlen=5000, approximate=True)
+
+    r.xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=5000, approximate=True)
     return True
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
 
 def _read(path: str) -> str:
     p = Path(path)

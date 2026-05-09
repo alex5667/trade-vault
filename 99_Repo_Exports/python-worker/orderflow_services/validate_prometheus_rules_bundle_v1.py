@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Prometheus rules bundle validator (CI/local).
 
 Goal
@@ -114,7 +115,7 @@ def validate_repo_rules(*, repo_root: Path, use_promtool: bool, manifest_ref: st
 
     for path in files:
         try:
-            with open(path, "r", encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 doc = yaml.safe_load(fh)
         except Exception as e:
             errors.append(f"{path}: YAML parse error: {type(e).__name__}: {e}")

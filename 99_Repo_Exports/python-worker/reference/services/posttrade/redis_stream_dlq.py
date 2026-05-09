@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Redis Stream DLQ (Dead-Letter Queue) helper — A3 V2.
 
 Используется при fail-open обработке битых событий: вместо того чтобы
@@ -41,12 +41,11 @@ V2 изменения:
     )
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import logging
-import time
-from typing import Any, Dict, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 log = logging.getLogger("redis_stream_dlq")
 
@@ -59,11 +58,11 @@ def publish_dlq(
     error: str,
     src_stream: str,
     src_entry_id: str = "*",
-    payload: Optional[Dict[str, Any]] = None,
+    payload: dict[str, Any] | None = None,
     maxlen: int = 200_000,
     approximate: bool = True,
     payload_max_bytes: int = 8192,
-) -> Optional[str]:
+) -> str | None:
     """Опубликовать ошибочное событие в DLQ-stream (V2 API).
 
     Fail-safe: если публикация в DLQ тоже упадёт — логируем и продолжаем.
@@ -87,12 +86,12 @@ def publish_dlq(
         Redis stream entry ID новой записи или None при ошибке публикации.
     """
     try:
-        dlq_entry: Dict[str, str] = {
+        dlq_entry: dict[str, str] = {
             "ts_ms":        str(get_ny_time_millis()),
-            "reason":       str(reason or "unknown"),
-            "error":        str(error or "")[:4000],  # обрезаем чтобы не раздуть entry
-            "src_stream":   str(src_stream or ""),
-            "src_entry_id": str(src_entry_id or "*"),
+            "reason":       (reason or "unknown"),
+            "error":        (error or "")[:4000],  # обрезаем чтобы не раздуть entry
+            "src_stream":   (src_stream or ""),
+            "src_entry_id": (src_entry_id or "*"),
         }
 
         # Payload как JSON-строка (V2: одно поле вместо многих payload_*)

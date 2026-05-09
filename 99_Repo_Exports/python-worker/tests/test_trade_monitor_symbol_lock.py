@@ -1,9 +1,8 @@
-from utils.time_utils import get_ny_time_millis
 import threading
 import time
 from types import SimpleNamespace
 
-import pytest
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRepo:
@@ -38,8 +37,8 @@ def test_symbol_lock_serializes_tick_and_external(monkeypatch):
     Ensures: while on_tick(symbol) is inside process_tick(), external update for same symbol
     cannot enter apply_trailing_update (blocked by symbol lock).
     """
-    from services.trade_monitor import TradeMonitorService
     from domain.models import PositionState
+    from services.trade_monitor import TradeMonitorService
 
     repo = FakeRepo()
     r = FakeRedis()

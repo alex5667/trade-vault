@@ -1,11 +1,11 @@
 from __future__ import annotations
+
 """Sync test: ensures ml_feature_schema_v8_of_e3 logic is identical in SoT and mirror.
 
 SoT:    reference/tick_flow_full/core/ml_feature_schema_v8_of.py
 Mirror: python-worker/core/ml_feature_schema_v8_of.py
 """
 
-import sys
 import os
 
 _HERE = os.path.dirname(os.path.abspath(__file__))

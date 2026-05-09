@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for P81 OF-gate Timescale Policy Probe.
 
 Covers:
@@ -8,14 +9,9 @@ Covers:
 """
 
 import importlib
-import os
-import sys
-import time
-from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Both timer module paths are tested (canonical + tick_flow_full mirror)
@@ -316,9 +312,8 @@ class TestProbeMain:
         mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
         mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
-        with patch("psycopg2.connect", return_value=mock_conn):
-            with pytest.raises(SystemExit) as exc:
-                p.main()
+        with patch("psycopg2.connect", return_value=mock_conn), pytest.raises(SystemExit) as exc:
+            p.main()
 
         assert exc.value.code == 2
 
@@ -424,9 +419,8 @@ class TestProbeMain:
 
         monkeypatch.setattr(p, "_jobs", fake_jobs_disabled)
 
-        with patch("psycopg2.connect", return_value=MagicMock()):
-            with pytest.raises(SystemExit) as exc:
-                p.main()
+        with patch("psycopg2.connect", return_value=MagicMock()), pytest.raises(SystemExit) as exc:
+            p.main()
 
         assert exc.value.code == 2
 

@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -26,10 +27,10 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+from zoneinfo import ZoneInfo
 
 import redis
-from zoneinfo import ZoneInfo
 
 
 def _now_ms() -> int:
@@ -87,7 +88,7 @@ def send_telegram_report(r: "redis.Redis", *, stream: str, text: str, ts_ms: int
     r.xadd(stream, msg, maxlen=20000, approximate=True)
 
 
-def run_pipeline(*, redis_url: str, window_hours: float, window_days: int, out_dir: str) -> Tuple[str, Dict[str, Any]]:
+def run_pipeline(*, redis_url: str, window_hours: float, window_days: int, out_dir: str) -> tuple[str, dict[str, Any]]:
     """
     Runs exporter + tuner in-process by shelling out via python -m is avoided.
     We import the modules for determinism and speed.
@@ -115,7 +116,7 @@ def run_pipeline(*, redis_url: str, window_hours: float, window_days: int, out_d
             n += 1
 
     rows = []
-    with open(nd_path, "r", encoding="utf-8") as f:
+    with open(nd_path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -132,7 +133,7 @@ def run_pipeline(*, redis_url: str, window_hours: float, window_days: int, out_d
     return md, out
 
 
-def maybe_write_proposal(r: "redis.Redis", *, proposal: Dict[str, Any]) -> Optional[str]:
+def maybe_write_proposal(r: "redis.Redis", *, proposal: dict[str, Any]) -> str | None:
     """
     Optional: store proposal into cfg:suggestions:* for manual approvals.
     This does NOT apply anything automatically.

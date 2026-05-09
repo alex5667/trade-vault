@@ -1,19 +1,19 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Оркестратор метрик: сбор топ‑метрик, объёмов и funding; форматирование и публикация в стримы.
 Улучшенная версия с экспортом всех сигналов в Redis на порт 6380.
 """
 import asyncio
 import logging
-import time
-from typing import Dict, List, Tuple
 
-from .sorting import get_sorted_tickers_by_change
-from .formatters import format_entries, format_volume_entries, format_funding_entries
-from .volumes import get_volume_data
-from .data_access import get_funding_rate_data
 from publisher.stream_publisher import publish_signal_to_stream
+
+from .data_access import get_funding_rate_data
+from .formatters import format_entries, format_funding_entries, format_volume_entries
 from .signal_exporter import export_all_signals_to_redis_6380
+from .sorting import get_sorted_tickers_by_change
+from .volumes import get_volume_data
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def _now_ms() -> int:
         return get_ny_time_millis()
 
 
-def fetch_and_publish_top_metrics() -> Tuple[List[str], List[str]]:
+def fetch_and_publish_top_metrics() -> tuple[list[str], list[str]]:
     """Получает и публикует топ-метрики (gainers/losers)."""
     logger.debug("Fetching top metrics...")
     try:
@@ -96,8 +96,8 @@ async def run_metrics_screener() -> None:
 
 
 def export_volatility_signals_to_redis_6380(
-    volatility_by_range_data: Dict = None,
-    volatility_spike_data: Dict = None
+    volatility_by_range_data: dict = None,
+    volatility_spike_data: dict = None
 ) -> None:
     """Экспортирует сигналы волатильности в Redis на порт 6380."""
     try:
@@ -110,7 +110,7 @@ def export_volatility_signals_to_redis_6380(
         logger.error("Error exporting volatility signals: %s", e)
 
 
-def export_all_available_signals_to_redis_6380() -> Dict:
+def export_all_available_signals_to_redis_6380() -> dict:
     """Экспортирует все доступные сигналы в Redis на порт 6380."""
     try:
         top_gainers, top_losers = get_sorted_tickers_by_change()

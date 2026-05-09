@@ -1,23 +1,21 @@
 from __future__ import annotations
+
 """
 Тесты для replay capture, метрик и selective prediction в MLConfirmGate.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
-import os
-import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
 from services.ml_confirm_gate import (
-    MLConfirmGate,
     MLConfirmDecision,
+    MLConfirmGate,
     _json_safe,
 )
+from utils.time_utils import get_ny_time_millis
 
 
 @pytest.fixture

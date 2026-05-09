@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Train MetaModelLR (portable JSON LR) from a dataset parquet.
 
 Train==Serve contract:
@@ -23,13 +24,9 @@ Usage:
     --out /data/meta_lr_v8.json
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
-import time
-from dataclasses import asdict
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -40,26 +37,27 @@ from core.feature_engineering import RobustScalerPack, apply_transform
 from core.meta_model_lr import MetaModelLR
 from core.meta_schema_registry import get_schema_info
 from core.purged_embargo_split_v2 import PurgedEmbargoTimeSeriesSplitV2
+from utils.time_utils import get_ny_time_millis
 
 
 def _safe_float(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not np.isfinite(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
 def _safe_int(x: Any, default: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(default)
+        return default
 
 
-def _decode_scenario_from_onehot(row: Dict[str, Any]) -> str:
+def _decode_scenario_from_onehot(row: dict[str, Any]) -> str:
     # e.g. scenario_v4_trend == 1 -> "trend"
     for k, v in row.items():
         if not k.startswith("scenario_v4_"):
@@ -72,7 +70,7 @@ def _decode_scenario_from_onehot(row: Dict[str, Any]) -> str:
     return ""
 
 
-def _get_any(row: Dict[str, Any], keys: List[str], default: Any = 0.0) -> Any:
+def _get_any(row: dict[str, Any], keys: list[str], default: Any = 0.0) -> Any:
     for k in keys:
         if k in row and row[k] is not None:
             return row[k]
@@ -83,19 +81,19 @@ def _get_meta_builder(schema_name: str):
     """Return (build_fn, cols, transforms) for schema_name."""
     s = str(schema_name)
     if s == "meta_feat_v8":
-        from core.meta_features_v8 import build_meta_features_v8, META_FEAT_V8_COLS, META_FEAT_V8_TRANSFORMS
+        from core.meta_features_v8 import META_FEAT_V8_COLS, META_FEAT_V8_TRANSFORMS, build_meta_features_v8
 
         return build_meta_features_v8, list(META_FEAT_V8_COLS), dict(META_FEAT_V8_TRANSFORMS)
     if s == "meta_feat_v7":
-        from core.meta_features_v7 import build_meta_features_v7, META_FEAT_V7_COLS, META_FEAT_V7_TRANSFORMS
+        from core.meta_features_v7 import META_FEAT_V7_COLS, META_FEAT_V7_TRANSFORMS, build_meta_features_v7
 
         return build_meta_features_v7, list(META_FEAT_V7_COLS), dict(META_FEAT_V7_TRANSFORMS)
     if s == "meta_feat_v6":
-        from core.meta_features_v6 import build_meta_features_v6, META_FEAT_V6_COLS, META_FEAT_V6_TRANSFORMS
+        from core.meta_features_v6 import META_FEAT_V6_COLS, META_FEAT_V6_TRANSFORMS, build_meta_features_v6
 
         return build_meta_features_v6, list(META_FEAT_V6_COLS), dict(META_FEAT_V6_TRANSFORMS)
     if s == "meta_feat_v9":
-        from core.meta_features_v9 import build_meta_features_v9, META_FEAT_V9_COLS, META_FEAT_V9_TRANSFORMS
+        from core.meta_features_v9 import META_FEAT_V9_COLS, META_FEAT_V9_TRANSFORMS, build_meta_features_v9
 
         return build_meta_features_v9, list(META_FEAT_V9_COLS), dict(META_FEAT_V9_TRANSFORMS)
 
@@ -106,7 +104,7 @@ def _build_xy_from_df(
     df: pd.DataFrame,
     schema_name: str,
     y_col: str,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str], Dict[str, Any]]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str], dict[str, Any]]:
     """Build X_raw, y, ts_ms, feature_cols, transforms.
 
     X_raw is built by calling the runtime meta feature builder for each row.
@@ -126,7 +124,7 @@ def _build_xy_from_df(
     X = np.zeros((len(rows), len(feature_cols)), dtype=np.float64)
 
     for i, row in enumerate(rows):
-        indicators: Dict[str, Any] = {}
+        indicators: dict[str, Any] = {}
         for k, v in row.items():
             if k.startswith("f_"):
                 indicators[k[2:]] = _safe_float(v, 0.0)
@@ -185,7 +183,7 @@ def _build_xy_from_df(
     return X, y, ts_ms, feature_cols, transforms
 
 
-def _apply_transforms(X_raw: np.ndarray, feature_cols: List[str], transforms: Dict[str, Any]) -> np.ndarray:
+def _apply_transforms(X_raw: np.ndarray, feature_cols: list[str], transforms: dict[str, Any]) -> np.ndarray:
     X_tf = np.asarray(X_raw, dtype=np.float64).copy()
     for j, name in enumerate(feature_cols):
         t = transforms.get(name)
@@ -230,7 +228,7 @@ def train_meta_model_lr_from_df(
     C: float,
     max_iter: int,
     threshold: float,
-) -> Tuple[MetaModelLR, Dict[str, Any]]:
+) -> tuple[MetaModelLR, dict[str, Any]]:
     """Core training routine used by both CLI and tests."""
 
     X_raw, y, ts_ms, feature_cols, transforms = _build_xy_from_df(df, schema_name=schema_name, y_col=y_col)
@@ -240,7 +238,7 @@ def train_meta_model_lr_from_df(
     pos_rate = float(np.mean(y)) if len(y) else 0.0
 
     # CV (purged/embargoed): fit scaler+lr per fold to avoid leakage.
-    fold_metrics: List[Dict[str, Any]] = []
+    fold_metrics: list[dict[str, Any]] = []
     if int(n_splits) > 1 and len(y) >= 50:
         splitter = PurgedEmbargoTimeSeriesSplitV2(
             n_splits=int(n_splits),
@@ -312,7 +310,7 @@ def train_meta_model_lr_from_df(
         robust_scaler=rs_full,
     ),
 
-    summary: Dict[str, Any] = {
+    summary: dict[str, Any] = {
         "y_col": str(y_col),
         "n_rows": int(len(df)),
         "pos_rate": float(pos_rate),
@@ -380,7 +378,7 @@ def main() -> int:
 
     # Attach training summary (not part of signature)
     try:
-        d = json.loads(open(str(args.out), "r", encoding="utf-8").read())
+        d = json.loads(open(str(args.out), encoding="utf-8").read())
         d["training_summary"] = {
             **summary,
             "parquet": str(args.parquet),

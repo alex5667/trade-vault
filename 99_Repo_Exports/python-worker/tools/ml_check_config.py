@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Проверка конфигурации ML из Redis cfg:ml_confirm.
 
@@ -14,7 +15,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Any, Dict
 
 import redis
 
@@ -62,7 +62,7 @@ def main() -> None:
         p_min_f = 0.55
 
     print(f"\n{'─'*80}")
-    print(f"ОСНОВНЫЕ ПАРАМЕТРЫ:")
+    print("ОСНОВНЫЕ ПАРАМЕТРЫ:")
     print(f"{'─'*80}")
     print(f"  mode:           {mode}")
     print(f"  fail_policy:    {fail_policy}")
@@ -71,9 +71,9 @@ def main() -> None:
 
     # Проверка файлов
     print(f"\n{'─'*80}")
-    print(f"ФАЙЛЫ МОДЕЛИ:")
+    print("ФАЙЛЫ МОДЕЛИ:")
     print(f"{'─'*80}")
-    
+
     model_ok = False
     if model_path:
         if os.path.exists(model_path):
@@ -83,12 +83,12 @@ def main() -> None:
         else:
             print(f"  ❌ model_path: {model_path} (ФАЙЛ НЕ СУЩЕСТВУЕТ!)")
     else:
-        print(f"  ⚠️  model_path: не указан")
+        print("  ⚠️  model_path: не указан")
 
     meta_ok = False
     if meta_path:
         if os.path.exists(meta_path):
-            with open(meta_path, "r", encoding="utf-8") as f:
+            with open(meta_path, encoding="utf-8") as f:
                 try:
                     meta = json.load(f)
                     print(f"  ✅ meta_path: {meta_path}")
@@ -100,11 +100,11 @@ def main() -> None:
         else:
             print(f"  ❌ meta_path: {meta_path} (ФАЙЛ НЕ СУЩЕСТВУЕТ!)")
     else:
-        print(f"  ⚠️  meta_path: не указан")
+        print("  ⚠️  meta_path: не указан")
 
     # Canary настройки
     print(f"\n{'─'*80}")
-    print(f"CANARY НАСТРОЙКИ:")
+    print("CANARY НАСТРОЙКИ:")
     print(f"{'─'*80}")
     print(f"  enforce_share:  {enforce_share_f:.4f} ({100.0*enforce_share_f:.2f}%)")
     print(f"  enforce_symbols: {enforce_symbols or '(все символы)'}")
@@ -116,7 +116,7 @@ def main() -> None:
     freeze_ts_ms = cfg.get("freeze_ts_ms") or ""
     if freeze_reason:
         print(f"\n{'─'*80}")
-        print(f"FREEZE СТАТУС:")
+        print("FREEZE СТАТУС:")
         print(f"{'─'*80}")
         print(f"  ⚠️  ЗАМОРОЖЕНО: {freeze_reason}")
         if freeze_ts_ms:
@@ -137,7 +137,7 @@ def main() -> None:
     ]]
     if other_keys:
         print(f"\n{'─'*80}")
-        print(f"ДОПОЛНИТЕЛЬНЫЕ ПАРАМЕТРЫ:")
+        print("ДОПОЛНИТЕЛЬНЫЕ ПАРАМЕТРЫ:")
         print(f"{'─'*80}")
         for k in sorted(other_keys):
             v = cfg[k]
@@ -147,9 +147,9 @@ def main() -> None:
 
     # Итоговые проверки
     print(f"\n{'─'*80}")
-    print(f"ИТОГОВЫЕ ПРОВЕРКИ:")
+    print("ИТОГОВЫЕ ПРОВЕРКИ:")
     print(f"{'─'*80}")
-    
+
     issues = []
     if not model_ok:
         issues.append("❌ model_path не существует или не указан")
@@ -168,7 +168,7 @@ def main() -> None:
         for issue in issues:
             print(f"  {issue}")
     else:
-        print(f"  ✅ Все проверки пройдены")
+        print("  ✅ Все проверки пройдены")
 
     print(f"\n{'='*80}\n")
 

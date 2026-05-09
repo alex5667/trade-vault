@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """OF-Gate DLQ -> PostgreSQL/Timescale archiver (P83 optional).
 
 Goal
@@ -25,11 +26,10 @@ Usage
 import argparse
 import datetime as dt
 import json
-import math
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import psycopg2
 from psycopg2.extras import execute_values
@@ -89,7 +89,7 @@ def ts_ms_from_stream_id(stream_id: str) -> int:
     return int(str(stream_id).split("-", 1)[0])
 
 
-def coalesce_ts_ms(payload: Dict[str, Any], stream_id: str) -> int:
+def coalesce_ts_ms(payload: dict[str, Any], stream_id: str) -> int:
     for k in ("ts_ms", "ts_event_ms", "ts", "timestamp_ms"):
         v = payload.get(k)
         try:
@@ -149,7 +149,7 @@ class PgWriter:
                     conn.rollback()
             conn.commit()
 
-    def insert_rows(self, rows: List[Tuple[Any, ...]]) -> int:
+    def insert_rows(self, rows: list[tuple[Any, ...]]) -> int:
         if not rows:
             return 0
         sql = """
@@ -168,7 +168,7 @@ class PgWriter:
         return len(rows)
 
 
-def parse_dlq_fields(dlq_id: str, fields: Dict[str, Any]) -> Tuple[str, str, str, str, str, str, str, Optional[str], Optional[str], Optional[int], Any, int]:
+def parse_dlq_fields(dlq_id: str, fields: dict[str, Any]) -> tuple[str, str, str, str, str, str, str, str | None, str | None, int | None, Any, int]:
     f = {str(_decode(k)): _decode(v) for k, v in (fields or {}).items()}
     src_stream = str(f.get("stream") or f.get("src_stream") or "")
     src_stream_id = str(f.get("stream_id") or f.get("src_stream_id") or "")
@@ -178,7 +178,7 @@ def parse_dlq_fields(dlq_id: str, fields: Dict[str, Any]) -> Tuple[str, str, str
         payload_raw = f.get("data")
     payload = _json_loads_maybe(payload_raw)
 
-    payload_dict: Dict[str, Any] = payload if isinstance(payload, dict) else {}
+    payload_dict: dict[str, Any] = payload if isinstance(payload, dict) else {}
     ts_ms = coalesce_ts_ms(payload_dict, dlq_id)
 
     dq_code = payload_dict.get("dq_code") or payload_dict.get("why")
@@ -205,10 +205,10 @@ def _checkpoint_key(stream: str) -> str:
     return f"cfg:of_gate_dlq_db_archive:last_id:{stream}"
 
 
-def read_batch(r, stream: str, start_id: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+def read_batch(r, stream: str, start_id: str, count: int) -> list[tuple[str, dict[str, Any]]]:
     # XRANGE is inclusive; we use start_id from checkpoint, then skip first if equals
     items = r.xrange(stream, min=start_id, max="+", count=count)
-    out: List[Tuple[str, Dict[str, Any]]] = []
+    out: list[tuple[str, dict[str, Any]]] = []
     for mid, fields in items:
         out.append((str(_decode(mid)), fields))
     return out
@@ -247,12 +247,12 @@ def run_once(args: argparse.Namespace) -> int:
         if not items:
             continue
 
-        rows: List[Tuple[Any, ...]] = []
+        rows: list[tuple[Any, ...]] = []
         last_id = None
         for dlq_id, fields in items:
             last_id = dlq_id
             src_stream, src_stream_id, err, dq_code, reason_code, schema_version_i, payload, ts_ms = parse_dlq_fields(dlq_id, fields)
-            ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
+            ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.UTC)
             payload_json = json.dumps(payload, ensure_ascii=False) if payload is not None else None
             rows.append(
                 (
@@ -303,7 +303,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = build_parser()
     args = ap.parse_args(argv)
 

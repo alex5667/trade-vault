@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 from common.time_utils import normalize_epoch_ms_best_effort
-
 
 # -------- ts helpers --------
 
@@ -44,7 +43,7 @@ def normalize_kind(kind: str | None, *, subtype: str | None = None) -> str:
 
 # -------- level_key helpers --------
 
-def nearest_pivot_key(price: float, pivots: Dict[str, Any] | None) -> str:
+def nearest_pivot_key(price: float, pivots: dict[str, Any] | None) -> str:
     """
     Возвращает ближайший pivot key (PP/R1/S1...), или "na".
     """
@@ -81,7 +80,7 @@ def price_bin_key(price: float, step: float) -> str:
 def build_level_key_extreme(
     *,
     price: float,
-    pivots: Dict[str, Any] | None,
+    pivots: dict[str, Any] | None,
     z: float | None = None,
     price_step: float = 0.5,
     z_step: float = 1.0,
@@ -102,7 +101,7 @@ def build_level_key_extreme(
     return f"{pv}:{px}"
 
 
-def build_level_key_breakout(lvl: Optional[str]) -> Optional[str]:
+def build_level_key_breakout(lvl: str | None) -> str | None:
     """
     BREAKOUT: если нет lvl — возвращаем None (и сигнал НЕ публикуем).
     """
@@ -111,7 +110,7 @@ def build_level_key_breakout(lvl: Optional[str]) -> Optional[str]:
     return str(lvl)
 
 
-def build_level_key_sweep(*, price: float, pivots: Dict[str, Any] | None, fallback: str = "na") -> str:
+def build_level_key_sweep(*, price: float, pivots: dict[str, Any] | None, fallback: str = "na") -> str:
     """
     SWEEP/OBI_SPIKE/ABSORPTION: nearest pivot достаточно, но стабильно.
     """
@@ -125,5 +124,5 @@ def build_level_key_sweep(*, price: float, pivots: Dict[str, Any] | None, fallba
 class PublishResult:
     sent: bool
     dedup: bool
-    msg_id: Optional[str]
-    confidence: Optional[float] = None
+    msg_id: str | None
+    confidence: float | None = None

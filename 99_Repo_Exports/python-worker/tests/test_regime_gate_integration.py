@@ -1,6 +1,7 @@
-import pytest
 from types import SimpleNamespace
+
 from handlers.crypto_orderflow.utils.quality_gates import RegimeGate
+
 
 def _ctx(**kwargs):
     ctx = SimpleNamespace()
@@ -18,7 +19,7 @@ def test_regime_integration(monkeypatch):
     monkeypatch.setenv("REGIME_APPLY_KINDS", "breakout,absorption,extreme,obi_spike")
     monkeypatch.setenv("REGIME_DENY_BREAKOUT", "range,squeeze")
     monkeypatch.setenv("REGIME_DENY_ABSORPTION", "trending_bull,trending_bear,expansion")
-    
+
     gate = RegimeGate.from_env()
 
     # 1. Simulate data_processor.py attaching regime to context
@@ -26,11 +27,11 @@ def test_regime_integration(monkeypatch):
     class MockRegimeInfo:
         def __init__(self, name):
             self.name = name
-            
+
     # Simulate a 'range' regime
     mock_regime_info_range = MockRegimeInfo(name="range")
     ctx_range = _ctx(regime=mock_regime_info_range)
-    
+
     # Simulate a 'trending_bull' regime
     mock_regime_info_bull = MockRegimeInfo(name="trending_bull")
     ctx_bull = _ctx(regime=mock_regime_info_bull)
@@ -40,17 +41,17 @@ def test_regime_integration(monkeypatch):
     assert decision_1.veto is True
     assert decision_1.reason_code == "VETO_REGIME"
     assert "range" in decision_1.notes
-    
+
     # 3. Evaluate 'breakout' in 'trending_bull' -> SHOULD ALLOW
     decision_2 = gate.evaluate(ctx=ctx_bull, symbol="BTCUSDT", kind="breakout", side="LONG")
     assert decision_2.veto is False
     assert decision_2.reason_code == "OK"
-    
+
     # 4. Evaluate 'absorption' in 'range' -> SHOULD ALLOW (since range is not denied for absorption)
     decision_3 = gate.evaluate(ctx=ctx_range, symbol="BTCUSDT", kind="absorption", side="LONG")
     assert decision_3.veto is False
     assert decision_3.reason_code == "OK"
-    
+
     # 5. Evaluate 'absorption' in 'trending_bull' -> SHOULD VETO
     decision_4 = gate.evaluate(ctx=ctx_bull, symbol="BTCUSDT", kind="absorption", side="LONG")
     assert decision_4.veto is True

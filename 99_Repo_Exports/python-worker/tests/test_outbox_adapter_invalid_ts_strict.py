@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import json
 import time
-from typing import Any, Dict, List, Optional
+from core.redis_keys import RedisStreams as RS
 
 
 class _FakeRedisStream:
@@ -12,7 +11,7 @@ class _FakeRedisStream:
     We store entries as list[(id, fields)] where fields are strings.
     """
     def __init__(self) -> None:
-        self.entries: List[Dict[str, str]] = []
+        self.entries: list[dict[str, str]] = []
         self._i = 0
 
     def evalsha(self, sha, numkeys, *args):  # noqa: D401
@@ -37,7 +36,7 @@ def test_outbox_adapter_hard_invalid_ts_is_corrected_to_now_and_marked(monkeypat
     fake = _FakeRedisStream()
     pub = SignalOutboxPublisher.__new__(SignalOutboxPublisher)
     pub.redis = fake
-    pub.settings = OutboxSettings(outbox_stream="stream:signals:outbox", outbox_maxlen=1000, dedup_ttl_ms=60000, dedup_bucket_ms=60000)
+    pub.settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX, outbox_maxlen=1000, dedup_ttl_ms=60000, dedup_bucket_ms=60000)
     pub._sha = "na"
     pub._ensure_script = lambda: "na"
     pub.build_dedup_key = lambda **kw: "dedup:key"

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """services.news_reco_reader.reader
 
 Asyncio background reader that periodically fetches *one* Redis key:
@@ -22,13 +23,11 @@ Backends
 
 
 import asyncio
-from utils.task_manager import safe_create_task
-
 import json
 import os
 import random
-import time
-from typing import Any, Optional
+
+from utils.task_manager import safe_create_task
 
 from .cache import NewsRecoCache, now_ms
 from .metrics import build_metrics
@@ -56,7 +55,7 @@ class NewsRecoReader:
         self._stale_fail_open_ms = max(0, int(stale_fail_open_ms))
         self.cache = NewsRecoCache(max_symbols=max_symbols)
 
-        self._task: Optional[asyncio.Task[None]] = None
+        self._task: asyncio.Task[None] | None = None
         self._stop_evt = asyncio.Event()
         self._last_ok_ms: int = 0
 
@@ -69,7 +68,7 @@ class NewsRecoReader:
     def started(self) -> bool:
         return self._task is not None and not self._task.done()
 
-    def get(self, symbol: str) -> Optional[dict]:
+    def get(self, symbol: str) -> dict | None:
         snap = self.cache.get(symbol)
         if snap is None:
             self.metrics.miss_total.inc()
@@ -149,7 +148,7 @@ class NewsRecoReader:
         except Exception as exc:
             raise RuntimeError(f"redis client init failed: {exc}") from exc
 
-    async def _redis_get(self, key: str) -> Optional[str]:
+    async def _redis_get(self, key: str) -> str | None:
         await self._init_redis()
         if self._redis_async is not None:
             return await self._redis_async.get(key)
@@ -212,18 +211,18 @@ class NewsRecoReader:
 # Singleton helpers (drop-in integration for trade core)
 # -------------------------------------------------------------------------
 
-_SINGLETON: Optional[NewsRecoReader] = None
+_SINGLETON: NewsRecoReader | None = None
 _SINGLETON_LOCK = asyncio.Lock()
 
 
-def get_reco(symbol: str) -> Optional[dict]:
+def get_reco(symbol: str) -> dict | None:
     """Hot-path getter: returns reco payload or None (fail-open)."""
     if _SINGLETON is None:
         return None
     return _SINGLETON.get(symbol)
 
 
-async def ensure_started() -> Optional[NewsRecoReader]:
+async def ensure_started() -> NewsRecoReader | None:
     """Ensure the background reader is running (idempotent).
 
     Controlled by:

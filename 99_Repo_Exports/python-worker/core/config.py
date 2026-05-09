@@ -1,9 +1,8 @@
-# core/config.py
 from __future__ import annotations
 
+# core/config.py
 import os
 import re
-from typing import Optional
 
 from core.redis_keys import RS  # canonical stream key constants
 
@@ -24,7 +23,7 @@ GOLDEN_CONFIDENCE_DEFAULT: int = int(os.getenv("GOLDEN_CONFIDENCE_DEFAULT", "90"
 GOLDEN_WEIGHT_DEFAULT: float = float(os.getenv("GOLDEN_WEIGHT_DEFAULT", "1.0"))
 
 
-def get_pattern_conf_threshold(pattern_label: Optional[str]) -> int:
+def get_pattern_conf_threshold(pattern_label: str | None) -> int:
     """
     Порог для golden по паттерну:
       - env: GOLDEN_CONF_<NORMALIZED_LABEL>
@@ -46,7 +45,7 @@ def get_pattern_conf_threshold(pattern_label: Optional[str]) -> int:
         return GOLDEN_CONFIDENCE_DEFAULT
 
 
-def get_pattern_weight(pattern_label: Optional[str]) -> float:
+def get_pattern_weight(pattern_label: str | None) -> float:
     """
     Вес паттерна:
       - env: GOLDEN_WEIGHT_<NORMALIZED_LABEL>

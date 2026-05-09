@@ -1,12 +1,16 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 """
 Integration tests for SignalOutboxPublisher deduplication with real Redis.
 Tests the most critical exactly-once invariants.
 """
 import json
 import time
+
 import pytest
-from core.signal_outbox import SignalOutboxPublisher, OutboxSettings, _LUA_DEDUP_AND_OUTBOX
+
+from core.signal_outbox import _LUA_DEDUP_AND_OUTBOX, OutboxSettings, SignalOutboxPublisher
 
 
 class TestOutboxDeduplication:
@@ -15,7 +19,7 @@ class TestOutboxDeduplication:
     def test_dedup_same_bucket_blocks_second_publish(self, r):
         """Дедуп в одном бакете блокирует вторую публикацию."""
         settings = OutboxSettings(
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             outbox_maxlen=20000,
             dedup_ttl_ms=60000,
             dedup_bucket_ms=60000,
@@ -42,12 +46,12 @@ class TestOutboxDeduplication:
         assert id2 is None  # dedup сработал
 
         # В outbox должен быть только один сигнал
-        assert r.xlen("stream:signals:outbox") == 1
+        assert r.xlen(RS.SIGNAL_OUTBOX) == 1
 
     def test_dedup_different_bucket_allows_publish(self, r):
         """Разные бакеты позволяют публикацию (дедуп не срабатывает)."""
         settings = OutboxSettings(
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             dedup_bucket_ms=60000,  # 1 минута
         )
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
@@ -71,11 +75,11 @@ class TestOutboxDeduplication:
 
         assert id1 is not None
         assert id2 is not None  # разные бакеты - дедуп не сработал
-        assert r.xlen("stream:signals:outbox") == 2
+        assert r.xlen(RS.SIGNAL_OUTBOX) == 2
 
     def test_lua_rollback_on_xadd_error(self, r):
         """Критический тест: Lua должен откатывать дедуп-ключ при ошибке XADD."""
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         ts_ms = get_ny_time_millis()
@@ -104,7 +108,7 @@ class TestOutboxDeduplication:
 
     def test_publish_returns_correct_result_flags(self, r):
         """publish() должен возвращать правильные флаги sent/dedup."""
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         ts_ms = get_ny_time_millis()
@@ -134,7 +138,7 @@ class TestOutboxDeduplication:
     def test_dedup_ttl_expiration(self, r):
         """Дедуп ключ должен истекать по TTL."""
         settings = OutboxSettings(
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             dedup_ttl_ms=1000,  # короткий TTL для теста
         )
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
@@ -170,11 +174,11 @@ class TestOutboxDeduplication:
         assert id3 is not None
 
         # Должно быть 2 сообщения в outbox
-        assert r.xlen("stream:signals:outbox") == 2
+        assert r.xlen(RS.SIGNAL_OUTBOX) == 2
 
     def test_different_level_keys_allow_publish(self, r):
         """Разные level_key позволяют публикацию (даже в одном бакете)."""
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         ts_ms = get_ny_time_millis()
@@ -194,10 +198,10 @@ class TestOutboxDeduplication:
 
         assert id1 is not None
         assert id2 is not None  # разные level_key - дедуп не сработал
-        assert r.xlen("stream:signals:outbox") == 2
+        assert r.xlen(RS.SIGNAL_OUTBOX) == 2
     def test_different_detection_reasons_are_deduplicated(self, r):
         """Разные detection_reason теперь дедуплицируются, чтобы не было дублей при изменении причины."""
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         ts_ms = get_ny_time_millis()
@@ -217,11 +221,11 @@ class TestOutboxDeduplication:
 
         assert id1 is not None
         assert id2 is None  # разные причины больше не влияют на дедуп (теперь дедуплицируется)
-        assert r.xlen("stream:signals:outbox") == 1
+        assert r.xlen(RS.SIGNAL_OUTBOX) == 1
 
     def test_different_fingerprints_allow_publish(self, r):
         """Разные fingerprints позволяют публикацию (даже в одном бакете)."""
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         ts_ms = get_ny_time_millis()
@@ -241,4 +245,4 @@ class TestOutboxDeduplication:
 
         assert id1 is not None
         assert id2 is not None  # разные фингерпринты - дедуп не сработал
-        assert r.xlen("stream:signals:outbox") == 2
+        assert r.xlen(RS.SIGNAL_OUTBOX) == 2

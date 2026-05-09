@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """P8 ExecHealth Freeze Integrity Exporter.
@@ -22,7 +23,7 @@ Violations detected:
 
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -41,7 +42,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 # ── Prometheus metrics ──────────────────────────────────────────────────────
@@ -56,7 +57,7 @@ LAST_TRIGGER_TS_MS = Gauge("exec_health_freeze_integrity_last_trigger_ts_ms", "L
 STATE_AGE_S = Gauge("exec_health_freeze_integrity_state_age_seconds", "Max age of control/state hashes")
 
 
-def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+def _read_events(r: Any, key: str, count: int) -> list[tuple[str, dict[str, Any]]]:
     """Read the most recent events from a Redis stream (reverse order, newest first)."""
     try:
         rows = r.xrevrange(key, count=max(1, int(count))) or []

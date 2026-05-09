@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Redis-backed dual-control approval state for deploy-lint silence overrides.
@@ -25,12 +26,11 @@ P4.14 adds warning-policy / notifier-route binding so approvals invalidate when
 operational escalation class changes even if the raw drift body stays similar.
 """
 
-from dataclasses import dataclass
-from typing import Any
 import hashlib
 import json
-import time
 import uuid
+from dataclasses import dataclass
+from typing import Any
 
 from services.observability.latency_deploy_contract import CONTRACTS
 from services.observability.latency_deploy_lint_notify_state import purposes_hash
@@ -394,7 +394,7 @@ def read_latest_approval(
 
 def _policy_set(raw: str) -> set[str]:
     """Split a comma-separated policy CSV into a set of trimmed code strings."""
-    return {x.strip() for x in str(raw or '').split(',') if x.strip()}
+    return {x.strip() for x in (raw or '').split(',') if x.strip()}
 
 
 def resolve_warning_severity_policy(
@@ -408,7 +408,7 @@ def resolve_warning_severity_policy(
 
     Priority: page > crit > warn.  Returns 'none' when no codes given.
     """
-    codes = {x.strip() for x in str(warning_codes_csv or '').split(',') if x.strip() and x.strip() != 'none'}
+    codes = {x.strip() for x in (warning_codes_csv or '').split(',') if x.strip() and x.strip() != 'none'}
     if not codes:
         return 'none'
     if codes & _policy_set(warn_codes_page_csv):
@@ -422,7 +422,7 @@ def resolve_warning_severity_policy(
 
 def resolve_notifier_route_class(*, warning_severity_policy: str) -> str:
     """Determine notifier route class from warning severity policy."""
-    return 'page' if str(warning_severity_policy or 'none') == 'page' else 'notify'
+    return 'page' if (warning_severity_policy or 'none') == 'page' else 'notify'
 
 
 def build_drift_binding(
@@ -446,7 +446,7 @@ def build_drift_binding(
     active_purposes: list[str] = []
     for candidate in sorted(CONTRACTS.keys()):
         raw = r.hgetall(lint_state_key(state_prefix, candidate)) or {}
-        if str(raw.get('gate_active', '0')) == '1':
+        if (raw.get('gate_active', '0')) == '1':
             active_purposes.append(candidate)
     error_codes = _codes_csv(current.get('error_codes', 'ok'))
     active_csv = _csv(active_purposes) or 'none'
@@ -553,7 +553,7 @@ def prepare_override_approval(
         'status': 'prepared',
         'prepared_by': str(operator),
         'prepared_ticket': str(ticket),
-        'prepared_reason': str(reason),
+        'prepared_reason': reason,
         'escalation_ticket': str(escalation_ticket),
         'requested_minutes': str(max(1, int(minutes))),
         'prepared_ts_ms': str(now_ms),
@@ -621,7 +621,7 @@ def prepare_override_approval(
         'operator': str(operator),
         'ticket': str(ticket),
         'escalation_ticket': str(escalation_ticket),
-        'reason': str(reason),
+        'reason': reason,
         'requested_minutes': str(max(1, int(minutes))),
         'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
         'bound_error_codes': mapping['bound_error_codes'],
@@ -670,7 +670,7 @@ def approve_override_approval(
         **prev,
         'status': 'approved',
         'approved_by': str(operator),
-        'approved_reason': str(reason),
+        'approved_reason': reason,
         'approved_ts_ms': str(now_ms),
         'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
     }
@@ -688,7 +688,7 @@ def approve_override_approval(
         'operator': str(operator),
         'ticket': st.prepared_ticket,
         'escalation_ticket': st.escalation_ticket,
-        'reason': str(reason),
+        'reason': reason,
         'requested_minutes': str(st.requested_minutes),
         'freshness_deadline_ts_ms': str(freshness_deadline_ts_ms),
         'bound_error_codes_hash': st.bound_error_codes_hash,
@@ -732,7 +732,7 @@ def invalidate_approval(
         **prev,
         'status': 'invalidated',
         'invalidated_ts_ms': str(now_ms),
-        'invalidated_reason': str(reason),
+        'invalidated_reason': reason,
         'invalidated_stage': str(stage),
         # P4.12: coarse snapshot of current drift (for audit)
         'invalidated_error_codes': _s(binding.get('bound_error_codes'), 'ok'),
@@ -766,7 +766,7 @@ def invalidate_approval(
         'escalation_ticket': st.escalation_ticket,
         'requested_minutes': str(st.requested_minutes),
         'invalidate_stage': str(stage),
-        'invalidate_reason': str(reason),
+        'invalidate_reason': reason,
         'bound_error_codes_hash': st.bound_error_codes_hash,
         'bound_active_purposes_hash': st.bound_active_purposes_hash,
         'bound_gate_reason_code': st.bound_gate_reason_code,

@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """services/liquidation_map_service.py
 
 Фаза B: Python сервис построения "карты ликвидаций" (liquidation heatmap).
@@ -47,17 +47,16 @@ NOTE:
 - Сервис intentionally "fail-soft": плохие сообщения уходят в DLQ, чтобы не стопорить группу.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
-import os
-import time
-import socket
 import logging
+import os
+import socket
+import time
 from decimal import Decimal
-from typing import Dict, List, Optional, Set, Tuple
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
+from utils.time_utils import get_ny_time_millis
 
 # Bootstrap import paths (works for both repo-root/services and tick_flow_full/services copies)
 
@@ -85,16 +84,15 @@ except Exception:  # pragma: no cover
     _bootstrap_paths()
     from core.redis_client import get_redis  # type: ignore
 
-from services.redis_stream_runner_base import RedisStreamRunner, StreamMsg
 from services.liquidation_map_core import (
     Bucketizer,
     LiqMapWindowAgg,
-    normalize_liq_event,
     _safe_decimal_str,
     format_decimal,
     format_price,
+    normalize_liq_event,
 )
-
+from services.redis_stream_runner_base import RedisStreamRunner, StreamMsg
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Metrics
@@ -136,10 +134,10 @@ logging.basicConfig(
 logger = logging.getLogger("liquidation_map_service")
 
 
-def _parse_windows(s: str) -> List[Tuple[str, int]]:
+def _parse_windows(s: str) -> list[tuple[str, int]]:
     """Parse LIQMAP_WINDOWS like: '1h,4h,24h' or '15m,1h'."""
 
-    out: List[Tuple[str, int]] = []
+    out: list[tuple[str, int]] = []
     for part in (s or "").split(","):
         p = part.strip().lower()
         if not p:
@@ -188,7 +186,7 @@ class LiquidationMapService:
 
         # Allowlist symbols (optional)
         sym_s = os.getenv("LIQMAP_SYMBOLS", "").strip()
-        self.symbol_allow: Optional[Set[str]] = None
+        self.symbol_allow: set[str] | None = None
         if sym_s:
             self.symbol_allow = {x.strip().upper() for x in sym_s.split(",") if x.strip()}
 
@@ -219,8 +217,8 @@ class LiquidationMapService:
         )
 
         # Per-symbol per-window aggregators
-        self.aggs: Dict[str, Dict[str, LiqMapWindowAgg]] = {}
-        self._dirty_symbols: Set[str] = set()
+        self.aggs: dict[str, dict[str, LiqMapWindowAgg]] = {}
+        self._dirty_symbols: set[str] = set()
 
         # Publish scheduler
         self._last_publish_ms = 0
@@ -237,7 +235,7 @@ class LiquidationMapService:
         for wname, wms in self.windows:
             self.aggs[symbol][wname] = LiqMapWindowAgg(window_ms=wms, bucketizer=self.bucketizer)
 
-    def _dq_time_check(self, ts_event_ms: int, now_ms: int) -> Optional[str]:
+    def _dq_time_check(self, ts_event_ms: int, now_ms: int) -> str | None:
         # future
         if ts_event_ms > now_ms + self.max_future_ms:
             return "event_in_future"

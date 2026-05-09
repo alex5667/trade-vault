@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
+import contextlib
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -9,20 +10,18 @@ def _env_bool(name: str, default: bool) -> bool:
     return v in {"1", "true", "yes", "on"}
 
 
-def _parse_csv_ints(s: str) -> List[int]:
-    out: List[int] = []
+def _parse_csv_ints(s: str) -> list[int]:
+    out: list[int] = []
     for part in (s or "").split(","):
         p = part.strip()
         if not p:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(int(p))
-        except Exception:
-            pass
     return out
 
 
-def _snapshot_buckets_ms() -> List[int]:
+def _snapshot_buckets_ms() -> list[int]:
     """
     Buckets for storing excursion snapshots.
     By default we reuse EMP_TIME_BUCKETS_MINUTES (used by runtime empirical levels)
@@ -34,7 +33,7 @@ def _snapshot_buckets_ms() -> List[int]:
     return ms
 
 
-def _ensure_dict_attr(obj: Any, name: str) -> Optional[Dict[int, float]]:
+def _ensure_dict_attr(obj: Any, name: str) -> dict[int, float] | None:
     """
     slots-safe: if dataclass defines the field -> it exists.
     fail-open: if not, we try to set it dynamically.
@@ -128,10 +127,10 @@ def maybe_snapshot_time_buckets(pos: Any, *, ts_ms: int, spec: Any) -> None:
             # SHORT: favorable is down (min), adverse is up (max)
             is_long = False
             try:
-                is_long = bool(getattr(pos, "is_long")() if callable(getattr(pos, "is_long", None)) else False)
+                is_long = bool(pos.is_long() if callable(getattr(pos, "is_long", None)) else False)
             except Exception:
                 # fallback by direction string
-                s = str(direction or "").strip().lower()
+                s = (direction or "").strip().lower()
                 is_long = s in {"long", "buy"}
 
             if is_long:

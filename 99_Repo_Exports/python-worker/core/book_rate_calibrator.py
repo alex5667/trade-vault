@@ -1,7 +1,7 @@
 import json
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from core.quantile_p2 import P2Quantile
 
@@ -41,11 +41,11 @@ class BookRateCalibrator:
     def __init__(self, *, min_samples: int = 300, dt_max_ms: int = 2000) -> None:
         self.min_samples = int(min_samples)
         self.dt_max_ms = int(dt_max_ms)
-        self._p10: Dict[str, P2Quantile] = {}
-        self._p50: Dict[str, P2Quantile] = {}
-        self._n: Dict[str, int] = {}
+        self._p10: dict[str, P2Quantile] = {}
+        self._p50: dict[str, P2Quantile] = {}
+        self._n: dict[str, int] = {}
 
-    def _get(self, m: Dict[str, P2Quantile], regime: str, p: float) -> P2Quantile:
+    def _get(self, m: dict[str, P2Quantile], regime: str, p: float) -> P2Quantile:
         q = m.get(regime)
         if q is None:
             q = P2Quantile(p=p)
@@ -60,7 +60,7 @@ class BookRateCalibrator:
         - dt_ms <= 0
         - dt_ms above dt_max_ms (treat as connectivity/downtime, not market microstructure)
         """
-        r = str(regime or "na")
+        r = (regime or "na")
         try:
             dt = int(dt_ms)
         except Exception:
@@ -81,12 +81,12 @@ class BookRateCalibrator:
         regime: str,
         default_min_hz: float,
         default_warn_hz: float,
-        clamp: Tuple[float, float] = (1.0, 500.0),
+        clamp: tuple[float, float] = (1.0, 500.0),
     ) -> BookRateThresholds:
         """
         Return calibrated thresholds if ready else defaults.
         """
-        r = str(regime or "na")
+        r = (regime or "na")
         n = int(self._n.get(r, 0))
         lo, hi = float(clamp[0]), float(clamp[1])
 
@@ -114,12 +114,12 @@ class BookRateCalibrator:
         return BookRateThresholds(min_hz=min_hz, warn_hz=warn_hz, n=n, src="calib_p10")
 
     # ---------------- Persistence ----------------
-    def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> Dict[str, Any]:
-        r = str(regime or "na")
+    def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> dict[str, Any]:
+        r = (regime or "na")
         return {
             "v": 1,
             "kind": "book_rate",
-            "symbol": str(symbol),
+            "symbol": symbol,
             "regime": r,
             "updated_ts_ms": int(updated_ts_ms),
             "min_samples": int(self.min_samples),
@@ -129,14 +129,14 @@ class BookRateCalibrator:
             "p50": (self._p50.get(r).to_state() if self._p50.get(r) else None),
         }
 
-    def load_regime_state(self, state: Dict[str, Any]) -> None:
+    def load_regime_state(self, state: dict[str, Any]) -> None:
         try:
             if not isinstance(state, dict):
                 return
-            if str(state.get("kind") or "") not in ("book_rate", ""):
+            if (state.get("kind") or "") not in ("book_rate", ""):
                 # tolerate missing kind for backwards compatibility
                 pass
-            r = str(state.get("regime") or "na")
+            r = (state.get("regime") or "na")
             self.min_samples = int(state.get("min_samples", self.min_samples) or self.min_samples)
             self.dt_max_ms = int(state.get("dt_max_ms", self.dt_max_ms) or self.dt_max_ms)
             p10 = state.get("p10")
@@ -150,7 +150,7 @@ class BookRateCalibrator:
             return
 
     @staticmethod
-    def loads(raw: str) -> Optional[Dict[str, Any]]:
+    def loads(raw: str) -> dict[str, Any] | None:
         try:
             d = json.loads(raw)
             return d if isinstance(d, dict) else None

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-import pytest
-
-from services.outbox.envelope_builder import build_outbox_envelope
 from common.contracts.json_contract import assert_json_safe, assert_no_trace_in_tradeable_envelope
+from services.outbox.envelope_builder import build_outbox_envelope
+
 
 def test_build_outbox_envelope_trace_safe():
     # Test that envelope is trade-safe even when trace data is provided

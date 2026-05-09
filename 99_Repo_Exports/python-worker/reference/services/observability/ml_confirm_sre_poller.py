@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 SRE поллер для метрик ML Confirm и labels:tb.
 
@@ -16,9 +17,9 @@ SRE поллер для метрик ML Confirm и labels:tb.
 """
 
 
+import logging
 import os
 import time
-import logging
 
 import redis
 
@@ -48,33 +49,33 @@ if PROMETHEUS_AVAILABLE:
         "tb_labels_xlen",
         "XLEN of labels:tb stream",
     )
-    
+
     tb_labels_xadd_rate = Gauge(
         "tb_labels_xadd_rate",
         "XADD rate for labels:tb (approximate, per minute)",
     )
-    
+
     tb_labeler_group_exists = Gauge(
         "tb_labeler_group_exists",
         "Consumer group exists for labels:tb (0/1)",
     )
-    
+
     tb_train_empty_run_total = Counter(
         "tb_train_empty_run_total",
         "Count of training runs with 0 exported labels",
     )
-    
+
     tb_promo_success_total = Counter(
         "tb_promo_success_total",
         "Count of successful champion promotions",
     )
-    
+
     tb_promo_fail_total = Counter(
         "tb_promo_fail_total",
         "Count of failed champion promotions",
         ["reason"],
     )
-    
+
     # ML Confirm config health metrics (from Redis)
     # Import from registry if available, otherwise define locally
     try:
@@ -119,7 +120,7 @@ else:
 
 class MLConfirmSREPoller:
     """SRE поллер для мониторинга ML Confirm и labels:tb."""
-    
+
     def __init__(
         self,
         *,
@@ -134,7 +135,7 @@ class MLConfirmSREPoller:
         self.champion_key = champion_key
         self._last_xlen = 0
         self._last_xlen_ts = time.time()
-    
+
     def poll_once(self) -> None:
         """Однократный опрос метрик."""
         try:
@@ -142,7 +143,7 @@ class MLConfirmSREPoller:
             xlen = self.r.xlen(self.labels_stream)
             if PROMETHEUS_AVAILABLE:
                 tb_labels_xlen.set(xlen)
-            
+
             # XADD rate (приблизительно, по изменению XLEN)
             now = time.time()
             if self._last_xlen_ts > 0:
@@ -153,7 +154,7 @@ class MLConfirmSREPoller:
                         tb_labels_xadd_rate.set(xadd_rate)
             self._last_xlen = xlen
             self._last_xlen_ts = now
-            
+
             # Consumer group health
             try:
                 groups = self.r.xinfo_groups(self.labels_stream)
@@ -165,10 +166,10 @@ class MLConfirmSREPoller:
                 if PROMETHEUS_AVAILABLE:
                     tb_labeler_group_exists.set(0)
                 logger.debug(f"Failed to get consumer groups for {self.labels_stream}: {e}")
-            
+
             # ML Confirm config health (from Redis)
             self._poll_ml_confirm_cfg()
-        
+
         except redis.exceptions.BusyLoadingError:
             logger.warning("Redis is loading the dataset in memory, skipping poll cycle")
             if PROMETHEUS_AVAILABLE:
@@ -177,27 +178,27 @@ class MLConfirmSREPoller:
             logger.error(f"Error polling labels:tb metrics: {e}", exc_info=True)
             if PROMETHEUS_AVAILABLE:
                 tb_labels_xlen.set(-1)  # Error indicator
-    
+
     def _poll_ml_confirm_cfg(self) -> None:
         """Опрос состояния ML Confirm конфигурации из Redis."""
         try:
-            from core.champion_cfg_validator import validate_champion_cfg, CfgError
-            
+            from core.champion_cfg_validator import CfgError, validate_champion_cfg
+
             # Check if champion config exists
             raw_cfg = self.r.get(self.champion_key)
             kind_for_metrics = "unknown"
-            
+
             if raw_cfg:
                 # Config present
                 if PROMETHEUS_AVAILABLE:
                     ml_confirm_cfg_present_gauge.labels(kind=kind_for_metrics).set(1)
-                
+
                 # Try to validate
                 try:
                     if isinstance(raw_cfg, bytes):
                         raw_cfg = raw_cfg.decode("utf-8", "ignore")
                     raw_cfg_str = str(raw_cfg).strip()
-                    
+
                     if raw_cfg_str:
                         # Validate with strict mode (no defaulting)
                         champion_cfg, _ = validate_champion_cfg(
@@ -205,7 +206,7 @@ class MLConfirmSREPoller:
                             default_enforce_share=None  # Strict: missing enforce_share → error
                         )
                         kind_for_metrics = champion_cfg.kind or "unknown"
-                        
+
                         # Config is valid
                         if PROMETHEUS_AVAILABLE:
                             ml_confirm_cfg_present_gauge.labels(kind=kind_for_metrics).set(1)
@@ -241,7 +242,7 @@ class MLConfirmSREPoller:
                 ml_confirm_cfg_present_gauge.labels(kind="unknown").set(0)
                 ml_confirm_cfg_valid_gauge.labels(kind="unknown").set(0)
                 ml_confirm_enforce_share_gauge.labels(kind="unknown").set(0)
-    
+
     def run_forever(self) -> None:
         """Бесконечный цикл опроса."""
         logger.info(f"Starting ML Confirm SRE poller (stream={self.labels_stream}, interval={self.poll_interval_sec}s)")
@@ -256,7 +257,7 @@ class MLConfirmSREPoller:
 def main() -> None:
     """Main entry point."""
     import argparse
-    
+
     ap = argparse.ArgumentParser(description="ML Confirm SRE Poller")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--labels-stream", default=os.getenv("TB_LABELS_STREAM", "labels:tb"))
@@ -264,16 +265,16 @@ def main() -> None:
     ap.add_argument("--prometheus-port", type=int, default=int(os.getenv("PROMETHEUS_PORT", "8005")))
     ap.add_argument("--champion-key", default=os.getenv("ML_CFG_CHAMPION_KEY", "cfg:ml_confirm:champion"))
     args = ap.parse_args()
-    
+
     # Setup logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
-    
+
     # Connect to Redis
     r = redis.Redis.from_url(args.redis_url, decode_responses=True)
-    
+
     # Start Prometheus server
     if PROMETHEUS_AVAILABLE:
         try:
@@ -281,7 +282,7 @@ def main() -> None:
             logger.info(f"Prometheus metrics server started on port {args.prometheus_port}")
         except Exception as e:
             logger.warning(f"Failed to start Prometheus server: {e}")
-    
+
     # Run poller
     poller = MLConfirmSREPoller(
         r=r,

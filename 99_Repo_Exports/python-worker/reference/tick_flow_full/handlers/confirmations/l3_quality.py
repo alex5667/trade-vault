@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+import math
+import os
 from dataclasses import dataclass
 from typing import Any
-import os
-import math
 
 
 def _f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
 @dataclass(frozen=True)
@@ -82,8 +82,8 @@ def apply_l3_policy_to_ctx(*, ctx: Any, assessment: L3Assessment) -> None:
     try:
         arr = getattr(ctx, "data_quality_flags", None)
         if arr is None:
-            setattr(ctx, "data_quality_flags", [])
-            arr = getattr(ctx, "data_quality_flags")
+            ctx.data_quality_flags = []
+            arr = ctx.data_quality_flags
         if isinstance(arr, list):
             for f in assessment.flags:
                 if f not in arr:

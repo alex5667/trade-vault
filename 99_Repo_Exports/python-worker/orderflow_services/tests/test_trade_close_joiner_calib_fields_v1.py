@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Test: Calibration fields propagation through trade_close_joiner_worker_v5.
 
@@ -8,11 +9,8 @@ into the trades:closed output.
 """
 
 
-import asyncio
 import json
-import sys
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock
+from typing import Any
 
 import pytest
 
@@ -20,17 +18,17 @@ import pytest
 # Minimal stubs
 # ----------------------------------------------------------------
 
-_xadd_calls: List[Dict[str, Any]] = []
+_xadd_calls: list[dict[str, Any]] = []
 
 
 class FakeRedis:
     """Async Redis stub that captures xadd writes."""
 
-    def __init__(self, decision: Optional[Dict[str, Any]] = None):
+    def __init__(self, decision: dict[str, Any] | None = None):
         self._decision = decision or {}
-        self._keys: Dict[str, str] = {}
+        self._keys: dict[str, str] = {}
 
-    async def get(self, key: str) -> Optional[str]:
+    async def get(self, key: str) -> str | None:
         if key.startswith("decision:"):
             return json.dumps(self._decision) if self._decision else None
         if key.startswith("dedup:"):
@@ -41,7 +39,7 @@ class FakeRedis:
         self._keys[key] = str(val)
         return True
 
-    async def xadd(self, stream: str, fields: Dict[str, Any], *, maxlen: int = 0, approximate: bool = False) -> str:
+    async def xadd(self, stream: str, fields: dict[str, Any], *, maxlen: int = 0, approximate: bool = False) -> str:
         _xadd_calls.append({"stream": stream, "fields": fields})
         return "1-0"
 
@@ -59,7 +57,7 @@ class FakeRedis:
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, "/home/alex/front/trade/scanner_infra/python-worker")
 
 from services.orderflow.tools.trade_close_joiner_worker_v5 import _handle_close
-
+from core.redis_keys import RedisStreams as RS
 
 # ----------------------------------------------------------------
 # Helper
@@ -76,7 +74,7 @@ def _build_kwargs(**overrides):
         ml_replay_stream="ml_replay_inputs_v1",
         ml_replay_maxlen=100000,
         write_ml_replay=False,
-        of_inputs_stream="signals:of:inputs",
+        of_inputs_stream=RS.OF_INPUTS,
         of_inputs_field="payload",
         of_inputs_sid_index_prefix="idx:of_inputs:sid:",
         of_inputs_scan_count=5000,

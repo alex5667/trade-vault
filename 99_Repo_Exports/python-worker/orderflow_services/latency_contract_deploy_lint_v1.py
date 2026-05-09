@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """Pre-deploy linter for latency-contract sensitive rollout jobs.
 
 Checks three layers from one source of truth:
@@ -8,8 +9,8 @@ Checks three layers from one source of truth:
 3. required runtime env for the chosen sensitive job,
 """,
 import argparse
-from pathlib import Path
 import os
+from pathlib import Path
 
 from services.observability.latency_deploy_contract import lint_deploy_contract, render_json
 from services.observability.latency_deploy_lint_state import update_deploy_lint_state
@@ -55,10 +56,10 @@ def main() -> int:
             report=report,
             state_prefix=(os.getenv('LATENCY_CONTRACT_DEPLOY_LINT_STATE_PREFIX') or 'metrics:latency_contract:deploy_lint:last').strip(),
             gate_prefix=(os.getenv('LATENCY_CONTRACT_DEPLOY_LINT_GATE_PREFIX') or 'cfg:orderflow:latency_contract:deploy_lint_gate').strip(),
-            hold_s=int(float((os.getenv('LATENCY_CONTRACT_DEPLOY_LINT_PERSIST_HOLD_S') or '1800'))),
-            ttl_s=int(float((os.getenv('LATENCY_CONTRACT_DEPLOY_LINT_STATE_TTL_S') or '172800'))),
+            hold_s=int(float(os.getenv('LATENCY_CONTRACT_DEPLOY_LINT_PERSIST_HOLD_S') or '1800')),
+            ttl_s=int(float(os.getenv('LATENCY_CONTRACT_DEPLOY_LINT_STATE_TTL_S') or '172800')),
         )
-        gate_active = 1 if str(state.get('gate_active', '0')) == '1' else 0
+        gate_active = 1 if (state.get('gate_active', '0')) == '1' else 0
         report['redis_state'] = state
         payload = render_json(report)
         if ns.json_out:

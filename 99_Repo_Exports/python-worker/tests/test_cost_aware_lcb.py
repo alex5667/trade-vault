@@ -1,12 +1,12 @@
 """
 Tests for cost-aware LCB computation and hysteresis.
 """
-import os
-import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
-from core.cost_aware_lcb import compute_r_adj, compute_arm_stats, lcb_from_samples
-from core.winner_hysteresis import WinnerHysteresis, HysteresisResult
+import pytest
+
+from core.cost_aware_lcb import compute_arm_stats, compute_r_adj, lcb_from_samples
+from core.winner_hysteresis import WinnerHysteresis
 
 
 def test_compute_r_adj_slippage_only(monkeypatch):
@@ -143,15 +143,15 @@ def test_hysteresis_apply_init(monkeypatch):
     """Test hysteresis apply on first run (no previous winner)."""
     monkeypatch.setenv("LCB_MIN_DELTA_LCB", "0.05")
     monkeypatch.setenv("LCB_CONFIRM_WINDOWS", "2")
-    
+
     mock_r = Mock()
     mock_r.get.return_value = None
     mock_r.pipeline.return_value = mock_r
     mock_r.execute.return_value = []
-    
+
     hyst = WinnerHysteresis(mock_r)
     res = hyst.apply(bucket="test", candidate="B", candidate_lcb=0.5)
-    
+
     assert res.changed is True
     assert res.winner == "B"
     assert res.reason == "init"
@@ -161,15 +161,15 @@ def test_hysteresis_apply_same_candidate(monkeypatch):
     """Test hysteresis when candidate is same as previous."""
     monkeypatch.setenv("LCB_MIN_DELTA_LCB", "0.05")
     monkeypatch.setenv("LCB_CONFIRM_WINDOWS", "2")
-    
+
     mock_r = Mock()
     mock_r.get.side_effect = lambda k: "B" if "winner" in k else "0.5" if "winner_lcb" in k else None
     mock_r.pipeline.return_value = mock_r
     mock_r.execute.return_value = []
-    
+
     hyst = WinnerHysteresis(mock_r)
     res = hyst.apply(bucket="test", candidate="B", candidate_lcb=0.5)
-    
+
     assert res.changed is False
     assert res.winner == "B"
     assert res.reason == "same"
@@ -179,16 +179,16 @@ def test_hysteresis_apply_delta_too_small(monkeypatch):
     """Test hysteresis when delta is too small."""
     monkeypatch.setenv("LCB_MIN_DELTA_LCB", "0.05")
     monkeypatch.setenv("LCB_CONFIRM_WINDOWS", "2")
-    
+
     mock_r = Mock()
     mock_r.get.side_effect = lambda k: "A" if "winner" in k else "0.5" if "winner_lcb" in k else None
     mock_r.pipeline.return_value = mock_r
     mock_r.execute.return_value = []
-    
+
     hyst = WinnerHysteresis(mock_r)
     # candidate_lcb = 0.5, prev_lcb = 0.5, delta = 0.0 < 0.05
     res = hyst.apply(bucket="test", candidate="B", candidate_lcb=0.5)
-    
+
     assert res.changed is False
     assert res.winner == "A"
     assert res.reason == "delta_too_small"
@@ -198,10 +198,10 @@ def test_hysteresis_apply_confirmed(monkeypatch):
     """Test hysteresis when candidate is confirmed after CONFIRM_WINDOWS."""
     monkeypatch.setenv("LCB_MIN_DELTA_LCB", "0.05")
     monkeypatch.setenv("LCB_CONFIRM_WINDOWS", "2")
-    
+
     mock_r = Mock()
     call_count = {"winner": 0, "pending": 0, "pending_count": 0}
-    
+
     def get_side_effect(k):
         if "winner" in k:
             call_count["winner"] += 1
@@ -215,18 +215,18 @@ def test_hysteresis_apply_confirmed(monkeypatch):
             call_count["pending_count"] += 1
             return "2" if call_count["pending_count"] >= 2 else "1"
         return None
-    
+
     mock_r.get.side_effect = get_side_effect
     mock_r.pipeline.return_value = mock_r
     mock_r.execute.return_value = [2]  # For incr
     mock_r.incr.return_value = 2
-    
+
     hyst = WinnerHysteresis(mock_r)
     # First call: pending
     res1 = hyst.apply(bucket="test", candidate="B", candidate_lcb=0.6)
     # Second call: confirmed
     res2 = hyst.apply(bucket="test", candidate="B", candidate_lcb=0.6)
-    
+
     # Second call should confirm
     assert res2.changed is True or res2.reason in ("confirmed", "pending")
 

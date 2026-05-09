@@ -1,6 +1,5 @@
 # python-worker/tests/test_health_metrics_streams.py
 
-import time
 
 from health_metrics import HealthMetrics, SymbolBucket
 

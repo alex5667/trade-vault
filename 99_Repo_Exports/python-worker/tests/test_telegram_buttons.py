@@ -1,11 +1,13 @@
-from utils.time_utils import get_ny_time_millis
 import json
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 # Mocking the imports if they rely on env vars or redis
-import sys
-from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 
 # Test button generation logic from autopilot
 def test_autopilot_button_generation():
@@ -16,7 +18,7 @@ def test_autopilot_button_generation():
         sid_hash = parts[-1]
         label = f"Proposal {sid_hash[:6]}"
         btns.append([{"text": f"✅ Approve {label}", "callback_data": f"approve:{sid_hash}"}])
-    
+
     assert len(btns) == 1
     assert btns[0][0]["text"] == "✅ Approve Proposal abc123"
     assert btns[0][0]["callback_data"] == "approve:abc123hash"
@@ -27,14 +29,14 @@ async def test_improved_notifier_payload():
     # We can't easily import ImprovedTelegramNotifier since it connects to Redis on init
     # But we can verify the logic we added:
     # reply_markup = {"inline_keyboard": buttons}
-    
+
     buttons = [[{"text": "Test", "callback_data": "test"}]]
     kwargs = {"buttons": buttons}
-    
+
     reply_markup = kwargs.get("reply_markup") or kwargs.get("buttons")
     if isinstance(reply_markup, list) and not isinstance(reply_markup, str):
         reply_markup = {"inline_keyboard": reply_markup}
-        
+
     assert reply_markup == {"inline_keyboard": [[{"text": "Test", "callback_data": "test"}]]}
 
 # Test notify_worker extraction logic (simulated)
@@ -43,14 +45,14 @@ def test_notify_worker_extraction():
         "text": "Report...",
         "buttons": json.dumps([[{"text":"OK", "callback_data":"ok"}]])
     }
-    
+
     buttons = entry.get("buttons")
     if isinstance(buttons, str):
          try:
              buttons = json.loads(buttons)
-         except:
+         except Exception:
              buttons = None
-             
+
     assert isinstance(buttons, list)
     assert buttons[0][0]["callback_data"] == "ok"
 
@@ -88,7 +90,6 @@ def test_approve_reject_buttons_in_report():
 
 def test_callback_handler_approve_flow():
     """Mock Redis and verify approve stores approval + applied keys."""
-    import time
 
     r = MagicMock()
     r.sadd = MagicMock()
@@ -111,7 +112,7 @@ def test_callback_handler_approve_flow():
     r.set(applied_key, str(get_ny_time_millis()), ex=1209600)
 
     confirm_text = f"✅ <b>Proposal {sid[:8]}… APPROVED</b>\nby @{username} (approvals: {count})\n\n<i>Changes applied to cfg:suggestions</i>"
-    r.xadd("notify:telegram", {"type": "report", "text": confirm_text}, maxlen=20000, approximate=True)
+    r.xadd(RS.NOTIFY_TELEGRAM, {"type": "report", "text": confirm_text}, maxlen=20000, approximate=True)
 
     # Assertions
     r.sadd.assert_called_once_with(key, username)
@@ -125,7 +126,6 @@ def test_callback_handler_approve_flow():
 
 def test_callback_handler_reject_flow():
     """Mock Redis and verify reject deletes meta + stores rejected key."""
-    import time
 
     r = MagicMock()
     r.set = MagicMock()
@@ -147,7 +147,7 @@ def test_callback_handler_reject_flow():
     r.delete(meta_key)
 
     confirm_text = f"❌ <b>Proposal {sid[:8]}… REJECTED</b>\nby @{username}\n\n<i>Proposal discarded from cfg:suggestions</i>"
-    r.xadd("notify:telegram", {"type": "report", "text": confirm_text}, maxlen=20000, approximate=True)
+    r.xadd(RS.NOTIFY_TELEGRAM, {"type": "report", "text": confirm_text}, maxlen=20000, approximate=True)
 
     # Assertions
     r.set.assert_called_once()

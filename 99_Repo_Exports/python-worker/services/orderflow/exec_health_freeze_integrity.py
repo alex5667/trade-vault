@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """P8/P9/P10 freeze integrity evaluator — pure logic, no Redis I/O.
@@ -23,14 +24,17 @@ Direct hash edit without a backing request-log sequence is treated as tamper.
 tamper_refreeze_latch events are also accepted as valid trigger events.
 """
 
-import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any
 
-from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_manual_ack_signature, verify_thaw_release_signature
-from services.orderflow.exec_health_freeze_sealed_state import verify_sealed_hash
+from services.orderflow.exec_health_freeze_control import (
+    parse_exec_health_freeze_control,
+    verify_manual_ack_signature,
+    verify_thaw_release_signature,
+)
 from services.orderflow.exec_health_freeze_request_log import REQUEST_LOG_VIOLATION_KINDS, evaluate_request_log_sequence
-
+from services.orderflow.exec_health_freeze_sealed_state import verify_sealed_hash
 
 VIOLATION_KINDS = [
     "none",
@@ -57,17 +61,17 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _s(x: Any, d: str = "") -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
-def _event_payload(rec: Any) -> Tuple[str, Dict[str, Any]]:
+def _event_payload(rec: Any) -> tuple[str, dict[str, Any]]:
     """Extract (event_id, payload_dict) from a Redis stream record tuple."""
     if isinstance(rec, (list, tuple)) and len(rec) >= 2:
         return str(rec[0]), dict(rec[1] or {})
@@ -89,7 +93,7 @@ class FreezeIntegrityResult:
     # P10: request log evaluation results
     request_log_valid_sequence: bool
     request_log_request_id: str
-    violation_kinds: List[str]
+    violation_kinds: list[str]
 
 
 class _ReqSeqProxy:
@@ -97,10 +101,10 @@ class _ReqSeqProxy:
     request_id: str = ""
     commit_event_id: str = ""
     valid_sequence: bool = False
-    violation_kinds: List[str] = ["none"]
+    violation_kinds: list[str] = ["none"]
 
 
-def find_latest_trigger_event(events: Sequence[Any]) -> Tuple[str, Dict[str, Any]]:
+def find_latest_trigger_event(events: Sequence[Any]) -> tuple[str, dict[str, Any]]:
     """Return (event_id, payload) for the most recent autoguard_freeze_latch or tamper_refreeze_latch event.
 
     P10: tamper_refreeze_latch events are also valid trigger events so the guard
@@ -113,7 +117,7 @@ def find_latest_trigger_event(events: Sequence[Any]) -> Tuple[str, Dict[str, Any
     return "", {}
 
 
-def _event_to_control_like(payload: Mapping[str, Any]) -> Dict[str, Any]:
+def _event_to_control_like(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Map a stream event payload to the shape expected by verify_*_signature.
 
     P9: handles both legacy manual_ack_thaw and new manual_ack_thaw_commit kinds.
@@ -154,9 +158,9 @@ def _event_to_control_like(payload: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-def find_ack_events_for_nonce(events: Sequence[Any], nonce: str) -> List[Tuple[str, Dict[str, Any]]]:
+def find_ack_events_for_nonce(events: Sequence[Any], nonce: str) -> list[tuple[str, dict[str, Any]]]:
     """Return all ack events (both P8 and P9 kinds) matching the given pending nonce."""
-    out: List[Tuple[str, Dict[str, Any]]] = []
+    out: list[tuple[str, dict[str, Any]]] = []
     for rec in events:
         eid, payload = _event_payload(rec)
         # P9: accept both legacy manual_ack_thaw and new manual_ack_thaw_commit
@@ -239,7 +243,7 @@ def evaluate_freeze_integrity(
         request_id=control.active_thaw_request_id or control.manual_commit_request_id or None,
     )
 
-    violations: List[str] = []
+    violations: list[str] = []
 
     # P11: проверяем seal нарушения до остальных проверок интегритности
     if control_present:
@@ -293,12 +297,12 @@ def evaluate_freeze_integrity(
     return FreezeIntegrityResult(
         control_present=control_present,
         state_present=state_present,
-        pending_ack_nonce=str(pending_ack_nonce or ''),
+        pending_ack_nonce=(pending_ack_nonce or ''),
         pending_trigger_ts_ms=int(pending_trigger_ts_ms or 0),
         valid_ack_event_present=bool(valid_ack_event_present or request_log_res.valid_sequence),
         valid_ack_event_id=str(valid_ack_event_id or request_log_res.commit_event_id or ''),
-        latest_trigger_event_id=str(latest_trigger_event_id or ''),
-        latest_trigger_nonce=str(latest_trigger_nonce or ''),
+        latest_trigger_event_id=(latest_trigger_event_id or ''),
+        latest_trigger_nonce=(latest_trigger_nonce or ''),
         invalid_ack_event_present=bool(invalid_ack_event_present),
         request_log_valid_sequence=bool(request_log_res.valid_sequence),
         request_log_request_id=str(request_log_res.request_id or ''),

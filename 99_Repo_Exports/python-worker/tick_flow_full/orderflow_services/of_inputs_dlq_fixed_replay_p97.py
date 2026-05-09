@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """OFInputs DLQ fixed replay (P97).
 
 Goal:
@@ -35,18 +37,17 @@ Usage:
   python -m orderflow_services.of_inputs_dlq_fixed_replay_p97
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import socket
 import sys
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
 
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 STATE_KEY = "state:of_inputs_dlq_replay:last"
 
@@ -60,7 +61,7 @@ def _consumer_name() -> str:
     return f"{host}:{os.getpid()}"
 
 
-def _safe_json_load(s: str) -> Optional[Dict[str, Any]]:
+def _safe_json_load(s: str) -> dict[str, Any] | None:
     if not s:
         return None
     try:
@@ -70,7 +71,7 @@ def _safe_json_load(s: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _payload_min_ok(payload_obj: Dict[str, Any]) -> bool:
+def _payload_min_ok(payload_obj: dict[str, Any]) -> bool:
     # Minimal keys to ensure it looks like OFInputs
     # We avoid strict schema validation here to keep replay resilient.
     for k in ("v", "symbol", "ts_ms"):
@@ -128,13 +129,13 @@ def _claim_pending(
     consumer: str,
     min_idle_ms: int,
     count: int,
-) -> List[Tuple[str, Dict[str, str]]]:
+) -> list[tuple[str, dict[str, str]]]:
     # Use XAUTOCLAIM when available.
     try:
         resp = r.execute_command("XAUTOCLAIM", stream, group, consumer, str(min_idle_ms), "0-0", "COUNT", str(count))
         # resp: [next_start, [ [id, {fields}], ... ], deleted]
         msgs = resp[1] if isinstance(resp, (list, tuple)) and len(resp) > 1 else []
-        out: List[Tuple[str, Dict[str, str]]] = []
+        out: list[tuple[str, dict[str, str]]] = []
         for m in msgs or []:
             try:
                 mid = m[0]
@@ -164,13 +165,13 @@ def _read_new(
     consumer: str,
     count: int,
     block_ms: int,
-) -> List[Tuple[str, Dict[str, str]]]:
+) -> list[tuple[str, dict[str, str]]]:
     try:
         resp = r.xreadgroup(groupname=group, consumername=consumer, streams={stream: ">"}, count=count, block=block_ms)
-        out: List[Tuple[str, Dict[str, str]]] = []
+        out: list[tuple[str, dict[str, str]]] = []
         for _s, msgs in resp or []:
             for mid, fields in msgs or []:
-                dec: Dict[str, str] = {}
+                dec: dict[str, str] = {}
                 for k, v in (fields or {}).items():
                     if isinstance(k, bytes):
                         k = k.decode()
@@ -235,10 +236,8 @@ def main() -> int:
                 raw = fields.get("payload")
                 if raw is None:
                     res.skipped += 1
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xack(dlq_stream, group, mid)
-                    except Exception:
-                        pass
                     continue
 
                 if isinstance(raw, bytes):
@@ -249,39 +248,31 @@ def main() -> int:
                 ctx = _safe_json_load(raw_s)
                 if not ctx:
                     res.skipped += 1
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xack(dlq_stream, group, mid)
-                    except Exception:
-                        pass
                     continue
 
                 payload_str = ctx.get("payload")
                 if not isinstance(payload_str, str) or not payload_str:
                     res.skipped += 1
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xack(dlq_stream, group, mid)
-                    except Exception:
-                        pass
                     continue
 
                 pobj = _safe_json_load(payload_str)
                 if not pobj or not _payload_min_ok(pobj):
                     # Keep it in DLQ for manual triage
                     res.skipped += 1
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xack(dlq_stream, group, mid)
-                    except Exception:
-                        pass
                     continue
 
-                target_stream = str(target_stream_override or ctx.get("stream") or "signals:of:inputs")
+                target_stream = str(target_stream_override or ctx.get("stream") or RS.OF_INPUTS)
 
                 if not commit:
                     res.replayed += 1
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xack(dlq_stream, group, mid)
-                    except Exception:
-                        pass
                     continue
 
                 try:
@@ -292,15 +283,11 @@ def main() -> int:
                         approximate=True,
                     )
                     res.replayed += 1
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xack(dlq_stream, group, mid)
-                    except Exception:
-                        pass
                     if delete_after:
-                        try:
+                        with contextlib.suppress(Exception):
                             r.xdel(dlq_stream, mid)
-                        except Exception:
-                            pass
                 except Exception as e:
                     ok = False
                     res.failed += 1
@@ -315,10 +302,8 @@ def main() -> int:
         res.last_err = f"{type(e).__name__}: {e}"
 
     dur_ms = _now_ms() - t0
-    try:
+    with contextlib.suppress(Exception):
         _write_state(r, ok=ok, dur_ms=dur_ms, res=res)
-    except Exception:
-        pass
 
     summary = {
         "ok": ok,

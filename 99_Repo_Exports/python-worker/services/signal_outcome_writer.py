@@ -1,5 +1,7 @@
 # services/signal_outcome_writer.py
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 SignalOutcomeWriter — двойная персистенция signal outcomes.
 
@@ -11,21 +13,20 @@ Fail-open: ни один вызов emit/persist не должен ронять�
 Вызывается из trade_monitor через _db_executor.submit() (background thread).
 """
 
-import json
 import logging
 import os
 import threading
-from typing import Any, Optional
+from typing import Any
 
 log = logging.getLogger("signal_outcome_writer")
 
 # Configurable via ENV
-_REDIS_STREAM_KEY = os.getenv("SIGNAL_OUTCOMES_STREAM", "signals:outcomes")
+_REDIS_STREAM_KEY = os.getenv("SIGNAL_OUTCOMES_STREAM", RS.SIGNAL_OUTCOMES)
 _REDIS_STREAM_MAXLEN = int(os.getenv("SIGNAL_OUTCOMES_STREAM_MAXLEN", "100000"))
 _DB_ENABLED = os.getenv("SIGNAL_OUTCOMES_DB_ENABLED", "1") == "1"
 
 # Singleton
-_instance: Optional["SignalOutcomeWriter"] = None
+_instance: SignalOutcomeWriter | None = None
 _lock = threading.Lock()
 
 
@@ -115,7 +116,7 @@ class SignalOutcomeWriter:
                     if not cur.fetchone():
                         log.info("signal_outcome_writer: adding trace_id column to signal_outcomes")
                         cur.execute("ALTER TABLE signal_outcomes ADD COLUMN IF NOT EXISTS trace_id TEXT DEFAULT '';")
-                    
+
                     cur.execute("""
                         SELECT column_name 
                         FROM information_schema.columns 
@@ -124,7 +125,7 @@ class SignalOutcomeWriter:
                     if not cur.fetchone():
                         log.info("signal_outcome_writer: adding event_id column to signal_outcomes")
                         cur.execute("ALTER TABLE signal_outcomes ADD COLUMN IF NOT EXISTS event_id TEXT DEFAULT '';")
-                    
+
                     conn.commit()
                     self._schema_checked = True
             except Exception as e:
@@ -151,8 +152,8 @@ class SignalOutcomeWriter:
                 %s, %s, %s,
                 %s,
                 %s, %s, %s,
-                %s, %s, %s, %s
-                %s, %s, %s, %s
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
                 %s, %s, %s, %s
             )
             ON CONFLICT (order_id, ts) DO NOTHING

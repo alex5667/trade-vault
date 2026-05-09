@@ -1,17 +1,14 @@
 
 import asyncio
-import time
-import json
-import os
 import cProfile
-import pstats
 import io
-from typing import Dict, Any, Optional
+import os
+import pstats
 
-# Mock dependencies before imports to avoid side effects if possible, 
+# Mock dependencies before imports to avoid side effects if possible,
 # but here we just import and then monkeypatch or provide mocks to constructor.
-
 import sys
+import time
 from unittest.mock import MagicMock
 
 # Mock prometheus_client and aioredis to avoid network/registry errors
@@ -26,16 +23,17 @@ sys.modules["core.redis_client"] = MagicMock() # Mock the resilient client
 from services.orderflow.components.tick_processor import TickProcessor
 from services.orderflow.runtime import SymbolRuntime
 
+
 class MockRedis:
     async def xadd(self, name, fields, maxlen=None, approximate=True):
         return "12345-0"
-    
+
     async def get(self, key):
         return None
-    
+
     async def hgetall(self, key):
         return {}
-    
+
     async def hget(self, key, field):
         return None
 
@@ -44,7 +42,7 @@ class MockRedis:
 
     async def set(self, key, value, ex=None):
         return True
-    
+
     async def exists(self, key):
         return 0
 
@@ -62,7 +60,7 @@ def run_benchmark():
     # Setup
     mock_redis = MockRedis()
     mock_publisher = MockPublisher()
-    
+
     # TickProcessor(redis, ticks, publisher, of_engine, calib_svc, atr_cache, atr_sanity)
     # We can pass None for those that are not used in process_tick or provide simple mocks.
     processor = TickProcessor(
@@ -74,7 +72,7 @@ def run_benchmark():
         atr_cache=None,
         atr_sanity=None
     )
-    
+
     config = {
         "symbol": "BTCUSDT",
         "delta_tier_min": 0,
@@ -82,14 +80,14 @@ def run_benchmark():
         "dn_tier1_usd": 5000.0,
         "dn_tier2_usd": 20000.0,
     }
-    
+
     runtime = SymbolRuntime(symbol="BTCUSDT", config=config)
     runtime.redis_client = mock_redis
-    
+
     # Warmup
     print("Warming up...")
     loop = asyncio.get_event_loop()
-    
+
     async def warmup():
         for i in range(100):
             tick = {
@@ -100,12 +98,12 @@ def run_benchmark():
                 "written_at": 1700000000000 + i + 2 # simulate 2ms ingest lag
             }
             await processor.process_tick(runtime, tick)
-    
+
     loop.run_until_complete(warmup())
-    
+
     # Benchmark
     print("Starting benchmark (5000 ticks)...")
-    
+
     async def benchmark():
         start_ns = time.perf_counter_ns()
         for i in range(5000):
@@ -118,7 +116,7 @@ def run_benchmark():
             }
             # Note: process_tick is async because it might call redis.xadd or calibrate
             await processor.process_tick(runtime, tick)
-        
+
         end_ns = time.perf_counter_ns()
         total_ms = (end_ns - start_ns) / 1_000_000
         avg_us = (end_ns - start_ns) / 5000 / 1000
@@ -129,9 +127,9 @@ def run_benchmark():
     # Profile
     pr = cProfile.Profile()
     pr.enable()
-    
+
     total_ms, avg_us = loop.run_until_complete(benchmark())
-    
+
     pr.disable()
     s = io.StringIO()
     sortby = "cumulative"
@@ -141,5 +139,5 @@ def run_benchmark():
 
 if __name__ == "__main__":
     # Ensure environment is clean for bench
-    os.environ["OF_GATE_METRICS_ENABLE"] = "0" 
+    os.environ["OF_GATE_METRICS_ENABLE"] = "0"
     run_benchmark()

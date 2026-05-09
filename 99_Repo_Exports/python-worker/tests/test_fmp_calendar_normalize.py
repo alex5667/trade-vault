@@ -1,5 +1,6 @@
 from news_pipeline.sources.fmp_calendar import normalize_calendar_events
 
+
 def test_normalize_fanout_usd_high():
     rows = [{
         "date": "2026-01-03 13:30:00",

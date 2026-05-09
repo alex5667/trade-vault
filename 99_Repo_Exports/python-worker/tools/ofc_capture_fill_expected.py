@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-
 import argparse
-
-from pathlib import Path
-
-from typing import Any, Dict, List, Optional
-
 import sys
-
 import time
-
+from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -47,10 +41,10 @@ def main() -> int:
         rows.sort(key=lambda r: (r.get(args.sort) is None, r.get(args.sort, 0)))
 
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
 
 
-    engine: Optional[OFConfirmEngine] = None
+    engine: OFConfirmEngine | None = None
 
     prev_state_after = None
 
@@ -62,11 +56,11 @@ def main() -> int:
             engine = OFConfirmEngine(version=3)
 
 
-        symbol = str(r.get("symbol", "") or "")
+        symbol = (r.get("symbol", "") or "")
 
-        tf = str(r.get("tf", "1s") or "1s")
+        tf = (r.get("tf", "1s") or "1s")
 
-        direction = str(r.get("direction", "") or "")
+        direction = (r.get("direction", "") or "")
 
         tick_ts_ms = int(r.get("tick_ts_ms", 0) or 0)
 
@@ -164,7 +158,7 @@ def main() -> int:
 
                 if isinstance(ev, dict):
 
-                    exp["scenario_v4"] = str(ev.get("scenario_v4", "") or "")
+                    exp["scenario_v4"] = (ev.get("scenario_v4", "") or "")
 
             except Exception:
 

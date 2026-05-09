@@ -1,17 +1,28 @@
 # signal_generator.py
 from __future__ import annotations
+
 """
 Функционал генерации сигналов, извлеченный из base_orderflow_handler.py
 """
 
-from utils.time_utils import get_ny_time_millis
-
-from typing import Optional, Dict, Any, Tuple
-import time
+from typing import Any
 
 from contexts import OrderflowSignalContext
-from signals.outbox_utils import PublishResult, build_level_key_breakout, build_level_key_extreme, build_level_key_sweep, nearest_pivot_key, price_bin_key, normalize_to_bucket
+from signals.outbox_utils import (
+    PublishResult,
+    build_level_key_breakout,
+    build_level_key_extreme,
+    build_level_key_sweep,
+    nearest_pivot_key,
+    normalize_to_bucket,
+    price_bin_key,
+)
+from utils.time_utils import get_ny_time_millis
+
 from .regime_gate import RegimeGateCfg, regime_allows
+import contextlib
+
+
 # from common.log import setup_logger
 def setup_logger(name):
     import logging
@@ -92,7 +103,7 @@ class SignalGenerator:
             return True, redis_key, "no_cooldown"
         return self.cooldown.reserve(family=family, timeframe_s=timeframe_s, kind_lc=kind_lc, level_key=level_key, ts_ms=ts_ms)
 
-    def _nums(self, ctx: OrderflowSignalContext) -> Tuple[float, float, float]:
+    def _nums(self, ctx: OrderflowSignalContext) -> tuple[float, float, float]:
         """Безопасное извлечение числовых значений из контекста."""
         z = float(getattr(ctx, "z_delta", 0.0) or 0.0)
         obi = float(getattr(ctx, "obi", 0.0) or 0.0)
@@ -191,7 +202,7 @@ class SignalGenerator:
 
 
 
-    def _compute_confidence(self, ctx: OrderflowSignalContext) -> Tuple[float, Dict[str, float]]:
+    def _compute_confidence(self, ctx: OrderflowSignalContext) -> tuple[float, dict[str, float]]:
         """Вычисление уверенности сигнала."""
         z, obi, _ = self._nums(ctx)
         c_obi = min(abs(obi) / max(self._conf_obi_normalizer, 1e-9), 1.0)
@@ -201,7 +212,7 @@ class SignalGenerator:
         conf = c_obi * w_obi + c_z * w_z + c_burst * w_burst
         return conf, {"obi": c_obi, "delta": c_z, "burst": c_burst}
 
-    def _custom_signal_conditions(self, ctx: OrderflowSignalContext) -> Dict[str, Any]:
+    def _custom_signal_conditions(self, ctx: OrderflowSignalContext) -> dict[str, Any]:
         """Проверка кастомных условий сигнала."""
         # Заглушка для кастомных условий - разрешить по умолчанию
         return {}
@@ -210,8 +221,8 @@ class SignalGenerator:
         """Генерация сигнала из контекста."""
         z0, _, _ = self._nums(ctx)
         reserved = False
-        cooldown_key: Optional[str] = None
-        cooldown_token: Optional[str] = None
+        cooldown_key: str | None = None
+        cooldown_token: str | None = None
 
         # базовый уровень
         if abs(z0) < self.z_enter:
@@ -223,10 +234,8 @@ class SignalGenerator:
         if not self._exec_quality_ok(ctx, impulse_side, signal_type):
             # Отслеживание отклонения гейтом качества
             if self.health_metrics:
-                try:
+                with contextlib.suppress(Exception):
                     self.health_metrics.on_quality_gate_rejection(self.symbol, signal_type)
-                except Exception:
-                    pass
             return PublishResult(sent=False, dedup=False, msg_id=None)
 
         # Определяем тип сигнала для дедупа (паттерно-специфичный)
@@ -324,17 +333,13 @@ class SignalGenerator:
                 if not ok:
                     # подавлено кулдауном (rate-limit / дедупликация)
                     if self.health_metrics:
-                        try:
+                        with contextlib.suppress(Exception):
                             self.health_metrics.on_cooldown_hit(self.symbol)
-                        except Exception:
-                            pass
                     return PublishResult(sent=False, dedup=True, msg_id=None)
                 reserved = True
                 if self.health_metrics:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.health_metrics.on_cooldown_miss(self.symbol)
-                    except Exception:
-                        pass
             else:
                 # Фоллбек обратной совместимости (без семантики освобождения)
                 if not self.cooldown.acquire(
@@ -345,16 +350,12 @@ class SignalGenerator:
                     timeframe_s=int(tf),
                 ):
                     if self.health_metrics:
-                        try:
+                        with contextlib.suppress(Exception):
                             self.health_metrics.on_cooldown_hit(self.symbol)
-                        except Exception:
-                            pass
                     return PublishResult(sent=False, dedup=True, msg_id=None)
                 if self.health_metrics:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.health_metrics.on_cooldown_miss(self.symbol)
-                    except Exception:
-                        pass
 
         conf, breakdown = self._compute_confidence(ctx)
 
@@ -373,10 +374,8 @@ class SignalGenerator:
             self.logger.debug(f"Signal rejected by {signal_type} confidence gate: {conf:.3f} < {min_conf:.3f}")
             # Отслеживание отклонения гейтом качества
             if self.health_metrics:
-                try:
+                with contextlib.suppress(Exception):
                     self.health_metrics.on_quality_gate_rejection(self.symbol, signal_type)
-                except Exception:
-                    pass
             return PublishResult(sent=False, dedup=False, msg_id=None)
 
         envelope = {
@@ -418,16 +417,12 @@ class SignalGenerator:
             # Если мы зарезервировали слот кулдауна, но публикация НЕ прошла,
             # освобождаем его, чтобы не блокировать будущие сигналы между процессами.
             if reserved and (not bool(getattr(result, "sent", False))):
-                try:
+                with contextlib.suppress(Exception):
                     self.cooldown.release(str(cooldown_key), str(cooldown_token))
-                except Exception:
-                    pass
             return result
         except Exception:
             if reserved:
-                try:
+                with contextlib.suppress(Exception):
                     self.cooldown.release(str(cooldown_key), str(cooldown_token))
-                except Exception:
-                    pass
             self.logger.exception("Сбой публикации в Outbox")
             return PublishResult(sent=False, dedup=False, msg_id=None)

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Approve a denylist proposal after replay/AB evidence.
 
 This tool is intentionally non-invasive:
@@ -16,10 +17,10 @@ Hard gate (P106): approval is blocked unless:
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-UTC = timezone.utc
+UTC = UTC
 
 
 def _utc_now() -> str:

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, List, Optional, Tuple
 
 from core.microbar import MicroBar
+import contextlib
 
 
 @dataclass
@@ -39,9 +39,9 @@ class SwingDetector:
         self.min_bp = float(min_bp)
         self.min_range_bp = float(min_range_bp)
 
-        self._buf: Deque[MicroBar] = deque(maxlen=max(20, self.left + self.right + 10))
-        self._last_high: Optional[SwingPoint] = None
-        self._last_low: Optional[SwingPoint] = None
+        self._buf: deque[MicroBar] = deque(maxlen=max(20, self.left + self.right + 10))
+        self._last_high: SwingPoint | None = None
+        self._last_low: SwingPoint | None = None
 
     def apply_config(self, cfg: dict) -> None:
         try:
@@ -51,14 +51,10 @@ class SwingDetector:
             if self.right < 1: self.right = 1
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             self.min_bp = float(cfg.get("swing_min_bp", self.min_bp))
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             self.min_range_bp = float(cfg.get("swing_min_range_bp", self.min_range_bp))
-        except Exception:
-            pass
 
     @staticmethod
     def _bp(a: float, b: float) -> float:
@@ -70,8 +66,8 @@ class SwingDetector:
     def _range_bp(self, bar: MicroBar) -> float:
         return self._bp(bar.high, bar.low)
 
-    def update(self, bar: MicroBar) -> List[SwingPoint]:
-        out: List[SwingPoint] = []
+    def update(self, bar: MicroBar) -> list[SwingPoint]:
+        out: list[SwingPoint] = []
         self._buf.append(bar)
 
         L = self.left
@@ -121,5 +117,5 @@ class SwingDetector:
 
         return out
 
-    def last_swings(self) -> Tuple[Optional[SwingPoint], Optional[SwingPoint]]:
+    def last_swings(self) -> tuple[SwingPoint | None, SwingPoint | None]:
         return self._last_high, self._last_low

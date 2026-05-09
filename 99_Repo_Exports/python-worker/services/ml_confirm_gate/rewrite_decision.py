@@ -1,6 +1,5 @@
-import os
 
-with open("python-worker/services/ml_confirm_gate/decision_policy.py", "r") as f:
+with open("python-worker/services/ml_confirm_gate/decision_policy.py") as f:
     content = f.read()
 
 header = """import math
@@ -28,7 +27,6 @@ class DecisionPolicy:
 with open("python-worker/services/ml_confirm_gate/decision_policy.py", "w") as f:
     f.write(header + content)
 
-import sys
 with open("python-worker/services/ml_confirm_gate/decision_policy.py", "a") as f:
     f.write("""
     @staticmethod

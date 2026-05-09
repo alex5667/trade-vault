@@ -1,6 +1,7 @@
 import logging
 import time
-from prometheus_client import Gauge, Counter
+
+from prometheus_client import Counter, Gauge
 
 from services.analytics_db import get_conn
 
@@ -33,22 +34,22 @@ def export_metrics():
             prom_cert_pending._metrics.clear()
             for r in pending_counts:
                 prom_cert_pending.labels(stage=r['rollout_stage']).set(r['c'])
-                
+
             # 3. Stop Hits (events)
             cur.execute("SELECT reason_code, rollout_stage, COUNT(*) as c FROM atr_rollout_cert_events WHERE action = 'fail' GROUP BY reason_code, rollout_stage")
             stops = cur.fetchall()
             # Counter is monotonic, so this is just an approximation if we scrape, but usually a counter should just be incremented at event time.
-            # To be precise, since we poll, we use Gauge or let the app increment directly. Since the prompt gave Counter, if we use Exporter pattern, a Gauge or increment delta works. 
+            # To be precise, since we poll, we use Gauge or let the app increment directly. Since the prompt gave Counter, if we use Exporter pattern, a Gauge or increment delta works.
             # We'll skip manual counter sync to avoid complexities, normally we'd increment Counter inside atr_rollout_cert_service.py directly!
             # But the spec asked for a dedicated exporter. Let's just track total events and sync as Gauge, it's safer for polling.
-            
+
             # 4. Closeout Packs
             cur.execute("SELECT final_status, COUNT(*) as c FROM atr_rollout_closeout_packs GROUP BY final_status")
             closeouts = cur.fetchall()
             prom_closeout_total._metrics.clear()
             for r in closeouts:
                 prom_closeout_total.labels(final_status=r['final_status']).set(r['c'])
-                
+
             # 5. Live metrics of pending windows
             cur.execute("""
                 SELECT rollout_stage, 

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict
-
 import json
+from dataclasses import asdict, dataclass
+from typing import Any
 
 
 @dataclass
@@ -34,7 +33,7 @@ class OFInputsV1:
     cont_ctx_recent: int           # 1/0
 
     # Config subset (to replay exactly even if prod config changes later)
-    cfg: Dict[str, Any]
+    cfg: dict[str, Any]
 
     # Calibration inputs (from last microbar)
     fp_eff_quote: float
@@ -53,7 +52,7 @@ class OFInputsV1:
     # Regime grouping for ML dataset (default: "na" for backward compatibility)
     regime_group: str = "na"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_json(self) -> str:
@@ -73,7 +72,7 @@ class OFInputsV2(OFInputsV1):
     """
     # Version identifier (should be 2 for V2)
     # Note: 'v' is inherited from OFInputsV1, but we document it here for clarity
-    
+
     # --- OFI (microstructure) ---
     ofi: float = 0.0                    # OFI value
     ofi_z: float = 0.0                  # OFI z-score
@@ -82,7 +81,7 @@ class OFInputsV2(OFInputsV1):
     ofi_stable_secs: float = 0.0        # Duration of OFI stability (seconds)
     ofi_stability_score: float = 0.0    # Stability score (0..1)
     ofi_age_ms: int = -1               # Age of last OFI event (ms), -1 if not available (critical for determinism)
-    
+
     # --- FP edge (absorption/edge) ---
     fp_edge_absorb: int = 0            # 1 if FP edge absorption detected, 0 otherwise
     fp_edge_absorb_strength: float = 0.0  # Strength of FP edge absorption (normalized)
@@ -126,7 +125,7 @@ class OFInputsV2(OFInputsV1):
     lob_dw_obi_stable_secs: float = 0.0   # Continuous seconds dw_obi stayed in stable direction
     lob_dw_obi_stable: int = 0            # 1 if dw_obi is stable (score + secs above thresholds)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["v"] = 2  # enforce version field — inherited v is 1 by default
         return d
@@ -168,7 +167,7 @@ class OFInputsV3(OFInputsV2):
     # Book snapshot age (ms) relative to tick_ts_ms
     book_age_ms: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["v"] = 3
         return d

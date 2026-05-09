@@ -3,11 +3,13 @@ Chaos tests for transient Redis failures.
 Tests that the system recovers correctly from temporary outages.
 """
 import json
-import time
-import pytest
 from unittest.mock import Mock, patch
-from core.signal_outbox import SignalOutboxPublisher, OutboxSettings
+
+import pytest
+
+from core.signal_outbox import OutboxSettings, SignalOutboxPublisher
 from services.signal_dispatcher import SignalDispatcher
+from core.redis_keys import RedisStreams as RS
 
 
 class TestChaosTransientFailures:
@@ -15,7 +17,7 @@ class TestChaosTransientFailures:
 
     def test_outbox_recovers_from_redis_disconnect(self, r, monkeypatch):
         """Outbox должен восстанавливаться после временного disconnect от Redis."""
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         # Симулируем временный disconnect
@@ -61,7 +63,7 @@ class TestChaosTransientFailures:
         """Dispatcher должен восстанавливаться после transient delivery failures."""
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="chaos-group",
         )
 
@@ -91,7 +93,7 @@ class TestChaosTransientFailures:
         assert ok1 is True  # re-enqueued, ACK old
 
         # Должно появиться новое сообщение в outbox с attempt=1
-        outbox_messages = r.xrange("stream:signals:outbox")
+        outbox_messages = r.xrange(RS.SIGNAL_OUTBOX)
         reenqueued = False
         for re_msg_id, fields in outbox_messages:
             if "data" in fields:
@@ -111,7 +113,7 @@ class TestChaosTransientFailures:
 
     def test_lua_script_fallback_on_evalsha_failure(self, r, monkeypatch):
         """Outbox должен использовать fallback eval когда evalsha падает."""
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         # Симулируем падение evalsha
@@ -136,11 +138,11 @@ class TestChaosTransientFailures:
             ts_ms=1700000000000, envelope=env,
         )
         assert msg_id is not None
-        assert r.xlen("stream:signals:outbox") == 1
+        assert r.xlen(RS.SIGNAL_OUTBOX) == 1
 
     def test_dedup_key_not_leaked_on_partial_failure(self, r, monkeypatch):
         """Дедуп ключ не должен оставаться при partial failure в Lua."""
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         # Симулируем partial failure: SET прошел, XADD упал
@@ -173,7 +175,7 @@ class TestChaosTransientFailures:
         # Этот тест проверяет что клиент Redis автоматически reconnect
         # (предполагая что redis-py настроен правильно)
 
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         # Публикуем сигналы до и после симуляции disconnect
@@ -206,7 +208,7 @@ class TestChaosTransientFailures:
         )
         assert msg_id2 is not None
 
-        assert r.xlen("stream:signals:outbox") == 2
+        assert r.xlen(RS.SIGNAL_OUTBOX) == 2
 
     def test_delivery_marker_rollback_on_failure(self, r, monkeypatch):
         """Delivery маркер должен быть rollback при неудаче доставки."""
@@ -248,7 +250,7 @@ class TestChaosTransientFailures:
     @pytest.mark.parametrize("failure_point", ["set", "xadd", "mark_if_new"])
     def test_outbox_atomicity_under_failure(self, r, monkeypatch, failure_point):
         """Тест атомарности outbox операций под различными failure modes."""
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         env = {"sid": "atomic_test", "ts_ms": 1700000000000, "symbol": "BTCUSDT"}
@@ -264,7 +266,7 @@ class TestChaosTransientFailures:
                     ts_ms=1700000000000, envelope=env,
                 )
             # Ничего не должно быть записано
-            assert r.xlen("stream:signals:outbox") == 0
+            assert r.xlen(RS.SIGNAL_OUTBOX) == 0
 
         elif failure_point == "xadd":
             # SET прошел, XADD падает - в Lua должен быть rollback

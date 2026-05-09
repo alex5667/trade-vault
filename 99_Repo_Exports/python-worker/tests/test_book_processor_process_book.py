@@ -1,7 +1,10 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from services.orderflow.components.book_processor import BookProcessor
 from services.orderflow.runtime import SymbolRuntime
+
 
 @pytest.fixture
 def runtime():
@@ -15,7 +18,7 @@ def test_process_book_happy_path(mock_init, runtime):
     # Manually configure since we mocked __init__
     processor.logger = MagicMock()
     processor.book_rate_ema_gauge = MagicMock()
-    
+
     # Valid book payload
     payload = {
         "ts_ms": 1600000000000,
@@ -23,10 +26,10 @@ def test_process_book_happy_path(mock_init, runtime):
         "asks": "[[ \"60001.0\", \"1.5\" ], [ \"60002.0\", \"1.5\" ]]",
         "u": 12345
     }
-    
+
     ingest_ts_ms = 1600000000050
     result = processor.process_book(runtime, payload, ingest_ts_ms)
-    
+
     assert result is True
     assert runtime.last_book_ts_ms == 1600000000000
     # verify P0 fix was applied via _book_health_initialized
@@ -38,12 +41,12 @@ def test_process_book_happy_path(mock_init, runtime):
 def test_process_book_error_handling(mock_init, runtime):
     processor = BookProcessor()
     processor.logger = MagicMock()
-    
+
     # Invalid book payload - will raise exception during process_book
     payload = ["this is a list, not a dict"]
-    
+
     ingest_ts_ms = 1600000000050
     result = processor.process_book(runtime, payload, ingest_ts_ms)
-    
+
     # Should safely catch error, log metric, and return False
     assert result is False

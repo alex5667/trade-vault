@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """World-practice trackers smoke-check (v1)
 
 Goal
@@ -17,17 +18,16 @@ Exit codes:
 
 Designed for periodic execution (hourly) by `services/of_timers_worker.py`.
 """,
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import logging
 import math
 import os
-import sys
-import time
 from collections import Counter
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -59,16 +59,16 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
 
 
 def _is_missing_label(v: Any) -> bool:
-    s = str(v or "").strip().lower()
+    s = (v or "").strip().lower()
     return (not s) or s == "na"
 
 
 def _bucket_ok(v: Any) -> bool:
-    s = str(v or "").strip().upper()
+    s = (v or "").strip().upper()
     return s in ("NORMAL", "LOW_LIQ", "HIGH_VOL", "HIGH_VOL_LOW_LIQ")
 
 
-def _top(counter: Counter, k: int = 10) -> List[Tuple[str, int]]:
+def _top(counter: Counter, k: int = 10) -> list[tuple[str, int]]:
     return [(str(a), int(b)) for a, b in counter.most_common(k)]
 
 
@@ -105,7 +105,7 @@ def main() -> int:
     now_ms = _now_ms()
 
     # Filter by recent window (ts_ms is required by contract)
-    recent: List[Dict[str, Any]] = []
+    recent: list[dict[str, Any]] = []
     max_ts = 0
     for _id, fields in rows:
         if not isinstance(fields, dict):
@@ -178,17 +178,17 @@ def main() -> int:
     ]
 
     for f in recent:
-        b = str(f.get("exec_regime_bucket") or "").upper()
+        b = (f.get("exec_regime_bucket") or "").upper()
         bucket_dist[b or "na"] += 1
         if not _bucket_ok(b):
             bucket_invalid += 1
 
-        vrl = str(f.get("vol_regime_label") or "").strip().lower()
+        vrl = (f.get("vol_regime_label") or "").strip().lower()
         vol_dist[vrl or "na"] += 1
         if _is_missing_label(vrl):
             vol_label_na += 1
 
-        lrl = str(f.get("liq_regime_label") or "").strip().lower()
+        lrl = (f.get("liq_regime_label") or "").strip().lower()
         liq_dist[lrl or "na"] += 1
 
         # missing accounting
@@ -205,7 +205,7 @@ def main() -> int:
                     missing[k] += 1
             else:
                 # numeric
-                s = str(vv or "").strip()
+                s = (vv or "").strip()
                 if s == "":
                     missing[k] += 1
                 else:
@@ -269,7 +269,7 @@ def main() -> int:
             stuck_exec = 1
 
     alert = 0
-    issues: List[str] = []
+    issues: list[str] = []
 
     if no_data:
         # no recent rows -> do not alert; report as no_data
@@ -328,10 +328,8 @@ def main() -> int:
     }
 
     # write to out stream (best-effort)
-    try:
+    with contextlib.suppress(Exception):
         r.xadd(args.out_stream, out, maxlen=2000, approximate=True)
-    except Exception:
-        pass
 
     print(json.dumps(out, ensure_ascii=False))
 

@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 @dataclass(frozen=True)
@@ -38,10 +39,10 @@ class DeliveryJournal:
       - last_error:* (optional)
     """
 
-    def __init__(self, redis_client: Any, *, settings: Optional[DeliveryJournalSettings] = None) -> None:
+    def __init__(self, redis_client: Any, *, settings: DeliveryJournalSettings | None = None) -> None:
         self.redis = redis_client
         self.settings = settings or DeliveryJournalSettings()
-        self._sha_init: Optional[str] = None
+        self._sha_init: str | None = None
 
     def key(self, sid: str) -> str:
         return f"{self.settings.prefix}:{sid}"
@@ -57,10 +58,8 @@ class DeliveryJournal:
             return
 
     def drop_index(self, sid: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.redis.zrem(self._idx_key(), sid)
-        except Exception:
-            pass
 
     def _ensure_sha_init(self) -> str:
         if self._sha_init:
@@ -68,7 +67,7 @@ class DeliveryJournal:
         self._sha_init = str(self.redis.script_load(_LUA_INIT))
         return self._sha_init
 
-    def init(self, sid: str, desired_targets: List[str]) -> None:
+    def init(self, sid: str, desired_targets: list[str]) -> None:
         k = self.key(sid)
         now_ms = get_ny_time_millis()
         desired_json = json.dumps(sorted(set(desired_targets)), ensure_ascii=False, separators=(",", ":"))
@@ -77,10 +76,8 @@ class DeliveryJournal:
         try:
             self.redis.evalsha(sha, 1, k, desired_json, str(now_ms), str(ttl))
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 self.redis.eval(_LUA_INIT, 1, k, desired_json, str(now_ms), str(ttl))
-            except Exception:
-                pass
         self._touch_index(sid, now_ms)
 
     def mark_delivered(self, sid: str, target: str) -> None:
@@ -107,13 +104,13 @@ class DeliveryJournal:
             pass
         self._touch_index(sid, now_ms)
 
-    def delivered_set(self, sid: str) -> Set[str]:
+    def delivered_set(self, sid: str) -> set[str]:
         k = self.key(sid)
         try:
-            d: Dict[str, Any] = self.redis.hgetall(k) or {}
+            d: dict[str, Any] = self.redis.hgetall(k) or {}
         except Exception:
             return set()
-        out: Set[str] = set()
+        out: set[str] = set()
         for kk, vv in d.items():
             if isinstance(kk, (bytes, bytearray)):
                 kk = kk.decode("utf-8", errors="ignore")
@@ -123,7 +120,7 @@ class DeliveryJournal:
                 out.add(kk.split("delivered:", 1)[1])
         return out
 
-    def desired_targets(self, sid: str) -> List[str]:
+    def desired_targets(self, sid: str) -> list[str]:
         k = self.key(sid)
         try:
             raw = self.redis.hget(k, "desired")
@@ -142,7 +139,7 @@ class DeliveryJournal:
             return []
         return []
 
-    def is_complete(self, sid: str) -> Tuple[bool, List[str], Set[str]]:
+    def is_complete(self, sid: str) -> tuple[bool, list[str], set[str]]:
         desired = self.desired_targets(sid)
         delivered = self.delivered_set(sid)
         if not desired:

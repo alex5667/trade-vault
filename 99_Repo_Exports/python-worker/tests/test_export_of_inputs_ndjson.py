@@ -1,8 +1,8 @@
 import io
 import json
 
-
 from tools.export_of_inputs_ndjson import iter_stream_payloads
+from core.redis_keys import RedisStreams as RS
 
 
 class _RedisStub:
@@ -46,7 +46,7 @@ def test_iter_stream_payloads_reads_in_order_and_validates():
     got = list(
         iter_stream_payloads(
             r=r,
-            stream="signals:of:inputs",
+            stream=RS.OF_INPUTS,
             field="payload",
             start_id="-",
             end_id="+",
@@ -71,7 +71,7 @@ def test_iter_stream_payloads_paginates_and_exclusive_cursor():
     got = list(
         iter_stream_payloads(
             r=r,
-            stream="signals:of:inputs",
+            stream=RS.OF_INPUTS,
             field="payload",
             start_id="-",
             end_id="+",

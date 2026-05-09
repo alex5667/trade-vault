@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Switch Budget System - Third Layer of Stabilization
 
@@ -17,12 +18,10 @@ Expert review:
   - DevOps/SRE: Redis-based state, TTL cleanup, fail-safe defaults
   - Professor Statistics: Min-gap prevents autocorrelation in threshold changes
 """
-from utils.time_utils import get_ny_time_millis
-
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
-import time
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
 
 DAY_MS = 24 * 60 * 60 * 1000  # Milliseconds in UTC day
 
@@ -68,7 +67,7 @@ class SwitchState:
     paused_until_ts_ms: int = 0
 
     @staticmethod
-    def from_dict(d: Dict[str, Any]) -> "SwitchState":
+    def from_dict(d: dict[str, Any]) -> SwitchState:
         """Deserialize from Redis JSON (fail-safe)"""
         try:
             s = SwitchState(
@@ -81,7 +80,7 @@ class SwitchState:
         except Exception:
             return SwitchState()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize for Redis storage"""
         return {
             "day_id": int(self.day_id),
@@ -97,7 +96,7 @@ def can_switch(
     now_ms: int,
     max_per_day: int,
     min_gap_ms: int,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Check if switch is allowed given current state and constraints.
     
@@ -178,7 +177,7 @@ def apply_switch(
     """
     if now_ms <= 0:
         now_ms = _now_ms()
-    
+
     # Reset if day changed
     d = utc_day_id(now_ms)
     if st.day_id != d:
@@ -186,7 +185,7 @@ def apply_switch(
         st.switches = 0
         st.last_switch_ts_ms = 0
         st.paused_until_ts_ms = 0
-    
+
     # Increment counters
     st.switches += 1
     st.last_switch_ts_ms = int(now_ms)

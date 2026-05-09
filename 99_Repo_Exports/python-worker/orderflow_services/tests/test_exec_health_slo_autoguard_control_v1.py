@@ -83,7 +83,7 @@ def test_autoguard_writes_latched_control_state_and_pending_nonce() -> None:
     assert ctl.get('manual_ack_required') == '1'
     assert ctl.get('control_source') == 'autoguard'
     # P8: pending nonce must be set
-    assert str(ctl.get('expected_ack_nonce', '')) != ''
+    assert (ctl.get('expected_ack_nonce', '')) != ''
 
 
 def test_autoguard_state_hash_has_manual_ack_fields() -> None:
@@ -99,8 +99,8 @@ def test_autoguard_state_hash_has_manual_ack_fields() -> None:
     assert state.get('effective_freeze_active') == '1'
     assert state.get('control_source') == 'autoguard'
     # P8: nonce fields in state hash
-    assert str(state.get('expected_ack_nonce', '')) != ''
-    assert str(state.get('last_trigger_nonce', '')) != ''
+    assert (state.get('expected_ack_nonce', '')) != ''
+    assert (state.get('last_trigger_nonce', '')) != ''
 
 
 def test_autoguard_emits_latch_event_to_stream() -> None:
@@ -113,6 +113,6 @@ def test_autoguard_emits_latch_event_to_stream() -> None:
 
     events = g.r.streams.get('ops:exec_health:freeze_events:v1', [])
     assert len(events) >= 1
-    latch_events = [e for e in events if str(e.get('kind', '')) == 'autoguard_freeze_latch']
+    latch_events = [e for e in events if (e.get('kind', '')) == 'autoguard_freeze_latch']
     assert len(latch_events) >= 1
     assert str(latch_events[0].get('ack_nonce', '')) != ''

@@ -1,9 +1,8 @@
-from utils.time_utils import get_ny_time_millis
-import time
+
 import redis
 
-from contexts import NewsFeatures
 from news_pipeline.enricher_sync import NewsEnricherSync
+from utils.time_utils import get_ny_time_millis
 
 
 def test_enricher_prefixes_old_uid_ref():

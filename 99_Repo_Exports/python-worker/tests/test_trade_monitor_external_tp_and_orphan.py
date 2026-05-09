@@ -40,7 +40,7 @@ def _call_with_signature(fn, desired: dict):
             elif "qty" in name:
                 kwargs[name] = float(desired.get("closed_qty", 0.0))
             else:
-                kwargs[name] = desired.get(name, None)
+                kwargs[name] = desired.get(name)
     return fn(**kwargs)
 
 
@@ -69,8 +69,8 @@ def test_external_tp_hit_no_io_under_global_lock(monkeypatch):
 
 
 def test_orphan_housekeep_no_io_under_global_lock(monkeypatch):
-    from services.trade_monitor import TradeMonitorService
     import services.trade_monitor as tm
+    from services.trade_monitor import TradeMonitorService
 
     monkeypatch.setattr(tm, "RedisTradeRepository", lambda redis, health_provider=None: types.SimpleNamespace(load_open_positions=lambda limit=5000: []))
     monkeypatch.setattr(tm.analytics_db, "save_trade_closed", lambda closed: None)

@@ -1,19 +1,19 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
+import hashlib
+import hmac
 import json
 import os
-import time
-import hmac
-import hashlib
 import secrets
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis
 
-from tools.redis_window import read_recent_stream
+from core.share_map import dump_map, merge_updates, parse_map
 from tools.ml_metrics_agg_v3 import agg_health_ml_confirm, pick_threshold
-from core.share_map import parse_map, dump_map, merge_updates
+from tools.redis_window import read_recent_stream
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -24,10 +24,10 @@ def notify(r: redis.Redis, text: str, buttons=None) -> None:
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
-def make_bundle_hset(cfg_key: str, changes: Dict[str, str], who: str, ttl: int) -> Tuple[str, str, Dict[str, Any]]:
+def make_bundle_hset(cfg_key: str, changes: dict[str, str], who: str, ttl: int) -> tuple[str, str, dict[str, Any]]:
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bid = secrets.token_hex(6)
     sig = hmac.new(secret.encode(), bid.encode(), hashlib.sha256).hexdigest()[:8]
@@ -37,7 +37,7 @@ def make_bundle_hset(cfg_key: str, changes: Dict[str, str], who: str, ttl: int) 
     return bid, sig, bundle
 
 
-def write_bundle(r: redis.Redis, bid: str, bundle: Dict[str, Any], ttl: int) -> None:
+def write_bundle(r: redis.Redis, bid: str, bundle: dict[str, Any], ttl: int) -> None:
     r.set(f"recs:bundle:{bid}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=ttl)
     r.set(f"recs:status:{bid}", "PENDING", ex=ttl)
 
@@ -56,20 +56,20 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def filter_rows(rows: List[Dict[str, Any]], bucket: str, symbol: str) -> List[Dict[str, Any]]:
+def filter_rows(rows: list[dict[str, Any]], bucket: str, symbol: str) -> list[dict[str, Any]]:
     b = bucket.lower()
     s = symbol.upper()
     out = []
     for r in rows:
-        if str(r.get("bucket", "")).lower() != b:
+        if (r.get("bucket", "")).lower() != b:
             continue
-        if str(r.get("symbol", "")).upper() != s:
+        if (r.get("symbol", "")).upper() != s:
             continue
         out.append(r)
     return out
 
 
-def ece(rows: List[Dict[str, Any]], *, n_bins: int = 10, thr: float = 0.0) -> float:
+def ece(rows: list[dict[str, Any]], *, n_bins: int = 10, thr: float = 0.0) -> float:
     # ECE on selected set p_edge>=thr; rows must have p_edge and y
     bins_n = [0] * n_bins
     bins_p = [0.0] * n_bins
@@ -97,7 +97,7 @@ def ece(rows: List[Dict[str, Any]], *, n_bins: int = 10, thr: float = 0.0) -> fl
     return float(e)
 
 
-def brier(rows: List[Dict[str, Any]], *, thr: float = 0.0) -> float:
+def brier(rows: list[dict[str, Any]], *, thr: float = 0.0) -> float:
     # Brier on selected set p_edge>=thr
     xs = []
     for r in rows:
@@ -109,7 +109,7 @@ def brier(rows: List[Dict[str, Any]], *, thr: float = 0.0) -> float:
     return float(sum(xs) / len(xs)) if xs else 0.0
 
 
-def selected_stats(rows: List[Dict[str, Any]], *, thr: float) -> Dict[str, Any]:
+def selected_stats(rows: list[dict[str, Any]], *, thr: float) -> dict[str, Any]:
     # rows must have p_edge, r_mult, y
     sel = [r for r in rows if _f(r.get("p_edge", 0.0), 0.0) >= thr]
     n = len(sel)
@@ -124,7 +124,7 @@ def selected_stats(rows: List[Dict[str, Any]], *, thr: float) -> Dict[str, Any]:
     return {"n": n, "meanR": float(meanR), "tail_rate": float(tail), "es05": float(es05), "win_rate": float(win)}
 
 
-def impact(rows_confirm: List[Dict[str, Any]], bucket: str, symbol: str, old_t: float, new_t: float) -> Dict[str, int]:
+def impact(rows_confirm: list[dict[str, Any]], bucket: str, symbol: str, old_t: float, new_t: float) -> dict[str, int]:
     # expected extra blocks among enforce+ok_rule+not missing
     b = bucket.lower()
     s = symbol.upper()
@@ -132,9 +132,9 @@ def impact(rows_confirm: List[Dict[str, Any]], bucket: str, symbol: str, old_t: 
     blocked_old = 0
     blocked_new = 0
     for r in rows_confirm:
-        if str(r.get("bucket", "")).lower() != b:
+        if (r.get("bucket", "")).lower() != b:
             continue
-        if str(r.get("symbol", "")).upper() != s:
+        if (r.get("symbol", "")).upper() != s:
             continue
         if _i(r.get("enforce", 0), 0) != 1:
             continue
@@ -217,12 +217,12 @@ def main() -> None:
 
     grid = [round(0.45 + 0.01 * i, 2) for i in range(36)]  # 0.45..0.80
 
-    def symbols_for_bucket(bucket: str) -> List[str]:
+    def symbols_for_bucket(bucket: str) -> list[str]:
         b = bucket.lower()
-        return sorted({str(r.get("symbol", "")).upper() for r in rows_long_all if str(r.get("bucket", "")).lower() == b and str(r.get("symbol", ""))})
+        return sorted({(r.get("symbol", "")).upper() for r in rows_long_all if (r.get("bucket", "")).lower() == b and (r.get("symbol", ""))})
 
-    proposals: Dict[str, Dict[str, float]] = {"trend": {}, "range": {}}
-    meta: Dict[str, Dict[str, Any]] = {"trend": {}, "range": {}}
+    proposals: dict[str, dict[str, float]] = {"trend": {}, "range": {}}
+    meta: dict[str, dict[str, Any]] = {"trend": {}, "range": {}}
 
     # propose one bucket per run to avoid spam
     for bucket in ("trend", "range"):
@@ -285,8 +285,8 @@ def main() -> None:
     if not (proposals["trend"] or proposals["range"]):
         return
 
-    changes: Dict[str, str] = {"updated_ms": str(now_ms())}
-    lines: List[str] = []
+    changes: dict[str, str] = {"updated_ms": str(now_ms())}
+    lines: list[str] = []
 
     # store prev fields for rollback simplicity
     if "p_min_trend_by_symbol" in cfg:

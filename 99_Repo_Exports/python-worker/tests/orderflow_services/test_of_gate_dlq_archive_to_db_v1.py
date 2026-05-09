@@ -1,7 +1,10 @@
-from unittest.mock import MagicMock, patch
 import argparse
+from unittest.mock import MagicMock, patch
+
 import pytest
-from orderflow_services.of_gate_dlq_archive_to_db_v1 import run_once, parse_dlq_fields, pick_dsn, _checkpoint_key
+
+from orderflow_services.of_gate_dlq_archive_to_db_v1 import _checkpoint_key, parse_dlq_fields, run_once
+
 
 @pytest.fixture
 def mock_redis():
@@ -36,9 +39,9 @@ def test_run_once(mock_pick_dsn, mock_redis, mock_pg, capsys):
     mock_redis.xrange.return_value = [
         (b"1700000000000-0", {b"stream": b"test", b"payload": b"{}"})
     ]
-    
+
     mock_pg.insert_rows.return_value = 1
-    
+
     res = run_once(args)
     assert res == 0
     mock_pg.ensure_tables.assert_called_once()
@@ -55,9 +58,9 @@ def test_run_once_tail(mock_pick_dsn, mock_redis, mock_pg, capsys):
     mock_redis.xrevrange.return_value = [
         (b"1700000000000-0", {b"stream": b"test", b"payload": b"{}"})
     ]
-    
+
     mock_pg.insert_rows.return_value = 1
-    
+
     res = run_once(args)
     assert res == 0
     mock_pg.ensure_tables.assert_not_called()

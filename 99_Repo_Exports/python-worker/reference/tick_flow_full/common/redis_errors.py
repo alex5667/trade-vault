@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable, Optional, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 try:
     import redis
@@ -229,8 +230,8 @@ def retry_redis_operation(
     max_retries: int = 10,
     base_delay: float = 1.0,
     max_delay: float = 30.0,
-    on_final_failure: Optional[Callable[[Exception], T]] = None,
-    logger_instance: Optional[logging.Logger] = None,
+    on_final_failure: Callable[[Exception], T] | None = None,
+    logger_instance: logging.Logger | None = None,
 ) -> T:
     """
     Retry a Redis operation with exponential backoff and jitter.
@@ -262,22 +263,22 @@ def retry_redis_operation(
         jitter=True,  # Add jitter to prevent thundering herd
         max_attempts=max_retries,
     )
-    
-    last_exception: Optional[Exception] = None
-    
+
+    last_exception: Exception | None = None
+
     for attempt in range(max_retries):
         try:
             return operation()
         except Exception as e:
             last_exception = e
-            
+
             # Check if this is a transient error (busy loading, connection, timeout)
             is_transient = is_transient_error(e)
-            
+
             if not is_transient:
                 # Non-retryable error, raise immediately
                 raise
-            
+
             # Retryable error
             if attempt < max_retries - 1:
                 delay = backoff.get_delay()
@@ -305,7 +306,7 @@ def retry_redis_operation(
                     if result is not None:
                         return result
                 raise
-    
+
     # Should not reach here, but handle edge case
     if last_exception is not None:
         if on_final_failure is not None:
@@ -313,5 +314,5 @@ def retry_redis_operation(
             if result is not None:
                 return result
         raise last_exception
-    
+
     raise RuntimeError(f"{operation_name}: Retry logic failed unexpectedly")

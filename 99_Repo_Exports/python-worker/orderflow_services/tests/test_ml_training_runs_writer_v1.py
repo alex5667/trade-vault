@@ -1,4 +1,4 @@
-from orderflow_services.ml_training_runs_writer_v1 import _normalize_row, _load_source_map
+from orderflow_services.ml_training_runs_writer_v1 import _load_source_map, _normalize_row
 
 
 def test_normalize_row_builds_ids_and_notes():

@@ -87,7 +87,7 @@ def test_estimate_slippage_invalid_ts_skips_ema_and_does_not_touch_redis():
 
 def test_estimate_slippage_seconds_ts_normalizes_and_uses_ema_when_available():
     """Test that seconds timestamps are normalized and EMA can be used."""
-    from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps, _normalize_ts_ms_fail_open
+    from handlers.crypto_orderflow.utils.edge_cost_gate import _normalize_ts_ms_fail_open, estimate_slippage_bps
 
     # Test timestamp normalization
     ts_norm = _normalize_ts_ms_fail_open(1_700_000_000)  # seconds

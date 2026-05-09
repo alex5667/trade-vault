@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
+from common.qf_codes import QF
 from signal_scoring.reason_codes import ReasonCode
 from signal_scoring.reason_policy import POLICY, is_reason_allowed_for_kind, patch_validation_reason_for_kind
-from common.qf_codes import QF
 
 
 def test_reason_policy_covers_all_veto_codes() -> None:

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Optional
+from dataclasses import asdict, dataclass
+from typing import Any
 
 try:
     import redis
@@ -24,7 +23,7 @@ class ContextCacheEntry:
     first_seen_ms: int
     last_seen_ms: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -49,7 +48,7 @@ class ContextCacheRegistryV1:
     def _key(compact_hash: str) -> str:
         return f"metrics:ml:context_cache:entry:{compact_hash}"
 
-    def lookup(self, compact_hash: str) -> Optional[ContextCacheEntry]:
+    def lookup(self, compact_hash: str) -> ContextCacheEntry | None:
         if self._r is None:
             return None
         try:
@@ -58,12 +57,12 @@ class ContextCacheRegistryV1:
                 return None
             return ContextCacheEntry(
                 compact_hash=str(raw.get("compact_hash") or compact_hash),
-                prompt_version=str(raw.get("prompt_version") or "unknown"),
-                policy_version=str(raw.get("policy_version") or "unknown"),
+                prompt_version=(raw.get("prompt_version") or "unknown"),
+                policy_version=(raw.get("policy_version") or "unknown"),
                 hits=int(raw.get("hits") or 0),
                 payload_bytes=int(raw.get("payload_bytes") or 0),
-                eligible=str(raw.get("eligible") or "0") == "1",
-                cache_ref=str(raw.get("cache_ref") or ""),
+                eligible=(raw.get("eligible") or "0") == "1",
+                cache_ref=(raw.get("cache_ref") or ""),
                 first_seen_ms=int(raw.get("first_seen_ms") or 0),
                 last_seen_ms=int(raw.get("last_seen_ms") or 0),
             )
@@ -102,10 +101,10 @@ class ContextCacheRegistryV1:
             return ContextCacheEntry(compact_hash, prompt_version, policy_version, 0, payload_bytes, False, "", ts_ms, ts_ms)
 
 
-def build_cache_observation(payload: Dict[str, Any]) -> Dict[str, Any]:
-    compact_hash = str(payload.get("compact_hash") or "")
-    prompt_version = str(payload.get("prompt_version") or "unknown")
-    policy_version = str(payload.get("policy_version") or "unknown")
+def build_cache_observation(payload: dict[str, Any]) -> dict[str, Any]:
+    compact_hash = (payload.get("compact_hash") or "")
+    prompt_version = (payload.get("prompt_version") or "unknown")
+    policy_version = (payload.get("policy_version") or "unknown")
     payload_bytes = len(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8"))
     return {
         "compact_hash": compact_hash,

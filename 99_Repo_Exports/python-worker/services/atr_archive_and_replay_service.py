@@ -1,11 +1,13 @@
+import hashlib
 import json
 import logging
-import hashlib
-from typing import Dict, List, Any, Optional
-from datetime import datetime, timezone
-import psycopg2.extras
-from services.analytics_db import get_conn as get_db_connection
+from datetime import UTC, datetime
+from typing import Any
+
 from prometheus_client import Counter
+
+from services.analytics_db import get_conn as get_db_connection
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +34,12 @@ class ATRArchiveAndReplayService:
         }
 
     def _now(self):
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     def classify_artifact(self, topic_or_table: str) -> str:
         """Classify a data source into one of the artifact classes."""
         mapping = {
-            "signals:crypto:raw": "signal",
+            RS.CRYPTO_RAW: "signal",
             "orders:queue": "dispatch",
             "orders:queue:mt5": "dispatch",
             "fills": "execution",
@@ -65,7 +67,7 @@ class ATRArchiveAndReplayService:
         # Simulate archiving job
         job_id = f"job_archive_{artifact_class}_{target_layer}_{int(self._now().timestamp())}"
         summary = {"moved_records": 5000, "layer": target_layer}
-        
+
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -82,7 +84,7 @@ class ATRArchiveAndReplayService:
             ARCHIVE_JOBS_TOTAL.labels(artifact_class=artifact_class, status="failed").inc()
             return False
 
-    def build_replay_bundle(self, bundle_id: str, time_range: Dict[str, str], scope: Dict[str, Any]) -> Dict[str, Any]:
+    def build_replay_bundle(self, bundle_id: str, time_range: dict[str, str], scope: dict[str, Any]) -> dict[str, Any]:
         """
         Builds a formal Replay Bundle encompassing all required artifacts.
         """
@@ -93,7 +95,7 @@ class ATRArchiveAndReplayService:
             # Simulated sha256 checksum for the generated file
             fake_hash = hashlib.sha256(f"{bundle_id}_{filename}".encode()).hexdigest()
             files.append({"name": filename, "sha256": fake_hash})
-            
+
         manifest = {
             "bundle_id": bundle_id,
             "time_range": time_range,
@@ -104,7 +106,7 @@ class ATRArchiveAndReplayService:
                 "outbox_sem_dedup_bucket_ms": 1000
             }
         }
-        
+
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -121,22 +123,22 @@ class ATRArchiveAndReplayService:
             BUNDLE_BUILDS_TOTAL.labels(status="failed").inc()
             raise
 
-    def verify_bundle_integrity(self, bundle_id: str, manifest: Dict[str, Any]) -> bool:
+    def verify_bundle_integrity(self, bundle_id: str, manifest: dict[str, Any]) -> bool:
         """
         Validates that a bundle has a manifest and all files have checksums.
         """
         check_id = f"chk_{bundle_id}_{int(self._now().timestamp())}"
-        
+
         files = manifest.get("files", [])
         if not files:
             self._record_integrity_check(check_id, bundle_id, "manifest_complete", "failed", {"reason": "no files in manifest"})
             return False
-            
+
         for f in files:
             if "sha256" not in f or not f["sha256"]:
                 self._record_integrity_check(check_id, bundle_id, "checksum", "failed", {"file": f.get("name")})
                 return False
-                
+
         self._record_integrity_check(check_id, bundle_id, "checksum", "passed", {"files_checked": len(files)})
         return True
 
@@ -145,14 +147,14 @@ class ATRArchiveAndReplayService:
         Simulates restoring a bundle to verify sequence reconstructability and control-plane recovery.
         """
         check_id = f"restore_{bundle_id}_{int(self._now().timestamp())}"
-        
+
         # Simulate restore success
         success = True
-        
+
         # We record the sample restoration in DB
         status = "passed" if success else "failed"
         self._record_integrity_check(check_id, bundle_id, "restore_replay", status, {"reconstructable": True})
-        
+
         if success:
             try:
                 with get_db_connection() as conn:
@@ -165,7 +167,7 @@ class ATRArchiveAndReplayService:
             except Exception as e:
                 logger.error(f"Failed to update restored_at for {bundle_id}: {e}")
 
-    def _record_integrity_check(self, check_id: str, bundle_id: str, check_kind: str, status: str, details: Dict[str, Any]):
+    def _record_integrity_check(self, check_id: str, bundle_id: str, check_kind: str, status: str, details: dict[str, Any]):
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -188,12 +190,12 @@ class ATRArchiveAndReplayService:
             logger.warning(f"Purge blocked: artifact_class {artifact_class} is linked to an unresolved incident.")
             PURGE_EVENTS_TOTAL.labels(artifact_class=artifact_class, status="blocked_incident").inc()
             return False
-            
+
         if not archive_ready:
             logger.warning(f"Purge blocked: archive for {artifact_class} is not marked as ready.")
             PURGE_EVENTS_TOTAL.labels(artifact_class=artifact_class, status="blocked_no_archive").inc()
             return False
-            
+
         # Simulate purge
         logger.info(f"Purged expired hot data for {artifact_class}.")
         PURGE_EVENTS_TOTAL.labels(artifact_class=artifact_class, status="passed").inc()
@@ -207,14 +209,13 @@ class ATRArchiveAndReplayService:
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to mark bundle as incident linked: {e}")
-        
+
     def _is_bundle_incident_linked(self, bundle_id: str) -> bool:
         try:
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT incident_linked FROM atr_replay_bundles WHERE bundle_id = %s", (bundle_id,))
-                    row = cur.fetchone()
-                    return row[0] if row else False
+            with get_db_connection() as conn, conn.cursor() as cur:
+                cur.execute("SELECT incident_linked FROM atr_replay_bundles WHERE bundle_id = %s", (bundle_id,))
+                row = cur.fetchone()
+                return row[0] if row else False
         except Exception as e:
             logger.error(f"Failed to check if bundle is incident linked: {e}")
             return False

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Reconnect nightly-smoke rollout gate.
@@ -18,8 +19,8 @@ Design notes
 import json
 import os
 import sys
-import time
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from collections.abc import Mapping
+from typing import Any
 
 DEFAULT_GATE_KEY = 'cfg:orderflow:exec_health:reconnect_smoke:rollout_gate:v1'
 DEFAULT_STATE_KEY = 'metrics:exec_health:freeze_reconnect_smoke:gate:last'
@@ -35,12 +36,12 @@ def _now_ms() -> int:
 
 def _s(x: Any, d: str = '') -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
-def _load_json(s: Any) -> Dict[str, Any]:
+def _load_json(s: Any) -> dict[str, Any]:
     if isinstance(s, dict):
         return {str(k): v for k, v in s.items()}
     txt = _s(s).strip()
@@ -53,8 +54,8 @@ def _load_json(s: Any) -> Dict[str, Any]:
         return {}
 
 
-def stringify_mapping(mapping: Mapping[str, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def stringify_mapping(mapping: Mapping[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for k, v in mapping.items():
         if isinstance(v, (dict, list, tuple)):
             out[str(k)] = json.dumps(v, ensure_ascii=False, separators=(',', ':'))
@@ -65,8 +66,8 @@ def stringify_mapping(mapping: Mapping[str, Any]) -> Dict[str, str]:
     return out
 
 
-def _report_failed_cases(report: Mapping[str, Any]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def _report_failed_cases(report: Mapping[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for row in list(report.get('cases', []) or []):
         if row.get('skipped'):
             continue
@@ -102,7 +103,7 @@ def emit_ops_summary(
     report: Mapping[str, Any],
     summary_text: str,
     report_path: str = '',
-    event_stream: Optional[str] = None,
+    event_stream: str | None = None,
 ) -> str:
     stream = event_stream or os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_EVENT_STREAM', DEFAULT_EVENT_STREAM)
     payload = {
@@ -163,7 +164,7 @@ def maybe_emit_telegram_summary(
         return ''
 
 
-def get_rollout_gate_state(r: Any, *, gate_key: Optional[str] = None, state_key: Optional[str] = None) -> Dict[str, Any]:
+def get_rollout_gate_state(r: Any, *, gate_key: str | None = None, state_key: str | None = None) -> dict[str, Any]:
     gate_key = gate_key or os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_GATE_KEY', DEFAULT_GATE_KEY)
     state_key = state_key or os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_GATE_STATE_KEY', DEFAULT_STATE_KEY)
     try:
@@ -195,16 +196,16 @@ def update_rollout_gate_from_report(
     report_path: str = '',
     ops_event_id: str = '',
     telegram_event_id: str = '',
-    gate_key: Optional[str] = None,
-    state_key: Optional[str] = None,
-) -> Dict[str, Any]:
+    gate_key: str | None = None,
+    state_key: str | None = None,
+) -> dict[str, Any]:
     gate_key = gate_key or os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_GATE_KEY', DEFAULT_GATE_KEY)
     state_key = state_key or os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_GATE_STATE_KEY', DEFAULT_STATE_KEY)
     ts_ms = int(report.get('ts_ms') or _now_ms())
     ok = bool(report.get('ok'))
     prev = get_rollout_gate_state(r, gate_key=gate_key, state_key=state_key)
     failed_cases = _report_failed_cases(report)
-    state_update: Dict[str, Any] = {
+    state_update: dict[str, Any] = {
         'schema_ver': 'exec_health_reconnect_rollout_gate_v1',
         'updated_ts_ms': ts_ms,
         'last_report_ts_ms': ts_ms,
@@ -265,10 +266,10 @@ def manual_ack_rollout_gate(
     operator: str,
     reason: str,
     ticket: str = '',
-    gate_key: Optional[str] = None,
-    state_key: Optional[str] = None,
-    event_stream: Optional[str] = None,
-) -> Dict[str, Any]:
+    gate_key: str | None = None,
+    state_key: str | None = None,
+    event_stream: str | None = None,
+) -> dict[str, Any]:
     if not _s(operator).strip() or not _s(reason).strip():
         raise ValueError('operator and reason are required')
     gate_key = gate_key or os.getenv('EXEC_HEALTH_FREEZE_RECONNECT_SMOKE_GATE_KEY', DEFAULT_GATE_KEY)
@@ -322,9 +323,9 @@ def assert_rollout_gate_open(
     r: Any,
     *,
     purpose: str,
-    exit_code: Optional[int] = None,
-    gate_key: Optional[str] = None,
-    state_key: Optional[str] = None,
+    exit_code: int | None = None,
+    gate_key: str | None = None,
+    state_key: str | None = None,
 ) -> None:
     st = get_rollout_gate_state(r, gate_key=gate_key, state_key=state_key)
     if not st.get('active'):

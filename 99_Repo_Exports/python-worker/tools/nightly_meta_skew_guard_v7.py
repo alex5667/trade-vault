@@ -4,7 +4,7 @@ import argparse
 import os
 import subprocess
 import sys
-import time
+
 
 def run_cmd(cmd: list[str]) -> int:
     """Run a shell command and print its status."""
@@ -24,7 +24,7 @@ def main():
     ap.add_argument("--redis", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), help="Redis URL")
     ap.add_argument("--hours", type=float, default=24.0, help="Lookback hours for serve-side export")
     ap.add_argument("--count", type=int, default=10000, help="Max entries to export from stream")
-    
+
     args = ap.parse_args()
 
     if not os.path.exists(args.out_dir):
@@ -54,7 +54,7 @@ def main():
         "--out-json", report_json,
         "--out-prom", prom_file
     ])
-    # Note: audit_rc may be non-zero if BAD skew is detected, but we proceed to Step 3 
+    # Note: audit_rc may be non-zero if BAD skew is detected, but we proceed to Step 3
     # because write_meta_freeze needs to handle those statuses.
 
     # Step 3: Write Meta Freeze JSON based on audit results
@@ -63,11 +63,11 @@ def main():
         "--skew-json", report_json,
         "--out", args.freeze_json
     ])
-    
+
     if freeze_rc == 0:
         print(f"\nSUCCESS: Nightly Meta Skew Guard updated. Freeze file: {args.freeze_json}")
     else:
-        print(f"\nFAILED: Could not update Meta Freeze file.")
+        print("\nFAILED: Could not update Meta Freeze file.")
         sys.exit(1)
 
 if __name__ == "__main__":

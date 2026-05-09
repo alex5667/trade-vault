@@ -1,10 +1,7 @@
-import os
-import math
-import pytest
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from common.json_safe import to_json_safe
 from common.outbox_contract import validate_outbox_envelope
 from services.outbox.envelope_builder import build_outbox_envelope
 
@@ -57,7 +54,7 @@ def test_build_outbox_envelope_is_trade_safe_and_has_fingerprint(
         sid=str(sid),
         ctx=None,
         kind=str(kind),
-        symbol=str(symbol),
+        symbol=symbol,
         notify_payload=notify,
         signal_stream=signal_stream,
         signal_stream_payload=stream_payload,

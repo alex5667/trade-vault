@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict
 import math
+from typing import Any
 
 JSONScalar = (str, int, float, bool, type(None))
 
@@ -37,7 +37,7 @@ def assert_json_safe(obj: Any, *, path: str = "$", max_depth: int = 32) -> None:
 
     raise AssertionError(f"json_safe: forbidden type at {path}: {type(obj).__name__}")
 
-def assert_no_trace_in_tradeable_envelope(env: Dict[str, Any]) -> None:
+def assert_no_trace_in_tradeable_envelope(env: dict[str, Any]) -> None:
     """
     HARD CONTRACT:
       - в tradeable envelope не должно быть полного trace/events

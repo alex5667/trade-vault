@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict
 import hashlib
 import json
+from dataclasses import asdict, dataclass
+from typing import Any
 
 
-def stable_hash(obj: Dict[str, Any]) -> str:
+def stable_hash(obj: dict[str, Any]) -> str:
     """
     Deterministic hash for audit and golden comparisons.
     """
@@ -26,5 +26,5 @@ class CalibEffqAuditV1:
     min_quote_delta: float
     state_hash: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)

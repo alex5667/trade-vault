@@ -1,16 +1,16 @@
 # utils.py
 from __future__ import annotations
+
 """
 Utility functions extracted from base_orderflow_handler.py
 """
 
-from utils.time_utils import get_ny_time_millis
-
-from typing import Any, Optional, Dict, Dict
-import math
-import time
 import json
-from datetime import datetime, timezone
+import math
+from datetime import UTC, datetime
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 _EPOCH_S_MIN = 946684800        # 2000-01-01 UTC in seconds
 _EPOCH_MS_MIN = 946684800000    # 2000-01-01 UTC in ms
@@ -51,7 +51,7 @@ def _parse_bool(val: Any) -> bool:
     return False
 
 
-def normalize_epoch_ms(ts: Any, *, now_ms: Optional[int] = None, strict: bool = False) -> int:
+def normalize_epoch_ms(ts: Any, *, now_ms: int | None = None, strict: bool = False) -> int:
     """
     Normalize timestamp to milliseconds since epoch.
     Handles various input formats.
@@ -69,7 +69,7 @@ def normalize_epoch_ms(ts: Any, *, now_ms: Optional[int] = None, strict: bool = 
     if isinstance(ts, datetime):
         try:
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.replace(tzinfo=UTC)
             ms = int(ts.timestamp() * 1000)
             if ms < _EPOCH_MS_MIN:
                 if strict:
@@ -150,7 +150,7 @@ def normalize_epoch_ms(ts: Any, *, now_ms: Optional[int] = None, strict: bool = 
                     # supports "YYYY-MM-DDTHH:MM:SS[.ffffff][+HH:MM]"
                     dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
                     if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
+                        dt = dt.replace(tzinfo=UTC)
                     ms = int(dt.timestamp() * 1000)
                     if ms < _EPOCH_MS_MIN:
                         if strict:
@@ -176,11 +176,11 @@ def minutes_of_day_from_epoch_ms(ts_ms: Any, *, strict: bool = False) -> int:
     This is the ONLY correct place to derive intraday minutes from epoch.
     """
     ms = normalize_epoch_ms(ts_ms, strict=strict)
-    dt = datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ms / 1000, tz=UTC)
     return dt.hour * 60 + dt.minute
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         v = float(x)
         if not math.isfinite(v):
@@ -191,16 +191,16 @@ def _safe_float(x: Any) -> Optional[float]:
 
 
 def _iso_date_utc_from_ms(ts_ms: int) -> str:
-    dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
     return dt.date().isoformat()
 
 
 def normalize_pivots_bundle(
     pivots: Any,
     *,
-    now_ms: Optional[int] = None,
+    now_ms: int | None = None,
     strict: bool = False,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Canonical pivots wrapper:
       {
@@ -257,7 +257,7 @@ def normalize_pivots_bundle(
                 hlc = {"high": hi, "low": lo, "close": cl}
 
         raw_levels = pivots.get("pivots") or {}
-        levels: Dict[str, float] = {}
+        levels: dict[str, float] = {}
         for k, v in raw_levels.items():
             fv = _safe_float(v)
             if fv is None:
@@ -272,7 +272,7 @@ def normalize_pivots_bundle(
         return {"ts_ms": int(ts_ms), "date": str(date), "hlc": hlc, "pivots": levels}
 
     # Raw dict levels -> wrap
-    levels: Dict[str, float] = {}
+    levels: dict[str, float] = {}
     for k, v in pivots.items():
         fv = _safe_float(v)
         if fv is None:

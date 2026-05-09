@@ -1,8 +1,6 @@
-import json
 import logging
 import time
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any
 
 from services.analytics_db import get_conn
 
@@ -27,7 +25,7 @@ class ATRGraphBackedFreezeOverrideService:
         return FREEZE_PRECEDENCE.get(level.lower(), 0)
 
     @staticmethod
-    def resolve_effective_state(scope_kind: str, scope_value: str) -> Dict[str, Any]:
+    def resolve_effective_state(scope_kind: str, scope_value: str) -> dict[str, Any]:
         """
         Calculates the effective freeze level after considering overrides.
         """
@@ -71,24 +69,24 @@ class ATRGraphBackedFreezeOverrideService:
                         highest_freeze = level
 
                 # 4. Resolve highest override
-                # Logic: Override masks ANY freeze IF the override level is 'normal' or 'clip' 
-                # and higher than the freeze status? 
-                # Actually, hierarchy R8-R11 applies to the RESULT. 
+                # Logic: Override masks ANY freeze IF the override level is 'normal' or 'clip'
+                # and higher than the freeze status?
+                # Actually, hierarchy R8-R11 applies to the RESULT.
                 # If an override says 'clip', and freeze says 'hard_freeze', 'hard_freeze' wins UNLESS override is authorized to break it.
-                # For Phase 8.3, we define masking as: 
+                # For Phase 8.3, we define masking as:
                 # effective_level = max(freeze_level, override_level) where override_level is usually lower (normal/clip).
                 # Wait, masking usually means override REDUCES freeze level.
-                
+
                 effective_level = highest_freeze
                 override_active = False
                 active_override_level = "none"
-                
+
                 if override_nodes:
                     # In 8.3, we take the most recent active override
                     best_override = override_nodes[0]["node_state_json"]
                     active_override_level = best_override.get("level", "normal")
                     override_active = True
-                    
+
                     # R11: Overrides can mask freezes if they explicitly target a lower state
                     # But if freeze is 'hard_freeze', it might be unmaskable?
                     # For 8.3, we assume active override takes priority if it's authorized.

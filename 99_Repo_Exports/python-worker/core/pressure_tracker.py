@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 PressureTracker
 ===============
@@ -18,7 +19,6 @@ PressureTracker
 import math
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Tuple
 
 
 @dataclass
@@ -35,9 +35,9 @@ class PressureTracker:
     def __init__(self, *, window_ms: int = 60_000, ema_alpha: float = 0.20) -> None:
         self.window_ms = int(max(5_000, window_ms))
         self.alpha = float(ema_alpha)
-        self._raw_ts: Deque[int] = deque()
-        self._cd_ts: Deque[int] = deque()
-        self._emit_ts: Deque[int] = deque()
+        self._raw_ts: deque[int] = deque()
+        self._cd_ts: deque[int] = deque()
+        self._emit_ts: deque[int] = deque()
         self._per_min_ema: float = 0.0
         self._cd_rate_ema: float = 0.0
 

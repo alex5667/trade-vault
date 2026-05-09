@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Retention-guard quarantine policy for P3.3-autonomy.
 
@@ -31,8 +33,7 @@ ENV
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, List
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -40,12 +41,15 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 try:
-    from services.execution_state_replay import stream_retention_guard_report, rebuild_state_with_fallback
+    from services.execution_state_replay import rebuild_state_with_fallback, stream_retention_guard_report
 except Exception:  # pragma: no cover
     try:
-        from binance_execution.execution_state_replay import stream_retention_guard_report, rebuild_state_with_fallback  # type: ignore
+        from binance_execution.execution_state_replay import (  # type: ignore
+            rebuild_state_with_fallback,
+            stream_retention_guard_report,
+        )
     except Exception:
-        from execution_state_replay import stream_retention_guard_report, rebuild_state_with_fallback  # type: ignore
+        from execution_state_replay import rebuild_state_with_fallback, stream_retention_guard_report  # type: ignore
 
 try:
     from services.quarantine_ledger import QuarantineLedgerSink
@@ -68,7 +72,7 @@ def run_policy(
     sample_limit: int,
     scan_count: int,
     dry_run: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Apply quarantine policy for breached retention guards.
 
     For each SID in the breach list:
@@ -88,12 +92,12 @@ def run_policy(
         sample_limit=sample_limit,
     )
 
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     quarantined = 0
 
     for ex in list(guard.get('breached_examples') or []):
-        sid = str(ex.get('sid') or '')
-        checkpoint_id = str(ex.get('checkpoint_id') or '')
+        sid = (ex.get('sid') or '')
+        checkpoint_id = (ex.get('checkpoint_id') or '')
 
         # Attempt stream-only rebuild; if it succeeds the SID is still recoverable
         result = rebuild_state_with_fallback(
@@ -136,7 +140,7 @@ def run_policy(
                 try:
                     ledger.record_quarantine_event({
                         'sid': sid,
-                        'symbol': str(payload.get('symbol') or ''),
+                        'symbol': (payload.get('symbol') or ''),
                         'action': 'RETENTION_GUARD_QUARANTINED',
                         'severity': 'critical',
                         'reason': 'retention_guard_breach',
@@ -161,7 +165,7 @@ def main() -> int:
         description='Quarantine SIDs whose replay checkpoint fell behind Redis stream retention.'
     )
     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
-    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC))
     parser.add_argument('--checkpoint-prefix', default=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'))
     parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
     parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))

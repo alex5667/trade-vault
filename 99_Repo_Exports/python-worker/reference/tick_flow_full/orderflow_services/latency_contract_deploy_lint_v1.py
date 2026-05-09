@@ -10,8 +10,8 @@ Checks three layers from one source of truth:
 """
 
 import argparse
-from pathlib import Path
 import os
+from pathlib import Path
 
 from services.observability.latency_deploy_contract import lint_deploy_contract, render_json
 

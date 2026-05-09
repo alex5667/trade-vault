@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from typing import List, Optional
 
 from core.swing_detector import SwingPoint
+import contextlib
 
 
 @dataclass
@@ -37,23 +36,17 @@ class DivergenceEngine:
         self.min_price_bp = float(min_price_bp)
         self.require_bias_for_hidden = bool(require_bias_for_hidden)
 
-        self._prev_high: Optional[SwingPoint] = None
-        self._prev_low: Optional[SwingPoint] = None
-        self._last_event: Optional[DivergenceEvent] = None
+        self._prev_high: SwingPoint | None = None
+        self._prev_low: SwingPoint | None = None
+        self._last_event: DivergenceEvent | None = None
 
     def apply_config(self, cfg: dict) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.min_strength = float(cfg.get("div_strength_min", self.min_strength))
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             self.min_price_bp = float(cfg.get("div_min_price_bp", self.min_price_bp))
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             self.require_bias_for_hidden = bool(cfg.get("div_require_bias_hidden", self.require_bias_for_hidden))
-        except Exception:
-            pass
 
     @staticmethod
     def _bp(a: float, b: float) -> float:
@@ -68,8 +61,8 @@ class DivergenceEngine:
         cvd_sep_rel = abs(cvd_curr - cvd_prev) / cvd_den
         return (price_sep_bp / max(1.0, self.min_price_bp)) * (1.0 + 5.0 * cvd_sep_rel)
 
-    def update_swing(self, sp: SwingPoint, trend_bias: str = "none") -> List[DivergenceEvent]:
-        out: List[DivergenceEvent] = []
+    def update_swing(self, sp: SwingPoint, trend_bias: str = "none") -> list[DivergenceEvent]:
+        out: list[DivergenceEvent] = []
         bias = (trend_bias or "none").lower()
 
         if sp.kind == "high":
@@ -166,5 +159,5 @@ class DivergenceEngine:
 
         return out
 
-    def last_event(self) -> Optional[DivergenceEvent]:
+    def last_event(self) -> DivergenceEvent | None:
         return self._last_event

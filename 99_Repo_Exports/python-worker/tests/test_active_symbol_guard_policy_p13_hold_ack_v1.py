@@ -1,21 +1,19 @@
 from __future__ import annotations
+
 """P13: Tests for hold-aware triage and ack-aware suppression / renew-reminder
 in ActiveSymbolGuardIncidentPolicyEngine.
 """
-from utils.time_utils import get_ny_time_millis
-
 import json
-import time
 from unittest.mock import MagicMock, patch
 
-import pytest
+from utils.time_utils import get_ny_time_millis
 
 try:
-    from services.active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine
     from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
+    from services.active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine
 except Exception:
-    from active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine  # type: ignore
     from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
+    from active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine  # type: ignore
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +167,7 @@ class TestAckAwareSuppression:
         assert result['policy']['decision'] == 'renew_reminder'
         assert bool(result['policy']['should_notify'])
         # telegram_text should include reminder context
-        assert 'reminder' in str(result.get('telegram_text') or '').lower()
+        assert 'reminder' in (result.get('telegram_text') or '').lower()
 
     def test_expired_ack_falls_through_to_notify(self):
         """Once ack expires, incident re-surfaces as notify."""

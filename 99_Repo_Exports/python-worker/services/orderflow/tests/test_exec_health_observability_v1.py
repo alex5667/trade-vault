@@ -1,12 +1,9 @@
 from __future__ import annotations
+
 """Tests for exec_health_observability.py."""
 
-import os
-import sys
-import types
 import unittest
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 
 def _make_decision(**kwargs) -> Any:
@@ -87,7 +84,6 @@ class TestRecordExecHealthObservability(unittest.TestCase):
                 setattr(mod, name, val)
 
     def test_no_decision_emits_rollup_presence(self):
-        import services.orderflow.exec_health_observability as mod
 
         fakes = self._make_fake_metrics()
         rollups = {"is_p95_bps": 3.5, "perm_impact_p95_bps": 1.2}
@@ -105,7 +101,6 @@ class TestRecordExecHealthObservability(unittest.TestCase):
         assert len(fakes["exec_health_decision_total"].calls) == 0
 
     def test_veto_decision_increments_veto_total(self):
-        import services.orderflow.exec_health_observability as mod
 
         fakes = self._make_fake_metrics()
         dec = _make_decision(apply=True, veto=True, mode="veto", reason_code="VETO_IS_P95", flags=["IS_P95_HIGH"])
@@ -122,7 +117,6 @@ class TestRecordExecHealthObservability(unittest.TestCase):
         assert any(c.get("reason") == "VETO_IS_P95" for c in veto_calls), f"expected veto call; got {veto_calls}"
 
     def test_tighten_emits_histogram(self):
-        import services.orderflow.exec_health_observability as mod
 
         fakes = self._make_fake_metrics()
         dec = _make_decision(apply=True, veto=False, mode="tighten", tighten_add_bps=2.5)
@@ -152,7 +146,6 @@ class TestRecordExecHealthObservability(unittest.TestCase):
 
     def test_fail_open_on_bad_rollup_values(self):
         """NaN / inf rollup values must not raise."""
-        import services.orderflow.exec_health_observability as mod
 
         fakes = self._make_fake_metrics()
         rollups = {"is_p95_bps": float("nan"), "perm_impact_p95_bps": float("inf")}
@@ -166,7 +159,6 @@ class TestRecordExecHealthObservability(unittest.TestCase):
         )  # No exception expected
 
     def test_empty_rollups_all_metrics_set_absent(self):
-        import services.orderflow.exec_health_observability as mod
 
         fakes = self._make_fake_metrics()
         self._patch_and_call(
@@ -183,7 +175,6 @@ class TestRecordExecHealthObservability(unittest.TestCase):
         assert "is_p95_bps" in present_values
 
     def test_flags_emit_per_flag(self):
-        import services.orderflow.exec_health_observability as mod
 
         fakes = self._make_fake_metrics()
         dec = _make_decision(apply=True, veto=False, flags=["IS_P95_HIGH", "PERM_IMPACT_HIGH"])

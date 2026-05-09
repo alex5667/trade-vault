@@ -1,5 +1,7 @@
 import pytest
+
 from core.fill_prob_proxy import compute_fill_prob_proxy
+
 
 def test_compute_fill_prob_proxy():
     res = compute_fill_prob_proxy(

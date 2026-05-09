@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from handlers.pipeline.candidate import Candidate
-from handlers.detector.rules.breakout import BreakoutRule
 from handlers.detector.rules.absorption import AbsorptionRule
+from handlers.detector.rules.breakout import BreakoutRule
 from handlers.detector.rules.extreme import ExtremeRule
 from handlers.detector.rules.obi_spike import ObiSpikeRule
+from handlers.pipeline.candidate import Candidate
 
 
 class Rule(Protocol):
@@ -19,7 +19,7 @@ class RuleSet:
     rules: list[Rule]
 
     @staticmethod
-    def default() -> "RuleSet":
+    def default() -> RuleSet:
         return RuleSet(
             rules=[
                 BreakoutRule(),

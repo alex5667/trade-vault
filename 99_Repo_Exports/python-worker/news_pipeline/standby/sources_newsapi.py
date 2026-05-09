@@ -1,11 +1,13 @@
 # python-worker/news_pipeline/standby/sources_newsapi.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
+
 import json
-import time
 import urllib.parse
 import urllib.request
-from typing import Dict, Any, List
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+
 
 def fetch_newsapi_everything(
     *,
@@ -17,8 +19,8 @@ def fetch_newsapi_everything(
     page_size: int = 50,
     timeout: float = 10.0,
     user_agent: str = "trade-standby/1.0",
-) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     now_ms = get_ny_time_millis()
 
     qs = urllib.parse.urlencode({
@@ -39,9 +41,9 @@ def fetch_newsapi_everything(
     for a in articles:
         if not isinstance(a, dict):
             continue
-        title = str(a.get("title") or "").strip()
-        link = str(a.get("url") or "").strip()
-        published_at = str(a.get("publishedAt") or "").strip()
+        title = (a.get("title") or "").strip()
+        link = (a.get("url") or "").strip()
+        published_at = (a.get("publishedAt") or "").strip()
 
         pub_ms = now_ms
         try:

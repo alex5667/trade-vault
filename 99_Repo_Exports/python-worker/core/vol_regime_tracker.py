@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 # tick_flow_full/core/vol_regime_tracker.py
 # -*- coding: utf-8 -*-
-from __future__ import annotations
 """
 Volatility regime tracker (fast/slow realized vol ratio + robust z-score).
 
@@ -20,12 +21,10 @@ The regime label (shock / calm / normal / na) is written on every update.
 
 
 import math
-from dataclasses import dataclass, field
-from collections import deque
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from typing import Any
 
 from core.robust_stats import RollingRobustZ
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -128,9 +127,9 @@ class VolRegimeTracker:
         z_window: int = 240,
         eps: float = 1e-9,
         # New parameters from diff (also exposed as short_alpha / long_alpha)
-        short_alpha: Optional[float] = None,
-        long_alpha: Optional[float] = None,
-        ratio_z_window: Optional[int] = None,
+        short_alpha: float | None = None,
+        long_alpha: float | None = None,
+        ratio_z_window: int | None = None,
         # Regime thresholds
         shock_z: float = 3.0,
         calm_ratio: float = 0.9,
@@ -177,7 +176,7 @@ class VolRegimeTracker:
         self._s.last_close = px
         self._update_emas(realized_bps, ts_ms)
 
-    def snapshot(self) -> Dict[str, float]:
+    def snapshot(self) -> dict[str, float]:
         """Return dict snapshot — backward compat for bar_processor.py callers.
 
         Keys: vol_fast_bps, vol_slow_bps, vol_ratio, vol_ratio_z,
@@ -197,7 +196,7 @@ class VolRegimeTracker:
     # New bar-driven API (from Stage-4 diff)
     # ------------------------------------------------------------------
 
-    def update_bar(self, bar: Any, ts_ms: Optional[int] = None) -> VolRegimeSnapshot:
+    def update_bar(self, bar: Any, ts_ms: int | None = None) -> VolRegimeSnapshot:
         """Update from a MicroBar object (open/close) and return typed snapshot.
 
         Realized vol = abs(close/open - 1) * 1e4   (bar-range method).

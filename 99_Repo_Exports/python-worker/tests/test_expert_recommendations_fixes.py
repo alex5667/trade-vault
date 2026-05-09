@@ -9,11 +9,11 @@ P4: Consume books helper caching - кэширование как в ticks
 P5: ACK on exceptions - quarantine после N попыток
 """
 
-import json
-import pytest
 import asyncio
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from typing import Dict, Any
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
+import contextlib
 
 
 class TestExpertRecommendationsFixes:
@@ -22,8 +22,8 @@ class TestExpertRecommendationsFixes:
     @pytest.mark.asyncio
     async def test_burst_single_source_no_sync_flush(self):
         """P0: Strategy.process_tick никогда не возвращает burst flush синхронно."""
-        from services.orderflow.strategy import OrderFlowStrategy
         from services.orderflow.runtime import SymbolRuntime
+        from services.orderflow.strategy import OrderFlowStrategy
 
         # Mock runtime with burst
         runtime = Mock(spec=SymbolRuntime)
@@ -60,9 +60,10 @@ class TestExpertRecommendationsFixes:
     @pytest.mark.asyncio
     async def test_burst_no_ghost_emissions_bookkeeping_only_in_publish(self):
         """P1: last_signal_ts/record_emit обновляются только в publish_signal."""
+        from unittest.mock import AsyncMock
+
         from services.crypto_orderflow_service import CryptoOrderflowService
         from services.orderflow.runtime import SymbolRuntime
-        from unittest.mock import AsyncMock
 
         service = CryptoOrderflowService(redis_dsn="redis://test")
         service.main = AsyncMock()
@@ -115,10 +116,7 @@ class TestExpertRecommendationsFixes:
 
     def test_envelope_builder_function_names_unique(self):
         """P3: Функции envelope builder имеют уникальные имена."""
-        from services.outbox.envelope_builder import (
-            build_trace_sidecar_meta,
-            build_trace_sidecar_meta_from_ctx
-        )
+        from services.outbox.envelope_builder import build_trace_sidecar_meta, build_trace_sidecar_meta_from_ctx
 
         # Functions should have different names
         assert build_trace_sidecar_meta.__name__ != build_trace_sidecar_meta_from_ctx.__name__
@@ -135,9 +133,9 @@ class TestExpertRecommendationsFixes:
     @pytest.mark.asyncio
     async def test_consume_books_helper_caching(self):
         """P4: Helper в consume_books кэшируется как в consume_ticks."""
+        from core.redis_stream_consumer import AsyncRedisStreamHelper
         from services.crypto_orderflow_service import CryptoOrderflowService
         from services.orderflow.runtime import SymbolRuntime
-        from core.redis_stream_consumer import AsyncRedisStreamHelper
 
         service = CryptoOrderflowService(redis_dsn="redis://test")
         service.ticks = AsyncMock()
@@ -162,10 +160,8 @@ class TestExpertRecommendationsFixes:
                 # Simulate first call - should create helper
                 mock_consume.side_effect = asyncio.CancelledError()  # Stop after first iteration
 
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await service.consume_books("BTCUSDT")
-                except asyncio.CancelledError:
-                    pass
 
                 # Verify helper was created and cached
                 mock_helper_class.assert_called_once_with(
@@ -177,9 +173,9 @@ class TestExpertRecommendationsFixes:
     @pytest.mark.asyncio
     async def test_ack_on_exceptions_with_quarantine(self):
         """P5: ACK при исключениях после quarantine."""
+        from core.redis_stream_consumer import AsyncRedisStreamHelper
         from services.crypto_orderflow_service import CryptoOrderflowService
         from services.orderflow.runtime import SymbolRuntime
-        from core.redis_stream_consumer import AsyncRedisStreamHelper
 
         service = CryptoOrderflowService(redis_dsn="redis://test")
         service.ticks = AsyncMock()
@@ -217,10 +213,8 @@ class TestExpertRecommendationsFixes:
 
                 # Run consume_ticks - should quarantine after 3 failures
                 with patch('asyncio.sleep', side_effect=asyncio.CancelledError()):
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError):
                         await service.consume_ticks("BTCUSDT")
-                    except asyncio.CancelledError:
-                        pass
 
                 # Verify quarantine happened
                 service.ticks.xadd.assert_called()
@@ -238,8 +232,8 @@ class TestExpertRecommendationsFixes:
     async def test_burst_publish_metrics_incremented(self):
         """Verify signals_published_total incremented for burst path."""
         from services.crypto_orderflow_service import CryptoOrderflowService
-        from services.orderflow.runtime import SymbolRuntime
         from services.orderflow.metrics import signals_published_total
+        from services.orderflow.runtime import SymbolRuntime
 
         service = CryptoOrderflowService(redis_dsn="redis://test")
         service.main = AsyncMock()
@@ -279,8 +273,9 @@ class TestExpertRecommendationsFixes:
 
     def test_strategy_no_burst_bookkeeping_in_process_tick(self):
         """Verify Strategy.process_tick doesn't update last_signal_ts/record_emit."""
-        from services.orderflow.strategy import OrderFlowStrategy
         import inspect
+
+        from services.orderflow.strategy import OrderFlowStrategy
 
         # Check process_tick source code
         source = inspect.getsource(OrderFlowStrategy.process_tick)

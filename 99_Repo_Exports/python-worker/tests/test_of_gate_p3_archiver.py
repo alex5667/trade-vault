@@ -1,20 +1,13 @@
 import datetime as dt
-import json
-from unittest.mock import MagicMock, patch
 import importlib.util
-import sys
+import json
 import os
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from services.archivers.stream_archiver import (
-    StreamArchiver,
-    PgWriter,
     PgCfg,
-    coalesce_ts_ms,
-    parse_stream_payload,
-    safe_int,
-    ts_ms_from_stream_id,
+    PgWriter,
+    StreamArchiver,
 )
 
 # Load migration module directly to bypass any package shadowing

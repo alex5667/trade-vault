@@ -17,7 +17,7 @@ Output golden:
 
 import argparse
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 from replay.jsonl import iter_jsonl
 from replay.report import build_report, normalize_signal_payload
@@ -31,16 +31,16 @@ def main() -> None:
     ap.add_argument("--sample_step", type=int, default=0, help="If >0, take samples each N signals")
     args = ap.parse_args()
 
-    signals: List[Dict[str, Any]] = []
+    signals: list[dict[str, Any]] = []
     for rec in iter_jsonl(args.inp):
-        if str(rec.get("type", "")) != "signal":
+        if (rec.get("type", "")) != "signal":
             continue
         p = rec.get("payload", None)
         if isinstance(p, dict):
             signals.append(p)
 
     rep = build_report(signals)
-    g: Dict[str, Any] = {
+    g: dict[str, Any] = {
         "counts_by_kind": rep.counts_by_kind,
         "score_p50_by_kind": rep.score_p50_by_kind,
         "score_p95_by_kind": rep.score_p95_by_kind,

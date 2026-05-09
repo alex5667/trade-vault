@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Regression: Calibrator Redis Errors Isolation (Before Canary 1.5)
 
@@ -7,36 +7,35 @@ Tests that calibrator modes fail safe and do not crash on Redis connection error
 Timeouts, or malformed data.
 """
 
-import json
-import pytest
 from unittest.mock import MagicMock, patch
 
+from core.strong_gate_calibrator import StrongGateCalibResult
 from services.strong_gate_calibrator_service import (
+    _apply_dynamic_cfg,
+    _discover_active_symbols,
     _load_state,
     _save_state,
-    _apply_dynamic_cfg,
     _send_telegram,
-    _discover_active_symbols,
     run_strong_gate_calibration,
 )
-from core.strong_gate_calibrator import StrongGateCalibResult
+
 
 class ExceptionRaisingRedis:
     def get(self, *args, **kwargs):
         raise ConnectionError("Redis is down")
-        
+
     def set(self, *args, **kwargs):
         raise ConnectionError("Redis is down")
-        
+
     def hset(self, *args, **kwargs):
         raise ConnectionError("Redis is down")
-        
+
     def xadd(self, *args, **kwargs):
         raise ConnectionError("Redis is down")
-        
+
     def keys(self, *args, **kwargs):
         raise ConnectionError("Redis is down")
-        
+
     def pipeline(self):
         pipe = MagicMock()
         pipe.execute.side_effect = ConnectionError("Pipeline failed")
@@ -52,7 +51,7 @@ def test_save_state_redis_error_handled() -> None:
     res = StrongGateCalibResult()
     # Should not raise
     _save_state(r, res, "run_id_123")
-    
+
 def test_apply_dynamic_cfg_redis_error_handled() -> None:
     r = ExceptionRaisingRedis()
     res = StrongGateCalibResult()
@@ -76,9 +75,9 @@ def test_run_strong_gate_calibration_redis_error(mock_redis_lib, mock_load) -> N
     mock_r = ExceptionRaisingRedis()
     # Configure mock_redis_lib to return our broken redis
     mock_redis_lib.Redis.from_url.return_value = mock_r
-    
+
     mock_load.return_value = []
-    
+
     # Should complete without crashing and return a result
     res = run_strong_gate_calibration(
         dsn="fake",

@@ -10,8 +10,8 @@ Run from project root:
   cd python-worker && PYTHONPATH=. python -m pytest services/tests/test_binance_trailing_orchestrator_v1.py -v
 """
 
-import math
 import importlib.util
+import math
 import sys
 from pathlib import Path
 

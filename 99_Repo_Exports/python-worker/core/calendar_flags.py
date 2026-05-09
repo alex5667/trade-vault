@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Calendar-derived deterministic flags for feature engineering (B2).
 
 Goals
@@ -19,9 +20,8 @@ These keys are intended to be appended to MLFeatureSchemaV7OF.
 """
 
 
-from datetime import datetime, timezone, date
 import calendar
-from typing import Dict
+from datetime import UTC, date, datetime
 
 
 def _utc_date_from_ts_ms(ts_ms: int) -> date:
@@ -33,7 +33,7 @@ def _utc_date_from_ts_ms(ts_ms: int) -> date:
     """
     # Defensive: callers may pass floats/strings, but we require int here.
     # Let ValueError/TypeError bubble; callers are expected to be fail-open.
-    dt = datetime.fromtimestamp(int(ts_ms) / 1000.0, tz=timezone.utc)
+    dt = datetime.fromtimestamp(int(ts_ms) / 1000.0, tz=UTC)
     return dt.date()
 
 
@@ -70,7 +70,7 @@ def day_of_quarter_utc(ts_ms: int) -> int:
     return int((d - q0).days + 1)
 
 
-def calendar_flags_utc(ts_ms: int) -> Dict[str, int]:
+def calendar_flags_utc(ts_ms: int) -> dict[str, int]:
     """Compute calendar features for a UTC timestamp (epoch ms).
 
     Returns a dict with the canonical B2 keys.

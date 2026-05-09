@@ -18,7 +18,6 @@ Checks:
 """
 import os
 
-
 from services.orderflow.components.tick_processor import TickProcessor
 
 

@@ -1,7 +1,7 @@
 """Tests for risk_audit_sql: verifies the SQL sink writes to both tables (P4.4/P4.5)."""
-from pathlib import Path
 import importlib.util
 import sys
+from pathlib import Path
 
 # Load the module standalone so tests work without the full services package
 mod_path = Path(__file__).resolve().parent / 'risk_audit_sql.py'

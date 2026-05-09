@@ -17,7 +17,7 @@ class TestTCAMath(unittest.TestCase):
         self.assertAlmostEqual(v, 2.0, places=6)
 
     def test_realized_spread_and_impact(self):
-        from services.posttrade.tca_math import realized_spread_bps, permanent_impact_bps
+        from services.posttrade.tca_math import permanent_impact_bps, realized_spread_bps
 
         # Buy at px 100.01, mid_t=100, mid_t+Δ=100.02
         # realized = 2*(100.01-100.02)/100*1e4 = -2 bps

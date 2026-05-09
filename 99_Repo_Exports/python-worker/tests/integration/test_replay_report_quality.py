@@ -1,11 +1,12 @@
 import json
 import os
+
 import pytest
 
 
 def _load_trades_jsonl(path: str) -> list[dict]:
     trades = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:

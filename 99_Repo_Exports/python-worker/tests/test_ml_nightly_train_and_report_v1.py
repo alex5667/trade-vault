@@ -1,33 +1,30 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Tests for ML nightly train and report v1."""
 
 import json
 import os
 import tempfile
 import time
-from unittest.mock import MagicMock, patch, mock_open
-from typing import Any, Dict, List
-
-import pytest
-import redis
+from unittest.mock import MagicMock, patch
 
 from tools.ml_nightly_train_and_report_v1 import (
-    now_ms,
-    _i,
     _f,
+    _i,
+    _is_closed_event,
     _safe_json_dumps,
     _stream_id_ms,
-    notify_telegram,
-    recs_sign,
-    make_hset_bundle,
-    write_bundle,
+    choose_best_model,
     export_of_inputs_ndjson,
     export_trades_closed_ndjson,
-    _is_closed_event,
-    choose_best_model,
     format_model_summary,
+    make_hset_bundle,
+    notify_telegram,
+    now_ms,
+    recs_sign,
     run_cmd,
-    CmdResult,
+    write_bundle,
 )
 
 
@@ -81,11 +78,11 @@ def test_notify_telegram():
     mock_redis = MagicMock()
     mock_xadd = MagicMock()
     mock_redis.xadd = mock_xadd
-    
+
     notify_telegram(mock_redis, "Test message")
     assert mock_xadd.called
     call_args = mock_xadd.call_args
-    assert call_args[0][0] == os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    assert call_args[0][0] == os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     assert "text" in call_args[0][1]
     assert call_args[0][1]["text"] == "Test message"
     assert "type" in call_args[0][1]
@@ -97,7 +94,7 @@ def test_notify_telegram_with_buttons():
     mock_redis = MagicMock()
     mock_xadd = MagicMock()
     mock_redis.xadd = mock_xadd
-    
+
     buttons = [[{"text": "Test", "callback": "test:callback"}]]
     notify_telegram(mock_redis, "Test", buttons)
     call_args = mock_xadd.call_args
@@ -149,7 +146,7 @@ def test_write_bundle():
     mock_redis = MagicMock()
     mock_set = MagicMock()
     mock_redis.set = mock_set
-    
+
     bundle = make_hset_bundle(
         cfg_key="cfg:test",
         changes={"field1": "value1"},
@@ -183,17 +180,17 @@ def test_choose_best_model():
     lr_meta = {"mean": {"brier": 0.2, "pr_auc": 0.7, "ece": 0.1}}
     gb_meta = {"mean": {"brier": 0.15, "pr_auc": 0.7, "ece": 0.1}}
     assert choose_best_model(lr_meta, gb_meta) == "gbdt"
-    
+
     # LR has lower Brier
     lr_meta2 = {"mean": {"brier": 0.15, "pr_auc": 0.7, "ece": 0.1}}
     gb_meta2 = {"mean": {"brier": 0.2, "pr_auc": 0.7, "ece": 0.1}}
     assert choose_best_model(lr_meta2, gb_meta2) == "lr"
-    
+
     # Tie on Brier, GBDT has higher PR-AUC
     lr_meta3 = {"mean": {"brier": 0.2, "pr_auc": 0.7, "ece": 0.1}}
     gb_meta3 = {"mean": {"brier": 0.2, "pr_auc": 0.75, "ece": 0.1}}
     assert choose_best_model(lr_meta3, gb_meta3) == "gbdt"
-    
+
     # Tie on Brier and PR-AUC, GBDT has lower ECE
     lr_meta4 = {"mean": {"brier": 0.2, "pr_auc": 0.7, "ece": 0.15}}
     gb_meta4 = {"mean": {"brier": 0.2, "pr_auc": 0.7, "ece": 0.1}}
@@ -237,10 +234,10 @@ def test_export_of_inputs_ndjson_empty_stream():
     """Test export_of_inputs_ndjson handles empty stream."""
     mock_redis = MagicMock()
     mock_redis.xrevrange = MagicMock(return_value=[])
-    
+
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ndjson') as f:
         out_path = f.name
-    
+
     try:
         written, scanned = export_of_inputs_ndjson(
             r=mock_redis,
@@ -252,7 +249,7 @@ def test_export_of_inputs_ndjson_empty_stream():
         assert written == 0
         assert scanned == 0
         # File should exist but be empty or have header only
-        with open(out_path, 'r') as f:
+        with open(out_path) as f:
             content = f.read()
             assert len(content) == 0 or content.count('\n') == 0
     finally:
@@ -263,7 +260,7 @@ def test_export_of_inputs_ndjson_empty_stream():
 def test_export_trades_closed_ndjson_filters_events():
     """Test export_trades_closed_ndjson filters only closed events."""
     mock_redis = MagicMock()
-    
+
     # Mock stream with mixed events - use side_effect to return empty on second call
     mock_redis.xrevrange = MagicMock(side_effect=[
         [
@@ -273,10 +270,10 @@ def test_export_trades_closed_ndjson_filters_events():
         ],
         [],  # Second call returns empty (end of stream)
     ])
-    
+
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ndjson') as f:
         out_path = f.name
-    
+
     try:
         written, scanned = export_trades_closed_ndjson(
             r=mock_redis,
@@ -288,9 +285,9 @@ def test_export_trades_closed_ndjson_filters_events():
         # Should write 2 closed events (POSITION_CLOSED and CLOSE)
         assert written == 2
         assert scanned == 3
-        
+
         # Verify content
-        with open(out_path, 'r') as f:
+        with open(out_path) as f:
             lines = [line.strip() for line in f if line.strip()]
             assert len(lines) == 2
             for line in lines:
@@ -305,7 +302,7 @@ def test_export_trades_closed_ndjson_filters_events():
 def test_export_of_inputs_ndjson_with_data():
     """Test export_of_inputs_ndjson exports data correctly."""
     mock_redis = MagicMock()
-    
+
     # Mock stream with data
     mock_redis.xrevrange = MagicMock(side_effect=[
         [
@@ -314,10 +311,10 @@ def test_export_of_inputs_ndjson_with_data():
         ],
         [],  # Second call returns empty (end of stream)
     ])
-    
+
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ndjson') as f:
         out_path = f.name
-    
+
     try:
         written, scanned = export_of_inputs_ndjson(
             r=mock_redis,
@@ -328,9 +325,9 @@ def test_export_of_inputs_ndjson_with_data():
         )
         assert written == 2
         assert scanned == 2
-        
+
         # Verify content is in chronological order
-        with open(out_path, 'r') as f:
+        with open(out_path) as f:
             lines = [line.strip() for line in f if line.strip()]
             assert len(lines) == 2
             obj1 = json.loads(lines[0])
@@ -345,7 +342,7 @@ def test_export_of_inputs_ndjson_with_data():
 def test_export_trades_closed_ndjson_without_sid():
     """Test export_trades_closed_ndjson filters events without sid."""
     mock_redis = MagicMock()
-    
+
     # Use side_effect to return empty on second call
     mock_redis.xrevrange = MagicMock(side_effect=[
         [
@@ -354,10 +351,10 @@ def test_export_trades_closed_ndjson_without_sid():
         ],
         [],  # Second call returns empty (end of stream)
     ])
-    
+
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ndjson') as f:
         out_path = f.name
-    
+
     try:
         written, scanned = export_trades_closed_ndjson(
             r=mock_redis,
@@ -369,8 +366,8 @@ def test_export_trades_closed_ndjson_without_sid():
         # Should write only 1 event (with sid)
         assert written == 1
         assert scanned == 2
-        
-        with open(out_path, 'r') as f:
+
+        with open(out_path) as f:
             lines = [line.strip() for line in f if line.strip()]
             assert len(lines) == 1
             obj = json.loads(lines[0])
@@ -383,7 +380,7 @@ def test_export_trades_closed_ndjson_without_sid():
 def test_export_trades_closed_ndjson_timestamp_from_stream_id():
     """Test export_trades_closed_ndjson uses stream ID for timestamp if missing."""
     mock_redis = MagicMock()
-    
+
     # Use side_effect to return empty on second call
     mock_redis.xrevrange = MagicMock(side_effect=[
         [
@@ -391,10 +388,10 @@ def test_export_trades_closed_ndjson_timestamp_from_stream_id():
         ],
         [],  # Second call returns empty (end of stream)
     ])
-    
+
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ndjson') as f:
         out_path = f.name
-    
+
     try:
         written, scanned = export_trades_closed_ndjson(
             r=mock_redis,
@@ -404,8 +401,8 @@ def test_export_trades_closed_ndjson_timestamp_from_stream_id():
             max_scan=1000,
         )
         assert written == 1
-        
-        with open(out_path, 'r') as f:
+
+        with open(out_path) as f:
             lines = [line.strip() for line in f if line.strip()]
             obj = json.loads(lines[0])
             assert obj["ts_ms"] == 1700000000000

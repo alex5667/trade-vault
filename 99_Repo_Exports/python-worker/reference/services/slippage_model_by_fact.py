@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple
+from typing import Any
 
 from domain.time_utils import normalize_ts_ms
 from services.session_service import session_key_from_epoch_ms
@@ -41,7 +41,7 @@ def _extract_spread_bps_from_ctx(ctx: Any) -> float:
     except Exception:
         pass
 
-    def _get(*names: str) -> Optional[float]:
+    def _get(*names: str) -> float | None:
         for n in names:
             try:
                 vv = getattr(ctx, n, None)
@@ -95,7 +95,7 @@ def _ema_key_tf_kind(
     return f"{cfg.ema_key_prefix}:{symbol}:{venue}:{session}:{t}:{k}"
 
 
-def _read_ema(redis_client: Any, key: str, *, min_samples: int) -> Tuple[int, float]:
+def _read_ema(redis_client: Any, key: str, *, min_samples: int) -> tuple[int, float]:
     """
     Read EMA from Redis (fail-open).
     Supports multiple field spellings to avoid silent breakages:

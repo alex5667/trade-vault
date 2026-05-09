@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import hashlib
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -43,7 +44,7 @@ LAST_RUN = _gauge("ml_operator_routing_incident_rca_route_incident_bundle_last_r
 BUNDLES = _counter("ml_operator_routing_incident_rca_route_incident_bundles_total", "Bundles", ("severity",))
 
 def now_ms() -> int: return get_ny_time_millis()
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 async def ensure_group(r: Any, stream: str, group: str) -> None:
@@ -52,22 +53,22 @@ async def ensure_group(r: Any, stream: str, group: str) -> None:
     except Exception as e:
         if "BUSYGROUP" not in str(e): raise
 
-async def build_bundle(experiment_id: str) -> Dict[str, Any]:
+async def build_bundle(experiment_id: str) -> dict[str, Any]:
     # Mocking timeline building by gathering streams (abridged for stability)
     timeline = [{"event": "mock_event", "experiment_id": experiment_id}]
     reasons = "ROUTE_SUCCESS_RATE_LOW" # Mock detected reason
-    
+
     severity = "info"
     critical_codes = {"ROUTE_MTTR_SLO_BREACH", "ROUTE_MTTR_P95_HIGH", "ROUTE_SUCCESS_RATE_LOW", "ROUTE_MISMATCH", "FEEDBACK_STALE", "ROUTING_POLICY_CORRUPTED"}
     warning_codes = {"LOW_EXPOSURE", "USEFULNESS_DROP", "RETRY_SCHEDULED", "INCONCLUSIVE"}
-    
+
     if any(code in reasons for code in critical_codes):
         severity = "critical"
     elif any(code in reasons for code in warning_codes):
         severity = "warning"
-        
+
     bundle_hash = hashlib.sha256(f"{experiment_id}_{now_ms()}".encode()).hexdigest()
-    
+
     return {
         "incident_id": f"incident_{experiment_id}_{now_ms()}",
         "severity": severity,
@@ -96,25 +97,25 @@ async def run_loop(r: Any) -> None:
                 try:
                     row = as_dict(payload)
                     exp_id = row.get("experiment_id", "unknown_exp")
-                    
+
                     bundle = await build_bundle(exp_id)
                     severity = bundle["severity"]
                     inc_id = bundle["incident_id"]
-                    
+
                     # Redis hash maps
                     flat_bundle = {k: str(v) for k, v in bundle.items()}
                     await r.hset(LAST_HASH, mapping=flat_bundle)
                     await r.hset(f"{INCIDENT_HASH_PREFIX}{inc_id}", mapping=flat_bundle)
-                    
+
                     # Log event
                     await r.xadd(OUT_STREAM, flat_bundle, maxlen=MAXLEN, approximate=True)
-                    
+
                     if BUNDLES: BUNDLES.labels(severity=severity).inc()
                     await r.xack(IN_STREAM, GROUP, msg_id)
                 except Exception:
                     status = "error"
                     await r.xack(IN_STREAM, GROUP, msg_id)
-                    
+
         if LAST_RUN: LAST_RUN.set(time.time())
     except Exception:
         status = "error"

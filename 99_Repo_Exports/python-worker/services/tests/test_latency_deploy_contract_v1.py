@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from services.observability.latency_deploy_contract import parse_env_file_text, lint_deploy_contract
 from pathlib import Path
+
+from services.observability.latency_deploy_contract import lint_deploy_contract, parse_env_file_text
 
 ROOT = Path(__file__).resolve().parents[2]
 

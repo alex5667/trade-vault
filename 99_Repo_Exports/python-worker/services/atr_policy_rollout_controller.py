@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+
 import psycopg2
 import psycopg2.extras
 import redis
@@ -68,7 +69,7 @@ def run_once() -> int:
                 row = db.fetchone()
                 cur_stage = row["rollout_stage"] if row else "shadow"
 
-                action = str(p.get("action") or "HOLD").upper()
+                action = (p.get("action") or "HOLD").upper()
                 if action == "PROMOTE":
                     new_stage = _next_stage(cur_stage)
                     reason_code = "ATR_POLICY_ROLLOUT_PROMOTE"

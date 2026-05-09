@@ -1,10 +1,10 @@
 import json
-import types
-import pytest
 
-from services.candidate_emit_pipeline_v2 import CandidateFrame, PayloadBuilder
-from services.candidate_emit_pipeline_v2 import ConfidenceGateRunner  # если нужно
-from services.candidate_emit_pipeline_v2 import GateRunner  # если у вас он там
+from services.candidate_emit_pipeline_v2 import (
+    CandidateFrame,
+    PayloadBuilder,
+)
+
 
 class DummyCtx:
     pass

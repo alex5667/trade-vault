@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """enforce_bucket_slo_freezer_p80.py
 
 P80: Freeze auto-apply for enforce-bucket promoter if SLO degrades on enforced buckets.
@@ -38,13 +39,12 @@ Audit:
   ENFORCE_FREEZER_EVENTS_STREAM (default events:enforce_bucket_slo_freezer)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import sys
-import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import psycopg2  # type: ignore
@@ -63,20 +63,20 @@ def _now_ms() -> int:
 
 def _env_int(name: str, default: str) -> int:
     try:
-        return int(str(os.getenv(name, default)).strip())
+        return int(os.getenv(name, default).strip())
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(name: str, default: str) -> float:
     try:
-        return float(str(os.getenv(name, default)).strip())
+        return float(os.getenv(name, default).strip())
     except Exception:
-        return float(default)
+        return default
 
 
-def _env_list(name: str, default: str) -> List[str]:
-    raw = str(os.getenv(name, default) or "").strip()
+def _env_list(name: str, default: str) -> list[str]:
+    raw = (os.getenv(name, default) or "").strip()
     if not raw:
         return []
     out = []
@@ -89,7 +89,7 @@ def _env_list(name: str, default: str) -> List[str]:
 
 def _write_status(path: str, obj: dict) -> None:
     try:
-        p = str(path or "").strip()
+        p = (path or "").strip()
         if not p:
             return
         d = os.path.dirname(p)
@@ -124,16 +124,16 @@ def _read_pref(r: Any, base: str, sym: str) -> str:
     if v:
         return str(v)
     v = r.get(base)
-    return str(v or "")
+    return (v or "")
 
 
-def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int, float, float, float]]:
+def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> dict[str, tuple[int, float, float, float]]:
     mv = os.getenv("ENFORCE_STATS_MV", "mv_exec_slippage_eval_1h_stats").strip() or "mv_exec_slippage_eval_1h_stats"
     view = os.getenv("ENFORCE_STATS_VIEW", "v_exec_slippage_eval").strip() or "v_exec_slippage_eval"
 
     conn = psycopg2.connect(dsn)
     cur = conn.cursor()
-    out: Dict[str, Tuple[int, float, float, float]] = {}
+    out: dict[str, tuple[int, float, float, float]] = {}
     try:
         cur.execute(
             f"""

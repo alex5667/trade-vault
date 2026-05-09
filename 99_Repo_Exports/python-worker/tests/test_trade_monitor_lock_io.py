@@ -37,8 +37,8 @@ class DummyRepo:
 
 
 def test_on_tick_does_not_do_io_under_global_lock(monkeypatch):
-    from services.trade_monitor import TradeMonitorService
     import services.trade_monitor as tm
+    from services.trade_monitor import TradeMonitorService
 
     # Prevent real RedisTradeRepository init
     monkeypatch.setattr(tm, "RedisTradeRepository", lambda redis, health_provider=None: types.SimpleNamespace(load_open_positions=lambda limit=5000: []))
@@ -69,7 +69,7 @@ def test_on_tick_does_not_do_io_under_global_lock(monkeypatch):
     svc._IOTask = lambda fn, desc: types.SimpleNamespace(fn=fn, desc=desc)
     svc._dedup_acquire = lambda key, event_id: True  # no-op dedup
     svc.repo = DummyRepo(svc)
-    
+
     # Mock prometheus metrics
     svc.tm_open_positions = types.SimpleNamespace(labels=lambda **kw: types.SimpleNamespace(set=lambda v: None))
     svc.tm_tick_latency_us = types.SimpleNamespace(labels=lambda **kw: types.SimpleNamespace(observe=lambda v: None))

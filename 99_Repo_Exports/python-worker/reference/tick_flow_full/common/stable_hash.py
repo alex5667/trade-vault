@@ -1,5 +1,6 @@
 # python-worker/common/stable_hash.py
 from __future__ import annotations
+
 """
 Deterministic, cross-process stable hash utilities.
 

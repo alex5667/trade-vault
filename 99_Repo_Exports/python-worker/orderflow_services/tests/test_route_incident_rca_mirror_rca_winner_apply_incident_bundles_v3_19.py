@@ -1,4 +1,7 @@
-from orderflow_services.route_incident_rca_mirror_rca_winner_apply_incident_bundle_builder_v3_19 import find_unprocessed_triggers, TRIGGER_ON_APPLY_DECISIONS, ONLY_SEVERITY
+from orderflow_services.route_incident_rca_mirror_rca_winner_apply_incident_bundle_builder_v3_19 import (
+    find_unprocessed_triggers,
+)
+
 
 def test_find_unprocessed_triggers_apply():
     last_times = {"applies": 1000, "rollbacks": 1000, "escalations": 1000}
@@ -8,7 +11,7 @@ def test_find_unprocessed_triggers_apply():
             {"action": "APPLY_PRIMARY_ARM_SHADOW", "ts_ms": "999"} # old
         ]
     }
-    
+
     triggers = find_unprocessed_triggers(last_times, current_data)
     assert len(triggers) == 1
     assert triggers[0][0] == "apply"
@@ -21,7 +24,7 @@ def test_find_unprocessed_triggers_rollback():
             {"reason": "LOW_PRIMARY_MATCH_RATE", "ts_ms": "1005"}
         ]
     }
-    
+
     triggers = find_unprocessed_triggers(last_times, current_data)
     assert len(triggers) == 1
     assert triggers[0][0] == "rollback"
@@ -34,7 +37,7 @@ def test_find_unprocessed_triggers_escalation_critical():
             {"severity": "critical", "ts_ms": "1010"}
         ]
     }
-    
+
     triggers = find_unprocessed_triggers(last_times, current_data)
     assert len(triggers) == 1
     assert triggers[0][0] == "escalation"

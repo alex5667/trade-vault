@@ -1,13 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
-import os
-import time
-import threading
-import logging
-from typing import Any, Dict, Optional, Tuple, Set
 
-from contexts import NewsFeatures, OrderflowSignalContext
+import logging
+import threading
+import time
+from typing import Any
+
 from common.dq_flags import append_dq_flag
+from contexts import NewsFeatures, OrderflowSignalContext
+from utils.time_utils import get_ny_time_millis
 
 log = logging.getLogger("news_enricher_shadow")
 
@@ -46,13 +46,13 @@ class NewsEnricherShadow:
 
         self._lock = threading.Lock()
         self._stop = threading.Event()
-        self._thr: Optional[threading.Thread] = None
+        self._thr: threading.Thread | None = None
 
         # ключ запроса: (symbol, asset_class)
-        self._wanted: Set[Tuple[str, str]] = set()
+        self._wanted: set[tuple[str, str]] = set()
 
         # кэш: (symbol, asset_class) -> (ts_ms, NewsFeatures)
-        self._cache: Dict[Tuple[str, str], Tuple[int, NewsFeatures]] = {}
+        self._cache: dict[tuple[str, str], tuple[int, NewsFeatures]] = {}
 
     def start(self) -> None:
         if self._thr and self._thr.is_alive():
@@ -121,7 +121,7 @@ class NewsEnricherShadow:
 
         # 1 RTT: pipeline hgetall(news) + hgetall(calendar)
         pipe = self.r.pipeline(transaction=False)
-        keys: list[Tuple[str, str, str, str]] = []
+        keys: list[tuple[str, str, str, str]] = []
         for (sym, ac) in items:
             news_key = f"news:agg:{sym}"
             cal_key = f"calendar:agg:{ac}"
@@ -133,14 +133,14 @@ class NewsEnricherShadow:
 
         # распаковываем попарно
         idx = 0
-        updates: Dict[Tuple[str, str], Tuple[int, NewsFeatures]] = {}
+        updates: dict[tuple[str, str], tuple[int, NewsFeatures]] = {}
         for sym, ac, _, _ in keys:
             news = res[idx] or {}
             cal = res[idx + 1] or {}
             idx += 2
 
             # ref: normalize UID to full key
-            ref = str(news.get("ref", "") or "")
+            ref = (news.get("ref", "") or "")
             if ref and not ref.startswith("news:analysis:"):
                 ref = f"news:analysis:{ref}"
 

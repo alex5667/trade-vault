@@ -1,7 +1,8 @@
-from utils.time_utils import get_ny_time_millis
 import json
-import time
-from services.orderflow.liqmap_features import try_parse_liqmap_snapshot_json, compute_liqmap_features_from_snapshot
+
+from services.orderflow.liqmap_features import compute_liqmap_features_from_snapshot, try_parse_liqmap_snapshot_json
+from utils.time_utils import get_ny_time_millis
+
 
 def test_parse_json():
     raw = json.dumps({"ts_ms": 123, "levels": []})
@@ -30,12 +31,12 @@ def test_compute_features_basic():
         front_run_bps=20.0,
         sl_buffer_bps=15.0
     )
-    
+
     # stale_ms should be 100
     assert feats["stale_ms"] == 100
     assert feats["is_stale"] == 0
     assert feats["levels_n"] == 2
-    
+
     # 2000 short / 3000 total = 0.666
     assert abs(feats["squeeze_bias"] - (2000/3000)) < 0.01
 

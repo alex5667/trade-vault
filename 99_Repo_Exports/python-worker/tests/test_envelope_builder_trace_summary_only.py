@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
+from common.decision_trace import ensure_trace, trace_gate
 from services.outbox.envelope_builder import build_outbox_envelope, build_trace_sidecar_meta
-from common.decision_trace import ensure_trace, trace_gate, trace_enabled
 
 
 def test_build_outbox_envelope_puts_only_trace_id_and_summary(monkeypatch):

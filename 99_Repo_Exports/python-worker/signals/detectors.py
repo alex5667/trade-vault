@@ -20,10 +20,10 @@ Detectors - тестируемые функции для детекции сиг
 """
 
 from statistics import mean, pstdev
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 
-def zscore(latest: float, window: List[float]) -> float:
+def zscore(latest: float, window: list[float]) -> float:
     """
     Вычисляет Z-score для последнего значения относительно окна.
     
@@ -36,13 +36,13 @@ def zscore(latest: float, window: List[float]) -> float:
     """
     if not window or len(window) < 30:
         return 0.0
-    
+
     m = mean(window)
     s = pstdev(window)
-    
+
     if s == 0 or s < 1e-9:
         return 0.0
-    
+
     return (latest - m) / s
 
 
@@ -63,11 +63,11 @@ def weak_progress(bar_range: float, atr: float, threshold: float = 0.10) -> bool
     """
     if atr <= 0:
         return False
-    
+
     return (abs(bar_range) / atr) <= threshold
 
 
-def obi_from_book(book: Optional[Dict[str, Any]], depth: int = 5) -> Optional[float]:
+def obi_from_book(book: dict[str, Any] | None, depth: int = 5) -> float | None:
     """
     Вычисляет Order Book Imbalance (OBI) из DOM snapshot.
     
@@ -87,19 +87,19 @@ def obi_from_book(book: Optional[Dict[str, Any]], depth: int = 5) -> Optional[fl
     """
     if not book:
         return None
-    
+
     bids = book.get("bids", [])[:depth]
     asks = book.get("asks", [])[:depth]
-    
+
     # Суммируем объемы
     bid_volume = sum(max(0.0, float(v)) for _, v in bids)
     ask_volume = sum(max(0.0, float(v)) for _, v in asks)
-    
+
     total_volume = bid_volume + ask_volume
-    
+
     if total_volume <= 0:
         return 0.0
-    
+
     # OBI в диапазоне [-1, 1]
     return (bid_volume - ask_volume) / total_volume
 
@@ -125,7 +125,7 @@ def is_absorption(z: float, weak: bool, near_level: bool, z_threshold: float = 3
     return weak and near_level and abs(z) >= z_threshold
 
 
-def obi_is_sustained(obi_buffer: List[tuple], threshold: float = 0.5) -> bool:
+def obi_is_sustained(obi_buffer: list[tuple], threshold: float = 0.5) -> bool:
     """
     Проверяет устойчивость OBI во времени.
     
@@ -138,10 +138,10 @@ def obi_is_sustained(obi_buffer: List[tuple], threshold: float = 0.5) -> bool:
     """
     if not obi_buffer:
         return False
-    
+
     # Вычисляем средний OBI
     avg_obi = sum(obi for _, obi in obi_buffer) / len(obi_buffer)
-    
+
     return abs(avg_obi) >= threshold
 
 
@@ -165,10 +165,10 @@ def classify_delta_by_aggressor(last: float, bid: float, ask: float, volume: flo
     """
     if last and ask and last >= ask:
         return +volume  # Агрессивная покупка
-    
+
     if last and bid and last <= bid:
         return -volume  # Агрессивная продажа
-    
+
     # Fallback: по направлению spread
     if ask > bid:
         return +volume

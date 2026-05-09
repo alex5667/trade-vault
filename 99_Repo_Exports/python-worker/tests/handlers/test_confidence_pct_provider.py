@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+
 import pytest
 
 from handlers.confidence_pct_provider import build_confidence_pct_fn

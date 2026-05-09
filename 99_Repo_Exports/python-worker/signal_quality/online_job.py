@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Online signal quality computation job.
 
@@ -11,7 +12,7 @@ import logging
 import psycopg2
 from psycopg2.extras import DictCursor
 
-from .offline_job import ALPHA, compute_quality_score, fmean, _var_cvar
+from .offline_job import ALPHA, _var_cvar, compute_quality_score, fmean
 
 logger = logging.getLogger(__name__)
 

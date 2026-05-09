@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from services.trade_closed_hydrator import hydrate_trade_closed
 
@@ -9,7 +9,7 @@ class TradeBackConsumer:
     def __init__(self, redis, *args, **kwargs):
         self.redis = redis
 
-    def _norm_map(self, m: Dict[str, Any]) -> Dict[str, str]:
+    def _norm_map(self, m: dict[str, Any]) -> dict[str, str]:
         return {str(k): str(v) for k, v in (m or {}).items() if v is not None}
 
     def poll_recent(self, cutoff_ms: int, limit: int = 2000):

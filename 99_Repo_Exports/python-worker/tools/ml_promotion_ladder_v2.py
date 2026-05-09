@@ -1,18 +1,18 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
+import hashlib
+import hmac
 import json
 import os
-import time
-import hmac
-import hashlib
 import secrets
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
 
+from tools.ml_metrics_agg import agg_health_ml_confirm, agg_outcomes
 from tools.redis_window import read_recent_stream
-from tools.ml_metrics_agg import agg_outcomes, agg_health_ml_confirm
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -31,10 +31,10 @@ def notify(r: redis.Redis, text: str, buttons=None) -> None:
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
-def make_bundle_hset(cfg_key: str, changes: Dict[str, str], *, who: str, ttl: int) -> Tuple[str, str, Dict[str, Any]]:
+def make_bundle_hset(cfg_key: str, changes: dict[str, str], *, who: str, ttl: int) -> tuple[str, str, dict[str, Any]]:
     """Create bundle for HSET operations (compatible with recs_callback_worker_v2)."""
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_id = secrets.token_hex(6)
@@ -45,7 +45,7 @@ def make_bundle_hset(cfg_key: str, changes: Dict[str, str], *, who: str, ttl: in
     return bundle_id, sig, bundle
 
 
-def write_bundle(r: redis.Redis, bundle_id: str, bundle: Dict[str, Any], ttl: int) -> None:
+def write_bundle(r: redis.Redis, bundle_id: str, bundle: dict[str, Any], ttl: int) -> None:
     """Write bundle to Redis (compatible with recs_callback_worker_v2)."""
     r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=ttl)
     r.set(f"recs:status:{bundle_id}", "PENDING", ex=ttl)
@@ -60,7 +60,7 @@ def ladder_next(cur: float) -> float:
     return cur
 
 
-def thresholds_for_level(level: float, *, bucket: str) -> Dict[str, float]:
+def thresholds_for_level(level: float, *, bucket: str) -> dict[str, float]:
     """Stricter thresholds as share increases; range slightly stricter than trend.
     
     Thresholds are tuned as you collect data:
@@ -109,9 +109,9 @@ def thresholds_for_level(level: float, *, bucket: str) -> Dict[str, float]:
     return {"brier_max": base, "ece_max": ece, "win_min": win}
 
 
-def filter_bucket(rows: List[Dict[str, Any]], bucket: str) -> List[Dict[str, Any]]:
+def filter_bucket(rows: list[dict[str, Any]], bucket: str) -> list[dict[str, Any]]:
     """Filter rows by bucket."""
-    return [r for r in rows if str(r.get("bucket", "")).lower() == bucket]
+    return [r for r in rows if (r.get("bucket", "")).lower() == bucket]
 
 
 def main() -> None:
@@ -185,7 +185,7 @@ def main() -> None:
         if not (pass_metrics(promo_s) and pass_metrics(promo_l)):
             continue
 
-        has_ch = ("brier_ch" in promo_s) and (str(cfg.get("challenger_ver", "")).strip() != "")
+        has_ch = ("brier_ch" in promo_s) and ((cfg.get("challenger_ver", "")).strip() != "")
         min_brier_improv = float(os.getenv("ML_PROMO_MIN_BRIER_IMPROV", "0.01") or 0.01)
 
         # If challenger exists and wins on BOTH windows -> propose promotion first (safer)
@@ -194,12 +194,12 @@ def main() -> None:
             b_a_l, b_c_l = float(promo_l["brier"]), float(promo_l["brier_ch"])
             if (b_a_s - b_c_s) >= min_brier_improv and (b_a_l - b_c_l) >= min_brier_improv:
                 changes = {
-                    "model_path": str(cfg.get("challenger_model_path", "")),
-                    "meta_path": str(cfg.get("challenger_meta_path", "")),
-                    "model_ver": str(cfg.get("challenger_ver", "")),
-                    "challenger_model_path": str(cfg.get("model_path", "")),
-                    "challenger_meta_path": str(cfg.get("meta_path", "")),
-                    "challenger_ver": str(cfg.get("model_ver", "")),
+                    "model_path": (cfg.get("challenger_model_path", "")),
+                    "meta_path": (cfg.get("challenger_meta_path", "")),
+                    "model_ver": (cfg.get("challenger_ver", "")),
+                    "challenger_model_path": (cfg.get("model_path", "")),
+                    "challenger_meta_path": (cfg.get("meta_path", "")),
+                    "challenger_ver": (cfg.get("model_ver", "")),
                     "updated_ms": str(now_ms()),
                 }
                 bid, sig, bundle = make_bundle_hset(cfg_key, changes, who=f"ml_promo_v2_promote_challenger:{bucket}", ttl=ttl)

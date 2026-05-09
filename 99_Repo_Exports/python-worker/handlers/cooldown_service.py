@@ -1,16 +1,15 @@
 # cooldown_service.py
 from __future__ import annotations
+
 """
 Cooldown management functionality extracted from base_orderflow_handler.py
 """
 
-from utils.time_utils import get_ny_time_millis
-
-from typing import Any, Dict, Tuple
-import time
 import uuid
+from typing import Any
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 
 class CooldownService:
@@ -23,9 +22,9 @@ class CooldownService:
         self.redis = redis_client
         self.logger = setup_logger(f"CooldownService:{symbol}")
         # memory fallback: k -> expires_at_ms
-        self._cooldowns: Dict[str, int] = {}
+        self._cooldowns: dict[str, int] = {}
         # memory fallback: k -> token (для release по токену)
-        self._cooldown_tokens: Dict[str, str] = {}
+        self._cooldown_tokens: dict[str, str] = {}
 
         self._default_cooldowns_ms = {
             "breakout": 30_000,
@@ -77,7 +76,7 @@ class CooldownService:
         kind_lc: str,
         level_key: str,
         ts_ms: int,
-    ) -> Tuple[bool, str, str]:
+    ) -> tuple[bool, str, str]:
         """
         Вариант B (по-взрослому):
           - Redis: atomic SET key token NX PX=period

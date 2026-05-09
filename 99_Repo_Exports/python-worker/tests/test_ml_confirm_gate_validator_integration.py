@@ -1,20 +1,18 @@
 from __future__ import annotations
+
 """
 Integration тесты для MLConfirmGate с валидатором champion конфига.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
-import tempfile
-import time
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 import redis
 
 from services.ml_confirm_gate import MLConfirmGate
+from utils.time_utils import get_ny_time_millis
 
 
 @pytest.fixture
@@ -46,7 +44,7 @@ def ml_gate(redis_client: redis.Redis) -> MLConfirmGate:
 
 
 @pytest.fixture
-def valid_champion_cfg() -> Dict[str, Any]:
+def valid_champion_cfg() -> dict[str, Any]:
     """Фикстура валидного champion конфига."""
     return {
         "schema_version": 1,
@@ -59,14 +57,14 @@ def valid_champion_cfg() -> Dict[str, Any]:
     }
 
 
-def test_load_valid_champion_cfg(ml_gate: MLConfirmGate, redis_client: redis.Redis, valid_champion_cfg: Dict[str, Any]) -> None:
+def test_load_valid_champion_cfg(ml_gate: MLConfirmGate, redis_client: redis.Redis, valid_champion_cfg: dict[str, Any]) -> None:
     """Тест: загрузка валидного champion конфига."""
     # Записываем валидный конфиг в Redis
     redis_client.set("cfg:ml_confirm:champion", json.dumps(valid_champion_cfg))
-    
+
     # Загружаем конфиг
     cfg, model = ml_gate._load_cfg_and_model()
-    
+
     # Проверяем, что конфиг загружен
     assert cfg
     assert cfg.get("kind") == "util_mh_v1"
@@ -80,16 +78,16 @@ def test_load_valid_champion_cfg(ml_gate: MLConfirmGate, redis_client: redis.Red
 def test_load_invalid_champion_cfg_missing_enforce_share(
     ml_gate: MLConfirmGate,
     redis_client: redis.Redis,
-    valid_champion_cfg: Dict[str, Any]
+    valid_champion_cfg: dict[str, Any]
 ) -> None:
     """Тест: загрузка невалидного конфига (отсутствует enforce_share)."""
     # Удаляем enforce_share
     del valid_champion_cfg["enforce_share"]
     redis_client.set("cfg:ml_confirm:champion", json.dumps(valid_champion_cfg))
-    
+
     # Загружаем конфиг
     cfg, model = ml_gate._load_cfg_and_model()
-    
+
     # Проверяем, что конфиг загружен даже при ошибке валидации (lenient mode)
     assert cfg
     assert cfg.get("kind") == "util_mh_v1"
@@ -98,17 +96,17 @@ def test_load_invalid_champion_cfg_missing_enforce_share(
 def test_load_invalid_champion_cfg_mode_mismatch(
     ml_gate: MLConfirmGate,
     redis_client: redis.Redis,
-    valid_champion_cfg: Dict[str, Any]
+    valid_champion_cfg: dict[str, Any]
 ) -> None:
     """Тест: загрузка невалидного конфига (mode/enforce_share mismatch)."""
     # SHADOW требует enforce_share=0.0, но ставим 0.05
     valid_champion_cfg["mode"] = "SHADOW"
     valid_champion_cfg["enforce_share"] = 0.05
     redis_client.set("cfg:ml_confirm:champion", json.dumps(valid_champion_cfg))
-    
+
     # Загружаем конфиг
     cfg, model = ml_gate._load_cfg_and_model()
-    
+
     # Проверяем, что конфиг загружен даже при ошибке валидации (lenient mode)
     assert cfg
     assert cfg.get("kind") == "util_mh_v1"
@@ -117,10 +115,10 @@ def test_load_invalid_champion_cfg_mode_mismatch(
 def test_load_missing_champion_cfg(ml_gate: MLConfirmGate, redis_client: redis.Redis) -> None:
     """Тест: отсутствие champion конфига."""
     # Не записываем конфиг в Redis
-    
+
     # Загружаем конфиг
     cfg, model = ml_gate._load_cfg_and_model()
-    
+
     # Проверяем, что конфиг не загружен
     assert not cfg
     assert ml_gate._cfg_parse_err == "missing" or ml_gate._cfg_source == "none"
@@ -129,14 +127,14 @@ def test_load_missing_champion_cfg(ml_gate: MLConfirmGate, redis_client: redis.R
 def test_check_with_valid_cfg_no_model(
     ml_gate: MLConfirmGate,
     redis_client: redis.Redis,
-    valid_champion_cfg: Dict[str, Any]
+    valid_champion_cfg: dict[str, Any]
 ) -> None:
     """Тест: check() с валидным конфигом, но без модели."""
     # Записываем валидный конфиг
     redis_client.set("cfg:ml_confirm:champion", json.dumps(valid_champion_cfg))
-    
+
     ml_gate._refresh_cache_if_needed()
-    
+
     # Вызываем check()
     dec = ml_gate.check(
         symbol="BTCUSDT",
@@ -150,7 +148,7 @@ def test_check_with_valid_cfg_no_model(
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     # Проверяем, что решение принято (но модель не загружена)
     assert dec.mode in ("ERR", "SHADOW", "OFF")
     # В SHADOW режиме без модели должно быть ERR или fallback
@@ -161,15 +159,15 @@ def test_check_with_valid_cfg_no_model(
 def test_check_with_invalid_cfg(
     ml_gate: MLConfirmGate,
     redis_client: redis.Redis,
-    valid_champion_cfg: Dict[str, Any]
+    valid_champion_cfg: dict[str, Any]
 ) -> None:
     """Тест: check() с невалидным конфигом."""
     # Записываем невалидный конфиг (отсутствует enforce_share)
     del valid_champion_cfg["enforce_share"]
     redis_client.set("cfg:ml_confirm:champion", json.dumps(valid_champion_cfg))
-    
+
     ml_gate._refresh_cache_if_needed()
-    
+
     # Вызываем check()
     dec = ml_gate.check(
         symbol="BTCUSDT",
@@ -183,7 +181,7 @@ def test_check_with_invalid_cfg(
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     # Проверяем, что решение ALLOW/ERR/BLOCK в зависимости от lenient mode и наличия модели
     # Так как конфиг загружается в lenient режиме, но модель отсутствует, будет ERR_NO_MODEL или просто ERR
     assert dec.mode in ("ERR", "SHADOW", "OFF")
@@ -192,17 +190,17 @@ def test_check_with_invalid_cfg(
 def test_canary_mode_enforce_share_validation(
     ml_gate: MLConfirmGate,
     redis_client: redis.Redis,
-    valid_champion_cfg: Dict[str, Any]
+    valid_champion_cfg: dict[str, Any]
 ) -> None:
     """Тест: валидация CANARY режима с enforce_share."""
     # Устанавливаем CANARY режим
     valid_champion_cfg["mode"] = "CANARY"
     valid_champion_cfg["enforce_share"] = 0.05
     redis_client.set("cfg:ml_confirm:champion", json.dumps(valid_champion_cfg))
-    
+
     # Загружаем конфиг
     cfg, model = ml_gate._load_cfg_and_model()
-    
+
     # Проверяем, что конфиг загружен
     assert cfg
     assert cfg.get("mode") == "CANARY"
@@ -212,17 +210,17 @@ def test_canary_mode_enforce_share_validation(
 def test_enforce_mode_enforce_share_validation(
     ml_gate: MLConfirmGate,
     redis_client: redis.Redis,
-    valid_champion_cfg: Dict[str, Any]
+    valid_champion_cfg: dict[str, Any]
 ) -> None:
     """Тест: валидация ENFORCE режима с enforce_share=1.0."""
     # Устанавливаем ENFORCE режим
     valid_champion_cfg["mode"] = "ENFORCE"
     valid_champion_cfg["enforce_share"] = 1.0
     redis_client.set("cfg:ml_confirm:champion", json.dumps(valid_champion_cfg))
-    
+
     # Загружаем конфиг
     cfg, model = ml_gate._load_cfg_and_model()
-    
+
     # Проверяем, что конфиг загружен
     assert cfg
     assert cfg.get("mode") == "ENFORCE"

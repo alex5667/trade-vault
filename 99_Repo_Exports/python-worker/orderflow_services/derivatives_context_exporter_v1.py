@@ -1,20 +1,19 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import json
 import logging
 import os
 import time
-from typing import Dict, Iterable, List
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis
 except Exception:  # pragma: no cover
     redis = None  # type: ignore
-from prometheus_client import Gauge, Counter, start_http_server
+from prometheus_client import Counter, Gauge, start_http_server
 
-from services.orderflow.derivatives_context import from_json
 from services.observability.latency_semconv import default_symbol_allowlist
+from services.orderflow.derivatives_context import from_json
 
 logger = logging.getLogger("derivatives_context_exporter_v1")
 
@@ -38,14 +37,14 @@ class Exporter:
         self.interval_s = float(os.getenv("DERIV_CTX_EXPORTER_INTERVAL_S", "15") or 15.0)
         self.port = int(os.getenv("DERIV_CTX_EXPORTER_PORT", "9831") or 9831)
         self.prefix = os.getenv("DERIV_CTX_PREFIX", "ctx:deriv:")
-        self.allow = {s.strip().upper() for s in str(os.getenv("DERIV_CTX_METRICS_SYMBOLS", "")).split(",") if s.strip()}
+        self.allow = {s.strip().upper() for s in os.getenv("DERIV_CTX_METRICS_SYMBOLS", "").split(",") if s.strip()}
 
-    def _symbols(self) -> List[str]:
+    def _symbols(self) -> list[str]:
         # Use explicit allowlist if provided in env, else use the default system-wide allowlist.
         # This replaces r.scan_iter which was blocking the Redis Event Loop.
         if self.allow:
             return sorted(list(self.allow))
-        
+
         return sorted(list(default_symbol_allowlist()))
 
     def scrape_once(self) -> None:

@@ -1,15 +1,17 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
+from core.redis_stream_consumer import SyncRedisStreamHelper
 from orderflow_services.llm_recommendation_guard_v1 import guard_recommendations
 from orderflow_services.providers.vertex_genai_provider_v1_1 import VertexGenAIProviderV1_1
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     import redis
@@ -30,7 +32,7 @@ LAST_RUN = Gauge("ml_vertex_triage_last_run_ts_seconds", "Last run ts")
 EST_COST = Counter("ml_vertex_triage_estimated_cost_usd_total", "Estimated cost usd", ["model"])
 
 
-def _write_pg(db_url: str, provider_result: Dict[str, Any], compact_pack: Dict[str, Any], guarded: Dict[str, Any]) -> None:
+def _write_pg(db_url: str, provider_result: dict[str, Any], compact_pack: dict[str, Any], guarded: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:
@@ -48,12 +50,12 @@ def _write_pg(db_url: str, provider_result: Dict[str, Any], compact_pack: Dict[s
                     str(guarded.get("analysis_run_id") or compact_pack.get("request_id")),
                     int(compact_pack.get("ts_ms") or get_ny_time_millis()),
                     "vertex",
-                    str(provider_result.get("model_name") or "unknown"),
-                    str(compact_pack.get("task_type") or "root_cause_degradation"),
+                    (provider_result.get("model_name") or "unknown"),
+                    (compact_pack.get("task_type") or "root_cause_degradation"),
                     json.dumps(compact_pack.get("scope") or {}, ensure_ascii=False),
                     json.dumps({"compact_hash": compact_pack.get("compact_hash")}, ensure_ascii=False),
                     json.dumps(guarded, ensure_ascii=False),
-                    str(guarded.get("status") or "unknown"),
+                    (guarded.get("status") or "unknown"),
                     int(provider_result.get("latency_ms") or 0),
                     float(provider_result.get("estimated_cost_usd") or 0.0),
                 ),
@@ -75,12 +77,20 @@ def main() -> None:
     group = os.getenv("ML_VERTEX_TRIAGE_GROUP", "cg:ml_vertex_triage_v1_1")
     consumer = os.getenv("ML_VERTEX_TRIAGE_CONSUMER", "ml-vertex-triage-1")
     db_url = os.getenv("DATABASE_URL", "")
-    try:
-        r.xgroup_create(in_stream, group, id="0", mkstream=True)
-    except Exception:
-        pass
+    helper = SyncRedisStreamHelper(client=r, group=group, consumer=consumer)
+    helper.ensure_groups([in_stream], start_id="0")
+
+    pel_start_id = "0-0"
     while True:
-        rows = r.xreadgroup(groupname=group, consumername=consumer, streams={in_stream: ">"}, count=32, block=5000)
+        pel_start_id, pending_msgs = helper.claim_pending(
+            in_stream, min_idle_ms=5000, count=32, start_id=pel_start_id
+        )
+        pending_formatted = [(m.msg_id, m.fields) for m in pending_msgs]
+        if pending_formatted:
+            rows = [[in_stream, pending_formatted]]
+        else:
+            rows = helper.read({in_stream: ">"}, count=32, block=5000)
+
         if not rows:
             LAST_RUN.set(time.time())
             continue
@@ -88,10 +98,8 @@ def main() -> None:
             for msg_id, fields in msgs:
                 try:
                     compact = json.loads(fields.get("payload", "{}"))
-                    try:
+                    with contextlib.suppress(Exception):
                         QUEUE_LAG.set(max(0, get_ny_time_millis() - int(compact.get("ts_ms") or get_ny_time_millis())))
-                    except Exception:
-                        pass
                     t0 = time.time()
                     provider_result = provider.analyze(compact)
                     guarded = guard_recommendations(provider_result.parsed or {})
@@ -124,10 +132,8 @@ def main() -> None:
                     PARSE_FAIL.inc()
                     r.xadd(dlq, {"error": str(exc), "payload": json.dumps(fields, ensure_ascii=False)}, maxlen=int(os.getenv("ML_ANALYSIS_DLQ_MAXLEN", "50000")), approximate=True)
                 finally:
-                    try:
-                        r.xack(in_stream, group, msg_id)
-                    except Exception:
-                        pass
+                    with contextlib.suppress(Exception):
+                        helper.ack(in_stream, msg_id)
                     LAST_RUN.set(time.time())
 
 

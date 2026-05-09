@@ -2,8 +2,7 @@
 import argparse
 import json
 import math
-import os
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -53,7 +52,7 @@ def _ece(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> float:
     return float(ece)
 
 
-def _scenario_buckets(s: str) -> Dict[str, float]:
+def _scenario_buckets(s: str) -> dict[str, float]:
     s = (s or "").lower()
     from common.market_mode import is_range_regime
     return {
@@ -65,7 +64,7 @@ def _scenario_buckets(s: str) -> Dict[str, float]:
 
 
 # Feature list aligned with OFConfirmEngine / train_meta_model_lr_v1.py
-FEATURES_V1: List[str] = [
+FEATURES_V1: list[str] = [
     "base_score", "score_final_raw", "score_final_01", "exec_pen", "have", "need", "have_need_ratio", "ok_soft",
     "exec_risk_norm", "exec_risk_bps", "exec_risk_ref_bps", "agg_is_sum", "agg_is_avg",
     "delta_z", "obi", "obi_stable", "obi_stable_secs", "iceberg_strict", "iceberg_refresh", "iceberg_duration",
@@ -78,7 +77,7 @@ FEATURES_V1: List[str] = [
 ]
 
 
-def build_meta_features(ind: Dict[str, Any]) -> Dict[str, float]:
+def build_meta_features(ind: dict[str, Any]) -> dict[str, float]:
     sb = ind.get("score_breakdown_small") or ind.get("score_breakdown") or {}
     if not isinstance(sb, dict): sb = {}
 
@@ -90,17 +89,17 @@ def build_meta_features(ind: Dict[str, Any]) -> Dict[str, float]:
     need = _f(ind.get("need"), _f(ind.get("rule_need"), 1.0))
     ok_soft = _f(ind.get("ok_soft"), 0.0)
 
-    agg = str(sb.get("agg", "") or "")
+    agg = (sb.get("agg", "") or "")
     agg_is_sum = 1.0 if agg == "sum" else 0.0
     agg_is_avg = 1.0 if agg != "sum" else 0.0
 
-    scn = str(ind.get("scenario_v4", "") or "")
+    scn = (ind.get("scenario_v4", "") or "")
     scn_b = _scenario_buckets(scn)
 
     def _leg(name: str, fallback_key: str) -> float:
         return _f(ind.get(name), _f(ind.get(fallback_key), 0.0))
 
-    out: Dict[str, float] = {
+    out: dict[str, float] = {
         "base_score": float(base_score), "score_final_raw": float(score_raw), "score_final_01": float(score_01),
         "exec_pen": float(exec_pen), "have": float(have), "need": float(need),
         "have_need_ratio": float(have) / max(1.0, float(need)), "ok_soft": float(ok_soft),
@@ -129,8 +128,8 @@ def build_meta_features(ind: Dict[str, Any]) -> Dict[str, float]:
     return out
 
 
-def choose_transforms() -> Dict[str, Any]:
-    tf: Dict[str, Any] = {}
+def choose_transforms() -> dict[str, Any]:
+    tf: dict[str, Any] = {}
     for f in FEATURES_V1:
         if any(f.endswith(suffix) for suffix in ["_age_ms", "_duration", "_secs", "_bps", "_volume", "_refresh"]):
             tf[f] = {"type": "log1p"}
@@ -145,7 +144,7 @@ def choose_transforms() -> Dict[str, Any]:
     return tf
 
 
-def robust_params(x: np.ndarray) -> Tuple[float, float]:
+def robust_params(x: np.ndarray) -> tuple[float, float]:
     x = x[np.isfinite(x)]
     if x.size == 0: return 0.0, 1.0
     med = float(np.median(x))
@@ -158,7 +157,7 @@ def robust_params(x: np.ndarray) -> Tuple[float, float]:
     return med, float(max(scale, 1e-6))
 
 
-def transform_matrix(feats: List[Dict[str, float]], tf: Dict[str, Any]) -> Tuple[np.ndarray, Dict[str, Dict[str, float]]]:
+def transform_matrix(feats: list[dict[str, float]], tf: dict[str, Any]) -> tuple[np.ndarray, dict[str, dict[str, float]]]:
     n, m = len(feats), len(FEATURES_V1)
     X = np.zeros((n, m), dtype=np.float64)
     raw = np.zeros((n, m), dtype=np.float64)
@@ -166,7 +165,7 @@ def transform_matrix(feats: List[Dict[str, float]], tf: Dict[str, Any]) -> Tuple
         for j, name in enumerate(FEATURES_V1):
             v = float(apply_transform(float(d.get(name, 0.0)), tf.get(name)))
             raw[i, j] = v
-    rs: Dict[str, Dict[str, float]] = {}
+    rs: dict[str, dict[str, float]] = {}
     for j, name in enumerate(FEATURES_V1):
         center, scale = robust_params(raw[:, j])
         rs[name] = {"center": float(center), "scale": float(scale)}
@@ -189,10 +188,10 @@ def main() -> None:
     args = ap.parse_args()
 
     rows = []
-    with open(args.in_jsonl, "r", encoding="utf-8") as f:
+    with open(args.in_jsonl, encoding="utf-8") as f:
         for line in f:
             if line.strip(): rows.append(json.loads(line))
-    
+
     df = pd.DataFrame(rows).sort_values(args.time_col).reset_index(drop=True)
     ind_col = next((c for c in ["indicators", "meta", "row"] if c in df.columns), None)
     if not ind_col: raise SystemExit("No indicators column found")
@@ -201,7 +200,7 @@ def main() -> None:
     feats = [build_meta_features(d if isinstance(d, dict) else {}) for d in indicators]
     y = (df[args.label_col].astype(float).values > 0.5).astype(int)
     ts = df[args.time_col].astype(int).values
-    
+
     # Simple T1 estimate: ts + some offset if not present
     t1 = df["tb_t_hit_ms"].astype(int).values if "tb_t_hit_ms" in df.columns else ts + 300000
 
@@ -209,7 +208,7 @@ def main() -> None:
     X, rs = transform_matrix(feats, tf)
 
     folds = purged_kfold_time_series(ts_ms=ts, t1_ms=t1, n_splits=args.splits, embargo_ms=args.embargo_ms)
-    
+
     metrics = []
     for i, f in enumerate(folds):
         m = LogisticRegression(C=1.0, penalty="l2", solver="lbfgs", max_iter=500, class_weight="balanced")

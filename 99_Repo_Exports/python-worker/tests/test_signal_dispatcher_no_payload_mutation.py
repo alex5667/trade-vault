@@ -1,10 +1,7 @@
-from utils.time_utils import get_ny_time_millis
 import copy
-import time
-
-import pytest
 
 from services.signal_dispatcher import SignalDispatcher
+from utils.time_utils import get_ny_time_millis
 
 
 def test_deliver_one_target_does_not_mutate_targets_payload(monkeypatch, r):

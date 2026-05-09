@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """atr_horizon_trailing_surface.py — Phase 2.6: trailing surface builder.
 
 Computes the offset ATR mult & absolute values for dynamic trailing based on the 
@@ -9,7 +10,7 @@ Fail-open logic: never causes an exception if keys are missing.
 
 
 from dataclasses import asdict, dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 def _safe_float(v: Any, default: float = 0.0) -> float:
@@ -19,7 +20,7 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
         return default
 
 
-def _ensure_dict(v: Any) -> Dict[str, Any]:
+def _ensure_dict(v: Any) -> dict[str, Any]:
     return dict(v) if isinstance(v, dict) else {}
 
 
@@ -37,10 +38,10 @@ class TrailingSurface:
 
 
 def build_trailing_surface(
-    signal_payload: Dict[str, Any],
+    signal_payload: dict[str, Any],
     pos_atr: float,
     offset_mult: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Phase 2.6: compute trailing offset surface from selected ATR (meta.atr_profile).
 
     Returns a flat dict (via asdict) — safe for JSON serialisation and meta enrichment.
@@ -62,7 +63,7 @@ def build_trailing_surface(
 
     # Selected (Candidate) calculations based on Horizon ATR
     atr_value = _safe_float(atr_profile.get("atr_value"), 0.0)
-    
+
     # If no ATR profile exists, the "selected" surface gracefully falls back to baseline config
     if atr_value <= 0.0:
         return asdict(TrailingSurface(

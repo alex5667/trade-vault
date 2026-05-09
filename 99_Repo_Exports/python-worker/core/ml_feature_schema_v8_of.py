@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ML feature schema v8 (OrderFlow).
 
 v8_of = v7_of + strict data-quality (DQ) metrics + LiqMap compact features.
@@ -32,7 +33,6 @@ present at runtime it simply vectorizes to 0.0 (safe).
 
 
 from dataclasses import dataclass
-from typing import List
 
 from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
 
@@ -40,7 +40,7 @@ SCHEMA_HASH = "c1ec144d4624"
 
 
 
-_DQ_NUM_KEYS_V8: List[str] = [
+_DQ_NUM_KEYS_V8: list[str] = [
     # Strict DQ (computed in TickProcessor._update_strict_dq_trackers)
     "tick_gap_p95_ms",
     "tick_missing_seq_ema",
@@ -48,7 +48,7 @@ _DQ_NUM_KEYS_V8: List[str] = [
 ]
 
 
-_LIQMAP_NUM_KEYS_V8: List[str] = [
+_LIQMAP_NUM_KEYS_V8: list[str] = [
     # LiqMap compact features (start with a single stable window: 1h)
     "liqmap_1h_total_usd",
     "liqmap_1h_near_total_usd",
@@ -62,14 +62,14 @@ _LIQMAP_NUM_KEYS_V8: List[str] = [
 ]
 
 
-_LIQMAP_LEVELS_NUM_KEYS_V8: List[str] = [
+_LIQMAP_LEVELS_NUM_KEYS_V8: list[str] = [
     # Optional TP1/SL anchoring overlay outputs (D1/D2)
     "liqmap_tp1_adj_bps",
     "liqmap_sl_adj_bps",
 ]
 
 
-_LIQMAP_LEVELS_BOOL_KEYS_V8: List[str] = [
+_LIQMAP_LEVELS_BOOL_KEYS_V8: list[str] = [
     "liqmap_levels_applied",
 ]
 
@@ -81,7 +81,7 @@ class MLFeatureSchemaV8OF(MLFeatureSchemaV7OF):
     def __post_init__(self) -> None:  # noqa: D401
         super().__post_init__()
 
-        extra_num: List[str] = []
+        extra_num: list[str] = []
         extra_num += list(_DQ_NUM_KEYS_V8)
         extra_num += list(_LIQMAP_NUM_KEYS_V8)
         extra_num += list(_LIQMAP_LEVELS_NUM_KEYS_V8)

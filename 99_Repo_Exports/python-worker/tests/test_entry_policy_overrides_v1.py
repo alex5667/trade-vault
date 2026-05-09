@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 from core.entry_policy_overrides_v1 import EntryPolicyOverridesV1
 

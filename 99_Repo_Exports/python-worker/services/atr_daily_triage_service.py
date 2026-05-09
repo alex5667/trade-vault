@@ -4,14 +4,12 @@ ATR Daily Triage Service (Phase 9.2)
 Forms the canonical daily triage board and operational oncall workflow.
 """
 
+import json
 import os
 import time
-import json
 import uuid
-import logging
-from datetime import datetime, timezone, timedelta
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from datetime import UTC, datetime, timedelta
+
 import redis
 
 from common.log import setup_logger
@@ -105,7 +103,7 @@ class ATRDailyTriageService:
                     res = cur.fetchone()
                     if res:
                         active_q_count = res[0]
-            except Exception as e:
+            except Exception:
                 conn.rollback()
 
         metrics["active_quarantines"] = active_q_count
@@ -120,11 +118,11 @@ class ATRDailyTriageService:
                 status = "RED"
             elif veto_top.get("negative_ev", 0) > 40 or veto_top.get("book_stale", 0) > 20:
                 status = "YELLOW"
-                
+
         elif section == "dispatch_runtime":
             if metrics.get("runtime_critical_drifts", 0) > 0 or metrics.get("order_queue_publish_ok_rate", 1.0) < 0.99:
                 status = "RED"
-                
+
         elif section == "execution":
             requotes = metrics.get("mt5_requotes_total", 0)
             bursts = metrics.get("connection_bursts", 0)
@@ -134,11 +132,11 @@ class ATRDailyTriageService:
                 status = "RED"
             elif requotes > 5:
                 status = "YELLOW"
-                
+
         elif section == "protective":
             if metrics.get("be_before_tp1", 0) > 0 or metrics.get("sl_ratchet_backwards", 0) > 0 or metrics.get("unresolved_protective_drifts", 0) > 0:
                 status = "BLACK"
-                
+
         elif section == "control_plane":
             if metrics.get("graph_cert_status") == "failed" or metrics.get("authority_violations", 0) > 0:
                 status = "BLACK"
@@ -169,7 +167,7 @@ class ATRDailyTriageService:
                 decisions.append("INCIDENT_OPEN")
             else:
                 decisions.append("INCIDENT_OPEN")
-        
+
         elif counts["RED"] > 0:
             if section_statuses.get("control_plane") == "RED":
                 # Repeated control-plane issues would ideally query past states
@@ -178,10 +176,10 @@ class ATRDailyTriageService:
                 decisions.append("SAME_DAY_FIX")
             if not decisions: # fallback if a red didn't trigger specific
                 decisions.append("SAME_DAY_FIX")
-                
+
         elif counts["YELLOW"] > 0:
             decisions.append("WATCH")
-            
+
         if not decisions:
             decisions.append("NO_ACTION")
 
@@ -204,7 +202,7 @@ class ATRDailyTriageService:
 
                 reason_code = f"{section}_{status.lower()}"
                 mets = section_metrics.get(section, {})
-                
+
                 if section == "protective" and status == "BLACK":
                     reason_code = "protective_invariant_violation"
                 elif section == "execution" and status in ("RED", "BLACK"):
@@ -221,7 +219,7 @@ class ATRDailyTriageService:
                     "status": "open",
                     "title": f"Resolve {status} condition in {section}",
                     "reason_code": reason_code,
-                    "due_at": datetime.now(timezone.utc) + due_delta,
+                    "due_at": datetime.now(UTC) + due_delta,
                     "action_json": json.dumps({"metrics_snapshot": mets})
                 })
         return actions
@@ -234,7 +232,7 @@ class ATRDailyTriageService:
         board_id = self.generate_board_id(day_start)
         all_metrics = {}
         section_statuses = {}
-        
+
         overall_status_val = 0
 
         for section in DOMAINS:
@@ -243,15 +241,15 @@ class ATRDailyTriageService:
             else:
                 mets = self._get_metrics_for_section(section, conn, r)
             all_metrics[section] = mets
-            
+
             # Allow custom statuses via custom_metrics if defined
             if custom_metrics and section in custom_metrics and custom_metrics.get(f"{section}_status"):
                  st = custom_metrics[f"{section}_status"]
             else:
                  st = self.derive_section_status(section, mets)
-                 
+
             section_statuses[section] = st
-            
+
             if self.status_rank[st] > overall_status_val:
                 overall_status_val = self.status_rank[st]
 
@@ -261,7 +259,7 @@ class ATRDailyTriageService:
         decisions = self.propose_daily_decision(section_statuses, all_metrics)
         primary_decision = decisions[0]
         actions = self.suggest_daily_actions(board_id, section_statuses, all_metrics)
-        
+
         sections_json = {}
         for section in DOMAINS:
             sections_json[section] = {
@@ -297,7 +295,7 @@ class ATRDailyTriageService:
                     board_id, day, overall_status, sections_json, summary_json
                 ) VALUES (%s, %s, %s, %s, %s)
             """, (board_id, day_start.date(), overall_status, json.dumps(sections_json), json.dumps(summary_json)))
-            
+
             # Insert decisions generator
             for dec in decisions:
                 decision_id = self.generate_id("dec")
@@ -318,7 +316,7 @@ class ATRDailyTriageService:
                     act["priority"], act["status"], act["title"], act["reason_code"],
                     act["due_at"], act["action_json"]
                 ))
-            
+
             conn.commit()
 
         self.emit_telegram_digest(board_data, actions)
@@ -327,42 +325,42 @@ class ATRDailyTriageService:
     def emit_telegram_digest(self, board_data: dict, actions: list):
         summary = board_data["summary"]
         sections = board_data["sections"]
-        
+
         msg = [
             "ATR Daily Triage Board",
             f"\nDay: {board_data['day']}",
             f"Overall: {board_data['overall_status']}\n"
         ]
-        
+
         green_sec = [d for d, v in sections.items() if v["status"] == "GREEN"]
         yellow_sec = [d for d, v in sections.items() if v["status"] == "YELLOW"]
         red_sec = [d for d, v in sections.items() if v["status"] == "RED"]
         black_sec = [d for d, v in sections.items() if v["status"] == "BLACK"]
-        
+
         if green_sec:
             msg.append("GREEN:")
             for d in green_sec:
                 msg.append(f"- {d}")
-        
+
         if yellow_sec:
             msg.append("\nYELLOW:")
             for d in yellow_sec:
                 msg.append(f"- {d}")
-                
+
         if red_sec:
             msg.append("\nRED:")
             for d in red_sec:
                 msg.append(f"- {d}")
-                
+
         if black_sec:
             msg.append("\nBLACK:")
             for d in black_sec:
                 msg.append(f"- {d}")
 
-        msg.append(f"\nDecision:")
+        msg.append("\nDecision:")
         for dec in summary.get("all_decisions", [summary.get("primary_decision")]):
             msg.append(f"- {dec}")
-            
+
         if summary.get("constraints"):
             msg.append("\nConstraints:")
             for c in summary.get("constraints"):
@@ -378,8 +376,8 @@ class ATRDailyTriageService:
 
 
 def main():
-    enable = str(os.getenv("ATR_DAILY_TRIAGE_ENABLE", "1")).lower() in ("1", "true", "yes")
-    enforce = str(os.getenv("ATR_DAILY_TRIAGE_ENFORCE", "0")).lower() in ("1", "true", "yes")
+    enable = os.getenv("ATR_DAILY_TRIAGE_ENABLE", "1").lower() in ("1", "true", "yes")
+    enforce = os.getenv("ATR_DAILY_TRIAGE_ENFORCE", "0").lower() in ("1", "true", "yes")
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     check_interval = int(os.getenv("ATR_DAILY_TRIAGE_INTERVAL_SEC", "3600"))
 
@@ -394,7 +392,7 @@ def main():
     while True:
         try:
             with get_conn() as conn:
-                day_start = datetime.now(timezone.utc)
+                day_start = datetime.now(UTC)
                 with conn.cursor() as cur:
                     try:
                         cur.execute("SELECT board_id FROM atr_daily_triage_boards WHERE day = %s", (day_start.date(),))
@@ -406,10 +404,10 @@ def main():
                     except Exception as pg_err:
                         logger.error(f"Waiting for migrations: {pg_err}")
                         conn.rollback()
-                        
+
         except Exception as e:
             logger.error(f"Error in ATR Daily Triage cycle: {e}")
-            
+
         time.sleep(check_interval)
 
 if __name__ == "__main__":

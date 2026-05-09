@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Compatibility wrapper for P71 policy effectiveness worker.
 
 Some orchestration paths call this script from ok_rate_logic/.

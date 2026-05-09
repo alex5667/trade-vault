@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import List, Optional, Any
+
 
 @dataclass
 class P2Quantile:
@@ -11,11 +12,11 @@ class P2Quantile:
     """
     p: float
     _count: int = 0
-    _init: List[float] = field(default_factory=list)
-    _n: List[int] = field(default_factory=lambda: [0]*5)
-    _np: List[float] = field(default_factory=lambda: [0.0]*5)
-    _dn: List[float] = field(default_factory=lambda: [0.0]*5)
-    _q: List[float] = field(default_factory=lambda: [0.0]*5)
+    _init: list[float] = field(default_factory=list)
+    _n: list[int] = field(default_factory=lambda: [0]*5)
+    _np: list[float] = field(default_factory=lambda: [0.0]*5)
+    _dn: list[float] = field(default_factory=lambda: [0.0]*5)
+    _q: list[float] = field(default_factory=lambda: [0.0]*5)
 
     def ready(self) -> bool:
         return self._count >= 5
@@ -34,15 +35,15 @@ class P2Quantile:
                 self._init.sort()
                 self._q = list(self._init)  # q0..q4 (heights)
                 self._n = [0, 1, 2, 3, 4]   # positions (0-based in Logic?)
-                # Actually, standard algorithm uses 1-based or 0-based. 
+                # Actually, standard algorithm uses 1-based or 0-based.
                 # Let's infer from standard implementation or user snippet.
                 # User snippet didn't provide update(), only value/to_state/from_state.
                 # I must provide a CORRECT update() that matches the state structure.
-                
+
                 # Standard P2 initialization (0-based indexing for arrays):
                 # Markers 0..4
                 self._n = [0, 1, 2, 3, 4]
-                
+
                 # Desired positions
                 # n'_0 = 0
                 # n'_1 = 2p
@@ -50,18 +51,18 @@ class P2Quantile:
                 # n'_3 = 2 + 2p
                 # n'_4 = 4
                 # (Scaled to N-1=4)
-                
+
                 # Let's use the logic I had before but adapted to these variable names.
-                # My previous implementation used 1-based NPOS. 
+                # My previous implementation used 1-based NPOS.
                 # Let's stick to my robust implementation but RENAME fields to match to_state expectation.
-                
+
                 # MAPPING:
                 # q -> _q
-                # npos -> _n (integers?) User's to_state says "n": list(self._n). 
+                # npos -> _n (integers?) User's to_state says "n": list(self._n).
                 # Standard P2 uses integers for actual positions.
                 # np -> _np (floats, desired positions)
                 # dn -> _dn (floats, increments)
-                
+
                 self._n = [0, 1, 2, 3, 4]
                 p = self.p
                 self._np = [0.0, 2.0*p, 4.0*p, 2.0 + 2.0*p, 4.0]
@@ -69,7 +70,7 @@ class P2Quantile:
             return
 
         self._count += 1
-        
+
         # 1. Find cell k
         if val < self._q[0]:
             self._q[0] = val
@@ -83,7 +84,7 @@ class P2Quantile:
                 if self._q[i] <= val < self._q[i+1]:
                     k = i
                     break
-                    
+
         # 2. Increment positions
         # For actual positions _n[i], all i > k increment by 1
         for i in range(5):
@@ -97,14 +98,14 @@ class P2Quantile:
             if (d >= 1.0 and (self._n[i+1] - self._n[i] > 1)) or \
                (d <= -1.0 and (self._n[i] - self._n[i-1] > 1)):
                 d_int = 1 if d > 0 else -1
-                
+
                 # Parabolic
                 qp = self._parabolic(i, d_int)
                 if self._q[i-1] < qp < self._q[i+1]:
                     self._q[i] = qp
                 else:
                     self._q[i] = self._linear(i, d_int)
-                
+
                 self._n[i] += d_int
 
     def _parabolic(self, i: int, d: int) -> float:
@@ -121,7 +122,7 @@ class P2Quantile:
         n = self._n
         return q[i] + d * (q[i+d] - q[i]) / (n[i+d] - n[i])
 
-    def value(self) -> Optional[float]:
+    def value(self) -> float | None:
         if self._count < 5:
             if not self._init:
                 return None
@@ -145,7 +146,7 @@ class P2Quantile:
         }
 
     @staticmethod
-    def from_state(state: dict) -> "P2Quantile":
+    def from_state(state: dict) -> P2Quantile:
         """
         Restore P2Quantile from to_state().
         Fail-open: if anything looks wrong, returns a fresh estimator.

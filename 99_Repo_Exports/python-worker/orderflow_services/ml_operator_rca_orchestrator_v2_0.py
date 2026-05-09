@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -13,8 +14,9 @@ except Exception:  # pragma: no cover
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
+from core.redis_stream_consumer import AsyncRedisStreamHelper
 from orderflow_services.providers.vertex_incident_rca_provider_v2_0 import VertexIncidentRCAProviderV20
-
+import contextlib
 
 REQUEST_STREAM = os.getenv("ML_OPERATOR_RCA_REQUEST_STREAM", "stream:ml:operator_rca_requests")
 RESULTS_STREAM = os.getenv("ML_OPERATOR_RCA_RESULTS_STREAM", "stream:ml:operator_rca_results")
@@ -52,7 +54,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _validate_output(output: Dict[str, Any]) -> Tuple[bool, str]:
+def _validate_output(output: dict[str, Any]) -> tuple[bool, str]:
     if not isinstance(output, dict):
         return False, "output_not_object"
     if not isinstance(output.get("findings", []), list):
@@ -63,7 +65,7 @@ def _validate_output(output: Dict[str, Any]) -> Tuple[bool, str]:
     return True, "ok"
 
 
-def _normalize_proposal(recommendation_id: str, output: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_proposal(recommendation_id: str, output: dict[str, Any]) -> dict[str, Any]:
     recs = output.get("recommendations", [])
     first = recs[0] if recs else {}
     return {
@@ -71,20 +73,17 @@ def _normalize_proposal(recommendation_id: str, output: Dict[str, Any]) -> Dict[
         "recommendation_id": recommendation_id,
         "ts_ms": _now_ms(),
         "source": "operator_rca_v2_0",
-        "risk_level": str(first.get("risk", "low")),
-        "action_type": str(first.get("action", "draft_postmortem")),
+        "risk_level": (first.get("risk", "low")),
+        "action_type": (first.get("action", "draft_postmortem")),
         "target_kind": "model",
-        "target_ref": str(first.get("target", "")),
+        "target_ref": (first.get("target", "")),
         "recommendation_json": json.dumps(output, separators=(",", ":"), sort_keys=True),
         "apply_status": "PENDING",
     }
 
 
 async def _ensure_group(r: Any) -> None:
-    try:
-        await r.xgroup_create(REQUEST_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
+    pass
 
 
 async def run_forever() -> None:
@@ -92,27 +91,39 @@ async def run_forever() -> None:
         raise RuntimeError("redis.asyncio is required")
     start_http_server(PROM_PORT)
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
-    await _ensure_group(r)
+
+    helper = AsyncRedisStreamHelper(client=r, group=GROUP, consumer=CONSUMER)
+    await helper.ensure_groups([REQUEST_STREAM])
+
     provider = VertexIncidentRCAProviderV20()
     block_ms = int(os.getenv("ML_OPERATOR_RCA_BLOCK_MS", "5000"))
     count = int(os.getenv("ML_OPERATOR_RCA_READ_COUNT", "16"))
 
+    pel_start_id = "0-0"
+
     while True:
-        rows = await r.xreadgroup(GROUP, CONSUMER, {REQUEST_STREAM: ">"}, count=count, block=block_ms)
+        pel_start_id, pending_msgs = await helper.claim_pending(
+            REQUEST_STREAM, min_idle_ms=5000, count=count, start_id=pel_start_id
+        )
+        pending_formatted = [(m.msg_id, m.fields) for m in pending_msgs]
+
+        if pending_formatted:
+            rows = [[REQUEST_STREAM, pending_formatted]]
+        else:
+            rows = await helper.read({REQUEST_STREAM: ">"}, count=count, block=block_ms) or []
+
         RUNS.inc()
         for _stream, messages in rows:
             for msg_id, fields in messages:
                 ts_ms = int(_b2s(fields.get(b"ts_ms", b"0")) or "0")
-                try:
+                with contextlib.suppress(Exception):
                     QUEUE_LAG_MS.set(max(0, _now_ms() - ts_ms))
-                except Exception:
-                    pass
                 recommendation_id = _b2s(fields.get(b"recommendation_id", b""))
                 payload = _loads(fields.get(b"input_pack_json"), {})
                 if not payload:
                     await r.xadd(DLQ_STREAM, {"reason": "missing_input_pack", "original_id": msg_id}, maxlen=200000, approximate=True)
                     REQUESTS.labels(status="dlq").inc()
-                    await r.xack(REQUEST_STREAM, GROUP, msg_id)
+                    await helper.ack(REQUEST_STREAM, msg_id)
                     continue
                 try:
                     t0 = time.perf_counter()
@@ -142,7 +153,7 @@ async def run_forever() -> None:
                 except Exception as exc:
                     await r.xadd(DLQ_STREAM, {"reason": "provider_exception", "recommendation_id": recommendation_id, "error": str(exc)[:500]}, maxlen=20000, approximate=True)
                     REQUESTS.labels(status="error").inc()
-                await r.xack(REQUEST_STREAM, GROUP, msg_id)
+                await helper.ack(REQUEST_STREAM, msg_id)
         LAST_RUN_TS.set(time.time())
 
 

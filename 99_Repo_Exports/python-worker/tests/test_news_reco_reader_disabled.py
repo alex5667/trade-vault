@@ -1,5 +1,5 @@
-import os
 import asyncio
+import os
 
 from services.news_reco_reader.reader import ensure_started, shutdown
 

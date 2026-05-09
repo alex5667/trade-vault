@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """P7: High-level integration tests simulating race conditions between workers.
 
 Simulates:
@@ -6,10 +7,10 @@ Simulates:
 2. Executor trying to open a new trade after Repair worker released the guard.
 """
 
-from pathlib import Path
 import importlib.util
 import json
 import sys
+from pathlib import Path
 
 # Load executor
 exec_mod_path = Path(__file__).parent.parent / 'binance_executor.py'
@@ -56,9 +57,9 @@ class FakeRedis:
         sid = f"{1700000000000 + self._seq}-0"
         self.streams.setdefault(key, []).append((sid, dict(fields)))
         return sid
-        
+
     def scan_iter(self, match=None):
-        prefix = str(match or '').rstrip('*')
+        prefix = (match or '').rstrip('*')
         for key in list(self.kv.keys()):
             if not prefix or str(key).startswith(prefix):
                 yield key
@@ -72,7 +73,7 @@ class FlatClient:
 
 def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
     r = FakeRedis()
-    
+
     # 1. Executor opens the trade initially
     ex = exec_mod.BinanceExecutor.__new__(exec_mod.BinanceExecutor)
     ex.r = r
@@ -82,7 +83,7 @@ def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
     ex.active_symbol_guard_tombstone_ttl_sec = 120
     ex.state_key_prefix = 'orders:state:'
     ex.state_ttl = 86400
-    
+
     ex._load_order_state = lambda sid: {}
     ex._guard_single_active_symbol_open(sid='sid-1', symbol='ETHUSDT')
     ex._persist_materialized_state_cache('sid-1', {
@@ -91,23 +92,22 @@ def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
         'fsm_state': 'OPEN',
         'status': 'open',
     })
-    
+
     # 2. Assume trade reached terminal state, but exchange truth flag is true, so projection worker
     # merely sets guard_release_pending=True
-    import time
     now = get_ny_time_millis()
     guard = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))
     guard.update({"guard_release_pending": True, "state_terminalish": True, "guard_version": 1})
     r.set('orders:active_symbol_sid:ETHUSDT', json.dumps(guard))
-    
+
     # 3. Repair worker runs, sees flat exchange, and CAS-releases to tombstone
     repair = repair_mod.BinanceActiveSymbolGuardRepairWorker(redis_client=r, client=FlatClient())
     out = repair.run_once()
     assert out[0]['status'] == 'released'
-    
+
     guard_post_repair = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))
     assert guard_post_repair['guard_status'] == 'released'
-    
+
     # 4. Projection worker wakes up and processes a delayed stream event for sid-1.
     # In P6 this would overwrite the key and resurrect the guard blocking the symbol.
     # In P7 CAS, it must be rejected!
@@ -120,7 +120,7 @@ def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
         'event_type': 'state_transition'
     })
     proj.run_until_idle()
-    
+
     # Verify the key is still a released tombstone
     final_guard = json.loads(r.get('orders:active_symbol_sid:ETHUSDT'))
     assert final_guard['guard_status'] == 'released'
@@ -128,15 +128,15 @@ def test_projection_late_same_sid_event_cannot_resurrect_after_repair_release():
 
 def test_executor_new_sid_can_acquire_after_released_tombstone():
     r = FakeRedis()
-    
+
     # Setup a tombstone
     from services.active_symbol_guard_store import ActiveSymbolGuardStore
     store = ActiveSymbolGuardStore(r)
     store.acquire_or_refresh(symbol="XRPUSDT", sid="old-sid", payload_patch={}, writer="exec")
     store.mark_released(symbol="XRPUSDT", expected_sid="old-sid", release_reason="test", writer="repair")
-    
+
     assert json.loads(r.get("orders:active_symbol_sid:XRPUSDT"))['guard_status'] == 'released'
-    
+
     # Executor attempts new open
     ex = exec_mod.BinanceExecutor.__new__(exec_mod.BinanceExecutor)
     ex.r = r
@@ -147,7 +147,7 @@ def test_executor_new_sid_can_acquire_after_released_tombstone():
     ex.state_key_prefix = 'orders:state:'
     ex.state_ttl = 86400
     ex._load_order_state = lambda sid: {}
-    
+
     # This should succeed and overwrite the tombstone with new sid
     ex._guard_single_active_symbol_open(sid='new-sid', symbol='XRPUSDT')
     ex._persist_materialized_state_cache('new-sid', {
@@ -156,7 +156,7 @@ def test_executor_new_sid_can_acquire_after_released_tombstone():
         'fsm_state': 'OPEN',
         'status': 'open',
     })
-    
+
     final_guard = json.loads(r.get("orders:active_symbol_sid:XRPUSDT"))
     assert final_guard['guard_status'] == 'active'
     assert final_guard['sid'] == 'new-sid'

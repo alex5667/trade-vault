@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import pytest
-
-from services.signal_dispatcher import SignalDispatcher, PendingMsg
+from services.signal_dispatcher import PendingMsg, SignalDispatcher
+from core.redis_keys import RedisStreams as RS
 
 
 class FakePipe:
@@ -74,7 +73,7 @@ def test_update_env_req_pipeline_and_empty_is_safe():
 def test_process_pending_batch_acks_each_message_and_marks_done():
     r = FakeRedis()
     d = SignalDispatcher(redis_client=r)
-    d.outbox_stream = "stream:signals:outbox"
+    d.outbox_stream = RS.SIGNAL_OUTBOX
     d.done_ttl_sec = 60
     d.metrics_prefix = "t"
 
@@ -93,8 +92,8 @@ def test_process_pending_batch_acks_each_message_and_marks_done():
     d._process_pending_batch(helper, [m1, m2])
 
     # ACK must be called for both (bug regression guard: no "ack_now outside loop")
-    assert ("stream:signals:outbox", "1-0") in helper.acked
-    assert ("stream:signals:outbox", "2-0") in helper.acked
+    assert (RS.SIGNAL_OUTBOX, "1-0") in helper.acked
+    assert (RS.SIGNAL_OUTBOX, "2-0") in helper.acked
 
     # Done marker must be set for both
     assert d._is_outbox_done("1-0") is True
@@ -104,7 +103,7 @@ def test_process_pending_batch_acks_each_message_and_marks_done():
 def test_process_pending_batch_fastpath_done_only_acks_no_handle():
     r = FakeRedis()
     d = SignalDispatcher(redis_client=r)
-    d.outbox_stream = "stream:signals:outbox"
+    d.outbox_stream = RS.SIGNAL_OUTBOX
     d.done_ttl_sec = 60
     helper = FakeHelper()
 
@@ -122,4 +121,4 @@ def test_process_pending_batch_fastpath_done_only_acks_no_handle():
 
     d._process_pending_batch(helper, [PendingMsg(msg_id="1-0", fields={})])
     assert called["n"] == 0
-    assert helper.acked == [("stream:signals:outbox", "1-0")]
+    assert helper.acked == [(RS.SIGNAL_OUTBOX, "1-0")]

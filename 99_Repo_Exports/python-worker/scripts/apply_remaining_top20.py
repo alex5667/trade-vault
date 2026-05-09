@@ -3,8 +3,8 @@
 Apply instrumentation to remaining top-20 critical blocks.
 Uses pattern matching to find current line numbers.
 """
-from pathlib import Path
 import re
+from pathlib import Path
 
 file_path = Path("/home/alex/front/trade/scanner_infra/python-worker/services/crypto_orderflow_service.py")
 content = file_path.read_text()
@@ -19,7 +19,7 @@ def find_blocks_by_pattern(pattern, kind, max_results=5):
             # Check if already instrumented
             if i + 1 < len(lines) and 'log_silent_error' in lines[i + 1]:
                 continue
-            
+
             # Check next line for pass/return
             if i + 1 < len(lines) and ('pass' in lines[i + 1] or 'return' in lines[i + 1]):
                 # Check context (10 lines before)
@@ -59,16 +59,16 @@ for line_idx, kind, pattern in all_blocks:
         # Get indentation
         indent = len(line) - len(line.lstrip())
         spaces = ' ' * indent
-        
+
         # Replace with instrumented version
         lines[line_idx] = f"{spaces}except Exception as exc:"
-        
+
         # Insert log_silent_error before pass/return
         if line_idx + 1 < len(lines):
             next_line = lines[line_idx + 1]
             next_indent = len(next_line) - len(next_line.lstrip())
             next_spaces = ' ' * next_indent
-            
+
             # Determine symbol variable
             symbol_var = 'self.symbol'
             if 'symbol' in '\n'.join(lines[max(0, line_idx-20):line_idx]):
@@ -77,7 +77,7 @@ for line_idx, kind, pattern in all_blocks:
                     if re.search(r'\bsymbol\s*=', ctx_line):
                         symbol_var = 'symbol'
                         break
-            
+
             context_str = pattern[:30]  # Truncate long patterns
             log_line = f"{next_spaces}log_silent_error(exc, '{kind}', {symbol_var}, '{context_str}')"
             lines.insert(line_idx + 1, log_line)

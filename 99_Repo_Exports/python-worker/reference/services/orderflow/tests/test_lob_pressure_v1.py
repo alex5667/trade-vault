@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Unit tests for core.lob_pressure.compute_lob_pressure (P91).
 
 Tests:

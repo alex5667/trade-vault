@@ -1,4 +1,4 @@
-from orderflow_services.post_commit_verifier_v1 import evaluate_post_commit, build_verification_policy
+from orderflow_services.post_commit_verifier_v1 import build_verification_policy, evaluate_post_commit
 
 
 def test_evaluate_post_commit_pass():

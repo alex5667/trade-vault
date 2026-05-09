@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Prometheus rules bundle health check (nightly/orchestration).
 
 Purpose
@@ -28,7 +30,6 @@ import argparse
 import json
 import os
 import shutil
-import time
 from pathlib import Path
 
 try:
@@ -115,7 +116,7 @@ def _write_state(*, ok: bool, files_checked: int, errors: list[str]) -> None:
 
     try:
         pipe.execute()
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         # fail-open: do not break timers on redis issues

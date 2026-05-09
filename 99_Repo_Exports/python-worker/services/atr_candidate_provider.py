@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Phase 2.1 — ATR Candidate Provider.
 
@@ -20,9 +21,9 @@ Design contracts:
 import json
 import math
 import os
-import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any
+import contextlib
 
 try:
     import redis as _redis_lib
@@ -79,15 +80,15 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
         return default
 
 
-def _ensure_dict(v: Any) -> Dict[str, Any]:
+def _ensure_dict(v: Any) -> dict[str, Any]:
     return dict(v) if isinstance(v, dict) else {}
 
 
-def _parse_allowed_tfs() -> List[int]:
+def _parse_allowed_tfs() -> list[int]:
     raw = str(
         os.getenv("ATR_HORIZON_ALLOWED_TFS_MS", "15000,30000,60000,180000,300000,900000") or ""
     ).strip()
-    out: List[int] = []
+    out: list[int] = []
     for p in raw.split(","):
         try:
             x = int(p.strip())
@@ -99,7 +100,7 @@ def _parse_allowed_tfs() -> List[int]:
 
 
 # Canonical label map: tf_ms → Redis tf_label
-_TF_ALIAS: Dict[int, str] = {
+_TF_ALIAS: dict[int, str] = {
     15000: "15s",
     30000: "30s",
     60000: "1m",
@@ -142,7 +143,7 @@ class ATRCandidateProvider:
       4. Redis fallback          — atr:json:{symbol}:{tf_label}
     """
 
-    def __init__(self, redis_url: Optional[str] = None) -> None:
+    def __init__(self, redis_url: str | None = None) -> None:
         self.redis_url: str = redis_url or os.getenv(
             "REDIS_URL", "redis://redis-worker-1:6379/0"
         )
@@ -151,14 +152,14 @@ class ATRCandidateProvider:
         )
         self.redis_enable: bool = os.getenv("ATR_HORIZON_CANDIDATE_REDIS_ENABLE", "1") == "1"
         self.redis_mget_enable: bool = os.getenv("ATR_HORIZON_CANDIDATE_MGET_ENABLE", "1") == "1"
-        self.allowed_tfs: List[int] = _parse_allowed_tfs()
-        self._r: Optional[Any] = None  # Redis client (lazy)
+        self.allowed_tfs: list[int] = _parse_allowed_tfs()
+        self._r: Any | None = None  # Redis client (lazy)
 
     # ------------------------------------------------------------------
     # Redis access
     # ------------------------------------------------------------------
 
-    def _redis(self) -> Optional[Any]:
+    def _redis(self) -> Any | None:
         if not self.redis_enable or _redis_lib is None:
             return None
         if self._r is None:
@@ -173,8 +174,8 @@ class ATRCandidateProvider:
     # ------------------------------------------------------------------
 
     def _from_indicators(
-        self, tf_ms: int, indicators: Dict[str, Any], now_ms: int
-    ) -> Optional[ATRCandidate]:
+        self, tf_ms: int, indicators: dict[str, Any], now_ms: int
+    ) -> ATRCandidate | None:
         alias = _tf_alias(tf_ms)
         # Value key candidates (first non-zero wins)
         val_keys = [
@@ -217,8 +218,8 @@ class ATRCandidateProvider:
     # ------------------------------------------------------------------
 
     def _from_payload(
-        self, tf_ms: int, signal: Dict[str, Any], now_ms: int
-    ) -> Optional[ATRCandidate]:
+        self, tf_ms: int, signal: dict[str, Any], now_ms: int
+    ) -> ATRCandidate | None:
         meta = _ensure_dict(signal.get("meta"))
         # Search signal, meta, signal[indicators] (already checked as source 1)
         for d in (signal, meta):
@@ -235,14 +236,14 @@ class ATRCandidateProvider:
     # Source 3+4: Redis (single MGET batch)
     # ------------------------------------------------------------------
 
-    def _redis_key_pair(self, symbol: str, tf_ms: int) -> Tuple[str, str]:
+    def _redis_key_pair(self, symbol: str, tf_ms: int) -> tuple[str, str]:
         label = _tf_alias(tf_ms)
         return (
             f"ta:last:atr:{symbol}:{label}",   # primary
             f"atr:json:{symbol}:{label}",       # fallback
         )
 
-    def _from_redis_batch(self, symbol: str, now_ms: int) -> Dict[int, ATRCandidate]:
+    def _from_redis_batch(self, symbol: str, now_ms: int) -> dict[int, ATRCandidate]:
         """One MGET call covering primary + fallback keys for all allowed TFs."""
         r = self._redis()
         if r is None:
@@ -250,8 +251,8 @@ class ATRCandidateProvider:
 
         symbol = symbol.upper()
         # Build ordered key list: primary key first, then fallback
-        keys: List[str] = []
-        key_meta: List[Tuple[int, str]] = []  # (tf_ms, raw_key)
+        keys: list[str] = []
+        key_meta: list[tuple[int, str]] = []  # (tf_ms, raw_key)
         for tf in self.allowed_tfs:
             pk, fk = self._redis_key_pair(symbol, tf)
             keys.append(pk)
@@ -259,7 +260,7 @@ class ATRCandidateProvider:
             keys.append(fk)
             key_meta.append((tf, fk))
 
-        results: Dict[int, ATRCandidate] = {}
+        results: dict[int, ATRCandidate] = {}
 
         if self.redis_mget_enable:
             try:
@@ -318,10 +319,10 @@ class ATRCandidateProvider:
     def collect(
         self,
         *,
-        signal: Dict[str, Any],
+        signal: dict[str, Any],
         symbol: str,
         now_ms: int,
-    ) -> Dict[int, Dict[str, Any]]:
+    ) -> dict[int, dict[str, Any]]:
         """
         Collect multi-TF ATR candidates.
 
@@ -331,7 +332,7 @@ class ATRCandidateProvider:
         signal = _ensure_dict(signal)
         indicators = _ensure_dict(signal.get("indicators"))
 
-        out: Dict[int, ATRCandidate] = {}
+        out: dict[int, ATRCandidate] = {}
 
         # 1. indicators (fastest, no I/O)
         for tf in self.allowed_tfs:
@@ -349,7 +350,7 @@ class ATRCandidateProvider:
 
         # 3+4. Redis (single MGET batch)
         try:
-            redis_map = self._from_redis_batch(symbol=str(symbol or "").upper(), now_ms=now_ms)
+            redis_map = self._from_redis_batch(symbol=(symbol or "").upper(), now_ms=now_ms)
             for tf, c in redis_map.items():
                 if tf not in out and c.value > 0.0 and c.age_ms <= self.max_age_ms:
                     out[tf] = c
@@ -364,10 +365,8 @@ class ATRCandidateProvider:
         for tf in self.allowed_tfs:
             if tf not in out:
                 if _M_MISSING_TOTAL is not None:
-                    try:
-                        _M_MISSING_TOTAL.labels(tf_ms=str(tf)).inc()
-                    except Exception:
-                        pass
+                    with contextlib.suppress(Exception):
+                        _M_MISSING_TOTAL.labels(tf_ms=tf).inc()
 
         return {
             tf: asdict(c)
@@ -377,22 +376,18 @@ class ATRCandidateProvider:
 
 def _emit_collect_metrics(tf: int, c: ATRCandidate) -> None:
     if _M_COLLECT_TOTAL is not None:
-        try:
+        with contextlib.suppress(Exception):
             _M_COLLECT_TOTAL.labels(source=c.source).inc()
-        except Exception:
-            pass
     if _M_AGE_HIST is not None:
-        try:
-            _M_AGE_HIST.labels(tf_ms=str(tf), source=c.source).observe(c.age_ms)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            _M_AGE_HIST.labels(tf_ms=tf, source=c.source).observe(c.age_ms)
 
 
 # ---------------------------------------------------------------------------
 # Singleton accessor
 # ---------------------------------------------------------------------------
 
-_PROVIDER: Optional[ATRCandidateProvider] = None
+_PROVIDER: ATRCandidateProvider | None = None
 
 
 def get_atr_candidate_provider() -> ATRCandidateProvider:

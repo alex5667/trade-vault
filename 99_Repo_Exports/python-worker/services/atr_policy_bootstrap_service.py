@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
 import redis
+
 try:
     from core.redis_client import get_atr_redis
 except Exception:
@@ -29,21 +30,21 @@ def _redis():
 
 
 def _mode() -> str:
-    return str(os.getenv("ATR_POLICY_BOOTSTRAP_MODE", "restore_if_missing") or "restore_if_missing").strip().lower()
+    return (os.getenv("ATR_POLICY_BOOTSTRAP_MODE", "restore_if_missing") or "restore_if_missing").strip().lower()
 
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def _active_key(obj: Dict[str, Any]) -> str:
+def _active_key(obj: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:active:{obj['source']}:{obj['symbol']}:"
         f"{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
     )
 
 
-def _last_good_key(obj: Dict[str, Any]) -> str:
+def _last_good_key(obj: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:last_good:{obj['source']}:{obj['symbol']}:"
         f"{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
@@ -58,7 +59,7 @@ def _decision_key(proposal_id: str) -> str:
     return f"cfg:decisions:atr_policy:{proposal_id}"
 
 
-def _load_current_snapshots(conn, snapshot_kind: str) -> List[Dict[str, Any]]:
+def _load_current_snapshots(conn, snapshot_kind: str) -> list[dict[str, Any]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -72,7 +73,7 @@ def _load_current_snapshots(conn, snapshot_kind: str) -> List[Dict[str, Any]]:
         return [dict(r["snapshot_json"]) for r in cur.fetchall()]
 
 
-def _load_pending_proposals(conn) -> List[Dict[str, Any]]:
+def _load_pending_proposals(conn) -> list[dict[str, Any]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -85,14 +86,14 @@ def _load_pending_proposals(conn) -> List[Dict[str, Any]]:
         return [dict(r["proposal_json"]) for r in cur.fetchall()]
 
 
-def _load_decided_but_not_applied(conn) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+def _load_decided_but_not_applied(conn) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """
     Deterministic rebuild for decided queue:
       - APPROVED but not APPLIED
       - REVOKE_REQUESTED but not REVOKED_APPLIED
       - legacy REVOKED handled by snapshot comparison
     """
-    out: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    out: list[tuple[dict[str, Any], dict[str, Any]]] = []
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -117,11 +118,11 @@ def _load_decided_but_not_applied(conn) -> List[Tuple[Dict[str, Any], Dict[str, 
     return out
 
 
-def _restore_key(r, key: str, obj: Dict[str, Any], mode: str) -> bool:
+def _restore_key(r, key: str, obj: dict[str, Any], mode: str) -> bool:
     raw = r.get(key)
     if mode == "audit_only":
         return raw is not None
-    
+
     # Optional diagnostics tracing:
     obj["recovered_from_sql"] = True
     obj["bootstrap_restored_at_ms"] = _now_ms()
@@ -131,15 +132,15 @@ def _restore_key(r, key: str, obj: Dict[str, Any], mode: str) -> bool:
             return True
         r.set(key, json.dumps(obj, ensure_ascii=False, sort_keys=True))
         return True
-    
+
     if mode == "force_sql_over_redis":
         r.set(key, json.dumps(obj, ensure_ascii=False, sort_keys=True))
         return True
-        
+
     return False
 
 
-def _insert_recovery_event(conn, *, event_type: str, obj: Dict[str, Any], status: str, reason_code: str, payload: Dict[str, Any]) -> None:
+def _insert_recovery_event(conn, *, event_type: str, obj: dict[str, Any], status: str, reason_code: str, payload: dict[str, Any]) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -150,11 +151,11 @@ def _insert_recovery_event(conn, *, event_type: str, obj: Dict[str, Any], status
             """
             (
                 event_type,
-                str(obj.get("source", "")),
-                str(obj.get("symbol", "")).upper(),
-                str(obj.get("scenario", "")).lower(),
-                str(obj.get("regime", "")).lower(),
-                str(obj.get("risk_horizon_bucket", "")).lower(),
+                (obj.get("source", "")),
+                (obj.get("symbol", "")).upper(),
+                (obj.get("scenario", "")).lower(),
+                (obj.get("regime", "")).lower(),
+                (obj.get("risk_horizon_bucket", "")).lower(),
                 status,
                 reason_code,
                 json.dumps(payload, ensure_ascii=False, sort_keys=True),
@@ -162,7 +163,7 @@ def _insert_recovery_event(conn, *, event_type: str, obj: Dict[str, Any], status
         )
 
 
-def run_once() -> Dict[str, Any]:
+def run_once() -> dict[str, Any]:
     mode = _mode()
     r = _redis()
     conn = psycopg2.connect(_dsn(), connect_timeout=5, application_name="atr_policy_bootstrap_service")
@@ -223,7 +224,7 @@ def run_once() -> Dict[str, Any]:
         conn.commit()
         if mode != "audit_only":
             r.set("atr_policy:bootstrap:last_run_ts_ms", str(_now_ms()))
-            
+
         return {
             "mode": mode,
             "restored_active": restored_active,

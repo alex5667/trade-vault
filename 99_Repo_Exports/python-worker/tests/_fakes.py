@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
 class FakePipeline:
-    def __init__(self, r: 'FakeRedis'):
+    def __init__(self, r: FakeRedis):
         self.r = r
-        self.ops: List[Tuple[str, Tuple[Any, ...]]] = []
+        self.ops: list[tuple[str, tuple[Any, ...]]] = []
 
-    def hgetall(self, key: str) -> 'FakePipeline':
+    def hgetall(self, key: str) -> FakePipeline:
         self.ops.append(('hgetall', (key,)))
         return self
 
-    def execute(self) -> List[Any]:
-        out: List[Any] = []
+    def execute(self) -> list[Any]:
+        out: list[Any] = []
         for op, args in self.ops:
             if op == 'hgetall':
                 (key,) = args
@@ -27,9 +27,9 @@ class FakePipeline:
 
 class FakeRedis:
     def __init__(self):
-        self.hash_store: Dict[str, Dict[str, Any]] = {}
-        self.str_store: Dict[str, str] = {}
-        self._calls: List[Tuple[str, str]] = []
+        self.hash_store: dict[str, dict[str, Any]] = {}
+        self.str_store: dict[str, str] = {}
+        self._calls: list[tuple[str, str]] = []
 
     def get(self, key: str):
         self._calls.append(('get', key))

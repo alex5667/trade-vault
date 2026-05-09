@@ -1,12 +1,11 @@
 from dataclasses import dataclass
-from typing import List
 
 
 @dataclass
 class DeribitContextDecision:
     hit: bool
     mode: str
-    flags: List[str]
+    flags: list[str]
     tighten_add_bps: float
     risk_multiplier: float
     veto: bool
@@ -45,11 +44,11 @@ def evaluate_deribit_context(
         "strict": "tighten",
         "tighten": "tighten",
         "hard": "tighten",  # intentionally no hard veto for Deribit
-    }.get(str(profile or "monitor").lower(), "monitor")
+    }.get((profile or "monitor").lower(), "monitor")
 
-    flags: List[str] = []
+    flags: list[str] = []
 
-    regime = str(vol_regime or "unknown").lower()
+    regime = (vol_regime or "unknown").lower()
 
     # Regime flags
     if regime == "vol_stress":

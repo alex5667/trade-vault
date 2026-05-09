@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 try:
@@ -31,7 +31,7 @@ def session_key_from_epoch_ms(ts_ms: Any) -> str:
         return "na"
 
     try:
-        dt_utc = datetime.fromtimestamp(t / 1000.0, tz=timezone.utc)
+        dt_utc = datetime.fromtimestamp(t / 1000.0, tz=UTC)
     except Exception:
         return "na"
 

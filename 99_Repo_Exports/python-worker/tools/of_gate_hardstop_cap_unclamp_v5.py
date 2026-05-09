@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Staged auto-unclamp v5: outcome-gate per bucket (trend/range), selective per-cell RELAX/RESTORE.
 
 This is v5: outcome gates are evaluated separately per bucket (trend vs range).
@@ -43,20 +45,18 @@ Environment Variables:
   - Config: CFG_HASH_PREFIX
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import os
-import time
-import json
-import hmac
 import hashlib
+import hmac
+import json
+import os
 import secrets
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis
 
 from core.redis_client import get_redis
-
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 # ---------------- basic utils ----------------
 
@@ -65,7 +65,7 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Computes percentile q (0.0-1.0) from sorted list xs."""
     if not xs:
         return 0.0
@@ -80,7 +80,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -88,7 +88,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def sign(bundle_id: str, secret: str) -> str:
@@ -97,12 +97,12 @@ def sign(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def _notify(r: redis.Redis, text: str, buttons: Optional[List[List[Dict[str, str]]]] = None) -> None:
+def _notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Sends notification to Telegram stream with optional buttons."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
 def _mode(r: redis.Redis) -> str:
@@ -133,9 +133,9 @@ def _allow_remove(r: redis.Redis) -> bool:
 
 # ---------------- health windows (metrics:of_gate) ----------------
 
-def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
+def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
     """Reads metrics from Redis stream since timestamp, up to max_scan messages."""
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -163,7 +163,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     return rows
 
 
-def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+def summarize_health(rows: list[dict[str, Any]]) -> dict[str, float]:
     """Summarizes health metrics from rows: ok_rate, soft_rate, lat_p99_us, exec_p90."""
     n = len(rows)
     if n == 0:
@@ -186,8 +186,8 @@ def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def is_unhealthy(health: Dict[str, float], *, prefix: str,
-                min_n: int, lat_thr: float, exec_thr: float, soft_thr: float, ok_min: float) -> Tuple[bool, List[str]]:
+def is_unhealthy(health: dict[str, float], *, prefix: str,
+                min_n: int, lat_thr: float, exec_thr: float, soft_thr: float, ok_min: float) -> tuple[bool, list[str]]:
     """Checks if health metrics indicate unhealthy state. Returns (is_unhealthy, reasons)."""
     reasons = []
     n = float(health.get("n", 0.0))
@@ -211,7 +211,7 @@ def is_unhealthy(health: Dict[str, float], *, prefix: str,
 
 # ---------------- clamp audit + init cells ----------------
 
-def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
+def _read_audit_list(r: redis.Redis, bundle_id: str) -> list[dict[str, Any]]:
     """Reads audit list from Redis list key recs:audit:{bundle_id}."""
     key = f"recs:audit:{bundle_id}"
     n = r.llen(key)
@@ -220,18 +220,16 @@ def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
         s = r.lindex(key, i)
         if not s:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(json.loads(s))
-        except Exception:
-            pass
     return out
 
 
-def _extract_symbols_from_audit(audit: List[Dict[str, Any]], cfg_prefix: str) -> List[str]:
+def _extract_symbols_from_audit(audit: list[dict[str, Any]], cfg_prefix: str) -> list[str]:
     """Extracts unique symbols from clamp audit entries."""
     syms = set()
     for a in audit:
-        k = str(a.get("key", ""))
+        k = (a.get("key", ""))
         if k.startswith(cfg_prefix):
             sym = k[len(cfg_prefix):].strip().upper()
             if sym:
@@ -239,12 +237,12 @@ def _extract_symbols_from_audit(audit: List[Dict[str, Any]], cfg_prefix: str) ->
     return sorted(list(syms))
 
 
-def _audit_has_field_for_sym(audit: List[Dict[str, Any]], cfg_key: str, field: str) -> bool:
+def _audit_has_field_for_sym(audit: list[dict[str, Any]], cfg_key: str, field: str) -> bool:
     """Checks if audit has HSET operation for given key and field."""
     for a in audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        if str(a.get("key")) == cfg_key and str(a.get("field")) == field:
+        if (a.get("key")) == cfg_key and (a.get("field")) == field:
             return True
     return False
 
@@ -254,10 +252,10 @@ def _init_remaining_cells_if_needed(
     *,
     remaining_cells_key: str,
     cell_state_key: str,
-    clamp_audit: List[Dict[str, Any]],
+    clamp_audit: list[dict[str, Any]],
     cfg_prefix: str,
     ttl: int,
-) -> List[str]:
+) -> list[str]:
     """
     Initializes remaining_cells set if empty.
     remaining_cells set contains cells like "SYM|trend" and "SYM|range" if those fields exist in clamp audit.
@@ -285,52 +283,52 @@ def _init_remaining_cells_if_needed(
 
 # ---------------- events:trades outcome per symbol per bucket ----------------
 
-def _event_ts_ms(fields: Dict[str, Any]) -> int:
+def _event_ts_ms(fields: dict[str, Any]) -> int:
     """Extracts timestamp in ms from event fields."""
     return _i(fields.get("ts_ms", fields.get("ts", fields.get("timestamp", 0))), 0)
 
 
-def _is_closed(fields: Dict[str, Any]) -> bool:
+def _is_closed(fields: dict[str, Any]) -> bool:
     """Checks if event is a closed position event."""
-    et = str(fields.get("event_type", fields.get("type", "")) or "").upper()
+    et = (fields.get("event_type", fields.get("type", "")) or "").upper()
     if et in ("POSITION_CLOSED", "CLOSE"):
         return True
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            et2 = str(j.get("event_type", j.get("type", "")) or "").upper()
+            et2 = (j.get("event_type", j.get("type", "")) or "").upper()
             return et2 in ("POSITION_CLOSED", "CLOSE")
         except Exception:
             return False
     return False
 
 
-def _get_symbol(fields: Dict[str, Any]) -> str:
+def _get_symbol(fields: dict[str, Any]) -> str:
     """Extracts symbol from event fields."""
-    s = str(fields.get("symbol", "") or "").upper()
+    s = (fields.get("symbol", "") or "").upper()
     if s:
         return s
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            return str(j.get("symbol", "") or "").upper()
+            return (j.get("symbol", "") or "").upper()
         except Exception:
             return ""
     return ""
 
 
-def _get_bucket(fields: Dict[str, Any]) -> str:
+def _get_bucket(fields: dict[str, Any]) -> str:
     """Extracts bucket (trend/range/other) from event fields."""
     # prefer explicit regime_group/regime in fields or payload
-    g = str(fields.get("regime_group", fields.get("regime", fields.get("scenario_v4", ""))) or "").lower()
+    g = (fields.get("regime_group", fields.get("regime", fields.get("scenario_v4", ""))) or "").lower()
     if not g:
         p = fields.get("payload")
         if isinstance(p, str) and p and p[0] == "{":
             try:
                 j = json.loads(p)
-                g = str(j.get("regime_group", j.get("regime", j.get("scenario_v4", ""))) or "").lower()
+                g = (j.get("regime_group", j.get("regime", j.get("scenario_v4", ""))) or "").lower()
             except Exception:
                 g = ""
     if "trend" in g or "bull" in g or "bear" in g:
@@ -340,7 +338,7 @@ def _get_bucket(fields: Dict[str, Any]) -> str:
     return "other"
 
 
-def _get_r_mult(fields: Dict[str, Any]) -> Optional[float]:
+def _get_r_mult(fields: dict[str, Any]) -> float | None:
     """Extracts r_mult from event fields."""
     if "r_mult" in fields:
         try:
@@ -358,7 +356,7 @@ def _get_r_mult(fields: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def _stats_r(rs: List[float]) -> Dict[str, float]:
+def _stats_r(rs: list[float]) -> dict[str, float]:
     """Computes statistics from list of R values: n, meanR, tail_rate, p05, p50."""
     n = len(rs)
     if n == 0:
@@ -373,16 +371,16 @@ def read_outcome_stats_sym_bucket(
     *,
     stream: str,
     since_ms: int,
-    symbols: List[str],
+    symbols: list[str],
     max_scan: int,
-) -> Dict[str, Dict[str, Dict[str, float]]]:
+) -> dict[str, dict[str, dict[str, float]]]:
     """
     Reads outcome stats per symbol per bucket from trades stream.
     Returns stats[sym][bucket] = {n, meanR, tail_rate, p05, p50}
     buckets: trend/range/other (we will use trend/range).
     """
     symset = set([s.upper() for s in symbols if s])
-    acc: Dict[str, Dict[str, List[float]]] = {s: {"trend": [], "range": []} for s in symset}
+    acc: dict[str, dict[str, list[float]]] = {s: {"trend": [], "range": []} for s in symset}
 
     scanned = 0
     last_id = "+"
@@ -417,13 +415,13 @@ def read_outcome_stats_sym_bucket(
                 continue
             acc[sym][b].append(float(rm))
 
-    out: Dict[str, Dict[str, Dict[str, float]]] = {}
+    out: dict[str, dict[str, dict[str, float]]] = {}
     for s in symset:
         out[s] = {"trend": _stats_r(acc[s]["trend"]), "range": _stats_r(acc[s]["range"])}
     return out
 
 
-def outcome_ok(stats: Dict[str, float], *, min_n: int, mean_min: float, tail_max: float) -> Tuple[bool, List[str]]:
+def outcome_ok(stats: dict[str, float], *, min_n: int, mean_min: float, tail_max: float) -> tuple[bool, list[str]]:
     """Checks if outcome stats pass thresholds. Returns (ok, reasons)."""
     reasons = []
     n = float(stats.get("n", 0.0))
@@ -442,11 +440,11 @@ def _bucket_thr(env_key: str, default: float) -> float:
     """Reads threshold from ENV with default."""
     v = os.getenv(env_key, "")
     if not v.strip():
-        return float(default)
+        return default
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 # ---------------- apply helpers ----------------
@@ -456,8 +454,8 @@ def _apply_restores_direct(
     *,
     who: str,
     ttl_sec: int,
-    restores: List[Dict[str, Any]],
-) -> Tuple[str, str]:
+    restores: list[dict[str, Any]],
+) -> tuple[str, str]:
     """Applies restore operations directly and creates bundle."""
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_id = secrets.token_hex(6)
@@ -486,7 +484,7 @@ def _apply_restores_direct(
             pipe.hdel(k, f)
             ops_out.append({"op": "HDEL", "key": k, "field": f})
         else:
-            v = str(op.get("value", ""))
+            v = (op.get("value", ""))
             pipe.hset(k, f, v)
             ops_out.append({"op": "HSET", "key": k, "field": f, "value": v})
 
@@ -506,9 +504,9 @@ def _create_proposal_bundle(
     *,
     who: str,
     ttl_sec: int,
-    ops: List[Dict[str, Any]],
-    meta: Dict[str, Any],
-) -> Tuple[str, str]:
+    ops: list[dict[str, Any]],
+    meta: dict[str, Any],
+) -> tuple[str, str]:
     """Creates proposal bundle (PENDING status)."""
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_id = secrets.token_hex(6)
@@ -523,25 +521,25 @@ def _create_proposal_bundle(
 # ---------------- operations builders (per-cell) ----------------
 
 def build_relax_ops_cells(
-    clamp_audit: List[Dict[str, Any]],
+    clamp_audit: list[dict[str, Any]],
     *,
     cfg_prefix: str,
-    eligible_cells: List[str],
+    eligible_cells: list[str],
     cap_trend: float,
     cap_range: float,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Builds RELAX operations for eligible cells (per-cell, per-bucket caps)."""
     elig = set([c.upper() for c in eligible_cells])
     ops = []
     for a in clamp_audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        key = str(a.get("key", ""))
+        key = (a.get("key", ""))
         if not key.startswith(cfg_prefix):
             continue
         sym = key[len(cfg_prefix):].strip().upper()
 
-        field = str(a.get("field", ""))
+        field = (a.get("field", ""))
         if field not in ("meta_enforce_share_trend", "meta_enforce_share_range"):
             continue
         bucket = "trend" if field.endswith("_trend") else "range"
@@ -565,23 +563,23 @@ def build_relax_ops_cells(
 
 
 def build_restore_ops_cells(
-    clamp_audit: List[Dict[str, Any]],
+    clamp_audit: list[dict[str, Any]],
     *,
     cfg_prefix: str,
-    eligible_cells: List[str],
-) -> List[Dict[str, Any]]:
+    eligible_cells: list[str],
+) -> list[dict[str, Any]]:
     """Builds RESTORE operations for eligible cells (restore pre-clamp values)."""
     elig = set([c.upper() for c in eligible_cells])
     ops = []
     for a in clamp_audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        key = str(a.get("key", ""))
+        key = (a.get("key", ""))
         if not key.startswith(cfg_prefix):
             continue
         sym = key[len(cfg_prefix):].strip().upper()
 
-        field = str(a.get("field", ""))
+        field = (a.get("field", ""))
         if field not in ("meta_enforce_share_trend", "meta_enforce_share_range"):
             continue
         bucket = "trend" if field.endswith("_trend") else "range"
@@ -593,7 +591,7 @@ def build_restore_ops_cells(
         if old_null == 1:
             ops.append({"op": "HDEL", "key": key, "field": field})
         else:
-            ops.append({"op": "HSET", "key": key, "field": field, "value": ("" if a.get("old") is None else str(a.get("old","")))})
+            ops.append({"op": "HSET", "key": key, "field": field, "value": ("" if a.get("old") is None else (a.get("old","")))})
     return ops
 
 
@@ -645,7 +643,7 @@ def main() -> None:
         if isinstance(pend, dict) and pend.get("bundle_id"):
             bid = str(pend["bundle_id"])
             st = (r.get(f"recs:status:{bid}") or "").strip().upper()
-            action = str(pend.get("action","")).upper()
+            action = (pend.get("action","")).upper()
             cells = [str(x).upper() for x in (pend.get("cells") or []) if str(x).strip()]
 
             if st == "APPLIED":
@@ -742,7 +740,7 @@ def main() -> None:
     health_bad = (r30 + r120 + r720)
 
     # outcome: per sym per bucket; short+long
-    trades_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    trades_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     out_max_scan = int(os.getenv("META_UNCLAMP_OUTCOME_MAX_SCAN", "400000") or 400000)
 
     out_short_h = float(os.getenv("META_UNCLAMP_OUTCOME_SHORT_HOURS", "2") or 2)
@@ -778,7 +776,7 @@ def main() -> None:
     # build per-cell eligibility
     relax_cells = []
     restore_cells = []
-    out_dbg: Dict[str, Any] = {}
+    out_dbg: dict[str, Any] = {}
 
     for sym in syms:
         out_dbg[sym] = {"short": st_short.get(sym, {}), "long": st_long.get(sym, {})}
@@ -834,7 +832,7 @@ def main() -> None:
     # Note: This enforces "no full REMOVE if range long-outcome bad" automatically:
     #       because we restore per-cell; range cells won't restore unless long-range ok.
     action = None
-    cells_to_act: List[str] = []
+    cells_to_act: list[str] = []
 
     if stage == "CLAMPED" and relax_streak >= relax_n and relax_cells:
         action = "RELAX"

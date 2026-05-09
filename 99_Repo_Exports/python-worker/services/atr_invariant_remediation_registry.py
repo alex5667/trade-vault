@@ -1,12 +1,12 @@
-import logging
 import json
-from typing import Dict, Any
+import logging
+from typing import Any
 
 from services.analytics_db import get_conn
 
 logger = logging.getLogger("atr_invariant_remediation_registry")
 
-def get_active_remediation_policies() -> Dict[str, Dict[str, Any]]:
+def get_active_remediation_policies() -> dict[str, dict[str, Any]]:
     """
     Fetches active remediation policies from postgres.
     Returns dict: invariant_id -> policy dict
@@ -29,7 +29,7 @@ def get_active_remediation_policies() -> Dict[str, Dict[str, Any]]:
                 if isinstance(pol_json, str):
                     try:
                         pol_json = json.loads(pol_json)
-                    except:
+                    except Exception:
                         pol_json = {}
                 policies[inv_id] = {
                     "remediation_kind": kind,

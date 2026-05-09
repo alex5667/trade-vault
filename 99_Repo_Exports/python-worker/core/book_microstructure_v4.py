@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from core.book_microstructure_v2 import (
     compute_ofi_multilevel_topn,
     compute_queue_imbalance_topn,
 )
 
-Level = Tuple[float, float]  # (price, qty)
+Level = tuple[float, float]  # (price, qty)
 
 def _is_finite(x: float) -> bool:
     return isinstance(x, (int, float)) and math.isfinite(float(x))
@@ -17,12 +17,12 @@ def _to_f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
-def _get_levels(snap: Any, side: str) -> List[Level]:
+def _get_levels(snap: Any, side: str) -> list[Level]:
     """
     Supports:
       - object with attributes .bids/.asks as list[[px,qty],...]
@@ -38,7 +38,7 @@ def _get_levels(snap: Any, side: str) -> List[Level]:
             levels = getattr(snap, side, None)
             if levels is None:
                 levels = getattr(snap, "bid" if side == "bids" else "ask", []) or []
-        out: List[Level] = []
+        out: list[Level] = []
         for it in levels:
             if it is None:
                 continue
@@ -53,7 +53,7 @@ def _get_levels(snap: Any, side: str) -> List[Level]:
         return []
 
 
-def _gini(values: List[float]) -> float:
+def _gini(values: list[float]) -> float:
     """Gini coefficient for non-negative values.
 
     Returns:
@@ -88,7 +88,7 @@ def _gini(values: List[float]) -> float:
     except Exception:
         return 0.0
 
-def compute_microstructure_v4(snap: Any, prev_snap: Any, levels: int = 5) -> Dict[str, float]:
+def compute_microstructure_v4(snap: Any, prev_snap: Any, levels: int = 5) -> dict[str, float]:
     """
     Computes V4 microstructure features (Microprice + Slope + Convexity + Depth-Weighted OBI).
     
@@ -108,7 +108,7 @@ def compute_microstructure_v4(snap: Any, prev_snap: Any, levels: int = 5) -> Dic
         depth_total_10/depth_imbalance_10/gini_depth_10: depth aggregates (top-10, cross-side)
         micro_price/micro_price_diff_bps: absolute microprice and its diff to mid (bps)
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     # Defaults
     out["mp_mid_bps"] = 0.0
@@ -169,17 +169,17 @@ def compute_microstructure_v4(snap: Any, prev_snap: Any, levels: int = 5) -> Dic
     best_bid_px, best_bid_qty = bids[0]
     best_ask_px, best_ask_qty = asks[0]
     mid = 0.5 * (best_bid_px + best_ask_px)
-    
+
     if mid <= 1e-9:
         return out
 
     # --- Microprice (Stoikov) ---
     # mp = (vb*ask_px + va*bid_px) / (vb + va)
     # where vb = bid volume, va = ask volume used for weighting.
-    # We use L1 qty for standard microprice or sum up to N? 
+    # We use L1 qty for standard microprice or sum up to N?
     # Usually standard microprice uses L1 imbalance.
     # mp = (qty_b * ask_px + qty_a * bid_px) / (qty_b + qty_a)
-    
+
     denom_mp = best_bid_qty + best_ask_qty
     if denom_mp > 0:
         mp = (best_bid_qty * best_ask_px + best_ask_qty * best_bid_px) / denom_mp
@@ -203,32 +203,32 @@ def compute_microstructure_v4(snap: Any, prev_snap: Any, levels: int = 5) -> Dic
             d_p = bq_p + aq_p
             if d_p > 0:
                 mp_prev = (bq_p * ba_p + aq_p * bb_p) / d_p
-                # Shift in bps relative to current mid? Or prev mid? 
+                # Shift in bps relative to current mid? Or prev mid?
                 # Usually we want absolute shift normalized by price level.
                 shift = mp - mp_prev
                 out["mp_shift_bps"] = (shift / mid) * 10000.0
-    
+
     # --- Depth & Slope & Convexity ---
     # Slope logic: log(cum_vol_L5 / cum_vol_L1) / (levels - 1)
     # We use k=5 levels max, or whatever available
-    # Convexity: difference between actual depth profile and linear? 
+    # Convexity: difference between actual depth profile and linear?
     # Or simplified: (cum3 / cum1) vs (cum5 / cum3)?
-    # Description says: "simple convexity of depth profile". 
+    # Description says: "simple convexity of depth profile".
     # Often: convex ~ (d2 - d1) - (d1 - d0) logic on logs?
     # Let's verify prompt: "book_convex_bid/ask — simple convexity of depth profile"
     # A common simple proxy: convexity = (Vol_L1 + Vol_L5) / (2 * Vol_L3) - 1 ?
     # Or (Vol_L3 / Vol_L1) / (Vol_L5 / Vol_L3)?
-    
+
     # Let's iterate up to N=5
     lim = min(len(bids), int(levels))
     cum_bid = 0.0
-    
+
     bid_vols = []
-    
+
     for i in range(lim):
         cum_bid += bids[i][1]
         bid_vols.append(cum_bid)
-    
+
     lim = min(len(asks), int(levels))
     cum_ask = 0.0
     ask_vols = []
@@ -239,17 +239,17 @@ def compute_microstructure_v4(snap: Any, prev_snap: Any, levels: int = 5) -> Dic
     # Fill up to 5 with last value if needed (cumulative)
     # But slope formula is specific: log(cum5/cum1)/4
     # We need exactly defined levels 1 and 5.
-    
+
     # Bids
     if len(bid_vols) >= 1:
         v1 = bid_vols[0]
         v5 = bid_vols[min(4, len(bid_vols)-1)] # Use last available if < 5
         out["depth_bid_5"] = v5
-        
+
         if v1 > 0 and v5 > 0:
              # slope over 4 steps (1->5)
              out["book_slope_bid"] = math.log(v5 / v1) / 4.0
-        
+
         # Convexity: let's use a 3-point check if possible (1, 3, 5)
         # If we have at least 3 levels
         if len(bid_vols) >= 3:
@@ -264,16 +264,16 @@ def compute_microstructure_v4(snap: Any, prev_snap: Any, levels: int = 5) -> Dic
                  s13 = math.log(v3/v1)/2.0
                  s35 = math.log(v5/v3)/2.0
                  out["book_convex_bid"] = s35 - s13
-    
+
     # Asks
     if len(ask_vols) >= 1:
         v1 = ask_vols[0]
         v5 = ask_vols[min(4, len(ask_vols)-1)]
         out["depth_ask_5"] = v5
-        
+
         if v1 > 0 and v5 > 0:
             out["book_slope_ask"] = math.log(v5 / v1) / 4.0
-            
+
         if len(ask_vols) >= 3:
             v3 = ask_vols[min(2, len(ask_vols)-1)]
             if v1 > 0 and v3 > 0 and v5 > 0:
@@ -283,38 +283,38 @@ def compute_microstructure_v4(snap: Any, prev_snap: Any, levels: int = 5) -> Dic
 
     # --- Depth-Weighted OBI (obi_dw) ---
     # Standard OBI: (qb - qa) / (qb + qa) at L1.
-    # Multilevel OBI is often flow-based. 
+    # Multilevel OBI is often flow-based.
     # Here "obi_dw" likely refers to static imbalance weighted by depth.
     # sum( w_k * (qb_k - qa_k) ) / sum( w_k * (qb_k + qa_k) ) ?
     # Or just sum(w_k * qimb_k)?
     # Prompt says: "obi_dw — depth-weighted imbalance (w=1/i)"
     # Usually it means sum( (qb_i - qa_i) / (qb_i + qa_i) * w_i ) / sum(w_i) is the weighted MEAN imbalance.
     # Let's implement weighted mean of imbalances.
-    
+
     num = 0.0
     den = 0.0
-    
+
     # We iterate up to levels=5
     L = max(len(bids), len(asks), int(levels))
-    
+
     for k in range(1, L + 1):
         if k > int(levels):
             break
-            
+
         bq = bids[k-1][1] if k-1 < len(bids) else 0.0
         aq = asks[k-1][1] if k-1 < len(asks) else 0.0
-        
+
         w = 1.0 / float(k)
-        
+
         vol_sum = bq + aq
         if vol_sum > 0:
             imb = (bq - aq) / vol_sum
         else:
             imb = 0.0
-        
+
         num += w * imb
         den += w
-        
+
     if den > 0:
         out["obi_dw"] = num / den
     else:

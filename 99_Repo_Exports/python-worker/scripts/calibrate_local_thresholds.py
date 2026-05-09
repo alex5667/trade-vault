@@ -11,8 +11,8 @@
 
 import argparse
 import logging
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Добавляем корневую директорию в путь
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 import psycopg2
 import psycopg2.extras
 
+
 def load_signals_from_database(db_url: str, lookback_days: int) -> list[SignalRow]:
     """
     Загружает сигналы из базы данных.
@@ -39,17 +40,17 @@ def load_signals_from_database(db_url: str, lookback_days: int) -> list[SignalRo
         db_url = os.getenv("TRADES_DB_DSN", f"postgresql://trading:{os.getenv('TRADING_PASSWORD', 'trading_password')}@postgres:5432/scanner_analytics")
 
     logger.info(f"Loading signals from database (last {lookback_days} days)...")
-    
+
     conn = None
     try:
         conn = psycopg2.connect(db_url)
         # Use RealDictCursor to access columns by name
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        
+
         # Use stored generated columns (ind_*) added by migration 034 to avoid
         # JSONB extraction at scan time. The WHERE clause matches the partial index
         # idx_trades_closed_ml_v2, enabling an Index-Only Scan on Timescale chunks.
-        query = """
+        query = f"""
         SELECT
             symbol,
             exit_ts_ms / 1000.0             AS ts_utc,
@@ -62,26 +63,26 @@ def load_signals_from_database(db_url: str, lookback_days: int) -> list[SignalRo
             r_multiple                      AS pnl_r,
             tp1_hit                         AS hit_tp
         FROM trades_closed
-        WHERE exit_ts_ms >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '%s days')) * 1000
+        WHERE exit_ts_ms >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '{lookback_days} days')) * 1000
           AND r_multiple IS NOT NULL
           AND (tp1_hit = TRUE OR r_multiple > 0)
         ORDER BY exit_ts_ms
-        """ % lookback_days
+        """
 
 
         cursor.execute(query)
         rows = cursor.fetchall()
-        
+
         signal_rows = []
         for r in rows:
             # Map DB row to SignalRow
             # Note: SignalRow expects 'session' but DB might not have it computed.
             # load_from_database in manager will compute session if missing.
-            
+
             # Safe float conversion helpers
             def to_float(x):
                 return float(x) if x is not None else None
-            
+
             sr = SignalRow(
                 symbol=r["symbol"],
                 session="", # Will be computed by manager
@@ -95,7 +96,7 @@ def load_signals_from_database(db_url: str, lookback_days: int) -> list[SignalRo
                 hit_tp=bool(r.get("hit_tp")) if r.get("hit_tp") is not None else None
             )
             signal_rows.append(sr)
-            
+
         logger.info(f"Successfully loaded {len(signal_rows)} signals from DB.")
         return signal_rows
 
@@ -138,20 +139,20 @@ def main():
     # Сгружаем сигналы в кластеры
     # Используем внутренний метод менеджера для группировки
     clusters = manager._build_clusters(signals)
-    
+
     logger.info(f"Built {len(clusters)} clusters from {len(signals)} signals")
-    
+
     count_calibrated = 0
     for cluster_key, cluster_rows in clusters.items():
         # Пропускаем кластеры, где мало данных
         if len(cluster_rows) < manager.min_cluster_samples:
             continue
-            
+
         # Калибруем кластер
         calibration = manager._calibrate_cluster(cluster_rows)
         manager.calibrations[cluster_key] = calibration
         count_calibrated += 1
-        
+
     logger.info(f"Calibrated {count_calibrated} clusters out of {len(clusters)} candidates")
 
     # Сохраняем в файл

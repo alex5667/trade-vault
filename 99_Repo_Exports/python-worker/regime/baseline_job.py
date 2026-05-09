@@ -6,17 +6,16 @@
 генерирует YAML-конфиг для CryptoConfScorer.
 """
 
-import os
-import math
 import asyncio
+import math
+import os
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 import asyncpg
-import pandas as pd
 import numpy as np
+import pandas as pd
 import yaml
-
 
 
 @dataclass
@@ -27,7 +26,7 @@ class BaselineJobConfig:
     min_signals: int = 200     # минимальное кол-во сигналов в группе
     min_trades: int = 50       # минимальное кол-во сделок в группе
 
-    yaml_output_path: Optional[str] = "crypto_conf_scorer_baseline.yaml"
+    yaml_output_path: str | None = "crypto_conf_scorer_baseline.yaml"
     insert_to_db: bool = True
 
 
@@ -106,7 +105,7 @@ def compute_group_baseline(
     lookback_days: int,
     min_signals: int,
     min_trades: int,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Расчет baseline для одной группы (symbol, signal_family, direction).
     """
@@ -220,7 +219,7 @@ def compute_group_baseline(
 def compute_baseline_table(
     df: pd.DataFrame,
     cfg: BaselineJobConfig,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Расчет baseline для всех групп.
     """
@@ -229,7 +228,7 @@ def compute_baseline_table(
 
     as_of_ts = pd.Timestamp.utcnow()
     groups = df.groupby(["symbol", "signal_family", "direction"], dropna=False)
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
 
     for _, g in groups:
         row = compute_group_baseline(
@@ -247,7 +246,7 @@ def compute_baseline_table(
 
 async def insert_baseline_rows(
     cfg: BaselineJobConfig,
-    rows: List[Dict[str, Any]],
+    rows: list[dict[str, Any]],
 ) -> None:
     """
     Вставка baseline-строк в TimescaleDB.
@@ -329,7 +328,7 @@ async def insert_baseline_rows(
         await conn.close()
 
 
-def build_yaml_config(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def build_yaml_config(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Генерация YAML-конфига для CryptoConfScorer.
     """
@@ -354,7 +353,7 @@ def build_yaml_config(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
     # По символам и фемили — overrides
-    by_symbol: Dict[str, Any] = {}
+    by_symbol: dict[str, Any] = {}
     grouped = df.groupby(["symbol", "signal_family", "direction"])
 
     for (symbol, family, direction), g in grouped:
@@ -384,7 +383,7 @@ def build_yaml_config(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def write_yaml_config(cfg: BaselineJobConfig, data: Dict[str, Any]) -> None:
+def write_yaml_config(cfg: BaselineJobConfig, data: dict[str, Any]) -> None:
     """
     Сохранение YAML-конфига на диск.
     """

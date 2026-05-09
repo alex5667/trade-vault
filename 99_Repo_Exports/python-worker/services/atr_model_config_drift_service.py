@@ -2,8 +2,9 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, List, Optional, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 import psycopg2.extras
 from prometheus_client import Counter, Gauge
 
@@ -18,8 +19,8 @@ DATASET_VALIDITY_TOTAL = Gauge("atr_dataset_validity_total", "Dataset validity s
 DATASET_EXPIRING_TOTAL = Gauge("atr_dataset_expiring_total", "Datasets expiring soon", ["dataset_class"])
 DATASET_REFRESH_ACTIVATED_TOTAL = Counter("atr_dataset_refresh_activated_total", "Total refresh activations", ["dataset_class"])
 
-ATR_DRIFT_GOVERNANCE_ENABLE = os.getenv("ATR_DRIFT_GOVERNANCE_ENABLE", "1") == str("1")
-ATR_DRIFT_GOVERNANCE_ENFORCE = os.getenv("ATR_DRIFT_GOVERNANCE_ENFORCE", "0") == str("1")
+ATR_DRIFT_GOVERNANCE_ENABLE = os.getenv("ATR_DRIFT_GOVERNANCE_ENABLE", "1") == "1"
+ATR_DRIFT_GOVERNANCE_ENFORCE = os.getenv("ATR_DRIFT_GOVERNANCE_ENFORCE", "0") == "1"
 
 # Default validity windows (days)
 VALIDITY_WINDOWS = {
@@ -35,7 +36,7 @@ VALIDITY_WINDOWS = {
 
 class ATRModelConfigDriftService:
     @staticmethod
-    def detect_feature_drift(scope_value: str, drift_score: float, threshold: float, details: Dict[str, Any]) -> None:
+    def detect_feature_drift(scope_value: str, drift_score: float, threshold: float, details: dict[str, Any]) -> None:
         """Detect and open governance event for feature distribution drift."""
         if not ATR_DRIFT_GOVERNANCE_ENABLE:
             return
@@ -57,7 +58,7 @@ class ATRModelConfigDriftService:
             )
 
     @staticmethod
-    def detect_execution_cost_drift(scope_value: str, slippage_ema: float, approved_band: float, details: Dict[str, Any]) -> None:
+    def detect_execution_cost_drift(scope_value: str, slippage_ema: float, approved_band: float, details: dict[str, Any]) -> None:
         """Detect and open governance event for execution cost drift (slippage)."""
         if not ATR_DRIFT_GOVERNANCE_ENABLE:
             return
@@ -73,7 +74,7 @@ class ATRModelConfigDriftService:
             )
 
     @staticmethod
-    def detect_protective_outcome_drift(scope_value: str, metric_name: str, deviation: float, details: Dict[str, Any]) -> None:
+    def detect_protective_outcome_drift(scope_value: str, metric_name: str, deviation: float, details: dict[str, Any]) -> None:
         """Detect and open governance event for protective outcome drift."""
         if not ATR_DRIFT_GOVERNANCE_ENABLE:
             return
@@ -88,10 +89,10 @@ class ATRModelConfigDriftService:
         )
 
     @staticmethod
-    def open_drift_governance_event(drift_family: str, scope_value: str, severity: str, reason_code: str, event_json: Dict[str, Any]) -> str:
+    def open_drift_governance_event(drift_family: str, scope_value: str, severity: str, reason_code: str, event_json: dict[str, Any]) -> str:
         event_id = f"drift_{uuid.uuid4().hex[:8]}"
         status = "open"
-        
+
         # Determine if refresh should be requested automatically
         if severity in ["error", "critical"]:
             status = "refresh_requested"
@@ -104,7 +105,7 @@ class ATRModelConfigDriftService:
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT DO NOTHING
                 """, (event_id, drift_family, scope_value, severity, status, reason_code, json.dumps(event_json)))
-                
+
                 if status == "refresh_requested":
                     # Potentially open a refresh request immediately
                     ATRModelConfigDriftService.open_dataset_refresh_request(
@@ -114,7 +115,7 @@ class ATRModelConfigDriftService:
                         owner="system"
                     )
             conn.commit()
-            
+
         DRIFT_GOVERNANCE_EVENTS_TOTAL.labels(drift_family=drift_family, severity=severity, status=status).inc()
         return event_id
 
@@ -147,9 +148,9 @@ class ATRModelConfigDriftService:
     def update_baseline_validity(dataset_id: str, dataset_class: str) -> None:
         """Initialize or update validity window for a dataset."""
         days = VALIDITY_WINDOWS.get(dataset_class, 30)
-        valid_from = datetime.now(timezone.utc)
+        valid_from = datetime.now(UTC)
         valid_until = valid_from + timedelta(days=days)
-        
+
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -162,7 +163,7 @@ class ATRModelConfigDriftService:
             conn.commit()
 
     @staticmethod
-    def check_dataset_validity(dataset_id: str) -> Tuple[str, Optional[datetime]]:
+    def check_dataset_validity(dataset_id: str) -> tuple[str, datetime | None]:
         """Check if a dataset is still valid."""
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -170,39 +171,38 @@ class ATRModelConfigDriftService:
                 row = cur.fetchone()
                 if not row:
                     return "missing", None
-                
+
                 status = row['status']
                 until = row['valid_until']
-                
-                if status == 'valid' and datetime.now(timezone.utc) > until:
+
+                if status == 'valid' and datetime.now(UTC) > until:
                     # Auto-expire
                     cur.execute("UPDATE atr_dataset_baseline_validity SET status = 'expired' WHERE dataset_id = %s", (dataset_id,))
                     conn.commit()
                     return "expired", until
-                
+
                 return status, until
 
     @staticmethod
-    def get_active_drift_events(scope: str = None) -> List[Dict[str, Any]]:
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                query = "SELECT * FROM atr_drift_governance_events WHERE status <> 'resolved'"
-                params = []
-                if scope:
-                    query += " AND scope_value = %s"
-                    params.append(scope)
-                cur.execute(query, params)
-                return [dict(r) for r in cur.fetchall()]
+    def get_active_drift_events(scope: str = None) -> list[dict[str, Any]]:
+        with get_db_connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            query = "SELECT * FROM atr_drift_governance_events WHERE status <> 'resolved'"
+            params = []
+            if scope:
+                query += " AND scope_value = %s"
+                params.append(scope)
+            cur.execute(query, params)
+            return [dict(r) for r in cur.fetchall()]
 
     @staticmethod
-    def is_release_blocked_by_drift(change_class: str, target_scope: str) -> List[str]:
+    def is_release_blocked_by_drift(change_class: str, target_scope: str) -> list[str]:
         """Check if drift governance blocks a release."""
         if not ATR_DRIFT_GOVERNANCE_ENABLE:
             return []
-            
+
         blockers = []
         events = ATRModelConfigDriftService.get_active_drift_events(target_scope)
-        
+
         # Family mapping to change classes
         risk_mapping = {
             "FEATURE_DISTRIBUTION_DRIFT": ["RUNTIME_GOLDEN", "CANARY_GOLDEN"],

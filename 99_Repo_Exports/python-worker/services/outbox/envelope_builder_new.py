@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import os
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 # NOTE:
 # This file defines the **wire contract** between producers (emit/pipeline) and
@@ -28,7 +29,7 @@ def _safe_json_dumps(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-def _fingerprint_env_for_contract(env: Dict[str, Any]) -> tuple[str, int]:
+def _fingerprint_env_for_contract(env: dict[str, Any]) -> tuple[str, int]:
     """Compute a fingerprint over the envelope, excluding self-referential meta fields."""
     tmp = dict(env)
     meta = dict(tmp.get("meta") or {})
@@ -41,14 +42,14 @@ def _fingerprint_env_for_contract(env: Dict[str, Any]) -> tuple[str, int]:
     return sha1, len(raw)
 
 
-def _derive_req_targets(targets_obj: Dict[str, Any]) -> List[str]:
+def _derive_req_targets(targets_obj: dict[str, Any]) -> list[str]:
     # Keep stable ordering.
     keys = [str(k) for k in (targets_obj or {}).keys()]
     keys.sort()
     return keys
 
 
-def build_trace_sidecar_meta(*, ctx: Any, sid: str) -> Dict[str, Any]:
+def build_trace_sidecar_meta(*, ctx: Any, sid: str) -> dict[str, Any]:
     """Minimal trace metadata embedded in the tradeable envelope.
 
     The full trace is stored in a separate sidecar (OUTBOX_META_PREFIX+sid).
@@ -76,11 +77,11 @@ def build_trace_sidecar_meta(*, ctx: Any, sid: str) -> Dict[str, Any]:
 def build_envelope(
     *,
     sid: str,
-    payload: Dict[str, Any],
-    targets_obj: Dict[str, Any],
-    meta: Optional[Dict[str, Any]] = None,
-    ctx: Optional[Any] = None,
-) -> Dict[str, Any]:
+    payload: dict[str, Any],
+    targets_obj: dict[str, Any],
+    meta: dict[str, Any] | None = None,
+    ctx: Any | None = None,
+) -> dict[str, Any]:
     """Build a dispatcher-compatible outbox envelope.
 
     Contract highlights:
@@ -90,7 +91,7 @@ def build_envelope(
       mutations when rebuilding envelopes.
     """
 
-    env: Dict[str, Any] = {
+    env: dict[str, Any] = {
         "v": 1,
         "sid": sid,
         "ts_ms": _now_ms(),
@@ -108,10 +109,8 @@ def build_envelope(
 
     # 2) Trace sidecar key + minimal ids.
     if ctx is not None and "trace_meta_key" not in m:
-        try:
+        with contextlib.suppress(Exception):
             m.update(build_trace_sidecar_meta(ctx=ctx, sid=sid))
-        except Exception:
-            pass
 
     # 3) Contract fingerprint.
     sha1, nbytes = _fingerprint_env_for_contract(env)
@@ -135,9 +134,9 @@ def build_entry_policy_diag_event(
     stage: str,
     name: str,
     reason_code: str,
-    metrics: Optional[Dict[str, Any]] = None,
-    extra: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    metrics: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Create a bounded diagnostics-only event.
 
     This is explicitly NOT a tradeable signal envelope.
@@ -161,9 +160,9 @@ def build_entry_policy_diag_event(
 
 def emit_entry_policy_diag_best_effort(
     redis: Any,
-    event: Dict[str, Any],
+    event: dict[str, Any],
     *,
-    stream: Optional[str] = None,
+    stream: str | None = None,
     maxlen: int = 100_000,
 ) -> bool:
     """Best-effort emit to diagnostics stream.
@@ -182,10 +181,10 @@ def emit_entry_policy_diag_best_effort(
 
         # Use approximate trimming to keep XADD cheap.
         try:
-            redis.xadd(stream_name, {"sid": str(event.get("sid", "")), "data": payload}, maxlen=maxlen, approximate=True)
+            redis.xadd(stream_name, {"sid": (event.get("sid", "")), "data": payload}, maxlen=maxlen, approximate=True)
         except TypeError:
             # Some redis clients use different argument names.
-            redis.xadd(stream_name, {"sid": str(event.get("sid", "")), "data": payload}, maxlen=50000)
+            redis.xadd(stream_name, {"sid": (event.get("sid", "")), "data": payload}, maxlen=50000)
         return True
     except Exception:
         return False

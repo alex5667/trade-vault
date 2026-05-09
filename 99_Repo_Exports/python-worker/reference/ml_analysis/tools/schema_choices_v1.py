@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Shared schema-version choices for ML analysis tools.
 
 Why this exists
@@ -14,13 +15,11 @@ Notes
 """
 
 
-from typing import List
-
 
 # Keep this list append-only.
 # If you add a new schema in tick_flow_full/core/feature_registry.py,
 # extend this list in the same commit.
-_SCHEMA_VERSIONS: List[str] = [
+_SCHEMA_VERSIONS: list[str] = [
     # legacy
     "v2",
     "v3",
@@ -57,7 +56,7 @@ _SCHEMA_VERSIONS: List[str] = [
 ]
 
 
-def schema_choices(*, include_empty: bool) -> List[str]:
+def schema_choices(*, include_empty: bool) -> list[str]:
     """Return argparse choices list.
 
     Args:
@@ -74,7 +73,7 @@ def normalize_schema_ver(ver: str) -> str:
 
     This does NOT validate; validation is done by argparse choices.
     """
-    v = str(ver or "").strip()
+    v = (ver or "").strip()
     if not v:
         return ""
     vv = v.lower().replace("-", "_")

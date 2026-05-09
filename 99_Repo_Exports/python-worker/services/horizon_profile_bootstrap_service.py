@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 services/horizon_profile_bootstrap_service.py
 ──────────────────────────────────────────────
@@ -35,7 +36,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -53,7 +54,7 @@ except Exception:  # pragma: no cover
     logger = logging.getLogger("HorizonProfileBootstrapService")
 
 try:
-    from prometheus_client import Counter, Gauge
+    from prometheus_client import Counter
     _M_WRITTEN = Counter(
         "trade_horizon_profile_bootstrap_written_total",
         "Horizon profile keys written to Redis per bootstrap run",
@@ -115,9 +116,9 @@ def _safe_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def _parse_list(name: str, default: str = "*") -> List[str]:
+def _parse_list(name: str, default: str = "*") -> list[str]:
     raw = str(os.getenv(name, default) or default)
-    out: List[str] = []
+    out: list[str] = []
     for p in raw.split(","):
         s = p.strip()
         if s:
@@ -129,7 +130,7 @@ def _parse_list(name: str, default: str = "*") -> List[str]:
 # Pure math helpers
 # ---------------------------------------------------------------------------
 
-def _percentile_disc_sorted(xs: List[int], q: float) -> int:
+def _percentile_disc_sorted(xs: list[int], q: float) -> int:
     """Discrete percentile on a sorted list. No numpy dependency."""
     if not xs:
         return 0
@@ -196,7 +197,7 @@ class HorizonProfileBootstrapService:
     def __init__(self, dsn: str, redis_url: str) -> None:
         self._dsn = dsn
         self._redis_url = redis_url
-        self._redis: Optional[Any] = None
+        self._redis: Any | None = None
         self._window_days = _env_int("HORIZON_PROFILE_WINDOW_DAYS", 45)
         self._sample_limit = _env_int("HORIZON_PROFILE_SAMPLE_LIMIT", 5000)
         self._min_n = _env_int("HORIZON_PROFILE_MIN_N", 40)
@@ -211,7 +212,7 @@ class HorizonProfileBootstrapService:
     # Redis client (lazy)
     # ------------------------------------------------------------------
 
-    def _get_redis(self) -> Optional[Any]:
+    def _get_redis(self) -> Any | None:
         if self._redis is not None:
             return self._redis
         if _redis_lib is None:
@@ -263,7 +264,7 @@ class HorizonProfileBootstrapService:
             application_name="horizon_profile_bootstrap_service",
         )
 
-    def _load_rows(self, conn, source: str, symbol: str) -> List[HorizonStatRow]:
+    def _load_rows(self, conn, source: str, symbol: str) -> list[HorizonStatRow]:
         cutoff_ms = int(time.time() * 1000) - self._window_days * 86400 * 1000
         sql = """
         SELECT
@@ -285,7 +286,7 @@ class HorizonProfileBootstrapService:
         ORDER BY t.exit_ts_ms DESC
         LIMIT %(limit)s
         """
-        out: List[HorizonStatRow] = []
+        out: list[HorizonStatRow] = []
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(sql, {
                 "source":       source,
@@ -304,7 +305,7 @@ class HorizonProfileBootstrapService:
                 ))
         return out
 
-    def _discover_pairs(self, conn) -> List[Tuple[str, str]]:
+    def _discover_pairs(self, conn) -> list[tuple[str, str]]:
         """Return (source, symbol) pairs that have trades in the window."""
         cutoff_ms = int(time.time() * 1000) - self._window_days * 86400 * 1000
         sql = """
@@ -314,7 +315,7 @@ class HorizonProfileBootstrapService:
         GROUP BY source, symbol
         ORDER BY n DESC
         """
-        out: List[Tuple[str, str]] = []
+        out: list[tuple[str, str]] = []
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(sql, {"cutoff_ms": cutoff_ms})
             for r in cur.fetchall():
@@ -331,7 +332,7 @@ class HorizonProfileBootstrapService:
     # Profile computation
     # ------------------------------------------------------------------
 
-    def _calc_profile(self, rows: List[HorizonStatRow]) -> Optional[Dict[str, Any]]:
+    def _calc_profile(self, rows: list[HorizonStatRow]) -> dict[str, Any] | None:
         """
         Compute calibration profile from a list of trade stat rows.
 
@@ -384,7 +385,7 @@ class HorizonProfileBootstrapService:
     # Redis publish
     # ------------------------------------------------------------------
 
-    def _publish_profiles(self, source: str, symbol: str, rows: List[HorizonStatRow]) -> int:
+    def _publish_profiles(self, source: str, symbol: str, rows: list[HorizonStatRow]) -> int:
         """
         Build and write profiles at three key granularities:
           1. exact (scenario + regime)
@@ -399,8 +400,8 @@ class HorizonProfileBootstrapService:
             return 0
 
         # Group rows
-        exact:       Dict[Tuple[str, str], List[HorizonStatRow]] = {}
-        by_scenario: Dict[str, List[HorizonStatRow]] = {}
+        exact:       dict[tuple[str, str], list[HorizonStatRow]] = {}
+        by_scenario: dict[str, list[HorizonStatRow]] = {}
         for row in rows:
             exact.setdefault((row.scenario, row.regime), []).append(row)
             by_scenario.setdefault(row.scenario, []).append(row)
@@ -502,7 +503,7 @@ def _dump(obj: Any) -> str:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_svc: Optional[HorizonProfileBootstrapService] = None
+_svc: HorizonProfileBootstrapService | None = None
 _lock = threading.Lock()
 
 

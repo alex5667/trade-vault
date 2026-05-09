@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -39,7 +39,7 @@ def _i(v: Any, d: int = 0) -> int:
 
 async def aread_deribit_context(
     redis, *, symbol: str
-) -> Optional[DeribitContextSnapshot]:
+) -> DeribitContextSnapshot | None:
     """
     Read Deribit volatility context snapshot from Redis.
 
@@ -51,7 +51,7 @@ async def aread_deribit_context(
     if redis is None:
         return None
 
-    sym = str(symbol or "").upper()
+    sym = (symbol or "").upper()
     key = f"ctx:deribit:{sym}" if sym in {"BTCUSDT", "ETHUSDT"} else "ctx:deribit:global"
 
     try:
@@ -87,7 +87,7 @@ async def aread_deribit_context(
     return DeribitContextSnapshot(
         schema_version=_i(obj.get("schema_version"), 1),
         symbol=str(obj.get("symbol") or sym),
-        currency=str(obj.get("currency") or ""),
+        currency=(obj.get("currency") or ""),
         ts_ms=_i(obj.get("ts_ms")),
         btc_options_oi_proxy=_f(obj.get("btc_options_oi_proxy")),
         eth_options_oi_proxy=_f(obj.get("eth_options_oi_proxy")),
@@ -95,6 +95,6 @@ async def aread_deribit_context(
         deribit_iv_z=iv_z,
         deribit_funding_8h=funding_8h,
         deribit_perp_basis_bps=_f(obj.get("deribit_perp_basis_bps")),
-        btc_eth_vol_regime=str(obj.get("btc_eth_vol_regime") or "unknown"),
-        quality_status=str(obj.get("quality_status") or "UNKNOWN"),
+        btc_eth_vol_regime=(obj.get("btc_eth_vol_regime") or "unknown"),
+        quality_status=(obj.get("quality_status") or "UNKNOWN"),
     )

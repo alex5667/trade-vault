@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from services.orderflow.derivatives_context import basis_bps, robust_zscore, build_snapshot
+from services.orderflow.derivatives_context import basis_bps, build_snapshot, robust_zscore
 
 
 def test_basis_bps_positive_premium():

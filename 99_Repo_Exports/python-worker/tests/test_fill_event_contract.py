@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Unit-тесты контракта fill_event (A3).
 
 Покрывают:
@@ -10,24 +10,20 @@ from __future__ import annotations
   pytest python-worker/tests/test_fill_event_contract.py -v
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import time
-from typing import Any, Dict
-
-import pytest
+from typing import Any
 
 from services.posttrade.fill_event_contract import (
     normalize_fill_event,
     validate_fill_event,
 )
+from utils.time_utils import get_ny_time_millis
 
 NOW_MS = get_ny_time_millis()
 
 
-def _base_fill(**overrides: Any) -> Dict[str, Any]:
+def _base_fill(**overrides: Any) -> dict[str, Any]:
     """Минимально полный fill event."""
-    base: Dict[str, Any] = {
+    base: dict[str, Any] = {
         "sid": "sid-abc-001",
         "order_id": "ord-123",
         "ts_fill_ms": NOW_MS,

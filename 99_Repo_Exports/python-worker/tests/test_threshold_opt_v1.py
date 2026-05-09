@@ -1,5 +1,7 @@
 import numpy as np
+
 from core.threshold_opt_v1 import best_threshold_by_utility
+
 
 def test_best_threshold_prefers_higher_sum_util():
     p = np.array([0.4,0.5,0.6,0.7,0.8], dtype=float)

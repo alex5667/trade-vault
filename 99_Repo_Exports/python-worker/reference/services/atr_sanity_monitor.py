@@ -1,11 +1,10 @@
 import asyncio
 import json
+import logging
 import os
 import time
-import logging
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Dict
 
 from core.redis_client import get_redis
 from services.telegram.telegram_client import TelegramClient
@@ -26,19 +25,19 @@ class ATRSanityMonitor:
     def __init__(self):
         self.redis = get_redis()
         self.telegram = TelegramClient.from_env()
-        
+
         # Config
         self.enabled = bool(int(os.getenv("ATR_MONITOR_ENABLE", "1")))
         self.stream_key = os.getenv("ATR_MONITOR_STREAM", "signals:crypto:raw")
         self.consumer_group = os.getenv("ATR_MONITOR_GROUP", "atr_monitor_group")
         self.consumer_name = os.getenv("ATR_MONITOR_CONSUMER", f"mon-{os.getpid()}")
-        
+
         # Alert logic settings
         self.window_sec = float(os.getenv("ATR_MONITOR_WINDOW_SEC", "60"))
         self.threshold_count = int(os.getenv("ATR_MONITOR_THRESHOLD_COUNT", "3"))
         self.cooldown_sec = float(os.getenv("ATR_MONITOR_COOLDOWN_SEC", "300"))
-        
-        self.states: Dict[str, SymbolState] = {}
+
+        self.states: dict[str, SymbolState] = {}
         logger.info(f"Initialized ATRSanityMonitor: enabled={self.enabled}, window={self.window_sec}s, threshold={self.threshold_count}, cooldown={self.cooldown_sec}s")
 
     async def ensure_group(self):
@@ -60,7 +59,7 @@ class ATRSanityMonitor:
     async def process_signal(self, payload: dict):
         if not payload:
             return
-            
+
         # Check if sanity check failed
         is_bad = False
         try:
@@ -68,24 +67,24 @@ class ATRSanityMonitor:
             is_bad = int(payload.get("atr_sanity_bad", 0) or 0) == 1
         except Exception:
             pass
-            
+
         if not is_bad:
             return
 
         symbol = payload.get("symbol", "unknown")
         reason = payload.get("atr_sanity_reason", "unknown")
-        
+
         now = time.time()
         if symbol not in self.states:
             self.states[symbol] = SymbolState()
-        
+
         state = self.states[symbol]
         state.errors.append(now)
         self.clean_old_errors(state, now)
-        
+
         count = len(state.errors)
         logger.warning(f"Detected bad ATR for {symbol}: {reason} (count={count}/{self.threshold_count} in {self.window_sec}s)")
-        
+
         if count >= self.threshold_count:
             if now - state.last_alert_ts >= self.cooldown_sec:
                 await self.send_alert(symbol, reason, count)
@@ -95,7 +94,7 @@ class ATRSanityMonitor:
         if not self.telegram:
             logger.warning("Telegram client not configured, skipping alert")
             return
-            
+
         msg = (
             f"⚠️ <b>ATR Sanity Alert</b>\n"
             f"Symbol: <code>{symbol}</code>\n"
@@ -104,8 +103,8 @@ class ATRSanityMonitor:
             f"Status: <b>DEGRADED</b>"
         )
         logger.info(f"Sending telegram alert for {symbol}")
-        # TelegramClient.send_text is failing-open and synchronous (requests), 
-        # but here we are in async context. ideally we wrap it to not block loop, 
+        # TelegramClient.send_text is failing-open and synchronous (requests),
+        # but here we are in async context. ideally we wrap it to not block loop,
         # but for low-freq alerts it's acceptable or we run in executor.
         try:
             loop = asyncio.get_running_loop()
@@ -118,10 +117,10 @@ class ATRSanityMonitor:
             logger.info("Service disabled via env")
             while True:
                 await asyncio.sleep(3600)
-                
+
         await self.ensure_group()
         logger.info(f"Listening on {self.stream_key}...")
-        
+
         while True:
             try:
                 # Read new messages
@@ -132,10 +131,10 @@ class ATRSanityMonitor:
                     count=10,
                     block=2000
                 )
-                
+
                 if not streams:
                     continue
-                    
+
                 for stream_name, messages in streams:
                     for msg_id, data in messages:
                         # process
@@ -153,14 +152,14 @@ class ATRSanityMonitor:
                                     payload = json.loads(payload["json"])
                                 except (ValueError, json.JSONDecodeError):
                                     pass
-                            
+
                             await self.process_signal(payload)
-                            
+
                             # Ack
                             await self.redis.xack(self.stream_key, self.consumer_group, msg_id)
                         except Exception as e:
                             logger.error(f"Error processing message {msg_id}: {e}")
-                            
+
             except asyncio.CancelledError:
                 break
             except Exception as e:

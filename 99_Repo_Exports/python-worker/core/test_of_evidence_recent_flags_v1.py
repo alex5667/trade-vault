@@ -6,10 +6,7 @@ Unit-тесты для compute_sweep_recent() и compute_reclaim_recent() из c
         tick_flow_full/core/test_of_evidence_recent_flags_v1.py \
         tick_flow_full/core/test_ml_feature_schema_confirmations_v2.py
 """
-import os
-import sys
 
-import pytest
 
 # Ensure project root is in sys.path (tick_flow_full is not a proper package — нет __init__.py)
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
@@ -17,7 +14,6 @@ import pytest
 from core.of_evidence import compute_reclaim_recent, compute_sweep_recent
 from core.reclaim_detector import ReclaimEvent
 from core.sweep_detector import SweepEvent
-
 
 # ---------------------------------------------------------------------------
 # Вспомогательные строители событий

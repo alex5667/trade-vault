@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 tests/news_pipeline/test_p6_budget_overbudget_dlq_no_llm.py
 
@@ -13,21 +14,19 @@ Verifies:
 No real Redis/LLM needed; uses in-process fakes.
 """
 
-import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 
 from news_pipeline.budget import BudgetResult
-
 
 # ── Fakes ──────────────────────────────────────────────────────────────────────
 
 @dataclass
 class _FakeRedis:
     """Minimal fake redis for DLQ + budget checks."""
-    xadd_calls: List[Dict[str, Any]] = field(default_factory=list)
+    xadd_calls: list[dict[str, Any]] = field(default_factory=list)
     _calls_used: int = 0
     _usd_ok: bool = True
 

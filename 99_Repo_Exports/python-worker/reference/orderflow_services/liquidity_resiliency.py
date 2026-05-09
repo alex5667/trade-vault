@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Liquidity resiliency / recovery-time tracker (Phase C / P2).
 
 Measures how quickly spread/depth return to baseline after a stress episode.
@@ -12,7 +13,7 @@ Outputs:
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 def _clamp01(x: float) -> float:
@@ -39,15 +40,15 @@ class LiquidityResiliencyTracker:
 
     _recover_candidate_ms: int = 0
 
-    def update(self, *, ts_ms: int, spread_bps: float, depth_usd: float) -> Dict[str, Any]:
+    def update(self, *, ts_ms: int, spread_bps: float, depth_usd: float) -> dict[str, Any]:
         ts_ms = int(ts_ms or 0)
         sb = float(spread_bps or 0.0)
         du = float(depth_usd or 0.0)
 
         if ts_ms <= 0 or not math.isfinite(sb) or not math.isfinite(du) or sb < 0 or du < 0:
             return {
-                "liq_recovery_time_ms": int(0),
-                "liq_fragility_score": float(0.0),
+                "liq_recovery_time_ms": 0,
+                "liq_fragility_score": 0.0,
                 "liq_stress_active": int(1 if self.stress_active else 0),
                 "liq_spread_ema": float(self.spread_ema),
                 "liq_depth_ema_usd": float(self.depth_ema_usd),

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Симуляция различных TRAILING_TP1_OFFSET_ATR для калибровки.
 
@@ -17,10 +17,9 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any
 
 import psycopg2
-
 
 EPS = 1e-9
 
@@ -60,7 +59,7 @@ def load_trailing_trades(
     source: str,
     symbol: str,
     limit: int = 200,
-) -> List[TradeRow]:
+) -> list[TradeRow]:
     """
     Загружает сделки с запущенным трейлингом и достигнутым TP1.
     Фильтрует только те сделки, где был достигнут TP1 (tp1_hit = true).
@@ -99,7 +98,7 @@ def load_trailing_trades(
         )
         rows = cur.fetchall()
 
-    result: List[TradeRow] = []
+    result: list[TradeRow] = []
     for r in rows:
         result.append(
             TradeRow(
@@ -136,7 +135,7 @@ def load_historical_prices(
     start_ts_ms: int,
     end_ts_ms: int,
     max_ticks: int = 50000,
-) -> List[PriceTick]:
+) -> list[PriceTick]:
     """
     Загружает исторические тиковые данные цены для симуляции.
 
@@ -176,9 +175,9 @@ def load_historical_prices(
 def simulate_offset_mult_with_historical_data(
     trade: TradeRow,
     offset_mult: float,
-    historical_prices: List[PriceTick],
+    historical_prices: list[PriceTick],
     max_simulation_hours: int = 24,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Симулирует результат сделки с заданным offset_mult на исторических данных цены.
 
@@ -319,7 +318,7 @@ def simulate_offset_mult_with_historical_data(
     }
 
 
-def simulate_offset_mult(trade: TradeRow, offset_mult: float) -> Dict[str, Any]:
+def simulate_offset_mult(trade: TradeRow, offset_mult: float) -> dict[str, Any]:
     """
     Упрощенная симуляция для обратной совместимости.
     Используется, когда нет исторических данных.
@@ -358,26 +357,26 @@ def simulate_offset_mult(trade: TradeRow, offset_mult: float) -> Dict[str, Any]:
 
 def analyze_offset_mult_range(
     conn,
-    trades: List[TradeRow],
-    offset_mults: List[float],
+    trades: list[TradeRow],
+    offset_mults: list[float],
     symbol: str,
     max_simulation_hours: int = 24,
-) -> Dict[float, Dict[str, Any]]:
+) -> dict[float, dict[str, Any]]:
     """
     Анализирует различные offset_mult на выборке сделок с использованием исторических данных.
     """
-    results: Dict[float, Dict[str, Any]] = {}
+    results: dict[float, dict[str, Any]] = {}
 
     # Кэш исторических данных по сделкам (чтобы не загружать многократно)
-    price_cache: Dict[int, List[PriceTick]] = {}
+    price_cache: dict[int, list[PriceTick]] = {}
 
     for offset_mult in offset_mults:
-        simulated_rs: List[float] = []
-        giveback_rs: List[float] = []
-        missed_rs: List[float] = []
+        simulated_rs: list[float] = []
+        giveback_rs: list[float] = []
+        missed_rs: list[float] = []
         better_count = 0
-        sl_hit_rates: List[bool] = []
-        avg_time_to_sl_hit: List[float] = []
+        sl_hit_rates: list[bool] = []
+        avg_time_to_sl_hit: list[float] = []
 
         for trade in trades:
             # Загружаем исторические данные для сделки (если не в кэше)
@@ -429,7 +428,7 @@ def analyze_offset_mult_range(
     return results
 
 
-def get_offset_mult_grid(symbol: str) -> List[float]:
+def get_offset_mult_grid(symbol: str) -> list[float]:
     """
     Возвращает сетку offset_mult для тестирования в зависимости от символа.
 
@@ -452,7 +451,7 @@ def get_offset_mult_grid(symbol: str) -> List[float]:
         return [0.2, 0.3, 0.4, 0.6, 0.8, 1.0, 1.2]
 
 
-def recommend_offset_mult(analysis: Dict[float, Dict[str, Any]]) -> Dict[str, Any]:
+def recommend_offset_mult(analysis: dict[float, dict[str, Any]]) -> dict[str, Any]:
     """
     Рекомендует оптимальный offset_mult на основе анализа с учетом SL hit rate.
     """
@@ -493,7 +492,7 @@ def recommend_offset_mult(analysis: Dict[float, Dict[str, Any]]) -> Dict[str, An
     }
 
 
-def print_simulation_report(symbol: str, source: str, analysis: Dict[float, Dict[str, Any]], recommendation: Dict[str, Any]) -> None:
+def print_simulation_report(symbol: str, source: str, analysis: dict[float, dict[str, Any]], recommendation: dict[str, Any]) -> None:
     print(f"=== Полноценная симуляция TRAILING_TP1_OFFSET_ATR для {symbol} ({source}) ===")
     print(f"Рекомендация: {recommendation['recommended']:.2f} (причина: {recommendation['reason']})")
     print()

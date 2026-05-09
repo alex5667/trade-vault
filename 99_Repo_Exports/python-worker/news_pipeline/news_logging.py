@@ -1,5 +1,6 @@
 # python-worker/news_pipeline/news_logging.py
 from __future__ import annotations
+
 """
 News logging helpers for signal/tick pipelines.
 
@@ -23,18 +24,16 @@ Environment knobs:
 - NEWS_DEBUG_SAMPLE_PCT=1  (default 1%)
 - NEWS_DEBUG_MAX_BYTES=65536
 """
-from utils.time_utils import get_ny_time_millis
-
 import json
 import logging
 import os
 import queue
 import threading
-import time
-from dataclasses import asdict
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from common.stable_hash import sample_pct
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 log_full = logging.getLogger("news_full_debug")
 
@@ -69,7 +68,7 @@ def normalize_analysis_key(ref: str) -> str:
     return f"news:analysis:{r}"
 
 
-def add_news_minilog(ev: Dict[str, Any], ctx: Any) -> None:
+def add_news_minilog(ev: dict[str, Any], ctx: Any) -> None:
     """
     Adds compact news fields to an existing log event dict.
     Safe to call in hot paths: O(1), no IO, no allocations beyond a few primitives.
@@ -110,9 +109,9 @@ class NewsFullDebugFetcher:
         max_bytes_default: int = 65536,
     ) -> None:
         self.r = redis
-        self.q: "queue.Queue[Tuple[str, str, int]]" = queue.Queue(maxsize=max_queue)
+        self.q: queue.Queue[tuple[str, str, int]] = queue.Queue(maxsize=max_queue)
         self._stop = threading.Event()
-        self._thr: Optional[threading.Thread] = None
+        self._thr: threading.Thread | None = None
 
         self.enabled = _env_bool("NEWS_DEBUG_FULL", False)
         self.sample_pct = _safe_int(os.getenv("NEWS_DEBUG_SAMPLE_PCT", str(sample_pct_default)), sample_pct_default)
@@ -165,10 +164,8 @@ class NewsFullDebugFetcher:
                 # fail-open: never crash background worker
                 pass
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     self.q.task_done()
-                except Exception:
-                    pass
 
     def _process_one(self, *, ref: str, symbol: str, ts_ms: int) -> None:
         key = normalize_analysis_key(ref)

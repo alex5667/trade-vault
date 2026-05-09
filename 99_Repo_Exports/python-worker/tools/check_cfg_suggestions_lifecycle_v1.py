@@ -11,7 +11,9 @@ import os
 import sys
 
 import redis
+
 from tools.cfg_suggestions_lifecycle import check_suggestions_health
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -28,7 +30,7 @@ def main():
     try:
         r = redis.Redis.from_url(redis_url, decode_responses=True)
         scopes = [s.strip() for s in args.scopes.split(",") if s.strip()]
-        
+
         summary, alerts = check_suggestions_health(
             r,
             prefix=args.prefix,
@@ -38,7 +40,7 @@ def main():
             max_approved_age_ms=args.max_approved_age_ms,
             strict=args.strict
         )
-        
+
         if args.print_json:
             print(json.dumps({"summary": summary, "alerts": alerts}, indent=2))
         else:
@@ -50,7 +52,7 @@ def main():
         if alerts:
             sys.exit(2)
         sys.exit(0)
-        
+
     except Exception as e:
         if args.print_json:
             print(json.dumps({"error": str(e)}))

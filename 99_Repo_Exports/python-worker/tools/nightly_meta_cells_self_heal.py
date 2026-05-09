@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 """
 nightly_meta_cells_self_heal.py
 
@@ -20,8 +23,8 @@ Usage:
   (reads ENV vars from /etc/trade/of_reports.env or environment)
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import hashlib
+import hmac
 import json
 import os
 import random
@@ -29,13 +32,12 @@ import secrets
 import subprocess
 import sys
 import time
-import hmac
-import hashlib
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("NightlyMetaCellsSelfHeal")
 
@@ -56,7 +58,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -64,10 +66,10 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
-def _event_ts_ms(r: Dict[str, Any]) -> int:
+def _event_ts_ms(r: dict[str, Any]) -> int:
     """Extracts event timestamp in milliseconds from trade record."""
     for k in ("exit_ts_ms", "ts_ms", "ts", "event_ts_ms"):
         if k in r:
@@ -83,7 +85,7 @@ def _event_ts_ms(r: Dict[str, Any]) -> int:
     return 0
 
 
-def regime_bucket(t: Dict[str, Any]) -> str:
+def regime_bucket(t: dict[str, Any]) -> str:
     """Maps trade record to regime bucket (trend/range/news/thin/other)."""
     g = str(t.get("regime_group", "") or t.get("regime", "") or t.get("scenario_v4", "") or "")
     s = g.lower()
@@ -99,7 +101,7 @@ def regime_bucket(t: Dict[str, Any]) -> str:
     return "other"
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Computes percentile q (0.0-1.0) from sorted list."""
     if not xs:
         return 0.0
@@ -109,7 +111,7 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def stats(rs: List[float]) -> Dict[str, float]:
+def stats(rs: list[float]) -> dict[str, float]:
     """Computes basic statistics for returns list."""
     n = len(rs)
     if n == 0:
@@ -119,19 +121,19 @@ def stats(rs: List[float]) -> Dict[str, float]:
     return {"n": float(n), "meanR": float(mean), "tail_rate": float(tail), "medianR": float(pctl(rs, 0.5))}
 
 
-def bootstrap_tail_delta(enf: List[float], ctl: List[float], iters: int, seed: int) -> Dict[str, float]:
+def bootstrap_tail_delta(enf: list[float], ctl: list[float], iters: int, seed: int) -> dict[str, float]:
     """Bootstrap confidence interval for tail rate delta (enforce - control)."""
     rng = random.Random(seed)
     if len(enf) < 30 or len(ctl) < 30:
         return {"ok": 0.0}
-    
-    def samp_tail(xs: List[float]) -> float:
+
+    def samp_tail(xs: list[float]) -> float:
         c = 0
         for _ in range(len(xs)):
             if xs[rng.randrange(0, len(xs))] <= -1.0:
                 c += 1
         return c / len(xs)
-    
+
     deltas = []
     for _ in range(iters):
         deltas.append(samp_tail(enf) - samp_tail(ctl))  # enforce - control
@@ -140,7 +142,7 @@ def bootstrap_tail_delta(enf: List[float], ctl: List[float], iters: int, seed: i
 
 
 def cell_eval(
-    trades: List[Dict[str, Any]],
+    trades: list[dict[str, Any]],
     *,
     sym: str,
     bucket: str,
@@ -153,15 +155,15 @@ def cell_eval(
     mean_delta_min: float,
     boot_iters: int,
     boot_seed: int,
-) -> Tuple[bool, Dict[str, Any]]:
+) -> tuple[bool, dict[str, Any]]:
     """
     Evaluates cell health: enforce vs control outcomes.
     
     Returns:
         (ok: bool, report: dict)
     """
-    enf: List[float] = []
-    ctl: List[float] = []
+    enf: list[float] = []
+    ctl: list[float] = []
     missing_tag = 0
     total = 0
 
@@ -218,23 +220,23 @@ def cell_eval(
     return (len(reasons) == 0), rep
 
 
-def notify(r: redis.Redis, text: str, buttons: List[List[Dict[str, str]]] | None = None) -> None:
+def notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Sends notification to notify:telegram stream."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
 def apply_bundle_auto_hset(
     r: redis.Redis,
     *,
-    ops: List[Dict[str, str]],
-    meta: Dict[str, Any],
+    ops: list[dict[str, str]],
+    meta: dict[str, Any],
     who: str,
     ttl: int,
     secret: str,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """
     Applies bundle automatically (without approval) for auto-refreeze.
     
@@ -318,26 +320,26 @@ def main() -> None:
         sys.executable, "tools/export_trade_closed_ndjson.py",
         "--since-hours", str(since_hours),
         "--out", trades_out,
-        "--stream", os.getenv("TRADE_EVENTS_STREAM", "events:trades"),
+        "--stream", os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES),
         "--redis-url", redis_url,
         "--max-scan", os.getenv("TRADES_MAX_SCAN", "500000"),
     ])
 
     # parse trades into compact list
-    trades: List[Dict[str, Any]] = []
-    with open(trades_out, "r", encoding="utf-8") as f:
+    trades: list[dict[str, Any]] = []
+    with open(trades_out, encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
             t = json.loads(line)
-            sym = str(t.get("symbol", "") or "").upper()
+            sym = (t.get("symbol", "") or "").upper()
             ts_ms = _event_ts_ms(t)
             if ts_ms <= 0:
                 continue
             rm = t.get("r_mult", None)
             if rm is None:
                 continue
-            applied = t.get("meta_enforce_applied", None)
+            applied = t.get(MetaKeys.ENFORCE_APPLIED, None)
             bucket = regime_bucket(t)
             trades.append({
                 "symbol": sym,
@@ -532,7 +534,7 @@ def main() -> None:
                 "bucket": bucket,
                 "applied_ms": now_ms(),
                 "freeze_to": f"{freeze_floor:.2f}",
-                "prev_share": str(rec.get("target_share", "")),
+                "prev_share": (rec.get("target_share", "")),
                 "field": field,
                 "cfg_key": hk,
                 "bundle_id": bundle_id,

@@ -2,18 +2,22 @@ import types
 
 import pytest
 
+from handlers.crypto_orderflow.core.crypto_orderflow_confirmations import (
+    L2ConfirmAbsorption,
+    L2ConfirmBreakout,
+    L2ConfirmCfg,
+)
 from handlers.crypto_orderflow.core.crypto_orderflow_detector import CryptoEventDetector, DetectorCfg
-from handlers.crypto_orderflow.types.crypto_orderflow_pipeline_types import Candidate, QualityState
 from handlers.crypto_orderflow.core.crypto_orderflow_quality import (
     CompositeValidator,
-    SpreadValidator,
-    PivotsPresentValidator,
     OBIBreakoutValidator,
     OBIFadeValidator,
+    PivotsPresentValidator,
+    SpreadValidator,
 )
 from handlers.crypto_orderflow.core.crypto_orderflow_scoring import CryptoScoreModel, ScoreModelCfg
-from handlers.crypto_orderflow.core.crypto_orderflow_confirmations import L2ConfirmBreakout, L2ConfirmAbsorption, L2ConfirmCfg
 from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
+from handlers.crypto_orderflow.types.crypto_orderflow_pipeline_types import Candidate, QualityState
 
 
 class DummyThresholdMgr:

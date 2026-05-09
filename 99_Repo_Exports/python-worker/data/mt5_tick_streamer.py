@@ -31,10 +31,10 @@ MT5 Tick Streamer - публикует тиковые данные из MetaTrad
 - Использует DualRedisClient для устойчивости к сбоям
 """
 
-import os
 import json
-import time
+import os
 import sys
+import time
 
 try:
     import MetaTrader5 as mt5
@@ -64,15 +64,15 @@ except ImportError:
     print("=" * 80)
     print("")
 
-from core.dual_redis_client import get_dual_signals_redis
 from core.config import XAU_TICK_STREAM, XAU_TICK_STREAM_MAXLEN
+from core.dual_redis_client import get_dual_signals_redis
 
 
 class MT5TickStreamer:
     """
     Стример тиковых данных из MT5 в Redis Stream.
     """
-    
+
     def __init__(self):
         """Инициализация стримера с конфигурацией из переменных окружения."""
         self.symbol = os.getenv("XAU_SYMBOL")
@@ -81,18 +81,18 @@ class MT5TickStreamer:
         self.poll_interval = float(os.getenv("XAU_TICK_POLL_INTERVAL", "0.2"))  # 5 Hz
         self.tick_fetch_count = int(os.getenv("XAU_TICK_FETCH_COUNT", "500"))
         self.tick_lookback_sec = float(os.getenv("XAU_TICK_LOOKBACK_SEC", "5.0"))
-        
+
         # Redis клиент (dual для надежности)
         self.redis_client = get_dual_signals_redis()
-        
+
         # Состояние
         self.is_running = False
         self.last_ts = 0
-        
+
         print(f"✅ MT5TickStreamer инициализирован для {self.symbol}")
         print(f"   Stream: {self.tick_stream}, Poll: {self.poll_interval}s")
         sys.stdout.flush()
-    
+
     def start(self) -> None:
         """Запускает стример тиков."""
         if not MT5_AVAILABLE:
@@ -104,17 +104,17 @@ class MT5TickStreamer:
             print("")
             sys.stdout.flush()
             return
-        
+
         if self.is_running:
             print("⚠️ MT5TickStreamer уже запущен")
             return
-        
+
         # Инициализация MT5
         if not mt5.initialize():
             print(f"❌ MT5 инициализация не удалась: {mt5.last_error()}")
             sys.stdout.flush()
             return
-        
+
         # Проверка символа
         symbol_info = mt5.symbol_info(self.symbol)
         if symbol_info is None:
@@ -122,7 +122,7 @@ class MT5TickStreamer:
             mt5.shutdown()
             sys.stdout.flush()
             return
-        
+
         if not symbol_info.visible:
             print(f"⚠️ Символ {self.symbol} не видим, активируем...")
             if not mt5.symbol_select(self.symbol, True):
@@ -130,11 +130,11 @@ class MT5TickStreamer:
                 mt5.shutdown()
                 sys.stdout.flush()
                 return
-        
+
         self.is_running = True
         print(f"🚀 MT5TickStreamer запущен для {self.symbol}")
         sys.stdout.flush()
-        
+
         try:
             self._stream_loop()
         except KeyboardInterrupt:
@@ -142,7 +142,7 @@ class MT5TickStreamer:
             sys.stdout.flush()
         finally:
             self.stop()
-    
+
     def stop(self) -> None:
         """Останавливает стример и отключается от MT5."""
         self.is_running = False
@@ -150,41 +150,41 @@ class MT5TickStreamer:
             mt5.shutdown()
         print("⛔ MT5TickStreamer остановлен")
         sys.stdout.flush()
-    
+
     def _stream_loop(self) -> None:
         """Основной цикл чтения и публикации тиков."""
         tick_count = 0
         start_time = time.time()
-        
+
         while self.is_running:
             try:
                 # Получаем тики за последние N секунд
                 current_time = time.time()
                 from_time = current_time - self.tick_lookback_sec
-                
+
                 ticks = mt5.copy_ticks_from(
-                    self.symbol, 
+                    self.symbol,
                     int(from_time * 1000),  # время в миллисекундах
-                    self.tick_fetch_count, 
+                    self.tick_fetch_count,
                     mt5.COPY_TICKS_ALL
                 )
-                
+
                 if ticks is None or len(ticks) == 0:
                     time.sleep(self.poll_interval)
                     continue
-                
+
                 # Обрабатываем каждый тик
                 new_ticks = 0
                 for tick in ticks:
                     tick_ts = int(tick['time_msc'])
-                    
+
                     # Пропускаем уже обработанные тики
                     if tick_ts <= self.last_ts:
                         continue
-                    
+
                     self.last_ts = tick_ts
                     new_ticks += 1
-                    
+
                     # Формируем payload
                     payload = {
                         "ts": tick_ts,
@@ -194,7 +194,7 @@ class MT5TickStreamer:
                         "volume": float(tick.get('volume', 0)),
                         "flags": int(tick.get('flags', 0))  # для направления сделки
                     }
-                    
+
                     # Публикуем в Redis Stream
                     try:
                         self.redis_client.xadd(
@@ -207,7 +207,7 @@ class MT5TickStreamer:
                     except Exception as e:
                         print(f"❌ Ошибка публикации тика в Redis: {e}")
                         sys.stdout.flush()
-                
+
                 # Статистика каждые 60 секунд
                 if time.time() - start_time >= 60:
                     rate = tick_count / 60.0
@@ -215,10 +215,10 @@ class MT5TickStreamer:
                     sys.stdout.flush()
                     tick_count = 0
                     start_time = time.time()
-                
+
                 # Задержка перед следующим опросом
                 time.sleep(self.poll_interval)
-                
+
             except Exception as e:
                 print(f"❌ Ошибка в цикле стримера: {e}")
                 sys.stdout.flush()

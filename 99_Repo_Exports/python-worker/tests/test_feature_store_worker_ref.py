@@ -1,5 +1,7 @@
 import fakeredis
+
 from news_pipeline.feature_store_worker import NewsFeatureStoreWorker
+
 
 def test_feature_store_sets_ref_pointer():
     r = fakeredis.FakeRedis(decode_responses=True)

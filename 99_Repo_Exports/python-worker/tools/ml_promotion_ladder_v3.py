@@ -1,20 +1,19 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
+import hashlib
+import hmac
 import json
 import os
-import time
-import hmac
-import hashlib
 import secrets
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
 
+from core.share_map import dump_map, merge_updates, parse_map
+from tools.ml_metrics_agg import agg_exec_risk, agg_health_ml_confirm, agg_outcomes
 from tools.redis_window import read_recent_stream
-from tools.ml_metrics_agg import agg_outcomes, agg_health_ml_confirm, agg_exec_risk
-from core.share_map import parse_map, dump_map, merge_updates
-from core.bucket_utils import bucket_from_scenario
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -32,10 +31,10 @@ def notify(r: redis.Redis, text: str, buttons=None) -> None:
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
-def make_bundle_hset(cfg_key: str, changes: Dict[str, str], who: str, ttl: int):
+def make_bundle_hset(cfg_key: str, changes: dict[str, str], who: str, ttl: int):
     """Create bundle for HSET operations (compatible with recs_callback_worker_v2)."""
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bid = secrets.token_hex(6)
@@ -46,7 +45,7 @@ def make_bundle_hset(cfg_key: str, changes: Dict[str, str], who: str, ttl: int):
     return bid, sig, bundle
 
 
-def write_bundle(r: redis.Redis, bid: str, bundle: Dict[str, Any], ttl: int) -> None:
+def write_bundle(r: redis.Redis, bid: str, bundle: dict[str, Any], ttl: int) -> None:
     """Write bundle to Redis (compatible with recs_callback_worker_v2)."""
     r.set(f"recs:bundle:{bid}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=ttl)
     r.set(f"recs:status:{bid}", "PENDING", ex=ttl)
@@ -61,7 +60,7 @@ def ladder_next(cur: float) -> float:
     return cur
 
 
-def thresholds_for_level(level: float, bucket: str) -> Dict[str, float]:
+def thresholds_for_level(level: float, bucket: str) -> dict[str, float]:
     """Utility-based promotion thresholds (Brier, ECE, meanR, tail_rate, ES05).
     
     Prevents "well-calibrated but negative expectancy" models.
@@ -122,21 +121,21 @@ def thresholds_for_level(level: float, bucket: str) -> Dict[str, float]:
     return {"brier_max": brier, "ece_max": ece, "meanR_min": meanR, "tail_max": tail, "es05_min": es05}
 
 
-def filter_rows(rows: List[Dict[str, Any]], *, bucket: str, symbol="") -> List[Dict[str, Any]]:
+def filter_rows(rows: list[dict[str, Any]], *, bucket: str, symbol="") -> list[dict[str, Any]]:
     """Filter rows by bucket and optionally by symbol."""
     out = []
     bs = bucket.lower()
     sym = symbol.upper().strip()
     for r in rows:
-        if str(r.get("bucket", "")).lower() != bs:
+        if (r.get("bucket", "")).lower() != bs:
             continue
-        if sym and str(r.get("symbol", "")).upper() != sym:
+        if sym and (r.get("symbol", "")).upper() != sym:
             continue
         out.append(r)
     return out
 
 
-def pass_metrics(m: Dict[str, Any], thr: Dict[str, float]) -> bool:
+def pass_metrics(m: dict[str, Any], thr: dict[str, float]) -> bool:
     """Check if metrics pass all utility gates (Brier, ECE, meanR, tail_rate, ES05)."""
     return (
         float(m.get("brier", 1.0)) <= thr["brier_max"] and
@@ -203,11 +202,11 @@ def main() -> None:
             continue
 
         # Determine symbol set from outcomes (we only promote symbols with matured outcomes)
-        syms = sorted({str(x.get("symbol", "")).upper() for x in rows_long if str(x.get("bucket", "")).lower() == bucket and str(x.get("symbol", ""))})
+        syms = sorted({(x.get("symbol", "")).upper() for x in rows_long if (x.get("bucket", "")).lower() == bucket and (x.get("symbol", ""))})
         if not syms:
             continue
 
-        updates: Dict[str, float] = {}
+        updates: dict[str, float] = {}
         picked = 0
 
         for sym in syms:

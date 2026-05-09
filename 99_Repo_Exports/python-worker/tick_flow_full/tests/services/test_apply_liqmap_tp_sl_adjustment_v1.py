@@ -1,5 +1,4 @@
 # tick_flow_full/tests/services/test_apply_liqmap_tp_sl_adjustment_v1.py
-# -*- coding: utf-8 -*-
 """Unit tests: apply_liqmap_tp_sl_adjustment (TP/SL overlay).
 
 This test focuses on the *risk cap* behavior for SL widening.

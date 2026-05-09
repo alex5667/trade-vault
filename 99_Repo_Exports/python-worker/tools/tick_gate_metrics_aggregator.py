@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Tick Gate Metrics Aggregator (Step 22)
 
@@ -32,7 +33,7 @@ import json
 import os
 import sys
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # Prometheus exporter
 try:
@@ -50,11 +51,11 @@ except ImportError:
 class LabelLimiter:
     """Limits label cardinality. mode='skip' → skip non-allowlist, mode='collapse' → map to __other__."""
 
-    def __init__(self, mode: str, allowlist: Tuple[str, ...]):
+    def __init__(self, mode: str, allowlist: tuple[str, ...]):
         self.mode = mode.lower()
         self.allowlist = set(allowlist)
 
-    def label(self, raw_value: str) -> Optional[str]:
+    def label(self, raw_value: str) -> str | None:
         # Extract first token from multi-reason strings (e.g. "skew|p99" → "skew")
         token = _first_token(raw_value)
         if token in self.allowlist:
@@ -78,6 +79,7 @@ def _first_token(s: str) -> str:
 # Prometheus metrics
 ###############################################################################
 from prometheus_client import REGISTRY
+
 
 def _get_or_create_metric(collector_type, name, documentation, labelnames):
     # Use internal registry mapping for fast lookup
@@ -177,7 +179,7 @@ def _norm_status(s: str) -> str:
     return "error"  # default unknown → error
 
 
-def _extract_event(merged: Dict[str, Any]) -> Tuple[str, str, str, int]:
+def _extract_event(merged: dict[str, Any]) -> tuple[str, str, str, int]:
     """Extract (status, reason, symbol, ts_ms) from gate event payload."""
     status = _norm_str(merged.get("status") or merged.get("state"), "UNKNOWN")
     status = _norm_status(status)
@@ -205,9 +207,9 @@ class TickGateAggregator:
         consumer: str,
         start_id: str = "$",
         reason_label_mode: str = "collapse",
-        reason_allowlist: Tuple[str, ...] = ("skew", "unknown_side", "process_p99", "e2e_p99", "ts_now", "ts_stream"),
+        reason_allowlist: tuple[str, ...] = ("skew", "unknown_side", "process_p99", "e2e_p99", "ts_now", "ts_stream"),
         symbol_label_mode: str = "collapse",
-        symbol_allowlist: Tuple[str, ...] = (),
+        symbol_allowlist: tuple[str, ...] = (),
     ):
         try:
             import redis  # type: ignore
@@ -234,7 +236,7 @@ class TickGateAggregator:
         self.symbol_limiter = LabelLimiter(mode=symbol_label_mode, allowlist=symbol_allowlist)
 
         # Track last seen
-        self.last_status_str: Optional[str] = None
+        self.last_status_str: str | None = None
 
     def run_forever(self, *, block_ms: int = 5000, count: int = 100):
         """Infinite loop: XREADGROUP → update metrics → loop."""
@@ -283,9 +285,9 @@ class TickGateAggregator:
         # Update stream lag
         self._update_lag()
 
-    def _process_message(self, msg_id: str, fields: Dict[bytes, bytes]):
+    def _process_message(self, msg_id: str, fields: dict[bytes, bytes]):
         # Decode fields
-        f2: Dict[str, Any] = {}
+        f2: dict[str, Any] = {}
         for k, v in (fields or {}).items():
             kk = k.decode("utf-8", errors="replace") if isinstance(k, (bytes, bytearray)) else str(k)
             f2[kk] = v
@@ -354,7 +356,7 @@ class TickGateAggregator:
 ###############################################################################
 # Main
 ###############################################################################
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Tick Gate Aggregator (Step 22)")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     ap.add_argument("--stream", default=os.getenv("TICK_GATE_REDIS_STREAM", "ops:tick_quality_gate"))

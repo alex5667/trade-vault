@@ -1,13 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import time
 from types import SimpleNamespace
+
 import pytest
 
 # ВАЖНО: если у вас путь импорта handler отличается — поправьте строку импорта ниже
 from handlers.crypto_orderflow_handler import CryptoOrderFlowHandler
-from signals.types import SignalContext, OrderflowContext
+from signals.types import OrderflowContext, SignalContext
+from utils.time_utils import get_ny_time_millis
 
 
 def test_crypto_publish_signal_vetoes_before_super(monkeypatch: pytest.MonkeyPatch):
@@ -59,9 +59,9 @@ def test_crypto_publish_signal_vetoes_before_super(monkeypatch: pytest.MonkeyPat
     of = OrderflowContext(ts=ts_ms, price=100.0, symbol="BTCUSDT", atr=1.0, spread_bps=2.0)
     ctx = SignalContext(symbol="BTCUSDT", ts_event_ms=ts_ms, of=of)
     # optional convenience fields used as fallbacks in some code paths
-    setattr(ctx, "price", 100.0)
-    setattr(ctx, "confidence_pct", 99.0)
-    setattr(ctx, "conf_factor", 1.0)
+    ctx.price = 100.0
+    ctx.confidence_pct = 99.0
+    ctx.conf_factor = 1.0
 
     res = handler._publish_signal(  # type: ignore[attr-defined]
         "LONG",

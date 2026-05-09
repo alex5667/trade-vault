@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 conf_cal_rollback_event_watcher_v1.py
 
@@ -20,13 +20,13 @@ Env / Args
 - GRAFANA_DASHBOARD_UID / GRAFANA_PANEL_ID (optional, for scoping annotations)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis
@@ -34,10 +34,10 @@ except ImportError:  # pragma: no cover
     redis = None
 
 try:
-    from services.orderflow.conf_cal_ops_eventlog_v1 import write_stream_event, publish_event  # type: ignore
+    from services.orderflow.conf_cal_ops_eventlog_v1 import publish_event, write_stream_event  # type: ignore
 except Exception:  # pragma: no cover
     try:
-        from orderflow_services.conf_cal_ops_eventlog_v1 import write_stream_event, publish_event  # type: ignore
+        from orderflow_services.conf_cal_ops_eventlog_v1 import publish_event, write_stream_event  # type: ignore
     except Exception:  # pragma: no cover
         write_stream_event = None  # type: ignore
         publish_event = None  # type: ignore
@@ -47,22 +47,22 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _read_json(path: str) -> Optional[Dict[str, Any]]:
+def _read_json(path: str) -> dict[str, Any] | None:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return None
 
 
-def _load_state(path: str) -> Dict[str, Any]:
+def _load_state(path: str) -> dict[str, Any]:
     st = _read_json(path)
     if isinstance(st, dict):
         return st
     return {}
 
 
-def _save_state(path: str, st: Dict[str, Any]) -> None:
+def _save_state(path: str, st: dict[str, Any]) -> None:
     try:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         tmp = path + ".tmp"
@@ -73,7 +73,7 @@ def _save_state(path: str, st: Dict[str, Any]) -> None:
         pass
 
 
-def _http_post_json(url: str, payload: Dict[str, Any], token: str) -> bool:
+def _http_post_json(url: str, payload: dict[str, Any], token: str) -> bool:
     try:
         import urllib.request
         data = json.dumps(payload).encode("utf-8")
@@ -87,7 +87,7 @@ def _http_post_json(url: str, payload: Dict[str, Any], token: str) -> bool:
         return False
 
 
-def _grafana_annotate(status: Dict[str, Any], *, url: str, token: str, tags: list[str], dashboard_uid: str, panel_id: int) -> bool:
+def _grafana_annotate(status: dict[str, Any], *, url: str, token: str, tags: list[str], dashboard_uid: str, panel_id: int) -> bool:
     if not url or not token:
         return False
 
@@ -100,7 +100,7 @@ def _grafana_annotate(status: Dict[str, Any], *, url: str, token: str, tags: lis
     if st_url:
         text += f"\nstatus={st_url}"
 
-    payload: Dict[str, Any] = {"time": ts, "tags": tags, "text": text}
+    payload: dict[str, Any] = {"time": ts, "tags": tags, "text": text}
     if dashboard_uid:
         payload["dashboardUID"] = dashboard_uid
     if panel_id >= 0:
@@ -148,7 +148,7 @@ def main() -> int:
         # Detect new rollback
         if rb_total > last_total or (ts_ms > last_ts and ts_ms > 0):
             print(f"[{now_ms()}] DETECTED ROLLBACK: total={rb_total} (was {last_total}), ts={ts_ms}")
-            
+
             # Emit Redis Event
             if r and write_stream_event:
                 payload = dict(status)
@@ -156,7 +156,7 @@ def main() -> int:
                 write_stream_event(r, stream_key=args.stream_key, event_type="conf_cal_rollback", payload=payload, run_id=args.run_id, maxlen=args.stream_maxlen)
                 if publish_event:
                     publish_event(r, channel=args.pubsub_ch, event_type="conf_cal_rollback", payload=payload, run_id=args.run_id)
-            
+
             # Grafana Annotation
             if args.grafana_url and args.grafana_token:
                 tags = [t.strip() for t in args.grafana_tags.split(",") if t.strip()]
@@ -168,7 +168,7 @@ def main() -> int:
 
             last_total = rb_total
             last_ts = ts_ms
-            
+
             st["last_rollback_total"] = last_total
             st["last_rollback_ts_ms"] = last_ts
             _save_state(args.state_path, st)

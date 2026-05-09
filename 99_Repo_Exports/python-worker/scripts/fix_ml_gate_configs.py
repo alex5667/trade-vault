@@ -1,10 +1,12 @@
 import json
 import os
-import redis
-from typing import Dict, Any
 
 # Correct path for imports
 import sys
+from typing import Any
+
+import redis
+
 sys.path.append(os.getcwd())
 
 def clamp_value(v: Any) -> float:
@@ -32,7 +34,7 @@ def fix_configs():
         try:
             raw_payload = r.get(key)
             if not raw_payload: continue
-            
+
             cfg = json.loads(raw_payload)
             modified = False
 
@@ -68,7 +70,7 @@ def fix_configs():
                             print(f"[{key}] Clamping {floor_key}.global.floor: {old_v} -> {new_v}")
                             g["floor"] = new_v
                             modified = True
-                    
+
                     # By bucket
                     bb = floors.get("by_bucket")
                     if isinstance(bb, dict):

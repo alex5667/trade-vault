@@ -1,4 +1,8 @@
-import os, sys, json, asyncio
+import asyncio
+import json
+import os
+import sys
+
 import redis.asyncio as aioredis
 
 META_PREFIX = "cfg:suggestions:entry_policy:meta"

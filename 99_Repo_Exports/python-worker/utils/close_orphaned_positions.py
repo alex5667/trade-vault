@@ -2,6 +2,7 @@
 import argparse
 import os
 import sys
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -9,8 +10,9 @@ load_dotenv()
 # Ensure this script can import from services
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from typing import List, Dict, Any
 from services.binance_futures_client import BinanceFuturesClient
+import contextlib
+
 
 def close_orphaned_positions(dry_run: bool = True):
     """
@@ -21,11 +23,11 @@ def close_orphaned_positions(dry_run: bool = True):
     is_demo = client_mode.lower() == "demo"
     api_key_env = "BINANCE_DEMO_API_KEY" if is_demo else "BINANCE_API_KEY"
     api_secret_env = "BINANCE_DEMO_API_SECRET" if is_demo else "BINANCE_API_SECRET"
-    
+
     api_key = os.environ.get(api_key_env) or os.environ.get("BINANCE_API_KEY")
     api_secret = os.environ.get(api_secret_env) or os.environ.get("BINANCE_API_SECRET")
     base_url = os.environ.get("BINANCE_DEMO_FUTURES_BASE_URL") if is_demo else os.environ.get("BINANCE_BASE_URL", "https://testnet.binancefuture.com")
-    
+
     if not api_key or not api_secret:
         print(f"Error: {api_key_env} and {api_secret_env} must be set")
         sys.exit(1)
@@ -40,26 +42,24 @@ def close_orphaned_positions(dry_run: bool = True):
         return
 
     orphans = []
-    
+
     # Identify positions
     for pos in positions_risk:
         amt = float(pos.get("positionAmt", 0))
         if abs(amt) < 1e-9:
             continue
-            
+
         symbol = pos.get("symbol", "").upper()
         logical_side = "LONG" if amt > 0 else "SHORT"
-        
+
         print(f"\nEvaluating position: {symbol} {logical_side} {amt}")
-        
+
         try:
             plain_orders = client.get_open_orders(symbol) or []
             algo_orders = []
-            try:
+            with contextlib.suppress(Exception):
                 algo_orders = client.get_open_algo_orders(symbol) or []
-            except Exception:
-                pass
-                
+
             has_sl = False
             has_tp = False
             for o in plain_orders:
@@ -74,13 +74,13 @@ def close_orphaned_positions(dry_run: bool = True):
                     has_sl = True
                 if 'TAKE_PROFIT' in otype:
                     has_tp = True
-            
+
             if not has_sl and not has_tp:
                 print(f"  -> WARNING: No protective orders found for {symbol}. Marking as orphaned.")
                 orphans.append({"symbol": symbol, "amt": amt, "side": logical_side})
             else:
                 print(f"  -> Protected (SL:{has_sl}, TP:{has_tp}). Total orders: {len(plain_orders)+len(algo_orders)}")
-        
+
         except Exception as e:
             print(f"  -> Failed to list orders for {symbol}: {e}")
 
@@ -100,7 +100,7 @@ def close_orphaned_positions(dry_run: bool = True):
         amt = abs(o['amt'])
         pos_side = "LONG" if o['side'] == "LONG" else "SHORT"
         close_side = "SELL" if o['side'] == "LONG" else "BUY"
-        
+
         print(f"\n--- Flattening {sym} ---")
         # Step 1: Cancel all plain and algo orders just in case
         print("  Canceling resting plain orders...")
@@ -108,7 +108,7 @@ def close_orphaned_positions(dry_run: bool = True):
             client.cancel_all_orders(sym)
         except Exception as e:
             print(f"  Failed plain cancel: {e}")
-        
+
         print("  Canceling resting algo orders...")
         try:
             client.cancel_all_algo_orders(sym)
@@ -145,5 +145,5 @@ if __name__ == "__main__":
     parser.add_argument("--execute", action="store_true", help="Actually place closing orders")
     args = parser.add_argument_group()
     args = parser.parse_args()
-    
+
     close_orphaned_positions(dry_run=not args.execute)

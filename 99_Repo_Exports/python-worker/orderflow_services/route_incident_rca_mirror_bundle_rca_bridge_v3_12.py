@@ -1,12 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
-import json
 import os
 import time
-import uuid
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -42,13 +41,13 @@ MAX_BUNDLE_BYTES = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_BRIDGE_MAX_BU
 REQUIRE_VERTEX_DEGRADED = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_BRIDGE_REQUIRE_VERTEX_DEGRADED_FOR_LOCAL", "1"))
 POLL_INTERVAL_SEC = 2.0
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_rca_bridge_runs_total", "Bridge runs", ("status", "decision"))
@@ -60,7 +59,7 @@ LAST_RUN = _gauge("ml_route_incident_rca_mirror_rca_bridge_last_run_ts_seconds",
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
@@ -83,7 +82,7 @@ def trigger_decision(severity: str, mode: str, vertex_degraded: bool, bundle_siz
 
     if mode == "VERTEX_ONLY":
         return "ROUTE_VERTEX"
-    
+
     if mode == "LOCAL_ONLY":
         return "ROUTE_LOCAL"
 
@@ -92,7 +91,7 @@ def trigger_decision(severity: str, mode: str, vertex_degraded: bool, bundle_siz
             return "ROUTE_LOCAL"
         else:
             return "ROUTE_VERTEX"
-            
+
     return "REJECT"
 
 async def route_vertex(r: Any, bundle_id: str, bundle_json: str, severity: str) -> None:
@@ -145,17 +144,17 @@ async def main() -> None:  # pragma: no cover
     start_http_server(PORT)
     if UP:
         UP.set(1)
-        
+
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     db_url = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
-    
+
     last_bundle_id = "$"
-    
+
     while True:
         started = time.perf_counter()
         status = "ok"
         decision = "none"
-        
+
         try:
             streams = {BUNDLES_STREAM: last_bundle_id}
             results = await r.xread(streams, count=5, block=int(POLL_INTERVAL_SEC*1000))
@@ -164,35 +163,35 @@ async def main() -> None:  # pragma: no cover
                     for msg_id, fields in events:
                         m_id = msg_id.decode() if isinstance(msg_id, bytes) else msg_id
                         decoded = decode_dict(fields)
-                        
+
                         bundle_id = decoded.get("bundle_id")
                         severity = decoded.get("severity", "info")
                         bundle_json = decoded.get("bundle_json")
-                        
+
                         if bundle_id and bundle_json:
                             v_degraded = await is_vertex_degraded(r)
                             bundle_size = len(bundle_json.encode('utf-8'))
-                            
+
                             decision = trigger_decision(
                                 severity, MODE, v_degraded, bundle_size, MAX_BUNDLE_BYTES, REQUIRE_VERTEX_DEGRADED == 1
                             )
-                            
+
                             if decision == "ROUTE_VERTEX":
                                 await route_vertex(r, bundle_id, bundle_json, severity)
                             elif decision == "ROUTE_LOCAL":
                                 await route_local(r, bundle_id, bundle_json, severity)
-                                
+
                             await persist_decision(db_url, bundle_id, decision, v_degraded, severity)
-                            
+
                             await r.xadd(DECISIONS_STREAM, {"bundle_id": bundle_id, "decision": decision, "vertex_degraded": str(v_degraded)}, maxlen=MAXLEN, approximate=True)
                             await r.xadd(AUDIT_STREAM, {"event_type": "BUNDLE_ROUTED", "bundle_id": bundle_id, "decision": decision}, maxlen=MAXLEN, approximate=True)
                             await r.hset(LAST_HASH, mapping={"bundle_id": bundle_id, "decision": decision, "ts_ms": str(now_ms())})
 
                         last_bundle_id = m_id
-                            
+
             if LAST_RUN:
                 LAST_RUN.set(time.time())
-                
+
         except Exception as exc:
             status = "error"
             await r.xadd(AUDIT_STREAM, {"event_type": "BRIDGE_RCA_ROUTING_FAILED", "error": str(exc), "ts_ms": str(now_ms())}, maxlen=MAXLEN, approximate=True)

@@ -4,8 +4,8 @@
 """
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime
+from typing import Any
 
 from core.signals_redis_client import get_signals_redis
 from publisher.stream_publisher import publish_signal_to_stream
@@ -13,7 +13,7 @@ from publisher.stream_publisher import publish_signal_to_stream
 logger = logging.getLogger(__name__)
 
 
-def publish_list(key: str, entries: List[Dict[str, Any]]) -> None:
+def publish_list(key: str, entries: list[dict[str, Any]]) -> None:
     """Сохраняет список в Redis и публикует событие напрямую в Redis Streams (без Trigger).
 
     Публикация по правилам:
@@ -46,7 +46,7 @@ def publish_list(key: str, entries: List[Dict[str, Any]]) -> None:
             "type": channel,
             "payload": entries,
             "size": len(entries),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         success = publish_signal_to_stream(channel, event)
         if success:
@@ -54,4 +54,4 @@ def publish_list(key: str, entries: List[Dict[str, Any]]) -> None:
         else:
             logger.error("Failed to publish to stream channel: %s", channel)
     except Exception as e:
-        logger.error("Error publishing list %s: %s", key, e) 
+        logger.error("Error publishing list %s: %s", key, e)

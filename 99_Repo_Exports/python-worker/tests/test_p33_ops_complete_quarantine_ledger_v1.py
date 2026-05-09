@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P3.3-ops-complete test: quarantine ledger event contract in binance_executor.
 
 Verifies via source code inspection that the executor writes 'record_quarantine_event'

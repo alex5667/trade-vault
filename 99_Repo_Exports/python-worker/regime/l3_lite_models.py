@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Deque, Tuple, List
 from collections import deque
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -19,8 +18,8 @@ class L3LiteEvent:
 class BookSnapshot:
     """Снимок книги ордеров"""
     ts_ms: int
-    bids: List[Tuple[float, float]]   # [(price, qty), ...] отсортированы по убыванию цены
-    asks: List[Tuple[float, float]]   # [(price, qty), ...] по возрастанию цены
+    bids: list[tuple[float, float]]   # [(price, qty), ...] отсортированы по убыванию цены
+    asks: list[tuple[float, float]]   # [(price, qty), ...] по возрастанию цены
 
 
 @dataclass
@@ -51,10 +50,10 @@ class L3LiteFeatures:
 class CancelTradeBuffers:
     """Буферы для накопления объемов cancel/trade"""
     # (ts_ms, volume)
-    cancels_bid: Deque[Tuple[int, float]] = field(default_factory=deque)
-    cancels_ask: Deque[Tuple[int, float]] = field(default_factory=deque)
-    trades_bid: Deque[Tuple[int, float]] = field(default_factory=deque)
-    trades_ask: Deque[Tuple[int, float]] = field(default_factory=deque)
+    cancels_bid: deque[tuple[int, float]] = field(default_factory=deque)
+    cancels_ask: deque[tuple[int, float]] = field(default_factory=deque)
+    trades_bid: deque[tuple[int, float]] = field(default_factory=deque)
+    trades_ask: deque[tuple[int, float]] = field(default_factory=deque)
 
 
 @dataclass

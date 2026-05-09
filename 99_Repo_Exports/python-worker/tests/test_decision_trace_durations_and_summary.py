@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from common.decision_trace import ensure_trace, trace_gate, trace_target, build_trace_summary
+from common.decision_trace import build_trace_summary, ensure_trace, trace_gate, trace_target
 
 
 def test_trace_gate_and_target_have_duration_ms():

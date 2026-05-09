@@ -30,8 +30,6 @@ def test_ensure_audit_chain_fields_called_in_pre_publish():
 
 def test_ensure_audit_chain_fields_logic():
     """Standalone test of the function logic (imports it directly from the module)."""
-    import sys
-    import importlib.util
     sp = Path(__file__).resolve().parent.parent / 'services' / 'crypto_orderflow_service.py'
 
     # We only compile the module — never execute top-level code that imports redis etc.

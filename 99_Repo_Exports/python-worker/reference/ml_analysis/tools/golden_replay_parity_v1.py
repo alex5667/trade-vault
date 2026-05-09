@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from domain.evidence_keys import MetaKeys
+
 """Golden replay parity harness (B5).
 
 Reads captured decision records (NDJSON), re-runs OFConfirmEngine.build() deterministically
@@ -11,9 +13,10 @@ Policy guard:
 
 import argparse
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any
 
 from ml_analysis.golden_replay.compare import (
     diff_objects,
@@ -23,7 +26,7 @@ from ml_analysis.golden_replay.compare import (
 )
 
 
-def _read_ndjson(path: Path, *, limit: int = 0) -> Iterable[Dict[str, Any]]:
+def _read_ndjson(path: Path, *, limit: int = 0) -> Iterable[dict[str, Any]]:
     n = 0
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -41,7 +44,7 @@ def _read_ndjson(path: Path, *, limit: int = 0) -> Iterable[Dict[str, Any]]:
                 break
 
 
-def _pick(rec: Dict[str, Any], *keys: str) -> Optional[Any]:
+def _pick(rec: dict[str, Any], *keys: str) -> Any | None:
     for k in keys:
         v = rec.get(k)
         if v is not None:
@@ -49,7 +52,7 @@ def _pick(rec: Dict[str, Any], *keys: str) -> Optional[Any]:
     return None
 
 
-def _resolve_inputs(rec: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+def _resolve_inputs(rec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     inputs = rec.get("inputs") if isinstance(rec.get("inputs"), dict) else rec
     indicators = rec.get("indicators")
     if not isinstance(indicators, dict):
@@ -60,7 +63,7 @@ def _resolve_inputs(rec: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]
     return inputs, indicators, snap
 
 
-def _build_runtime(engine: Any, snap: Dict[str, Any]) -> Any:
+def _build_runtime(engine: Any, snap: dict[str, Any]) -> Any:
     fn = getattr(engine, "build_runtime_from_snapshot", None)
     if callable(fn) and snap:
         try:
@@ -78,7 +81,7 @@ def _engine_import() -> Any:
     ):
         try:
             m = __import__(mod, fromlist=["OFConfirmEngine"])
-            return getattr(m, "OFConfirmEngine")
+            return m.OFConfirmEngine
         except Exception:
             continue
     raise RuntimeError("Cannot import OFConfirmEngine (check PYTHONPATH / repo layout).")
@@ -239,7 +242,7 @@ def main() -> int:
         if args.compare_meta_features:
             ge = got.get("evidence") if isinstance(got.get("evidence"), dict) else {}
             ee = exp.get("evidence") if isinstance(exp.get("evidence"), dict) else {}
-            if not (isinstance(ge.get("meta_features_export"), dict) and isinstance(ee.get("meta_features_export"), dict)):
+            if not (isinstance(ge.get(MetaKeys.FEATURES_EXPORT), dict) and isinstance(ee.get(MetaKeys.FEATURES_EXPORT), dict)):
                 mism += 1
                 mismatch_samples.append({"row": total, "kind": "meta_features_missing"})
                 continue

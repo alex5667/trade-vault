@@ -25,12 +25,12 @@ ENV thresholds (all int, milliseconds or event counts):
   DQ_STREAM_TIMEOUT_BURST_HARD  (default 5)
 """
 
-from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional
 import os
+from dataclasses import asdict, dataclass
+from typing import Any
 
 try:
-    from prometheus_client import Counter, Gauge, REGISTRY
+    from prometheus_client import REGISTRY, Counter, Gauge
 except Exception:  # pragma: no cover
     Counter = Gauge = None  # type: ignore
     REGISTRY = None  # type: ignore
@@ -86,13 +86,13 @@ class RedisDQThresholds:
     stream_timeout_burst_hard: int = 5
 
     @classmethod
-    def from_env(cls) -> "RedisDQThresholds":
+    def from_env(cls) -> RedisDQThresholds:
         """Construct thresholds from environment variables with safe fallbacks."""
         def _i(name: str, default: int) -> int:
             try:
                 return int(os.getenv(name, str(default)))
             except Exception:
-                return int(default)
+                return default
         return cls(
             queue_lag_soft_ms=_i("DQ_QUEUE_LAG_SOFT_MS", cls.queue_lag_soft_ms),
             queue_lag_hard_ms=_i("DQ_QUEUE_LAG_HARD_MS", cls.queue_lag_hard_ms),
@@ -132,11 +132,11 @@ class RedisDQDecision:
     """Result of evaluate_redis_dq(). Immutable; serializable via to_dict()."""
     level: int                    # 0=OK, 1=soft, 2=hard
     allow_trade_publish: bool
-    reasons: List[str]
+    reasons: list[str]
     tightened_mode: bool
-    snapshot: Dict[str, Any]
+    snapshot: dict[str, Any]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "level": int(self.level),
             "allow_trade_publish": bool(self.allow_trade_publish),
@@ -154,7 +154,7 @@ def _positive_int(v: Any) -> int:
         return 0
 
 
-def evaluate_redis_dq(snapshot: RedisDQSnapshot, thresholds: Optional[RedisDQThresholds] = None) -> RedisDQDecision:
+def evaluate_redis_dq(snapshot: RedisDQSnapshot, thresholds: RedisDQThresholds | None = None) -> RedisDQDecision:
     """Evaluate DQ health and return a publish decision.
 
     Pure function — no side effects except Prometheus metric updates.
@@ -175,8 +175,8 @@ def evaluate_redis_dq(snapshot: RedisDQSnapshot, thresholds: Optional[RedisDQThr
         force_hard_veto=bool(snapshot.force_hard_veto),
     )
 
-    hard: List[str] = []
-    soft: List[str] = []
+    hard: list[str] = []
+    soft: list[str] = []
 
     # Operator-forced hard veto (emergency kill-switch)
     if s.force_hard_veto:

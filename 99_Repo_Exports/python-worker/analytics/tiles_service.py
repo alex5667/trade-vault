@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Tiles Service - Фоновый воркер для записи данных в Parquet тайлы.
 
@@ -17,12 +19,11 @@ Tiles Service - Фоновый воркер для записи данных в 
     python -m analytics.tiles_service
 """
 
-import os
 import json
-import time
-import sys
+import os
 import signal as sig
-from typing import Dict, List
+import sys
+import time
 from pathlib import Path
 
 # Добавляем python-worker в путь
@@ -30,8 +31,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import redis
 
-from common.log import setup_logger
 from analytics.parquet_sink import ParquetSink
+from common.log import setup_logger
 
 
 class TilesService:
@@ -61,7 +62,7 @@ class TilesService:
         self.signals_patterns = [p.strip() for p in signals_patterns.split(",")]
 
         self.closed_trades_stream = os.getenv("TILES_CLOSED_TRADES", "trades:closed")
-        self.trade_events_stream = os.getenv("TILES_TRADE_EVENTS", "events:trades")
+        self.trade_events_stream = os.getenv("TILES_TRADE_EVENTS", RS.EVENTS_TRADES)
 
         # Параметры батчинга
         self.flush_every = int(os.getenv("TILES_FLUSH_EVERY", "500"))
@@ -71,9 +72,9 @@ class TilesService:
         self.sink = ParquetSink(os.getenv("PARQUET_BASE_DIR", "/data/tiles"))
 
         # Буферы
-        self._buf_signals: List[Dict] = []
-        self._buf_orders: List[Dict] = []
-        self._buf_events: List[Dict] = []
+        self._buf_signals: list[dict] = []
+        self._buf_orders: list[dict] = []
+        self._buf_events: list[dict] = []
 
         # Флаг работы
         self.is_running = False
@@ -116,7 +117,7 @@ class TilesService:
         """Сохранение last_id для потока"""
         self.r.set(self._key_last(stream), msg_id)
 
-    def _resolve_streams(self, pattern: str) -> List[str]:
+    def _resolve_streams(self, pattern: str) -> list[str]:
         """Разрешение паттерна в список потоков"""
         if "*" in pattern:
             return self.r.keys(pattern)

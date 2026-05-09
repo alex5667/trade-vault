@@ -1,15 +1,16 @@
 from __future__ import annotations
+
 """
 L2 Staleness logic for CryptoOrderFlowHandler.
 
 This module contains all L2 staleness detection and quality flag management.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import os
-import time
-from typing import Any, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 # Import L2 staleness helper functions (these would need to be extracted)
 
@@ -30,10 +31,8 @@ class CryptoOrderFlowL2StalenessMixin:
             return v
         # fail-open: создаём список
         flags: list[str] = []
-        try:
-            setattr(ctx, "data_quality_flags", flags)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            ctx.data_quality_flags = flags
         return flags
 
     def _get_l2_from_ctx(self, ctx: Any) -> Any:
@@ -52,7 +51,7 @@ class CryptoOrderFlowL2StalenessMixin:
                 pass
         return None
 
-    def _mark_l2_staleness(self, *, ctx: Any, kind: str) -> Tuple[bool, Optional[int]]:
+    def _mark_l2_staleness(self, *, ctx: Any, kind: str) -> tuple[bool, int | None]:
         """
         Возвращает (stale_or_missing, age_ms).
         Также:
@@ -78,7 +77,7 @@ class CryptoOrderFlowL2StalenessMixin:
 
         max_age = self._l2_max_stale_ms()
         stale = False
-        age_ms: Optional[int] = None
+        age_ms: int | None = None
 
         # Use helper functions for staleness detection
         # These would need to be imported or defined
@@ -90,10 +89,8 @@ class CryptoOrderFlowL2StalenessMixin:
                 ts_ms = _extract_ts_ms(l2)
                 if ts_ms is not None:
                     age_ms = now_ms - int(ts_ms)
-                    try:
-                        setattr(ctx, "l2_age_ms", int(age_ms))
-                    except Exception:
-                        pass
+                    with contextlib.suppress(Exception):
+                        ctx.l2_age_ms = int(age_ms)
             if _is_stale is not None:
                 stale = bool(_is_stale(obj=l2, now_ms=now_ms, max_age_ms=max_age))
         except Exception:

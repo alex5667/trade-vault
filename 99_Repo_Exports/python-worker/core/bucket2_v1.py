@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """bucket2_v1.py
 
 Bucket2 — дополнительная (не ломающая текущий bucket:) категоризация режима/сценария,
@@ -24,7 +25,7 @@ Determinism:
 """
 
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 def _norm_scenario(s: str) -> str:
@@ -49,8 +50,8 @@ def _norm_scenario(s: str) -> str:
 def derive_bucket2_label(
     scenario_v4: str,
     *,
-    indicators: Optional[Dict[str, Any]] = None,
-    evidence: Optional[Dict[str, Any]] = None,
+    indicators: dict[str, Any] | None = None,
+    evidence: dict[str, Any] | None = None,
 ) -> str:
     """Derive bucket2 label: breakout|reversal|high_var|"".
 
@@ -63,7 +64,7 @@ def derive_bucket2_label(
     Returns:
         "high_var" / "reversal" / "breakout" / "" (unknown).
     """
-    sv = _norm_scenario(str(scenario_v4 or ""))
+    sv = _norm_scenario((scenario_v4 or ""))
     ind = indicators or {}
     ev = evidence or {}
 
@@ -74,7 +75,7 @@ def derive_bucket2_label(
 
     # Runtime bucket (exec regime) already exists and is robust.
     try:
-        b = str(ind.get("exec_regime_bucket") or "").strip().upper()
+        b = (ind.get("exec_regime_bucket") or "").strip().upper()
         if b in ("HIGH_VAR", "EXTREME", "HIGH_VOL", "HIGH_VOL_LOW_LIQ", "LOW_LIQ"):
             return "high_var"
     except Exception:

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Optional, Tuple, Any
 import math
+from dataclasses import dataclass
+from typing import Any
 
-from core.quantile_p2 import P2Quantile
 from core.calib_audit_contract import CalibEffqAuditV1, stable_hash
+from core.quantile_p2 import P2Quantile
 
 
 @dataclass
@@ -25,13 +25,13 @@ class EffQuoteCalibrator:
     """
     def __init__(self, *, min_samples: int = 300) -> None:
         self.min_samples = int(min_samples)
-        self._eff_q10: Dict[str, P2Quantile] = {}
-        self._eff_q20: Dict[str, P2Quantile] = {}
-        self._eff_q30: Dict[str, P2Quantile] = {}
-        self._qd_q30: Dict[str, P2Quantile] = {}
-        self._n: Dict[str, int] = {}
+        self._eff_q10: dict[str, P2Quantile] = {}
+        self._eff_q20: dict[str, P2Quantile] = {}
+        self._eff_q30: dict[str, P2Quantile] = {}
+        self._qd_q30: dict[str, P2Quantile] = {}
+        self._n: dict[str, int] = {}
 
-    def _get(self, d: Dict[str, P2Quantile], key: str, p: float) -> P2Quantile:
+    def _get(self, d: dict[str, P2Quantile], key: str, p: float) -> P2Quantile:
         q = d.get(key)
         if q is None:
             q = P2Quantile(p=p)
@@ -39,7 +39,7 @@ class EffQuoteCalibrator:
         return q
 
     def update(self, *, regime: str, eff_quote: float, quote_delta: float) -> None:
-        r = str(regime or "na")
+        r = (regime or "na")
         if math.isfinite(eff_quote) and eff_quote > 0:
             self._get(self._eff_q10, r, 0.10).update(float(eff_quote))
             self._get(self._eff_q20, r, 0.20).update(float(eff_quote))
@@ -49,7 +49,7 @@ class EffQuoteCalibrator:
         self._n[r] = int(self._n.get(r, 0) + 1)
 
     def ready(self, regime: str) -> bool:
-        return int(self._n.get(str(regime or "na"), 0)) >= self.min_samples
+        return int(self._n.get((regime or "na"), 0)) >= self.min_samples
 
     def thresholds(
         self,
@@ -58,10 +58,10 @@ class EffQuoteCalibrator:
         default_eff_th: float,
         default_min_qd: float,
         tier: int = 1,
-        clamp_eff: Tuple[float, float] = (1e-9, 1.0),
-        clamp_qd: Tuple[float, float] = (0.0, 1e12),
+        clamp_eff: tuple[float, float] = (1e-9, 1.0),
+        clamp_qd: tuple[float, float] = (0.0, 1e12),
     ) -> EffQuoteThresholds:
-        r = str(regime or "na")
+        r = (regime or "na")
         n = int(self._n.get(r, 0))
         q10 = self._eff_q10.get(r)
         q20 = self._eff_q20.get(r)
@@ -99,14 +99,14 @@ class EffQuoteCalibrator:
         return EffQuoteThresholds(eff_quote_th=eff_th, min_quote_delta=min_qd, n=n, src=src)
 
     # ---------------- Persistence ----------------
-    def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> Dict[str, Any]:
-        r = str(regime or "na")
+    def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> dict[str, Any]:
+        r = (regime or "na")
         n = int(self._n.get(r, 0))
         q_eff = self._eff_q20.get(r)
         q_qd = self._qd_q30.get(r)
         return {
             "v": 1,
-            "symbol": str(symbol),
+            "symbol": symbol,
             "regime": r,
             "updated_ts_ms": int(updated_ts_ms),
             "min_samples": int(self.min_samples),
@@ -115,13 +115,13 @@ class EffQuoteCalibrator:
             "qd_q30": (q_qd.to_state() if q_qd else None),
         }
 
-    def load_regime_state(self, state: Dict[str, Any]) -> None:
+    def load_regime_state(self, state: dict[str, Any]) -> None:
         """
         Load one regime state into this calibrator.
         Fail-open on partial data.
         """
         try:
-            r = str(state.get("regime") or "na")
+            r = (state.get("regime") or "na")
             n = int(state.get("n", 0) or 0)
             eff = state.get("eff_q20")
             qd = state.get("qd_q30")
@@ -142,7 +142,7 @@ class EffQuoteCalibrator:
         eff_quote_th: float,
         min_quote_delta: float,
         src: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Build an audit event (v1) including deterministic hash of the persisted state.
         """
@@ -150,8 +150,8 @@ class EffQuoteCalibrator:
         h = stable_hash(st)
         ev = CalibEffqAuditV1(
             v=1,
-            symbol=str(symbol),
-            regime=str(regime or "na"),
+            symbol=symbol,
+            regime=(regime or "na"),
             ts_ms=int(ts_ms),
             src=str(src),
             n=int(st.get("n", 0) or 0),

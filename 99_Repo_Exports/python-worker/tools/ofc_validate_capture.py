@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
-
 import argparse
-
-from pathlib import Path
-
-from typing import Any, Dict, List, Set
-
 import sys
-
+from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -50,7 +45,7 @@ def main() -> int:
     args = ap.parse_args()
 
 
-    errors: List[str] = []
+    errors: list[str] = []
 
     n = 0
 

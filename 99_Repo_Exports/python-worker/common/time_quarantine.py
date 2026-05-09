@@ -1,10 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
+
 from common.token_bucket import TokenBucket
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 @dataclass
@@ -74,9 +76,9 @@ class BadTimeQuarantine:
 
     def __init__(
         self,
-        policy: Optional[BadTimeQuarantinePolicy] = None,
+        policy: BadTimeQuarantinePolicy | None = None,
         *,
-        inc: Optional[Callable[[str, int], None]] = None,
+        inc: Callable[[str, int], None] | None = None,
     ) -> None:
         self.policy = policy or BadTimeQuarantinePolicy()
         self._inc = inc
@@ -115,10 +117,8 @@ class BadTimeQuarantine:
     def _m(self, name: str, delta: int = 1) -> None:
         if not self._inc:
             return
-        try:
+        with contextlib.suppress(Exception):
             self._inc(name, int(delta))
-        except Exception:
-            pass
 
     def is_quarantined(self, now_ms: int) -> bool:
         return int(now_ms) < int(self._until_ms)
@@ -231,7 +231,6 @@ class BadTimeQuarantine:
 
     def _now_ms_fallback(self) -> int:
         # quarantine может жить отдельно от handler, поэтому "now" нужен здесь тоже.
-        import time
         return int(get_ny_time_millis())
 
     def on_ok_tick(self) -> None:

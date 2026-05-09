@@ -1,6 +1,6 @@
-from utils.time_utils import get_ny_time_millis
 import unittest
-import time
+
+from utils.time_utils import get_ny_time_millis
 
 
 class TestSanity(unittest.TestCase):
@@ -47,8 +47,9 @@ class TestSanity(unittest.TestCase):
         self.assertEqual(CryptoOrderflowService._msgid_ms(""), 0)
 
     def test_coerce_event_ts_ms_prefers_payload_if_sane(self):
-        from services.crypto_orderflow_service import CryptoOrderflowService
         import os
+
+        from services.crypto_orderflow_service import CryptoOrderflowService
 
         # Mock service with reasonable skew
         os.environ["CRYPTO_OF_MAX_TS_SKEW_MS"] = "3600000"  # 1 hour
@@ -63,8 +64,9 @@ class TestSanity(unittest.TestCase):
         self.assertEqual(result, payload_ts)
 
     def test_coerce_event_ts_ms_falls_back_to_msgid(self):
-        from services.crypto_orderflow_service import CryptoOrderflowService
         import os
+
+        from services.crypto_orderflow_service import CryptoOrderflowService
 
         os.environ["CRYPTO_OF_MAX_TS_SKEW_MS"] = "1000"  # 1 second
         service = CryptoOrderflowService("redis://localhost:6379/0")
@@ -79,8 +81,9 @@ class TestSanity(unittest.TestCase):
         self.assertEqual(result, now_ms - 5000)
 
     def test_coerce_event_ts_ms_falls_back_to_wall_clock(self):
-        from services.crypto_orderflow_service import CryptoOrderflowService
         import os
+
+        from services.crypto_orderflow_service import CryptoOrderflowService
 
         os.environ["CRYPTO_OF_MAX_TS_SKEW_MS"] = "1000"
         service = CryptoOrderflowService("redis://localhost:6379/0")

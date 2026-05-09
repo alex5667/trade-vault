@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P84: DLQ auto-triage fix-hints registry for OF-Gate.
 
 This module provides stable, low-cardinality hint codes and recommended
@@ -16,7 +17,6 @@ Outputs:
   - actions: list[str],
 """,
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -25,10 +25,10 @@ class FixHint:
     severity: str
     title: str
     details: str
-    actions: List[str]
+    actions: list[str]
 
 
-_HINTS: Dict[str, FixHint] = {
+_HINTS: dict[str, FixHint] = {
     # Contract / schema
     "dq_schema_missing": FixHint(
         hint_code="schema_missing",
@@ -113,7 +113,7 @@ _HINTS: Dict[str, FixHint] = {
 }
 
 
-def _err_prefix(err: Optional[str]) -> str:
+def _err_prefix(err: str | None) -> str:
     if not err:
         return ""
     s = str(err).strip()
@@ -122,7 +122,7 @@ def _err_prefix(err: Optional[str]) -> str:
     return s.split(" ", 1)[0][:64]
 
 
-def hint_for(dq_code: Optional[str], err: Optional[str] = None) -> FixHint:
+def hint_for(dq_code: str | None, err: str | None = None) -> FixHint:
     """Return best-effort hint based on dq_code and err prefix.""",
     if dq_code and dq_code in _HINTS:
         return _HINTS[dq_code]
@@ -154,6 +154,6 @@ def hint_for(dq_code: Optional[str], err: Optional[str] = None) -> FixHint:
     )
 
 
-def known_dq_codes() -> List[str]:
+def known_dq_codes() -> list[str]:
     return sorted(_HINTS.keys())
 

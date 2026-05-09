@@ -1,9 +1,10 @@
-import pytest
-from datetime import datetime, timezone, timedelta
-import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
-from services.atr_weekly_operating_scorecard_service import ATRWeeklyScorecardService, DOMAINS
+import pytest
+
+from services.atr_weekly_operating_scorecard_service import DOMAINS, ATRWeeklyScorecardService
+
 
 @pytest.fixture
 def service():
@@ -21,24 +22,24 @@ def test_domain_scoring(service):
     # protective critical drift => protective RED
     metrics_pl = {"protective_critical_drifts": 1}
     assert service.derive_domain_status("protective_lifecycle", metrics_pl) == "RED"
-    
+
     metrics_pl_ok = {"protective_critical_drifts": 0, "be_before_tp1_violations": 0}
     assert service.derive_domain_status("protective_lifecycle", metrics_pl_ok) == "GREEN"
 
     # overdue P1 => audit hygiene YELLOW/RED per policy
     metrics_ah_yellow = {"overdue_actions_p1": 1}
     assert service.derive_domain_status("audit_hygiene", metrics_ah_yellow) == "YELLOW"
-    
+
     metrics_ah_red = {"expired_overrides_active": 1}
     assert service.derive_domain_status("audit_hygiene", metrics_ah_red) == "RED"
 
 def test_decision_proposal(service):
     # all green => GO
-    statuses_all_green = {d: "GREEN" for d in DOMAINS}
+    statuses_all_green = dict.fromkeys(DOMAINS, "GREEN")
     assert service.propose_weekly_decision(statuses_all_green, {}) == "GO"
 
     # one yellow => GO_WITH_CONSTRAINTS
-    statuses_one_yellow = {d: "GREEN" for d in DOMAINS}
+    statuses_one_yellow = dict.fromkeys(DOMAINS, "GREEN")
     statuses_one_yellow["execution"] = "YELLOW"
     assert service.propose_weekly_decision(statuses_one_yellow, {}) == "GO_WITH_CONSTRAINTS"
 
@@ -61,13 +62,13 @@ def test_decision_proposal(service):
 
 def test_action_item_generation(service):
     # P0/P1 items generated for RED domains
-    statuses = {d: "GREEN" for d in DOMAINS}
+    statuses = dict.fromkeys(DOMAINS, "GREEN")
     statuses["audit_hygiene"] = "RED"
-    
+
     domain_metrics = {
         "audit_hygiene": {"expired_overrides_active": 1}
     }
-    
+
     actions = service.suggest_action_items("wk_test", statuses, domain_metrics)
     assert len(actions) == 1
     assert actions[0]["domain"] == "audit_hygiene"
@@ -100,10 +101,10 @@ class MockConnection:
 def test_integration_weekly_builder(service):
     conn = MockConnection()
     r = MagicMock()
-    
-    week_start = datetime.now(timezone.utc)
+
+    week_start = datetime.now(UTC)
     week_end = week_start + timedelta(days=6)
-    
+
     # 1. Provide custom metrics with some conditions
     custom_metrics = {
         d: service._get_metrics_for_domain(d, None, None) for d in DOMAINS
@@ -111,12 +112,12 @@ def test_integration_weekly_builder(service):
     # Injec one execution yellow condition and one audit hygiene overdue P1
     custom_metrics["execution"]["mt5_requotes_total"] = 16
     custom_metrics["audit_hygiene"]["overdue_actions_p1"] = 1
-    
+
     scorecard_id = service.build_weekly_scorecard(conn, r, week_start, week_end, custom_metrics)
-    
+
     assert scorecard_id is not None
     assert conn.commits == 1
-    
+
     # Check that GO_WITH_CONSTRAINTS was decided
     inserts = conn.mock_cursor.queries
     scorecard_insert = [q for q in inserts if "INSERT INTO atr_weekly_operating_scorecards" in q[0]]
@@ -124,24 +125,24 @@ def test_integration_weekly_builder(service):
     query, vars = scorecard_insert[0]
     # vars layout: scorecard_id, week_start, week_end, overall_status, domains_json, summary_json
     assert vars[3] == "GO_WITH_CONSTRAINTS"
-    
+
     # Check action items created
     action_inserts = [q for q in inserts if "INSERT INTO atr_weekly_action_items" in q[0]]
     assert len(action_inserts) == 2 # One for execution (YELLOW), one for hygiene (YELLOW)
-    
+
     # 4. Inject graph cert failure
     custom_metrics["control_plane_graph"]["graph_consistency_cert"] = "failed"
     conn_fail = MockConnection()
     service.build_weekly_scorecard(conn_fail, r, week_start, week_end, custom_metrics)
-    
+
     scorecard_insert_fail = [q for q in conn_fail.mock_cursor.queries if "INSERT" in q[0] and "atr_weekly_operating_scorecards" in q[0]][0]
     assert scorecard_insert_fail[1][3] == "HOLD"
-    
+
     # 6. Inject protective critical drift
     custom_metrics["control_plane_graph"]["graph_consistency_cert"] = "passed"
     custom_metrics["protective_lifecycle"]["protective_critical_drifts"] = 1
     conn_prot = MockConnection()
     service.build_weekly_scorecard(conn_prot, r, week_start, week_end, custom_metrics)
-    
+
     scorecard_insert_prot = [q for q in conn_prot.mock_cursor.queries if "INSERT" in q[0] and "atr_weekly_operating_scorecards" in q[0]][0]
     assert scorecard_insert_prot[1][3] == "FREEZE_ESCALATION"

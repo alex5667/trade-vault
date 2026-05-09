@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import os
-import psycopg2
 import logging
+import os
+
+import psycopg2
 
 logger = logging.getLogger("atr_policy_analytics_daily")
 

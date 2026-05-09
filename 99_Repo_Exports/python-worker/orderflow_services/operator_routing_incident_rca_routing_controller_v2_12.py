@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
-import json
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import psycopg
@@ -103,7 +103,7 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 
@@ -119,7 +119,7 @@ class RoutingRepo:
     def __init__(self, db_url: str) -> None:
         self.db_url = db_url
 
-    def persist_decision(self, decision: Dict[str, Any]) -> None:
+    def persist_decision(self, decision: dict[str, Any]) -> None:
         if psycopg is None:
             return
         with psycopg.connect(self.db_url) as conn:
@@ -154,7 +154,7 @@ class RoutingRepo:
             conn.commit()
 
 
-async def get_governor_action(r: Any, scope_type: str, scope_key: str) -> Optional[str]:
+async def get_governor_action(r: Any, scope_type: str, scope_key: str) -> str | None:
     if scope_type == "action":
         key = f"{REDIS_POLICY_PREFIX}:action:{scope_key}"
     else:
@@ -165,9 +165,9 @@ async def get_governor_action(r: Any, scope_type: str, scope_key: str) -> Option
     return action_bytes.decode("utf-8")
 
 
-async def determine_route(r: Any, row: Dict[str, str]) -> Dict[str, Any]:
+async def determine_route(r: Any, row: dict[str, str]) -> dict[str, Any]:
     task_type = "routing_incident_root_cause_analysis"
-    
+
     # default route
     provider = DEFAULT_PROVIDER
     model = DEFAULT_MODEL
@@ -178,7 +178,7 @@ async def determine_route(r: Any, row: Dict[str, str]) -> Dict[str, Any]:
     # check action scope (task_type:prompt:policy)
     action_scope = f"{task_type}:{prompt_version}:{policy_version}"
     action_decision = await get_governor_action(r, "action", action_scope)
-    
+
     # check provider scope (provider:model:prompt)
     provider_scope = f"{provider}:{model}:{prompt_version}"
     provider_decision = await get_governor_action(r, "provider", provider_scope)
@@ -187,7 +187,7 @@ async def determine_route(r: Any, row: Dict[str, str]) -> Dict[str, Any]:
         reason = f"suppressed_by_governor_action={action_decision}_prov={provider_decision}"
         # fallback to minimal stable model or dummy
         model = "gemini-2.0-flash-lite-preview-02-05" # hypothetical stable
-        
+
     decision = {
         "route_change_id": row.get("route_change_id", "unknown"),
         "task_type": task_type,
@@ -216,7 +216,7 @@ async def routing_loop(r: Any, repo: RoutingRepo) -> None:
                 try:
                     row = as_dict(payload)
                     decision = await determine_route(r, row)
-                    
+
                     out = dict(row)
                     out.update({
                         "routed_provider": decision["provider"],
@@ -234,7 +234,7 @@ async def routing_loop(r: Any, repo: RoutingRepo) -> None:
                     # Redis audit + decisions
                     await r.xadd(DECISIONS_STREAM, decision, maxlen=MAXLEN, approximate=True)
                     await r.xadd(AUDIT_STREAM, decision, maxlen=MAXLEN, approximate=True)
-                    
+
                     # Emit to routed stream for next stage (bridge to vertex)
                     await r.xadd(ROUTED_STREAM, out, maxlen=MAXLEN, approximate=True)
 
@@ -249,12 +249,12 @@ async def routing_loop(r: Any, repo: RoutingRepo) -> None:
                             "last_ts_ms": str(decision["ts_ms"]),
                         }
                     )
-                    
+
                     if ROUTED:
                         ROUTED.labels(provider=decision["provider"], model=decision["model_name"]).inc()
 
                     await r.xack(REQUESTS_STREAM, GROUP, msg_id)
-                except Exception as e:
+                except Exception:
                     import traceback
                     traceback.print_exc()
                     status = "error"
@@ -262,7 +262,7 @@ async def routing_loop(r: Any, repo: RoutingRepo) -> None:
 
         if LAST_RUN_TS:
             LAST_RUN_TS.set(time.time())
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         status = "error"

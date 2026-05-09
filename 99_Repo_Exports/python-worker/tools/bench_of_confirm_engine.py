@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Нагрузочный/latency bench: synthetic + "from inputs" bench, p50/p95/p99 + budgets.
 
 Why:
@@ -13,12 +14,12 @@ Usage:
 import argparse
 import json
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from core.of_confirm_engine import OFConfirmEngine
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     xs = sorted(xs)

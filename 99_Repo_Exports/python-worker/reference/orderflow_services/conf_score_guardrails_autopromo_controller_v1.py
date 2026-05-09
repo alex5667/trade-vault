@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """conf_score_guardrails_autopromo_controller_v1.py
 
 World practice: automated, gated promotion with canary window + auto rollback.
@@ -45,18 +45,16 @@ Env (recommended):
   CONF_SCORE_GUARD_HEALTH_STATE_PATH
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
+import fcntl
 import json
 import os
 import subprocess
-import time
-import fcntl
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
 
 # ----------------------- utils -----------------------
 
@@ -64,13 +62,13 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def load_json(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def load_json(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         obj = json.load(f)
     return obj if isinstance(obj, dict) else {}
 
 
-def load_json_if_exists(path: str) -> Dict[str, Any]:
+def load_json_if_exists(path: str) -> dict[str, Any]:
     try:
         if path and os.path.exists(path):
             return load_json(path)
@@ -79,7 +77,7 @@ def load_json_if_exists(path: str) -> Dict[str, Any]:
     return {}
 
 
-def atomic_write_json(path: str, obj: Dict[str, Any]) -> None:
+def atomic_write_json(path: str, obj: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -110,7 +108,7 @@ def tail(s: str, n: int = 1200) -> str:
     return s[-n:]
 
 
-def safe_float(x: Any) -> Optional[float]:
+def safe_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -121,7 +119,7 @@ def safe_float(x: Any) -> Optional[float]:
         return None
 
 
-def extract_health_metrics(health: Dict[str, Any]) -> Dict[str, Any]:
+def extract_health_metrics(health: dict[str, Any]) -> dict[str, Any]:
     """
     Best-effort normalization (same spirit as promote_v1).
     Accepts either flat dict or nested dict under GLOBAL/status/metrics.
@@ -130,7 +128,7 @@ def extract_health_metrics(health: Dict[str, Any]) -> Dict[str, Any]:
     global_section = obj.get("GLOBAL") if isinstance(obj.get("GLOBAL"), dict) else {}
     status_section = obj.get("status") if isinstance(obj.get("status"), dict) else {}
 
-    def pick(d: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[float]:
+    def pick(d: dict[str, Any], keys: tuple[str, ...]) -> float | None:
         for k in keys:
             v = safe_float(d.get(k))
             if v is not None:
@@ -182,7 +180,7 @@ def extract_health_metrics(health: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def age_sec(ts_ms: Optional[int], now: int) -> Optional[float]:
+def age_sec(ts_ms: int | None, now: int) -> float | None:
     if ts_ms is None:
         return None
     return max(0.0, (now - int(ts_ms)) / 1000.0)
@@ -194,10 +192,10 @@ def age_sec(ts_ms: Optional[int], now: int) -> Optional[float]:
 class Candidate:
     bundle_file: str
     version: str  # best-effort
-    ts_ms: Optional[int]
+    ts_ms: int | None
 
 
-def read_staged_pointer(bundle_dir: str, staged_pointer_path: str) -> Optional[Candidate]:
+def read_staged_pointer(bundle_dir: str, staged_pointer_path: str) -> Candidate | None:
     pointer_path = staged_pointer_path or str(Path(bundle_dir) / "staged.json")
     if not os.path.exists(pointer_path):
         return None
@@ -219,7 +217,7 @@ def read_staged_pointer(bundle_dir: str, staged_pointer_path: str) -> Optional[C
     return Candidate(bundle_file=bundle_file, version=ver, ts_ms=ts_i)
 
 
-def read_current_pointer(bundle_dir: str, pointer_path: str) -> Dict[str, Any]:
+def read_current_pointer(bundle_dir: str, pointer_path: str) -> dict[str, Any]:
     path = pointer_path or str(Path(bundle_dir) / "current.json")
     return load_json_if_exists(path)
 
@@ -229,16 +227,16 @@ def read_current_pointer(bundle_dir: str, pointer_path: str) -> Dict[str, Any]:
 @dataclass
 class EvalResult:
     ok: bool
-    reasons: List[str]
-    delta: Dict[str, Any]
-    current: Dict[str, Any]
-    baseline: Dict[str, Any]
+    reasons: list[str]
+    delta: dict[str, Any]
+    current: dict[str, Any]
+    baseline: dict[str, Any]
 
 
 def evaluate_canary(
     *,
-    baseline: Dict[str, Any],
-    current: Dict[str, Any],
+    baseline: dict[str, Any],
+    current: dict[str, Any],
     now: int,
     max_health_age_sec: int,
     min_n: int,
@@ -252,7 +250,7 @@ def evaluate_canary(
     max_cohort_delta_brier_max: float,
     allow_missing: bool,
 ) -> EvalResult:
-    reasons: List[str] = []
+    reasons: list[str] = []
     ok = True
 
     # freshness + degrade
@@ -278,7 +276,7 @@ def evaluate_canary(
             reasons.append("insufficient_n")
 
     # compare deltas (use cal metrics; baseline snapshot is pre-canary)
-    delta: Dict[str, Any] = {}
+    delta: dict[str, Any] = {}
 
     paired_used = False
     arm_n = current.get("arm_n")
@@ -330,7 +328,7 @@ def evaluate_canary(
             ok = False
             reasons.append("cohort_brier_max_regression")
 
-    def delta_metric(k: str) -> Optional[float]:
+    def delta_metric(k: str) -> float | None:
         b = safe_float(baseline.get(k))
         c = safe_float(current.get(k))
         if b is None or c is None:
@@ -355,7 +353,7 @@ def evaluate_canary(
             # +        if not allow_missing and not paired_used:
             # This implies if paired metrics are used, we don't strict-require baseline-current delta.
             pass
-            
+
             # The previous code checked d_ece > max_delta_ece.
             # We should probably still check it if it exists, to be safe.
             if d_ece > float(max_delta_ece):
@@ -380,7 +378,7 @@ def evaluate_canary(
 
 # ----------------------- subprocess helpers -----------------------
 
-def run_module(args: List[str], timeout_sec: int = 120) -> Tuple[int, str, str]:
+def run_module(args: list[str], timeout_sec: int = 120) -> tuple[int, str, str]:
     """Run `python -m <module> ...` and return (rc, stdout, stderr)."""
     p = subprocess.run(
         args,
@@ -404,7 +402,7 @@ def promote_canary(
     promote_state_path: str,
     lock_path: str,
     apply: int,
-) -> Tuple[int, str, str]:
+) -> tuple[int, str, str]:
     cmd = [
         "python", "-m", "orderflow_services.conf_score_guardrails_promote_v1",
         "--bundle-dir", bundle_dir,
@@ -439,7 +437,7 @@ def promote_full(
     apply: int,
     clear_staged: int,
     promote_pointer: int,
-) -> Tuple[int, str, str]:
+) -> tuple[int, str, str]:
     cmd = [
         "python", "-m", "orderflow_services.conf_score_guardrails_promote_v1",
         "--bundle-dir", bundle_dir,
@@ -467,7 +465,7 @@ def rollback_to_current(
     state_path: str,
     lock_path: str,
     apply: int,
-) -> Tuple[int, str, str]:
+) -> tuple[int, str, str]:
     # World-practice rollback: re-apply CURRENT bundle decisions into live keys.
     # This should safely restore canary changes because only guardrails keys are affected.
     cmd = [

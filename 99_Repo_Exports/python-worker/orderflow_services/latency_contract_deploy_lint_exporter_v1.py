@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """Prometheus exporter for latency deploy-lint state with P4.14 warning-policy / notifier-route approval binding visibility.""",
 import os
 import time
@@ -9,10 +10,16 @@ from typing import Any
 from prometheus_client import Gauge, start_http_server
 
 from services.observability.latency_deploy_contract import CONTRACTS
-from services.observability.latency_deploy_lint_state import state_key
 from services.observability.latency_deploy_lint_notify_state import state_key as notifier_state_key
-from services.observability.latency_deploy_lint_silence_approval_state import binding_mismatch_fields, build_drift_binding, parse_approval_state, read_latest_approval
-from services.observability.latency_deploy_lint_silence_state import parse_silence_state, state_key as silence_state_key
+from services.observability.latency_deploy_lint_silence_approval_state import (
+    binding_mismatch_fields,
+    build_drift_binding,
+    parse_approval_state,
+    read_latest_approval,
+)
+from services.observability.latency_deploy_lint_silence_state import parse_silence_state
+from services.observability.latency_deploy_lint_silence_state import state_key as silence_state_key
+from services.observability.latency_deploy_lint_state import state_key
 
 
 def _env(name: str, default: str = '') -> str:
@@ -339,7 +346,7 @@ def main() -> int:
             })
             nraw = r.hgetall(notifier_state_key(_env('LATENCY_CONTRACT_DEPLOY_LINT_NOTIFIER_STATE_KEY', 'metrics:latency_contract:deploy_lint:notifier:last'))) or {}
             nlast_ms = _i(nraw.get('last_run_ts_ms'), 0)
-            nstatus = str(nraw.get('last_status', 'ok'))
+            nstatus = (nraw.get('last_status', 'ok'))
             G_NOTIFIER_STATE_PRESENT.set(1.0 if nraw else 0.0)
             G_NOTIFIER_LAST_RUN_AGE.set(max(0.0, now - (nlast_ms / 1000.0)) if nlast_ms > 0 else 0.0)
             G_NOTIFIER_ACTIVE.set(1.0 if nstatus == 'active' else 0.0)

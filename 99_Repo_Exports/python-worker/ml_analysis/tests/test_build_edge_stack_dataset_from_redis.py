@@ -85,7 +85,7 @@ def test_parse_trade_closed_requires_sid():
 
 
 def test_join_signals_with_closes_and_label():
-    from ml_analysis.tools.build_edge_stack_dataset_from_redis import SignalRow, CloseRow, join_signals_with_closes
+    from ml_analysis.tools.build_edge_stack_dataset_from_redis import CloseRow, SignalRow, join_signals_with_closes
 
     s = SignalRow(
         sid="crypto-of:BTCUSDT:1700000000000",
@@ -195,7 +195,7 @@ def test_infer_feature_cols_excludes_dq_policy_and_runtime_meta():
 
 def test_infer_feature_cols_strict_bucket_only():
     """strict_feature_cols=True + forbid_scenario_v4_onehot=True: only bucket: taxonomy allowed, no scenario_v4_*."""
-    from ml_analysis.tools.build_edge_stack_dataset_from_redis import infer_feature_cols, validate_feature_cols_strict
+    from ml_analysis.tools.build_edge_stack_dataset_from_redis import infer_feature_cols
 
     rows = [
         {
@@ -415,6 +415,7 @@ def test_infer_feature_cols_strict_rejects_scenario_v4():
     """Commit 12: strict_feature_cols=True + forbid_scenario_v4_onehot=True must raise ValueError
     when scenario_v4_ prefix is requested, preventing unbounded cardinality in prod."""
     import pytest
+
     from ml_analysis.tools.build_edge_stack_dataset_from_redis import infer_feature_cols
 
     rows = [

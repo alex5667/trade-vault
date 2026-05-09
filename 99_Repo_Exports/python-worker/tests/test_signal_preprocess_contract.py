@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 
 class _Obj:
     def __init__(self):

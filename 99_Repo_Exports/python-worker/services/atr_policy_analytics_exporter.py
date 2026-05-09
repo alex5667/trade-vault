@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import time
+
 import psycopg2
 import psycopg2.extras
 from prometheus_client import Gauge, start_http_server
+
 
 def _dsn() -> str:
     return (

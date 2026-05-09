@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Redis Stream DLQ (Dead-Letter Queue) helper — A3 V2.
 
 Используется при fail-open обработке битых событий: вместо того чтобы
@@ -34,20 +35,18 @@ V2 изменения:
         dlq_stream="events:trades:dlq",
         reason="position_closed_contract_violation",
         error="; ".join(errs),
-        src_stream="events:trades",
+        src_stream=RS.EVENTS_TRADES,
         src_entry_id="*",
         payload=stream_payload,
         maxlen=200_000,
     )
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import asyncio
 import json
 import logging
-import time
-from typing import Any, Dict, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 log = logging.getLogger("redis_stream_dlq")
 
@@ -58,16 +57,16 @@ async def publish_dlq(
     dlq_stream: str,
     reason: str,
     error: str,
-    src_stream: Optional[str] = None,
+    src_stream: str | None = None,
     src_entry_id: str = "*",
-    payload: Optional[Dict[str, Any]] = None,
+    payload: dict[str, Any] | None = None,
     maxlen: int = 200_000,
     approximate: bool = True,
     payload_max_bytes: int = 8192,
-    stream: Optional[str] = None,    # Alias for src_stream (V1 compat)
-    entry_id: Optional[str] = "*",   # Alias for src_entry_id (V1 compat)
+    stream: str | None = None,    # Alias for src_stream (V1 compat)
+    entry_id: str | None = "*",   # Alias for src_entry_id (V1 compat)
     **kwargs: Any,
-) -> Optional[str]:
+) -> str | None:
     """Опубликовать ошибочное событие в DLQ-stream (V2 Async API).
 
     Fail-safe: если публикация в DLQ тоже упадёт — логируем и продолжаем.
@@ -93,12 +92,12 @@ async def publish_dlq(
     s_entry_id = src_entry_id if src_entry_id != "*" else (entry_id or kwargs.get("entry_id") or "*")
 
     try:
-        dlq_entry: Dict[str, str] = {
+        dlq_entry: dict[str, str] = {
             "ts_ms":        str(get_ny_time_millis()),
-            "reason":       str(reason or "unknown"),
-            "error":        str(error or "")[:4000],
-            "src_stream":   str(s_stream or ""),
-            "src_entry_id": str(s_entry_id or "*"),
+            "reason":       (reason or "unknown"),
+            "error":        (error or "")[:4000],
+            "src_stream":   (s_stream or ""),
+            "src_entry_id": (s_entry_id or "*"),
         }
 
         if payload is not None:
@@ -143,28 +142,28 @@ def publish_dlq_sync(
     dlq_stream: str,
     reason: str,
     error: str,
-    src_stream: Optional[str] = None,
+    src_stream: str | None = None,
     src_entry_id: str = "*",
-    payload: Optional[Dict[str, Any]] = None,
+    payload: dict[str, Any] | None = None,
     maxlen: int = 200_000,
     approximate: bool = True,
     payload_max_bytes: int = 8192,
-    stream: Optional[str] = None,    # Alias for src_stream (V1 compat)
-    entry_id: Optional[str] = "*",   # Alias for src_entry_id (V1 compat)
+    stream: str | None = None,    # Alias for src_stream (V1 compat)
+    entry_id: str | None = "*",   # Alias for src_entry_id (V1 compat)
     **kwargs: Any,
-) -> Optional[str]:
+) -> str | None:
     """Синхронная версия publish_dlq для рабочих процессов без asyncio."""
     # Backward compatibility logic
     s_stream = src_stream or stream or kwargs.get("stream") or ""
     s_entry_id = src_entry_id if src_entry_id != "*" else (entry_id or kwargs.get("entry_id") or "*")
 
     try:
-        dlq_entry: Dict[str, str] = {
+        dlq_entry: dict[str, str] = {
             "ts_ms":        str(get_ny_time_millis()),
-            "reason":       str(reason or "unknown"),
-            "error":        str(error or "")[:4000],
-            "src_stream":   str(s_stream or ""),
-            "src_entry_id": str(s_entry_id or "*"),
+            "reason":       (reason or "unknown"),
+            "error":        (error or "")[:4000],
+            "src_stream":   (s_stream or ""),
+            "src_entry_id": (s_entry_id or "*"),
         }
 
         if payload is not None:

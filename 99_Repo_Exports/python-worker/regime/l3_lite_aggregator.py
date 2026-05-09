@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import Optional, Tuple
 
 from .l3_lite_models import (
-    L3LiteEvent,
     BookSnapshot,
-    L3LiteFeatures,
     CancelTradeBuffers,
+    L3LiteEvent,
+    L3LiteFeatures,
     MicropriceHistoryPoint,
 )
 
@@ -20,13 +19,13 @@ class L3LiteMetricsAggregator:
     def __init__(self, microprice_horizon_sec: int = 20, obi_persistence_sec: int = 30) -> None:
         self.buffers = CancelTradeBuffers()
 
-        self._book: Optional[BookSnapshot] = None
+        self._book: BookSnapshot | None = None
         self._microprice_history: deque[MicropriceHistoryPoint] = deque()
         self._microprice_horizon_ms = microprice_horizon_sec * 1000
         self._obi_persistence_ms = obi_persistence_sec * 1000
 
         # для вычисления persistence по знаку OBI (например, по obi_5)
-        self._obi_sign_history: deque[Tuple[int, int]] = deque()  # (ts_ms, sign), sign ∈ {-1, 0, +1}
+        self._obi_sign_history: deque[tuple[int, int]] = deque()  # (ts_ms, sign), sign ∈ {-1, 0, +1}
 
     # === input methods ===
 
@@ -60,7 +59,7 @@ class L3LiteMetricsAggregator:
 
     # === core calculation helpers ===
 
-    def _calc_microprice(self, snap: BookSnapshot) -> Optional[float]:
+    def _calc_microprice(self, snap: BookSnapshot) -> float | None:
         """Рассчитать микропрайс по снимку книги."""
         if not snap.bids or not snap.asks:
             return None
@@ -76,13 +75,13 @@ class L3LiteMetricsAggregator:
         B = bid_qty
         return (A * best_bid + B * best_ask) / (A + B)
 
-    def _cleanup_deque(self, dq: deque[Tuple[int, float]], now_ms: int, window_ms: int) -> None:
+    def _cleanup_deque(self, dq: deque[tuple[int, float]], now_ms: int, window_ms: int) -> None:
         """Очистить deque от записей старше window_ms."""
         cutoff = now_ms - window_ms
         while dq and dq[0][0] < cutoff:
             dq.popleft()
 
-    def _sum_volume(self, dq: deque[Tuple[int, float]]) -> float:
+    def _sum_volume(self, dq: deque[tuple[int, float]]) -> float:
         """Посчитать суммарный объем в deque."""
         return float(sum(v for _, v in dq))
 
@@ -90,7 +89,7 @@ class L3LiteMetricsAggregator:
         self,
         now_ms: int,
         window_ms: int,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Рассчитать cancel_to_trade для bid и ask."""
         # чистим старые записи
         self._cleanup_deque(self.buffers.cancels_bid, now_ms, window_ms)
@@ -108,7 +107,7 @@ class L3LiteMetricsAggregator:
         c2t_ask = canc_ask / max(tr_ask, eps)
         return c2t_bid, c2t_ask
 
-    def _calc_microprice_shift_bps_20(self, now_ms: int) -> Tuple[float, float]:
+    def _calc_microprice_shift_bps_20(self, now_ms: int) -> tuple[float, float]:
         """
         Рассчитать текущий микропрайс и сдвиг за 20 секунд в bps.
         Возвращает (microprice, shift_bps_20).
@@ -143,7 +142,7 @@ class L3LiteMetricsAggregator:
         shift_bps = (current_mp - mp_old) / mid * 1e4
         return current_mp, shift_bps
 
-    def _calc_spread_and_obi(self) -> Tuple[float, float, float, float]:
+    def _calc_spread_and_obi(self) -> tuple[float, float, float, float]:
         """
         Рассчитать spread_bps, obi_5, obi_20, obi_50
         """
@@ -267,7 +266,7 @@ class L3LiteMetricsAggregator:
 
     # === public method ===
 
-    def build_features(self, now_ms: int) -> Optional[L3LiteFeatures]:
+    def build_features(self, now_ms: int) -> L3LiteFeatures | None:
         """
         Вызывается в момент оценки сигнала (или на каждом тике) для построения L3-фич.
         """

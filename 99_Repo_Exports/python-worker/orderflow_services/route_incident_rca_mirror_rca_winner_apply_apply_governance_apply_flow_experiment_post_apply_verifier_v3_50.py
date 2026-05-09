@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -93,15 +94,15 @@ DEFAULT_MAX_WEIGHT_DELTA_SUM = int(os.getenv(
 ))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -154,8 +155,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -179,7 +180,7 @@ def maybe_json(value: Any, default: Any = None) -> Any:
         return default
 
 
-def normalize_weights(raw: Any) -> Dict[str, int]:
+def normalize_weights(raw: Any) -> dict[str, int]:
     obj = maybe_json(raw, {})
     if not isinstance(obj, dict):
         obj = {}
@@ -190,7 +191,7 @@ def normalize_weights(raw: Any) -> Dict[str, int]:
     }
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "verify_delay_sec": parse_int(raw.get("verify_delay_sec"), DEFAULT_VERIFY_DELAY_SEC),
         "min_post_apply_exposures": parse_int(raw.get("min_post_apply_exposures"), DEFAULT_MIN_POST_APPLY_EXPOSURES),
@@ -201,7 +202,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, int]:
+def experiment_policy_from_hash(raw: dict[str, Any]) -> dict[str, int]:
     return {
         "vertex_primary_weight": parse_int(raw.get("vertex_primary_weight"), 0),
         "vertex_compact_weight": parse_int(raw.get("vertex_compact_weight"), 0),
@@ -209,13 +210,13 @@ def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, int]:
     }
 
 
-def winner_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def winner_policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     return {
-        "incumbent_arm": str(raw.get("incumbent_arm") or "vertex_primary"),
+        "incumbent_arm": (raw.get("incumbent_arm") or "vertex_primary"),
     }
 
 
-def weights_delta_sum(a: Dict[str, int], b: Dict[str, int]) -> int:
+def weights_delta_sum(a: dict[str, int], b: dict[str, int]) -> int:
     return (
         abs(parse_int(a.get("vertex_primary_weight"), 0) - parse_int(b.get("vertex_primary_weight"), 0))
         + abs(parse_int(a.get("vertex_compact_weight"), 0) - parse_int(b.get("vertex_compact_weight"), 0))
@@ -223,7 +224,7 @@ def weights_delta_sum(a: Dict[str, int], b: Dict[str, int]) -> int:
     )
 
 
-def expected_target_share(target_weights: Dict[str, int], target_incumbent_arm: str) -> float:
+def expected_target_share(target_weights: dict[str, int], target_incumbent_arm: str) -> float:
     total = max(
         parse_int(target_weights.get("vertex_primary_weight"), 0)
         + parse_int(target_weights.get("vertex_compact_weight"), 0)
@@ -240,30 +241,30 @@ def expected_target_share(target_weights: Dict[str, int], target_incumbent_arm: 
     return round(parse_int(target_weights.get(key), 0) / total, 6)
 
 
-def observed_target_share(exposure_rows: List[Dict[str, Any]], apply_ts_ms: int, target_incumbent_arm: str) -> Tuple[int, float]:
+def observed_target_share(exposure_rows: list[dict[str, Any]], apply_ts_ms: int, target_incumbent_arm: str) -> tuple[int, float]:
     filtered = [r for r in exposure_rows if parse_int(r.get("ts_ms"), 0) >= apply_ts_ms]
     total = len(filtered)
     if total == 0:
         return 0, 0.0
-    target_n = sum(1 for r in filtered if str(r.get("arm") or "") == target_incumbent_arm)
+    target_n = sum(1 for r in filtered if (r.get("arm") or "") == target_incumbent_arm)
     return total, round(target_n / total, 6)
 
 
 def evaluate_post_apply(
-    journal_row: Dict[str, Any],
-    current_weights: Dict[str, int],
+    journal_row: dict[str, Any],
+    current_weights: dict[str, int],
     current_incumbent_arm: str,
-    exposure_rows: List[Dict[str, Any]],
-    policy: Dict[str, Any],
-) -> Dict[str, Any]:
+    exposure_rows: list[dict[str, Any]],
+    policy: dict[str, Any],
+) -> dict[str, Any]:
     apply_ts_ms = parse_int(journal_row.get("ts_ms"), 0)
     target_weights = normalize_weights(journal_row.get("target_weights_json"))
     rollback_weights = normalize_weights(journal_row.get("current_weights_json"))
-    target_profile = str(journal_row.get("target_profile") or "unknown_profile")
-    target_incumbent_arm = str(journal_row.get("winner_arm") or "")
-    rollback_incumbent_arm = str(journal_row.get("winner_arm") or "")
-    current_profile = str(journal_row.get("current_profile") or "unknown_profile")
-    current_incumbent_before = str(journal_row.get("winner_arm") or "")
+    target_profile = (journal_row.get("target_profile") or "unknown_profile")
+    target_incumbent_arm = (journal_row.get("winner_arm") or "")
+    rollback_incumbent_arm = (journal_row.get("winner_arm") or "")
+    current_profile = (journal_row.get("current_profile") or "unknown_profile")
+    current_incumbent_before = (journal_row.get("winner_arm") or "")
 
     out = {
         "decision": "HOLD",
@@ -327,16 +328,16 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_hash(r: Any, key: str) -> Dict[str, Any]:
+async def read_hash(r: Any, key: str) -> dict[str, Any]:
     return as_dict(await r.hgetall(key))
 
 
-async def xr_recent(r: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
+async def xr_recent(r: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await r.xrevrange(stream_key, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -344,7 +345,7 @@ async def xr_recent(r: Any, stream_key: str, count: int) -> List[Dict[str, Any]]
     return out
 
 
-async def persist_if_configured(db_url: str, journal_row: Dict[str, Any], verification: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, journal_row: dict[str, Any], verification: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover

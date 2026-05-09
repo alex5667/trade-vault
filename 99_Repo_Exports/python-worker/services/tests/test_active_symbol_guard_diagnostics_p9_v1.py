@@ -1,9 +1,9 @@
-from utils.time_utils import get_ny_time_millis
-from pathlib import Path
 import importlib
 import json
 import sys
-import time
+from pathlib import Path
+
+from utils.time_utils import get_ny_time_millis
 
 root = Path(__file__).resolve().parents[2]
 if str(root) not in sys.path:
@@ -26,7 +26,7 @@ class FakeRedis:
         return True
 
     def scan_iter(self, match=None):
-        prefix = str(match or '').rstrip('*')
+        prefix = (match or '').rstrip('*')
         for key in list(self.kv.keys()):
             if key.startswith(prefix):
                 yield key

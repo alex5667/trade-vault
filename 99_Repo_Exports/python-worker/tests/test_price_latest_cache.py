@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from tests.fake_redis import FakeRedis
 from services.price_latest_cache import write_price_latest
+from tests.fake_redis import FakeRedis
 
 
 def _hget_str(d, k: str) -> str:

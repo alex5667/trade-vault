@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from core.of_evidence import compute_sweep_recent, compute_reclaim_recent, compute_absorption_flags, _get
+from core.of_evidence import _get, compute_absorption_flags, compute_reclaim_recent, compute_sweep_recent
 
 
 def test_sweep_recent_stale_false():

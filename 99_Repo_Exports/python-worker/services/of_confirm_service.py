@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 """
 OFConfirmService (Variant A)
 
@@ -18,26 +20,24 @@ Logic:
 """
 
 import asyncio
-from utils.task_manager import safe_create_task
-
 import json
 import logging
 import os
 import signal
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis.asyncio as aioredis
 from prometheus_client import Counter, start_http_server
 
-from core.crypto_orderflow_detectors import (
-    DeltaSpikeDetector, OBIDetector, IcebergDetector, AbsorptionDetector
-)
+from core.crypto_orderflow_detectors import AbsorptionDetector, DeltaSpikeDetector, IcebergDetector, OBIDetector
+from core.instrument_config import get_config
 from core.of_confirm_engine import OFConfirmEngine
 from core.pressure_tracker import PressureTracker
 from core.redis_stream_consumer import AsyncRedisStreamHelper
-from core.instrument_config import get_config
+from utils.task_manager import safe_create_task
+import contextlib
 
 # Metrics
 signals_processed_total = Counter("of_confirm_signals_processed_total", "Total signals processed", ["symbol", "status"])
@@ -73,36 +73,36 @@ def _i(val: Any, default: int = 0) -> int:
 @dataclass
 class SymbolState:
     symbol: str
-    
+
     # Detectors (Independent Mode)
-    delta_detector: Optional[DeltaSpikeDetector] = None
-    obi_detector: Optional[OBIDetector] = None
-    iceberg_detector: Optional[IcebergDetector] = None
-    absorption_detector: Optional[AbsorptionDetector] = None
-    
+    delta_detector: DeltaSpikeDetector | None = None
+    obi_detector: OBIDetector | None = None
+    iceberg_detector: IcebergDetector | None = None
+    absorption_detector: AbsorptionDetector | None = None
+
     # State tracking
     last_regime: str = "na"
-    last_sweep: Optional[Any] = None
-    last_reclaim: Optional[Any] = None
-    last_wp: Optional[Any] = None
-    last_div: Optional[Any] = None
-    
+    last_sweep: Any | None = None
+    last_reclaim: Any | None = None
+    last_wp: Any | None = None
+    last_div: Any | None = None
+
     # Pressure tracker (local calculation based on incoming spikes)
     pressure: PressureTracker = field(default_factory=PressureTracker)
-    
+
     # Caches
-    last_obi_event: Optional[Dict[str, Any]] = None
-    last_iceberg_event: Optional[Dict[str, Any]] = None
-    
+    last_obi_event: dict[str, Any] | None = None
+    last_iceberg_event: dict[str, Any] | None = None
+
     # Config cache
-    config: Dict[str, Any] = field(default_factory=dict)
+    config: dict[str, Any] = field(default_factory=dict)
     config_last_fetch: float = 0.0
 
     # Dynamic cfg accumulator (similar to SymbolRuntime)
-    dynamic_cfg: Dict[str, Any] = field(default_factory=dict)
+    dynamic_cfg: dict[str, Any] = field(default_factory=dict)
 
     # Dummy attributes to satify OFConfirmEngine runtime interface
-    last_bar: Any = None 
+    last_bar: Any = None
     book_churn_hi: int = 0
     cont_ctx_ts_ms: int = 0
 
@@ -110,10 +110,10 @@ class SymbolState:
 class OFConfirmService:
     def __init__(self):
         self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-        self.redis: Optional[aioredis.Redis] = None
+        self.redis: aioredis.Redis | None = None
         self.consumer_group = os.getenv("CONSUMER_GROUP", "of_confirm_group")
         self.consumer_name = os.getenv("HOSTNAME", "of_confirm_worker")
-        
+
         # Streams
         self.stream_spikes = "events:delta_spike"
         # Legacy shared stream (kept for migration / dual-write)
@@ -125,27 +125,27 @@ class OFConfirmService:
         # Backward compatible alias
         self.stream_bars = self.stream_bars_legacy
         # Output stream
-        self.stream_out = os.getenv("OF_CONFIRM_STREAM", "signals:of:confirm")
+        self.stream_out = os.getenv("OF_CONFIRM_STREAM", RS.OF_CONFIRM)
 
         # Optional: enable actual microbar consumption (was previously unused)
         self.bars_enable = os.getenv("OF_CONFIRM_BARS_ENABLE", "0") == "1"
         self.bars_max_streams = int(os.getenv("OF_CONFIRM_BARS_MAX_STREAMS", "200"))
-        
-        self.states: Dict[str, SymbolState] = {}
+
+        self.states: dict[str, SymbolState] = {}
         self.engine = OFConfirmEngine(version=3)
         self.running = True
 
     async def start(self):
         logger.info(f"Starting OFConfirmService... streams={self.stream_spikes},{self.stream_bars}")
         self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
-        
+
         # Wait for Redis to be ready (BusyLoadingError)
         from core.redis_client import wait_for_redis_async
         if not await wait_for_redis_async(self.redis):
             logger.error("❌ Redis is not ready after wait. Exiting.")
             return
 
-        
+
         # Ensure consumer group exists
         for stream in [self.stream_spikes, self.stream_bars_legacy]:
             try:
@@ -170,7 +170,7 @@ class OFConfirmService:
             safe_create_task(self._config_refresher()),
             safe_create_task(self._poll_regime()),
         ]
-        
+
         await asyncio.gather(*tasks)
 
     async def _consume_ticks(self):
@@ -185,17 +185,17 @@ class OFConfirmService:
         # ------------------------------------------------------------------
         if getattr(self, "bars_enable", False) and not getattr(self, "_bars_task", None):
             self._bars_task = safe_create_task(self._consume_microbars())
-        
+
         while self.running:
             try:
                 # Use PUBSUB for ticks (low latency)
                 pubsub = self.redis.pubsub()
                 await pubsub.psubscribe(pattern)
-                
+
                 async for message in pubsub.listen():
                     if not self.running: break
                     if message["type"] != "pmessage": continue
-                    
+
                     channel = message["channel"]
                     # Channel format: ticks:crypto:binance_futures:<symbol>
                     try:
@@ -203,7 +203,7 @@ class OFConfirmService:
                         await self._process_tick(symbol, message["data"])
                     except Exception as e:
                         logger.error(f"Tick process error: {e}")
-                        
+
             except Exception as e:
                 logger.error(f"Tick consumer connection error: {e}")
                 await asyncio.sleep(1)
@@ -211,10 +211,8 @@ class OFConfirmService:
         # stop bars task
         t = getattr(self, "_bars_task", None)
         if t:
-            try:
+            with contextlib.suppress(Exception):
                 t.cancel()
-            except Exception:
-                pass
 
     async def _consume_spikes(self):
         """Consumer for events:delta_spike stream via XREADGROUP.
@@ -261,18 +259,14 @@ class OFConfirmService:
                         except Exception as e:
                             logger.warning("Spike message %s process error: %s", msg_id, e)
                             # ACK to avoid poison pill blocking the group
-                            try:
+                            with contextlib.suppress(Exception):
                                 await self.redis.xack(self.stream_spikes, self.consumer_group, msg_id)
-                            except Exception:
-                                pass
 
             except aioredis.ResponseError as e:
                 if "NOGROUP" in str(e):
                     logger.warning("Consumer group missing for %s, recreating...", self.stream_spikes)
-                    try:
+                    with contextlib.suppress(Exception):
                         await self.redis.xgroup_create(self.stream_spikes, self.consumer_group, mkstream=True)
-                    except Exception:
-                        pass
                 else:
                     logger.error("Spike consumer error: %s", e)
                 await asyncio.sleep(1)
@@ -356,16 +350,16 @@ class OFConfirmService:
     async def _consume_bars(self):
         """Consumer for events:microbar_closed stream."""
         logger.info("Started microbar_closed stream consumer loop")
-        
+
         while self.running:
             try:
                 helper = AsyncRedisStreamHelper(self.redis, self.consumer_group, self.consumer_name)
                 events = await helper.read({self.stream_bars: ">"}, count=100, block=1000)
-                
+
                 for stream_name, messages in events:
                     if stream_name != self.stream_bars:
                         continue
-                    
+
                     for msg_id, fields in messages:
                         try:
                             await self._process_bar(fields)
@@ -373,11 +367,9 @@ class OFConfirmService:
                         except Exception as e:
                             logger.error(f"Error processing bar message {msg_id}: {e}")
                             # ACK even on error to avoid poison pills
-                            try:
+                            with contextlib.suppress(Exception):
                                 await self.redis.xack(self.stream_bars, self.consumer_group, msg_id)
-                            except Exception:
-                                pass
-                            
+
             except aioredis.ResponseError as e:
                 msg = str(e)
                 if "NOGROUP" in msg:
@@ -408,12 +400,12 @@ class OFConfirmService:
             price = float(tick.get("p", 0.0))
             qty = float(tick.get("q", 0.0))
             is_buyer_maker = bool(tick.get("m", False))
-            
+
             # Feed Delta Detector
             # Detector expects dict with price, qty, is_buyer_maker
             # Adjust input format to what DeltaSpikeDetector expects (often internal fmt)
             # Based on crypto_orderflow_service, it calls push(tick_payload)
-            
+
             # We construct a normalized tick payload
             norm_tick = {
                 "ts": tick_ts,
@@ -421,19 +413,19 @@ class OFConfirmService:
                 "qty": qty,
                 "is_buyer_maker": is_buyer_maker
             }
-            
+
             # 1. Delta Spike
             if state.delta_detector:
                 spike_event = state.delta_detector.push(norm_tick)
                 if spike_event:
                     await self._check_spike(symbol, state, spike_event)
-            
+
             # 2. Absorption (needs trade stream)
             if state.absorption_detector:
-                # Detector requires more complex state (CVD, etc). 
-                # For MVP Variant C, we focus on Delta Spikes. 
+                # Detector requires more complex state (CVD, etc).
+                # For MVP Variant C, we focus on Delta Spikes.
                 # If absorption is needed, we push to it.
-                pass 
+                pass
 
         except Exception:
             pass
@@ -463,7 +455,7 @@ class OFConfirmService:
                 for sym, raw in zip(symbols, values):
                     if not raw:
                         continue
-                    from contexts import normalize_regime_label, MARKET_REGIME_NA
+                    from contexts import MARKET_REGIME_NA, normalize_regime_label
                     regime = normalize_regime_label(raw)
                     if regime != MARKET_REGIME_NA:
                         state = self.states.get(sym)
@@ -483,18 +475,18 @@ class OFConfirmService:
                 logger.error(f"Regime poll error: {e}")
                 await asyncio.sleep(interval)
 
-    async def _check_spike(self, symbol: str, state: SymbolState, spike: Dict[str, Any]):
+    async def _check_spike(self, symbol: str, state: SymbolState, spike: dict[str, Any]):
         """
         Runs OFConfirmEngine when a local spike is detected.
         """
         try:
             events_received_total.labels(type="local_spike", symbol=symbol).inc()
-            
+
             ts_ms = spike.get("ts_ms", get_ny_time_millis())
             state.pressure.on_raw_trigger(ts_ms=ts_ms)
-            
+
             delta_z = spike.get("delta_z", 0.0)
-            
+
             indicators = {
                 "now_ts_ms": ts_ms,
                 "delta": _f(spike.get("delta", 0.0), 0.0),
@@ -511,8 +503,8 @@ class OFConfirmService:
             absorption = spike.get("absorption")
             if isinstance(absorption, dict):
                 indicators["absorption_volume"] = _f(absorption.get("volume", 0.0), 0.0)
-                indicators["absorption_side"] = str(absorption.get("side", "unknown") or "unknown")
-            
+                indicators["absorption_side"] = (absorption.get("side", "unknown") or "unknown")
+
             # Run engine
             of_confirm, decision = self.engine.build(
                 symbol=symbol,
@@ -526,7 +518,7 @@ class OFConfirmService:
                 indicators=indicators,
                 absorption=absorption if isinstance(absorption, dict) else None,
             )
-            
+
             status = "skipped"
             if of_confirm and of_confirm.ok:
                 status = "confirmed"
@@ -539,13 +531,13 @@ class OFConfirmService:
                     approximate=True
                 )
                 confirm_signals_total.labels(symbol=symbol).inc()
-            
+
             signals_processed_total.labels(symbol=symbol, status=status).inc()
 
         except Exception as e:
             logger.error(f"Check spike failed: {e}")
 
-    async def _ensure_microbar_groups(self) -> List[str]:
+    async def _ensure_microbar_groups(self) -> list[str]:
         """
         Ensure consumer group exists for per-symbol microbar streams.
         Returns the list of active stream keys.
@@ -554,7 +546,7 @@ class OFConfirmService:
         if "{sym}" not in self.stream_bars_template:
             keys = [self.stream_bars_template]
         else:
-            keys: List[str] = []
+            keys: list[str] = []
             cursor = 0
             seen = 0
             while True:
@@ -593,7 +585,7 @@ class OFConfirmService:
 
         # XREADGROUP supports reading from multiple streams in one call.
         # Use '>' to read new messages for this group.
-        stream_map: Dict[str, str] = {k: ">" for k in keys}
+        stream_map: dict[str, str] = dict.fromkeys(keys, ">")
         try:
             resp = await self.redis.xreadgroup(
                 groupname=self.consumer_group,
@@ -620,7 +612,7 @@ class OFConfirmService:
                     pass
         return n
 
-    async def _process_bar(self, msg_id: str = None, fields: Dict[str, Any] = None, stream: str = None):
+    async def _process_bar(self, msg_id: str = None, fields: dict[str, Any] = None, stream: str = None):
         """
         Process a microbar message. Supports both legacy (fields dict) and new (msg_id, fields, stream) signatures.
         """
@@ -630,14 +622,14 @@ class OFConfirmService:
                 fields = msg_id
                 msg_id = None
                 stream = None
-            
+
             payload_str = fields.get("payload")
             if not payload_str:
                 return
-            
+
             bar = json.loads(payload_str)
             symbol = bar.get("symbol")
-            if not symbol: 
+            if not symbol:
                 return
 
             state = self._get_state(symbol)
@@ -646,7 +638,7 @@ class OFConfirmService:
             # Sync state
             if "regime" in bar:
                 state.last_regime = bar["regime"]
-            
+
             if "sweep" in bar and bar["sweep"]:
                 # Reconstruct simple sweep object
                 from types import SimpleNamespace
@@ -655,9 +647,9 @@ class OFConfirmService:
                     kind=sw.get("kind"),
                     ts_ms=sw.get("ts_ms"),
                     # Add defaults if engine needs them
-                    direction_bias="NONE" 
+                    direction_bias="NONE"
                 )
-                
+
             if "reclaim" in bar and bar["reclaim"]:
                 from types import SimpleNamespace
                 rc = bar["reclaim"]
@@ -666,7 +658,7 @@ class OFConfirmService:
                     ts_ms=rc.get("ts_ms"),
                     direction_bias="NONE"
                 )
-            
+
             if "weak_progress" in bar:
                  from types import SimpleNamespace
                  # Engine checks: getattr(runtime.last_wp, "weak_any", False)
@@ -693,10 +685,8 @@ class OFConfirmService:
                 now_ms = get_ny_time_millis()
                 if (now_ms - last_refresh_ms) >= (refresh_sec * 1000):
                     # update list of active streams / ensure groups exist
-                    try:
+                    with contextlib.suppress(Exception):
                         await self._ensure_microbar_groups()
-                    except Exception:
-                        pass
                     last_refresh_ms = now_ms
 
                 n = await self._poll_microbars_once()
@@ -729,14 +719,14 @@ class OFConfirmService:
                 # 1. Discover symbols from Env and Redis
                 env_syms = os.getenv("SYMBOLS", "").split(",")
                 symbols = set([s.strip().upper() for s in env_syms if s.strip()])
-                
+
                 try:
                     redis_syms = await self.redis.smembers("crypto:symbols")
                     if redis_syms:
                         symbols.update([s.upper() for s in redis_syms])
                 except Exception:
                     pass
-                
+
                 # 2. Initialize state for new symbols
                 for sym in symbols:
                     if sym not in self.states:
@@ -765,22 +755,22 @@ class OFConfirmService:
             if cfg_obj:
                 from dataclasses import asdict
                 config = asdict(cfg_obj)
-            
+
             # 2. Params
             # Delta
             delta_win = _i(config.get("delta_window_ticks", 140), 140)
             delta_z = _f(config.get("delta_z_threshold", 3.0), 3.0)
-            
+
             # OBI
             obi_thr = _f(config.get("obi_threshold", 0.35), 0.35)
             obi_dur = _f(config.get("obi_min_duration", 1.5), 1.5)
-            
+
             # Iceberg
             ice_ref = _i(config.get("iceberg_refresh_count", 3), 3)
             ice_dur = _f(config.get("iceberg_min_duration", 1.0), 1.0)
-            
+
             # Absorption (optional for MVP)
-            
+
             # 3. Create State with Detectors
             state = SymbolState(symbol=symbol)
             state.config = config
@@ -806,7 +796,7 @@ class OFConfirmService:
             }
             for k, v in _svc_overrides.items():
                 state.config[k] = v
-            
+
             state.delta_detector = DeltaSpikeDetector(
                 window=delta_win,
                 z_threshold=delta_z
@@ -819,10 +809,10 @@ class OFConfirmService:
                 min_refresh=ice_ref,
                 min_duration=ice_dur
             )
-            
+
             self.states[symbol] = state
             logger.info(f"Initialized state for {symbol} (Variant C)")
-            
+
         return self.states[symbol]
 
     async def shutdown(self):
@@ -832,13 +822,11 @@ class OFConfirmService:
 
 if __name__ == "__main__":
     service = OFConfirmService()
-    
+
     def handle_sigterm(*args):
         safe_create_task(service.shutdown())
-    
+
     signal.signal(signal.SIGTERM, handle_sigterm)
-    
-    try:
+
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(service.start())
-    except KeyboardInterrupt:
-        pass

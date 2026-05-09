@@ -25,14 +25,13 @@ Veto conditions (HARD mode only)
 """
 
 from dataclasses import dataclass
-from typing import List
 
 
 @dataclass
 class CrossVenueDecision:
     hit: bool             # any flags detected
     mode: str             # monitor | tighten | veto
-    flags: List[str]      # all detected flags
+    flags: list[str]      # all detected flags
     tighten_add_bps: float
     veto: bool
     veto_reason: str
@@ -48,7 +47,7 @@ _ADVERSE_FLAGS = frozenset({
 
 
 def _map_profile(profile: str) -> str:
-    p = str(profile or "monitor").strip().lower()
+    p = (profile or "monitor").strip().lower()
     if p in {"default", "soft", "monitor"}:
         return "monitor"
     if p in {"strict", "tighten"}:
@@ -80,8 +79,8 @@ def evaluate_crossvenue_context(
     All arguments are scalars — no I/O, no side-effects.
     """
     mode = _map_profile(profile)
-    side_up = str(side or "").strip().upper()
-    flags: List[str] = []
+    side_up = (side or "").strip().upper()
+    flags: list[str] = []
 
     # ── Stale venues ─────────────────────────────────────────────────────────
     if stale_count > max_stale_count:

@@ -1,4 +1,3 @@
-from utils.time_utils import get_ny_time_millis
 with open("common/time_utils.py", "a") as f:
     f.write('''
 from dataclasses import dataclass

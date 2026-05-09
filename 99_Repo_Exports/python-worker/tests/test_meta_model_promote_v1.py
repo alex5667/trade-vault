@@ -1,5 +1,4 @@
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,10 +24,10 @@ class TestMetaModelPromoteV1(unittest.TestCase):
 
             # Note: ts will be current, so we can't predict exact filename easily in test unless we mock time.
             # But we can check if file was created with correct suffix.
-            
+
             ts_start = "meta_model_meta_feat_v5_"
             out_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # We'll just call the functions directly to verify logic
             name = f"meta_model_meta_feat_v5_20000101_000000_{sha[:12]}.json"
             promoted = out_dir / name

@@ -2,7 +2,8 @@
 
 import unittest
 from types import SimpleNamespace
-from core.meta_feature_coverage import compute_meta_feature_coverage, apply_meta_coverage_guard
+
+from core.meta_feature_coverage import apply_meta_coverage_guard, compute_meta_feature_coverage
 
 
 class TestMetaFeatureCoverage(unittest.TestCase):

@@ -1,9 +1,11 @@
-from utils.time_utils import get_ny_time_millis
+import json
+
 #!/usr/bin/env python3
 import psycopg2
 import redis
-import json
-import time
+
+from utils.time_utils import get_ny_time_millis
+
 
 def now_ms(): return get_ny_time_millis()
 
@@ -43,7 +45,7 @@ for row in rows:
 
     y = 1 if r_mult is not None and r_mult >= 0.0 else 0
     p = 0.5
-    
+
     # Emulate decision
     decision = {
         "sid": sid,

@@ -1,8 +1,9 @@
 
-import pytest
 import json
+from typing import Any
+
 from core.orderflow_overrides_v1 import OrderflowOverridesV1, RolloutV1
-from typing import Dict, Any
+
 
 def test_overrides_schema_ok():
     raw = json.dumps({
@@ -43,9 +44,9 @@ def test_overrides_application():
         abs_lvl_tier_trend=2,
         burst_window_min_ms=500
     )
-    base_cfg: Dict[str, Any] = {"abs_lvl_tier_trend": 0, "other": 123}
+    base_cfg: dict[str, Any] = {"abs_lvl_tier_trend": 0, "other": 123}
     new_cfg = o.apply_to_cfg(base_cfg)
-    
+
     assert new_cfg["abs_lvl_tier_trend"] == 2
     assert new_cfg["other"] == 123
     assert new_cfg["burst_window_min_ms"] == 500
@@ -55,16 +56,16 @@ def test_overrides_application():
 def test_rollout_canary_match():
     rr = RolloutV1(mode="canary", canary_symbols=["BTCUSDT"])
     o = OrderflowOverridesV1(rollout=rr, abs_lvl_tier_trend=2)
-    
+
     # Simulate usage
     symbol = "BTCUSDT"
     target = True
     if o.rollout.mode == "canary":
          if symbol not in o.rollout.canary_symbols:
              target = False
-             
+
     assert target is True
-    
+
     symbol = "ETHUSDT"
     target = True
     if o.rollout.mode == "canary":

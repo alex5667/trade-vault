@@ -17,9 +17,9 @@ except pytest.skip.Exception:
     st = None
     HAS_HYPOTHESIS = False
 
-from handlers.confirmations.l2_confirm_breakout import L2ConfirmBreakout
 from handlers.confirmations.l2_confirm_absorption import L2ConfirmAbsorption
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot, L2Level
+from handlers.confirmations.l2_confirm_breakout import L2ConfirmBreakout
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
 
 
 def _lvl():

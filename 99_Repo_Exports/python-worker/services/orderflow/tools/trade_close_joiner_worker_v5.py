@@ -1,4 +1,8 @@
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 """
 Trade Close Joiner Worker (v5)
 
@@ -20,18 +24,16 @@ Reliability:
   - If decision:{sid} missing at close time -> push to CLOSE_WAIT_STREAM for retry
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import asyncio
 import json
 import os
-import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import redis.asyncio as aioredis
 from prometheus_client import Counter, Gauge, start_http_server
 
 from core.redis_stream_consumer import AsyncRedisStreamHelper
+from utils.time_utils import get_ny_time_millis
 
 _join_runs_total = Counter("trade_close_joiner_runs_total", "Joiner loop runs", ["result"])
 _join_events_total = Counter("trade_close_joiner_events_total", "Events processed", ["type", "result"])
@@ -51,15 +53,15 @@ def _env_int(name: str, default: str) -> int:
     try:
         return int(_env(name, default))
     except Exception:
-        return int(default)
+        return default
 
 def _env_float(name: str, default: str) -> float:
     try:
         return float(_env(name, default))
     except Exception:
-        return float(default)
+        return default
 
-def _loads_json(s: Any) -> Dict[str, Any]:
+def _loads_json(s: Any) -> dict[str, Any]:
     if s is None:
         return {}
     if isinstance(s, dict):
@@ -69,7 +71,7 @@ def _loads_json(s: Any) -> Dict[str, Any]:
     except Exception:
         return {}
 
-def _get_payload(fields: Dict[str, Any]) -> Dict[str, Any]:
+def _get_payload(fields: dict[str, Any]) -> dict[str, Any]:
     # Preferred: single "payload" field with JSON
     p = fields.get("payload")
     if p:
@@ -107,7 +109,7 @@ def _drift_mode(drift_state: Any, actual_action: str, actual_reason: str) -> str
         return "ok"
     return "unknown"
 
-def _pick(d: Dict[str, Any], *keys: str) -> Optional[Any]:
+def _pick(d: dict[str, Any], *keys: str) -> Any | None:
     for k in keys:
         if k in d and d[k] is not None:
             return d[k]
@@ -121,13 +123,13 @@ async def _setnx_dedup(r: aioredis.Redis, key: str, ttl_sec: int) -> bool:
         # fail-open: if dedup fails, do not drop
         return True
 
-async def _write_trades_closed(r: aioredis.Redis, stream: str, payload: Dict[str, Any], maxlen: int) -> None:
+async def _write_trades_closed(r: aioredis.Redis, stream: str, payload: dict[str, Any], maxlen: int) -> None:
     await r.xadd(stream, {"payload": json.dumps(payload, ensure_ascii=False)}, maxlen=maxlen, approximate=True)
 
-async def _write_ml_replay(r: aioredis.Redis, stream: str, payload: Dict[str, Any], maxlen: int) -> None:
+async def _write_ml_replay(r: aioredis.Redis, stream: str, payload: dict[str, Any], maxlen: int) -> None:
     await r.xadd(stream, {"payload": json.dumps(payload, ensure_ascii=False)}, maxlen=maxlen, approximate=True)
 
-async def _push_close_wait(r: aioredis.Redis, stream: str, close_payload: Dict[str, Any], reason: str, maxlen: int) -> None:
+async def _push_close_wait(r: aioredis.Redis, stream: str, close_payload: dict[str, Any], reason: str, maxlen: int) -> None:
     doc = {
         "ts_ms": _now_ms(),
         "reason": reason,
@@ -143,7 +145,7 @@ async def _load_of_input(
     field: str,
     sid_index_prefix: str,
     scan_count: int,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Fetch the originating OF input by SID from an OF inputs stream.
 
     Index path: GET {sid_index_prefix}{sid} -> stream_id, then XRANGE stream_id..stream_id.
@@ -151,7 +153,7 @@ async def _load_of_input(
 
     Returns decoded JSON payload (dict) or None.
     """
-    stream_id: Optional[str] = None
+    stream_id: str | None = None
     try:
         stream_id = await r.get(f"{sid_index_prefix}{sid}")
     except Exception:
@@ -166,7 +168,7 @@ async def _load_of_input(
             _id, fields = msgs[0]
             raw = fields.get(field) if isinstance(fields, dict) else None
             o = _loads_json(raw)
-            if isinstance(o, dict) and str(o.get("sid") or "") == sid:
+            if isinstance(o, dict) and (o.get("sid") or "") == sid:
                 return o
 
     try:
@@ -181,7 +183,7 @@ async def _load_of_input(
         o = _loads_json(raw)
         if not isinstance(o, dict):
             continue
-        if str(o.get("sid") or "") == sid:
+        if (o.get("sid") or "") == sid:
             try:
                 # Cache the stream id for future look-ups (TTL = 3 days)
                 await r.set(f"{sid_index_prefix}{sid}", _id, ex=3 * 24 * 3600)
@@ -193,7 +195,7 @@ async def _load_of_input(
 
 async def _handle_close(
     r: aioredis.Redis,
-    close_payload: Dict[str, Any],
+    close_payload: dict[str, Any],
     *,
     decision_prefix: str,
     trades_closed_stream: str,
@@ -208,7 +210,7 @@ async def _handle_close(
     of_inputs_field: str,
     of_inputs_sid_index_prefix: str,
     of_inputs_scan_count: int,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     sid = _pick(close_payload, "sid", "SID", "signal_id")
     if not sid:
         return False, "no_sid"
@@ -231,13 +233,13 @@ async def _handle_close(
         _trades_closed_dedup_total.labels(reason="setnx_failed").inc()
 
     # Merge + enrichment
-    out: Dict[str, Any] = dict(close_payload)
+    out: dict[str, Any] = dict(close_payload)
 
     # Meta enforcement (from close payload preferred, else from decision)
-    out["meta_enforce_cov_bucket"] = _pick(close_payload, "meta_enforce_cov_bucket", "meta_cov_bucket", "meta_enforce_bucket") or _pick(
+    out[MetaKeys.ENFORCE_COV_BUCKET] = _pick(close_payload, "meta_enforce_cov_bucket", "meta_cov_bucket", "meta_enforce_bucket") or _pick(
         decision, "meta_enforce_cov_bucket", "meta_cov_bucket"
     )
-    out["meta_enforce_applied"] = _pick(close_payload, "meta_enforce_applied", "meta_applied", "meta_enforce_apply") or _pick(
+    out[MetaKeys.ENFORCE_APPLIED] = _pick(close_payload, "meta_enforce_applied", "meta_applied", "meta_enforce_apply") or _pick(
         decision, "meta_enforce_applied", "meta_applied"
     )
 
@@ -289,7 +291,7 @@ async def _handle_close(
             scan_count=of_inputs_scan_count,
         )
 
-        replay_payload: Dict[str, Any]
+        replay_payload: dict[str, Any]
         if isinstance(of_input, dict):
             # Use the original OF input as the base — has all features at signal time.
             replay_payload = dict(of_input)
@@ -327,7 +329,7 @@ async def main() -> None:
     if http_port > 0:
         start_http_server(http_port)
 
-    trade_events_stream = _env("TRADE_EVENTS_STREAM", "events:trades")
+    trade_events_stream = _env("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     trades_closed_stream = _env("TRADES_CLOSED_STREAM", "trades:closed")
     trades_closed_maxlen = _env_int("TRADES_CLOSED_MAXLEN", "200000")
     decision_prefix = _env("DECISION_KEY_PREFIX", "decision:")
@@ -345,7 +347,7 @@ async def main() -> None:
     ml_replay_maxlen = _env_int("ML_REPLAY_INPUTS_MAXLEN", "200000")
 
     # OF inputs stream for enriching ML replay with original feature snapshots (Commit 10).
-    of_inputs_stream = _env("OF_INPUTS_STREAM", "signals:of:inputs")
+    of_inputs_stream = _env("OF_INPUTS_STREAM", RS.OF_INPUTS)
     of_inputs_field = _env("OF_INPUTS_STREAM_FIELD", "payload")
     of_inputs_sid_index_prefix = _env("OF_INPUTS_SID_INDEX_PREFIX", "idx:of_inputs:sid:")
     of_inputs_scan_count = _env_int("OF_INPUTS_SCAN_COUNT", "5000")
@@ -370,7 +372,7 @@ async def main() -> None:
                 count=batch,
                 block=block_ms,
             )
-            
+
             if not res:
                 _join_runs_total.labels(result="idle").inc()
                 continue

@@ -1,7 +1,5 @@
-import time
 from hypothesis import settings
-from hypothesis.stateful import RuleBasedStateMachine, rule, precondition, initialize
-from services.signal_dispatcher import SignalDispatcher
+from hypothesis.stateful import RuleBasedStateMachine, initialize, rule
 
 
 class DispatcherModel(RuleBasedStateMachine):

@@ -1,9 +1,9 @@
-import os
 import json
 import time
-import pytest
 from types import SimpleNamespace
-from orderflow_services.confidence_calibrator import get_cached_calibrator, ConfidenceCalibrator
+
+from orderflow_services.confidence_calibrator import get_cached_calibrator
+
 
 def test_get_cached_calibrator_basic(tmp_path):
     cal_file = tmp_path / "cal.json"
@@ -13,19 +13,19 @@ def test_get_cached_calibrator_basic(tmp_path):
         "t": 1.5
     }
     cal_file.write_text(json.dumps(cal_data))
-    
+
     runtime = SimpleNamespace()
-    
+
     # 1. Load first time
     cal1 = get_cached_calibrator(runtime, str(cal_file))
     assert cal1 is not None
     assert cal1.t == 1.5
     assert hasattr(runtime, "_confidence_cal_cache")
-    
+
     # 2. Sequential call within check_every_ms (should be same object)
     cal2 = get_cached_calibrator(runtime, str(cal_file), check_every_ms=5000)
     assert cal1 is cal2
-    
+
     # 3. Modify file, but call again within check_every_ms (should still be old cached object)
     cal_data["t"] = 2.0
     cal_file.write_text(json.dumps(cal_data))
@@ -39,7 +39,7 @@ def test_get_cached_calibrator_basic(tmp_path):
     # Note: os.stat mtime might not change if we write too fast.
     time.sleep(0.1) # ensure mtime change if possible
     cal_file.write_text(json.dumps(cal_data))
-    
+
     cal4 = get_cached_calibrator(runtime, str(cal_file), check_every_ms=-1)
     assert cal4 is not cal1
     assert cal4.t == 2.0
@@ -47,7 +47,7 @@ def test_get_cached_calibrator_basic(tmp_path):
 def test_get_cached_calibrator_missing_file(tmp_path):
     runtime = SimpleNamespace()
     p = str(tmp_path / "nonexistent.json")
-    
+
     cal = get_cached_calibrator(runtime, p)
     assert cal is None
     assert runtime._confidence_cal_cache["cal"] is None

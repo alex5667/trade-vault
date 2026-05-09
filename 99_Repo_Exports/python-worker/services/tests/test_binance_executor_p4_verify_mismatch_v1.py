@@ -8,9 +8,9 @@ trigger price outdated).
 Note: _verify_protection_on_exchange accepts payload: Dict and state: Dict
 (not bare expect_sl / tps), so tests must supply those accordingly.
 """
-from pathlib import Path
 import importlib.util
 import sys
+from pathlib import Path
 
 _root = Path(__file__).resolve()
 for _p in _root.parents:

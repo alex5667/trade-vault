@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
-from ._helpers import _is_finite, _safe_float, _clamp
+from ._helpers import _clamp, _safe_float
 
 
 @dataclass(frozen=True)
@@ -11,7 +11,7 @@ class ScoreOutput:
     conf_factor: float
     final_score: float
     confidence_pct: float
-    parts: Dict[str, Any]
+    parts: dict[str, Any]
 
 
 class ScoreModel:
@@ -22,7 +22,7 @@ class ScoreModel:
       confidence_pct = calibration(final_score, kind, symbol)  (fallback mapping if no calibrator)
     """
 
-    def __init__(self, cfg: Any, calibrator: Optional[Any] = None) -> None:
+    def __init__(self, cfg: Any, calibrator: Any | None = None) -> None:
         self.cfg = cfg
         self.calibrator = calibrator
 
@@ -32,11 +32,11 @@ class ScoreModel:
         ctx: Any,
         kind: Any,
         side: int,
-        quality_flags: Dict[str, Any],
-    ) -> Tuple[float, Dict[str, Any]]:
+        quality_flags: dict[str, Any],
+    ) -> tuple[float, dict[str, Any]]:
         # Base factor
         f = 1.0
-        parts: Dict[str, Any] = {}
+        parts: dict[str, Any] = {}
 
         # Fail-closed on hard veto flags
         if quality_flags.get("veto") is True:
@@ -44,7 +44,7 @@ class ScoreModel:
 
         # L2 contribution
         l2_ok = bool(quality_flags.get("l2_ok", True))
-        l2_reason = str(quality_flags.get("l2_reason", ""))
+        l2_reason = (quality_flags.get("l2_reason", ""))
         if not l2_ok:
             # stale L2 should crush confidence; other fails penalize sharply
             if l2_reason == "stale_l2":
@@ -99,11 +99,11 @@ class ScoreModel:
         parts["conf_factor"] = f
         return f, parts
 
-    def calibrate_confidence_pct(self, *, ctx: Any, kind: Any, final_score: float) -> Tuple[float, Dict[str, Any]]:
+    def calibrate_confidence_pct(self, *, ctx: Any, kind: Any, final_score: float) -> tuple[float, dict[str, Any]]:
         # Preferred: external calibration service (if present).
         # Contract: output should be [0..100] and stable even when calibrator missing.
         symbol = getattr(ctx, "symbol", None)
-        parts: Dict[str, Any] = {"symbol": symbol, "kind": str(kind)}
+        parts: dict[str, Any] = {"symbol": symbol, "kind": str(kind)}
 
         if self.calibrator is not None:
             # Try common calibrator shapes safely
@@ -133,7 +133,7 @@ class ScoreModel:
         kind: Any,
         side: int,
         raw_score: float,
-        quality_flags: Dict[str, Any],
+        quality_flags: dict[str, Any],
     ) -> ScoreOutput:
         raw_score = _safe_float(raw_score, 0.0)
         conf_factor, conf_parts = self.compute_conf_factor(ctx=ctx, kind=kind, side=side, quality_flags=quality_flags)

@@ -1,20 +1,21 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis
 except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
+from core.redis_stream_consumer import SyncRedisStreamHelper
 from orderflow_services.context_cache_registry_v1 import ContextCacheRegistryV1, build_cache_observation
-
 
 RUNS = Counter("ml_context_cache_manager_runs_total", "Context cache manager runs", ["status"])
 ENTRIES = Counter("ml_context_cache_entries_total", "Context cache entries observed", ["eligible"])
@@ -41,13 +42,23 @@ def main() -> None:
     group = os.getenv("ML_CONTEXT_CACHE_MANAGER_GROUP", "cg:ml_context_cache_manager_v1")
     consumer = os.getenv("HOSTNAME", "ml-context-cache-manager-v1")
     last_hash = os.getenv("ML_CONTEXT_CACHE_LAST_HASH", "metrics:ml:context_cache:last")
-    try:
-        r.xgroup_create(in_stream, group, id="0", mkstream=True)
-    except Exception:
-        pass
+
+    helper = SyncRedisStreamHelper(client=r, group=group, consumer=consumer)
+    helper.ensure_groups([in_stream], start_id="0")
+
+    pel_start_id = "0-0"
     while True:
         t0 = time.perf_counter()
-        rows = r.xreadgroup(groupname=group, consumername=consumer, streams={in_stream: ">"}, count=32, block=5000)
+
+        pel_start_id, pending_msgs = helper.claim_pending(
+            in_stream, min_idle_ms=5000, count=32, start_id=pel_start_id
+        )
+        pending_formatted = [(m.msg_id, m.fields) for m in pending_msgs]
+        if pending_formatted:
+            rows = [[in_stream, pending_formatted]]
+        else:
+            rows = helper.read({in_stream: ">"}, count=32, block=5000)
+
         if not rows:
             LAST_RUN.set(time.time())
             continue
@@ -59,8 +70,8 @@ def main() -> None:
                     obs = build_cache_observation(payload)
                     entry = registry.observe(
                         compact_hash=str(obs.get("compact_hash") or payload.get("batch_id") or ""),
-                        prompt_version=str(obs.get("prompt_version") or "unknown"),
-                        policy_version=str(obs.get("policy_version") or "unknown"),
+                        prompt_version=(obs.get("prompt_version") or "unknown"),
+                        policy_version=(obs.get("policy_version") or "unknown"),
                         payload_bytes=int(obs.get("payload_bytes") or 0),
                         ts_ms=int(payload.get("ts_ms") or get_ny_time_millis()),
                     )
@@ -78,10 +89,10 @@ def main() -> None:
                     LAST_HITS.set(entry.hits)
                     LAST_PAYLOAD_BYTES.set(entry.payload_bytes)
                     RUNS.labels(status="ok").inc()
-                    r.xack(in_stream, group, msg_id)
+                    helper.ack(in_stream, msg_id)
                 except Exception:
                     RUNS.labels(status="err").inc()
-                    r.xack(in_stream, group, msg_id)
+                    helper.ack(in_stream, msg_id)
         LAST_RUN.set(time.time())
         LOOP_LAT.observe(max(0.0, time.perf_counter() - t0))
 

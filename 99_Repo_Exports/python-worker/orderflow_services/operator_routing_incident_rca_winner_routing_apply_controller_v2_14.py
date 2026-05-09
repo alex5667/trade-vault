@@ -1,12 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
-import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, Optional
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -96,7 +96,7 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 
@@ -125,28 +125,28 @@ async def apply_loop(r: Any) -> None:
                     winner_bucket = row.get("winner_bucket", "none")
                     winner_score = float(row.get("winner_score", 0.0))
                     advisory_flag = row.get("advisory_only", "1")
-                    
-                    sample_n_ch = int(row.get(f"bucket_challenger_sample_n", 0))
-                    sample_n_ct = int(row.get(f"bucket_control_sample_n", 0))
-                    
-                    score_ct = float(row.get(f"bucket_control_avg_quality", 0.0))*0.4 + float(row.get(f"bucket_control_avg_usefulness", 0.0))*0.6
-                    
+
+                    sample_n_ch = int(row.get("bucket_challenger_sample_n", 0))
+                    sample_n_ct = int(row.get("bucket_control_sample_n", 0))
+
+                    score_ct = float(row.get("bucket_control_avg_quality", 0.0))*0.4 + float(row.get("bucket_control_avg_usefulness", 0.0))*0.6
+
                     action = "REJECTED"
                     reason = "none"
-                    
+
                     kill_val = await r.get(KILL_SWITCH_KEY)
                     is_killed = kill_val and kill_val.decode("utf-8") == "1"
-                    
+
                     last_apply = await r.hget(GLOBAL_POLICY_HASH, "last_updated_ms")
                     last_apply_sec = int(last_apply.decode("utf-8")) / 1000 if last_apply else 0
-                    
+
                     # Validations
                     if is_killed:
                         reason = "kill_switch_active"
                     elif advisory_flag == "1" and not ADVISORY_ONLY:
                         reason = "decision_is_advisory" # wait, if global is active, but decision is advisory?
                         # ignore, let global override # actually no, trust global
-                        pass 
+                        pass
                     elif winner_bucket != "challenger":
                         reason = "winner_not_challenger"
                     elif sample_n_ch < MIN_SAMPLE or sample_n_ct < MIN_SAMPLE:
@@ -158,7 +158,7 @@ async def apply_loop(r: Any) -> None:
                     else:
                         action = "APPLIED"
                         reason = "validation_passed"
-                        
+
                     if ADVISORY_ONLY and action == "APPLIED":
                         action = "ADVISORY_APPLIED"
                         reason = "validation_passed_dry_run"
@@ -171,7 +171,7 @@ async def apply_loop(r: Any) -> None:
                         "executor_mode": EXECUTOR_MODE,
                         "ts_ms": now_ms(),
                     }
-                    
+
                     if action == "APPLIED" and EXECUTOR_MODE == "COMMIT":
                         await r.hset(GLOBAL_POLICY_HASH, mapping={
                             "provider": "vertex",
@@ -180,13 +180,13 @@ async def apply_loop(r: Any) -> None:
                             "last_updated_ms": now_ms(),
                             "experiment_source": exp_id
                         })
-                        
+
                     await r.xadd(OUT_STREAM, result, maxlen=MAXLEN, approximate=True)
                     await r.xadd(AUDIT_STREAM, result, maxlen=MAXLEN, approximate=True)
-                    
+
                     if APPLIES:
                         APPLIES.labels(experiment_id=exp_id, action=action).inc()
-                    
+
                     await r.xack(IN_STREAM, GROUP, msg_id)
                 except Exception:
                     status = "error"

@@ -1,10 +1,8 @@
-import pytest
-from datetime import datetime, timedelta, timezone
-import json
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 from services.atr_post_release_observation_service import ATRPostReleaseObservationService
 
-from unittest.mock import patch, MagicMock
 
 @patch('services.atr_post_release_observation_service.get_db_connection')
 def test_open_post_release_observation(mock_get_conn):
@@ -69,7 +67,7 @@ def test_decide_promotion_status_dwell_not_met(mock_get_conn):
 
     mock_cur.fetchone.return_value = {
         "status": "OBSERVING",
-        "observation_until": datetime.now(timezone.utc) + timedelta(hours=1)
+        "observation_until": datetime.now(UTC) + timedelta(hours=1)
     }
     mock_cur.fetchall.side_effect = [[], []] # no holds, no failed checks
 
@@ -88,7 +86,7 @@ def test_decide_promotion_status_eligible(mock_get_conn):
         "change_id": "id1",
         "target_scope": "scope1",
         "status": "OBSERVING",
-        "observation_until": datetime.now(timezone.utc) - timedelta(hours=1)
+        "observation_until": datetime.now(UTC) - timedelta(hours=1)
     }
     mock_cur.fetchall.side_effect = [[], []] # no holds, no failed checks
 
@@ -105,7 +103,7 @@ def test_decide_promotion_status_hold(mock_get_conn):
     mock_cur.fetchone.return_value = {
         "change_class": "MEDIUM_POLICY",
         "status": "OBSERVING",
-        "observation_until": datetime.now(timezone.utc) - timedelta(hours=1)
+        "observation_until": datetime.now(UTC) - timedelta(hours=1)
     }
     mock_cur.fetchall.side_effect = [
         [{"severity": "critical", "hold_reason_code": "execution_slippage"}], # holds
@@ -124,7 +122,7 @@ def test_decide_promotion_status_rollback_required(mock_get_conn):
     mock_cur.fetchone.return_value = {
         "change_class": "PROTECTIVE_PATH_TOUCHING",
         "status": "OBSERVING",
-        "observation_until": datetime.now(timezone.utc) - timedelta(hours=1)
+        "observation_until": datetime.now(UTC) - timedelta(hours=1)
     }
     mock_cur.fetchall.side_effect = [
         [{"severity": "critical", "hold_reason_code": "protective_critical_drift"}], # holds

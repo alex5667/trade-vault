@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 import json
+
 import fakeredis
 
 from utils.atr_cache import ATRCache
@@ -12,7 +12,7 @@ def test_atr_cache_prefers_tracker_hash():
     chk = r.hgetall("ATR:BTCUSDT:M1")
     print(f"DEBUG TEST: {chk}")
     assert "atr" in chk
-    
+
     c = ATRCache(redis_client=r)
     v, meta = c.get_with_meta("BTCUSDT", "1m", now_ms=1700000001000)
     print(f"DEBUG RESULT: v={v}, meta={meta}")

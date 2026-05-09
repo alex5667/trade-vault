@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from handlers.data_processor import _filter_dataclass_kwargs
 
@@ -9,8 +9,8 @@ from handlers.data_processor import _filter_dataclass_kwargs
 @dataclass
 class CtxWithExtra:
     a: int = 0
-    extra: Dict[str, Any] = field(default_factory=dict)
-    data_quality_flags: Optional[List[str]] = None
+    extra: dict[str, Any] = field(default_factory=dict)
+    data_quality_flags: list[str] | None = None
 
 
 @dataclass

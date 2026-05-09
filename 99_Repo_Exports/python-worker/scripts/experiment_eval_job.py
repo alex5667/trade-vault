@@ -7,11 +7,11 @@
 Запускать cron-ом каждые 5-15 минут или как отдельный сервис.
 """
 
-import os
 import json
-import time
 import logging
-from typing import Dict, Any, List
+import os
+import time
+from typing import Any
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -48,7 +48,7 @@ def run_experiment_eval() -> None:
         conn.close()
 
 
-def get_active_experiments(conn) -> List[str]:
+def get_active_experiments(conn) -> list[str]:
     """
     Возвращает список ID активных экспериментов
     """
@@ -92,7 +92,7 @@ def eval_experiment(conn, experiment_id: str) -> None:
         return
 
     # Группируем по variant
-    by_variant: Dict[str, Dict[str, Any]] = {}
+    by_variant: dict[str, dict[str, Any]] = {}
     for row in rows:
         variant = row["experiment_variant"] or "control"
         v = by_variant.setdefault(

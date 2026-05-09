@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
-
+from typing import Any
 
 ALLOWED_ACTIONS = {
     "require_shadow_retrain",
@@ -23,8 +22,8 @@ BLOCKED_ACTIONS = {
 }
 
 
-def validate_analysis_output(payload: Dict[str, Any]) -> Tuple[bool, List[str]]:
-    errs: List[str] = []
+def validate_analysis_output(payload: dict[str, Any]) -> tuple[bool, list[str]]:
+    errs: list[str] = []
     if not isinstance(payload, dict):
         return False, ["payload_not_dict"]
     for field in ("schema_version", "analysis_run_id", "status", "summary", "findings", "recommendations"):
@@ -37,11 +36,11 @@ def validate_analysis_output(payload: Dict[str, Any]) -> Tuple[bool, List[str]]:
     return len(errs) == 0, errs
 
 
-def guard_recommendations(payload: Dict[str, Any]) -> Dict[str, Any]:
+def guard_recommendations(payload: dict[str, Any]) -> dict[str, Any]:
     ok, errs = validate_analysis_output(payload)
     recommendations = payload.get("recommendations", []) if isinstance(payload, dict) else []
     guarded = []
-    blocked: List[Dict[str, Any]] = []
+    blocked: list[dict[str, Any]] = []
     if not ok:
         return {
             "valid": False,
@@ -53,8 +52,8 @@ def guard_recommendations(payload: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(item, dict):
             blocked.append({"reason": "recommendation_not_dict", "item": item})
             continue
-        action = str(item.get("action", "")).strip()
-        risk = str(item.get("risk", "medium")).strip() or "medium"
+        action = (item.get("action", "")).strip()
+        risk = (item.get("risk", "medium")).strip() or "medium"
         if action in BLOCKED_ACTIONS:
             blocked.append({"reason": "blocked_action", "action": action, "item": item})
             continue

@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -76,15 +77,15 @@ DEFAULT_ALLOW_SEVERITIES = os.getenv(
 ALLOWED_HANDLER_MODES = {"DETERMINISTIC", "DISABLED"}
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -127,8 +128,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -156,7 +157,7 @@ def default_allow_severities() -> set[str]:
     return {x.strip().lower() for x in DEFAULT_ALLOW_SEVERITIES.split(",") if x.strip()}
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     mode = str(raw.get("handler_mode") or DEFAULT_HANDLER_MODE).upper()
     if mode not in ALLOWED_HANDLER_MODES:
         mode = DEFAULT_HANDLER_MODE
@@ -172,8 +173,8 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def evaluate_request(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
-    severity = str(bundle.get("trigger_severity") or "").lower()
+def evaluate_request(bundle: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    severity = (bundle.get("trigger_severity") or "").lower()
     out = {"decision": "REJECT", "reason_code": "REJECTED", "severity": severity}
     if policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
@@ -195,18 +196,18 @@ def evaluate_request(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str
     return out
 
 
-def _summary(bundle: Dict[str, Any]) -> Dict[str, Any]:
+def _summary(bundle: dict[str, Any]) -> dict[str, Any]:
     summary = bundle.get("summary", {})
     return summary if isinstance(summary, dict) else {}
 
 
-def _trigger(bundle: Dict[str, Any]) -> Dict[str, Any]:
+def _trigger(bundle: dict[str, Any]) -> dict[str, Any]:
     evidence = bundle.get("evidence", {}) if isinstance(bundle.get("evidence"), dict) else {}
     trigger = evidence.get("trigger", {})
     return trigger if isinstance(trigger, dict) else {}
 
 
-def build_result_payload(bundle: Dict[str, Any], provider_mode: str) -> Dict[str, Any]:
+def build_result_payload(bundle: dict[str, Any], provider_mode: str) -> dict[str, Any]:
     summary = _summary(bundle)
     trigger = _trigger(bundle)
     verify_reasons = summary.get("verification_reason_codes", [])
@@ -222,12 +223,12 @@ def build_result_payload(bundle: Dict[str, Any], provider_mode: str) -> Dict[str
     if not isinstance(escalation_severities, list):
         escalation_severities = []
 
-    dominant: List[str] = []
-    hypotheses: List[str] = []
-    next_actions: List[str] = []
+    dominant: list[str] = []
+    hypotheses: list[str] = []
+    next_actions: list[str] = []
     confidence = 0.58 if provider_mode == "VERTEX" else 0.52
 
-    if str(bundle.get("trigger_type") or "") == "verification":
+    if (bundle.get("trigger_type") or "") == "verification":
         dominant.append("Verification surfaced a post-apply governance failure in the dedicated apply-flow contour.")
         hypotheses.append("The applied policy did not converge cleanly to the intended live state after the winner-apply transition.")
         next_actions.append("Compare intended target policy, live experiment policy, and post-apply exposures for this contour.")
@@ -252,7 +253,7 @@ def build_result_payload(bundle: Dict[str, Any], provider_mode: str) -> Dict[str
         hypotheses.append("Single-arm enforcement is incomplete or shadow publishers were not fully quiesced.")
         next_actions.append("Verify shadow publishers and compare expected single-arm mode versus observed exposure records.")
         confidence += 0.08
-    if "MAX_ATTEMPTS_REACHED" in retry_reasons or "EXHAUSTED" in [str(trigger.get("decision") or "").upper()]:
+    if "MAX_ATTEMPTS_REACHED" in retry_reasons or "EXHAUSTED" in [(trigger.get("decision") or "").upper()]:
         dominant.append("Retry budget was exhausted while trying to converge the rollback target.")
         hypotheses.append("Rollback convergence is unstable or idempotent re-apply did not restore the expected experiment state.")
         next_actions.append("Freeze further promotions for this contour until retry exhaustion is explained.")
@@ -267,12 +268,12 @@ def build_result_payload(bundle: Dict[str, Any], provider_mode: str) -> Dict[str
         hypotheses.append("This contour currently needs bounded remediation and careful human review before more aggressive automation.")
         next_actions.append("Use this bundle to drive bounded RCA and pause additional contour promotion until quality recovers.")
         confidence += 0.05
-    if str(bundle.get("trigger_type") or "") == "apply_decision":
+    if (bundle.get("trigger_type") or "") == "apply_decision":
         dominant.append("A winner recommendation triggered a bounded apply transition in the dedicated apply-flow contour.")
         hypotheses.append("The transition itself may be valid, but downstream verification and SLO drift determine whether it should persist.")
         next_actions.append("Correlate apply decision, journal entry, and the first verification outcomes after the transition.")
         confidence += 0.05
-    if str(bundle.get("trigger_type") or "") == "escalation":
+    if (bundle.get("trigger_type") or "") == "escalation":
         dominant.append("An escalation summary flagged this apply-flow contour for RCA attention.")
         hypotheses.append("SLO pressure, rollback latency, retry exhaustion, or low verify-keep rate likely accumulated across recent events.")
         next_actions.append("Review the latest SLO rollups, retry state, and escalation reasons embedded in this bundle.")
@@ -293,8 +294,8 @@ def build_result_payload(bundle: Dict[str, Any], provider_mode: str) -> Dict[str
         "confidence": confidence,
         "quality_flags": {
             "provider_mode": provider_mode,
-            "bundle_trigger_type": str(bundle.get("trigger_type") or ""),
-            "bundle_trigger_severity": str(bundle.get("trigger_severity") or ""),
+            "bundle_trigger_type": (bundle.get("trigger_type") or ""),
+            "bundle_trigger_severity": (bundle.get("trigger_severity") or ""),
             "apply_decisions_n": parse_int(summary.get("apply_decisions_n"), 0),
             "verification_events_n": parse_int(summary.get("verification_events_n"), 0),
             "rollback_events_n": parse_int(summary.get("rollback_events_n"), 0),
@@ -304,13 +305,13 @@ def build_result_payload(bundle: Dict[str, Any], provider_mode: str) -> Dict[str
     }
 
 
-def build_result_row(request: Dict[str, Any], bundle: Dict[str, Any], result_payload: Dict[str, Any], provider_mode: str) -> Dict[str, Any]:
+def build_result_row(request: dict[str, Any], bundle: dict[str, Any], result_payload: dict[str, Any], provider_mode: str) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "request_id": str(request.get("request_id") or bundle.get("bundle_id") or ""),
-        "bundle_id": str(bundle.get("bundle_id") or ""),
+        "bundle_id": (bundle.get("bundle_id") or ""),
         "task_type": "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_result",
-        "severity": str(bundle.get("trigger_severity") or "warning"),
+        "severity": (bundle.get("trigger_severity") or "warning"),
         "provider_mode": provider_mode,
         "result_json": stable_json(result_payload),
         "ts_ms": str(now_ms()),
@@ -324,11 +325,11 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_hash(r: Any, key: str) -> Dict[str, Any]:
+async def read_hash(r: Any, key: str) -> dict[str, Any]:
     return as_dict(await r.hgetall(key))
 
 
-async def persist_if_configured(db_url: str, request: Dict[str, Any], bundle: Dict[str, Any], result_row: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, request: dict[str, Any], bundle: dict[str, Any], result_row: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -415,7 +416,7 @@ async def main() -> None:  # pragma: no cover
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     decision = evaluate_request(bundle, policy)
                     decision_label = decision["decision"]
 

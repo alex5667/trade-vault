@@ -1,10 +1,9 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
-import time
 from dataclasses import dataclass
-from typing import Union
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -64,13 +63,13 @@ class WinnerHysteresis:
         v = await self.r.get(self._k(bucket, "winner"))
         if isinstance(v, (bytes, bytearray)):
             return v.decode("utf-8", "ignore").strip()
-        return str(v or "").strip()
+        return (v or "").strip()
 
     def get_winner(self, bucket: str) -> str:
         v = self.r.get(self._k(bucket, "winner"))
         if isinstance(v, (bytes, bytearray)):
             return v.decode("utf-8", "ignore").strip()
-        return str(v or "").strip()
+        return (v or "").strip()
 
     async def get_winner_lcb_async(self, bucket: str) -> float:
         v = await self.r.get(self._k(bucket, "winner_lcb"))
@@ -166,13 +165,13 @@ class WinnerHysteresis:
         v = await self.r.get(self._k(bucket, "pending"))
         if isinstance(v, (bytes, bytearray)):
             return v.decode("utf-8", "ignore").strip()
-        return str(v or "").strip()
+        return (v or "").strip()
 
     def _get_pending(self, bucket: str) -> str:
         v = self.r.get(self._k(bucket, "pending"))
         if isinstance(v, (bytes, bytearray)):
             return v.decode("utf-8", "ignore").strip()
-        return str(v or "").strip()
+        return (v or "").strip()
 
     async def _incr_pending_async(self, bucket: str) -> int:
         k = self._k(bucket, "pending_count")

@@ -1,8 +1,8 @@
-# -*- coding: utf-8 -*-
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
+
 
 def test_dataset_builder_join_and_labels(tmp_path: Path):
     inputs = tmp_path / "inputs.ndjson"

@@ -1,22 +1,22 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import copy
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pytest
-from hypothesis import given, strategies as st, settings
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 import services.signal_dispatcher as sd_mod
 from services.signal_dispatcher import SignalDispatcher
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:
     def __init__(self) -> None:
-        self.kv: Dict[str, Any] = {}
+        self.kv: dict[str, Any] = {}
 
-    def set(self, key: str, value: Any, ex: Optional[int] = None, nx: bool = False, px: Optional[int] = None) -> bool:
+    def set(self, key: str, value: Any, ex: int | None = None, nx: bool = False, px: int | None = None) -> bool:
         if nx and key in self.kv:
             return False
         self.kv[str(key)] = value
@@ -33,11 +33,11 @@ class FakeRedis:
         # not needed here; return "unknown"
         return -1
 
-    def zadd(self, name: str, mapping: Dict[str, int]) -> int:
+    def zadd(self, name: str, mapping: dict[str, int]) -> int:
         # retries are patched out; keep minimal impl
         return 1
 
-    def xadd(self, stream: str, fields: Dict[str, Any], maxlen: Optional[int] = None, approximate: bool = True) -> str:
+    def xadd(self, stream: str, fields: dict[str, Any], maxlen: int | None = None, approximate: bool = True) -> str:
         # not needed; just accept
         return "0-0"
 
@@ -75,10 +75,10 @@ def _payload_strategy():
 )
 def test_deliver_targets_with_retry_never_mutates_targets_payloads(
     monkeypatch: pytest.MonkeyPatch,
-    p_sig: Dict[str, Any],
-    p_aud: Dict[str, Any],
-    p_man: Dict[str, Any],
-    p_snap: Dict[str, Any],
+    p_sig: dict[str, Any],
+    p_aud: dict[str, Any],
+    p_man: dict[str, Any],
+    p_snap: dict[str, Any],
     sid: str,
 ) -> None:
     # --- dispatcher instance (bypass __init__) ---
@@ -149,7 +149,7 @@ def test_deliver_targets_with_retry_never_mutates_targets_payloads(
     d._evalsha_or_eval = fake_eval  # type: ignore
 
     # --- env with targets/meta for the 4 branches shown in your code ---
-    env: Dict[str, Any] = {
+    env: dict[str, Any] = {
         "sid": sid,
         "symbol": "BTCUSDT",
         "kind": "test",

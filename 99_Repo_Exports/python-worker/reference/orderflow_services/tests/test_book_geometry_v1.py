@@ -1,7 +1,6 @@
-import unittest
-import sys
 import os
-
+import sys
+import unittest
 
 # Ensure repo root is on sys.path for imports when running via `python -m unittest`
 # tests/ -> orderflow/ -> services/ -> python-worker/
@@ -12,8 +11,8 @@ if ROOT not in sys.path:
 
 from services.orderflow.book_geometry import (
     calc_book_slope,
-    calc_depth_weighted_spread,
     calc_cost_to_cross,
+    calc_depth_weighted_spread,
 )
 
 

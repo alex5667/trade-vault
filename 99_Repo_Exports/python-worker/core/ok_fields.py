@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Mapping, Optional, Tuple, Dict
+from collections.abc import Mapping
+from typing import Any
 
 
 def _to_str(x: Any) -> str:
@@ -69,7 +70,7 @@ def _get(m: Mapping[str, Any], key: str) -> Any:
     return None
 
 
-def _maybe_json_dict(x: Any) -> Optional[Dict[str, Any]]:
+def _maybe_json_dict(x: Any) -> dict[str, Any] | None:
     if x is None:
         return None
     if isinstance(x, dict):
@@ -90,7 +91,7 @@ OK_KEYS = ("ok", "rule_ok", "ok_rule", "ok_strict")
 OK_SOFT_KEYS = ("ok_soft", "rule_ok_soft", "ok_rule_soft", "soft_ok")
 
 
-def parse_ok_fields(row: Mapping[str, Any]) -> Tuple[int, int]:
+def parse_ok_fields(row: Mapping[str, Any]) -> tuple[int, int]:
     """
     Return (ok_strict, ok_soft) for a metrics row.
     Searches:
@@ -141,7 +142,7 @@ def get_scenario(row: Mapping[str, Any]) -> str:
 
 def get_ts_ms(row: Mapping[str, Any]) -> int:
     return intish(_get(row, "ts_ms") or _get(row, "ts") or _get(row, "timestamp") or 0, 0)
-def derive_ok_fields_from_ofc(ofc: Any, evidence: Optional[Dict[str, Any]] = None) -> Tuple[int, int, int, str]:
+def derive_ok_fields_from_ofc(ofc: Any, evidence: dict[str, Any] | None = None) -> tuple[int, int, int, str]:
     """Derive (ok, ok_soft, ok_rule, ok_src) from OFConfirm-like object + evidence dict.
 
     Motivation: in some branches OFConfirm exposes ok_rule/allow but not ok, which made ok_rate always 0.
@@ -156,7 +157,7 @@ def derive_ok_fields_from_ofc(ofc: Any, evidence: Optional[Dict[str, Any]] = Non
             e = {}
 
     # ok_soft
-    ok_soft_v = e.get("ok_soft", None)
+    ok_soft_v = e.get("ok_soft")
     if ok_soft_v is not None:
         ok_soft = intish(ok_soft_v, 0)
     else:

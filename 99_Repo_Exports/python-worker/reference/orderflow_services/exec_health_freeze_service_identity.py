@@ -8,12 +8,13 @@ CLIENT LIST identity (user + name + lib-name). This module centralizes that
 contract and provides helpers both for startup blockers and live drift export.
 """
 
-from dataclasses import dataclass
 import os
-from typing import Any, Dict, Iterable, List, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlsplit
 
-from services.orderflow.exec_health_freeze_acl_contract import AUDIT_USER, BOOTSTRAP_USER, DEFAULT_USER, WRITER_USER
+from services.orderflow.exec_health_freeze_acl_contract import AUDIT_USER, BOOTSTRAP_USER, WRITER_USER
 
 IDENTITY_ENFORCE_ENV = 'EXEC_HEALTH_SERVICE_IDENTITY_ENFORCE'
 IDENTITY_REQUIRE_LIBNAME_ENV = 'EXEC_HEALTH_SERVICE_IDENTITY_REQUIRE_LIB_NAME'
@@ -40,12 +41,12 @@ def _b(x: Any, default: bool = False) -> bool:
 
 def _s(x: Any, d: str = '') -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
-def build_service_identity_contract() -> Dict[str, ServiceIdentity]:
+def build_service_identity_contract() -> dict[str, ServiceIdentity]:
     rows = [
         ServiceIdentity('exec_health_freeze_override_v1', 'writer', WRITER_USER, 'exec-health-freeze-override-v1', 'exec-health-freeze-writer', 'REDIS_URL'),
         ServiceIdentity('exec_health_slo_autoguard_v1', 'writer', WRITER_USER, 'exec-health-slo-autoguard-v1', 'exec-health-freeze-writer', 'REDIS_URL'),
@@ -61,8 +62,8 @@ def build_service_identity_contract() -> Dict[str, ServiceIdentity]:
     return {r.service: r for r in rows}
 
 
-def render_service_identity_env_templates(host: str = 'redis-worker-1', port: int = 6379, db: int = 0) -> Dict[str, Dict[str, str]]:
-    out: Dict[str, Dict[str, str]] = {}
+def render_service_identity_env_templates(host: str = 'redis-worker-1', port: int = 6379, db: int = 0) -> dict[str, dict[str, str]]:
+    out: dict[str, dict[str, str]] = {}
     for s in build_service_identity_contract().values():
         out[s.service] = {
             s.redis_url_env: f'redis://{s.redis_user}:<password>@{host}:{port}/{db}',
@@ -86,8 +87,8 @@ def parse_redis_url_username(redis_url: str) -> str:
         return ''
 
 
-def normalize_client_entry(raw: Any) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def normalize_client_entry(raw: Any) -> dict[str, str]:
+    out: dict[str, str] = {}
     if isinstance(raw, dict):
         for k, v in raw.items():
             out[_s(k)] = _s(v)
@@ -105,13 +106,13 @@ def normalize_client_entry(raw: Any) -> Dict[str, str]:
     return out
 
 
-def parse_client_list(raw: Any) -> List[Dict[str, str]]:
+def parse_client_list(raw: Any) -> list[dict[str, str]]:
     if isinstance(raw, (list, tuple)):
         return [normalize_client_entry(x) for x in raw if normalize_client_entry(x)]
     txt = _s(raw).strip()
     if not txt:
         return []
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for line in txt.splitlines():
         ent = normalize_client_entry(line)
         if ent:
@@ -119,7 +120,7 @@ def parse_client_list(raw: Any) -> List[Dict[str, str]]:
     return out
 
 
-def _match_entry_to_service(entry: Mapping[str, Any], expected: ServiceIdentity) -> Dict[str, str]:
+def _match_entry_to_service(entry: Mapping[str, Any], expected: ServiceIdentity) -> dict[str, str]:
     got_user = _s(entry.get('user'))
     got_name = _s(entry.get('name'))
     got_lib_name = _s(entry.get('lib-name'))
@@ -133,16 +134,16 @@ def _match_entry_to_service(entry: Mapping[str, Any], expected: ServiceIdentity)
     }
 
 
-def evaluate_client_list_against_contract(raw_client_list: Any, *, required_services: Sequence[str] | None = None) -> Dict[str, Any]:
+def evaluate_client_list_against_contract(raw_client_list: Any, *, required_services: Sequence[str] | None = None) -> dict[str, Any]:
     contract = build_service_identity_contract()
     required = list(required_services or contract.keys())
     entries = parse_client_list(raw_client_list)
-    by_name: Dict[str, List[Dict[str, str]]] = {}
+    by_name: dict[str, list[dict[str, str]]] = {}
     for ent in entries:
         name = _s(ent.get('name'))
         by_name.setdefault(name, []).append(ent)
-    violations: List[Dict[str, str]] = []
-    services: Dict[str, Dict[str, Any]] = {}
+    violations: list[dict[str, str]] = []
+    services: dict[str, dict[str, Any]] = {}
     known_names = {v.client_name for v in contract.values()}
     for service in required:
         exp = contract[service]
@@ -210,13 +211,13 @@ async def _read_current_client_line_async(r: Any) -> str:
     return _s(raw)
 
 
-def verify_entry_against_expected(entry: Mapping[str, Any], expected: ServiceIdentity, *, require_lib_name: bool | None = None) -> Dict[str, Any]:
+def verify_entry_against_expected(entry: Mapping[str, Any], expected: ServiceIdentity, *, require_lib_name: bool | None = None) -> dict[str, Any]:
     require_lib_name = _b(os.getenv(IDENTITY_REQUIRE_LIBNAME_ENV, '1'), True) if require_lib_name is None else bool(require_lib_name)
     ent = normalize_client_entry(entry)
     got_user = _s(ent.get('user'))
     got_name = _s(ent.get('name'))
     got_lib_name = _s(ent.get('lib-name'))
-    violations: List[str] = []
+    violations: list[str] = []
     if got_user != expected.redis_user:
         violations.append('wrong_user')
     if got_name != expected.client_name:
@@ -226,7 +227,7 @@ def verify_entry_against_expected(entry: Mapping[str, Any], expected: ServiceIde
     return {'ok': not violations, 'entry': ent, 'violations': violations, 'expected': expected}
 
 
-def ensure_service_identity_sync(r: Any, service: str, *, enforce: bool | None = None) -> Dict[str, Any]:
+def ensure_service_identity_sync(r: Any, service: str, *, enforce: bool | None = None) -> dict[str, Any]:
     expected = get_expected_service(service)
     enforce = _b(os.getenv(IDENTITY_ENFORCE_ENV, '1'), True) if enforce is None else bool(enforce)
     try:
@@ -247,7 +248,7 @@ def ensure_service_identity_sync(r: Any, service: str, *, enforce: bool | None =
     return chk
 
 
-async def ensure_service_identity_async(r: Any, service: str, *, enforce: bool | None = None) -> Dict[str, Any]:
+async def ensure_service_identity_async(r: Any, service: str, *, enforce: bool | None = None) -> dict[str, Any]:
     expected = get_expected_service(service)
     enforce = _b(os.getenv(IDENTITY_ENFORCE_ENV, '1'), True) if enforce is None else bool(enforce)
     try:

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from __future__ import annotations
+
 """
 Edge analytics by entry_tag with baseline pnl_if_fixed_exit.
 Provides reusable functions for CLI and programmatic use.
@@ -9,16 +10,16 @@ Provides reusable functions for CLI and programmatic use.
 import argparse
 import json
 import os
-from typing import Any, Dict, Iterable, List, Optional, Union
+from collections.abc import Iterable
+from typing import Any
 
 try:
     import redis  # type: ignore
 except Exception:  # pragma: no cover
     redis = None
 
-from services import analytics_db
-
 from domain.normalizers import canon_source, canon_symbol
+from services import analytics_db
 
 try:
     from analysis.trailing_recommender import (
@@ -277,8 +278,8 @@ class TagStats:
         except Exception:
             tr_active = tr_active or bool(t.get("trailing_active"))
 
-        reason_raw = str(t.get("close_reason_raw") or "")
-        reason_det = str(t.get("close_reason_detail") or "")
+        reason_raw = (t.get("close_reason_raw") or "")
+        reason_det = (t.get("close_reason_detail") or "")
 
         is_trailing_close = (
             "TRAIL" in reason_raw.upper()
@@ -558,13 +559,13 @@ def _try_float_or_str(v):
         return v
 
 
-def load_trades_from_redis(r: redis.Redis, limit: int) -> List[dict]:
+def load_trades_from_redis(r: redis.Redis, limit: int) -> list[dict]:
     """
     Берёт последние limit записей из стрима trades:closed в обратном порядке (свежее → старое).
     """
     # xrevrange: [max, min], max='+' → хвост, count=limit
     entries = r.xrevrange("trades:closed", max="+", min="-", count=limit)
-    trades: List[dict] = []
+    trades: list[dict] = []
     for _id, fields in entries:
         if isinstance(fields, dict):
             t = _parse_trade(fields)
@@ -573,9 +574,9 @@ def load_trades_from_redis(r: redis.Redis, limit: int) -> List[dict]:
     return trades
 
 
-def load_trades_from_pg(limit: int) -> List[Dict[str, Any]]:
+def load_trades_from_pg(limit: int) -> list[dict[str, Any]]:
     rows = analytics_db.fetch_trades_closed(limit=limit)
-    trades: List[Dict[str, Any]] = []
+    trades: list[dict[str, Any]] = []
     for row in rows:
         trades.append({
             "source": row.get("source"),
@@ -599,7 +600,7 @@ def load_trades_from_pg(limit: int) -> List[Dict[str, Any]]:
     return trades
 
 
-def load_trades(r, source: str, symbol: str, limit: int = 5000) -> Iterable[Dict[str, str]]:
+def load_trades(r, source: str, symbol: str, limit: int = 5000) -> Iterable[dict[str, str]]:
     """
     Берёт последние `limit` записей из trades:closed и фильтрует по source/symbol.
     Совместимость со старым API.
@@ -623,13 +624,13 @@ def load_trades(r, source: str, symbol: str, limit: int = 5000) -> Iterable[Dict
 
 
 def analyze_by_entry_tag(
-    trades: Iterable[Dict[str, Any]],
-    source: Optional[str] = None,
-    symbol: Optional[str] = None,
+    trades: Iterable[dict[str, Any]],
+    source: str | None = None,
+    symbol: str | None = None,
     min_trades: int = 5,
     include_untagged: bool = False,
     legacy_format: bool = False,
-) -> Union[List[dict], Dict[str, Dict[str, Any]]]:
+) -> list[dict] | dict[str, dict[str, Any]]:
     """
     Анализирует сделки по entry_tag с разделением baseline vs managed.
     
@@ -643,7 +644,7 @@ def analyze_by_entry_tag(
     Returns:
         Список словарей с метриками по каждому entry_tag
     """
-    buckets: Dict[str, TagStats] = {}
+    buckets: dict[str, TagStats] = {}
 
     source_norm = canon_source(source) if source else None
     symbol_norm = canon_symbol(symbol).upper() if symbol else None
@@ -657,7 +658,7 @@ def analyze_by_entry_tag(
         if symbol_norm is not None and t_symbol != symbol_norm:
             continue
 
-        entry_tag = str(t.get("entry_tag") or "").strip()
+        entry_tag = (t.get("entry_tag") or "").strip()
         if not entry_tag:
             entry_tag = NO_TAG
 
@@ -671,7 +672,7 @@ def analyze_by_entry_tag(
 
         bucket.add_trade(t)
 
-    results: List[dict] = []
+    results: list[dict] = []
     for tag, bucket in buckets.items():
         if bucket.n < min_trades:
             continue
@@ -680,10 +681,10 @@ def analyze_by_entry_tag(
 
     # сортировка по количеству сделок (убывание)
     results.sort(key=lambda x: x["n"], reverse=True)
-    
+
     # Конвертация в старый формат для обратной совместимости
     if legacy_format:
-        legacy_dict: Dict[str, Dict[str, Any]] = {}
+        legacy_dict: dict[str, dict[str, Any]] = {}
         for res in results:
             tag = res["tag"]
             legacy_dict[tag] = {
@@ -704,16 +705,16 @@ def analyze_by_entry_tag(
                 "n_fixed": res.get("n_fixed", 0),
             }
         return legacy_dict
-    
+
     return results
 
 
-def format_report(results: List[dict], trailing_reports: Optional[Dict[str, str]] = None) -> str:
+def format_report(results: list[dict], trailing_reports: dict[str, str] | None = None) -> str:
     """Форматирует результаты анализа в читаемый текст."""
     if not results:
         return "Нет данных по entry_tag (фильтр всё отфильтровал)."
 
-    lines: List[str] = []
+    lines: list[str] = []
     for row in results:
         tag = row["tag"]
         if tag == NO_TAG:
@@ -795,7 +796,7 @@ def format_report(results: List[dict], trailing_reports: Optional[Dict[str, str]
     return "\n".join(lines)
 
 
-def print_tag_stats(per_tag: Dict[str, Dict[str, Any]], min_trades_per_tag: int = 5) -> None:
+def print_tag_stats(per_tag: dict[str, dict[str, Any]], min_trades_per_tag: int = 5) -> None:
     """
     Старый API для совместимости.
     Конвертирует старый формат per_tag в новый и выводит.
@@ -808,7 +809,7 @@ def print_tag_stats(per_tag: Dict[str, Dict[str, Any]], min_trades_per_tag: int 
         n = stats.get("n", 0)
         if n < min_trades_per_tag:
             continue
-        
+
         # Создаем TagStats для конвертации
         tag_stats = TagStats(tag)
         # Не можем восстановить полные данные, но можем показать что есть
@@ -830,10 +831,10 @@ def print_tag_stats(per_tag: Dict[str, Dict[str, Any]], min_trades_per_tag: int 
             "expectancy_fixed_r": stats.get("sum_r_fixed", 0.0) / max(stats.get("n_fixed", 1), 1),
             "payoff_fixed_r": 0.0,
             "payoff_fixed_usd": 0.0,
-            "delta_expectancy_r": (stats.get("sum_r_net", 0.0) / max(stats.get("n_r", 1), 1)) - 
+            "delta_expectancy_r": (stats.get("sum_r_net", 0.0) / max(stats.get("n_r", 1), 1)) -
                                   (stats.get("sum_r_fixed", 0.0) / max(stats.get("n_fixed", 1), 1)),
         })
-    
+
     print(format_report(results))
 
 
@@ -908,15 +909,15 @@ def _build_trailing_snapshots_for_group(group_trades: list[dict]) -> list[Closed
         try:
             snap = ClosedTradeSnapshot(
                 source=str(t.get("source") or t.get("strategy_source") or "Unknown"),
-                symbol=str(t.get("symbol") or "UNKNOWN").upper(),
+                symbol=(t.get("symbol") or "UNKNOWN").upper(),
                 pnl_net=float(t.get("pnl_net") or 0.0),
                 one_r_money=float(t.get("one_r_money") or 0.0),
                 mfe_pnl=float(t.get("mfe_pnl") or 0.0),
                 giveback=float(t.get("giveback") or 0.0),
-                trailing_started=str(t.get("trailing_started") or "0") in ("1", "true", "True"),
-                trailing_active=str(t.get("trailing_active") or "0") in ("1", "true", "True"),
+                trailing_started=(t.get("trailing_started") or "0") in ("1", "true", "True"),
+                trailing_active=(t.get("trailing_active") or "0") in ("1", "true", "True"),
                 exit_ts_ms=int(t.get("exit_ts_ms") or 0),
-                entry_tag=str(t.get("entry_tag") or ""),
+                entry_tag=(t.get("entry_tag") or ""),
             )
             snaps.append(snap)
         except Exception:
@@ -925,13 +926,13 @@ def _build_trailing_snapshots_for_group(group_trades: list[dict]) -> list[Closed
 
 
 def analyze_trailing_by_entry_tag(
-    trades: Iterable[Dict[str, Any]],
-    source: Optional[str] = None,
-    symbol: Optional[str] = None,
+    trades: Iterable[dict[str, Any]],
+    source: str | None = None,
+    symbol: str | None = None,
     stop_atr_mult: float = 1.0,
     min_trades: int = 30,
     mfe_quantile: float = 0.25,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """
     Анализирует trailing рекомендации для каждого entry_tag.
 
@@ -942,7 +943,7 @@ def analyze_trailing_by_entry_tag(
         return {}
 
     # Группируем сделки по entry_tag
-    trades_by_tag: Dict[str, List[Dict[str, Any]]] = {}
+    trades_by_tag: dict[str, list[dict[str, Any]]] = {}
     source_norm = canon_source(source) if source else None
     symbol_norm = canon_symbol(symbol).upper() if symbol else None
 
@@ -955,7 +956,7 @@ def analyze_trailing_by_entry_tag(
         if symbol_norm is not None and t_symbol != symbol_norm:
             continue
 
-        entry_tag = str(t.get("entry_tag") or "").strip()
+        entry_tag = (t.get("entry_tag") or "").strip()
         if not entry_tag:
             entry_tag = NO_TAG
 
@@ -964,7 +965,7 @@ def analyze_trailing_by_entry_tag(
         trades_by_tag[entry_tag].append(t)
 
     # Анализируем trailing для каждого тега
-    trailing_reports: Dict[str, str] = {}
+    trailing_reports: dict[str, str] = {}
 
     for entry_tag, group_trades in trades_by_tag.items():
         if len(group_trades) < min_trades:

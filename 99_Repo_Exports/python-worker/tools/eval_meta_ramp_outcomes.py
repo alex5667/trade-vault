@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+
 """
 eval_meta_ramp_outcomes.py
 
@@ -23,14 +25,14 @@ Usage:
 
 import argparse
 import json
-import math
 import random
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from collections.abc import Iterator
+from typing import Any
 
 
-def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
+def iter_ndjson(path: str) -> Iterator[dict[str, Any]]:
     """Iterate over NDJSON file, yielding parsed JSON objects."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -43,7 +45,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -51,10 +53,10 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Compute percentile (q in [0,1])."""
     if not xs:
         return 0.0
@@ -64,7 +66,7 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def stats(rs: List[float]) -> Dict[str, float]:
+def stats(rs: list[float]) -> dict[str, float]:
     """Compute statistics for return multiples."""
     n = len(rs)
     if n == 0:
@@ -83,7 +85,7 @@ def stats(rs: List[float]) -> Dict[str, float]:
     }
 
 
-def bootstrap_diff(a: List[float], b: List[float], *, iters: int, seed: int) -> Dict[str, float]:
+def bootstrap_diff(a: list[float], b: list[float], *, iters: int, seed: int) -> dict[str, float]:
     """
     Bootstrap confidence intervals for delta meanR and delta tail_rate.
     
@@ -93,13 +95,13 @@ def bootstrap_diff(a: List[float], b: List[float], *, iters: int, seed: int) -> 
     if len(a) < 20 or len(b) < 20:
         return {"ok": 0.0}
 
-    def sample_mean(xs: List[float]) -> float:
+    def sample_mean(xs: list[float]) -> float:
         s = 0.0
         for _ in range(len(xs)):
             s += xs[rng.randrange(0, len(xs))]
         return s / len(xs)
 
-    def sample_tail(xs: List[float]) -> float:
+    def sample_tail(xs: list[float]) -> float:
         c = 0
         for _ in range(len(xs)):
             if xs[rng.randrange(0, len(xs))] <= -1.0:
@@ -142,13 +144,13 @@ def main() -> None:
     sym_set = {s.strip().upper() for s in (args.symbols or "").split(",") if s.strip()}
 
     # Split by meta_enforce_applied
-    enforce_rs: List[float] = []
-    control_rs: List[float] = []
+    enforce_rs: list[float] = []
+    control_rs: list[float] = []
     missing_tag = 0
     total = 0
 
     for r in iter_ndjson(args.trades):
-        sym = str(r.get("symbol", "") or "").upper()
+        sym = (r.get("symbol", "") or "").upper()
         if sym_set and sym not in sym_set:
             continue
 
@@ -158,7 +160,7 @@ def main() -> None:
             continue
 
         total += 1
-        applied = r.get("meta_enforce_applied", None)
+        applied = r.get(MetaKeys.ENFORCE_APPLIED, None)
         if applied is None:
             missing_tag += 1
             continue
@@ -169,7 +171,7 @@ def main() -> None:
         else:
             control_rs.append(float(rm))
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "total": total,
         "missing_meta_enforce_applied": missing_tag,
         "enforce": stats(enforce_rs),

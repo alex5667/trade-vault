@@ -2,18 +2,17 @@
 End-to-End integration test simulating the flow of a virtual trade 
 from outbox to closed periodic reports, ensuring perfect metrics segregation.
 """
-import copy
 import json
-import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
+
 
 def test_periodic_reporter_virtual_segregation():
-    # Because full e2e requires database/redis, we test the classification 
+    # Because full e2e requires database/redis, we test the classification
     # logic of the periodic report engine with mocked payloads.
     # We want to ensure that "is_virtual=1" guarantees 0 leakage into Real stats.
-    
+
     from services.periodic_reporter import PeriodicReporter
-    
+
     # Simple trade fixtures representing what trailing/execution outputs
     real_trade = {
         "symbol": "BTCUSDT",
@@ -22,7 +21,7 @@ def test_periodic_reporter_virtual_segregation():
         "one_r_money": 100.0,
         "closeTime": 1700000000000
     }
-    
+
     virtual_trade = {
         "symbol": "ETHUSDT",
         "is_virtual": True,
@@ -30,17 +29,17 @@ def test_periodic_reporter_virtual_segregation():
         "one_r_money": 50.0,
         "closeTime": 1700000001000
     }
-    
+
     # Initialize reporter with mocked redis
     reporter = PeriodicReporter.__new__(PeriodicReporter)
     reporter.tm = Mock()
     # Replace methods that do I/O if needed
-    
+
     trades = [real_trade, virtual_trade, virtual_trade, real_trade]
-    
+
     virtual_pnl = 0.0
     real_pnl = 0.0
-    
+
     for t in trades:
         # Match actual logic used by production reader
         is_virt = reporter._is_trade_virtual(t)
@@ -48,10 +47,10 @@ def test_periodic_reporter_virtual_segregation():
             virtual_pnl += t["pnl_net"]
         else:
             real_pnl += t["pnl_net"]
-            
+
     assert virtual_pnl == -40.0, "Virtual PnL accumulated incorrectly"
     assert real_pnl == 100.0, "Real PnL accumulated incorrectly - leakage occurred"
-    
+
 def test_outbox_envelope_virtual_tagging():
     # Ensure moving from outbox candidate to execution preserves is_virtual
     from core.outbox_envelope import make_envelope

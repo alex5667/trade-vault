@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """atr_horizon_live_surface_canary.py — Phase 2.4A: canary router for live stop/entry TTL surface.
 
 Separate from the gate canary (atr_horizon_canary.py / ATR_HORIZON_GATE_MODE).
@@ -22,7 +23,7 @@ trailing is NOT controlled by this router — trailing stays on get_atr(pos.symb
 import hashlib
 import os
 from dataclasses import asdict, dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 def _env_float(name: str, default: float) -> float:
@@ -33,7 +34,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _env_set(name: str) -> set[str]:
-    raw = str(os.getenv(name, "") or "").strip()
+    raw = (os.getenv(name, "") or "").strip()
     if not raw:
         return set()
     return {x.strip().upper() for x in raw.split(",") if x.strip()}
@@ -60,7 +61,7 @@ def should_apply_live_surface(
     sid: str,
     regime: str = "",
     scenario: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return application decision for live stop/entry surface.
 
     Always fail-open: any exception → shadow/no-apply dict.
@@ -68,14 +69,14 @@ def should_apply_live_surface(
     Returns dict (not dataclass) so callers can safely use .get() without import.
     """
     try:
-        mode = str(os.getenv("ATR_HORIZON_LIVE_SURFACE_MODE", "shadow") or "shadow").strip().lower()
+        mode = (os.getenv("ATR_HORIZON_LIVE_SURFACE_MODE", "shadow") or "shadow").strip().lower()
         share = max(0.0, min(1.0, _env_float("ATR_HORIZON_LIVE_SURFACE_CANARY_SHARE", 0.0)))
         allow_symbols = _env_set("ATR_HORIZON_LIVE_SURFACE_SYMBOLS")
 
-        symbol_u = str(symbol or "").upper()
-        regime_l = str(regime or "na").lower()
-        scenario_l = str(scenario or "na").lower()
-        sid_s = str(sid or "")
+        symbol_u = (symbol or "").upper()
+        regime_l = (regime or "na").lower()
+        scenario_l = (scenario or "na").lower()
+        sid_s = (sid or "")
         sticky_key = f"{symbol_u}|{regime_l}|{scenario_l}|{sid_s}"
 
         if mode == "off":

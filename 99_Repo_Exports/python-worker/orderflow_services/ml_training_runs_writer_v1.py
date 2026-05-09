@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+
 """Phase 0.1 ML training-runs writer.
 
 Normalizes existing training summary hashes/files into a single control-plane stream
@@ -11,10 +13,12 @@ import hashlib
 import json
 import os
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -84,11 +88,11 @@ class TrainingRunRow:
     kind: str
     model_id: str
     status: str
-    metrics_json: Dict[str, Any]
+    metrics_json: dict[str, Any]
     artifact_uri: str
-    notes_json: Dict[str, Any]
+    notes_json: dict[str, Any]
 
-    def stream_payload(self) -> Dict[str, Any]:
+    def stream_payload(self) -> dict[str, Any]:
         return {
             "schema_version": 1,
             "event": "ml_training_run_v1",
@@ -128,12 +132,12 @@ def _as_int(v: Any, d: int = 0) -> int:
         return d
 
 
-def _load_source_map() -> Dict[str, List[str]]:
+def _load_source_map() -> dict[str, list[str]]:
     if not SOURCE_MAP_JSON.strip():
         return {k: list(v) for k, v in DEFAULT_SOURCE_MAP.items()}
     try:
         obj = json.loads(SOURCE_MAP_JSON)
-        out: Dict[str, List[str]] = {}
+        out: dict[str, list[str]] = {}
         if isinstance(obj, dict):
             for k, v in obj.items():
                 if isinstance(v, list):
@@ -148,8 +152,8 @@ def _sha1_json(obj: Mapping[str, Any]) -> str:
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()
 
 
-def _clean_mapping(m: Mapping[str, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _clean_mapping(m: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in m.items():
         ks = _as_str(k)
         vs = _as_str(v)
@@ -180,7 +184,7 @@ def _pick_run_id(m: Mapping[str, Any], family: str, source_key: str) -> str:
         val = _as_str(m.get(key), "")
         if val:
             return val
-    return hashlib.sha1(f"{family}|{source_key}|{json.dumps(_clean_mapping(m), sort_keys=True)}".encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha1(f"{family}|{source_key}|{json.dumps(_clean_mapping(m), sort_keys=True)}".encode()).hexdigest()[:16]
 
 
 def _normalize_row(family: str, source_key: str, src: Mapping[str, Any]) -> TrainingRunRow:
@@ -200,7 +204,7 @@ def _normalize_row(family: str, source_key: str, src: Mapping[str, Any]) -> Trai
     status = _as_str(clean.get("status"), "ok")
     artifact_uri = _artifact_uri(clean)
     metrics_json = dict(clean)
-    notes_json: Dict[str, Any] = {
+    notes_json: dict[str, Any] = {
         "source_key": source_key,
         "schema_ver": _as_str(clean.get("schema_ver") or clean.get("feature_schema_ver"), ""),
         "schema_hash": _as_str(clean.get("schema_hash") or clean.get("feature_cols_hash"), ""),
@@ -283,13 +287,11 @@ class Writer:
             return ""
 
     def _set_state_fp(self, source_key: str, fp: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.r.hset(STATE_KEY, mapping={source_key: fp, "updated_ts_ms": str(_now_ms())})
-        except Exception:
-            pass
 
-    def scan(self) -> Tuple[int, int, int]:
-        rows: List[TrainingRunRow] = []
+    def scan(self) -> tuple[int, int, int]:
+        rows: list[TrainingRunRow] = []
         found_total = 0
         scanned_total = 0
         for family, keys in self.source_map.items():
@@ -327,11 +329,9 @@ class Writer:
         if rows:
             _db_upsert(rows)
             for row in rows:
-                try:
+                with contextlib.suppress(Exception):
                     self.r.xadd(STREAM, row.stream_payload(), maxlen=MAXLEN, approximate=True)
-                except Exception:
-                    pass
-                try:
+                with contextlib.suppress(Exception):
                     self.r.hset(
                         SUMMARY_KEY,
                         mapping={
@@ -343,8 +343,6 @@ class Writer:
                             "last_artifact_uri": row.artifact_uri,
                         }
                     )
-                except Exception:
-                    pass
                 ROWS_WRITTEN.labels(family=row.family).inc()
         LAST_SUCCESS.set(1.0 if scanned_total > 0 else 0.0)
         return len(rows), found_total, scanned_total

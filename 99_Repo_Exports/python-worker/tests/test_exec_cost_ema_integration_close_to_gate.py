@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 "Закрывающий" интеграционный тест:
   TradeClosed dict (как оно реально попадает через closed.__dict__)
@@ -11,12 +12,11 @@ from utils.time_utils import get_ny_time_millis
   - поведение fail-open при отсутствии session/ts
 """
 
-import time
 import pytest
 
-from services.execution_cost_ema import ExecCostEmaConfig, maybe_update_exec_cost_ema_from_closed
 from domain.time_utils import session_from_ts_ms
 from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
+from services.execution_cost_ema import ExecCostEmaConfig, maybe_update_exec_cost_ema_from_closed
 
 
 class FakeRedis:

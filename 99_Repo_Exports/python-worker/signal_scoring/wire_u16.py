@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import struct
-from typing import Optional
 
 
 def pack_u16(v: int) -> str:
@@ -16,7 +15,7 @@ def pack_u16(v: int) -> str:
     return s.rstrip("=")
 
 
-def unpack_u16(s: str) -> Optional[int]:
+def unpack_u16(s: str) -> int | None:
     """
     Unpack base64(no padding) -> uint16.
     Returns None if decode fails.
@@ -24,7 +23,7 @@ def unpack_u16(s: str) -> Optional[int]:
     if not s:
         return None
     try:
-        ss = str(s)
+        ss = s
         # restore padding
         pad = "=" * ((4 - (len(ss) % 4)) % 4)
         raw = base64.b64decode(ss + pad)

@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import pytest
 
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
 from handlers.confirmations.l2_confirmations import (
-    l2_confirm_breakout,
-    l2_confirm_absorption,
-    VETO_WALL_NEAR,
-    VETO_MP_CONTRA,
-    VETO_NO_WALL_OR_REFILL,
-    VETO_NO_BLOCKING_CONFIRM,
-    VETO_TAKER_RATE_LOW,
     OK,
+    VETO_MP_CONTRA,
+    VETO_NO_BLOCKING_CONFIRM,
+    VETO_NO_WALL_OR_REFILL,
+    VETO_TAKER_RATE_LOW,
+    VETO_WALL_NEAR,
+    l2_confirm_absorption,
+    l2_confirm_breakout,
 )
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
 
 
 @dataclass

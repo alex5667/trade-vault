@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Any, Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
 import pandas as pd
 
 
-def _read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def _read_ndjson(path: str) -> Iterable[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -16,7 +17,7 @@ def _read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
             yield json.loads(line)
 
 
-def _get_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
+def _get_payload(obj: dict[str, Any]) -> dict[str, Any]:
     if "payload" in obj and isinstance(obj["payload"], str) and obj["payload"].strip().startswith("{"):
         try:
             return json.loads(obj["payload"])
@@ -40,17 +41,17 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    tb: Dict[str, Dict[str, Any]] = {}
+    tb: dict[str, dict[str, Any]] = {}
     for obj in _read_ndjson(args.tb_labels):
-        sid = _norm_sid(str(obj.get("sid", "") or ""))
+        sid = _norm_sid((obj.get("sid", "") or ""))
         if sid:
             tb[sid] = obj
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     miss = 0
     for obj in _read_ndjson(args.inputs):
         o = _get_payload(obj)
-        sid = _norm_sid(str(o.get("sid", "") or ""))
+        sid = _norm_sid((o.get("sid", "") or ""))
         if not sid:
             continue
         t = tb.get(sid)
@@ -61,15 +62,15 @@ def main() -> None:
         rows.append({
             "sid": sid,
             "ts_ms": int(o.get("ts_ms", o.get("ts", 0)) or 0),
-            "symbol": str(o.get("symbol", "") or ""),
-            "direction": str(o.get("direction", "") or ""),
-            "scenario_v4": str(o.get("scenario_v4", o.get("scenario", "")) or ""),
+            "symbol": (o.get("symbol", "") or ""),
+            "direction": (o.get("direction", "") or ""),
+            "scenario_v4": (o.get("scenario_v4", o.get("scenario", "")) or ""),
             "indicators": {
                 k: (json.dumps(v) if isinstance(v, (dict, list)) else v)
                 for k, v in (o.get("indicators") if isinstance(o.get("indicators"), dict) else {}).items()
             },
             "y_edge": int(t.get("y_edge", 0) or 0),
-            "tb_outcome": str(t.get("tb_outcome", "") or ""),
+            "tb_outcome": (t.get("tb_outcome", "") or ""),
             "mae_bps": float(t.get("mae_bps", 0.0) or 0.0),
             "mfe_bps": float(t.get("mfe_bps", 0.0) or 0.0),
             "adverse_proxy": float(t.get("adverse_proxy", 0.0) or 0.0),

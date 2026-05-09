@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 train_edge_stack_v1_oof.py
 
@@ -25,23 +25,23 @@ Output:
   calibrator.json: PlattLogitCalibrator параметры (a, b, eps)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import math
 import os
-import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 import joblib
 import numpy as np
-
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import RobustScaler
+
+from utils.time_utils import get_ny_time_millis
+
 try:
     import xgboost as xgb
 except ImportError:
@@ -85,7 +85,7 @@ class PurgedEmbargoTimeSeriesSplit:
     embargo_ms: int = 0
     min_train: int = 200
 
-    def split(self, ts_ms: Sequence[int]) -> Iterable[Tuple[List[int], List[int]]]:
+    def split(self, ts_ms: Sequence[int]) -> Iterable[tuple[list[int], list[int]]]:
         n = len(ts_ms)
         if n == 0 or self.n_splits <= 0:
             return []
@@ -99,7 +99,7 @@ class PurgedEmbargoTimeSeriesSplit:
             fold_sizes[i] += 1
 
         # contiguous folds on sorted time
-        starts: List[int] = []
+        starts: list[int] = []
         s = 0
         for fs in fold_sizes:
             starts.append(s)
@@ -163,12 +163,12 @@ def _bucket_from_scenario(scenario: str) -> str:
 
 def build_feature_row(
     *,
-    feature_cols: List[str],
-    indicators: Dict[str, Any],
+    feature_cols: list[str],
+    indicators: dict[str, Any],
     direction: str,
     scenario: str,
     ts_ms: int,
-) -> Tuple[List[float], List[str]]:
+) -> tuple[list[float], list[str]]:
     """
     Строит feature row из indicators.
     
@@ -189,7 +189,7 @@ def build_feature_row(
         (row, missing) - feature vector и список отсутствующих критических фич
     """
     # Минимум: критические (как в gate)
-    missing: List[str] = []
+    missing: list[str] = []
     for k in ("spread_bps", "expected_slippage_bps"):
         if k not in indicators:
             missing.append(k)
@@ -206,7 +206,7 @@ def build_feature_row(
     # Для "первого прохода" оставляем identity, а scaling/transforms
     # внедряется через P0 fix (pack содержит robust_scaler/feature_transforms,
     # а gate применяет их в проде).
-    cache: Dict[str, float] = {}
+    cache: dict[str, float] = {}
 
     def num(name: str) -> float:
         """Получить числовую фичу с кэшированием."""
@@ -216,7 +216,7 @@ def build_feature_row(
         cache[name] = float(v)
         return cache[name]
 
-    row: List[float] = []
+    row: list[float] = []
     for col in feature_cols:
         if col.startswith("f_"):
             # числовая фича: f_delta_z -> indicators["delta_z"]
@@ -245,10 +245,10 @@ def build_feature_row(
     return row, missing
 
 
-def load_jsonl(path: str) -> List[Dict[str, Any]]:
+def load_jsonl(path: str) -> list[dict[str, Any]]:
     """Загружает NDJSON файл."""
     rows = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -294,7 +294,7 @@ def main() -> None:
     # Load feature_cols from JSON if provided, otherwise use default
     if args.feature_cols_json:
         try:
-            with open(args.feature_cols_json, "r", encoding="utf-8") as f:
+            with open(args.feature_cols_json, encoding="utf-8") as f:
                 feature_cols = json.load(f)
             if not isinstance(feature_cols, list):
                 raise ValueError(f"feature_cols_json must contain a JSON array, got {type(feature_cols)}")
@@ -323,15 +323,15 @@ def main() -> None:
         raise ValueError("No labels found in data")
 
     # Построение feature matrix
-    X_list: List[List[float]] = []
+    X_list: list[list[float]] = []
     miss_n = 0
     for r in data:
         indicators = r.get("indicators") or {}
         row, missing = build_feature_row(
             feature_cols=feature_cols,
             indicators=indicators,
-            direction=str(r.get("direction", "")),
-            scenario=str(r.get("scenario", "")),
+            direction=(r.get("direction", "")),
+            scenario=(r.get("scenario", "")),
             ts_ms=int(r.get("ts_ms", 0)),
         )
         if missing:
@@ -404,7 +404,7 @@ def main() -> None:
         lr_fold = Pipeline([
             ("scaler", RobustScaler(with_centering=True, with_scaling=True, quantile_range=(25.0, 75.0))),
             ("lr", LogisticRegression(
-                C=lr.named_steps["lr"].C, penalty="l2", solver="lbfgs", 
+                C=lr.named_steps["lr"].C, penalty="l2", solver="lbfgs",
                 max_iter=lr.named_steps["lr"].max_iter, class_weight="balanced",
                 random_state=42,
             ))

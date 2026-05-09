@@ -12,8 +12,8 @@ After:
 """
 
 import logging
-import os
-from log_sampler import sampled_info, LogSamplerFactory
+
+from log_sampler import LogSamplerFactory, sampled_info
 
 # Example logger setup
 logger = logging.getLogger(__name__)

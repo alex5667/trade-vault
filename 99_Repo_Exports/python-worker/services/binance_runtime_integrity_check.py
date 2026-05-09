@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P4: Runtime integrity checker — class-aware duplicate method scanner.
 
 Scans each of the two runtime source files for methods that appear MORE THAN
@@ -12,11 +13,11 @@ Usage (standalone CLI):
 """
 
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
 
 # Critical method names that must appear at most ONCE per class in each file.
-CRITICAL_METHODS: Dict[str, List[str]] = {
+CRITICAL_METHODS: dict[str, list[str]] = {
     "binance_futures_client.py": [
         "_request",
         "get_account",
@@ -43,7 +44,7 @@ CRITICAL_METHODS: Dict[str, List[str]] = {
 }
 
 
-def scan_duplicate_method_defs(path: Path, method_names: Iterable[str]) -> Dict[str, List[int]]:
+def scan_duplicate_method_defs(path: Path, method_names: Iterable[str]) -> dict[str, list[int]]:
     """Scan *path* for duplicate definitions of *method_names* within each class.
 
     Returns {method_name: [line_numbers, ...]} only for names that appear
@@ -58,7 +59,7 @@ def scan_duplicate_method_defs(path: Path, method_names: Iterable[str]) -> Dict[
     """
     names = set(method_names)
     # class_name → {method_name: [linenos]}
-    class_hits: Dict[str, Dict[str, List[int]]] = {}
+    class_hits: dict[str, dict[str, list[int]]] = {}
     current_class: str = "<module>"
     class_hits[current_class] = {}
 
@@ -77,7 +78,7 @@ def scan_duplicate_method_defs(path: Path, method_names: Iterable[str]) -> Dict[
                 class_hits.setdefault(current_class, {}).setdefault(name, []).append(lineno)
 
     # Collect names with > 1 occurrence within ANY single class
-    duplicates: Dict[str, List[int]] = {}
+    duplicates: dict[str, list[int]] = {}
     for _cls, hits in class_hits.items():
         for name, linenos in hits.items():
             if len(linenos) > 1:
@@ -86,7 +87,7 @@ def scan_duplicate_method_defs(path: Path, method_names: Iterable[str]) -> Dict[
     return duplicates
 
 
-def list_runtime_artifact_files(base_dir: Path) -> List[Path]:
+def list_runtime_artifact_files(base_dir: Path) -> list[Path]:
     """Return sorted list of .orig/.rej/.bak files in *base_dir*."""
     return sorted(
         p for p in base_dir.iterdir()
@@ -97,7 +98,7 @@ def list_runtime_artifact_files(base_dir: Path) -> List[Path]:
 def main() -> int:
     """CLI entry-point: scans runtime source files, returns exit code."""
     base_dir = Path(__file__).resolve().parent
-    failures: List[Tuple[Path, Dict[str, List[int]]]] = []
+    failures: list[tuple[Path, dict[str, list[int]]]] = []
     for filename, method_names in CRITICAL_METHODS.items():
         path = base_dir / filename
         if not path.exists():

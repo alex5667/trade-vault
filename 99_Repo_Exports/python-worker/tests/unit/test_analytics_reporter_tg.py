@@ -1,6 +1,6 @@
-import pytest
 
 from services.telegram.analytics_reporter import AnalyticsReporter
+
 
 class FakeTG:
     def __init__(self):

@@ -1,8 +1,6 @@
 from types import SimpleNamespace
 
-from handlers.crypto_orderflow.utils.pre_publish_gates import (
-    HardDataQualityGate, RegimeSessionGate, ConsistencyGate
-)
+from handlers.crypto_orderflow.utils.pre_publish_gates import ConsistencyGate, HardDataQualityGate, RegimeSessionGate
 
 
 def test_hard_quality_gate_veto_missing_atr_ts(monkeypatch):
@@ -42,12 +40,12 @@ def test_regime_session_gate_ctx_fallback(monkeypatch):
     monkeypatch.setenv("RS_GATE_ENABLED", "1")
     monkeypatch.setenv("RS_DEPTH_MIN_DEFAULT", "50")
     monkeypatch.setenv("RS_BURST_FLIP_MAX_DEFAULT", "0.8")
-    
+
     g = RegimeSessionGate.from_env()
-    
+
     # Values only on ctx, not on of
     ctx = SimpleNamespace(
-        ts_event_ms=1700000000000, 
+        ts_event_ms=1700000000000,
         spread_bps=5.0,
         depth_bid_5=60.0,
         depth_ask_5=60.0,
@@ -57,10 +55,10 @@ def test_regime_session_gate_ctx_fallback(monkeypatch):
     dec = g.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout")
     assert dec.veto is False
     assert dec.reason_code == "OK"
-    
+
     # Values only on ctx, triggering veto
     ctx2 = SimpleNamespace(
-        ts_event_ms=1700000000000, 
+        ts_event_ms=1700000000000,
         spread_bps=5.0,
         depth_bid_5=30.0,
         depth_ask_5=60.0,
@@ -72,7 +70,7 @@ def test_regime_session_gate_ctx_fallback(monkeypatch):
     assert dec2.reason_code == "VETO_RS_DEPTH"
 
     ctx3 = SimpleNamespace(
-        ts_event_ms=1700000000000, 
+        ts_event_ms=1700000000000,
         spread_bps=5.0,
         depth_bid_5=60.0,
         depth_ask_5=60.0,
@@ -89,16 +87,16 @@ def test_regime_session_gate_drift_tightening(monkeypatch):
     monkeypatch.setenv("RS_DEPTH_MIN_DEFAULT", "100")
     monkeypatch.setenv("RS_DRIFT_TIGHTEN", "1")
     monkeypatch.setenv("RS_DRIFT_POWER", "2")
-    
+
     # Mock load_drift_active_factor to return drift_factor = 2.0
     import handlers.crypto_orderflow.utils.pre_publish_gates as ppg
     original_load = ppg.load_drift_active_factor
-    
+
     def mock_load(*args, **kwargs):
         return (2.0, 10.0, "mock_feat")
-    
+
     ppg.load_drift_active_factor = mock_load
-    
+
     try:
         g = RegimeSessionGate.from_env()
         # Depth is 300. Base min is 100.
@@ -106,23 +104,23 @@ def test_regime_session_gate_drift_tightening(monkeypatch):
         # effective min = 400
         of = SimpleNamespace(regime="trend", depth_bid_5=300.0, depth_ask_5=300.0)
         ctx = SimpleNamespace(ts_event_ms=1700000000000, ts_ms=1700000000000, session="na", tf="na", venue="na", redis="mock", of=of)
-        
+
         dec = g.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout")
         assert dec.veto is True
         assert dec.reason_code == "VETO_RS_DEPTH"
         assert "min_depth=300.000 < 400.000" in dec.notes
-        
+
         # Test depth20 tightening
         monkeypatch.setenv("RS_DEPTH_MIN_DEFAULT", "0")
         monkeypatch.setenv("RS_DEPTH20_MIN_DEFAULT", "200")
-        
+
         of2 = SimpleNamespace(regime="trend")
         ctx2 = SimpleNamespace(ts_event_ms=1700000000000, ts_ms=1700000000000, session="na", tf="na", venue="na", redis="mock", of=of2, depth_bid_20=500.0, depth_ask_20=500.0)
         dec2 = g.evaluate(ctx=ctx2, symbol="ETHUSDT", kind="breakout")
         assert dec2.veto is True
         assert dec2.reason_code == "VETO_RS_DEPTH20"
         assert "min_depth20=500.000 < 800.000" in dec2.notes
-        
+
     finally:
         ppg.load_drift_active_factor = original_load
 
@@ -131,16 +129,16 @@ def test_regime_session_gate_overrides_matrix(monkeypatch):
     monkeypatch.setenv("RS_SPREAD_MAX_BPS_DEFAULT", "10")
     # Matrix override for BTCUSDT breakout range
     monkeypatch.setenv("RS_SPREAD_MAX_BPS__BTCUSDT__breakout__range", "5")
-    
+
     g = RegimeSessionGate.from_env()
-    
+
     # 8 bps is > 5 bps (override threshold) -> VETO
     of1 = SimpleNamespace(regime="range", spread_bps=8.0)
     ctx1 = SimpleNamespace(ts_event_ms=1700000000000, of=of1)
     dec1 = g.evaluate(ctx=ctx1, symbol="BTCUSDT", kind="breakout")
     assert dec1.veto is True
     assert dec1.reason_code == "VETO_RS_SPREAD"
-    
+
     # 8 bps is < 10 bps (default threshold for other regimes like trend) -> OK
     of2 = SimpleNamespace(regime="trend", spread_bps=8.0)
     ctx2 = SimpleNamespace(ts_event_ms=1700000000000, of=of2)
@@ -167,7 +165,7 @@ def test_consistency_gate_extreme(monkeypatch):
     dec2 = g.evaluate(ctx=ctx2, symbol="BTCUSDT", kind="extreme", side="LONG")
     assert dec2.veto is True
     assert dec2.reason_code == "VETO_EXTREME_Z_LOW"
-    
+
     # Fail cancel_to_trade_ask
     of3 = SimpleNamespace(z_delta=3.5, cancel_to_trade_ask=6.0)
     ctx3 = SimpleNamespace(of=of3)

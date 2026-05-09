@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 G12 · BURST MODE (Peak Pressure Aggregator) — comprehensive test suite.
 
@@ -16,17 +17,16 @@ Tests cover:
 
 import asyncio
 import os
-import time
+from unittest.mock import MagicMock, patch
+
 import pytest
-from typing import Dict, Any
-from unittest.mock import AsyncMock, MagicMock, patch
+
+from core.burst_calibrator import BurstCalibrator
 
 # ─── Unit Under Test ───────────────────────────────────────────────────────
-from core.burst_gate import BurstCandidateSelector, BurstCandidate, BurstState
-from core.burst_calibrator import BurstCalibrator
+from core.burst_gate import BurstCandidate, BurstCandidateSelector
+from core.pressure_policy import decide_burst_window_ms
 from core.pressure_tracker import PressureTracker
-from core.pressure_policy import decide_burst_window_ms, PressureDecision
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. BurstCandidateSelector — Core Logic
@@ -38,7 +38,7 @@ class TestBurstCandidateSelector:
     def _make(self, window_ms: int = 2500, max_age_ms: int = 8000) -> BurstCandidateSelector:
         return BurstCandidateSelector(window_ms=window_ms, max_age_ms=max_age_ms)
 
-    def _cand(self, ts_ms: int = 1000, score: float = 0.5, payload: Dict | None = None) -> BurstCandidate:
+    def _cand(self, ts_ms: int = 1000, score: float = 0.5, payload: dict | None = None) -> BurstCandidate:
         return BurstCandidate(ts_ms=ts_ms, score=score, payload=payload or {"s": ts_ms})
 
     # ── consider: first candidate starts burst ──

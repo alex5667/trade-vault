@@ -1,5 +1,5 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 
 def test_p47_dashboard_has_silence_panels() -> None:

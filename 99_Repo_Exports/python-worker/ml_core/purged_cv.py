@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterator, List, Optional, Tuple
 
 import numpy as np
 
@@ -18,7 +17,7 @@ def purged_kfold_time_series(
     t1_ms: np.ndarray,
     n_splits: int = 5,
     embargo_ms: int = 0,
-) -> List[PurgedFold]:
+) -> list[PurgedFold]:
     """Purged K-Fold for event-based labels (Lopez de Prado).
 
     Each sample i has an information interval [ts_ms[i], t1_ms[i]].
@@ -41,7 +40,7 @@ def purged_kfold_time_series(
 
     # contiguous folds by index (time-respecting)
     idx_folds = np.array_split(np.arange(n, dtype=np.int64), int(n_splits))
-    out: List[PurgedFold] = []
+    out: list[PurgedFold] = []
     for test_idx0 in idx_folds:
         if len(test_idx0) == 0:
             continue

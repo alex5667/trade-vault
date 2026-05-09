@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 """
 nightly_meta_stage2_optimize_share_bundle_v5.py
 
@@ -51,24 +54,22 @@ Usage:
   (reads ENV vars from /etc/trade/of_reports.env or environment)
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import hashlib
+import hmac
 import json
 import os
 import secrets
 import subprocess
 import sys
 import time
-import hmac
-import hashlib
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis
 
 from common.log import setup_logger
-
 from core.ok_fields import get_ts_ms
 from tools.of_gate_metrics_contract import derive_ok_fields, is_gate_row, scenario_key
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("NightlyMetaStage2OptimizeShareV5")
 
@@ -91,7 +92,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -99,7 +100,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def clamp01(x: float) -> float:
@@ -107,7 +108,7 @@ def clamp01(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
-def _event_ts_ms(r: Dict[str, Any]) -> int:
+def _event_ts_ms(r: dict[str, Any]) -> int:
     """Extracts event timestamp in milliseconds from trade record."""
     for k in ("exit_ts_ms", "ts_ms", "ts", "event_ts_ms"):
         if k in r:
@@ -123,7 +124,7 @@ def _event_ts_ms(r: Dict[str, Any]) -> int:
     return 0
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Calculate percentile q (0.0-1.0) from sorted list."""
     if not xs:
         return 0.0
@@ -140,15 +141,15 @@ def _hash01(s: str) -> float:
     return (x % 10_000_000) / 10_000_000.0
 
 
-def notify(r: redis.Redis, text: str, buttons: List[List[Dict[str, str]]] | None = None) -> None:
+def notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Send notification to Telegram via Redis stream."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
-def stats(rs: List[float]) -> Dict[str, float]:
+def stats(rs: list[float]) -> dict[str, float]:
     """Calculate statistics for return series."""
     n = len(rs)
     if n == 0:
@@ -169,7 +170,7 @@ def stats(rs: List[float]) -> Dict[str, float]:
 
 # -------------------- bucket --------------------
 
-def regime_bucket(t: Dict[str, Any]) -> str:
+def regime_bucket(t: dict[str, Any]) -> str:
     """Classify regime into bucket: news, trend, range, thin, other."""
     g = str(t.get("regime_group", "") or t.get("regime", "") or t.get("scenario_v4", "") or "")
     s = g.lower()
@@ -187,7 +188,7 @@ def regime_bucket(t: Dict[str, Any]) -> str:
 
 # -------------------- counterfactual sim --------------------
 
-def simulate_share(rows: List[Dict[str, Any]], *, share: float, salt: str) -> Dict[str, Any]:
+def simulate_share(rows: list[dict[str, Any]], *, share: float, salt: str) -> dict[str, Any]:
     """
     Counterfactual:
       apply_enforce = hash(salt:key) < share
@@ -202,11 +203,11 @@ def simulate_share(rows: List[Dict[str, Any]], *, share: float, salt: str) -> Di
     used = 0
 
     for r in rows:
-        key = str(r.get("meta_enforce_key", "") or "")
+        key = (r.get(MetaKeys.ENFORCE_KEY, "") or "")
         if not key:
             continue
         used += 1
-        veto = int(r.get("meta_veto", 0) or 0)
+        veto = int(r.get(MetaKeys.VETO, 0) or 0)
         apply_enf = 1 if (_hash01(f"{salt}:{key}") < share) else 0
         if apply_enf == 1 and veto == 1:
             blocked += 1
@@ -227,8 +228,8 @@ def simulate_share(rows: List[Dict[str, Any]], *, share: float, salt: str) -> Di
     }
 
 
-def objective(rep: Dict[str, Any], *, exec_rate_ref: float, cur_share: float, share: float,
-              lam_tail: float, lam_p05: float, lam_turn: float, lam_step: float) -> Tuple[float, float]:
+def objective(rep: dict[str, Any], *, exec_rate_ref: float, cur_share: float, share: float,
+              lam_tail: float, lam_p05: float, lam_turn: float, lam_step: float) -> tuple[float, float]:
     """
     Returns (obj, exec_drop)
     """
@@ -249,11 +250,11 @@ def objective(rep: Dict[str, Any], *, exec_rate_ref: float, cur_share: float, sh
 
 
 def build_options(
-    cell_rows: List[Dict[str, Any]],
+    cell_rows: list[dict[str, Any]],
     *,
     salt: str,
     cur_share: float,
-    grid: List[float],
+    grid: list[float],
     share_cap: float,
     max_up_step: float,
     max_down_step: float,
@@ -265,7 +266,7 @@ def build_options(
     lam_p05: float,
     lam_turn: float,
     lam_step: float,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Feasible options for a bucket cell.
     If degrade_only=True: we do NOT allow increases (upper bound is cur_share).
@@ -281,7 +282,7 @@ def build_options(
     ref = simulate_share(cell_rows, share=cur_share, salt=salt)
     exec_rate_ref = float(ref["exec_rate"])
 
-    opts: List[Dict[str, Any]] = []
+    opts: list[dict[str, Any]] = []
     ref_obj, ref_drop = objective(ref, exec_rate_ref=exec_rate_ref, cur_share=cur_share, share=cur_share,
                                   lam_tail=lam_tail, lam_p05=lam_p05, lam_turn=lam_turn, lam_step=lam_step)
     opts.append({
@@ -340,13 +341,13 @@ def build_options(
 
 
 def enumerate_symbol_combos(
-    trend_opts: Optional[List[Dict[str, Any]]],
-    range_opts: Optional[List[Dict[str, Any]]],
+    trend_opts: list[dict[str, Any]] | None,
+    range_opts: list[dict[str, Any]] | None,
     *,
     symbol_budget: float,
-    coupling_trend_lt: Optional[float],
-    coupling_range_cap: Optional[float],
-) -> List[Dict[str, Any]]:
+    coupling_trend_lt: float | None,
+    coupling_range_cap: float | None,
+) -> list[dict[str, Any]]:
     """
     Produce feasible combos under per-symbol budget.
     """
@@ -386,7 +387,7 @@ def enumerate_symbol_combos(
 
 # -------------------- metrics health -> budgets + hard stop --------------------
 
-def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
+def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
     """Read metrics from Redis stream within time window."""
     rows = []
     last_id = "+"
@@ -413,7 +414,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     return rows
 
 
-def summarize_metrics(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+def summarize_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
     """Summarize metrics window into health statistics."""
     gate_rows = [r for r in rows if is_gate_row(r)]
     valid_rows = [r for r in gate_rows if scenario_key(r) != "dn_veto"]
@@ -445,7 +446,7 @@ def summarize_metrics(rows: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def calc_health_factor(st: Dict[str, float], *, exec_target: float, exec_span: float,
+def calc_health_factor(st: dict[str, float], *, exec_target: float, exec_span: float,
                        lat_target_us: float, lat_span_us: float,
                        soft_target: float, soft_span: float,
                        ok_target: float, ok_span: float,
@@ -467,7 +468,7 @@ def calc_health_factor(st: Dict[str, float], *, exec_target: float, exec_span: f
     return max(floor, min(cap, factor))
 
 
-def hard_stop(st: Dict[str, float]) -> Tuple[bool, List[str]]:
+def hard_stop(st: dict[str, float]) -> tuple[bool, list[str]]:
     """
     If triggered: degrade-only (no increases).
     """
@@ -496,7 +497,7 @@ def hard_stop(st: Dict[str, float]) -> Tuple[bool, List[str]]:
 
 # -------------------- selection under per-bucket global budgets --------------------
 
-def totals(chosen: Dict[str, Dict[str, Any]]) -> Tuple[float, float, float, float]:
+def totals(chosen: dict[str, dict[str, Any]]) -> tuple[float, float, float, float]:
     """Calculate totals across chosen combos: trend_drop, range_drop, sum_drop, sum_obj."""
     td = 0.0
     rd = 0.0
@@ -511,12 +512,12 @@ def totals(chosen: Dict[str, Dict[str, Any]]) -> Tuple[float, float, float, floa
 
 
 def select_under_bucket_budgets(
-    plans: Dict[str, List[Dict[str, Any]]],
+    plans: dict[str, list[dict[str, Any]]],
     *,
     budget_trend: float,
     budget_range: float,
-    budget_total: Optional[float],
-) -> Dict[str, Dict[str, Any]]:
+    budget_total: float | None,
+) -> dict[str, dict[str, Any]]:
     """
     Start with best (index 0) for each symbol.
     If any budget exceeded, downgrade symbol-by-symbol (next combo) by minimal cost per effective reduction.
@@ -525,12 +526,12 @@ def select_under_bucket_budgets(
       sum(range_drop) <= budget_range
       optional sum(sum_drop) <= budget_total
     """
-    idx = {sym: 0 for sym in plans.keys()}
+    idx = dict.fromkeys(plans.keys(), 0)
 
-    def cur(sym: str) -> Dict[str, Any]:
+    def cur(sym: str) -> dict[str, Any]:
         return plans[sym][idx[sym]]
 
-    chosen = {sym: cur(sym) for sym in plans.keys()}
+    chosen = {sym: cur(sym) for sym in plans}
 
     for _iter in range(50_000):
         td, rd, sd, _ = totals(chosen)
@@ -603,7 +604,7 @@ def main() -> None:
         logger.info("No unfreeze candidates found")
         return
 
-    cand: Dict[str, Dict[str, Tuple[str, dict]]] = {}
+    cand: dict[str, dict[str, tuple[str, dict]]] = {}
     for ck, raw in unf_map.items():
         try:
             rec = json.loads(raw)
@@ -705,22 +706,22 @@ def main() -> None:
         sys.executable, "tools/export_trade_closed_ndjson.py",
         "--since-hours", str(opt_hours),
         "--out", trades_out,
-        "--stream", os.getenv("TRADE_EVENTS_STREAM", "events:trades"),
+        "--stream", os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES),
         "--redis-url", redis_url,
         "--max-scan", os.getenv("TRADES_MAX_SCAN", "500000"),
     ])
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     missing_key = 0
     missing_veto = 0
     total = 0
 
-    with open(trades_out, "r", encoding="utf-8") as f:
+    with open(trades_out, encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
             t = json.loads(line)
-            sym = str(t.get("symbol", "") or "").upper()
+            sym = (t.get("symbol", "") or "").upper()
             if sym not in cand:
                 continue
             ts_ms = _event_ts_ms(t)
@@ -730,8 +731,8 @@ def main() -> None:
             if rm is None:
                 continue
             total += 1
-            key = t.get("meta_enforce_key", None)
-            veto = t.get("meta_veto", None)
+            key = t.get(MetaKeys.ENFORCE_KEY, None)
+            veto = t.get(MetaKeys.VETO, None)
             if key is None:
                 missing_key += 1
             if veto is None:
@@ -743,7 +744,7 @@ def main() -> None:
                 "ts_ms": ts_ms,
                 "r_mult": _f(rm, 0.0),
                 "meta_enforce_key": "" if key is None else str(key),
-                "meta_enforce_salt": str(t.get("meta_enforce_salt", "enf_v1") or "enf_v1"),
+                "meta_enforce_salt": (t.get(MetaKeys.ENFORCE_SALT, "enf_v1") or "enf_v1"),
                 "meta_veto": 0 if veto is None else _i(veto, 0),
             })
 
@@ -790,8 +791,8 @@ def main() -> None:
     coupling_range_cap_v = float(coupling_range_cap) if coupling_range_cap.strip() else None
 
     # -------- build per-symbol plans --------
-    plans: Dict[str, List[Dict[str, Any]]] = {}
-    details: Dict[str, Any] = {
+    plans: dict[str, list[dict[str, Any]]] = {}
+    details: dict[str, Any] = {
         "health": {"stat": gstat, "factor": gfactor, "hard_stop": degrade_only, "hard_stop_reasons": hs_reasons},
         "budgets": {
             "sym_budget": sym_budget,
@@ -819,7 +820,7 @@ def main() -> None:
             # salt: most common
             salt_counts = {}
             for x in cell_rows:
-                s = x.get("meta_enforce_salt", "enf_v1")
+                s = x.get(MetaKeys.ENFORCE_SALT, "enf_v1")
                 salt_counts[s] = salt_counts.get(s, 0) + 1
             salt = max(salt_counts.items(), key=lambda kv: kv[1])[0] if salt_counts else "enf_v1"
 
@@ -888,8 +889,8 @@ def main() -> None:
     )
 
     # -------- build ops --------
-    ops: List[Dict[str, str]] = []
-    picked_cells: List[str] = []
+    ops: list[dict[str, str]] = []
+    picked_cells: list[str] = []
 
     for sym, combo in chosen.items():
         hk = f"{prefix}{sym}"

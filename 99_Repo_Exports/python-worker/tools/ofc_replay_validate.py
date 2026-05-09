@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
-import hashlib
 from types import SimpleNamespace
-from typing import Any, Dict, Tuple, Optional
+from typing import Any
 
 
 def _ns(x: Any, *, max_depth: int = 2) -> Any:
@@ -43,7 +43,7 @@ def _json_safe(x: Any) -> Any:
         return None
 
 
-def _build_once(row: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+def _build_once(row: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     from core.of_confirm_engine import OFConfirmEngine
 
     eng = OFConfirmEngine(version=int(row.get('engine_version', 3) or 3))
@@ -55,7 +55,7 @@ def _build_once(row: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
 
     # Restore cancel gate state (if present)
     try:
-        cgs = row.get('cancel_gate_state', None)
+        cgs = row.get('cancel_gate_state')
         if not cgs and isinstance(rs, dict):
             cgs = rs.get('cancel_gate_state', None)
         if not cgs and isinstance(ind, dict):
@@ -67,7 +67,7 @@ def _build_once(row: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
 
     symbol = str(row.get('symbol') or tick.get('symbol') or 'UNKNOWN')
     tf = str(row.get('tf') or cfg.get('micro_tf') or '1s')
-    direction = str(row.get('direction') or 'LONG').upper()
+    direction = (row.get('direction') or 'LONG').upper()
 
     tick_ts_ms = int(row.get('tick_ts_ms') or tick.get('ts_ms') or tick.get('ts') or 0)
     # Prefer captured deterministic time if present
@@ -132,7 +132,7 @@ def main() -> int:
     ap.add_argument('--max-rows', type=int, default=int(os.getenv('OFC_REPLAY_MAX_ROWS', '0') or 0), help='limit rows (0=all)')
     ap.add_argument('--strict-contract', action='store_true', default=(os.getenv('OFC_REPLAY_STRICT_CONTRACT', '0').lower() in {'1','true','yes'}), help='fail if runtime_snapshot contract missing keys')
     ap.add_argument('--skip-determinism', action='store_true', default=False, help='skip double-run determinism check')
-    ap.add_argument('--report-json', default=str(os.getenv('OFC_REPLAY_REPORT_JSON', '') or ''), help='optional path to write JSON report')
+    ap.add_argument('--report-json', default=(os.getenv('OFC_REPLAY_REPORT_JSON', '') or ''), help='optional path to write JSON report')
     args = ap.parse_args()
 
     from core.of_confirm_engine import OFConfirmEngine
@@ -144,9 +144,9 @@ def main() -> int:
     bad_det = 0
     bad_contract = 0
     n = 0
-    missing_counts: Dict[str, int] = {}
+    missing_counts: dict[str, int] = {}
 
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         for line in f:
             line = line.strip()
             if not line:

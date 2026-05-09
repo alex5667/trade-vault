@@ -1,11 +1,13 @@
-from utils.time_utils import get_ny_time_millis
 import asyncio
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
+
 
 # --- robust helpers (median/MAD) ---
 def _now_ms() -> int: return get_ny_time_millis()
@@ -16,17 +18,17 @@ def _arm(x: str) -> str:
     a = (x or "").strip().upper()
     return a if a in ("A","B","C") else ""
 
-def _median(xs: List[float]) -> float:
+def _median(xs: list[float]) -> float:
     ys = sorted(xs)
     n = len(ys)
     if n == 0: return 0.0
     m = n // 2
     return float(ys[m]) if n % 2 == 1 else 0.5 * (ys[m-1] + ys[m])
 
-def _mad(xs: List[float], med: float) -> float:
+def _mad(xs: list[float], med: float) -> float:
     return _median([abs(x - med) for x in xs]) if xs else 0.0
 
-def _robust_sem(xs: List[float]) -> float:
+def _robust_sem(xs: list[float]) -> float:
     if len(xs) < 8: return 0.0
     med = _median(xs)
     mad = _mad(xs, med)
@@ -117,7 +119,7 @@ class RollbackGuardV2:
         except Exception:
             pass
 
-    async def _audit(self, payload: Dict[str, Any]) -> None:
+    async def _audit(self, payload: dict[str, Any]) -> None:
         try:
             msg = {"type": "ab_rollback_audit", "ts_ms": str(_now_ms()), "payload": json.dumps(payload, separators=(",", ":"))}
             await self.r.xadd(self.audit_stream, msg, maxlen=50000, approximate=True)
@@ -139,7 +141,7 @@ class RollbackGuardV2:
         except Exception:
             pass
 
-    async def _get_last_applied(self, sym: str, rg: str, grp: str) -> Dict[str, Any]:
+    async def _get_last_applied(self, sym: str, rg: str, grp: str) -> dict[str, Any]:
         try:
             raw = await self.r.get(self._k_last(sym, rg, grp))
             if not raw: return {}
@@ -148,7 +150,7 @@ class RollbackGuardV2:
         except Exception:
             return {}
 
-    async def _append_r(self, sym: str, rg: str, grp: str, sid: str, r_val: float) -> List[float]:
+    async def _append_r(self, sym: str, rg: str, grp: str, sid: str, r_val: float) -> list[float]:
         k = self._k_post(sym, rg, grp, sid)
         try:
             pipe = self.r.pipeline()
@@ -160,7 +162,7 @@ class RollbackGuardV2:
         except Exception:
             return []
 
-    def _dq_ok(self, rg: str, ev: Dict[str, Any]) -> Tuple[bool, str]:
+    def _dq_ok(self, rg: str, ev: dict[str, Any]) -> tuple[bool, str]:
         b = _reg_bucket(rg); c = self.cfg.get(b, self.cfg["MIXED"])
         spread_bp = float(ev.get("spread_bp", 0.0) or 0.0)
         book_age = int(ev.get("book_age_ms", 10**9) or 10**9)
@@ -176,7 +178,7 @@ class RollbackGuardV2:
             return False, "obi_stale"
         return True, "ok"
 
-    def _decide(self, rg: str, xs: List[float], baseline: Dict[str, Any]) -> Dec:
+    def _decide(self, rg: str, xs: list[float], baseline: dict[str, Any]) -> Dec:
         b = _reg_bucket(rg); c = self.cfg.get(b, self.cfg["MIXED"])
         if len(xs) < int(c["min_trades"]):
             return Dec(False, False, "min_trades_not_reached", len(xs), 0.0, 0.0)
@@ -193,11 +195,11 @@ class RollbackGuardV2:
             return Dec(True, catastrophic, "post_apply_underperforms_baseline", len(xs), mean_r, lcb)
         return Dec(False, False, "ok", len(xs), mean_r, lcb)
 
-    async def _emit_rollback_suggestion(self, sym: str, rg: str, grp: str, last: Dict[str, Any], dec: Dec) -> None:
+    async def _emit_rollback_suggestion(self, sym: str, rg: str, grp: str, last: dict[str, Any], dec: Dec) -> None:
         # suggestion sid = hash-like deterministic id
-        sid = f"rb:{_sym(sym)}:{_rg(rg)}:{_grp(grp)}:{str(last.get('sid') or '')}"
-        winner = _arm(str(last.get("winner") or ""))
-        prev = _arm(str(last.get("prev_active") or ""))
+        sid = f"rb:{_sym(sym)}:{_rg(rg)}:{_grp(grp)}:{(last.get('sid') or '')}"
+        winner = _arm((last.get("winner") or ""))
+        prev = _arm((last.get("prev_active") or ""))
         if not prev or prev == winner:
             return
         meta = {
@@ -209,7 +211,7 @@ class RollbackGuardV2:
             "group": _grp(grp),
             "from_arm": winner,
             "to_arm": prev,
-            "applied_sid": str(last.get("sid") or ""),
+            "applied_sid": (last.get("sid") or ""),
             "reason": dec.reason,
             "post_n": dec.n,
             "post_mean_r": dec.mean_r,
@@ -221,7 +223,7 @@ class RollbackGuardV2:
             await self.r.set(f"{self.sug_meta_prefix}:{sid}", json.dumps(meta, separators=(",", ":")), ex=7*24*3600)
             # latest pointer
             await self.r.set(f"{self.sug_latest_prefix}:{_sym(sym)}:{_rg(rg)}:{_grp(grp)}", sid, ex=7*24*3600)
-            
+
             # notify telegram
             msg = (
                 f"🚨 <b>Rollback Suggestion</b>\n"
@@ -236,9 +238,9 @@ class RollbackGuardV2:
         except Exception:
             pass
 
-    async def _enforce_rollback(self, sym: str, rg: str, grp: str, last: Dict[str, Any], dec: Dec) -> None:
-        winner = _arm(str(last.get("winner") or ""))
-        prev = _arm(str(last.get("prev_active") or ""))
+    async def _enforce_rollback(self, sym: str, rg: str, grp: str, last: dict[str, Any], dec: Dec) -> None:
+        winner = _arm((last.get("winner") or ""))
+        prev = _arm((last.get("prev_active") or ""))
         if not prev or prev == winner:
             return
         try:
@@ -247,7 +249,7 @@ class RollbackGuardV2:
             # mark cooldown
             pipe.set(self._k_cool(sym, rg, grp), json.dumps({"ts_ms": _now_ms(), "why": "enforce"}, separators=(",", ":")), ex=self.cooldown_sec)
             await pipe.execute()
-            
+
             # notify telegram
             msg = (
                 f"⛔ <b>Rollback ENFORCED</b>\n"
@@ -260,21 +262,21 @@ class RollbackGuardV2:
             await self._emit_telegram(msg)
         except Exception:
             pass
-            
+
     async def _emit_telegram(self, text: str) -> None:
         try:
             await self.r.xadd(self.notify_stream, {"text": text}, maxlen=20000, approximate=False)
         except Exception:
             pass
 
-    async def process_one(self, ev: Dict[str, Any]) -> None:
+    async def process_one(self, ev: dict[str, Any]) -> None:
         et = str(ev.get("event_type") or ev.get("event") or "")
         if et != "POSITION_CLOSED":
             return
-        sym = _sym(str(ev.get("symbol") or ""))
-        rg = _rg(str(ev.get("regime") or "na"))
-        grp = _grp(str(ev.get("ab_group") or "default"))
-        arm = _arm(str(ev.get("ab_arm") or ""))
+        sym = _sym((ev.get("symbol") or ""))
+        rg = _rg((ev.get("regime") or "na"))
+        grp = _grp((ev.get("ab_group") or "default"))
+        arm = _arm((ev.get("ab_arm") or ""))
         if not sym or not arm:
             return
         pnl = float(ev.get("pnl", 0.0) or 0.0)
@@ -288,8 +290,8 @@ class RollbackGuardV2:
         last = await self._get_last_applied(sym, rg, grp)
         if not last:
             return
-        applied_sid = str(last.get("sid") or "")
-        applied_w = _arm(str(last.get("winner") or ""))
+        applied_sid = (last.get("sid") or "")
+        applied_w = _arm((last.get("winner") or ""))
         if not applied_sid or not applied_w:
             return
         # evaluate only trades from applied winner arm

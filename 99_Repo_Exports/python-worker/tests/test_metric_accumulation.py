@@ -1,12 +1,9 @@
-import os
-import sys
 import unittest
-from typing import Dict, Any
 
 # Add the project root to sys.path
 # [AUTOGRAVITY CLEANUP] sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 from services.trade_metrics_service import TradeMetricsService
+
 
 class TestMetricAccumulation(unittest.TestCase):
     def setUp(self):
@@ -26,10 +23,10 @@ class TestMetricAccumulation(unittest.TestCase):
             "one_r_money": 100.0,
             "r_multiple": 2.0
         }
-        
+
         self.tm.accumulate_trade(self.m, t)
         self.tm.finalize(self.m)
-        
+
         self.assertEqual(self.m["cnt_sl_atr"], 1)
         self.assertEqual(self.m["cnt_tp_atr"], 1)
         self.assertAlmostEqual(self.m["avg_sl_atr"], 1.0)
@@ -46,10 +43,10 @@ class TestMetricAccumulation(unittest.TestCase):
             "one_r_money": 100.0,
             "r_multiple": 2.0
         }
-        
+
         self.tm.accumulate_trade(self.m, t)
         self.tm.finalize(self.m)
-        
+
         # SL_ATR = |100 - 90| / 10 = 1.0
         # TP_ATR = |120 - 100| / 10 = 2.0
         self.assertEqual(self.m["cnt_sl_atr"], 1)
@@ -60,11 +57,11 @@ class TestMetricAccumulation(unittest.TestCase):
     def test_r_multiple_accumulation(self):
         t1 = {"pnl_net": 100.0, "one_r_money": 50.0, "r_multiple": 2.0, "notional_usd": 1000.0}
         t2 = {"pnl_net": -50.0, "one_r_money": 50.0, "r_multiple": -1.0, "notional_usd": 1000.0}
-        
+
         self.tm.accumulate_trade(self.m, t1)
         self.tm.accumulate_trade(self.m, t2)
         self.tm.finalize(self.m)
-        
+
         self.assertEqual(self.m["cnt_r"], 2)
         self.assertAlmostEqual(self.m["expectancy_r"], 0.5) # (2 - 1) / 2
         self.assertAlmostEqual(self.m["median_r"], 0.5)

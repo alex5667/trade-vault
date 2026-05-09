@@ -1,6 +1,6 @@
-import time
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
+
 
 class ATRUnfreezeHysteresisService:
     """
@@ -11,9 +11,9 @@ class ATRUnfreezeHysteresisService:
 
     def __init__(self, require_cert: bool = True):
         self.require_cert = require_cert
-    
-    def evaluate_unfreeze_candidates(self, active_freezes: List[Dict[str, Any]], 
-                                     health_context: Dict[str, Any]) -> List[Dict[str, Any]]:
+
+    def evaluate_unfreeze_candidates(self, active_freezes: list[dict[str, Any]],
+                                     health_context: dict[str, Any]) -> list[dict[str, Any]]:
         """
         Evaluate active and recovering freezes to see if they can graduate to a lighter state.
         
@@ -24,22 +24,22 @@ class ATRUnfreezeHysteresisService:
         - recent_violations (int)
         """
         transitions = []
-        now_utc = datetime.now(timezone.utc)
-        
+        now_utc = datetime.now(UTC)
+
         # Unpack health context
         burn_rate_healthy = health_context.get("burn_rate_healthy", False)
         allocator_fresh = health_context.get("allocator_fresh", False)
         open_critical_incidents = health_context.get("open_critical_incidents", 1)  # safe default
         recent_violations = health_context.get("recent_violations", 1)              # safe default
 
-        health_check_passed = (burn_rate_healthy and allocator_fresh and 
+        health_check_passed = (burn_rate_healthy and allocator_fresh and
                                open_critical_incidents == 0 and recent_violations == 0)
 
         for freeze in active_freezes:
             status = freeze.get("status")
             if status not in ["active", "recovering"]:
                 continue
-            
+
             recovery_str = freeze.get("recovery_not_before")
             if not recovery_str:
                 continue
@@ -54,7 +54,7 @@ class ATRUnfreezeHysteresisService:
                 continue
 
             current_state = freeze.get("freeze_state")
-            
+
             if status == "active":
                 # Graduating from active -> recovering
                 if health_check_passed:
@@ -72,7 +72,7 @@ class ATRUnfreezeHysteresisService:
             elif status == "recovering":
                 # Graduating from recovering -> clip or released
                 if health_check_passed:
-                    
+
                     if self.require_cert and current_state in ["hard_freeze", "venue_frozen", "scope_frozen"]:
                         cert_passed = health_context.get(f"cert_passed_{freeze['freeze_id']}", False)
                         if not cert_passed:
@@ -84,7 +84,7 @@ class ATRUnfreezeHysteresisService:
                                 "update_payload": {}
                             })
                             continue
-                            
+
                     # Stage down depending on the freeze strength
                     next_state = "released"
                     if current_state in ["hard_freeze", "scope_frozen"]:
@@ -125,5 +125,5 @@ class ATRUnfreezeHysteresisService:
                             "recovery_not_before": (now_utc + (now_utc - recovery_dt)).isoformat()
                         }
                     })
-                    
+
         return transitions

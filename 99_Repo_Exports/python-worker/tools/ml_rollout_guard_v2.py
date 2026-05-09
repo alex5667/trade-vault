@@ -1,18 +1,18 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
+import hashlib
+import hmac
 import json
 import os
-import time
-import hmac
-import hashlib
 import secrets
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
 
-from tools.redis_window import read_recent_stream
 from tools.ml_metrics_agg import agg_health_ml_confirm
+from tools.redis_window import read_recent_stream
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -31,10 +31,10 @@ def notify(r: redis.Redis, text: str, buttons=None) -> None:
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
-def make_bundle_hset(cfg_key: str, changes: Dict[str, str], *, who: str, ttl: int) -> Tuple[str, str, Dict[str, Any]]:
+def make_bundle_hset(cfg_key: str, changes: dict[str, str], *, who: str, ttl: int) -> tuple[str, str, dict[str, Any]]:
     """Create bundle for HSET operations (compatible with recs_callback_worker_v2)."""
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_id = secrets.token_hex(6)
@@ -45,13 +45,13 @@ def make_bundle_hset(cfg_key: str, changes: Dict[str, str], *, who: str, ttl: in
     return bundle_id, sig, bundle
 
 
-def write_bundle(r: redis.Redis, bundle_id: str, bundle: Dict[str, Any], ttl: int) -> None:
+def write_bundle(r: redis.Redis, bundle_id: str, bundle: dict[str, Any], ttl: int) -> None:
     """Write bundle to Redis (compatible with recs_callback_worker_v2)."""
     r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=ttl)
     r.set(f"recs:status:{bundle_id}", "PENDING", ex=ttl)
 
 
-def health_ok(h: Dict[str, Any], miss_max: float, err_max: float, lat_max: float, min_n: int) -> bool:
+def health_ok(h: dict[str, Any], miss_max: float, err_max: float, lat_max: float, min_n: int) -> bool:
     """Check if health metrics pass thresholds."""
     return (h.get("n", 0) >= min_n and h["missing_rate"] <= miss_max and h["err_rate"] <= err_max and h["lat_p99_ms"] <= lat_max)
 

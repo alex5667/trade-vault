@@ -1,16 +1,17 @@
-from unittest.mock import MagicMock, patch
-import json
 import argparse
+import json
+from unittest.mock import MagicMock, patch
+
 import pytest
+
 from orderflow_services.of_gate_dlq_drilldown_p83 import (
+    cmd_purge,
+    cmd_replay,
+    cmd_sample,
     cmd_stats,
     cmd_top,
-    cmd_sample,
-    cmd_replay,
-    cmd_purge,
-    _parse_dlq_msg,
-    _extract_keys,
 )
+
 
 @pytest.fixture
 def mock_redis():

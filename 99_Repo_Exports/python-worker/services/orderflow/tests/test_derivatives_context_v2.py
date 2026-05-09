@@ -1,18 +1,17 @@
 """test_derivatives_context_v2.py — Tests for v2 schema fields and build_snapshot_v2."""
 
 import json
+
 import pytest
 
 from services.orderflow.derivatives_context import (
     SCHEMA_VERSION,
     SCHEMA_VERSION_V2,
     DerivativesContextSnapshot,
-    build_snapshot,
     build_snapshot_v2,
     from_dict,
     from_json,
 )
-
 
 # ─── Schema version constants ──────────────────────────────────────────────────
 

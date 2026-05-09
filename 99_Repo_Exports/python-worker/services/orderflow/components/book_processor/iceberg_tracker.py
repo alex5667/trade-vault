@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any
+from typing import Any
 
 from services.orderflow.runtime import SymbolRuntime
 
@@ -7,7 +7,7 @@ logger = logging.getLogger("orderflow_iceberg_tracker")
 
 class IcebergTracker:
     @staticmethod
-    def update(runtime: SymbolRuntime, book_raw: Dict[str, Any], book_ts_ms: int) -> None:
+    def update(runtime: SymbolRuntime, book_raw: dict[str, Any], book_ts_ms: int) -> None:
         try:
             iceberg_event = runtime.iceberg_detector.push(book_raw)
             if iceberg_event:
@@ -20,7 +20,7 @@ class IcebergTracker:
                     val_usd = qty_ref * prc_ice
                     if val_usd < min_usd_ice:
                         pass_ice = False
-                
+
                 if pass_ice:
                     runtime.last_iceberg_event = {
                         "side": iceberg_event.get("side"),

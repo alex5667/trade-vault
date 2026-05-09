@@ -1,16 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import sys
-import time
 import json
-import math
+import os
+import time
 
 from common.log import setup_logger
 from core.redis_client import get_redis
 from core.ticks_redis_client import get_ticks_redis
-from services.smt_bundle_aggregator import build_default_aggregator, _parse_bundles_from_env
+from services.smt_bundle_aggregator import _parse_bundles_from_env, build_default_aggregator
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _write_price_latest_from_tick_stream(r_ticks: object, r_signals: object, symbol: str) -> bool:
@@ -20,7 +19,7 @@ def _write_price_latest_from_tick_stream(r_ticks: object, r_signals: object, sym
     Completely fail-open.
     """
     try:
-        sym_up = str(symbol).strip().upper()
+        sym_up = symbol.strip().upper()
         stream_key = f"stream:tick_{sym_up}"
         msgs = r_ticks.xrevrange(stream_key, count=1)  # type: ignore[call-arg]
         if not msgs:
@@ -28,7 +27,7 @@ def _write_price_latest_from_tick_stream(r_ticks: object, r_signals: object, sym
         _, fields = msgs[0]
         # fields may be bytes or str depending on decode_responses
         def _s(x):
-            return x.decode("utf-8", errors="ignore") if isinstance(x, (bytes, bytearray)) else str(x or "")
+            return x.decode("utf-8", errors="ignore") if isinstance(x, (bytes, bytearray)) else (x or "")
 
         # Try nested JSON "data" field first (tick_ingest format)
         data_raw = _s(fields.get(b"data") or fields.get("data") or "")
@@ -49,7 +48,7 @@ def _write_price_latest_from_tick_stream(r_ticks: object, r_signals: object, sym
                                   fields.get(b"ts_ms") or fields.get("ts_ms") or 0) or 0))
         if price <= 0.0:
             return False
-        
+
         # ts may be in seconds → convert
         if 0 < ts_ms < 10_000_000_000:
             ts_ms = ts_ms * 1000
@@ -70,7 +69,7 @@ def _write_price_latest_from_tick_stream(r_ticks: object, r_signals: object, sym
             },
         )
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 
@@ -114,15 +113,11 @@ def main() -> int:
             _write_price_latest_from_tick_stream(r_ticks, r_signals, sym)
 
         # ── 2. Compute and write bundle state ────────────────────────────
-        try:
+        with contextlib.suppress(Exception):
             agg.tick_once()
-        except Exception:
-            pass
 
-        try:
+        with contextlib.suppress(Exception):
             time.sleep(interval_ms / 1000.0)
-        except Exception:
-            pass
 
 
 if __name__ == "__main__":

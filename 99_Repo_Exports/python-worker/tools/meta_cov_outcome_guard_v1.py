@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 """
 meta_cov_outcome_guard_v1.py
 
@@ -52,16 +55,16 @@ Emits a cfg:suggestions proposal (default prefix cfg:suggestions:entry_policy fo
 with the existing ApplyRunner). Override via META_COV_OUTCOME_SUGGESTIONS_PREFIX.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import hashlib
 import html
 import json
 import os
 import secrets
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -102,9 +105,9 @@ def _loads_maybe_json(v: Any) -> Any:
     return v
 
 
-def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
-    payload_obj: Optional[Dict[str, Any]] = None
+def _parse_entry(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    payload_obj: dict[str, Any] | None = None
     for k, v in fields.items():
         ks = _b2s(k)
         out[ks] = _loads_maybe_json(v)
@@ -125,7 +128,7 @@ def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
     #   signal_payload → indicators → of_confirm → evidence → meta_enforce_bucket
     # and also: indicators → of_confirm_v3 → evidence → meta_enforce_bucket
     try:
-        if not str(out.get("meta_enforce_bucket") or out.get("meta_enforce_cov_bucket") or "").strip():
+        if not str(out.get("meta_enforce_bucket") or out.get(MetaKeys.ENFORCE_COV_BUCKET) or "").strip():
             sp = out.get("signal_payload") or {}
             if isinstance(sp, str):
                 try:
@@ -143,7 +146,7 @@ def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
                     except Exception:
                         ind = {}
 
-                evidence: Dict[str, Any] = {}
+                evidence: dict[str, Any] = {}
                 for _oc_key in ("of_confirm", "of_confirm_v3", "of_confirm_v2", "of"):
                     _oc = ind.get(_oc_key) if isinstance(ind, dict) else None
                     if isinstance(_oc, dict):
@@ -154,16 +157,16 @@ def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
 
                 bkt = str(
                     evidence.get("meta_enforce_bucket")
-                    or evidence.get("meta_enforce_cov_bucket")
+                    or evidence.get(MetaKeys.ENFORCE_COV_BUCKET)
                     or ""
                 ).strip().lower()
                 if bkt:
-                    out["meta_enforce_cov_bucket"] = bkt
-                    if not str(out.get("meta_enforce_bucket") or "").strip():
+                    out[MetaKeys.ENFORCE_COV_BUCKET] = bkt
+                    if not (out.get("meta_enforce_bucket") or "").strip():
                         out["meta_enforce_bucket"] = bkt
 
                 for _fld in ("meta_enforce_key", "meta_enforce_salt", "meta_veto", "meta_enforce_applied"):
-                    if not str(out.get(_fld) or "").strip():
+                    if not (out.get(_fld) or "").strip():
                         _val = evidence.get(_fld)
                         if _val is not None:
                             out[_fld] = _val
@@ -187,7 +190,7 @@ def _f(x: Any, default: float = 0.0) -> float:
         return default
 
 
-def _event_ts_ms(d: Dict[str, Any]) -> int:
+def _event_ts_ms(d: dict[str, Any]) -> int:
     for k in ("exit_ts_ms", "ts_ms", "event_ts_ms", "ts"):
         v = d.get(k)
         if v is None:
@@ -198,11 +201,11 @@ def _event_ts_ms(d: Dict[str, Any]) -> int:
     return 0
 
 
-def _is_position_closed(d: Dict[str, Any]) -> bool:
+def _is_position_closed(d: dict[str, Any]) -> bool:
     ev = str(d.get("event") or d.get("type") or "").upper()
     if ev == "POSITION_CLOSED":
         return True
-    st = str(d.get("status") or "").upper()
+    st = (d.get("status") or "").upper()
     # trades:closed stream uses status="closed" (maps to CLOSED after .upper())
     # events:trades uses status="POSITION_CLOSED"
     return st in ("POSITION_CLOSED", "CLOSED")
@@ -214,7 +217,7 @@ def _sha_to_unit_interval(salt: str, key: str) -> float:
     return x / float(2**64)
 
 
-def _pctl(xs: List[float], q: float) -> float:
+def _pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     if q <= 0:
@@ -230,7 +233,7 @@ def _pctl(xs: List[float], q: float) -> float:
     return xs2[lo] * (1.0 - frac) + xs2[hi] * frac
 
 
-def _summary_stats(xs: List[float]) -> Dict[str, float]:
+def _summary_stats(xs: list[float]) -> dict[str, float]:
     if not xs:
         return {
             "n": 0.0,
@@ -256,7 +259,7 @@ def _summary_stats(xs: List[float]) -> Dict[str, float]:
     }
 
 
-def _simulate_share(rows: List[Dict[str, Any]], share: float, salt: str) -> Dict[str, Any]:
+def _simulate_share(rows: list[dict[str, Any]], share: float, salt: str) -> dict[str, Any]:
     """Simulate applying ENFORCE at a given share.
 
     For each opportunity (row):
@@ -268,19 +271,19 @@ def _simulate_share(rows: List[Dict[str, Any]], share: float, salt: str) -> Dict
     'exec' stats include only executed trades (diagnostics).
     """
     share = max(0.0, min(1.0, float(share)))
-    opp: List[float] = []
-    execs: List[float] = []
+    opp: list[float] = []
+    execs: list[float] = []
     used = 0
     blocked = 0
 
     for d in rows:
-        key = str(d.get("meta_enforce_key") or "")
+        key = (d.get(MetaKeys.ENFORCE_KEY) or "")
         if not key:
             continue
         used += 1
         u = _sha_to_unit_interval(salt, key)
         apply = u < share
-        veto = 1 if _i(d.get("meta_veto"), 0) != 0 else 0
+        veto = 1 if _i(d.get(MetaKeys.VETO), 0) != 0 else 0
         r_mult = _f(d.get("r_mult"), 0.0)
 
         if apply and veto == 1:
@@ -306,8 +309,8 @@ def _read_recent_closed_trades(
     stream: str,
     since_ms: int,
     max_scan: int,
-) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
 
@@ -338,16 +341,16 @@ def _read_recent_closed_trades(
     return rows
 
 
-def _load_cfg2(r: Any, key: str) -> Dict[str, Any]:
+def _load_cfg2(r: Any, key: str) -> dict[str, Any]:
     raw = r.hgetall(key) or {}
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in raw.items():
         out[_b2s(k)] = _loads_maybe_json(v)
     return out
 
 
-def _write_cfg2(r: Any, key: str, patch: Dict[str, Any]) -> None:
-    m: Dict[str, str] = {}
+def _write_cfg2(r: Any, key: str, patch: dict[str, Any]) -> None:
+    m: dict[str, str] = {}
     for k, v in patch.items():
         if isinstance(v, (dict, list)):
             m[k] = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
@@ -356,15 +359,13 @@ def _write_cfg2(r: Any, key: str, patch: Dict[str, Any]) -> None:
     r.hset(key, mapping=m)
 
 
-def _notify(r: Any, text: str, sid: Optional[str] = None) -> None:
-    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
-    payload: Dict[str, str] = {"type": "report", "text": text, "ts": str(now_ms())}
+def _notify(r: Any, text: str, sid: str | None = None) -> None:
+    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
+    payload: dict[str, str] = {"type": "report", "text": text, "ts": str(now_ms())}
     if sid:
         payload["sid"] = sid
-    try:
+    with contextlib.suppress(Exception):
         r.xadd(stream, payload, maxlen=200000, approximate=True)
-    except Exception:
-        pass
 
 
 def _emit_cfg_suggestion(
@@ -374,8 +375,8 @@ def _emit_cfg_suggestion(
     kind: str,
     scope: str,
     cfg2_key: str,
-    patch: Dict[str, Any],
-    report: Dict[str, Any],
+    patch: dict[str, Any],
+    report: dict[str, Any],
     ttl_sec: int,
     min_approvals: int,
     auto_approve: bool,
@@ -388,7 +389,7 @@ def _emit_cfg_suggestion(
     appr_key = f"{prefix}:approvals:{sid}"
     latest_key = f"{prefix}:latest:{kind}:{scope}"
 
-    ops: List[Dict[str, str]] = []
+    ops: list[dict[str, str]] = []
     for k, v in patch.items():
         if isinstance(v, (dict, list)):
             vv = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
@@ -443,7 +444,7 @@ def main() -> int:
 
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--cfg2-key", default=os.getenv("DYN_CFG_KEY", "settings:dynamic_cfg"))
-    ap.add_argument("--trade-stream", default=os.getenv("TRADE_EVENTS_STREAM", "events:trades"))
+    ap.add_argument("--trade-stream", default=os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES))
 
     ap.add_argument("--lookback-hours", type=float, default=float(os.getenv("META_COV_OUTCOME_LOOKBACK_H", "24") or 24))
     ap.add_argument("--max-scan", type=int, default=int(os.getenv("META_COV_OUTCOME_MAX_SCAN", "200000") or 200000))
@@ -482,9 +483,9 @@ def main() -> int:
 
     cfg2 = _load_cfg2(r, args.cfg2_key)
     per_cov = 1 if _i(cfg2.get("meta_enforce_per_cov"), 0) != 0 else 0
-    salt = str(cfg2.get("meta_enforce_salt") or "")
+    salt = (cfg2.get(MetaKeys.ENFORCE_SALT) or "")
 
-    global_share = _f(cfg2.get("meta_enforce_share"), 1.0)
+    global_share = _f(cfg2.get(MetaKeys.ENFORCE_SHARE), 1.0)
     shares = {
         "trend": max(0.0, min(1.0, _f(cfg2.get("meta_enforce_share_trend"), global_share))),
         "range": max(0.0, min(1.0, _f(cfg2.get("meta_enforce_share_range"), global_share))),
@@ -495,15 +496,15 @@ def main() -> int:
     rows = _read_recent_closed_trades(r, stream=args.trade_stream, since_ms=since_ms, max_scan=int(args.max_scan))
 
     # Group by coverage bucket (only bucket_type=cov when present)
-    by_bucket: Dict[str, List[Dict[str, Any]]] = {"trend": [], "range": [], "other": []}
+    by_bucket: dict[str, list[dict[str, Any]]] = {"trend": [], "range": [], "other": []}
     for d in rows:
-        b = str(d.get("meta_enforce_bucket") or d.get("meta_enforce_cov_bucket") or d.get("meta_cov_bucket") or "").strip().lower()
+        b = str(d.get("meta_enforce_bucket") or d.get(MetaKeys.ENFORCE_COV_BUCKET) or d.get("meta_cov_bucket") or "").strip().lower()
         if b in by_bucket:
             by_bucket[b].append(d)
 
-    bucket_reports: Dict[str, Any] = {}
-    alerts: List[str] = []
-    patch: Dict[str, Any] = {}
+    bucket_reports: dict[str, Any] = {}
+    alerts: list[str] = []
+    patch: dict[str, Any] = {}
 
     sim_salt = salt if salt else "nosalt"
 
@@ -551,7 +552,7 @@ def main() -> int:
     last_change_ms = _i(cfg2.get("meta_cov_outcome_guard_last_change_ms"), 0)
     too_soon = (now_ms() - last_change_ms) < int(args.min_hold_sec) * 1000
 
-    report: Dict[str, Any] = {
+    report: dict[str, Any] = {
         "ok": True,
         "ts_ms": now_ms(),
         "per_cov": int(per_cov),
@@ -583,7 +584,7 @@ def main() -> int:
     triggered = len(alerts) > 0 and len(patch) > 0
 
     if int(args.write_audit) == 1:
-        try:
+        with contextlib.suppress(Exception):
             _write_cfg2(
                 r,
                 args.cfg2_key,
@@ -592,8 +593,6 @@ def main() -> int:
                     "meta_cov_outcome_guard_last_report": report,
                 },
             )
-        except Exception:
-            pass
 
     if not triggered:
         return 0

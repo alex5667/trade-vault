@@ -82,7 +82,7 @@ class TestIsCryptoAllSymbols(unittest.TestCase):
         With proper is_crypto=True, risk-based sizing uses SL distance,
         producing one_r_money ≈ risk_usd (not $1.00 floor).
         """
-        from services.pnl_math import calculate_position_size, SymbolSpec
+        from services.pnl_math import SymbolSpec, calculate_position_size
 
         # Simulate DOGEUSDT: entry=0.15, SL=0.148 (2 ATR), deposit=$100, risk=5%
         symbol = "DOGEUSDT"

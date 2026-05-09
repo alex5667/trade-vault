@@ -1,11 +1,12 @@
-from utils.time_utils import get_ny_time_millis
 import os
-import sys
-import json
-import time
+
 import pandas as pd
 import psycopg2
 import redis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 # Configuration (v1 Schema defaults)
 REPORT_FEES_DOMINATES_BPS = float(os.getenv("REPORT_FEES_DOMINATES_BPS", "8.0"))
@@ -17,13 +18,13 @@ REPORT_L2_STALE_RATIO = float(os.getenv("REPORT_L2_STALE_RATIO", "0.2"))
 MIN_TRADES = int(os.getenv("REPORT_MIN_TRADES", "50"))
 SEND_TELEGRAM = os.getenv("REPORT_SEND_TELEGRAM", "0") in ("1", "true", "True")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", "notify:telegram")
+NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
 def fees_bps_roundtrip(row):
     try:
         fees = float(row.get("fees") or 0.0)
         notional = float(row.get("notional_usd") or 0.0)
-        
+
         # calculate notional if missing but lot/entry_px exist
         if notional <= 0:
              lot = float(row.get("lot") or 0.0)
@@ -38,19 +39,19 @@ def fees_bps_roundtrip(row):
 def classify(row):
     if row["pnl_net"] >= 0:
         return "WIN_OR_BE"
-    
+
     # 1. COST_DOMINATES: Fees are too high relative to standard
     fees_bps = row.get("fees_bps", 0.0)
     if fees_bps >= REPORT_FEES_DOMINATES_BPS:
         return "COST_DOMINATES"
 
     # 2. GIVEBACK_TRAIL: Significant giveback (missed profit)
-    # Giveback is 'max_potential' - 'realized'. 
+    # Giveback is 'max_potential' - 'realized'.
     # If using mfe_pnl as reference: giveback ~ mfe_pnl - pnl_gross (roughly)
     # The row has explicit 'giveback' column from SQL now.
     giveback = row.get("giveback", 0.0)
     mfe_pnl = row.get("mfe_pnl", 0.0)
-    
+
     if giveback > REPORT_GIVEBACK_PNL and mfe_pnl > 0:
         if giveback >= (REPORT_GIVEBACK_FRAC * mfe_pnl):
             return "GIVEBACK_TRAIL"
@@ -97,7 +98,7 @@ def main():
     # Defaults for report window: last 24h
     now_ms = get_ny_time_millis()
     default_from = now_ms - 24 * 3600 * 1000
-    
+
     from_ms = int(os.getenv("REPORT_FROM_MS", default_from))
     to_ms = int(os.getenv("REPORT_TO_MS", now_ms))
 
@@ -115,7 +116,7 @@ def main():
     except Exception as e:
         print(f"DB Connection failed: {e}")
         return
-    
+
     # Allow overriding via env var or fallback to local
     env_sql = os.getenv("REPORT_SQL_FILE")
     if env_sql and os.path.exists(env_sql):
@@ -131,19 +132,17 @@ def main():
 
     if not os.path.exists(sql_path):
         print(f"SQL file not found: {sql_path}")
-        try:
+        with contextlib.suppress(Exception):
              conn.close()
-        except: pass
         return
-        
+
     try:
-         with open(sql_path, "r", encoding="utf-8") as f:
+         with open(sql_path, encoding="utf-8") as f:
              query_str = f.read()
     except Exception as e:
          print(f"Error reading SQL file: {e}")
-         try:
+         with contextlib.suppress(Exception):
              conn.close()
-         except: pass
          return
 
     # Use pandas read_sql with connection
@@ -155,20 +154,18 @@ def main():
 
     try:
         df = pd.read_sql(
-            query_str, 
-            conn, 
+            query_str,
+            conn,
             params={"from_ms": from_ms, "to_ms": to_ms}
         )
     except Exception as e:
         print(f"Error reading SQL: {e}")
-        try:
+        with contextlib.suppress(Exception):
              conn.close()
-        except: pass
         return
     finally:
-        try:
+        with contextlib.suppress(Exception):
              conn.close()
-        except: pass
 
     if len(df) < MIN_TRADES:
         print(f"Too few trades: {len(df)} < {MIN_TRADES}")
@@ -224,7 +221,7 @@ def main():
 
     # 1) Top buckets by negative PnL contribution
     neg = df[df["pnl_net"] < 0].copy()
-    
+
     if neg.empty:
         print("No losing trades found.")
         return
@@ -242,14 +239,14 @@ def main():
     for c in ["symbol", "entry_tag", "direction", "source"]:
         if c not in df.columns:
             df[c] = "n/a"
-            
+
     # Slice 1: Symbol x EntryTag
     slice_tag = (df.groupby(["symbol", "entry_tag"])
                 .agg(trades=("order_id","count"),
                      winrate=("pnl_net", lambda s: float((s>0).mean())),
                      pnl_sum=("pnl_net","sum"))
                 .sort_values("pnl_sum", ascending=True))
-                
+
     # Slice 2: Source x Symbol
     slice_src = (df.groupby(["source", "symbol"])
                 .agg(trades=("order_id","count"),
@@ -266,9 +263,9 @@ def main():
     output_lines.append(slice_tag.head(5).to_string())
     output_lines.append("\nTOP TOXIC SOURCES (Source x Symbol):")
     output_lines.append(slice_src.head(5).to_string())
-    
+
     report_text = "\n".join(output_lines)
-    
+
     print(report_text)
 
     if SEND_TELEGRAM:

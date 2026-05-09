@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for BookProcessor book missing-seq continuity EMA tracking (v1).
 
 Tests validate:
@@ -9,6 +10,7 @@ Tests validate:
 
 
 import pytest
+import contextlib
 
 # ---------------------------------------------------------------------------
 # Import guard
@@ -18,17 +20,15 @@ try:
 except Exception as exc:
     pytest.skip(f"could not import BookProcessor: {exc}", allow_module_level=True)
 
-try:
+with contextlib.suppress(Exception):
     from types import SimpleNamespace
-except Exception:
-    pass
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_runtime(alpha: float = 0.1) -> "SimpleNamespace":
+def _make_runtime(alpha: float = 0.1) -> SimpleNamespace:
     """Create a minimal SymbolRuntime-like namespace for book_processor tests."""
     return SimpleNamespace(
         symbol="BTCUSDT",

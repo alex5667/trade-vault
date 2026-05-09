@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 tm_autopilot_service:
   - hourly/daily export of closed trades
@@ -10,25 +11,25 @@ tm_autopilot_service:
 This service is designed to run INSIDE a container (no systemd).
 It uses a Redis SETNX lock to prevent duplicate runs.
 """
-from utils.time_utils import get_ny_time_millis
 import asyncio
 import hashlib
 import json
 import os
-import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
-import redis.asyncio as aioredis
 import redis
+import redis.asyncio as aioredis
 
-from tools.send_telegram import send_telegram
-from tools.export_trade_closed_ndjson import iter_closed_from_redis
 from core.entry_policy_overrides_v1 import EntryPolicyOverridesV1
+from tools.export_trade_closed_ndjson import iter_closed_from_redis
+from tools.send_telegram import send_telegram
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 LOCK_KEY = os.getenv("AUTOPILOT_LOCK_KEY", "lock:autopilot:tm_policy")
 LOCK_TTL_SEC = int(os.getenv("AUTOPILOT_LOCK_TTL_SEC", "3300"))  # 55m
 
-TRADE_EVENTS_STREAM = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+TRADE_EVENTS_STREAM = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 
 SUG_META_PREFIX = os.getenv("SUG_META_PREFIX", "cfg:suggestions:entry_policy:meta")
@@ -42,7 +43,7 @@ def _now_ms() -> int:
 def _sha1(s: str) -> str:
     return hashlib.sha1(s.encode("utf-8")).hexdigest()
 
-async def _try_lock(r: "aioredis.Redis") -> bool:
+async def _try_lock(r: aioredis.Redis) -> bool:
     try:
         # value = ts for debugging
         return bool(await r.set(LOCK_KEY, str(_now_ms()), nx=True, ex=LOCK_TTL_SEC))
@@ -63,7 +64,7 @@ def _winner_to_override(
     return EntryPolicyOverridesV1(
         updated_ts_ms=int(updated_ts_ms),
         enabled=1,
-        symbol=str(symbol).upper(),
+        symbol=symbol.upper(),
         regime=str(regime).lower(),
         scenario=str(scenario).lower(),
         group=_regime_group(regime),
@@ -71,7 +72,7 @@ def _winner_to_override(
         freeze_active=0,
         ab_split_b=int(os.getenv("AUTOPILOT_AB_SPLIT_B", "10")),
         ab_split_c=int(os.getenv("AUTOPILOT_AB_SPLIT_C", "10")),
-        ab_salt=str(os.getenv("AUTOPILOT_AB_SALT", "v1")),
+        ab_salt=os.getenv("AUTOPILOT_AB_SALT", "v1"),
     )
 
 async def run_once() -> None:
@@ -84,7 +85,7 @@ async def run_once() -> None:
     since_ms = now - int(since_h * 3600.0 * 1000.0)
 
     # 1) Read closed trades into memory (7d should be OK given stream maxlen)
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     # Use sync redis for XRANGE iteration (simple + reliable)
     rs = redis.from_url(REDIS_URL, decode_responses=True)
     for row in iter_closed_from_redis(r=rs, stream=TRADE_EVENTS_STREAM, since_ms=since_ms, limit=int(os.getenv("AUTOPILOT_LIMIT", "200000"))):
@@ -92,12 +93,12 @@ async def run_once() -> None:
 
     # 2) Compute winners via simple LCB logic using tm_policy_tuner core (inline, dependency-free)
     # Group by (symbol, regime, scenario) and pick best arm by mean R (LCB approximation).
-    bucket: Dict[Tuple[str, str, str], Dict[str, List[float]]] = {}
+    bucket: dict[tuple[str, str, str], dict[str, list[float]]] = {}
     for rr in rows:
-        sym = str(rr.get("symbol", "")).upper()
-        rg = str(rr.get("regime", "na")).lower()
-        scn = str(rr.get("scenario", "")).lower()
-        arm = str(rr.get("ab_arm", "A")).upper()
+        sym = (rr.get("symbol", "")).upper()
+        rg = (rr.get("regime", "na")).lower()
+        scn = (rr.get("scenario", "")).lower()
+        arm = (rr.get("ab_arm", "A")).upper()
         if scn not in ("continuation", "reversal"):
             continue
         if arm not in ("A", "B", "C"):
@@ -108,7 +109,7 @@ async def run_once() -> None:
     # z per regime
     def z_rg(rg: str) -> float:
         return 1.96 if rg in ("thin", "news", "illiquid") else 1.645
-    def stat(xs: List[float], z: float) -> Tuple[int, float, float]:
+    def stat(xs: list[float], z: float) -> tuple[int, float, float]:
         n = len(xs)
         if n <= 1:
             m = xs[0] if n == 1 else 0.0
@@ -123,7 +124,7 @@ async def run_once() -> None:
     min_n = int(os.getenv("AUTOPILOT_MIN_N", "30"))
     min_edge = float(os.getenv("AUTOPILOT_MIN_EDGE_R", "0.05"))
 
-    recs: List[Dict[str, Any]] = []
+    recs: list[dict[str, Any]] = []
     for (sym, rg, scn), by_arm in sorted(bucket.items()):
         z = z_rg(rg)
         A = stat(by_arm.get("A", []), z)
@@ -199,10 +200,8 @@ async def run_forever() -> None:
     every_sec = int(os.getenv("AUTOPILOT_EVERY_SEC", "3600"))
     jitter_ms = int(os.getenv("AUTOPILOT_JITTER_MS", "15000"))
     while True:
-        try:
+        with contextlib.suppress(Exception):
             await run_once()
-        except Exception:
-            pass
         # sleep with jitter
         await asyncio.sleep(max(10, every_sec) + (jitter_ms / 1000.0))
 

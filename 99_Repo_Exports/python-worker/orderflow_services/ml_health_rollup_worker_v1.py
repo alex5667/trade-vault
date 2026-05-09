@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+
 """Phase-0 ML runtime telemetry rollup worker.
 
 Consumes `metrics:ml_confirm` and produces low-cardinality per-minute rollups to:
@@ -21,10 +23,13 @@ import json
 import math
 import os
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
+from core.redis_stream_consumer import SyncRedisStreamHelper
 
 try:
     import redis  # type: ignore
@@ -33,14 +38,14 @@ except Exception:  # pragma: no cover
 
 try:
     import psycopg2  # type: ignore
-    from psycopg2.extras import execute_values, Json  # type: ignore
+    from psycopg2.extras import Json, execute_values  # type: ignore
 except Exception:  # pragma: no cover
     psycopg2 = None  # type: ignore
     execute_values = None  # type: ignore
     Json = None  # type: ignore
 
 
-LATENCY_BOUNDS_MS: List[float] = [0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0, 500.0, 1000.0]
+LATENCY_BOUNDS_MS: list[float] = [0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0, 500.0, 1000.0]
 
 STREAM = os.getenv("ML_CONFIRM_METRICS_STREAM", "metrics:ml_confirm")
 GROUP = os.getenv("ML_HEALTH_GROUP", "cg:ml_health_rollup_v1")
@@ -97,22 +102,22 @@ class SnapshotRow:
     model_id: str
     symbol: str
     mode: str
-    latency_p50_ms: Optional[float]
-    latency_p95_ms: Optional[float]
-    latency_p99_ms: Optional[float]
-    allow_rate: Optional[float]
-    block_rate: Optional[float]
-    abstain_rate: Optional[float]
-    shadow_rate: Optional[float]
-    error_rate: Optional[float]
-    ece: Optional[float]
-    brier: Optional[float]
-    psi_top_json: List[str]
-    ks_top_json: List[str]
-    missing_critical_rate: Optional[float]
-    artifact_age_sec: Optional[float]
+    latency_p50_ms: float | None
+    latency_p95_ms: float | None
+    latency_p99_ms: float | None
+    allow_rate: float | None
+    block_rate: float | None
+    abstain_rate: float | None
+    shadow_rate: float | None
+    error_rate: float | None
+    ece: float | None
+    brier: float | None
+    psi_top_json: list[str]
+    ks_top_json: list[str]
+    missing_critical_rate: float | None
+    artifact_age_sec: float | None
 
-    def stream_payload(self) -> Dict[str, Any]:
+    def stream_payload(self) -> dict[str, Any]:
         return {
             "schema_version": 1,
             "event": "ml_health_snapshot_1m",
@@ -208,7 +213,7 @@ def _latency_bucket_index(lat_ms: float) -> int:
     return len(LATENCY_BOUNDS_MS)
 
 
-def _hist_quantile(counts: Sequence[int], q: float) -> Optional[float]:
+def _hist_quantile(counts: Sequence[int], q: float) -> float | None:
     total = sum(int(x) for x in counts)
     if total <= 0:
         return None
@@ -249,10 +254,7 @@ def _connect_redis(url: str):
 
 
 def ensure_group(r: Any, cfg: Cfg) -> None:
-    try:
-        r.xgroup_create(cfg.stream, cfg.group, id="0", mkstream=True)
-    except Exception:
-        pass
+    pass
 
 
 def _ingest_one(pipe: Any, cfg: Cfg, fields: Mapping[str, Any], stream_id: str) -> None:
@@ -268,7 +270,7 @@ def _ingest_one(pipe: Any, cfg: Cfg, fields: Mapping[str, Any], stream_id: str) 
     mode = _mode(fields)
     missing_n = _as_int(fields.get("missing_n"), 0)
 
-    mapping: Dict[str, float] = {
+    mapping: dict[str, float] = {
         "n": 1.0,
         "lat_sum_ms": float(lat_ms),
         "missing_sum": float(max(0, missing_n)),
@@ -298,11 +300,11 @@ def _ingest_one(pipe: Any, cfg: Cfg, fields: Mapping[str, Any], stream_id: str) 
 
 # ── Finalize scan cache (avoid SCAN storm every loop) ──────────────
 _finalize_cache_ts: float = 0.0
-_finalize_cache_result: List[int] = []
+_finalize_cache_result: list[int] = []
 _FINALIZE_CACHE_TTL_S = float(os.getenv("ML_HEALTH_FINALIZE_CACHE_TTL_S", "30"))
 
 
-def _finalizable_minutes(r: Any, cfg: Cfg, now_minute: int) -> List[int]:
+def _finalizable_minutes(r: Any, cfg: Cfg, now_minute: int) -> list[int]:
     global _finalize_cache_ts, _finalize_cache_result
     now = time.monotonic()
     if (now - _finalize_cache_ts) < _FINALIZE_CACHE_TTL_S and _finalize_cache_result:
@@ -337,15 +339,15 @@ def _finalizable_minutes(r: Any, cfg: Cfg, now_minute: int) -> List[int]:
     return [m for m in _finalize_cache_result if m <= now_minute - cfg.finalize_lag_min]
 
 
-def _load_external_health(r: Any, model_id: str) -> Tuple[Optional[float], Optional[float], List[str], List[str], Optional[float], Optional[float]]:
+def _load_external_health(r: Any, model_id: str) -> tuple[float | None, float | None, list[str], list[str], float | None, float | None]:
     """Best-effort enrichment from existing control-plane sources.
 
     Returns: (ece, brier, psi_top_json, ks_top_json, missing_critical_rate, artifact_age_sec)
     """,
     ece = None
     brier = None
-    psi_top: List[str] = []
-    ks_top: List[str] = []
+    psi_top: list[str] = []
+    ks_top: list[str] = []
     missing_rate = None
     artifact_age = None
 
@@ -475,11 +477,11 @@ def _write_db(cfg: Cfg, rows: Sequence[SnapshotRow]) -> None:
         pass
 
 
-def _finalize_minute(r: Any, cfg: Cfg, minute: int) -> List[SnapshotRow]:
+def _finalize_minute(r: Any, cfg: Cfg, minute: int) -> list[SnapshotRow]:
     patt = f"{cfg.bucket_prefix}{minute}:*"
     cursor = 0
-    rows: List[SnapshotRow] = []
-    keys: List[str] = []
+    rows: list[SnapshotRow] = []
+    keys: list[str] = []
     while True:
         # P-LATENCY-FIX: COUNT reduced from 10000 to 500
         cursor, batch = r.scan(cursor=cursor, match=patt, count=500)
@@ -508,7 +510,7 @@ def _finalize_minute(r: Any, cfg: Cfg, minute: int) -> List[SnapshotRow]:
 
 def _update_gauges(rows: Sequence[SnapshotRow], last_minute: int) -> None:
     LAST_FINALIZED_MINUTE.set(float(last_minute))
-    by_family: Dict[str, int] = {}
+    by_family: dict[str, int] = {}
     for row in rows:
         family = row.model_id.split(":", 1)[0]
         by_family[family] = by_family.get(family, 0) + 1
@@ -527,11 +529,25 @@ def main() -> int:
     cfg = load_cfg()
     start_http_server(PORT)
     r = _connect_redis(cfg.redis_url)
-    ensure_group(r, cfg)
+
+    helper = SyncRedisStreamHelper(client=r, group=cfg.group, consumer=cfg.consumer)
+    helper.ensure_groups([cfg.stream], start_id="0")
+
+    pel_start_id = "0-0"
+
     while True:
         t0 = time.perf_counter()
         try:
-            rows = r.xreadgroup(cfg.group, cfg.consumer, {cfg.stream: ">"}, count=cfg.count, block=cfg.block_ms) or []
+            pel_start_id, pending_msgs = helper.claim_pending(
+                cfg.stream, min_idle_ms=5000, count=cfg.count, start_id=pel_start_id
+            )
+            pending_formatted = [(m.msg_id, m.fields) for m in pending_msgs]
+
+            if pending_formatted:
+                rows = [[cfg.stream, pending_formatted]]
+            else:
+                rows = helper.read({cfg.stream: ">"}, count=cfg.count, block=cfg.block_ms) or []
+
             pipe = r.pipeline()
             consumed = 0
             max_ts_ms = 0
@@ -543,14 +559,17 @@ def main() -> int:
                     max_ts_ms = max(max_ts_ms, ts_ms)
                     EVENTS.labels(kind=_as_str(f.get("kind") or "unknown"), status=_status(f)).inc()
                     _ingest_one(pipe, cfg, f, msg_id)
-                    pipe.xack(cfg.stream, cfg.group, msg_id)
+
             if consumed > 0:
                 pipe.execute()
+                for _stream, msgs in rows:
+                    for msg_id, _ in msgs:
+                        helper.ack(cfg.stream, msg_id)
                 if max_ts_ms > 0:
                     QUEUE_LAG_MS.set(float(max(0, _now_ms() - max_ts_ms)))
 
             now_min = _minute(_now_ms())
-            all_rows: List[SnapshotRow] = []
+            all_rows: list[SnapshotRow] = []
             mins = _finalizable_minutes(r, cfg, now_min)
             for minute in mins:
                 finalized = _finalize_minute(r, cfg, minute)
@@ -561,7 +580,7 @@ def main() -> int:
                     all_rows.extend(finalized)
             LAST_RUN_TS.set(time.time())
             UP.set(1.0)
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             UP.set(0.0)

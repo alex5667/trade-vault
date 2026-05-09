@@ -39,27 +39,28 @@ The last fallback is what EntryPolicy should rely on.
 
 import math
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         v = float(x)
     except Exception:
-        return float(d)
+        return d
     if not math.isfinite(v):
-        return float(d)
+        return d
     return float(v)
 
 
 def _profile() -> str:
-    return str(os.getenv("GATE_PROFILE", os.getenv("EXEC_HEALTH_PROFILE", "default")) or "default").strip().lower()
+    return os.getenv("GATE_PROFILE", os.getenv("EXEC_HEALTH_PROFILE", "default") or "default").strip().lower()
 
 
 def _mode() -> str:
     # explicit override for this gate
-    m = str(os.getenv("EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
+    m = (os.getenv("EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
     if m in ("monitor", "tighten", "veto"):
         return m
     p = _profile()
@@ -79,7 +80,7 @@ class ExecHealthThresholds:
     tighten_add_cap_bps: float = 8.0
 
     @staticmethod
-    def from_env(prefix: str = "EXEC_") -> "ExecHealthThresholds":
+    def from_env(prefix: str = "EXEC_") -> ExecHealthThresholds:
         return ExecHealthThresholds(
             max_is_p95_bps=_f(os.getenv(f"{prefix}MAX_IS_P95_BPS", "0"), 0.0),
             max_perm_impact_p95_bps=_f(os.getenv(f"{prefix}MAX_PERM_IMPACT_P95_BPS", "0"), 0.0),
@@ -93,7 +94,7 @@ class ExecHealthThresholds:
 class ExecHealthDecision:
     apply: bool
     veto: bool
-    flags: List[str]
+    flags: list[str]
     reason_code: str = ""
     tighten_add_bps: float = 0.0
 
@@ -107,7 +108,7 @@ def build_rollup_keys(
     tf: str,
     kind: str,
     side: str,
-) -> List[str]:
+) -> list[str]:
     """Return fallback key list for one metric."""
     sym = (sym or "").upper()
     venue = (venue or "na").lower()
@@ -136,7 +137,7 @@ def build_rollup_keys(
     return out
 
 
-async def redis_mget_first(redis, keys: Sequence[str]) -> Optional[float]:
+async def redis_mget_first(redis, keys: Sequence[str]) -> float | None:
     """Return first found numeric value across fallback keys."""
     try:
         vals = await redis.mget(list(keys))
@@ -169,14 +170,14 @@ async def read_exec_rollups(
     kind: str,
     side: str,
     delta_sec: int = 1,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Read the minimal set of rollups needed for P6.
 
     Returns empty dict if data is missing.
     """
     # NOTE: metric naming is fixed in Phase B rollups.
     # We keep it strict and provide fallback keys.
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
     try:
         is_k = build_rollup_keys(metric="is_p95_bps", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
         pi_k = build_rollup_keys(metric=f"perm_impact_p95_bps:{int(delta_sec)}", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side)
@@ -200,11 +201,11 @@ async def read_exec_rollups(
 
 def decide_execution_health(
     *,
-    rollups: Dict[str, float],
+    rollups: dict[str, float],
     thr: ExecHealthThresholds,
 ) -> ExecHealthDecision:
     """Pure policy decision for execution-health gate."""
-    flags: List[str] = []
+    flags: list[str] = []
 
     v_is = _f(rollups.get("is_p95_bps"), float("nan"))
     v_pi = _f(rollups.get("perm_impact_p95_bps_1"), float("nan"))
@@ -257,7 +258,7 @@ def decide_execution_health(
     return ExecHealthDecision(apply=True, veto=False, flags=flags, reason_code="EXEC_HEALTH_TIGHTEN", tighten_add_bps=float(tighten_add))
 
 
-def apply_exec_health_to_indicators(*, indicators: Dict[str, Any], dec: ExecHealthDecision) -> None:
+def apply_exec_health_to_indicators(*, indicators: dict[str, Any], dec: ExecHealthDecision) -> None:
     """Mutate indicators (fail-open)."""
     try:
         indicators["exec_health_apply"] = int(1 if dec.apply else 0)

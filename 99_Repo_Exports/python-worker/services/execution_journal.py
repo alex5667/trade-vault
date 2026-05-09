@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Best-effort execution journal sink for Postgres.
@@ -32,14 +33,13 @@ ENV:
   JOURNAL_FLUSH_INTERVAL_S    — flush interval in seconds (default 2.0).
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
 import json
 import os
-import time
+from dataclasses import dataclass
+from typing import Any
 
 try:
-    from prometheus_client import Counter, REGISTRY
+    from prometheus_client import REGISTRY, Counter
 except Exception:  # pragma: no cover
     Counter = None  # type: ignore
     REGISTRY = None  # type: ignore
@@ -116,7 +116,7 @@ def _get_event_batch_writer(dsn: str):
 
 def _s(v: Any) -> str:
     """Coerce to str, treating None/empty as empty string."""
-    return str(v or '')
+    return (v or '')
 
 
 def _i(v: Any, default: int = 0) -> int:
@@ -124,16 +124,16 @@ def _i(v: Any, default: int = 0) -> int:
     try:
         return int(v)
     except Exception:
-        return int(default)
+        return default
 
 
-def _optional_text(v: Any) -> Optional[str]:
+def _optional_text(v: Any) -> str | None:
     """Return stripped string or None if blank."""
-    s = str(v or '').strip()
+    s = (v or '').strip()
     return s or None
 
 
-def _first_text(doc: Dict[str, Any], *keys: str) -> Optional[str]:
+def _first_text(doc: dict[str, Any], *keys: str) -> str | None:
     """Return the first non-blank string value from doc for the given keys."""
     for key in keys:
         s = _optional_text(doc.get(key))
@@ -204,7 +204,7 @@ class ExecutionJournalSink:
                     conn.close()
         return _direct()
 
-    def record_event(self, event: Dict[str, Any]) -> bool:
+    def record_event(self, event: dict[str, Any]) -> bool:
         """Append one execution event to execution_order_events.
 
         When JOURNAL_EVENT_BATCH_ENABLED=1 the row is enqueued into an
@@ -270,7 +270,7 @@ class ExecutionJournalSink:
                 TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL.labels(kind="event").inc()
             return False
 
-    def upsert_order_snapshot(self, state: Dict[str, Any]) -> bool:
+    def upsert_order_snapshot(self, state: dict[str, Any]) -> bool:
         """Upsert the current order state snapshot into execution_orders.
 
         Called on every FSM state transition so the table always reflects
@@ -333,7 +333,7 @@ class ExecutionJournalSink:
                 TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL.labels(kind='order_snapshot').inc()
             return False
 
-    def upsert_protection_refs(self, state: Dict[str, Any]) -> bool:
+    def upsert_protection_refs(self, state: dict[str, Any]) -> bool:
         """Upsert SL/TP/trail algo IDs into execution_protection_refs.
 
         Called together with upsert_order_snapshot whenever order state is saved.
@@ -380,7 +380,7 @@ class ExecutionJournalSink:
                 TRADE_EXECUTION_JOURNAL_WRITE_FAIL_TOTAL.labels(kind='protection_refs').inc()
             return False
 
-    def record_watchdog_event(self, event: Dict[str, Any]) -> bool:
+    def record_watchdog_event(self, event: dict[str, Any]) -> bool:
         """Append one TP watchdog state event to execution_watchdog_events (P5).
 
         Called from _emit_tp_state() in the executor for durable forensic audit.

@@ -1,5 +1,7 @@
 import unittest
+
 from services.slq_risk_adjust import maybe_apply_slq_to_risk_cfg
+
 
 class DummyRedis:
     def __init__(self, payload: str): self.payload = payload
@@ -13,7 +15,7 @@ class TestSlqRiskAdjust(unittest.TestCase):
         # We will assume Env is defaulted or we patch os.environ.
         import os
         from unittest.mock import patch
-        
+
         with patch.dict(os.environ, {
             "SLQ_ENABLE": "1",
             "SLQ_MIN_N": "200",
@@ -33,8 +35,10 @@ class TestSlqRiskAdjust(unittest.TestCase):
 
             out = maybe_apply_slq_to_risk_cfg(redis=r, ctx=ctx, symbol="BTCUSDT", side=1, cfg=cfg)
             self.assertEqual(out["slq_used"], 1)
-            self.assertAlmostEqual(out["stop_atr_mult"], 1.1) 
+            self.assertAlmostEqual(out["stop_atr_mult"], 1.1)
             self.assertEqual(out["slq_bump_atr"], 0.3)
+            # Verify TP1 was scaled proportionally: 0.78 * (1.1 / 0.8) = 1.0725
+            self.assertAlmostEqual(out["ROCKET_TP1_ATR_MULT"], 1.0725, places=4)
 
     def test_slq_disabled(self):
         import os
@@ -63,7 +67,7 @@ class TestSlqRiskAdjust(unittest.TestCase):
         from unittest.mock import patch
         with patch.dict(os.environ, {"SLQ_ENABLE": "1", "SLQ_POSTSL_TP1_MIN": "0.5"}):
              ctx = Ctx()
-             ctx.tp1_hit_prob = 0.9 
+             ctx.tp1_hit_prob = 0.9
              r = DummyRedis('{"n":500,"sl_buffer_atr_q90":0.3,"post_sl_tp1_hit_rate":0.2}') # Too low post-sl success
              cfg = {"stop_mode":"atr","stop_atr_mult":0.8}
              out = maybe_apply_slq_to_risk_cfg(redis=r, ctx=ctx, symbol="BTCUSDT", side=1, cfg=cfg)

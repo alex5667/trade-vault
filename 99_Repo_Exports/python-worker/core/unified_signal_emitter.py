@@ -1,13 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import json
-import time
-from typing import Any, Dict, List, Optional, Mapping
+from collections.abc import Mapping
+from typing import Any
 
-from core.outbox_envelope import OutboxEnvelope, make_envelope
-from core.outbox_writer import OutboxWriter, EmitResult
+from core.outbox_envelope import make_envelope
+from core.outbox_writer import EmitResult, OutboxWriter
 from core.redis_keys import RedisStreams as RS
+from utils.time_utils import get_ny_time_millis
 
 
 class UnifiedSignalEmitter:
@@ -55,18 +54,18 @@ class UnifiedSignalEmitter:
         signal_id: str,
         kind: str,
         symbol: str,
-        side: Optional[str] = None,
-        raw_score: Optional[float] = None,
-        final_score: Optional[float] = None,
-        confidence_pct: Optional[float] = None,
-        payload: Optional[Dict[str, Any]] = None,
-        labels: Optional[Mapping[str, Any]] = None,
-        ts_event_ms: Optional[int] = None,
-        ingest_time_ms: Optional[int] = None,
-        trace_id: Optional[str] = None,
-        quality_flags: Optional[List[str]] = None,
-        source: Optional[str] = None,
-        meta_schema_version: Optional[int] = None,
+        side: str | None = None,
+        raw_score: float | None = None,
+        final_score: float | None = None,
+        confidence_pct: float | None = None,
+        payload: dict[str, Any] | None = None,
+        labels: Mapping[str, Any] | None = None,
+        ts_event_ms: int | None = None,
+        ingest_time_ms: int | None = None,
+        trace_id: str | None = None,
+        quality_flags: list[str] | None = None,
+        source: str | None = None,
+        meta_schema_version: int | None = None,
     ) -> EmitResult:
         """
         Записать сигнал в outbox.
@@ -93,7 +92,7 @@ class UnifiedSignalEmitter:
             return EmitResult(ok=False, written=False, duplicate=False, entry_id=None)
 
         ts_ms = int(ts_event_ms or get_ny_time_millis())
-        p: Dict[str, Any] = dict(payload or {})
+        p: dict[str, Any] = dict(payload or {})
 
         # Гарантируем структурные labels:
         # - payload.setdefault("labels", {}) -> dict
@@ -109,11 +108,11 @@ class UnifiedSignalEmitter:
             signal_id=str(signal_id),
             source=source or self.source,
             kind=str(kind),
-            symbol=str(symbol),
+            symbol=symbol,
             ts_ms=ts_ms,
             ingest_time_ms=ingest_time_ms,
             trace_id=trace_id,
-            side=str(side) if side is not None else None,
+            side=side if side is not None else None,
             raw_score=float(raw_score) if raw_score is not None else None,
             final_score=float(final_score) if final_score is not None else None,
             confidence_pct=float(confidence_pct) if confidence_pct is not None else None,

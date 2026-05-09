@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Observe-only warmup logic for DQ veto.
 
 B1 requirement: system should not "die" from book-gap during the first 24–48h
@@ -9,16 +10,16 @@ This module only suppresses hard veto for the `book_seq` bucket.
 """
 
 
-from dataclasses import dataclass
 import os
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
 class ObserveOnlyResult:
     dq_veto: int
     suppressed: bool
-    suppress_reason: Optional[str] = None
+    suppress_reason: str | None = None
 
 
 def _bool(v: Any, default: bool = False) -> bool:
@@ -41,10 +42,10 @@ def _int(v: Any, default: int) -> int:
     try:
         return int(v)
     except Exception:
-        return int(default)
+        return default
 
 
-def _cfg_get(cfg: Dict[str, Any], *keys: str) -> Any:
+def _cfg_get(cfg: dict[str, Any], *keys: str) -> Any:
     for k in keys:
         if k in cfg:
             return cfg.get(k)
@@ -56,9 +57,9 @@ def apply_observe_only_book_veto(
     dq_level: int,
     dq_veto: int,
     dq_reason_bucket: str,
-    dq_reasons: List[str],
+    dq_reasons: list[str],
     uptime_sec: int,
-    cfg: Dict[str, Any],
+    cfg: dict[str, Any],
 ) -> ObserveOnlyResult:
     """Suppress hard veto for book_seq until enabled + warmup passed."""
 

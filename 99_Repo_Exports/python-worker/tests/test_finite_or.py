@@ -1,4 +1,3 @@
-import math
 
 
 def test_finite_or_handles_none():

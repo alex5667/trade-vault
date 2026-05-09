@@ -1,15 +1,17 @@
 # signal_execution_service.py
 from __future__ import annotations
+
 """
 Signal execution functionality extracted from base_orderflow_handler.py
 """
 
 
-from typing import Optional, Dict, Any
-import time
+from typing import Any
 
 from contexts import OrderflowSignalContext
 from signals.outbox_utils import PublishResult
+
+
 # from common.log import setup_logger
 def setup_logger(name):
     import logging
@@ -42,7 +44,7 @@ class SignalExecutionService:
         self._performance_tracker = performance_tracker
 
 
-    def _handle_execution_for_signal(self, sig_ctx: OrderflowSignalContext, *, msg_id: Optional[str] = None) -> None:
+    def _handle_execution_for_signal(self, sig_ctx: OrderflowSignalContext, *, msg_id: str | None = None) -> None:
         """
         Handle execution planning and setup for signal.
         IMPORTANT: вызывать только после реальной публикации (sent=True, dedup=False).
@@ -89,7 +91,7 @@ class SignalExecutionService:
         return result
 
 
-    def get_execution_stats(self) -> Dict[str, Any]:
+    def get_execution_stats(self) -> dict[str, Any]:
         """Get execution statistics."""
         try:
             performance_tracker = getattr(self, '_performance_tracker', None)

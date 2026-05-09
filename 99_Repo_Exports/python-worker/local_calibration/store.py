@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import json
-import math
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
 
 # Optional import for psycopg2
 try:
@@ -23,7 +21,7 @@ except ImportError:
         pass
 
 
-ClusterMetricKey = Tuple[str, str, str, str]  # (symbol, session, regime, metric)
+ClusterMetricKey = tuple[str, str, str, str]  # (symbol, session, regime, metric)
 
 
 @dataclass
@@ -32,7 +30,7 @@ class ClusterMetricCfg:
     q95: float
     q98: float
     threshold: float
-    cdf_points: List[dict]
+    cdf_points: list[dict]
     count_samples: int
 
 
@@ -43,7 +41,7 @@ class LocalCalibrationStore:
     """
 
     def __init__(self) -> None:
-        self._cfg: Dict[ClusterMetricKey, ClusterMetricCfg] = {}
+        self._cfg: dict[ClusterMetricKey, ClusterMetricCfg] = {}
 
     def load_from_db(self, dsn: str) -> None:
         """Загружает калибровку из базы данных"""
@@ -68,7 +66,7 @@ class LocalCalibrationStore:
             """
             with conn.cursor(cursor_factory=DictCursor) as cur:
                 cur.execute(sql)
-                data: Dict[ClusterMetricKey, ClusterMetricCfg] = {}
+                data: dict[ClusterMetricKey, ClusterMetricCfg] = {}
                 for r in cur:
                     key: ClusterMetricKey = (
                         r["symbol"],
@@ -123,7 +121,7 @@ class LocalCalibrationStore:
         symbol: str,
         session: str,
         regime: str,
-    ) -> Dict[str, ClusterMetricCfg]:
+    ) -> dict[str, ClusterMetricCfg]:
         """Получает все метрики для кластера"""
         metrics = {}
         for metric in ["delta_spike_z", "obi", "weak_progress", "atr_quantile"]:
@@ -137,7 +135,7 @@ class LocalCalibrationStore:
         return len(self._cfg) == 0
 
 
-def eval_local_quantile(cdf_points: List[dict], x: float) -> float:
+def eval_local_quantile(cdf_points: list[dict], x: float) -> float:
     """
     Вычисляет локальный квантиль по эмпирической CDF.
     cdf_points: [{value, q}, ...] отсортированные по value.

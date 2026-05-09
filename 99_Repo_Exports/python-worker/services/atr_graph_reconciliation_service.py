@@ -1,13 +1,12 @@
-import os
 import json
 import logging
+import os
 import uuid
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any
 
 from services.analytics_db import get_conn
 from services.atr_effective_state_resolver import EffectiveStateResolver
-from services.atr_freeze_matrix_service import ATRFreezeMatrixService
 
 logger = logging.getLogger("atr_graph_reconciliation")
 
@@ -35,7 +34,7 @@ class ATRGraphReconciliationService:
         env_flag_name = f"ATR_GRAPH_PRIMARY_{component.upper()}"
         if os.getenv(env_flag_name, "0") == "1":
             return True
-        
+
         try:
             with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
                 cur.execute("""
@@ -51,14 +50,14 @@ class ATRGraphReconciliationService:
         return False
 
     @staticmethod
-    def detect_out_of_band_legacy_write(component: str, scope_value: str, actor: str, reason_code: str, payload_json: Dict[str, Any]) -> bool:
+    def detect_out_of_band_legacy_write(component: str, scope_value: str, actor: str, reason_code: str, payload_json: dict[str, Any]) -> bool:
         """
         If this component is graph_primary, log a violation when a legacy service directly mutates it.
         Returns True if the write is an out-of-band violation (and was logged) so the caller can block it.
         """
         if not ATRGraphReconciliationService.is_component_graph_primary(component, scope_value):
             return False
-            
+
         violation_id = ATRGraphReconciliationService._generate_id("v_auth")
         try:
             with get_conn() as conn, conn.cursor() as cur:
@@ -75,7 +74,7 @@ class ATRGraphReconciliationService:
             return False
 
     @staticmethod
-    def mark_reconciliation_drift(scope_value: str, drift_kind: str, severity: str, reason_code: str, drift_json: Dict[str, Any]):
+    def mark_reconciliation_drift(scope_value: str, drift_kind: str, severity: str, reason_code: str, drift_json: dict[str, Any]):
         """
         Record a reconciliation drift into the database.
         """
@@ -106,16 +105,16 @@ class ATRGraphReconciliationService:
         graph_override = states.get("override_state", "none")
         graph_release = states.get("release_state", "allowed")
         graph_rollout = states.get("rollout_stage", "none")
-        
+
         # Determine actual legacy state currently in DB
         leg_state = EffectiveStateResolver.resolve_legacy(scope_kind, scope_value)
         leg_states = leg_state.get("states", {})
-        
+
         drift_found = False
-        
+
         try:
             with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
-                
+
                 # Check Freeze Drift
                 if ATRGraphReconciliationService.is_component_graph_primary("freeze", scope_value):
                     if graph_freeze != leg_states.get("freeze_state", "none"):
@@ -146,7 +145,7 @@ class ATRGraphReconciliationService:
                             scope_value, "legacy_out_of_band_override_write", "warning", "drift_override_state",
                             {"graph": graph_override, "legacy": leg_states.get("override_state", "none")}
                         )
-                
+
                 # Check Release Drift
                 if ATRGraphReconciliationService.is_component_graph_primary("release", scope_value):
                     if graph_release != leg_states.get("release_state", "allowed"):
@@ -161,7 +160,7 @@ class ATRGraphReconciliationService:
         except Exception as e:
             logger.error(f"Failed to project graph to legacy for {scope_value}: {e}")
             return False
-            
+
         return drift_found
 
     @staticmethod

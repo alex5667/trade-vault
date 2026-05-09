@@ -1,8 +1,9 @@
 
 import argparse
 import unittest
-from unittest.mock import MagicMock
-from tools.meta_auto_ramp_v1 import decide_ramp, RampDecision
+
+from tools.meta_auto_ramp_v1 import decide_ramp
+
 
 class TestMetaAutoRamp(unittest.TestCase):
     def setUp(self):

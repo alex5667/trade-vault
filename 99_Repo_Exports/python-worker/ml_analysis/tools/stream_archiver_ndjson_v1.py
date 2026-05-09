@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Generic Redis Stream → NDJSON archiver (P58).
 
 Goal:
@@ -30,8 +31,6 @@ Continuous:
   python -m ml_analysis.tools.stream_archiver_ndjson_v1 --loop-s 1 --batch 2000
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import gzip
 import json
@@ -39,7 +38,10 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING, Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 if TYPE_CHECKING:  # pragma: no cover
     import redis  # type: ignore
@@ -59,29 +61,29 @@ def _as_str(x: Any) -> str:
 
 def _as_int(x: Any, default: int = 0) -> int:
     if x is None:
-        return int(default)
+        return default
     if isinstance(x, bool):
-        return int(default)
+        return default
     if isinstance(x, (int, float)):
         try:
             return int(x)
         except Exception:
-            return int(default)
+            return default
     if isinstance(x, bytes):
         try:
             x = x.decode("utf-8", "ignore")
         except Exception:
-            return int(default)
+            return default
     try:
         s = str(x).strip()
         if not s:
-            return int(default)
+            return default
         return int(float(s))
     except Exception:
-        return int(default)
+        return default
 
 
-def _safe_json_loads(x: Any) -> Optional[Dict[str, Any]]:
+def _safe_json_loads(x: Any) -> dict[str, Any] | None:
     if x is None:
         return None
     if isinstance(x, dict):
@@ -107,7 +109,7 @@ def _utc_day_from_ts_ms(ts_ms: int) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(int(ts_ms) / 1000))
 
 
-def _pick_event_ts_ms(rec: Dict[str, Any], payload_field: str) -> int:
+def _pick_event_ts_ms(rec: dict[str, Any], payload_field: str) -> int:
     # payload dominates
     payload = rec.get(payload_field)
     if isinstance(payload, dict):
@@ -204,7 +206,7 @@ def load_cfg(args: argparse.Namespace) -> Cfg:
     )
 
 
-def _ensure_group(r: "redis.Redis", stream: str, group: str) -> None:
+def _ensure_group(r: redis.Redis, stream: str, group: str) -> None:
     try:
         r.xgroup_create(name=stream, groupname=group, id="0-0", mkstream=True)
     except Exception as e:
@@ -224,7 +226,7 @@ def _open_out(path: Path, gzip_enabled: bool):
     return open(path, "a", encoding="utf-8")
 
 
-def _metrics_incr(r: "redis.Redis", h: str, field: str, n: int = 1) -> None:
+def _metrics_incr(r: redis.Redis, h: str, field: str, n: int = 1) -> None:
     try:
         r.hincrby(h, field, int(n))
         r.hset(h, mapping={"last_ts_ms": str(_now_ms())})
@@ -232,7 +234,7 @@ def _metrics_incr(r: "redis.Redis", h: str, field: str, n: int = 1) -> None:
         pass
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", default=os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
     ap.add_argument("--stream", default=os.environ.get("ARCHIVE_STREAM", ""), required=False)
@@ -268,7 +270,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     cfg.archive_dir.mkdir(parents=True, exist_ok=True)
 
     # file handles by day
-    handles: Dict[str, Any] = {}
+    handles: dict[str, Any] = {}
     written = 0
     loop = True
     last_fsync = 0
@@ -312,7 +314,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     except Exception:
                         pass
 
-                rec: Dict[str, Any] = {"stream_id": msg_id, "stream": cfg.stream, "archived_ts_ms": _now_ms()}
+                rec: dict[str, Any] = {"stream_id": msg_id, "stream": cfg.stream, "archived_ts_ms": _now_ms()}
                 # decode fields
                 if isinstance(fields, dict):
                     for k_b, v_b in fields.items():
@@ -340,25 +342,19 @@ def main(argv: Optional[list[str]] = None) -> int:
                     # no ACK -> retry later
                     continue
 
-                try:
+                with contextlib.suppress(Exception):
                     r.xack(cfg.stream, cfg.group, msg_id)
-                except Exception:
-                    pass
 
                 if cfg.delete_after_ack:
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xdel(cfg.stream, msg_id)
-                    except Exception:
-                        pass
 
                 _metrics_incr(r, cfg.metrics_hash, "archived_total", 1)
 
                 if cfg.flush_every > 0 and written % int(cfg.flush_every) == 0:
                     for hh in handles.values():
-                        try:
+                        with contextlib.suppress(Exception):
                             hh.flush()
-                        except Exception:
-                            pass
 
                 if cfg.fsync_every > 0 and written - last_fsync >= int(cfg.fsync_every):
                     last_fsync = written

@@ -1,16 +1,18 @@
 # message_handler.py
 from __future__ import annotations
+
 """
 Функционал обработки сообщений, извлеченный из base_orderflow_handler.py
 """
 
-from utils.time_utils import get_ny_time_millis
-
-from typing import Optional, Dict, Any, List, Tuple
-import time
 import os
+import time
 from types import SimpleNamespace
+from typing import Any
+
 from common.transient import is_transient_error
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     from health_metrics import HealthMetrics
@@ -32,7 +34,7 @@ class MessageHandler:
     def __init__(
         self,
         *args: Any,
-        health_metrics: Optional["HealthMetrics"] = None,
+        health_metrics: HealthMetrics | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__()  # in case of mixins
@@ -82,7 +84,7 @@ class MessageHandler:
         self.data_parser = kwargs.get('data_parser')
         self.data_processor = kwargs.get('data_processor')
         self.config = kwargs.get('config')
-        
+
         cfg = self.config
         self.max_fail_retries = int(
             kwargs.get("max_fail_retries")
@@ -105,15 +107,15 @@ class MessageHandler:
         self.on_bucket_closed = kwargs.get('on_bucket_closed')
         self.error_handler = kwargs.get('error_handler')
         self.on_l3_event = kwargs.get('on_l3_event')
-        
+
         # Кеш для дожатия ACK (только для сообщений, которые ПРИМЕНЕНЫ, но ACK упал)
-        self._ack_retry_cache: Dict[Tuple[str, str], float] = {}
+        self._ack_retry_cache: dict[tuple[str, str], float] = {}
         self._last_ack_retry_cleanup = time.monotonic()
         self._ack_retry_ttl_s = float(getattr(cfg, "ack_retry_ttl_s", 600.0) if cfg else 600.0)
         self._ack_retry_max = int(getattr(cfg, "ack_retry_max", 20000) if cfg else 20000)
-        
+
         self.logger = setup_logger(f"MessageHandler:{self.symbol}")
-        
+
         # Telemetry for adaptive claim scheduling
         self._last_pending_claimed = 0
         self._last_pending_any_msgs = False
@@ -152,13 +154,13 @@ class MessageHandler:
         *,
         consumer: object,
         backoff: object,
-        fail_counts: Dict[Tuple[str, str], int],
+        fail_counts: dict[tuple[str, str], int],
         stream: str,
         msg_id: str,
-        fields: Optional[Dict[str, Any]],
+        fields: dict[str, Any] | None,
         where: str,
         stop_event: Any = None,
-    ) -> Tuple[bool, bool]:
+    ) -> tuple[bool, bool]:
         """Returns: (retry, is_transient)"""
         is_transient = self._is_transient_error(e)
         eh = self.error_handler
@@ -200,14 +202,14 @@ class MessageHandler:
 
     def process_message_batch(
         self,
-        msgs: List[Any],
+        msgs: list[Any],
         backoff: object,
-        fail_counts: Dict[Tuple[str, str], int],
+        fail_counts: dict[tuple[str, str], int],
         consumer: object,
         stop_event: Any = None,
         *,
         from_pending: bool = False,
-    ) -> Tuple[int, int, bool]:
+    ) -> tuple[int, int, bool]:
         """Обработка пакета сообщений из Redis streams."""
         tick_cnt = 0
         book_cnt = 0
@@ -223,7 +225,7 @@ class MessageHandler:
         msgs_sorted = sorted(msgs, key=lambda m: self._priority(getattr(m, "stream", "")))
         hm = self.health_metrics
         now_ms = get_ny_time_millis()
-        
+
         # PERF: pre-capture normalize_ts to avoid repeated getattr in hot path
         norm_ts = getattr(self.data_processor, "_normalize_ts", None)
 
@@ -232,7 +234,7 @@ class MessageHandler:
             stream = getattr(m, "stream", "")
             msg_id = getattr(m, "msg_id", "")
             key = (stream, msg_id)
-            
+
             if stop_event is not None and stop_event.is_set():
                 batch_had_transient = True
                 break
@@ -276,7 +278,7 @@ class MessageHandler:
                         msg_ts = int(norm_ts(raw_ts) or 0) if callable(norm_ts) else 0
                         if msg_ts > 0 and hm:
                             hm.on_stream_lag(self.symbol, "ticks", max(0, now_curr - msg_ts))
-                        
+
                         finished_bar, closed_bucket_ts_ms = self.data_processor._process_tick(tick)
                         if closed_bucket_ts_ms is not None and hm and hasattr(hm, "on_bucket_event"):
                             try:
@@ -292,7 +294,7 @@ class MessageHandler:
                                 self.on_bucket_closed(int(closed_bucket_ts_ms))
                             except Exception as e:
                                 self.logger.warning("on_bucket_closed failed: %s", e)
-                        
+
                         tick_cnt += 1
                         ok = True
 
@@ -318,11 +320,11 @@ class MessageHandler:
                         ts_raw = getattr(l3_event, "ts_ms", 0) or 0
                         if ts_raw <= 0 and isinstance(l3_event, dict):
                             ts_raw = l3_event.get("ts_ms", 0) or 0
-                        
+
                         ts_ms = int(norm_ts(ts_raw) or 0) if callable(norm_ts) else 0
                         if ts_ms > 0 and hm:
                             hm.on_stream_lag(self.symbol, "l3", max(0, now_curr - ts_ms))
-                        
+
                         if self.on_l3_event is not None:
                             self.on_l3_event(l3_event)
                     ok = True
@@ -404,15 +406,15 @@ class MessageHandler:
     def claim_and_process_pending(
         self,
         consumer: object,
-        streams: List[str],
-        start_ids: Dict[str, str],
-        fail_counts: Dict[Tuple[str, str], int],
+        streams: list[str],
+        start_ids: dict[str, str],
+        fail_counts: dict[tuple[str, str], int],
         backoff: object,
         stop_event: Any = None,
     ) -> bool:
         """Клейм и обработка pending сообщений."""
         streams_sorted = sorted(streams, key=self._priority)
-        claimed: List[Any] = []
+        claimed: list[Any] = []
         any_msgs = False
 
         for stream in streams_sorted:
@@ -458,22 +460,18 @@ class MessageHandler:
         self._last_pending_claimed = int(len(claimed))
         self._last_pending_any_msgs = bool(any_msgs)
         self._last_pending_full_scan_empty = (not any_msgs) and all(
-            str(start_ids.get(s, "0-0")) == "0-0" for s in streams_sorted
+            (start_ids.get(s, "0-0")) == "0-0" for s in streams_sorted
         )
 
         if not any_msgs:
-            try:
+            with contextlib.suppress(Exception):
                 getattr(backoff, "reset", lambda: None)()
-            except Exception:
-                pass
             return True
 
         total_tick, total_book, all_ok = self.process_message_batch(
             claimed, backoff, fail_counts, consumer, stop_event=stop_event, from_pending=True
         )
         if all_ok:
-            try:
+            with contextlib.suppress(Exception):
                 getattr(backoff, "reset", lambda: None)()
-            except Exception:
-                pass
         return bool(all_ok)

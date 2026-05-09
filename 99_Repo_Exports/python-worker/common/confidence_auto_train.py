@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Tuple
 import time
+
 
 def decide_should_train(
     *,
@@ -9,7 +9,7 @@ def decide_should_train(
     force_after_sec: int,
     last_trained_at: int,
     new_eligible: int,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Триггер по приросту данных + safety-триггер по времени.
     Используется внутри time-based запуска (systemd timer).

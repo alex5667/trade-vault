@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Unit tests for signal_quality.estimator — uses mocked psycopg2 (no DB).
 
@@ -16,8 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from signal_quality.estimator import SignalQualityEstimator, QualityEstimate
-
+from signal_quality.estimator import QualityEstimate, SignalQualityEstimator
 
 # ──────────────────────────────────────────────
 # Helpers

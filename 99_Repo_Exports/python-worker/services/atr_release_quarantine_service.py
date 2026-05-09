@@ -2,11 +2,12 @@ import json
 import logging
 import os
 import uuid
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
 import psycopg2.extras
-from services.analytics_db import get_conn as get_db_connection
 from prometheus_client import Counter, Gauge
+
+from services.analytics_db import get_conn as get_db_connection
 
 logger = logging.getLogger("atr_release_quarantine_service")
 
@@ -53,7 +54,7 @@ class ATRReleaseQuarantineService:
                         scope_kind: str,
                         scope_value: str,
                         severity: str,
-                        reason_code: str) -> Optional[str]:
+                        reason_code: str) -> str | None:
         if not ATR_RELEASE_QUARANTINE_ENABLE:
             return None
 
@@ -61,9 +62,9 @@ class ATRReleaseQuarantineService:
             logger.warning(f"Invalid quarantine class: {quarantine_class}")
             return None
 
-        quarantine_id = f"q_{datetime.now(timezone.utc).strftime('%Y_%m_%d')}_{uuid.uuid4().hex[:6]}"
+        quarantine_id = f"q_{datetime.now(UTC).strftime('%Y_%m_%d')}_{uuid.uuid4().hex[:6]}"
         dwell_hours = DWELL_WINDOWS_HOURS.get(quarantine_class, 24)
-        not_before = datetime.now(timezone.utc) + timedelta(hours=dwell_hours)
+        not_before = datetime.now(UTC) + timedelta(hours=dwell_hours)
         summary = {"incident_id": incident_id, "dwell_hours": dwell_hours}
 
         with get_db_connection() as conn:
@@ -91,13 +92,13 @@ class ATRReleaseQuarantineService:
                     return False
 
                 # Dwell time check
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 not_before = q['not_before_release_at']
-                
+
                 # Check for failed checks
                 cur.execute("SELECT status FROM atr_quarantine_exit_checks WHERE quarantine_id = %s AND status = 'failed'", (quarantine_id,))
                 has_failed_checks = cur.fetchone() is not None
-                
+
                 # Assume true if dwell passed and no explicit failed checks, and owner signed off.
                 # In real scenario, would poll external states directly here or checks would be submitted by other jobs.
                 if now >= not_before and not has_failed_checks:
@@ -125,7 +126,7 @@ class ATRReleaseQuarantineService:
                 if new_status in ['RELEASE_ELIGIBLE', 'WAIVED'] and old_status not in ['RELEASE_ELIGIBLE', 'WAIVED']:
                     # Decrement active quarantine count
                     QUARANTINE_ACTIVE_TOTAL.labels(severity=q['severity']).dec()
-                    released_at = datetime.now(timezone.utc)
+                    released_at = datetime.now(UTC)
                     cur.execute("UPDATE atr_release_quarantines SET status = %s, released_at = %s WHERE quarantine_id = %s", (new_status, released_at, quarantine_id))
                 else:
                     cur.execute("UPDATE atr_release_quarantines SET status = %s WHERE quarantine_id = %s", (new_status, quarantine_id))
@@ -135,22 +136,21 @@ class ATRReleaseQuarantineService:
                 logger.info(f"Quarantine {quarantine_id} advanced to {new_status}")
 
     @staticmethod
-    def is_release_blocked_by_quarantine(target_scope: str) -> Optional[dict]:
+    def is_release_blocked_by_quarantine(target_scope: str) -> dict | None:
         if not ATR_RELEASE_QUARANTINE_ENABLE:
             return None
 
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                cur.execute("""
+        with get_db_connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("""
                     SELECT * FROM atr_release_quarantines 
                     WHERE status NOT IN ('RELEASE_ELIGIBLE', 'WAIVED', 'NOT_QUARANTINED')
                 """)
-                active_quarantines = cur.fetchall()
+            active_quarantines = cur.fetchall()
 
-                for q in active_quarantines:
-                    if q['scope_value'] in target_scope:
-                        QUARANTINE_BLOCK_TOTAL.labels(quarantine_class=q['quarantine_class']).inc()
-                        return dict(q)
+            for q in active_quarantines:
+                if q['scope_value'] in target_scope:
+                    QUARANTINE_BLOCK_TOTAL.labels(quarantine_class=q['quarantine_class']).inc()
+                    return dict(q)
         return None
 
     @staticmethod
@@ -175,8 +175,8 @@ class ATRReleaseQuarantineService:
                     return False
 
                 waiver_id = f"w_{uuid.uuid4().hex[:8]}"
-                not_after = datetime.now(timezone.utc) + timedelta(seconds=ttl_sec)
-                
+                not_after = datetime.now(UTC) + timedelta(seconds=ttl_sec)
+
                 cur.execute("""
                     INSERT INTO atr_quarantine_waivers
                     (waiver_id, quarantine_id, approver, reason_code, ttl_sec, not_after, waiver_json)

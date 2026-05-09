@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """services/liquidation_map_core.py
 
 Фаза B (Python): построение "карты ликвидаций" (Liquidation Heatmap / Map).
@@ -14,10 +14,9 @@ Design goals (под ваш стиль trade проекта):
 
 
 import math
+from collections import deque
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, getcontext
-from collections import deque
-from typing import Deque, Dict, List, Optional, Tuple
 
 # Достаточная точность для USD notional суммирования
 getcontext().prec = 28
@@ -57,7 +56,7 @@ def _safe_str(s: object) -> str:
     return str(s)
 
 
-def _safe_decimal_str(s: object) -> Optional[Decimal]:
+def _safe_decimal_str(s: object) -> Decimal | None:
     """Parse Decimal from string-like input.
 
     NOTE: строгое поведение: NaN/inf/пусто -> None.
@@ -78,7 +77,7 @@ def _safe_decimal_str(s: object) -> Optional[Decimal]:
         return None
 
 
-def normalize_liq_event(fields: Dict[str, object]) -> Tuple[Optional[LiqEventV1], Optional[str]]:
+def normalize_liq_event(fields: dict[str, object]) -> tuple[LiqEventV1 | None, str | None]:
     """Normalize raw Redis stream fields into LiqEventV1.
 
     Returns:
@@ -161,9 +160,9 @@ class Bucketizer:
     def __init__(
         self,
         mode: str,
-        abs_step: Optional[Decimal] = None,
-        bps: Optional[int] = None,
-        pct: Optional[float] = None,
+        abs_step: Decimal | None = None,
+        bps: int | None = None,
+        pct: float | None = None,
     ) -> None:
         self.mode = mode
         self.abs_step = abs_step
@@ -259,10 +258,10 @@ class LiqMapWindowAgg:
         self.window_ms = window_ms
         self.bucketizer = bucketizer
 
-        self._q: Deque[_Contribution] = deque()
+        self._q: deque[_Contribution] = deque()
         # bucket_key -> [long, short]
-        self._buckets: Dict[str, List[Decimal]] = {}
-        self.anchor_price: Optional[float] = None  # latest event price (for range filter)
+        self._buckets: dict[str, list[Decimal]] = {}
+        self.anchor_price: float | None = None  # latest event price (for range filter)
 
     def add(self, ts_event_ms: int, price: Decimal, liq_side: str, notional: Decimal) -> None:
         bk = self.bucketizer.bucket_key(price)
@@ -312,14 +311,14 @@ class LiqMapWindowAgg:
         *,
         max_levels: int,
         range_pct: float,
-    ) -> List[Tuple[float, str, Decimal, Decimal]]:
+    ) -> list[tuple[float, str, Decimal, Decimal]]:
         """Return snapshot levels.
 
         Returns list of tuples:
             (price_float, bucket_key, long_usd, short_usd)
         """
 
-        items: List[Tuple[float, str, Decimal, Decimal, Decimal]] = []
+        items: list[tuple[float, str, Decimal, Decimal, Decimal]] = []
         anchor = self.anchor_price
         for bk, (l, s) in self._buckets.items():
             if l <= 0 and s <= 0:

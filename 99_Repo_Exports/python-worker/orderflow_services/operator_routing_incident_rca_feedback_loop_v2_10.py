@@ -1,10 +1,10 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import psycopg
@@ -39,15 +39,15 @@ PORT = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_PORT", "9888"))
 MAXLEN = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_FEEDBACK_MAXLEN", "20000"))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -74,8 +74,8 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -105,15 +105,14 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def persist_feedback(db_url: str, output_hash: str, row: Dict[str, Any]) -> None:
+async def persist_feedback(db_url: str, output_hash: str, row: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     score = score_usefulness(row.get("usefulness", ""))
     try:  # pragma: no cover
-        with psycopg.connect(db_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
+        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
 
                     INSERT INTO llm_operator_routing_incident_rca_feedback (
                         output_hash,
@@ -131,27 +130,27 @@ async def persist_feedback(db_url: str, output_hash: str, row: Dict[str, Any]) -
                         %(ts_ms)s
                     )
                     """,
-                    {
-                        "output_hash": output_hash,
-                        "operator_id": row.get("operator_id", ""),
-                        "usefulness": row.get("usefulness", ""),
-                        "score": score,
-                        "comments": row.get("comments", ""),
-                        "ts_ms": row.get("ts_ms", now_ms()),
-                    }
-                )
-                cur.execute(
-                    """,
+                {
+                    "output_hash": output_hash,
+                    "operator_id": row.get("operator_id", ""),
+                    "usefulness": row.get("usefulness", ""),
+                    "score": score,
+                    "comments": row.get("comments", ""),
+                    "ts_ms": row.get("ts_ms", now_ms()),
+                }
+            )
+            cur.execute(
+                """,
                     UPDATE llm_operator_routing_incident_rca_results
                     SET usefulness_score = %(score)s
                     WHERE output_hash = %(output_hash)s,
                     """,
-                    {
-                        "score": score,
-                        "output_hash": output_hash,
-                    }
-                )
-                conn.commit()
+                {
+                    "score": score,
+                    "output_hash": output_hash,
+                }
+            )
+            conn.commit()
     except Exception:
         return
 

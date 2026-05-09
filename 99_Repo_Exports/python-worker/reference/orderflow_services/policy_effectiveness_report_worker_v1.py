@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """P71 Policy Effectiveness Report Worker.
 
 Computes 24h policy effectiveness deltas vs baseline (policy_effective_mode=ok)
@@ -22,19 +23,18 @@ This worker is intentionally lightweight and low-cardinality.
 Input freshness is monitored separately by P70 signal quality policy-mode alerts.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
 
+from utils.time_utils import get_ny_time_millis
 
-POLICY_MODES: List[str] = ["ok", "warn", "block", "unknown"]
+POLICY_MODES: list[str] = ["ok", "warn", "block", "unknown"]
 
 
 def _now_ms() -> int:
@@ -80,9 +80,9 @@ def _redis() -> redis.Redis:
     return redis.from_url(url, decode_responses=False)
 
 
-def _hgetall_decoded(r: redis.Redis, key: str) -> Dict[str, str]:
+def _hgetall_decoded(r: redis.Redis, key: str) -> dict[str, str]:
     raw = r.hgetall(key)
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for k, v in raw.items():
         kk = k.decode("utf-8", errors="replace") if isinstance(k, (bytes, bytearray)) else str(k)
         vv = v.decode("utf-8", errors="replace") if isinstance(v, (bytes, bytearray)) else str(v)
@@ -90,8 +90,8 @@ def _hgetall_decoded(r: redis.Redis, key: str) -> Dict[str, str]:
     return out
 
 
-def _build_mode_kpis(cfg: Dict[str, str]) -> Dict[str, ModeKPI]:
-    out: Dict[str, ModeKPI] = {}
+def _build_mode_kpis(cfg: dict[str, str]) -> dict[str, ModeKPI]:
+    out: dict[str, ModeKPI] = {}
     for mode in POLICY_MODES:
         n = _to_int(cfg.get(f"signal_quality_n_24h_policy_{mode}"), 0)
         expectancy_r = _to_float(cfg.get(f"signal_quality_expectancy_r_24h_policy_{mode}"), 0.0)
@@ -101,7 +101,7 @@ def _build_mode_kpis(cfg: Dict[str, str]) -> Dict[str, ModeKPI]:
     return out
 
 
-def _as_csv(rows: List[Dict[str, Any]]) -> str:
+def _as_csv(rows: list[dict[str, Any]]) -> str:
     cols = [
         "mode",
         "n",
@@ -115,7 +115,7 @@ def _as_csv(rows: List[Dict[str, Any]]) -> str:
     ]
     lines = [",".join(cols)]
     for r in rows:
-        line: List[str] = []
+        line: list[str] = []
         for c in cols:
             v = r.get(c)
             if v is None:
@@ -147,7 +147,7 @@ def run_once() -> int:
     ok = mk.get("ok", ModeKPI("ok", 0, 0.0, 0.0, 0.0))
     baseline_ok_present = 1 if (ok.n >= baseline_min_n and ok.n > 0) else 0
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for mode in POLICY_MODES:
         m = mk[mode]
         share = (m.n / total_n) if total_n > 0 else 0.0
@@ -174,7 +174,7 @@ def run_once() -> int:
         )
 
     now_ms = _now_ms()
-    hset_map: Dict[str, Any] = {
+    hset_map: dict[str, Any] = {
         "policy_effectiveness_last_ts_ms": str(now_ms),
         "policy_effectiveness_baseline_ok_present": str(int(baseline_ok_present)),
         "policy_effectiveness_input_last_ts_ms": str(int(last_in_ts_ms)),

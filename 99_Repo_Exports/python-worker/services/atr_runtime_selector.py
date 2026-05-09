@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import math
 import os
-import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from services.atr_candidate_provider import get_atr_candidate_provider
+import contextlib
 
 try:
     from prometheus_client import Counter, Histogram
@@ -68,16 +68,16 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
         return default
 
 
-def _ensure_dict(v: Any) -> Dict[str, Any]:
+def _ensure_dict(v: Any) -> dict[str, Any]:
     return dict(v) if isinstance(v, dict) else {}
 
 
-def _parse_allowed_tfs() -> List[int]:
+def _parse_allowed_tfs() -> list[int]:
     raw = str(
         os.getenv("ATR_HORIZON_ALLOWED_TFS_MS", "15000,30000,60000,180000,300000,900000") or ""
     ).strip()
     min_tf_ms = _safe_int(os.getenv("ATR_HORIZON_MIN_TF_MS", "300000"), 300000)
-    out: List[int] = []
+    out: list[int] = []
     for p in raw.split(","):
         try:
             x = int(p.strip())
@@ -109,14 +109,14 @@ class RuntimeATRSelectorResult:
     vol_ratio_fast_slow: float
     vol_ratio_z: float
     selector_reason_code: str
-    selector_reason_details: Dict[str, Any]
+    selector_reason_details: dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
 # TF resolution helpers
 # ---------------------------------------------------------------------------
 
-def _nearest_allowed_tf(ideal_tf_ms: int, allowed: List[int]) -> int:
+def _nearest_allowed_tf(ideal_tf_ms: int, allowed: list[int]) -> int:
     if not allowed:
         return max(1, ideal_tf_ms)
     return min(allowed, key=lambda x: (abs(x - ideal_tf_ms), x))
@@ -126,7 +126,7 @@ def _compute_target_tf_ms(
     hold_target_ms: int,
     alpha_half_life_ms: int,
     window_n: int,
-    allowed: List[int],
+    allowed: list[int],
 ) -> int:
     hold_target_ms = max(0, int(hold_target_ms))
     alpha_half_life_ms = max(0, int(alpha_half_life_ms))
@@ -142,7 +142,7 @@ def _compute_target_tf_ms(
 # Candidate key helpers
 # ---------------------------------------------------------------------------
 
-def _tf_alias_map() -> Dict[int, str]:
+def _tf_alias_map() -> dict[int, str]:
     return {
         15000: "15s",
         30000: "30s",
@@ -153,7 +153,7 @@ def _tf_alias_map() -> Dict[int, str]:
     },
 
 
-def _candidate_keys_with_alias(tf_ms: int) -> List[str]:
+def _candidate_keys_with_alias(tf_ms: int) -> list[str]:
     alias = _tf_alias_map().get(tf_ms, "")
     out = [
         f"atr_{tf_ms}",
@@ -168,7 +168,7 @@ def _candidate_keys_with_alias(tf_ms: int) -> List[str]:
     return out
 
 
-def _candidate_ts_keys_with_alias(tf_ms: int) -> List[str]:
+def _candidate_ts_keys_with_alias(tf_ms: int) -> list[str]:
     alias = _tf_alias_map().get(tf_ms, "")
     out = [
         f"atr_ts_ms_{tf_ms}",
@@ -183,7 +183,7 @@ def _candidate_ts_keys_with_alias(tf_ms: int) -> List[str]:
     return out
 
 
-def _read_first_float(*dicts: Dict[str, Any], keys: List[str]) -> float:
+def _read_first_float(*dicts: dict[str, Any], keys: list[str]) -> float:
     for d in dicts:
         if not isinstance(d, dict):
             continue
@@ -195,7 +195,7 @@ def _read_first_float(*dicts: Dict[str, Any], keys: List[str]) -> float:
     return 0.0
 
 
-def _read_first_int(*dicts: Dict[str, Any], keys: List[str], default: int = 0) -> int:
+def _read_first_int(*dicts: dict[str, Any], keys: list[str], default: int = 0) -> int:
     for d in dicts:
         if not isinstance(d, dict):
             continue
@@ -212,11 +212,11 @@ def _read_first_int(*dicts: Dict[str, Any], keys: List[str], default: int = 0) -
 # ---------------------------------------------------------------------------
 
 def _build_candidates(
-    signal: Dict[str, Any],
-    indicators: Dict[str, Any],
-    meta: Dict[str, Any],
+    signal: dict[str, Any],
+    indicators: dict[str, Any],
+    meta: dict[str, Any],
     now_ms: int,
-) -> Dict[int, Tuple[float, int, str]]:
+) -> dict[int, tuple[float, int, str]]:
     """
     Delegate multi-TF ATR candidate collection to ATRCandidateProvider.
     Returns {tf_ms: (atr_value, age_ms, source)}.
@@ -228,11 +228,11 @@ def _build_candidates(
     try:
         provider = get_atr_candidate_provider()
         raw = provider.collect(signal=signal, symbol=symbol, now_ms=now_ms)
-        out: Dict[int, Tuple[float, int, str]] = {}
+        out: dict[int, tuple[float, int, str]] = {}
         for tf_ms_key, obj in raw.items():
             v = _safe_float(obj.get("value"), 0.0)
             age = _safe_int(obj.get("age_ms"), 0)
-            src = str(obj.get("source") or "unknown")
+            src = (obj.get("source") or "unknown")
             if v > 0.0:
                 out[int(tf_ms_key)] = (v, age, src)
         return out
@@ -242,8 +242,8 @@ def _build_candidates(
 
 def _pick_nearest_available(
     target_tf_ms: int,
-    candidates: Dict[int, Tuple[float, int, str]],
-) -> Optional[Tuple[int, float, int, str]]:
+    candidates: dict[int, tuple[float, int, str]],
+) -> tuple[int, float, int, str] | None:
     if not candidates:
         return None
     if target_tf_ms in candidates:
@@ -254,7 +254,7 @@ def _pick_nearest_available(
     return (tf, v, age, src)
 
 
-def _compute_vol_ratio(candidates: Dict[int, Tuple[float, int, str]]) -> Tuple[float, float]:
+def _compute_vol_ratio(candidates: dict[int, tuple[float, int, str]]) -> tuple[float, float]:
     """
     Fast/slow vol ratio: atr at fastest TF / atr at slowest TF.
     Returns (ratio, z_score_placeholder=0.0).
@@ -275,12 +275,12 @@ def _compute_vol_ratio(candidates: Dict[int, Tuple[float, int, str]]) -> Tuple[f
 
 def select_runtime_atr_profile(
     *,
-    signal: Dict[str, Any],
+    signal: dict[str, Any],
     price: float,
     hold_target_ms: int,
     alpha_half_life_ms: int,
     now_ms: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Phase 2 runtime ATR TF selector.
 
@@ -312,16 +312,12 @@ def select_runtime_atr_profile(
     candidates = _build_candidates(signal, indicators, meta, now_ms=now_ms)
 
     if _M_SEL_CANDIDATES is not None:
-        try:
+        with contextlib.suppress(Exception):
             _M_SEL_CANDIDATES.observe(len(candidates))
-        except Exception:
-            pass
 
     if _M_SEL_TARGET_TF is not None:
-        try:
+        with contextlib.suppress(Exception):
             _M_SEL_TARGET_TF.labels(tf_ms=str(target_tf_ms)).inc()
-        except Exception:
-            pass
 
     picked = _pick_nearest_available(target_tf_ms, candidates)
 
@@ -335,15 +331,11 @@ def select_runtime_atr_profile(
             vol_ratio, vol_ratio_z = _compute_vol_ratio(candidates)
 
             if _M_SEL_PICKED_TF is not None:
-                try:
+                with contextlib.suppress(Exception):
                     _M_SEL_PICKED_TF.labels(tf_ms=str(picked_tf_ms)).inc()
-                except Exception:
-                    pass
             if _M_SEL_TOTAL is not None:
-                try:
+                with contextlib.suppress(Exception):
                     _M_SEL_TOTAL.labels(reason_code=reason_code, source=atr_source).inc()
-                except Exception:
-                    pass
 
             return asdict(RuntimeATRSelectorResult(
                 mode="horizon",
@@ -366,24 +358,20 @@ def select_runtime_atr_profile(
                     "hold_target_ms": int(hold_target_ms),
                     "alpha_half_life_ms": int(alpha_half_life_ms),
                     "candidate_n": int(len(candidates)),
-                    "picked_source": str(picked_src or "unknown"),
+                    "picked_source": (picked_src or "unknown"),
                 },
             ))
         else:
             # candidate found but stale
             if _M_SEL_FALLBACK is not None:
-                try:
+                with contextlib.suppress(Exception):
                     _M_SEL_FALLBACK.labels(reason="stale").inc()
-                except Exception:
-                    pass
 
     else:
         # no candidates at all
         if _M_SEL_FALLBACK is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _M_SEL_FALLBACK.labels(reason="missing").inc()
-            except Exception:
-                pass
 
     # -----------------------------------------------------------------------
     # Fail-open: legacy fallback
@@ -403,18 +391,14 @@ def select_runtime_atr_profile(
     legacy_age_ms = max(0, now_ms - legacy_ts_ms)
 
     if _M_SEL_TOTAL is not None:
-        try:
+        with contextlib.suppress(Exception):
             _M_SEL_TOTAL.labels(
                 reason_code="ATR_SEL_LEGACY_FALLBACK",
                 source="legacy_fallback",
             ).inc()
-        except Exception:
-            pass
     if _M_SEL_FALLBACK is not None:
-        try:
+        with contextlib.suppress(Exception):
             _M_SEL_FALLBACK.labels(reason="legacy").inc()
-        except Exception:
-            pass
 
     return asdict(RuntimeATRSelectorResult(
         mode="legacy",

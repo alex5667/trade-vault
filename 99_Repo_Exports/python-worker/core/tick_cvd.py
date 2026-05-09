@@ -1,14 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import math
 import os
-import time
 from collections import deque
-from datetime import datetime, timezone
-from typing import Any, Deque, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from core.crypto_orderflow_detectors import classify_signed_qty
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # GPURingBuffer — lazy import, CPU fallback if CuPy unavailable
@@ -29,17 +27,17 @@ def _alpha(period: int) -> float:
 
 
 def _utc_day_key(ts_ms: int) -> str:
-    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
     return dt.strftime("%Y-%m-%d")
 
 
 def _utc_week_key(ts_ms: int) -> str:
-    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
     iso = dt.isocalendar()
     return f"{iso.year:04d}-W{iso.week:02d}"
 
 
-def _median(xs: List[float]) -> float:
+def _median(xs: list[float]) -> float:
     if not xs:
         return 0.0
     xs2 = sorted(xs)
@@ -50,7 +48,7 @@ def _median(xs: List[float]) -> float:
     return 0.5 * (float(xs2[mid - 1]) + float(xs2[mid]))
 
 
-def _median_inline(xs: List[float]) -> float:
+def _median_inline(xs: list[float]) -> float:
     """Inline median helper for TickCVDState."""
     n = len(xs)
     if n <= 0:
@@ -101,18 +99,18 @@ class TickCVDState:
         self.cvd_slope = 0.0  # Phase A: placeholder or simple delta ema
         self.last_delta_tick = 0.0
 
-        self.last_ts_ms: Optional[int] = None
-        self.last_reset_key: Optional[str] = None
+        self.last_ts_ms: int | None = None
+        self.last_reset_key: str | None = None
         self.reset_count = 0
         self.reset_skipped_bad_time = 0
 
         # ring buffer for robust stats
-        self._rb: Deque[float] = deque(maxlen=robust_window)
+        self._rb: deque[float] = deque(maxlen=robust_window)
 
         # --- Source-consistency / quarantine (two-baseline defense) ---
         self._q_until_ms: int = 0
         self._q_reason: str = ""
-        self._jump_ts: Deque[int] = deque()
+        self._jump_ts: deque[int] = deque()
         self._ema_abs_delta_qty: float = 0.0
         self._ema_abs_delta_usd: float = 0.0
         self._jump_events_total: int = 0
@@ -121,16 +119,16 @@ class TickCVDState:
         # robust scale for normalization (median abs delta USD)
         self._med_window = int(os.getenv("CVD_MEDIAN_WINDOW", "120"))
         self._med_recalc_every = int(os.getenv("CVD_MED_RECALC_EVERY", "50"))
-        self._abs_delta_usd_buf: Deque[float] = deque(maxlen=self._med_window)
+        self._abs_delta_usd_buf: deque[float] = deque(maxlen=self._med_window)
         self._median_abs_delta_usd: float = 0.0
 
         # GPU ring buffer for median(abs_delta_usd) — eliminates sorted() spike
         # Lazy init on first push (avoids CUDA JIT at import time).
-        self._usd_ring: Optional[Any] = None
+        self._usd_ring: Any | None = None
         self._usd_ring_init: bool = False
 
         # external CVD (if provided by upstream worker) to detect two-baseline offset
-        self._cvd_ext_prev: Optional[float] = None
+        self._cvd_ext_prev: float | None = None
 
         # out-of-order handling
         self._ooo_max_lag_ms = int(os.getenv("CVD_OOO_MAX_LAG_MS", "2000"))
@@ -145,9 +143,9 @@ class TickCVDState:
         self._q_ttl_ms = int(os.getenv("CVD_QUARANTINE_TTL_MS", "900000"))
 
         rk = os.getenv("CVD_EXPECTED_RESET_KEYS", "reset,cvd_reset,reset_flag")
-        self._expected_reset_keys: List[str] = [x.strip() for x in rk.split(",") if x.strip()]
+        self._expected_reset_keys: list[str] = [x.strip() for x in rk.split(",") if x.strip()]
 
-    def apply_config(self, cfg: Dict[str, Any]) -> None:
+    def apply_config(self, cfg: dict[str, Any]) -> None:
         """
         Hot reload config for this state.
         Fail-open: ignore broken values.
@@ -185,7 +183,7 @@ class TickCVDState:
         except Exception:
             pass
 
-    def _median(self, xs: List[float]) -> float:
+    def _median(self, xs: list[float]) -> float:
         n = len(xs)
         if n <= 0:
             return 0.0
@@ -246,7 +244,7 @@ class TickCVDState:
         # --- CPU fallback: O(N log N) ---
         self._median_abs_delta_usd = float(self._median(list(self._abs_delta_usd_buf)))
 
-    def _is_expected_reset(self, tick: Dict[str, Any]) -> bool:
+    def _is_expected_reset(self, tick: dict[str, Any]) -> bool:
         for k in self._expected_reset_keys:
             try:
                 if tick.get(k):
@@ -255,7 +253,7 @@ class TickCVDState:
                 continue
         return False
 
-    def _extract_external_cvd_usd(self, tick: Dict[str, Any]) -> Optional[float]:
+    def _extract_external_cvd_usd(self, tick: dict[str, Any]) -> float | None:
         # If upstream injects CVD level (two-baseline can be detected by cvd_jump_usd)
         for k in ("cvd_usd", "cvd_notional", "cvd_tick_usd", "cvd_close_usd", "cvd"):
             v = tick.get(k)
@@ -267,7 +265,7 @@ class TickCVDState:
                 continue
         return None
 
-    def _compute_reset_key(self, ts_ms: int) -> Optional[str]:
+    def _compute_reset_key(self, ts_ms: int) -> str | None:
         if self.reset_mode == "none":
             return None
         if self.reset_mode == "day":
@@ -276,7 +274,7 @@ class TickCVDState:
             return _utc_week_key(ts_ms)
         return None
 
-    def _do_reset(self, new_key: Optional[str]) -> None:
+    def _do_reset(self, new_key: str | None) -> None:
         """
         Hard reset of session-dependent state.
         """
@@ -290,12 +288,12 @@ class TickCVDState:
         self.last_reset_key = new_key
         self.reset_count += 1
 
-    def update(self, tick: Dict[str, Any]) -> None:
+    def update(self, tick: dict[str, Any]) -> None:
         """
         O(1) update. No heavy computations.
         """
         # ts_ms must be int epoch ms; taken from tick.ts
-        ts_ms: Optional[int] = None
+        ts_ms: int | None = None
         try:
             tsv = tick.get("ts_ms") or tick.get("ts") or tick.get("T")
             if tsv is not None:
@@ -443,7 +441,7 @@ class TickCVDState:
 
         self.last_ts_ms = ts_ms if ts_ms else None
 
-    def quarantine_active(self, now_ms: Optional[int] = None) -> bool:
+    def quarantine_active(self, now_ms: int | None = None) -> bool:
         if not self._q_enable:
             return False
         nm = int(now_ms or get_ny_time_millis())
@@ -452,7 +450,7 @@ class TickCVDState:
     def quarantine_reason(self) -> str:
         return str(self._q_reason or "")
 
-    def robust_snapshot(self) -> Dict[str, float]:
+    def robust_snapshot(self) -> dict[str, float]:
         """
         On-demand robust stats (median/MAD) over ring buffer values.
         GPU path: cp.median on float32 array — O(N) vs O(N log N) sort.
@@ -503,7 +501,7 @@ class TickCVDState:
         }
 
 
-    def indicators_light(self) -> Dict[str, Any]:
+    def indicators_light(self) -> dict[str, Any]:
         """
         Lightweight indicators (no heavy stats).
         Safe to attach to every signal/event.

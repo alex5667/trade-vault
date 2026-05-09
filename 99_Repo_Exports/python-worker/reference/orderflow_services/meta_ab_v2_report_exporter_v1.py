@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Prometheus exporter for the latest Meta AB-winner v2 report JSON.
 
@@ -9,20 +10,20 @@ Exports only low-cardinality, alert-friendly gauges.
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from prometheus_client import Counter, Gauge, start_http_server
 
 
 def _env_int(name: str, default: int) -> int:
     try:
-        return int(str(os.getenv(name, str(default))).strip())
+        return int(os.getenv(name, str(default)).strip())
     except Exception:
         return default
 
 
 def _log(msg: str) -> None:
-    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    ts = datetime.now(UTC).isoformat(timespec="seconds")
     print(f"[{ts}] meta_ab_v2_exporter: {msg}", flush=True)
 
 
@@ -76,7 +77,7 @@ def _apply_report(rep: dict) -> None:
     REPORT_DELTA_EXP_R.set(_to_float(delta.get("exp_r_per_candidate", 0.0)))
     REPORT_DELTA_TAIL.set(_to_float(delta.get("tail_rate_per_candidate", 0.0)))
 
-    winner = str(rep.get("winner", "tie") or "tie").strip().lower()
+    winner = (rep.get("winner", "tie") or "tie").strip().lower()
     if winner not in ("champion", "challenger", "tie"):
         winner = "tie"
     _set_onehot(WINNER, "winner", ("champion", "challenger", "tie"), winner)
@@ -120,7 +121,7 @@ def main() -> int:
             st = os.stat(report_path)
             if st.st_mtime != last_mtime:
                 last_mtime = st.st_mtime
-                with open(report_path, "r", encoding="utf-8") as f:
+                with open(report_path, encoding="utf-8") as f:
                     rep = json.load(f)
                 _apply_report(rep)
                 _log("report reloaded")

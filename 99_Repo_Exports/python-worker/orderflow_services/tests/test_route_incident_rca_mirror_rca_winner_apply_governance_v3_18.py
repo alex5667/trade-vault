@@ -1,6 +1,8 @@
-import json
-from orderflow_services.route_incident_rca_mirror_rca_winner_apply_auto_escalation_summarizer_v3_18 import calculate_severity
+from orderflow_services.route_incident_rca_mirror_rca_winner_apply_auto_escalation_summarizer_v3_18 import (
+    calculate_severity,
+)
 from orderflow_services.route_incident_rca_mirror_rca_winner_apply_retry_controller_v3_18 import is_cfg_match
+
 
 def test_calculate_severity_critical_low_keep():
     # Keep rate 10%, apply rate > 0
@@ -26,7 +28,7 @@ def test_is_cfg_match_true():
     live = {"mode": "SHADOW", "primary_arm": "deterministic", "shadow_arms": '["vertex_candidate"]'}
     target = {"mode": "SHADOW", "primary_arm": "deterministic", "shadow_arms": '["vertex_candidate"]'}
     assert is_cfg_match(live, target) is True
-    
+
 def test_is_cfg_match_false_shadows():
     live = {"mode": "SHADOW", "primary_arm": "deterministic", "shadow_arms": '["vertex_candidate"]'}
     target = {"mode": "SHADOW", "primary_arm": "deterministic", "shadow_arms": '["local_fallback_candidate"]'}

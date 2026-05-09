@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -16,12 +16,12 @@ def _b2s(x: Any) -> str:
     return str(x)
 
 
-def _hgetall_str(redis_client: Any, key: str) -> Dict[str, str]:
+def _hgetall_str(redis_client: Any, key: str) -> dict[str, str]:
     try:
         raw = redis_client.hgetall(key) or {}
     except Exception:
         return {}
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     try:
         for k, v in dict(raw).items():
             out[_b2s(k)] = _b2s(v)
@@ -54,7 +54,7 @@ def load_drift_active_factor(
     session: str,
     tf: str,
     kind: str,
-) -> Tuple[float, float, str]:
+) -> tuple[float, float, str]:
     """
     Read drift alarm state (fail-open).
 
@@ -75,14 +75,14 @@ def load_drift_active_factor(
     tfv = (tf or "na").lower()
     knd = (kind or "na").lower()
 
-    def _read(key: str) -> Optional[Tuple[float, float, str]]:
+    def _read(key: str) -> tuple[float, float, str] | None:
         dd = _hgetall_str(redis_client, key)
         if not dd:
             return None
         try:
             f = float(dd.get("factor") or 1.0)
             s = float(dd.get("score") or float("nan"))
-            feat = str(dd.get("feature") or "")
+            feat = (dd.get("feature") or "")
             if not math.isfinite(f) or f <= 0:
                 return None
             return float(f), float(s), str(feat)
@@ -110,7 +110,7 @@ def load_drift_baseline_mu(
     tf: str,
     kind: str,
     feature: str,
-) -> Optional[float]:
+) -> float | None:
     """
     Read baseline mean for feature from drift:state:* (fail-open).
 

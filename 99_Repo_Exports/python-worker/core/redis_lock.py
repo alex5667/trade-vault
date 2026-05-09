@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """core.redis_lock
 
 Redis SETNX lock helper for periodic jobs.
@@ -14,13 +15,11 @@ Notes:
     (redis.asyncio.Redis / aioredis-compatible) via separate APIs.
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
 
 _RELEASE_LUA = (
     "if redis.call('get', KEYS[1]) == ARGV[1] then "
@@ -31,12 +30,12 @@ _RELEASE_LUA = (
 )
 
 
-def acquire_lock_sync(*, r: Any, key: str, ttl_sec: int, token: str = "") -> Optional[str]:
+def acquire_lock_sync(*, r: Any, key: str, ttl_sec: int, token: str = "") -> str | None:
     """Acquire lock using sync redis client.
 
     Returns token if lock acquired, else None.
     """
-    k = str(key or "").strip()
+    k = (key or "").strip()
     if not k:
         return None
     tok = token or uuid.uuid4().hex
@@ -49,7 +48,7 @@ def acquire_lock_sync(*, r: Any, key: str, ttl_sec: int, token: str = "") -> Opt
 
 def release_lock_sync(*, r: Any, key: str, token: str) -> bool:
     """Release lock if token matches."""
-    k = str(key or "").strip()
+    k = (key or "").strip()
     if not k or not token:
         return False
     try:
@@ -59,9 +58,9 @@ def release_lock_sync(*, r: Any, key: str, token: str) -> bool:
         return False
 
 
-async def acquire_lock_async(*, r: Any, key: str, ttl_sec: int, token: str = "") -> Optional[str]:
+async def acquire_lock_async(*, r: Any, key: str, ttl_sec: int, token: str = "") -> str | None:
     """Acquire lock using async redis client."""
-    k = str(key or "").strip()
+    k = (key or "").strip()
     if not k:
         return None
     tok = token or uuid.uuid4().hex
@@ -76,7 +75,7 @@ async def acquire_lock_async(*, r: Any, key: str, ttl_sec: int, token: str = "")
 
 
 async def release_lock_async(*, r: Any, key: str, token: str) -> bool:
-    k = str(key or "").strip()
+    k = (key or "").strip()
     if not k or not token:
         return False
     try:
@@ -90,17 +89,17 @@ def lock_key_daily(prefix: str, yyyymmdd: str) -> str:
     return f"{prefix}:{yyyymmdd}"
 
 
-def utc_yyyymmdd(ts_ms: Optional[int] = None) -> str:
+def utc_yyyymmdd(ts_ms: int | None = None) -> str:
     """YYYYMMDD in UTC for deterministic daily locks."""
     import datetime as _dt
 
     t = int(ts_ms or get_ny_time_millis())
-    dt = _dt.datetime.fromtimestamp(t / 1000.0, tz=_dt.timezone.utc)
+    dt = _dt.datetime.fromtimestamp(t / 1000.0, tz=_dt.UTC)
     return dt.strftime("%Y%m%d")
 
 
 # Async convenience wrappers matching expected signatures
-async def try_acquire_lock(r: Any, *, key: str, ttl_sec: int) -> Optional[str]:
+async def try_acquire_lock(r: Any, *, key: str, ttl_sec: int) -> str | None:
     """
     Async lock acquisition wrapper.
     Returns token if acquired, None otherwise.

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 P66: Signal Quality exporter (by regime)
 
@@ -31,10 +32,9 @@ Keys expected in settings:dynamic_cfg (written by signal_quality_kpi_worker_v1):
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -127,7 +127,7 @@ G_LAST_AGE = Gauge("signal_quality_last_age_seconds", "Age of last signal-qualit
 # Redis helpers
 # ---------------------------------------------------------------------------
 
-def _read_hash(r: Any, key: str) -> Dict[str, Any]:
+def _read_hash(r: Any, key: str) -> dict[str, Any]:
     """Read entire Redis hash, return empty dict on any failure."""
     try:
         return r.hgetall(key) or {}
@@ -139,7 +139,7 @@ def _read_hash(r: Any, key: str) -> Dict[str, Any]:
 # Metrics update
 # ---------------------------------------------------------------------------
 
-def _set_metrics(cfg2: Dict[str, Any]) -> None:
+def _set_metrics(cfg2: dict[str, Any]) -> None:
     """Push all gauges from the configuration hash snapshot."""
     # Staleness tracking
     last_ts_ms = _i(cfg2.get("signal_quality_last_ts_ms"), 0)

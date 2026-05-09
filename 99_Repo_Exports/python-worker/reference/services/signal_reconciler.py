@@ -1,15 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
 import time
-from typing import List
 
 import redis
 
 from common.log import setup_logger
 from core.delivery_journal import DeliveryJournal, DeliveryJournalSettings
 from core.sid_lease import SidLease, SidLeaseSettings
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("SignalReconciler")
 
@@ -87,7 +86,7 @@ class SignalReconciler:
                 pass
             return False
 
-    def _scan_candidates(self) -> List[str]:
+    def _scan_candidates(self) -> list[str]:
         idx = self.journal.settings.index_key
         cutoff = _now_ms() - int(self.stale_ms)
         # take oldest/stale by score <= cutoff
@@ -95,7 +94,7 @@ class SignalReconciler:
             sids = self.redis.zrangebyscore(idx, "-inf", cutoff, start=0, num=self.scan_count) or []
         except Exception:
             return []
-        out: List[str] = []
+        out: list[str] = []
         for sid in sids:
             if not sid:
                 continue

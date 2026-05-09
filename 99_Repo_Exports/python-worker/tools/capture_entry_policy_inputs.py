@@ -1,13 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-import time
-from typing import Any, Dict, Optional
 
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -44,10 +43,10 @@ async def main() -> None:
                 for msg_id, fields in entries:
                     cur = msg_id
                     try:
-                        if str(fields.get("type", "")) != "entry_candidate":
+                        if (fields.get("type", "")) != "entry_candidate":
                             continue
-                        sym = str(fields.get("symbol", "") or "").upper()
-                        bundle = str(fields.get("bundle", "") or "")
+                        sym = (fields.get("symbol", "") or "").upper()
+                        bundle = (fields.get("bundle", "") or "")
                         snap_raw = await r.get(f"{snap_prefix}{sym}")
                         snap = json.loads(snap_raw) if snap_raw else {}
                         bstate = await r.hgetall(f"{bundle_prefix}{bundle}") if bundle else {}

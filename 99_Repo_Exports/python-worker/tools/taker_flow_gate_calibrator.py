@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 #!/usr/bin/env python3
 """
 Taker Flow Gate Calibrator.
@@ -13,8 +15,8 @@ proposal is Approved or Rejected.
 """
 
 import argparse
-import hmac
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -22,7 +24,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import List, Tuple
 
 import redis
 
@@ -44,7 +45,7 @@ def sign_bundle(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def query_shadow_veto_stats(hours: float) -> Tuple[int, int, float, float]:
+def query_shadow_veto_stats(hours: float) -> tuple[int, int, float, float]:
     """
     Returns:
       total_trades: int
@@ -55,9 +56,9 @@ def query_shadow_veto_stats(hours: float) -> Tuple[int, int, float, float]:
     with tempfile.TemporaryDirectory() as tmp:
         trades_file = os.path.join(tmp, "trades.ndjson")
         inputs_file = os.path.join(tmp, "inputs.ndjson")
-        
+
         redis_url = get_redis_url()
-        
+
         # 1. Export trades
         logger.info(f"Exporting trades for {hours} hours to {trades_file}")
         try:
@@ -70,7 +71,7 @@ def query_shadow_veto_stats(hours: float) -> Tuple[int, int, float, float]:
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to export trades: {e}")
             return 0, 0, 0.0, 0.0
-            
+
         # 2. Export OF inputs (use hours + 24 to be safe about timeframe limits)
         logger.info(f"Exporting OF inputs for {hours + 24} hours to {inputs_file}")
         try:
@@ -89,8 +90,8 @@ def query_shadow_veto_stats(hours: float) -> Tuple[int, int, float, float]:
         trades_by_sid = {}
         total_trades = 0
         global_r_sum = 0.0
-        
-        with open(trades_file, "r", encoding="utf-8") as f:
+
+        with open(trades_file, encoding="utf-8") as f:
             for line in f:
                 if not line.strip(): continue
                 try:
@@ -102,19 +103,19 @@ def query_shadow_veto_stats(hours: float) -> Tuple[int, int, float, float]:
                         global_r_sum += float(t.get("r_mult", 0.0))
                 except Exception:
                     pass
-                    
+
         # 4. Parse inputs and join
         veto_hits = 0
         veto_r_sum = 0.0
-        
-        with open(inputs_file, "r", encoding="utf-8") as f:
+
+        with open(inputs_file, encoding="utf-8") as f:
             for line in f:
                 if not line.strip(): continue
                 try:
                     inp = json.loads(line)
                     sid = inp.get("sid")
                     trade = trades_by_sid.get(sid)
-                    
+
                     if trade:
                         ev = inp.get("evidence") or inp.get("evidences") or {}
                         sv = ev.get("taker_flow_gate_shadow_veto")
@@ -122,7 +123,7 @@ def query_shadow_veto_stats(hours: float) -> Tuple[int, int, float, float]:
                             veto_hits += 1
                             veto_r_sum += float(trade.get("r_mult", 0.0))
                             # Prevent double counting if same sid exists multiple times in inputs
-                            del trades_by_sid[sid] 
+                            del trades_by_sid[sid]
                 except Exception:
                     pass
 
@@ -144,7 +145,7 @@ def create_and_send_proposal(
     ops = [
         {"op": "HSET", "key": "config:orderflow:GLOBAL", "field": "taker_flow_gate_mode", "value": "enforce"}
     ]
-    
+
     meta = {
         "title": "Enable TakerFlowGate enforce mode",
         "details": {
@@ -153,14 +154,14 @@ def create_and_send_proposal(
             "veto_R_sum": round(veto_r_sum, 2)
         }
     }
-    
+
     bundle = {
         "id": bundle_id,
         "created_ms": get_ny_time_millis(),
         "ops": ops,
         "meta": meta
     }
-    
+
     r.set(f"recs:bundle:{bundle_id}", json.dumps(bundle))
     r.set(f"recs:status:{bundle_id}", "PENDING", ex=86400) # 24h expire
 
@@ -180,7 +181,7 @@ def create_and_send_proposal(
         ]
     ]
 
-    r.xadd("notify:telegram", {
+    r.xadd(RS.NOTIFY_TELEGRAM, {
         "type": "report",
         "subtype": "taker_calibrator",
         "ts": str(get_ny_time_millis()),
@@ -200,9 +201,9 @@ def create_and_send_proposal(
 DEFAULT_REMIND_INTERVAL_SEC: int = 1800  # 30 minutes
 
 
-def _get_pending_bundle_ids(r: redis.Redis) -> List[str]:
+def _get_pending_bundle_ids(r: redis.Redis) -> list[str]:
     """Return bundle_ids that still have status=PENDING."""
-    pending: List[str] = []
+    pending: list[str] = []
     # recs:status:* keys hold PENDING / APPROVED / REJECTED
     for key in r.scan_iter("recs:status:taker_enforce_*"):
         status = r.get(key)
@@ -244,7 +245,7 @@ def _send_reminder(r: redis.Redis, bundle_id: str, remind_number: int) -> None:
         ]
     ]
 
-    r.xadd("notify:telegram", {
+    r.xadd(RS.NOTIFY_TELEGRAM, {
         "type": "report",
         "subtype": "taker_calibrator_reminder",
         "ts": str(get_ny_time_millis()),

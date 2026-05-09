@@ -1,16 +1,17 @@
-from utils.time_utils import get_ny_time_millis
 import json
 import logging
 import os
 import sys
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
+
+from common.decision_trace import ensure_trace, trace_enabled, trace_gate
 from services.outbox.atomic_outbox import atomic_xadd_sync
 from services.outbox.envelope_builder import build_trace_sidecar_meta
-from common.decision_trace import ensure_trace, trace_gate, trace_enabled
+from utils.time_utils import get_ny_time_millis
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
@@ -18,8 +19,6 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from core.order_builder import OrderBuilder
-
-
 
 log = logging.getLogger("binance-iceberg")
 logging.basicConfig(level=logging.INFO)
@@ -35,9 +34,9 @@ def _build_iceberg_signal_payload(
     direction: str,
     price: float,
     state: Any,
-    level_info: Dict[str, Any],
+    level_info: dict[str, Any],
     atr: float = 0.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Build a payload in a strictly JSON-friendly shape.
     IMPORTANT:
@@ -49,7 +48,7 @@ def _build_iceberg_signal_payload(
     # --- SL/TP Calculation ---
     atr_safe = atr if (atr is not None and atr > 0) else 0.0
     sl_dist = (2.0 * atr_safe) if atr_safe > 0 else (price * 0.005) # 2ATR or 0.5%
-    
+
     if direction == "LONG":
         sl = price - sl_dist
         tp1 = price + sl_dist      # 1R
@@ -75,7 +74,7 @@ def _build_iceberg_signal_payload(
     # NOTE: confidence historically used 0..1 in this detector.
     # We keep it, and also provide confidence_pct for unified consumers (0..100).
     conf01 = 0.8
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "sid": sid,
         "signal_id": sid,          # canonical mirror for unified consumers
         "trace_id": sid,           # correlation id for DecisionTrace
@@ -212,14 +211,14 @@ class BinanceIcebergDetector:
         self.r_ticks = r_ticks
         self.symbol = symbol.upper()
 
-        self.bid_state: Optional[BestLevelState] = None
-        self.ask_state: Optional[BestLevelState] = None
+        self.bid_state: BestLevelState | None = None
+        self.ask_state: BestLevelState | None = None
 
         self.order_builder = OrderBuilder(self.r_core)
 
     # ---------- загрузка уровней ----------
 
-    def _load_levels_from_stream(self) -> List[Dict[str, Any]]:
+    def _load_levels_from_stream(self) -> list[dict[str, Any]]:
         key = LEVELS_STREAM_KEY.format(symbol=self.symbol)
         try:
             rows = self.r_core.xrevrange(key, count=50)
@@ -232,7 +231,7 @@ class BinanceIcebergDetector:
             log.debug("Error loading levels from stream: %s", e)
             return []
 
-        levels: List[Dict[str, Any]] = []
+        levels: list[dict[str, Any]] = []
         for _id, fields in rows:
             level_raw = fields.get(b"level") or fields.get("level")
             if not level_raw:
@@ -251,7 +250,7 @@ class BinanceIcebergDetector:
             levels.append({"price": price, "kind": kind_raw})
         return levels
 
-    def _load_levels_from_hash(self) -> List[Dict[str, Any]]:
+    def _load_levels_from_hash(self) -> list[dict[str, Any]]:
         key = LEVELS_HASH_KEY.format(symbol=self.symbol)
         try:
             data = self.r_core.hgetall(key)
@@ -264,7 +263,7 @@ class BinanceIcebergDetector:
         if not data:
             return []
 
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for raw_kind, raw_price in data.items():
             kind = raw_kind.decode() if isinstance(raw_kind, bytes) else raw_kind
             value = raw_price.decode() if isinstance(raw_price, bytes) else raw_price
@@ -275,7 +274,7 @@ class BinanceIcebergDetector:
             out.append({"price": price, "kind": kind})
         return out
 
-    def _load_levels_from_candles(self) -> List[Dict[str, Any]]:
+    def _load_levels_from_candles(self) -> list[dict[str, Any]]:
         key = CANDLES_KEY.format(symbol=self.symbol)
         try:
             data = self.r_core.hgetall(key)
@@ -288,7 +287,7 @@ class BinanceIcebergDetector:
         if not data:
             return []
 
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         high = data.get("high") or data.get(b"high")
         low = data.get("low") or data.get(b"low")
         if high:
@@ -297,7 +296,7 @@ class BinanceIcebergDetector:
             out.append({"price": float(low), "kind": "h1_low"})
         return out
 
-    def _nearest_levels(self, price: float) -> List[Dict[str, Any]]:
+    def _nearest_levels(self, price: float) -> list[dict[str, Any]]:
         levels = self._load_levels_from_stream()
         if not levels:
             levels = self._load_levels_from_hash()
@@ -323,7 +322,7 @@ class BinanceIcebergDetector:
         filtered.sort(key=lambda x: x.get("dist_abs", 0.0))
         return filtered[:5]
 
-    def _get_atr(self) -> Optional[float]:
+    def _get_atr(self) -> float | None:
         key = CANDLES_KEY.format(symbol=self.symbol)
         try:
             atr = self.r_core.hget(key, "atr")
@@ -331,7 +330,7 @@ class BinanceIcebergDetector:
                 atr = self.r_core.hget(key, b"atr")
             if atr:
                 try:
-                    return float(atr)
+                    return atr
                 except ValueError:
                     return None
         except redis.exceptions.BusyLoadingError:
@@ -342,7 +341,7 @@ class BinanceIcebergDetector:
             return None
         return None
 
-    def _load_adx(self) -> Optional[Dict[str, float]]:
+    def _load_adx(self) -> dict[str, float] | None:
         key = f"adx:{self.symbol}"
         try:
             raw = self.r_core.hgetall(key)
@@ -354,7 +353,7 @@ class BinanceIcebergDetector:
             return None
         if not raw:
             return None
-        result: Dict[str, float] = {}
+        result: dict[str, float] = {}
         for k, v in raw.items():
             key_str = k.decode() if isinstance(k, bytes) else k
             val = v.decode() if isinstance(v, bytes) else v
@@ -387,7 +386,7 @@ class BinanceIcebergDetector:
 
     # ---------- источники данных ----------
 
-    def _load_latest_book(self) -> Optional[Dict[str, Any]]:
+    def _load_latest_book(self) -> dict[str, Any] | None:
         key = BOOK_SNAPSHOT_KEY.format(symbol=self.symbol)
         try:
             data = self.r_ticks.hgetall(key)
@@ -487,7 +486,7 @@ class BinanceIcebergDetector:
 
     # ---------- публикация ----------
 
-    def _publish_signal(self, direction: str, price: float, state: BestLevelState, level_info: Dict[str, Any]) -> None:
+    def _publish_signal(self, direction: str, price: float, state: BestLevelState, level_info: dict[str, Any]) -> None:
         """
         Producer #2 (sync): iceberg detector.
         Fixes:
@@ -509,7 +508,7 @@ class BinanceIcebergDetector:
         # Сконцентрируем контракт в одном месте (у вас уже есть helper сверху файла)
         signal_payload = _build_iceberg_signal_payload(
             symbol=str(self.symbol),
-            direction=str(direction or "").upper(),
+            direction=(direction or "").upper(),
             price=float(price),
             state=state,
             level_info=level_info,
@@ -541,10 +540,10 @@ class BinanceIcebergDetector:
                 meta_obj = None
                 try:
                     ctx_min = SimpleNamespace()
-                    setattr(ctx_min, "ts_ms", get_ny_time_millis())
+                    ctx_min.ts_ms = get_ny_time_millis()
                     try:
-                        setattr(ctx_min, "symbol", str(env.get("symbol") or ""))
-                        setattr(ctx_min, "kind", str(env.get("kind") or "iceberg"))
+                        ctx_min.symbol = (env.get("symbol") or "")
+                        ctx_min.kind = (env.get("kind") or "iceberg")
                     except Exception:
                         pass
                     if trace_enabled():
@@ -559,9 +558,9 @@ class BinanceIcebergDetector:
                     stream_key=str(outbox_stream),
                     signal_id=str(sid),
                     payload_obj=env,  # envelope dict
-                    kind=str(env.get("kind") or "iceberg"),
-                    symbol=str(env.get("symbol") or ""),
-                    ts=str(env.get("ts_ms") or ""),
+                    kind=(env.get("kind") or "iceberg"),
+                    symbol=(env.get("symbol") or ""),
+                    ts=(env.get("ts_ms") or ""),
                     meta_obj=meta_obj,
                 )
                 log.info("🧊 Iceberg outbox env: %s %s @ %.2f", self.symbol, direction, price)
@@ -601,7 +600,7 @@ class BinanceIcebergDetector:
 
     # ---------- вспомогательные ----------
 
-def _load_symbols(r: redis.Redis) -> List[str]:
+def _load_symbols(r: redis.Redis) -> list[str]:
     env = os.getenv("ORDERFLOW_SYMBOLS")
     if env:
         return [s.strip().upper() for s in env.split(",") if s.strip()]
@@ -620,7 +619,7 @@ def main():
     # Создаем Redis клиенты с retry логикой
     redis_core_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     redis_ticks_url = os.getenv("REDIS_TICKS_URL", "redis://redis-ticks:6379/0")
-    
+
     print(f"🔌 Connecting to Redis (core: {redis_core_url}, ticks: {redis_ticks_url})...")
 
     try:
@@ -649,7 +648,7 @@ def main():
 
     consecutive_errors = 0
     max_consecutive_errors = 10
-    
+
     while True:
         try:
             for detector in detectors.values():

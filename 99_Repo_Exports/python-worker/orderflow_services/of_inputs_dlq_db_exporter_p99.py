@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """Prometheus exporter: OFInputs DLQ DB rollups (P99).
 
 Exports *low-cardinality* gauges derived from Timescale/Postgres table `of_inputs_dlq_events`:
@@ -22,12 +23,10 @@ ENV:
 """,
 import os
 import time
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from datetime import UTC, datetime
 
 import psycopg2
 from prometheus_client import Gauge, start_http_server  # type: ignore
-
 
 GAUGE_EVENTS = Gauge(
     "of_inputs_dlq_db_events_lookback_total",
@@ -79,14 +78,14 @@ def _pick_dsn() -> str:
 
 
 def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _to_ms(ts: datetime) -> int:
     return int(ts.timestamp() * 1000)
 
 
-def _allowlist() -> List[str]:
+def _allowlist() -> list[str]:
     raw = os.getenv("OF_INPUTS_DLQ_DB_REASON_ALLOWLIST", "").strip()
     if not raw:
         return DEFAULT_ALLOWLIST
@@ -111,10 +110,10 @@ class Exporter:
             row = cur.fetchone()
             return bool(row and row[0])
 
-    def _query(self) -> Tuple[Dict[Tuple[str, str], int], Dict[str, datetime]]:
+    def _query(self) -> tuple[dict[tuple[str, str], int], dict[str, datetime]]:
         allow = _allowlist()
-        counts: Dict[Tuple[str, str], int] = {}
-        last_ts_by_kind: Dict[str, datetime] = {}
+        counts: dict[tuple[str, str], int] = {}
+        last_ts_by_kind: dict[str, datetime] = {}
 
         with self._conn() as conn:
             use_view = self._has_view(conn, "public.v_of_inputs_dlq_events_parsed")

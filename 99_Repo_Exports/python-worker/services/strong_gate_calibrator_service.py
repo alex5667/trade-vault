@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Strong Gate Calibrator Service — IO layer (PG + Redis + Telegram).
 
@@ -27,16 +27,15 @@ Usage:
   - python -m services.strong_gate_calibrator_service
   - Called from of_timers_worker.py as an hourly timer task
 """
-from utils.time_utils import get_ny_time_millis
-
 import hashlib
 import json
 import os
 import time
 import uuid
-from dataclasses import asdict
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis as redis_lib
@@ -56,16 +55,17 @@ except ImportError:
     import logging
     logger = logging.getLogger("StrongGateCalibrator")
 
-from core.strong_gate_calibrator import (
-    TradeOutcome,
-    StrongGateCalibResult,
-    evaluate_strong_gate,
-    mode_to_int,
-    is_promotion,
-    is_rollback,
-)
 from core.dyn_cfg_keys import DynCfgKeys as DK
 from core.redis_keys import RedisStreams as RS
+from core.strong_gate_calibrator import (
+    StrongGateCalibResult,
+    TradeOutcome,
+    evaluate_strong_gate,
+    is_promotion,
+    is_rollback,
+    mode_to_int,
+)
+import contextlib
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -84,7 +84,7 @@ NOTIFY_STREAM = RS.NOTIFY_TELEGRAM
 # ---------------------------------------------------------------------------
 
 try:
-    from prometheus_client import Gauge, Counter
+    from prometheus_client import Counter, Gauge
 
     sg_calib_veto_precision_gauge = Gauge(
         "sg_calib_veto_precision", "Last veto precision (P(loss|vetoed))"
@@ -153,7 +153,7 @@ def _update_prometheus(result: StrongGateCalibResult) -> None:
 def load_shadow_veto_outcomes(
     dsn: str,
     window_hours: int = 24,
-) -> List[TradeOutcome]:
+) -> list[TradeOutcome]:
     """
     Load trade outcomes from trades_closed with shadow veto annotations.
 
@@ -171,7 +171,7 @@ def load_shadow_veto_outcomes(
     try:
         conn = psycopg2.connect(dsn, connect_timeout=10, application_name="sg_calibrator")
 
-        sql = """
+        sql = f"""
         SELECT
             symbol,
             pnl_pct,
@@ -190,33 +190,33 @@ def load_shadow_veto_outcomes(
             COALESCE(indicators::jsonb ->> 'strong_gate_scn', '') AS scenario,
             EXTRACT(EPOCH FROM entry_ts) * 1000 AS ts_ms
         FROM trades_closed
-        WHERE exit_ts > NOW() - INTERVAL '%s hours'
+        WHERE exit_ts > NOW() - INTERVAL '{int(window_hours)} hours'
           AND source IN ('CryptoOrderFlow', 'AggregatedHub-V2', 'orderflow')
           AND indicators IS NOT NULL
           AND indicators::text != ''
-          AND indicators::text != '{}'
+          AND indicators::text != '{{}}'
         ORDER BY exit_ts DESC
         LIMIT 2000
-        """ % int(window_hours)
+        """
 
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql)
             rows = cur.fetchall()
 
-        outcomes: List[TradeOutcome] = []
+        outcomes: list[TradeOutcome] = []
         for row in rows:
             try:
                 pnl = float(row.get("pnl_pct") or 0.0)
                 sv = int(row.get("shadow_vetoed") or 0) == 1
                 ok = int(row.get("of_ok") or 0) == 1
                 outcomes.append(TradeOutcome(
-                    symbol=str(row.get("symbol") or ""),
+                    symbol=(row.get("symbol") or ""),
                     pnl_pct=pnl,
                     is_loss=pnl < 0,
                     shadow_vetoed=sv,
                     ok=ok,
-                    scenario=str(row.get("scenario") or ""),
-                    direction=str(row.get("direction") or ""),
+                    scenario=(row.get("scenario") or ""),
+                    direction=(row.get("direction") or ""),
                     ts_ms=int(row.get("ts_ms") or 0),
                 ))
             except Exception:
@@ -236,17 +236,15 @@ def load_shadow_veto_outcomes(
         return []
     finally:
         if conn:
-            try:
+            with contextlib.suppress(Exception):
                 conn.close()
-            except Exception:
-                pass
 
 
 # ---------------------------------------------------------------------------
 # State persistence (Redis)
 # ---------------------------------------------------------------------------
 
-def _load_state(redis_client: Any) -> Dict[str, Any]:
+def _load_state(redis_client: Any) -> dict[str, Any]:
     """Load calibrator state from Redis."""
     try:
         raw = redis_client.get(STATE_KEY)
@@ -274,7 +272,7 @@ def _save_state(
         "n_total": result.n_total,
         "n_vetoed": result.n_vetoed,
         "run_id": run_id,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         "updated_ms": get_ny_time_millis(),
     }
     try:
@@ -289,7 +287,7 @@ def _save_state(
 def _apply_dynamic_cfg(
     redis_client: Any,
     result: StrongGateCalibResult,
-    symbols: List[str],
+    symbols: list[str],
 ) -> None:
     """Write calibrator decision to dynamic_cfg for each symbol runtime.
 
@@ -341,36 +339,36 @@ def format_telegram_report(result: StrongGateCalibResult, run_id: str) -> str:
     r_e = recommend_emoji.get(result.recommend, "❓")
 
     lines = [
-        f"🛡️ <b>G5 Strong Gate Calibrator</b>",
-        f"",
+        "🛡️ <b>G5 Strong Gate Calibrator</b>",
+        "",
         f"📊 <b>Mode:</b> {m_e} <code>{result.effective_mode}</code>",
         f"🎯 <b>Recommend:</b> {r_e} <code>{result.recommend}</code>",
         f"📝 <b>Reason:</b> <code>{result.reason}</code>",
-        f"",
+        "",
         f"── Метрики (window={result.window_h}h) ──",
         f"📈 Veto Precision: <code>{result.veto_precision:.1%}</code> (порог: {result.thresholds.get('min_precision', 0):.0%})",
         f"📉 Pass Loss Rate: <code>{result.pass_loss_rate:.1%}</code>",
         f"🔺 Veto Lift:      <code>{result.veto_lift:+.1%}</code> (порог: {result.thresholds.get('min_lift', 0):.0%})",
-        f"",
-        f"── Выборка ──",
+        "",
+        "── Выборка ──",
         f"📦 Total: <code>{result.n_total}</code>",
         f"🚫 Vetoed: <code>{result.n_vetoed}</code> (loss: <code>{result.n_vetoed_loss}</code>, win: <code>{result.n_vetoed_win}</code>)",
         f"✅ Passed: <code>{result.n_passed}</code> (loss: <code>{result.n_passed_loss}</code>, win: <code>{result.n_passed_win}</code>)",
-        f"",
-        f"── Proof Streak ──",
+        "",
+        "── Proof Streak ──",
         f"📊 Streak: <code>{result.proof_streak}/{result.proof_streak_required}</code>",
     ]
 
     if result.rollback_streak > 0:
         lines.append(f"⚠️ Rollback streak: <code>{result.rollback_streak}/{result.rollback_streak_required}</code>")
 
-    lines.append(f"")
+    lines.append("")
     lines.append(f"Run ID: <code>{run_id}</code>")
 
     return "\n".join(lines)
 
 
-def _build_buttons(run_id: str, result: StrongGateCalibResult) -> Optional[str]:
+def _build_buttons(run_id: str, result: StrongGateCalibResult) -> str | None:
     """Build Telegram inline keyboard for approval.
 
     Buttons shown when:
@@ -423,11 +421,11 @@ def _store_pending(
 def _send_telegram(
     redis_client: Any,
     text: str,
-    buttons_json: Optional[str] = None,
+    buttons_json: str | None = None,
 ) -> None:
     """Push message to notify:telegram stream."""
     notify_stream = os.getenv("NOTIFY_STREAM", NOTIFY_STREAM)
-    fields: Dict[str, str] = {
+    fields: dict[str, str] = {
         "type": "report",
         "text": text,
         "ts": str(get_ny_time_millis()),
@@ -468,10 +466,8 @@ def _should_run(redis_client: Any, interval_sec: int) -> bool:
 
 
 def _record_run(redis_client: Any, interval_sec: int) -> None:
-    try:
+    with contextlib.suppress(Exception):
         redis_client.set(THROTTLE_KEY, str(time.time()), ex=interval_sec * 3)
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -485,8 +481,8 @@ def run_strong_gate_calibration(
     window_hours: int = 24,
     send_telegram: bool = True,
     telegram_interval_sec: int = 3600,
-    symbols: Optional[List[str]] = None,
-) -> Optional[StrongGateCalibResult]:
+    symbols: list[str] | None = None,
+) -> StrongGateCalibResult | None:
     """
     Run one calibration cycle for the Strong Gate.
 
@@ -511,7 +507,7 @@ def run_strong_gate_calibration(
 
     # Load previous state
     prev_state = _load_state(r)
-    prev_mode = str(prev_state.get("mode", "shadow") or "shadow")
+    prev_mode = (prev_state.get("mode", "shadow") or "shadow")
     prev_proof_streak = int(prev_state.get("proof_streak", 0) or 0)
     prev_rollback_streak = int(prev_state.get("rollback_streak", 0) or 0)
 
@@ -600,7 +596,7 @@ def run_strong_gate_calibration(
     return result
 
 
-def _discover_active_symbols(redis_client: Any) -> List[str]:
+def _discover_active_symbols(redis_client: Any) -> list[str]:
     """Discover active symbols from running orderflow configs in Redis."""
     try:
         keys = redis_client.keys("config:orderflow:*")

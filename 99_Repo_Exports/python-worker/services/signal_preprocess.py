@@ -1,23 +1,18 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import hashlib
-import time
 import math
-from typing import Any, Dict, List
+import os
+from typing import Any
 
-from common.normalization import generate_signal_id, SIGNAL_ID_ALGO_V1
-
-from services.horizon_contract import attach_phase0_contract
-from services.atr_horizon_shadow_surface import build_risk_surface_shadow
+from common.normalization import SIGNAL_ID_ALGO_V1, generate_signal_id
 from services.atr_horizon_live_surface import build_live_risk_surface
 from services.atr_horizon_live_surface_canary import should_apply_live_surface
-from services.atr_policy_resolver import get_atr_policy_resolver
+from services.atr_horizon_shadow_surface import build_risk_surface_shadow
 from services.atr_policy_provenance import build_policy_provenance
-from services.atr_policy_rollout_router import should_apply_rollout, build_rollout_sticky_key
-
-
+from services.atr_policy_resolver import get_atr_policy_resolver
+from services.atr_policy_rollout_router import build_rollout_sticky_key, should_apply_rollout
+from services.horizon_contract import attach_phase0_contract
+from utils.time_utils import get_ny_time_millis
 
 # Cache environment variables at module level (Zero I/O in Hot Path)
 _DQ_TICK_GAP_FLAG_MS = int(os.getenv("DQ_TICK_GAP_FLAG_MS", "5000"))
@@ -33,11 +28,11 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
         return default
 
 
-def _dedup_str_list(xs: List[str]) -> List[str]:
+def _dedup_str_list(xs: list[str]) -> list[str]:
     seen = set()
-    out: List[str] = []
+    out: list[str] = []
     for x in xs:
-        s = str(x or "").strip().lower()
+        s = (x or "").strip().lower()
         if not s or s in seen:
             continue
         seen.add(s)
@@ -45,7 +40,7 @@ def _dedup_str_list(xs: List[str]) -> List[str]:
     return out
 
 
-def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: str, logger: Any, fast_path: bool = False) -> Dict[str, Any]:
+def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: str, logger: Any, fast_path: bool = False) -> dict[str, Any]:
     """
     In-place normalize + attach *data-quality* flags that downstream gates can use.
 
@@ -78,9 +73,9 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
     signal["tick_ts"] = int(signal.get("tick_ts") or ts_ms)
 
     # Direction / side (keep legacy `side` for consumers)
-    direction = str(signal.get("direction") or "").upper().strip()
+    direction = (signal.get("direction") or "").upper().strip()
     if not direction:
-        direction = str(signal.get("side") or "").upper().strip()
+        direction = (signal.get("side") or "").upper().strip()
 
     if direction in {"LONG", "SHORT", "BUY", "SELL"}:
         if direction in {"BUY", "LONG"}:
@@ -89,7 +84,7 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
         else:
             norm_dir = "SHORT"
             side_int = -1
-        
+
         exec_side = "BUY" if norm_dir == "LONG" else "SELL"
         signal["direction"] = norm_dir          # LONG | SHORT (strategy)
         signal["side"] = exec_side              # BUY  | SELL  (execution)
@@ -99,8 +94,8 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
 
     # Signal ID / sid
     if not signal.get("signal_id"):
-        kind = str(signal.get("kind") or "crypto-of")
-        direction_for_id = str(signal.get("direction") or "LONG")
+        kind = (signal.get("kind") or "crypto-of")
+        direction_for_id = (signal.get("direction") or "LONG")
         signal["signal_id"] = generate_signal_id(
             symbol=signal["symbol"],
             ts_ms=signal["ts_ms"],
@@ -156,7 +151,7 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
     # ------------------------------------------------------------------
     # Data-quality flags (fail-open by default; veto is controlled elsewhere)
     # ------------------------------------------------------------------
-    flags: List[str] = []
+    flags: list[str] = []
     if isinstance(signal.get("data_quality_flags"), list):
         flags.extend([str(x) for x in signal.get("data_quality_flags") if x is not None])
 
@@ -202,7 +197,7 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
         attach_phase0_contract(
             signal,
             symbol=str(symbol or signal.get("symbol") or ""),
-            source=str(source or "unknown"),
+            source=(source or "unknown"),
         ),
     except Exception as exc:  # noqa: BLE001
         # fail-open: contract emission must never block trading
@@ -246,31 +241,31 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
                 risk_horizon_bucket=str(horizon.get("risk_horizon_bucket") or signal.get("risk_horizon_bucket") or "unknown"),
             ),
             meta["atr_policy_resolution"] = policy
-            
+
             # Phase 4 metadata
             meta["atr_policy_ver"] = int(policy.get("policy_ver", 0))
-            meta["atr_policy_snapshot_kind"] = str(policy.get("level", "unknown"))
-            meta["atr_policy_applied_key"] = str(policy.get("active_key", ""))
+            meta["atr_policy_snapshot_kind"] = (policy.get("level", "unknown"))
+            meta["atr_policy_applied_key"] = (policy.get("active_key", ""))
             meta["atr_policy_kill_switch"] = bool(policy.get("kill_switch_active", False))
 
             # Phase 4.1: attach resolved ATR policy snapshot metadata
             meta.setdefault("atr_policy_snapshot", {
                 "policy_ver": int(policy.get("policy_ver", 0)),
-                "source": str(policy.get("source", "")),
-                "symbol": str(policy.get("symbol", "")),
-                "scenario": str(policy.get("scenario", "")),
-                "regime": str(policy.get("regime", "")),
-                "risk_horizon_bucket": str(policy.get("risk_horizon_bucket", "")),
-                "stop_ttl_mode": str(policy.get("stop_ttl_mode", "canary")),
-                "trailing_mode": str(policy.get("trailing_mode", "canary")),
-                "active_key": str(policy.get("active_key", "")),
+                "source": (policy.get("source", "")),
+                "symbol": (policy.get("symbol", "")),
+                "scenario": (policy.get("scenario", "")),
+                "regime": (policy.get("regime", "")),
+                "risk_horizon_bucket": (policy.get("risk_horizon_bucket", "")),
+                "stop_ttl_mode": (policy.get("stop_ttl_mode", "canary")),
+                "trailing_mode": (policy.get("trailing_mode", "canary")),
+                "active_key": (policy.get("active_key", "")),
                 "updated_at_ms": int(policy.get("updated_at_ms", 0)),
             })
-            
+
             signal["atr_policy_ver"] = int(policy.get("policy_ver", 0))
-            signal["atr_policy_level"] = str(policy.get("level", "miss"))
-            signal["atr_policy_key"] = str(policy.get("active_key", ""))
-            signal["atr_policy_reason_code"] = str(policy.get("reason_code", ""))
+            signal["atr_policy_level"] = (policy.get("level", "miss"))
+            signal["atr_policy_key"] = (policy.get("active_key", ""))
+            signal["atr_policy_reason_code"] = (policy.get("reason_code", ""))
 
             decision = should_apply_live_surface(
                 symbol=str(signal.get("symbol") or symbol or ""),
@@ -297,8 +292,8 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
 
             apply_live = False
             apply_reason = ""
-            
-            rollout_stage = str(policy.get("rollout_stage_stop_ttl", "shadow"))
+
+            rollout_stage = (policy.get("rollout_stage_stop_ttl", "shadow"))
             if rollout_stage == "shadow":
                 apply_live = False
                 apply_reason = "ATR_POLICY_ROLLOUT_SHADOW"
@@ -308,12 +303,12 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
             else:
                 sticky_key = build_rollout_sticky_key(signal)
                 if should_apply_rollout(sticky_key=sticky_key, rollout_stage=rollout_stage):
-                    if str(policy.get("stop_ttl_mode") or "canary") == "live":
+                    if (policy.get("stop_ttl_mode") or "canary") == "live":
                         apply_live = True
                         apply_reason = "ATR_POLICY_ACTIVE_STOP_TTL"
                     elif bool(decision.get("should_apply", False)):
                         apply_live = True
-                        apply_reason = str(decision.get("reason_code") or "LIVE_SURFACE_CANARY_APPLY")
+                        apply_reason = (decision.get("reason_code") or "LIVE_SURFACE_CANARY_APPLY")
                 else:
                     apply_live = False
                     apply_reason = f"ATR_POLICY_ROLLOUT_{rollout_stage.upper()}_MISS"
@@ -327,7 +322,7 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
                     "reason_code": apply_reason,
                     "atr_tf_ms": int(live_surface.get("atr_tf_ms") or 0),
                     "atr_value": float(live_surface.get("atr_value") or 0.0),
-                    "policy_level": str(policy.get("level") or "miss"),
+                    "policy_level": (policy.get("level") or "miss"),
                 }
             else:
                 meta["live_surface_applied"] = {
@@ -335,7 +330,7 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
                     "reason_code": str(policy.get("reason_code") or decision.get("reason_code") or "LIVE_SURFACE_SHADOW_ONLY"),
                     "atr_tf_ms": int(live_surface.get("atr_tf_ms") or 0),
                     "atr_value": float(live_surface.get("atr_value") or 0.0),
-                    "policy_level": str(policy.get("level") or "miss"),
+                    "policy_level": (policy.get("level") or "miss"),
                 }
     except Exception as exc:  # noqa: BLE001
         try:
@@ -358,9 +353,9 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
 
         # compact top-level aliases for downstream consumers
         signal["atr_policy_ver"] = int(provenance.get("policy_ver", 0) or 0)
-        signal["atr_policy_tag"] = str(provenance.get("policy_tag") or "")
-        signal["atr_recovery_run_id"] = str(provenance.get("recovery_run_id") or "")
-        signal["atr_restore_cert_status"] = str(provenance.get("restore_cert_status") or "")
+        signal["atr_policy_tag"] = (provenance.get("policy_tag") or "")
+        signal["atr_recovery_run_id"] = (provenance.get("recovery_run_id") or "")
+        signal["atr_restore_cert_status"] = (provenance.get("restore_cert_status") or "")
     except Exception:
         pass
 

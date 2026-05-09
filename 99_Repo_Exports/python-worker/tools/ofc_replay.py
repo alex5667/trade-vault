@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-
 import argparse
-
-from pathlib import Path
-
-from typing import Any, Dict, List, Optional, Tuple
-
 import sys
-
 import time
-
+from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -52,7 +46,7 @@ def main() -> int:
     args = ap.parse_args()
 
 
-    rows: List[Dict[str, Any]] = list(iter_ndjson(args.input))
+    rows: list[dict[str, Any]] = list(iter_ndjson(args.input))
 
     if args.max_rows and args.max_rows > 0:
 
@@ -66,12 +60,12 @@ def main() -> int:
         rows.sort(key=lambda r: (r.get(key) is None, r.get(key, 0)))
 
 
-    out_rows: List[Dict[str, Any]] = []
+    out_rows: list[dict[str, Any]] = []
 
     mismatches = 0
 
 
-    engine: Optional[OFConfirmEngine] = None
+    engine: OFConfirmEngine | None = None
 
 
     prev_state_after = None
@@ -83,11 +77,11 @@ def main() -> int:
             engine = OFConfirmEngine(version=3)
 
 
-        symbol = str(r.get("symbol", "") or "")
+        symbol = (r.get("symbol", "") or "")
 
-        tf = str(r.get("tf", "1s") or "1s")
+        tf = (r.get("tf", "1s") or "1s")
 
-        direction = str(r.get("direction", "") or "")
+        direction = (r.get("direction", "") or "")
 
         tick_ts_ms = int(r.get("tick_ts_ms", 0) or 0)
 
@@ -193,7 +187,7 @@ def main() -> int:
 
             if isinstance(ev, dict):
 
-                got["scenario_v4"] = str(ev.get("scenario_v4", "") or "")
+                got["scenario_v4"] = (ev.get("scenario_v4", "") or "")
 
         except Exception:
 

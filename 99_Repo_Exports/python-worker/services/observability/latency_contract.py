@@ -8,32 +8,25 @@ This module is intentionally lightweight:
 - Writers are fail-open and rate-limited to avoid hurting hot-path latency.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Set
-import asyncio
 import os
-import time
+from dataclasses import dataclass, field
+from typing import Any
 
-from prometheus_client import Counter, Gauge, Histogram, REGISTRY
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram
 
 from services.observability.latency_semconv import (
+    FIELD_TS_EMIT_MS,
+    FIELD_TS_FEATURE_MS,
+    SERVICE_PYTHON_WORKER,
     STAGE_END_TO_END_EVENT,
     STAGE_FEATURE_TO_EMIT,
     STAGE_REDIS_TO_FEATURE,
-    FIELD_TS_EMIT_MS,
-    FIELD_TS_EVENT_MS,
-    FIELD_TS_FEATURE_MS,
-    FIELD_TS_REDIS_READ_MS,
-    FIELD_TS_WS_EMIT_MS,
-    FIELD_TS_INGEST_SOURCE_MS,
-    FIELD_TS_REDIS_XADD_MS,
-    SERVICE_PYTHON_WORKER,
+    build_external_state_mapping,
     compute_contract_deltas,
     default_symbol_allowlist,
     ensure_epoch_ms_fields,
     label_symbol,
     now_wall_ms,
-    build_external_state_mapping,
 )
 
 
@@ -100,13 +93,13 @@ latency_contract_state_writes_total = _get_or_create_counter(
 def _safe_int(x: Any, default: int = 0) -> int:
     try:
         if x is None or isinstance(x, bool):
-            return int(default)
+            return default
         if isinstance(x, (int, float)):
             return int(x)
         s = str(x).strip()
-        return int(float(s)) if s else int(default)
+        return int(float(s)) if s else default
     except Exception:
-        return int(default)
+        return default
 
 
 def build_state_mapping(
@@ -115,17 +108,17 @@ def build_state_mapping(
     stage: str,
     symbol: Any,
     duration_ms: int,
-    payload: Dict[str, Any],
-    now_ms: Optional[int] = None,
+    payload: dict[str, Any],
+    now_ms: int | None = None,
     instance_id: str = '',
     source: str = '',
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Convenience wrapper around build_external_state_mapping for Python writers.
 
     Normalises symbol and delegates to the canonical mapping builder so the
     Python writer produces the same hash format as Go/NestJS adapters.
     """
-    sym = str(symbol or '').upper()
+    sym = (symbol or '').upper()
     return build_external_state_mapping(
         service=service,
         stage=stage,
@@ -144,20 +137,20 @@ class LatencyStateWriter:
     key_prefix: str = field(default_factory=lambda: os.getenv('LATENCY_CONTRACT_KEY_PREFIX', 'metrics:latency_contract:last'))
     ttl_s: int = field(default_factory=lambda: _safe_int(os.getenv('LATENCY_CONTRACT_TTL_S', '172800'), 172800))
     min_update_ms: int = field(default_factory=lambda: _safe_int(os.getenv('LATENCY_CONTRACT_STATE_MIN_UPDATE_MS', '3000'), 3000))
-    allowlist: Set[str] = field(default_factory=default_symbol_allowlist)
+    allowlist: set[str] = field(default_factory=default_symbol_allowlist)
     symbol_mode: str = field(default_factory=lambda: os.getenv('LATENCY_CONTRACT_SYMBOL_LABEL_MODE', 'collapse'))
-    _last_write_ms: Dict[str, int] = field(default_factory=dict)
+    _last_write_ms: dict[str, int] = field(default_factory=dict)
 
-    def _symbol_label(self, symbol: Any) -> Optional[str]:
+    def _symbol_label(self, symbol: Any) -> str | None:
         return label_symbol(symbol, allowlist=self.allowlist, mode=self.symbol_mode)
 
-    def state_key(self, stage: str, symbol: Any) -> Optional[str]:
+    def state_key(self, stage: str, symbol: Any) -> str | None:
         sym = self._symbol_label(symbol)
         if sym is None:
             return None
         return f"{self.key_prefix}:{self.service}:{stage}:{sym}"
 
-    async def write_async(self, redis_client: Any, *, stage: str, symbol: Any, duration_ms: int, payload: Dict[str, Any]) -> None:
+    async def write_async(self, redis_client: Any, *, stage: str, symbol: Any, duration_ms: int, payload: dict[str, Any]) -> None:
         if redis_client is None:
             return
         key = self.state_key(stage, symbol)
@@ -198,7 +191,7 @@ def _observe(service: str, stage: str, symbol: Any, duration_ms: int) -> None:
     latency_contract_latest_ms.labels(service=service, stage=stage, symbol=sym).set(float(max(0, duration_ms)))
 
 
-def stamp_feature_ready(signal: Dict[str, Any], *, tick: Optional[Dict[str, Any]] = None, now_ms: Optional[int] = None) -> Dict[str, Any]:
+def stamp_feature_ready(signal: dict[str, Any], *, tick: dict[str, Any] | None = None, now_ms: int | None = None) -> dict[str, Any]:
     now_v = int(now_ms or now_wall_ms())
     if tick:
         if 'ts_event_ms' not in signal:
@@ -210,7 +203,7 @@ def stamp_feature_ready(signal: Dict[str, Any], *, tick: Optional[Dict[str, Any]
     return signal
 
 
-async def observe_feature_ready_async(signal: Dict[str, Any], *, redis_client: Any = None, service: str = SERVICE_PYTHON_WORKER, symbol: Any = None, writer: Optional[LatencyStateWriter] = None) -> Dict[str, Any]:
+async def observe_feature_ready_async(signal: dict[str, Any], *, redis_client: Any = None, service: str = SERVICE_PYTHON_WORKER, symbol: Any = None, writer: LatencyStateWriter | None = None) -> dict[str, Any]:
     payload = ensure_epoch_ms_fields(signal)
     d = compute_contract_deltas(payload)
     dur = int(d.get(STAGE_REDIS_TO_FEATURE, 0))
@@ -222,7 +215,7 @@ async def observe_feature_ready_async(signal: Dict[str, Any], *, redis_client: A
     return payload
 
 
-async def stamp_emit_and_observe_async(payload: Dict[str, Any], *, redis_client: Any = None, service: str = SERVICE_PYTHON_WORKER, symbol: Any = None, writer: Optional[LatencyStateWriter] = None, now_ms: Optional[int] = None) -> Dict[str, Any]:
+async def stamp_emit_and_observe_async(payload: dict[str, Any], *, redis_client: Any = None, service: str = SERVICE_PYTHON_WORKER, symbol: Any = None, writer: LatencyStateWriter | None = None, now_ms: int | None = None) -> dict[str, Any]:
     emit_ms = int(now_ms or now_wall_ms())
     ensure_epoch_ms_fields(payload, default_emit_ms=emit_ms)
     payload[FIELD_TS_EMIT_MS] = int(emit_ms)

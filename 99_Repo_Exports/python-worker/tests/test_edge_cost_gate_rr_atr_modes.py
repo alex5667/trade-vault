@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Unit tests for EdgeCostGate: RR mode and ATR mode.
 
@@ -25,7 +26,7 @@ def _base_env(monkeypatch) -> None:
     monkeypatch.setenv("EDGE_SLIPPAGE_BPS_DEFAULT", "4.0")
     monkeypatch.setenv("EDGE_COST_K", "4.0")
     monkeypatch.setenv("EDGE_COST_STRICT_MISSING_LEVELS", "0")
-    
+
     # Disable new buffer logic so K*(fees+slip) exact math holds
     monkeypatch.setenv("EDGE_BUFFER_BASE_BPS", "0.0")
     monkeypatch.setenv("EDGE_BUFFER_ATR_MULT", "0.0")

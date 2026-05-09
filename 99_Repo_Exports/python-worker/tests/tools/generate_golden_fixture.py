@@ -1,12 +1,13 @@
-from utils.time_utils import get_ny_time_millis
 import json
-import time
 import os
+
+from utils.time_utils import get_ny_time_millis
+
 
 def generate_golden_fixture():
     # Мок-данные, имитирующие реальный выход из python-worker'a
     ts_event_ms = get_ny_time_millis()
-    
+
     golden_signal = {
         "sid": "crypto-of:BTCUSDT:123456789",
         "signal_id": "crypto-of:BTCUSDT:123456789",
@@ -35,7 +36,7 @@ def generate_golden_fixture():
         "source": "OrderFlowStrategy",
         "producer": "python-worker",
         "schema_version": 1,
-        
+
         # Индикаторы и evidence map (как будет передано на бекэнд)
         "evidence_map": {
             "book_health_ok": 1.0,
@@ -48,15 +49,15 @@ def generate_golden_fixture():
         },
         "data_quality_flags": ["wide_spread", "stale_l2"],
         "liquidity_regime": "tight",
-        
+
         "trail_profile": "rocket_v1",
         "trail_after_tp1": True
     }
-    
+
     os.makedirs("python-worker/tests/fixtures", exist_ok=True)
     with open("python-worker/tests/fixtures/golden_signal_crypto_raw_v1.json", "w", encoding="utf-8") as f:
         json.dump(golden_signal, f, indent=2, ensure_ascii=False)
-        
+
     print("Golden fixture saved to python-worker/tests/fixtures/golden_signal_crypto_raw_v1.json")
 
 if __name__ == "__main__":

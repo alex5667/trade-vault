@@ -4,15 +4,15 @@
 Чистые функции, нет зависимостей от Redis/конфигурации.
 """
 import pytest
-from signals.detectors import (
-    zscore,
-    weak_progress,
-    obi_from_book,
-    is_absorption,
-    obi_is_sustained,
-    classify_delta_by_aggressor,
-)
 
+from signals.detectors import (
+    classify_delta_by_aggressor,
+    is_absorption,
+    obi_from_book,
+    obi_is_sustained,
+    weak_progress,
+    zscore,
+)
 
 # ─────────────────────── zscore ───────────────────────
 
@@ -156,7 +156,7 @@ def test_is_absorption_z_below_threshold():
 
 
 def test_is_absorption_negative_z_spike():
-    # Отрицательный z-score (агрессивные продажи) тоже защита  
+    # Отрицательный z-score (агрессивные продажи) тоже защита
     assert is_absorption(z=-4.0, weak=True, near_level=True, z_threshold=3.0) is True
 
 

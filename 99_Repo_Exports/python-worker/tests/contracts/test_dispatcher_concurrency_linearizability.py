@@ -1,9 +1,9 @@
-from utils.time_utils import get_ny_time_millis
-import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+
 from services.signal_dispatcher import SignalDispatcher
+from utils.time_utils import get_ny_time_millis
 
 
 @pytest.fixture()
@@ -42,7 +42,7 @@ def dispatcher(r, monkeypatch):
     d.notify_signal_counter_key = "signal:notify:ctr"
 
     if not hasattr(d, "_flatten_notify_fields"):
-        monkeypatch.setattr(d, "_flatten_notify_fields", lambda payload: ["sid", str(payload.get("sid",""))], raising=False)
+        monkeypatch.setattr(d, "_flatten_notify_fields", lambda payload: ["sid", (payload.get("sid",""))], raising=False)
 
     return d
 

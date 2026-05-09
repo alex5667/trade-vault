@@ -1,5 +1,5 @@
-import json
 from core.entry_policy_overrides_v1 import EntryPolicyOverridesV1
+
 
 def test_overrides_v1_parse_new_fields():
     data = {
@@ -13,7 +13,7 @@ def test_overrides_v1_parse_new_fields():
         "ab_split_c": 30,
         "ab_salt": "test_salt"
     }
-    
+
     o, err = EntryPolicyOverridesV1.from_dict(data)
     assert o is not None, f"Failed to parse: {err}"
     assert o.abs_lvl_tier_trend == 0
@@ -23,7 +23,7 @@ def test_overrides_v1_parse_new_fields():
     assert o.ab_split_b == 20
     assert o.ab_split_c == 30
     assert o.ab_salt == "test_salt"
-    
+
     ok, err = o.validate()
     assert ok, f"Validation failed: {err}"
 

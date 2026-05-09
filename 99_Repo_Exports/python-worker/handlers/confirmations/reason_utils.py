@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Tuple
-
 from signal_scoring import reason_registry as rr
 
 
@@ -31,6 +29,6 @@ def reason_u16(reason_code: str) -> int:
         return 0
 
 
-def normalize_and_u16(reason: str) -> Tuple[str, int]:
+def normalize_and_u16(reason: str) -> tuple[str, int]:
     rc = normalize_reason_code(reason)
     return rc, reason_u16(rc)

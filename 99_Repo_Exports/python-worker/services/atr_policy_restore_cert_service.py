@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -23,16 +23,16 @@ def _redis():
     return redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
 
 
-def _cert_id(drill_code: str, target: Dict[str, Any]) -> str:
+def _cert_id(drill_code: str, target: dict[str, Any]) -> str:
     base = f"{drill_code}|{target['source']}|{target['symbol']}|{target['scenario']}|{target['regime']}|{target['risk_horizon_bucket']}|{int(time.time()*1000)}"
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:20]
 
 
-def _active_key(obj: Dict[str, Any]) -> str:
+def _active_key(obj: dict[str, Any]) -> str:
     return f"cfg:atr_policy:active:{obj['source']}:{obj['symbol']}:{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
 
 
-def _last_good_key(obj: Dict[str, Any]) -> str:
+def _last_good_key(obj: dict[str, Any]) -> str:
     return f"cfg:atr_policy:last_good:{obj['source']}:{obj['symbol']}:{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
 
 
@@ -40,7 +40,7 @@ def _active_ref(key: str) -> str:
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
 
 
-def certify(*, drill_code: str, target: Dict[str, Any], run_id: str = "", mode: str = "audit_only") -> Dict[str, Any]:
+def certify(*, drill_code: str, target: dict[str, Any], run_id: str = "", mode: str = "audit_only") -> dict[str, Any]:
     r = _redis()
     active_key = _active_key(target)
     last_good_key = _last_good_key(target)

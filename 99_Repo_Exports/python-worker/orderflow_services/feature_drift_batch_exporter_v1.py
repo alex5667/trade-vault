@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """Prometheus exporter for nightly feature drift batch report (PSI/KS).
 
 Source of truth:
@@ -12,7 +13,8 @@ exported only for the features present in the report JSON (expected Tier-1 set).
 import json
 import os
 import time
-from typing import Any, Dict, Iterable, List, Mapping
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 import redis  # type: ignore
 from prometheus_client import Gauge, start_http_server
@@ -25,24 +27,24 @@ def _now_s() -> float:
 def _as_float(v: Any, d: float = 0.0) -> float:
     try:
         if v is None:
-            return float(d)
+            return d
         return float(v)
     except Exception:
-        return float(d)
+        return d
 
 
 def _as_int(v: Any, d: int = 0) -> int:
     try:
         if v is None:
-            return int(d)
+            return d
         return int(float(v))
     except Exception:
-        return int(d)
+        return d
 
 
-def _read_report(path: str) -> Dict[str, Any]:
+def _read_report(path: str) -> dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         return obj if isinstance(obj, dict) else {}
     except Exception:
@@ -90,13 +92,13 @@ def main() -> None:
     r = redis.Redis.from_url(redis_url, decode_responses=True)
     start_http_server(port)
 
-    seen_features: List[str] = []
+    seen_features: list[str] = []
     while True:
         try:
-            m: Dict[str, Any] = r.hgetall(metrics_key) or {}
+            m: dict[str, Any] = r.hgetall(metrics_key) or {}
             UP.set(1)
 
-            status = str(m.get("status", "") or "")
+            status = (m.get("status", "") or "")
             LAST_SUCCESS.set(1.0 if status == "ok" else 0.0)
             updated_ms = _as_int(m.get("updated_ts_ms", 0), 0)
             LAST_UPDATED_MS.set(float(updated_ms))
@@ -111,30 +113,30 @@ def main() -> None:
             CRIT_N.set(float(_as_int(m.get("crit_n", 0), 0)))
             DENY_N.set(float(_as_int(m.get("denylist_suggest_n", 0), 0)))
             SHADOW_N.set(float(_as_int(m.get("shadow_disable_suggest_n", 0), 0)))
-            WORST_PSI.set(float(_as_float(m.get("worst_psi", 0.0), 0.0)))
-            WORST_KS.set(float(_as_float(m.get("worst_ks_stat", 0.0), 0.0)))
+            WORST_PSI.set(_as_float(m.get("worst_psi", 0.0), 0.0))
+            WORST_KS.set(_as_float(m.get("worst_ks_stat", 0.0), 0.0))
 
-            rep = _read_report(str(m.get("report_json", "") or ""))
+            rep = _read_report((m.get("report_json", "") or ""))
             rows = rep.get("features") if isinstance(rep.get("features"), list) else []
-            current_features: List[str] = []
+            current_features: list[str] = []
             _clear_features(seen_features)
             for row in rows:
                 if not isinstance(row, Mapping):
                     continue
-                f = str(row.get("feature", "") or "")
+                f = (row.get("feature", "") or "")
                 if not f:
                     continue
                 current_features.append(f)
-                FEATURE_PSI.labels(feature=f).set(float(_as_float(row.get("psi", 0.0), 0.0)))
-                FEATURE_KS.labels(feature=f).set(float(_as_float(row.get("ks_stat", 0.0), 0.0)))
-                FEATURE_KS_P.labels(feature=f).set(float(_as_float(row.get("ks_pvalue", 1.0), 1.0)))
+                FEATURE_PSI.labels(feature=f).set(_as_float(row.get("psi", 0.0), 0.0))
+                FEATURE_KS.labels(feature=f).set(_as_float(row.get("ks_stat", 0.0), 0.0))
+                FEATURE_KS_P.labels(feature=f).set(_as_float(row.get("ks_pvalue", 1.0), 1.0))
                 FEATURE_FLAG.labels(feature=f, kind="warn").set(float(_as_int(row.get("flag_warn", 0), 0)))
                 FEATURE_FLAG.labels(feature=f, kind="crit").set(float(_as_int(row.get("flag_crit", 0), 0)))
                 FEATURE_FLAG.labels(feature=f, kind="denylist").set(float(_as_int(row.get("denylist_suggested", 0), 0)))
                 FEATURE_FLAG.labels(feature=f, kind="shadow_disable").set(float(_as_int(row.get("shadow_disable_suggested", 0), 0)))
-                FEATURE_DELTA.labels(feature=f, kind="missing_rate").set(float(_as_float(row.get("missing_rate_delta", 0.0), 0.0)))
-                FEATURE_DELTA.labels(feature=f, kind="zero_rate").set(float(_as_float(row.get("zero_rate_delta", 0.0), 0.0)))
-                FEATURE_DELTA.labels(feature=f, kind="clip_rate").set(float(_as_float(row.get("clip_rate_delta", 0.0), 0.0)))
+                FEATURE_DELTA.labels(feature=f, kind="missing_rate").set(_as_float(row.get("missing_rate_delta", 0.0), 0.0))
+                FEATURE_DELTA.labels(feature=f, kind="zero_rate").set(_as_float(row.get("zero_rate_delta", 0.0), 0.0))
+                FEATURE_DELTA.labels(feature=f, kind="clip_rate").set(_as_float(row.get("clip_rate_delta", 0.0), 0.0))
             seen_features = current_features
         except Exception:
             UP.set(0)

@@ -1,5 +1,6 @@
-import pytest
 import types
+
+import pytest
 
 
 class FakeRepo:
@@ -30,8 +31,8 @@ class FakeRepo:
 
 
 def test_closing_flag_reverted_on_io_failure(monkeypatch):
-    from services.trade_monitor import TradeMonitorService
     import services.trade_monitor as tm
+    from services.trade_monitor import TradeMonitorService
 
     # Prevent real RedisTradeRepository init
     monkeypatch.setattr(tm, "RedisTradeRepository", lambda redis, health_provider=None: types.SimpleNamespace(load_open_positions=lambda limit=5000: []))

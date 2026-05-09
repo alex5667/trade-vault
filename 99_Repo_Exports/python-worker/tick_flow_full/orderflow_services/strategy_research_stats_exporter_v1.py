@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server
 
@@ -25,10 +25,10 @@ def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
-def _read_hash(client: Any, key: str) -> Dict[str, str]:
+def _read_hash(client: Any, key: str) -> dict[str, str]:
     if client is None or not key:
         return {}
     try:
@@ -132,14 +132,14 @@ def main() -> None:
         ROWS.set(_to_float(summary.get('rows', 0.0), 0.0))
         PERIODS.set(_to_float(summary.get('period_count', 0.0), 0.0))
         VARIANTS.set(_to_float(summary.get('variant_count', 0.0), 0.0))
-        BLOCKED.set(1.0 if str(state.get('status')) == 'block' else 0.0)
-        SOFT_BLOCKED.set(1.0 if str(state.get('status')) == 'soft' else 0.0)
-        INVALID.set(1.0 if str(state.get('status')) == 'invalid' else 0.0)
+        BLOCKED.set(1.0 if (state.get('status')) == 'block' else 0.0)
+        SOFT_BLOCKED.set(1.0 if (state.get('status')) == 'soft' else 0.0)
+        INVALID.set(1.0 if (state.get('status')) == 'invalid' else 0.0)
         for mode in KNOWN_MODES:
-            GATE_MODE.labels(mode=mode).set(1.0 if mode == str(state.get('gate_mode')) else 0.0)
+            GATE_MODE.labels(mode=mode).set(1.0 if mode == (state.get('gate_mode')) else 0.0)
         for status in KNOWN_STATUSES:
-            STATUS.labels(status=status).set(1.0 if status == str(state.get('status')) else 0.0)
-        rk = _reason_kind(str(state.get('reason') or ''))
+            STATUS.labels(status=status).set(1.0 if status == (state.get('status')) else 0.0)
+        rk = _reason_kind((state.get('reason') or ''))
         for reason in KNOWN_REASONS:
             REASON.labels(kind=reason).set(1.0 if reason == rk else 0.0)
         time.sleep(interval_s)

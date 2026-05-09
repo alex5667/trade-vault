@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 @dataclass
@@ -56,7 +56,7 @@ class LCBEvalConfig:
     r_clip: float = 5.0
 
     @staticmethod
-    def for_regime(regime: str) -> "LCBEvalConfig":
+    def for_regime(regime: str) -> LCBEvalConfig:
         rg = (regime or "na").strip().lower()
 
         # Defaults (safe, conservative):
@@ -97,7 +97,7 @@ def lcb_mean(m: float, s: float, n: int, z: float) -> float:
     return float(m - z * se)
 
 
-def moments_from_stats(d: Dict[str, Any]) -> ArmMoments:
+def moments_from_stats(d: dict[str, Any]) -> ArmMoments:
     """
     Accept multiple upstream formats:
       - {n, sum_r, sum_r2}
@@ -142,14 +142,14 @@ class WinnerDecision:
     min_n: int = 0
     min_edge_lcb: float = 0.0
     # diagnostics
-    lcb_by_arm: Dict[str, float] = None
-    mean_by_arm: Dict[str, float] = None
-    n_by_arm: Dict[str, int] = None
+    lcb_by_arm: dict[str, float] = None
+    mean_by_arm: dict[str, float] = None
+    n_by_arm: dict[str, int] = None
 
 
 def choose_winner_lcb(
     *,
-    stats_by_arm: Dict[str, Dict[str, Any]],
+    stats_by_arm: dict[str, dict[str, Any]],
     regime: str,
     baseline_arm: str = "A",
 ) -> WinnerDecision:
@@ -169,7 +169,7 @@ def choose_winner_lcb(
     cfg = LCBEvalConfig.for_regime(regime)
     base = (baseline_arm or "A").strip().upper()
 
-    moms: Dict[str, ArmMoments] = {}
+    moms: dict[str, ArmMoments] = {}
     for arm, d in (stats_by_arm or {}).items():
         a = (arm or "").strip().upper()
         if a not in ("A", "B", "C", "D"):
@@ -178,9 +178,9 @@ def choose_winner_lcb(
             continue
         moms[a] = moments_from_stats(d)
 
-    lcb_map: Dict[str, float] = {}
-    mean_map: Dict[str, float] = {}
-    n_map: Dict[str, int] = {}
+    lcb_map: dict[str, float] = {}
+    mean_map: dict[str, float] = {}
+    n_map: dict[str, int] = {}
 
     eligible = []
     for a, m in moms.items():

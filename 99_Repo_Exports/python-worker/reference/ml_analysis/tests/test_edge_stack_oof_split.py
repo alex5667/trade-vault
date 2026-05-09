@@ -1,6 +1,7 @@
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 # Ensure repo root is on sys.path even under pytest --import-mode=importlib
 ROOT = Path(__file__).resolve().parents[2]

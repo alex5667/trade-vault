@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from handlers.crypto_orderflow.core.crypto_orderflow_calibration import RollingPercentileCalibrator, ConfidenceCalibratorCfg
+from handlers.crypto_orderflow.core.crypto_orderflow_calibration import (
+    ConfidenceCalibratorCfg,
+    RollingPercentileCalibrator,
+)
 
 
 def test_rolling_percentile_calibrator_seeded_history_golden_percentile():

@@ -1,14 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 SmartClusterAnalyzer — анализ DOM уровней.
 """
 
-from typing import List, Dict, Any
+from typing import Any
 
 
 class SmartClusterAnalyzer:
     @staticmethod
-    def analyze_from_dom(levels: List[Dict[str, float]], window: int = 6, ratio_thr: float = 2.0) -> Dict[str, Any]:
+    def analyze_from_dom(levels: list[dict[str, float]], window: int = 6, ratio_thr: float = 2.0) -> dict[str, Any]:
         if not levels:
             return {
                 "stacked_buy_levels": 0,

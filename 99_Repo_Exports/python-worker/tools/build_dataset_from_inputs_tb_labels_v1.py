@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Any, Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
 import pandas as pd
 
 
-def _read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
+def _read_ndjson(path: str) -> Iterable[dict[str, Any]]:
     """Read NDJSON file line by line."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -17,7 +18,7 @@ def _read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
             yield json.loads(s)
 
 
-def _get_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
+def _get_payload(obj: dict[str, Any]) -> dict[str, Any]:
     """Extract payload from object (handle nested payload field)."""
     if "payload" in obj and isinstance(obj["payload"], str) and obj["payload"].strip().startswith("{"):
         try:
@@ -36,18 +37,18 @@ def main() -> None:
     args = ap.parse_args()
 
     # Load TB labels by sid
-    tb: Dict[str, Dict[str, Any]] = {}
+    tb: dict[str, dict[str, Any]] = {}
     for obj in _read_ndjson(args.tb):
-        sid = str(obj.get("sid", "") or "")
+        sid = (obj.get("sid", "") or "")
         if sid:
             tb[sid] = obj
 
     # Join inputs with TB labels
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     miss = 0
     for obj in _read_ndjson(args.inputs):
         o = _get_payload(obj)
-        sid = str(o.get("sid", "") or "")
+        sid = (o.get("sid", "") or "")
         if not sid:
             continue
         t = tb.get(sid)
@@ -65,12 +66,12 @@ def main() -> None:
         rows.append({
             "sid": sid,
             "ts_ms": int(o.get("ts_ms", o.get("ts", 0)) or 0),
-            "symbol": str(o.get("symbol", "") or ""),
-            "direction": str(o.get("direction", "") or ""),
-            "scenario_v4": str(o.get("scenario_v4", o.get("scenario", "")) or ""),
+            "symbol": (o.get("symbol", "") or ""),
+            "direction": (o.get("direction", "") or ""),
+            "scenario_v4": (o.get("scenario_v4", o.get("scenario", "")) or ""),
             "indicators": indicators,
             "y_edge": int(primary.get("y_edge", 0) or 0),
-            "tb_label": str(primary.get("label", "") or ""),
+            "tb_label": (primary.get("label", "") or ""),
             "tb_r_mult": float(primary.get("r_mult", 0.0) or 0.0),
             "tb_ret_bps": float(primary.get("ret_bps", 0.0) or 0.0),
             "tb_mae_bps": float(primary.get("mae_bps", 0.0) or 0.0),

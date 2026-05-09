@@ -8,14 +8,13 @@ Tests cover:
 4. metrics_stage.stage_ms_hist backward compatibility
 """
 
-import pytest
 import math
 from unittest.mock import MagicMock
-from typing import Dict, Any
 
-from services.cancellation_spike_gate import CancellationSpikeGate, CancelSpikeParams
+import pytest
+
 from common.metrics_stage import stage_ms_hist
-
+from services.cancellation_spike_gate import CancellationSpikeGate, CancelSpikeParams
 
 # ============================================================================
 # Test 1: CancellationSpikeGate bucket reset/wrap
@@ -25,7 +24,7 @@ def test_cancel_spike_bucket_duplicate():
     """Test that duplicate bucket_id returns early with allow=True."""
     g = CancellationSpikeGate(CancelSpikeParams(enable=True, mode="veto", window=50, min_samples=3))
     cfg2 = {}
-    
+
     # First call
     dec1 = g.check(
         symbol="BTCUSDT", direction="LONG",
@@ -34,7 +33,7 @@ def test_cancel_spike_bucket_duplicate():
         bucket_id=100, cfg2=cfg2,
     )
     assert dec1.allow is True  # warmup
-    
+
     # Duplicate bucket_id
     dec2 = g.check(
         symbol="BTCUSDT", direction="LONG",
@@ -51,7 +50,7 @@ def test_cancel_spike_bucket_reset_large_jump():
     """Test that large backward jump resets state (fail-open)."""
     g = CancellationSpikeGate(CancelSpikeParams(enable=True, mode="veto", window=50, min_samples=3))
     cfg2 = {"cancel_bucket_reset_gap": 10000}
-    
+
     # Build up state
     for b in range(20000, 20010):
         g.check(
@@ -60,7 +59,7 @@ def test_cancel_spike_bucket_reset_large_jump():
             taker_buy_rate_ema=100.0, taker_sell_rate_ema=100.0,
             bucket_id=b, cfg2=cfg2,
         )
-    
+
     # Large backward jump (reset)
     dec = g.check(
         symbol="BTCUSDT", direction="LONG",
@@ -78,7 +77,7 @@ def test_cancel_spike_bucket_out_of_order():
     """Test that small backward jump (out-of-order) returns early."""
     g = CancellationSpikeGate(CancelSpikeParams(enable=True, mode="veto", window=50, min_samples=3))
     cfg2 = {"cancel_bucket_reset_gap": 10000}
-    
+
     # Build up state
     for b in range(100, 110):
         g.check(
@@ -87,7 +86,7 @@ def test_cancel_spike_bucket_out_of_order():
             taker_buy_rate_ema=100.0, taker_sell_rate_ema=100.0,
             bucket_id=b, cfg2=cfg2,
         )
-    
+
     # Small backward jump (out-of-order, not reset)
     dec = g.check(
         symbol="BTCUSDT", direction="LONG",
@@ -111,9 +110,9 @@ def test_stage_ms_hist_modern_api():
     mock_metrics = MagicMock()
     mock_host.metrics = mock_metrics
     mock_metrics.observe = MagicMock()
-    
+
     stage_ms_hist(mock_host, stage="test_stage", ms=42.5, kind="test_kind", symbol="BTCUSDT")
-    
+
     # Should call observe with pipeline_stage_ms
     assert mock_metrics.observe.called
     call_args = mock_metrics.observe.call_args
@@ -131,9 +130,9 @@ def test_stage_ms_hist_legacy_api():
     mock_metrics = MagicMock()
     mock_host.metrics = mock_metrics
     mock_metrics.observe = MagicMock()
-    
+
     stage_ms_hist(mock_host, "legacy_metric_name", ms=123.0, kind="legacy_kind")
-    
+
     # Should call observe with legacy metric name
     assert mock_metrics.observe.called
     call_args = mock_metrics.observe.call_args
@@ -164,22 +163,22 @@ def test_ml_confirm_p_min_in_probability_space():
     """
     # Pattern: floor is utility threshold (e.g., -2.0), p_min should be sigmoid(scaled_floor)
     # For floor=-2.0, scale=2.5: p_min ≈ sigmoid(-2.0 * 2.5) = sigmoid(-5.0) ≈ 0.0067
-    
+
     def _sigmoid(x: float) -> float:
         if x >= 0:
             z = math.exp(-x)
             return 1.0 / (1.0 + z)
         z = math.exp(x)
         return z / (1.0 + z)
-    
+
     floor_utility = -2.0
     base_scale = 2.5
     scaled_floor = floor_utility * base_scale
     p_min_from_floor = _sigmoid(scaled_floor)
-    
+
     assert 0.0 <= p_min_from_floor <= 1.0
     assert p_min_from_floor < 0.01  # negative utility -> low probability
-    
+
     # Positive floor should map to higher probability
     floor_positive = 2.0
     scaled_positive = floor_positive * base_scale
@@ -200,7 +199,7 @@ def test_ok_soft_suppressed_on_veto():
     """
     # Pattern: ok_soft should honor scenario-specific first, then generic near-miss
     # But MUST be suppressed if veto_block = gate_vetoed or hard_veto
-    
+
     gate_vetoed = True
     hard_veto = ""
     ok = 0
@@ -208,7 +207,7 @@ def test_ok_soft_suppressed_on_veto():
     need = 3
     score = 0.70
     exec_risk_norm = 0.50
-    
+
     # With veto, ok_soft should be 0
     veto_block = bool(gate_vetoed) or bool(hard_veto)
     if veto_block:
@@ -221,7 +220,7 @@ def test_ok_soft_suppressed_on_veto():
                 ok_soft = 0
         else:
             ok_soft = 0
-    
+
     assert ok_soft == 0  # suppressed by veto
 
 
@@ -234,14 +233,14 @@ def test_ok_soft_near_miss_without_veto():
     need = 3
     score = 0.70
     exec_risk_norm = 0.50
-    
+
     veto_block = bool(gate_vetoed) or bool(hard_veto)
     ok_soft = 0
     if not veto_block and ok == 0:
         if need > 0 and have == need - 1:
             if score >= 0.60 and exec_risk_norm <= 0.65:
                 ok_soft = 1
-    
+
     assert ok_soft == 1  # near-miss passes
 
 
@@ -255,16 +254,16 @@ def test_ok_soft_strict_regime_suppressed():
     need = 3
     score = 0.70
     exec_risk_norm = 0.50
-    
-    strict_regime = str(scenario_v4 or "").lower() in ("vol_shock_news_proxy", "saw_chop_spoof_proxy")
+
+    strict_regime = (scenario_v4 or "").lower() in ("vol_shock_news_proxy", "saw_chop_spoof_proxy")
     veto_block = bool(gate_vetoed) or bool(hard_veto)
     ok_soft = 0
-    
+
     if not veto_block and ok == 0:
         if (not strict_regime) and need > 0 and have == need - 1:
             if score >= 0.60 and exec_risk_norm <= 0.65:
                 ok_soft = 1
-    
+
     assert ok_soft == 0  # suppressed by strict regime
 
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ATR Policy Post-Apply Verifier — Phase 3.8 (Disaster Layer).
 
 After every reconcile/apply step this verifier checks that:
@@ -20,7 +21,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
 from prometheus_client import Counter
@@ -73,14 +74,14 @@ def _enable() -> bool:
     return os.getenv("ATR_POLICY_VERIFY_ENABLE", "1") == "1"
 
 
-def _kill_switch_key(obj: Dict[str, Any]) -> str:
+def _kill_switch_key(obj: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:kill_switch:"
         f"{obj['source']}:{obj['symbol']}:{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
     )
 
 
-def _publish(r: redis.Redis, stream: str, payload: Dict[str, Any]) -> None:
+def _publish(r: redis.Redis, stream: str, payload: dict[str, Any]) -> None:
     try:
         r.xadd(stream, {k: str(v) for k, v in payload.items()}, maxlen=2000)
     except Exception as exc:
@@ -91,10 +92,10 @@ def _publish(r: redis.Redis, stream: str, payload: Dict[str, Any]) -> None:
 
 def verify_active_policy(
     policy_key: str,
-    r: Optional[redis.Redis] = None,
+    r: redis.Redis | None = None,
     *,
     publish: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Verify that the active policy key is schema-valid and kill_switch-free.
 
@@ -110,8 +111,8 @@ def verify_active_policy(
     r = r or _redis()
     now_ms = int(time.time() * 1000)
 
-    def _fail(reason_code: str, extra: Optional[Dict] = None) -> Dict[str, Any]:
-        result: Dict[str, Any] = {
+    def _fail(reason_code: str, extra: dict | None = None) -> dict[str, Any]:
+        result: dict[str, Any] = {
             "verified_ok": False,
             "reason_code": reason_code,
             "policy_key": policy_key,
@@ -148,7 +149,7 @@ def verify_active_policy(
         return _fail("ACTIVE_KEY_JSON_CORRUPTED", {"detail": "not_dict"})
 
     # ── 3. Required fields ────────────────────────────────────────────────
-    missing: List[str] = [k for k in REQUIRED_FIELDS if not obj.get(k)]
+    missing: list[str] = [k for k in REQUIRED_FIELDS if not obj.get(k)]
     if missing:
         return _fail("ACTIVE_KEY_FIELDS_MISSING", {"missing": missing})
 
@@ -175,7 +176,7 @@ def verify_active_policy(
             pass
 
     # ── OK ─────────────────────────────────────────────────────────────────
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "verified_ok": True,
         "reason_code": "ACTIVE_POLICY_VERIFIED",
         "policy_key": policy_key,
@@ -198,17 +199,17 @@ def verify_active_policy(
 
 
 def verify_policy_dict(
-    policy: Dict[str, Any],
-    r: Optional[redis.Redis] = None,
-) -> Dict[str, Any]:
+    policy: dict[str, Any],
+    r: redis.Redis | None = None,
+) -> dict[str, Any]:
     """
     Convenience: verify an already-fetched policy dict WITHOUT round-tripping Redis.
     Useful in mirror_after_verified_apply path.
     """
     now_ms = int(time.time() * 1000)
 
-    def _fail(reason_code: str, extra: Optional[Dict] = None) -> Dict[str, Any]:
-        result: Dict[str, Any] = {
+    def _fail(reason_code: str, extra: dict | None = None) -> dict[str, Any]:
+        result: dict[str, Any] = {
             "verified_ok": False,
             "reason_code": reason_code,
             "ts_ms": now_ms,

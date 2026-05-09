@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -24,7 +24,7 @@ def _redis():
 
 
 def _mode() -> str:
-    return str(os.getenv("ATR_POLICY_FULL_RECOVERY_MODE", "restore_if_missing") or "restore_if_missing").strip().lower()
+    return (os.getenv("ATR_POLICY_FULL_RECOVERY_MODE", "restore_if_missing") or "restore_if_missing").strip().lower()
 
 
 def _run_id() -> str:
@@ -47,11 +47,11 @@ def _release_lock(r, run_id: str) -> None:
         r.delete(_lock_key())
 
 
-def _active_key(obj: Dict[str, Any]) -> str:
+def _active_key(obj: dict[str, Any]) -> str:
     return f"cfg:atr_policy:active:{obj['source']}:{obj['symbol']}:{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
 
 
-def _last_good_key(obj: Dict[str, Any]) -> str:
+def _last_good_key(obj: dict[str, Any]) -> str:
     return f"cfg:atr_policy:last_good:{obj['source']}:{obj['symbol']}:{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
 
 
@@ -95,7 +95,7 @@ def _insert_run(conn, run_id: str, mode: str) -> None:
         )
 
 
-def _update_run(conn, run_id: str, *, status: str, steps: Dict[str, Any], summary: Dict[str, Any]) -> None:
+def _update_run(conn, run_id: str, *, status: str, steps: dict[str, Any], summary: dict[str, Any]) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -116,7 +116,7 @@ def _update_run(conn, run_id: str, *, status: str, steps: Dict[str, Any], summar
         )
 
 
-def _load_current_snapshots(conn, kind: str) -> List[Dict[str, Any]]:
+def _load_current_snapshots(conn, kind: str) -> list[dict[str, Any]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -130,7 +130,7 @@ def _load_current_snapshots(conn, kind: str) -> List[Dict[str, Any]]:
         return [dict(r["snapshot_json"]) for r in cur.fetchall()]
 
 
-def _load_pending(conn) -> List[Dict[str, Any]]:
+def _load_pending(conn) -> list[dict[str, Any]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -143,7 +143,7 @@ def _load_pending(conn) -> List[Dict[str, Any]]:
         return [dict(r["proposal_json"]) for r in cur.fetchall()]
 
 
-def _load_decided(conn) -> List[tuple[Dict[str, Any], Dict[str, Any]]]:
+def _load_decided(conn) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -176,7 +176,7 @@ def _expire_pending_confirms_on_boot(conn) -> int:
         return int(cur.rowcount or 0)
 
 
-def run_once() -> Dict[str, Any]:
+def run_once() -> dict[str, Any]:
     mode = _mode()
     run_id = _run_id()
     r = _redis()
@@ -185,8 +185,8 @@ def run_once() -> Dict[str, Any]:
         return {"ok": False, "reason_code": "RECOVERY_LOCK_BUSY"}
 
     conn = psycopg2.connect(_dsn(), connect_timeout=5, application_name="atr_policy_full_recovery_service")
-    steps: Dict[str, Any] = {}
-    summary: Dict[str, Any] = {}
+    steps: dict[str, Any] = {}
+    summary: dict[str, Any] = {}
     try:
         _insert_run(conn, run_id, mode)
         conn.commit()

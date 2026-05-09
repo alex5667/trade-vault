@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """services.news_reco_reader.cache
 
 In-memory TTL cache for trade-side news recommendations (reco).
@@ -27,12 +28,11 @@ Only "reco" and per-symbol "expires_ms" are strictly required. Everything
 else is treated as opaque payload (forward compatible).
 """
 
-from utils.time_utils import get_ny_time_millis
-
-from dataclasses import dataclass
 import json
-import time
-from typing import Any, Dict, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:
@@ -56,7 +56,7 @@ class NewsRecoSnapshot:
     symbol: str
     expires_ms: int
     received_ts_ms: int
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
 
 
 class NewsRecoCache:
@@ -64,13 +64,13 @@ class NewsRecoCache:
 
     def __init__(self, max_symbols: int = 2000) -> None:
         self._max_symbols = max(10, int(max_symbols))
-        self._by_symbol: Dict[str, NewsRecoSnapshot] = {}
+        self._by_symbol: dict[str, NewsRecoSnapshot] = {}
 
     @property
     def size(self) -> int:
         return len(self._by_symbol)
 
-    def get(self, symbol: str, *, now: Optional[int] = None) -> Optional[NewsRecoSnapshot]:
+    def get(self, symbol: str, *, now: int | None = None) -> NewsRecoSnapshot | None:
         nowv = now if now is not None else now_ms()
         sym = sanitize_symbol(symbol)
         snap = self._by_symbol.get(sym)
@@ -82,14 +82,14 @@ class NewsRecoCache:
             return None
         return snap
 
-    def sweep_expired(self, *, now: Optional[int] = None) -> int:
+    def sweep_expired(self, *, now: int | None = None) -> int:
         nowv = now if now is not None else now_ms()
         to_del = [s for s, v in self._by_symbol.items() if v.expires_ms <= nowv]
         for s in to_del:
             self._by_symbol.pop(s, None)
         return len(to_del)
 
-    def update_from_map_json(self, raw_json: str, *, now: Optional[int] = None) -> Tuple[int, int, int]:
+    def update_from_map_json(self, raw_json: str, *, now: int | None = None) -> tuple[int, int, int]:
         """Parse and apply a map JSON.
 
         Returns (updated, skipped_invalid, expired_dropped).
@@ -158,9 +158,9 @@ class NewsRecoCache:
 
         return updated, invalid, expired
 
-    def as_dict(self, *, now: Optional[int] = None) -> Dict[str, Dict[str, Any]]:
+    def as_dict(self, *, now: int | None = None) -> dict[str, dict[str, Any]]:
         nowv = now if now is not None else now_ms()
-        out: Dict[str, Dict[str, Any]] = {}
+        out: dict[str, dict[str, Any]] = {}
         for sym, snap in list(self._by_symbol.items()):
             if snap.expires_ms <= nowv:
                 self._by_symbol.pop(sym, None)

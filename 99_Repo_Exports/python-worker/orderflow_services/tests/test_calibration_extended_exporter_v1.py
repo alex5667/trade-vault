@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from orderflow_services.calibration_extended_exporter_v1 import Exporter, _metric_value, _delta_value
+from orderflow_services.calibration_extended_exporter_v1 import Exporter, _delta_value, _metric_value
 
 
 def test_metric_extractors_read_expected_fields():
@@ -32,7 +32,7 @@ def test_exporter_step_reads_proof_and_status(tmp_path: Path, monkeypatch):
     status_path = tmp_path / "status.json"
     proof_path.write_text(json.dumps(proof), encoding="utf-8")
     status_path.write_text(json.dumps(status), encoding="utf-8")
-    monkeypatch.setenv("CONF_CAL_PROOF_STATE_PATH", str(proof_path))
+    monkeypatch.setenv("CONF_CAL_PROOF_STATE_PATH", proof_path)
     monkeypatch.setenv("CONF_CAL_PROMOTION_STATUS_PATH", str(status_path))
     exp = Exporter()
     exp.step()  # no exception

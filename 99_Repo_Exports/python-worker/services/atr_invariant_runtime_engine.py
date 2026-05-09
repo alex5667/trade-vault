@@ -1,14 +1,11 @@
+import logging
 import os
 import time
-import json
-import uuid
-import logging
-from typing import Dict, Any, Tuple, List
+from typing import Any
 
-from services.atr_invariants_registry import get_active_invariants
-from services.analytics_db import get_conn
 from services.atr_invariant_remediation_executor import InvariantRemediationExecutor
 from services.atr_invariant_remediation_registry import get_active_remediation_policies
+from services.atr_invariants_registry import get_active_invariants
 
 logger = logging.getLogger("atr_invariant_runtime_engine")
 
@@ -24,7 +21,7 @@ class InvariantRuntimeEngine:
         self.sync_interval = 60  # seconds
         self.advisory_only = os.getenv("ATR_INVARIANTS_ADVISORY_ONLY", "1") == "1"
         self.deny_critical = os.getenv("ATR_INVARIANTS_RUNTIME_DENY_CRITICAL", "0") == "1"
-        
+
     def _sync_invariants(self) -> None:
         now = time.time()
         if now - self.last_sync > self.sync_interval or not self.invariants:
@@ -33,7 +30,7 @@ class InvariantRuntimeEngine:
             self.last_sync = now
             logger.debug(f"Synced {len(self.invariants)} invariants and {len(self.remediation_policies)} remediation policies.")
 
-    def _evaluate_rule(self, rule_json: Dict[str, Any], signal: Dict[str, Any]) -> bool:
+    def _evaluate_rule(self, rule_json: dict[str, Any], signal: dict[str, Any]) -> bool:
         """
         Simple hardcoded rule evaluator based on the JSON contract.
         In a real scenario, this could use a rule engine like Rule Engine or simple eval (unsafe).
@@ -42,16 +39,16 @@ class InvariantRuntimeEngine:
         # We rely on the python logic matching the reason_codes defined in INITIAL_INVARIANTS.
         return True # Fallback for unknown ones
 
-    def _fast_hardcoded_checks(self, signal: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _fast_hardcoded_checks(self, signal: dict[str, Any]) -> list[dict[str, Any]]:
         """
         To maintain low-latency, we execute hardcoded checks that match the active invariants registry.
         If an invariant is disabled in the registry, we skip it.
         """
         violations = []
-        
+
         # Build active reason_codes set to only check what's enabled
         active_codes = {inv["reason_code"]: inv for inv in self.invariants}
-        
+
         side = str(signal.get("side") or signal.get("direction", "")).upper()
         sl_price = float(signal.get("sl_price") or signal.get("sl") or 0.0)
         entry_price = float(signal.get("entry_price") or signal.get("price") or signal.get("entry") or 0.0)
@@ -64,10 +61,10 @@ class InvariantRuntimeEngine:
 
         tradeable = signal.get("tradeable") is True or signal.get("is_rejected_signal") == 0
         veto_reason = signal.get("veto_reason") or signal.get("rejection_reason")
-        
+
         risk_pct = float(signal.get("risk_pct") or 0.0)
         effective_risk_pct = float(signal.get("effective_risk_pct") or 0.0)
-        
+
         if "INV_PAYLOAD_BUY_ORDERING" in active_codes and side == "BUY":
             # sl_price < entry_price < tp1_price
             if not (0 < sl_price < entry_price and (tp1_price == 0 or entry_price < tp1_price)):
@@ -89,7 +86,7 @@ class InvariantRuntimeEngine:
                     "enforcement_mode": active_codes["INV_PAYLOAD_SELL_ORDERING"]["enforcement_mode"],
                     "details": f"SELL ordering violated: sl={sl_price}, entry={entry_price}, tp1={tp1_price}"
                 })
-                
+
         if "INV_SIGNAL_ID_REQUIRED" in active_codes:
             if not signal_id:
                 violations.append({
@@ -118,7 +115,7 @@ class InvariantRuntimeEngine:
                     "reason_code": "INV_NO_ORDER_WITHOUT_RISK_PCT",
                     "severity": active_codes["INV_NO_ORDER_WITHOUT_RISK_PCT"]["severity"],
                     "enforcement_mode": active_codes["INV_NO_ORDER_WITHOUT_RISK_PCT"]["enforcement_mode"],
-                    "details": f"risk_pct=0 and effective_risk_pct=0"
+                    "details": "risk_pct=0 and effective_risk_pct=0"
                 })
 
         if "INV_NO_ORDER_WITHOUT_SL" in active_codes:
@@ -133,16 +130,16 @@ class InvariantRuntimeEngine:
 
         return violations
 
-    def validate_runtime_state(self, signal: Dict[str, Any], ctx: Dict[str, Any]) -> Tuple[bool, List[Dict[str, Any]]]:
+    def validate_runtime_state(self, signal: dict[str, Any], ctx: dict[str, Any]) -> tuple[bool, list[dict[str, Any]]]:
         violations = []
         active_codes = {inv["reason_code"]: inv for inv in self.invariants}
 
-        is_new_entry = str(signal.get("action") or "OPEN") == "OPEN"
+        is_new_entry = (signal.get("action") or "OPEN") == "OPEN"
         # If it's OPEN, make sure side implies it's a new position
-        
-        degrade_state = str(ctx.get("degrade_state") or "normal")
-        allocator_state = str(ctx.get("allocator_state") or "fresh")
-        rollout_stage = str(ctx.get("rollout_stage") or "shadow")
+
+        degrade_state = (ctx.get("degrade_state") or "normal")
+        allocator_state = (ctx.get("allocator_state") or "fresh")
+        rollout_stage = (ctx.get("rollout_stage") or "shadow")
         portfolio_gate_allow = bool(ctx.get("portfolio_gate_allow", True))
         protective_exit_allowed = bool(ctx.get("protective_exit_allowed", True))
 
@@ -187,26 +184,26 @@ class InvariantRuntimeEngine:
                 })
 
         return (len(violations) == 0), violations
-    def validate_signal(self, signal: Dict[str, Any]) -> Tuple[bool, List[Dict[str, Any]]]:
+    def validate_signal(self, signal: dict[str, Any]) -> tuple[bool, list[dict[str, Any]]]:
         """
         Returns:
             allow: bool (whether to proceed to orders:queue)
             violations: list of dict details
         """
         self._sync_invariants()
-        
+
         violations = self._fast_hardcoded_checks(signal)
-        
+
         # Cross-layer logic
         meta = signal.get("meta", {}) if isinstance(signal.get("meta"), dict) else {}
         ctx = meta if meta else signal # Fallback if context is in top-level
         _, runtime_violations = self.validate_runtime_state(signal, ctx)
         violations.extend(runtime_violations)
-        
+
         # Decide if deny
         allow = True
         has_critical_deny = any(v["enforcement_mode"] == "runtime_deny" and v["severity"] == "critical" for v in violations)
-        
+
         # Remediation Execution
         remediation_actions = []
         for v in violations:
@@ -216,10 +213,10 @@ class InvariantRuntimeEngine:
                 v_context = dict(v)
                 # Ensure scope data for remediation string substitution
                 v_context["scope_kind"] = "symbol"
-                v_context["scope_value"] = str(signal.get("symbol", "unknown"))
-                
+                v_context["scope_value"] = (signal.get("symbol", "unknown"))
+
                 action = self.executor.execute(v_context, policy)
-                
+
                 if action["status"] == "executed" and action["reason_code"] == "REMEDIATION_RUNTIME_CLIP":
                     clip_mult = action["action_json"].get("clip_mult", 1.0)
                     orig_eff = float(signal.get("effective_risk_pct") or 0.0)
@@ -228,20 +225,20 @@ class InvariantRuntimeEngine:
                     logger.warning(f"Runtime_clip applied: mult={clip_mult} to {v_context['scope_value']} due to {inv_id}")
 
                 remediation_actions.append(action)
-        
+
         if remediation_actions:
             if isinstance(signal.get("meta"), dict):
                 signal["meta"]["remediation_actions"] = remediation_actions
             else:
                 signal["remediation_actions"] = remediation_actions
-        
+
         if violations:
             logger.warning(f"Invariant violations detected for {signal.get('symbol')}: {violations}")
-            
+
             if has_critical_deny and self.deny_critical and not self.advisory_only:
                 allow = False
                 logger.error(f"Signal {signal.get('signal_id')} denied by InvariantRuntimeEngine.")
-                
+
         return allow, violations
 
 # Singleton instance

@@ -2,7 +2,7 @@ import json
 import os
 import time
 
-from ml_analysis.tools.confidence_cal_live_health_loop_v1 import _pick_rollback_version, _atomic_replace
+from ml_analysis.tools.confidence_cal_live_health_loop_v1 import _atomic_replace, _pick_rollback_version
 
 
 def test_pick_rollback_previous_version(tmp_path):

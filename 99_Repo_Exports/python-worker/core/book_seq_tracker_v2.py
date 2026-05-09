@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Book sequence / staleness tracker (v2).
 
 Why this exists
@@ -21,7 +22,7 @@ unit-tested independently of the runtime/service stack.
 
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 def _safe_int(v: Any, default: int = 0) -> int:
@@ -63,7 +64,7 @@ def compute_book_seq_update(
     *,
     prev_last_u: int,
     prev_ingest_ts_ms: int,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     ingest_ts_ms: int,
     expected_interval_ms: int,
     min_missing_updates: int,
@@ -111,7 +112,7 @@ def compute_book_seq_update(
             reason = "dup" if u == prev_last_u else "reorder"
             gap = 0
             is_gap = False
-        elif U > prev_last_u + 1:
+        elif prev_last_u + 1 < U:
             # True missing seq.
             gap = U - prev_last_u - 1
             reason = "gap"
@@ -119,7 +120,7 @@ def compute_book_seq_update(
         else:
             # Overlap is normal for Binance depthUpdate.
             gap = 0
-            reason = "ok" if U == prev_last_u + 1 else "overlap"
+            reason = "ok" if prev_last_u + 1 == U else "overlap"
             is_gap = False
 
         new_last_u = max(prev_last_u, u)

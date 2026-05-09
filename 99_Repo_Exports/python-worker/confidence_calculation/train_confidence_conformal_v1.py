@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 train_confidence_conformal_v1.py
 
@@ -19,14 +19,14 @@ Usage:
   python3 -m ml_analysis.tools.train_confidence_conformal_v1 --data_jsonl /path/to/dataset.jsonl --out_json /path/to/conf_conformal_latest.json --alpha 0.10
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import math
 import os
-import time
-from typing import Any, Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:
@@ -41,7 +41,7 @@ def _clamp01(x: float) -> float:
     return x
 
 
-def _get(d: Dict[str, Any], *keys: str) -> Any:
+def _get(d: dict[str, Any], *keys: str) -> Any:
     for k in keys:
         if k in d:
             return d.get(k)
@@ -59,7 +59,7 @@ def _bkey(symbol: str, kind: str) -> str:
     return f"{s}|{k}"
 
 
-def _quantile_qhat(scores: List[float], alpha: float) -> float:
+def _quantile_qhat(scores: list[float], alpha: float) -> float:
     """
     Conformal quantile with finite-sample correction:
       q = k-th order statistic where k = ceil((n+1)*(1-alpha))
@@ -76,8 +76,8 @@ def _quantile_qhat(scores: List[float], alpha: float) -> float:
     return float(s[k - 1])
 
 
-def _iter_jsonl(path: str) -> Iterable[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def _iter_jsonl(path: str) -> Iterable[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -100,9 +100,9 @@ def main() -> int:
     if alpha <= 0.0 or alpha >= 1.0:
         raise SystemExit("alpha must be in (0,1)")
 
-    global_scores: List[float] = []
-    bucket_scores: Dict[str, List[float]] = {}
-    symbol_scores: Dict[str, List[float]] = {}
+    global_scores: list[float] = []
+    bucket_scores: dict[str, list[float]] = {}
+    symbol_scores: dict[str, list[float]] = {}
 
     rows = 0
     used = 0
@@ -121,8 +121,8 @@ def main() -> int:
         except Exception:
             continue
 
-        symbol = str(sym or "unknown").strip().upper()
-        kind_s = str(kind or "unknown").strip().lower()
+        symbol = (sym or "unknown").strip().upper()
+        kind_s = (kind or "unknown").strip().lower()
 
         s = (1.0 - pv) if yv == 1 else pv
         s = _clamp01(float(s))
@@ -138,7 +138,7 @@ def main() -> int:
 
     global_qhat = _quantile_qhat(global_scores, alpha)
 
-    buckets_out: Dict[str, float] = {}
+    buckets_out: dict[str, float] = {}
     for bk, scs in symbol_scores.items():
         if len(scs) >= args.min_bucket_n:
             buckets_out[bk] = _quantile_qhat(scs, alpha)

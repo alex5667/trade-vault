@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import time
 import queue
 import threading
+import time
 import zlib
-from dataclasses import dataclass
-from typing import Callable, Any, Dict
+from collections.abc import Callable
 from concurrent.futures import Future
+from dataclasses import dataclass
+from typing import Any
 
 
 def _crc32(s: str) -> int:
@@ -93,7 +94,7 @@ class ShardedSerialExecutor:
         Submit task to a shard determined by key. Returns Future.
         If queue is full and cannot enqueue within submit_timeout_s -> Future set to exception.
         """
-        k = str(key or "unknown")
+        k = (key or "unknown")
         fut: Future = Future()
         task = _Task(
             key=k,
@@ -159,7 +160,7 @@ class ShardedSerialExecutor:
             return 0
         return int(self._qs[shard_id].qsize())
 
-    def snapshot_stats(self) -> Dict[str, int]:
+    def snapshot_stats(self) -> dict[str, int]:
         with self._stats_lock:
             return {
                 "submitted": int(self.stats.submitted),

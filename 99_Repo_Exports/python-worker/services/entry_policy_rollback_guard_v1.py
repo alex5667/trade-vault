@@ -1,12 +1,14 @@
-from utils.time_utils import get_ny_time_millis
 import asyncio
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -30,7 +32,7 @@ def _arm(x: str) -> str:
     return a if a in ("A", "B", "C") else ""
 
 
-def _median(xs: List[float]) -> float:
+def _median(xs: list[float]) -> float:
     ys = sorted(xs)
     n = len(ys)
     if n == 0:
@@ -39,11 +41,11 @@ def _median(xs: List[float]) -> float:
     return float(ys[m]) if (n % 2 == 1) else 0.5 * (ys[m - 1] + ys[m])
 
 
-def _mad(xs: List[float], med: float) -> float:
+def _mad(xs: list[float], med: float) -> float:
     return _median([abs(x - med) for x in xs]) if xs else 0.0
 
 
-def _robust_sem(xs: List[float]) -> float:
+def _robust_sem(xs: list[float]) -> float:
     # robust sigma ~= 1.4826*MAD
     if len(xs) < 5:
         return 0.0
@@ -74,7 +76,7 @@ class EntryPolicyRollbackGuardV1:
 
     def __init__(self, r: Any) -> None:
         self.r = r
-        self.events_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+        self.events_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
         self.group = os.getenv("AB_ROLLBACK_GROUP", "ab-rollback")
         self.consumer = os.getenv("AB_ROLLBACK_CONSUMER", f"c-{os.getpid()}")
 
@@ -107,21 +109,17 @@ class EntryPolicyRollbackGuardV1:
         return f"{self.rollback_prefix}:cooldown:{_sym(sym)}:{_rg(rg)}:{_grp(grp)}"
 
     async def _ensure_group(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             await self.r.xgroup_create(self.events_stream, self.group, id="0", mkstream=True)
-        except Exception:
-            pass
 
-    async def _read(self) -> List[Tuple[str, List[Tuple[str, Dict[str, Any]]]]]:
+    async def _read(self) -> list[tuple[str, list[tuple[str, dict[str, Any]]]]]:
         return await self.r.xreadgroup(self.group, self.consumer, streams={self.events_stream: ">"}, count=200, block=1000)
 
     async def _ack(self, msg_id: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             await self.r.xack(self.events_stream, self.group, msg_id)
-        except Exception:
-            pass
 
-    async def _get_last_applied(self, sym: str, rg: str, grp: str) -> Dict[str, Any]:
+    async def _get_last_applied(self, sym: str, rg: str, grp: str) -> dict[str, Any]:
         try:
             raw = await self.r.get(self._k_last_applied(sym, rg, grp))
             if not raw:
@@ -141,13 +139,11 @@ class EntryPolicyRollbackGuardV1:
         except Exception:
             return True
 
-    async def _set_cooldown(self, sym: str, rg: str, grp: str, payload: Dict[str, Any]) -> None:
-        try:
+    async def _set_cooldown(self, sym: str, rg: str, grp: str, payload: dict[str, Any]) -> None:
+        with contextlib.suppress(Exception):
             await self.r.set(self._k_cool(sym, rg, grp), json.dumps(payload, separators=(",", ":")), ex=self.cooldown_sec)
-        except Exception:
-            pass
 
-    async def _append_post_r(self, sym: str, rg: str, grp: str, sid: str, r_val: float) -> List[float]:
+    async def _append_post_r(self, sym: str, rg: str, grp: str, sid: str, r_val: float) -> list[float]:
         k = self._k_post(sym, rg, grp, sid)
         try:
             pipe = self.r.pipeline()
@@ -159,7 +155,7 @@ class EntryPolicyRollbackGuardV1:
         except Exception:
             return []
 
-    def _decide(self, xs: List[float], baseline: Dict[str, Any]) -> RollDecision:
+    def _decide(self, xs: list[float], baseline: dict[str, Any]) -> RollDecision:
         if len(xs) < self.min_trades:
             return RollDecision(False, "min_trades_not_reached", 0.0, 0.0, len(xs))
 
@@ -168,8 +164,8 @@ class EntryPolicyRollbackGuardV1:
         # LCB with k=1.0 (conservative). Can be env-configured later.
         lcb = mean_r - 1.0 * sem
 
-        prev_mean = float(((baseline or {}).get("prev_mean_r", 0.0) or 0.0))
-        prev_lcb = float(((baseline or {}).get("prev_lcb_r", 0.0) or 0.0))
+        prev_mean = float((baseline or {}).get("prev_mean_r", 0.0) or 0.0)
+        prev_lcb = float((baseline or {}).get("prev_lcb_r", 0.0) or 0.0)
 
         d_mean = mean_r - prev_mean
         d_lcb = lcb - prev_lcb
@@ -178,9 +174,9 @@ class EntryPolicyRollbackGuardV1:
             return RollDecision(True, "post_apply_underperforms_baseline", mean_r, lcb, len(xs))
         return RollDecision(False, "ok", mean_r, lcb, len(xs))
 
-    async def _rollback(self, sym: str, rg: str, grp: str, last_applied: Dict[str, Any], dec: RollDecision) -> None:
-        winner = _arm(str(last_applied.get("winner") or ""))
-        prev = _arm(str(last_applied.get("prev_active") or ""))
+    async def _rollback(self, sym: str, rg: str, grp: str, last_applied: dict[str, Any], dec: RollDecision) -> None:
+        winner = _arm((last_applied.get("winner") or ""))
+        prev = _arm((last_applied.get("prev_active") or ""))
         if not prev or prev == winner:
             return
 
@@ -189,7 +185,7 @@ class EntryPolicyRollbackGuardV1:
             "symbol": _sym(sym),
             "regime": _rg(rg),
             "group": _grp(grp),
-            "applied_sid": str(last_applied.get("sid") or ""),
+            "applied_sid": (last_applied.get("sid") or ""),
             "winner": winner,
             "rollback_to": prev,
             "reason": dec.reason,
@@ -226,16 +222,16 @@ class EntryPolicyRollbackGuardV1:
         except Exception:
             pass
 
-    async def process_one(self, payload: Dict[str, Any]) -> None:
+    async def process_one(self, payload: dict[str, Any]) -> None:
         # Filter close events
         et = str(payload.get("event_type") or payload.get("event") or "")
         if et != "POSITION_CLOSED":
             return
 
-        sym = _sym(str(payload.get("symbol") or ""))
-        rg = _rg(str(payload.get("regime") or "na"))
-        grp = _grp(str(payload.get("ab_group") or "default"))
-        arm = _arm(str(payload.get("ab_arm") or ""))
+        sym = _sym((payload.get("symbol") or ""))
+        rg = _rg((payload.get("regime") or "na"))
+        grp = _grp((payload.get("ab_group") or "default"))
+        arm = _arm((payload.get("ab_arm") or ""))
         if not sym:
             return
 
@@ -250,8 +246,8 @@ class EntryPolicyRollbackGuardV1:
         if not last_applied:
             return
 
-        applied_sid = str(last_applied.get("sid") or "")
-        applied_winner = _arm(str(last_applied.get("winner") or ""))
+        applied_sid = (last_applied.get("sid") or "")
+        applied_winner = _arm((last_applied.get("winner") or ""))
         if not applied_sid or not applied_winner:
             return
 

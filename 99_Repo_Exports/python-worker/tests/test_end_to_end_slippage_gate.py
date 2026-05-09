@@ -2,13 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import pytest
-
 from services.slippage_stats import SlippageEmaConfig
 
 
 class FakePipe:
-    def __init__(self, r: "FakeRedis"):
+    def __init__(self, r: FakeRedis):
         self.r = r
         self.ops = []
 
@@ -53,8 +51,8 @@ def test_end_to_end_slippage_ema_written_then_used_by_gate(monkeypatch):
       1) (как будто) StatsAggregator записал EMA realized_slippage_bps в Redis по ключу symbol×venue×session×tf
       2) EdgeCostGate читает EMA и использует max(default, spread/2, ema)
     """
-    from services.slippage_stats import update_slippage_ema
     from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
+    from services.slippage_stats import update_slippage_ema
 
     r = FakeRedis()
     monkeypatch.setenv("SLIPPAGE_EMA_ENABLED", "1")

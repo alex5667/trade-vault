@@ -1,9 +1,9 @@
-import sys
-import os
-import asyncio
 import argparse
+import asyncio
+import os
 import shlex
 import subprocess
+import sys
 
 # Add parent directory to path to import common
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,12 +35,12 @@ async def main():
     redis_url = os.environ.get("REDIS_URL", "redis://redis-worker-1:6379/0")
     redis = aioredis.from_url(redis_url, decode_responses=True)
     lock_key = f"daemon_lock:{args.job_name}"
-    
+
     # If main host, initial delay to give minik priority
     if not args.is_minik:
         print(f"[{args.job_name}] Main host yielding to Minik (initial 60s wait)...")
         await asyncio.sleep(60)
-        
+
     while True:
         # Try to acquire lock
         acquired = await redis.set(lock_key, "1", nx=True, ex=LOCK_TTL)
@@ -51,23 +51,23 @@ async def main():
             # Minik is running it, or something else is holding the lock
             # We don't exit, we just poll the lock periodically
             await asyncio.sleep(30)
-            
+
     # We have the lock. Launch subprocess.
     cmd = shlex.join(args.command)
     print(f"[{args.job_name}] $ {cmd}")
     process = subprocess.Popen(cmd, shell=True)
-    
+
     # Start renewing task
     renewer_task = asyncio.create_task(lock_renewer(redis, lock_key, process))
-    
+
     # Wait for process to exit natively
     while process.poll() is None:
         await asyncio.sleep(1)
-        
+
     # Process died or exited
     renewer_task.cancel()
     print(f"[{args.job_name}] Daemon process exited with code {process.returncode}")
-    
+
     # Release the lock so another host can take over immediately
     await redis.delete(lock_key)
     await redis.aclose()

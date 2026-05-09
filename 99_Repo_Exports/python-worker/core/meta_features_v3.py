@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 from core.meta_features_v1 import META_FEAT_V1_COLS
 from core.meta_features_v2 import META_FEAT_V2_NEW_COLS, build_meta_features_v2
@@ -32,7 +32,7 @@ META_FEAT_V3_HASH = hashlib.sha256(
 ).hexdigest()[:16]
 
 # Default transforms (extending V2)
-META_FEAT_V3_TRANSFORMS: Dict[str, Dict[str, Any]] = {
+META_FEAT_V3_TRANSFORMS: dict[str, dict[str, Any]] = {
     # Rates/Excess are strictly positive, log1p is usually good
     "burst_ctr": {"name": "log1p"},
     "burst_exc": {"name": "log1p"},
@@ -44,12 +44,12 @@ META_FEAT_V3_TRANSFORMS: Dict[str, Dict[str, Any]] = {
 }
 
 def build_meta_features_v3(
-    evidence: Dict[str, Any],
-    indicators: Dict[str, Any],
-    runtime_snap: Optional[Any] = None, # book_state.snap
-    runtime_prev_snap: Optional[Any] = None, # book_state.prev_snap
-    indicators_with_v4: Optional[Dict[str, Any]] = None,
-    legs: Optional[Dict[str, Any]] = None,
+    evidence: dict[str, Any],
+    indicators: dict[str, Any],
+    runtime_snap: Any | None = None, # book_state.snap
+    runtime_prev_snap: Any | None = None, # book_state.prev_snap
+    indicators_with_v4: dict[str, Any] | None = None,
+    legs: dict[str, Any] | None = None,
     have: int = 0,
     need: int = 0,
     ok_soft: int = 0,
@@ -57,12 +57,12 @@ def build_meta_features_v3(
     exec_risk_norm: float = 0.0,
     exec_risk_bps: float = 0.0,
     ml_scenario: str = "",
-) -> Tuple[Dict[str, float], List[str]]:
+) -> tuple[dict[str, float], list[str]]:
     """
     Builds meta_feat_v3 features.
     Delegates to v2 for base features, then adds burst/hawkes v3 features.
     """
-    
+
     # 1. Base V2 (which calls V1)
     feat, missing = build_meta_features_v2(
         evidence=evidence,
@@ -79,11 +79,11 @@ def build_meta_features_v3(
         exec_risk_bps=exec_risk_bps,
         ml_scenario=ml_scenario,
     )
-    
+
     # 2. Add V3 Burst Features
     # Expectation: 'evidence' contains keys from eval_burst_gate() snapshot
     # If not present (e.g. old logs), we set 0.0 and mark missing
-    
+
     for k in META_FEAT_V3_NEW_COLS:
         # Check evidence first (where we put them in engine)
         if k == "burst_veto_flag":
@@ -111,5 +111,5 @@ def build_meta_features_v3(
             else:
                 feat[k] = 0.0
                 missing.append(k)
-                
+
     return feat, missing

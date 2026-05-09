@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for P6 ExecutionHealthGate.
 
 Covers:
@@ -9,16 +10,17 @@ Covers:
 """
 
 
-import math
 import os
-import pytest
 from unittest import mock
+
+import pytest
+
 from services.orderflow.execution_health_gate import (
-    ExecHealthThresholds,
     ExecHealthDecision,
-    decide_execution_health,
-    build_rollup_keys,
+    ExecHealthThresholds,
     apply_exec_health_to_indicators,
+    build_rollup_keys,
+    decide_execution_health,
 )
 
 
@@ -94,11 +96,11 @@ class TestDecideExecutionHealth:
 class TestBuildRollupKeys:
     def test_exact_key_first(self):
         keys = build_rollup_keys(metric="is_p95_bps", sym="BTCUSDT", venue="binance", session="asia", tf="1m", kind="continuation", side="BUY")
-        assert "tca:is_p95_bps:BTCUSDT:binance:asia:1m:continuation:BUY" == keys[0]
+        assert keys[0] == "tca:is_p95_bps:BTCUSDT:binance:asia:1m:continuation:BUY"
 
     def test_fallback_all_last(self):
         keys = build_rollup_keys(metric="is_p95_bps", sym="BTCUSDT", venue="binance", session="asia", tf="1m", kind="continuation", side="BUY")
-        assert "tca:is_p95_bps:BTCUSDT:binance:all:all:all:BUY" == keys[-1]
+        assert keys[-1] == "tca:is_p95_bps:BTCUSDT:binance:all:all:all:BUY"
 
     def test_dedup(self):
         keys = build_rollup_keys(metric="m", sym="X", venue="v", session="all", tf="all", kind="all", side="NA")

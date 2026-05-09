@@ -1,12 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
-import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 from services.abc_router import ABCConfig
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -24,14 +23,14 @@ def _f(x: Any, d: float) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int) -> int:
     try:
         return int(x)
     except Exception:
-        return int(d)
+        return d
 
 
 @dataclass
@@ -64,8 +63,8 @@ class ABCPolicyLoader:
         self.cfg_key = cfg_key
         self._cfg: ABCConfig = ABCConfig(enabled=False, version=0, salt="smt-entry-v1", poll_ms=2000, splits={"default":{"b":10,"c":10},"thin":{"b":15,"c":15}}, overrides={"A":"cfg:smt_entry:policy:A","B":"cfg:smt_entry:policy:B","C":"cfg:smt_entry:policy:C"})
         self._last_poll_ms: int = 0
-        self._arm_cache: Dict[str, ArmPolicy] = {}
-        self._arm_ver: Dict[str, int] = {}
+        self._arm_cache: dict[str, ArmPolicy] = {}
+        self._arm_ver: dict[str, int] = {}
 
     @property
     def cfg(self) -> ABCConfig:
@@ -89,7 +88,7 @@ class ABCPolicyLoader:
                         self._cfg = ABCConfig(
                             enabled=_b(d.get("enabled", 0)),
                             version=ver,
-                            salt=str(d.get("salt") or "smt-entry-v1"),
+                            salt=(d.get("salt") or "smt-entry-v1"),
                             poll_ms=_i(d.get("poll_ms", 2000), 2000),
                             splits=splits if isinstance(splits, dict) else (self._cfg.splits or {"default":{"b":10,"c":10},"thin":{"b":15,"c":15}}),
                             overrides=overrides if isinstance(overrides, dict) else (self._cfg.overrides or {"A":"cfg:smt_entry:policy:A","B":"cfg:smt_entry:policy:B","C":"cfg:smt_entry:policy:C"}),

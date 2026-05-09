@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import math
 from dataclasses import dataclass
-from typing import Dict, Tuple, Any
+from typing import Any
+
 
 @dataclass
 class AtrSanityDecision:
@@ -27,13 +29,13 @@ def sanitize_atr(
     *,
     atr: float,
     entry: float,
-    atr_meta: Dict[str, Any],
+    atr_meta: dict[str, Any],
     atr_tf: str,
     runtime_last_atr: float,
     runtime_last_atr_ts_ms: int,
     now_ms: int,
-    cfg: Dict[str, Any],
-) -> Tuple[AtrSanityDecision, Dict[str, Any]]:
+    cfg: dict[str, Any],
+) -> tuple[AtrSanityDecision, dict[str, Any]]:
     """
     Sanity rules:
       - reject non-finite/<=0 ATR
@@ -43,12 +45,12 @@ def sanitize_atr(
       1) runtime.last_atr if fresh enough
       2) pct fallback: entry * ATR_SANITY_FALLBACK_PCT (default 0.0003)
     """
-    out_ind: Dict[str, Any] = {}
+    out_ind: dict[str, Any] = {}
     eps = 1e-12
     entry = float(entry or 0.0)
     a = float(atr or 0.0)
 
-    tf_ms = _tf_to_ms(str(atr_tf or "1m"))
+    tf_ms = _tf_to_ms((atr_tf or "1m"))
     max_age_mult = float(cfg.get("atr_sanity_max_age_mult", 3.0) or 3.0)
     max_age_ms = int(cfg.get("atr_sanity_max_age_ms", int(max_age_mult * tf_ms)) or int(max_age_mult * tf_ms))
 

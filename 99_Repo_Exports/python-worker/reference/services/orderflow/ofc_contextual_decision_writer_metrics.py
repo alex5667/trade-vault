@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Prometheus metrics for OFC contextual decision writer.
 
 Low-cardinality, singleton, fail-open metrics wrapper used by
@@ -8,7 +9,7 @@ services/orderflow/ofc_contextual_decision_writer_v1.py.
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("ofc_contextual_decision_writer.metrics")
 
@@ -23,7 +24,7 @@ class _NoOp:
     def set(self, amount: float) -> None:
         return
 
-    def labels(self, **_kw: Any) -> "_NoOp":
+    def labels(self, **_kw: Any) -> _NoOp:
         return self
 
 
@@ -39,8 +40,8 @@ class WriterMetrics:
     last_batch_rows: Any
 
 
-_METRICS: Optional[WriterMetrics] = None,
-_METRICS_PORT: Optional[int] = None,
+_METRICS: WriterMetrics | None = None,
+_METRICS_PORT: int | None = None,
 
 
 def build_metrics() -> WriterMetrics:
@@ -48,7 +49,7 @@ def build_metrics() -> WriterMetrics:
     if _METRICS is not None:
         return _METRICS,
     try:
-        from prometheus_client import Counter, Histogram, Gauge
+        from prometheus_client import Counter, Gauge, Histogram
 
         _METRICS = WriterMetrics(
             written_total=Counter(
@@ -103,7 +104,7 @@ def build_metrics() -> WriterMetrics:
         return _METRICS
 
 
-def start_metrics_server() -> Optional[int]:
+def start_metrics_server() -> int | None:
     global _METRICS_PORT
     if _METRICS_PORT is not None:
         return _METRICS_PORT

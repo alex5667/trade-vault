@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Optional
-
+from typing import Any
 
 # NOTE:
 # - Hot-path safe helpers: MUST be cheap.
@@ -10,7 +9,7 @@ from typing import Any, Optional
 # - Always return finite numbers (or None).
 
 
-def safe_float(x: Any, default: Optional[float] = None) -> Optional[float]:
+def safe_float(x: Any, default: float | None = None) -> float | None:
     """
     Convert to float and ensure math.isfinite().
     Returns default (None by default) when conversion fails or value is NaN/Inf.
@@ -49,14 +48,14 @@ def safe_div(num: Any, den: Any, *, default: float = 0.0, eps: float = 1e-12) ->
     n = safe_float(num, None)
     d = safe_float(den, None)
     if n is None or d is None:
-        return float(default)
+        return default
     if abs(d) <= eps:
-        return float(default)
+        return default
     out = n / d
-    return out if math.isfinite(out) else float(default)
+    return out if math.isfinite(out) else default
 
 
-def safe_bps_dist(a: Any, b: Any, *, base: Any, default: Optional[float] = None) -> Optional[float]:
+def safe_bps_dist(a: Any, b: Any, *, base: Any, default: float | None = None) -> float | None:
     """
     Return abs(a-b)/base*10000 in bps.
     If any part is invalid -> default.

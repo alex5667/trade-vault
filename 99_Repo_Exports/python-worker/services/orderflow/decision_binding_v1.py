@@ -5,7 +5,8 @@ Determines the 'recommended' action and reason code based on input states.
 """
 
 import os
-from typing import Any, Dict
+from typing import Any
+
 
 def _env_bool(name: str, default: str = "0") -> bool:
     v = os.getenv(name, default)
@@ -18,7 +19,7 @@ def bind_rule_ml_v1(
     ml_state: str,
     dq_state: str,
     drift_state: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Explicit binding matrix between Rule and ML.
 
     Returns a dict:
@@ -47,9 +48,9 @@ def bind_rule_ml_v1(
 
     rule_ok = int(rule_ok or 0)
     rule_ok_soft = int(rule_ok_soft or 0)
-    ml_state = str(ml_state or "off").lower()
-    dq_state = str(dq_state or "na").lower()
-    drift_state = str(drift_state or "na").lower()
+    ml_state = (ml_state or "off").lower()
+    dq_state = (dq_state or "na").lower()
+    drift_state = (drift_state or "na").lower()
 
     rule_strength = "deny"
     if rule_ok == 1:
@@ -95,13 +96,13 @@ def bind_rule_ml_v1(
         # We'll rely on the fact that if policy=RULE_STRONG_ONLY and it passed, handling upsteam might have set drift_state="block_but_allowed"?
         # Actually, let's look at `signal_pipeline.py`: _eval_drift_gate returns `reason_code="DRIFT_BLOCK_RULE_STRONG_ONLY_PASS"`
         # So if we receive drift_state="block", it means it WAS blocked.
-        
+
         # Implementation:
         # If drift_state is explicitly "block" (2), we deny.
         # If it was "block_but_allowed", providing `drift_state` as "block" would be ambiguous.
         # Let's check `signal_pipeline.py` again. `_eval_drift_gate` returns `state="block_but_allowed"`.
         # So we should treat "block" as hard block.
-        
+
         check_override = _env_bool("BIND_ALLOW_RULE_STRONG_ON_BAD_DRIFT", "0")
         if rule_strength == "strong" and check_override:
              return {
@@ -147,7 +148,7 @@ def bind_rule_ml_v1(
 
 # P62 Adapter
 from dataclasses import dataclass
-from typing import Optional
+
 
 @dataclass
 class BindingInput:
@@ -156,7 +157,7 @@ class BindingInput:
     rule_ok_soft: bool = False  # Adapt alias
     rule_soft: bool = False
     ml_state: str = "na"
-    ml_p_cal: Optional[float] = None
+    ml_p_cal: float | None = None
     dq_state: str = "unknown"
     drift_state: str = "unknown"
 
@@ -164,7 +165,7 @@ class BindingInput:
         # normalize rule_soft vs rule_ok_soft
         if self.rule_soft: self.rule_ok_soft = True
 
-def recommend_binding(i: BindingInput) -> Dict[str, Any]:
+def recommend_binding(i: BindingInput) -> dict[str, Any]:
     """Adapter for P62 to use bind_rule_ml_v1."""
     res = bind_rule_ml_v1(
         rule_ok=int(i.rule_ok),

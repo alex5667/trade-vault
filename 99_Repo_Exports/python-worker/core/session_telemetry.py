@@ -1,15 +1,16 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Dict, Tuple, Optional, List
 
 from services.orderflow.utils import hour_of_week_utc, session_utc
 
-def _ema(prev: Optional[float], x: float, alpha: float) -> float:
+
+def _ema(prev: float | None, x: float, alpha: float) -> float:
     return x if prev is None else (1.0 - alpha) * prev + alpha * x
 
 @dataclass
 class _HowBucket:
-    ema: Optional[float] = None
+    ema: float | None = None
     n: int = 0
 
 class HourOfWeekScaleTracker:
@@ -27,8 +28,8 @@ class HourOfWeekScaleTracker:
         self.min_bucket_n = int(min_bucket_n)
         self.min_global_n = int(min_global_n)
 
-        self._buckets: List[_HowBucket] = [_HowBucket() for _ in range(168)]
-        self._global_ema: Optional[float] = None
+        self._buckets: list[_HowBucket] = [_HowBucket() for _ in range(168)]
+        self._global_ema: float | None = None
         self._global_n: int = 0
 
     @property
@@ -73,8 +74,8 @@ class PassRateBySessionEma:
         self.alpha = float(alpha)
         self.asia_end_h = int(asia_end_h)
         self.eu_end_h = int(eu_end_h)
-        self._ema: Dict[Tuple[str, int], Optional[float]] = {}
-        self._n: Dict[Tuple[str, int], int] = {}
+        self._ema: dict[tuple[str, int], float | None] = {}
+        self._n: dict[tuple[str, int], int] = {}
 
     def update(self, ts_ms: int, tier_idx: int, passed: bool) -> float:
         sess = session_utc(ts_ms)

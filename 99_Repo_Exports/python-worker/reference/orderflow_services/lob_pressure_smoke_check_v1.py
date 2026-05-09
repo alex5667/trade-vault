@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """P91 — LOB pressure smoke-check (v1)
 
 Goal:
@@ -20,17 +20,16 @@ Exit codes:
 Writes a compact JSON summary into `sre:lob_pressure_smoke` (for dashboards/exporters).
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import logging
 import math
 import os
 import sys
-import time
 from collections import defaultdict
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -122,7 +121,7 @@ def _range_ok(key: str, x: float) -> bool:
     return True
 
 
-def _top_missing(missing_counts: Dict[str, int], n: int = 10) -> List[Tuple[str, int]]:
+def _top_missing(missing_counts: dict[str, int], n: int = 10) -> list[tuple[str, int]]:
     items = sorted(missing_counts.items(), key=lambda kv: (-kv[1], kv[0]))
     return [(k, int(v)) for k, v in items[:n]]
 
@@ -158,12 +157,12 @@ def main() -> int:
     min_ts = now_ms - int(args.window_sec) * 1000
 
     n_recent = 0
-    missing: Dict[str, int] = defaultdict(int)
+    missing: dict[str, int] = defaultdict(int)
     invalid_total = 0
 
     # Track ranges for stuck detection
-    mins: Dict[str, float] = {}
-    maxs: Dict[str, float] = {}
+    mins: dict[str, float] = {}
+    maxs: dict[str, float] = {}
 
     for _id, fields in rows:
         if not isinstance(fields, dict):
@@ -201,7 +200,7 @@ def main() -> int:
 
     no_data = 1 if n_recent == 0 else 0
 
-    missing_shares: Dict[str, float] = {}
+    missing_shares: dict[str, float] = {}
     missing_max_share = 0.0
     if n_recent > 0:
         for k in KEY_FLOAT_FIELDS + KEY_INT_FIELDS:
@@ -224,7 +223,7 @@ def main() -> int:
                 break
         stuck_lob = 1 if all_stuck else 0
 
-    issues: List[str] = []
+    issues: list[str] = []
     if no_data == 0 and missing_max_share > float(args.missing_max):
         issues.append(f"missing_max_share>{float(args.missing_max):.3f}")
     if no_data == 0 and invalid_share > float(args.invalid_max):

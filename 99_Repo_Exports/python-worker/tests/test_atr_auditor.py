@@ -1,11 +1,11 @@
-import pytest
-from httpx import AsyncClient, ASGITransport
 from unittest.mock import AsyncMock
-import sys
-import os
+
+import pytest
+from httpx import ASGITransport, AsyncClient
 
 # [AUTOGRAVITY CLEANUP] sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from services.atr_auditor_api import app
+
 
 @pytest.fixture
 def mock_db_pool():
@@ -29,7 +29,7 @@ async def test_get_release_board(mock_db_pool):
     ]
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get("/auditor/release-board")
-    
+
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 1
@@ -42,7 +42,7 @@ async def test_get_incident_board(mock_db_pool):
     ]
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get("/auditor/incidents")
-    
+
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 1

@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import ast
 import re
-import pytest
-
 
 TIMER_PATH = 'services/of_timers_worker.py'
 
 
 def _read_timer():
-    with open(TIMER_PATH, 'r', encoding='utf-8') as f:
+    with open(TIMER_PATH, encoding='utf-8') as f:
         return f.read()
 
 

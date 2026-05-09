@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Унифицированный форматер сигналов для всех торговых инструментов.
 
@@ -6,16 +7,18 @@ from utils.time_utils import get_ny_time_millis
 который автоматически адаптируется под тип инструмента.
 """
 
-import time
-from dataclasses import dataclass, asdict
-from typing import List, Dict, Any, Optional, Sequence
-from .confidence_utils import normalize_confidence_pct, confidence_pct_to_ratio
-from .instrument_config import get_specs
-from .crypto_signal_formatter import CryptoSignal, CryptoSignalFormatter
-from common.qf_codes import unpack_qf_u16, qf_labels_from_codes
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
+from typing import Any
+
+from common.qf_codes import qf_labels_from_codes, unpack_qf_u16
+from signal_scoring.reason_codes import legacy_reason_to_code
 from signal_scoring.reason_registry import u16_to_reason_code
 from signal_scoring.wire_u16 import unpack_u16
-from signal_scoring.reason_codes import legacy_reason_to_code
+
+from .confidence_utils import confidence_pct_to_ratio, normalize_confidence_pct
+from .crypto_signal_formatter import CryptoSignal, CryptoSignalFormatter
+from .instrument_config import get_specs
 
 
 @dataclass
@@ -30,23 +33,23 @@ class Signal:
     side: str                       # Направление: LONG | SHORT
     entry: float                    # Цена входа
     sl: float                       # Stop Loss
-    tp_levels: List[float]          # Take Profit уровни (массив)
+    tp_levels: list[float]          # Take Profit уровни (массив)
     lot: float                      # Размер позиции (лот или USDT для крипты)
     source: str                     # Источник сигнала (OrderFlow, TA, etc)
     reason: str                     # Причина/описание сигнала
     confidence: float               # Уверенность в сигнале (0-100)
     atr: float                      # Текущий ATR
     ts: int                         # Timestamp (milliseconds)
-    indicators: Dict[str, Any]      # Дополнительные индикаторы
-    metadata: Optional[Dict[str, Any]] = None  # Метаданные (symbol specs и т.д.)
+    indicators: dict[str, Any]      # Дополнительные индикаторы
+    metadata: dict[str, Any] | None = None  # Метаданные (symbol specs и т.д.)
     entry_tag: str = ""             # Тег типа входа для агрегации метрик
     trail_after_tp1: bool = False   # Включить трейлинг после TP1
     trail_profile: str = "rocket_v1"  # Профиль трейлинга
-    position_size_usd: Optional[float] = None  # Размер позиции в USDT (для крипты)
-    deposit: Optional[float] = None  # Размер депозита для расчета процента
-    leverage: Optional[float] = None  # Плечо для расчета размера с плечом
-    signal_settings: Optional[Dict[str, Any]] = None  # Настройки, использованные при генерации сигнала
-    
+    position_size_usd: float | None = None  # Размер позиции в USDT (для крипты)
+    deposit: float | None = None  # Размер депозита для расчета процента
+    leverage: float | None = None  # Плечо для расчета размера с плечом
+    signal_settings: dict[str, Any] | None = None  # Настройки, использованные при генерации сигнала
+
     def __post_init__(self):
         """Автоматическое заполнение metadata из SymbolSpecs"""
         if self.metadata is None:
@@ -70,7 +73,7 @@ class UnifiedSignalFormatter:
     Автоматически адаптирует формат под тип инструмента (количество знаков,
     единицы измерения, стиль сообщения и т.д.)
     """
-    
+
     @staticmethod
     def _safe_float(v: Any) -> float:
         try:
@@ -125,9 +128,9 @@ class UnifiedSignalFormatter:
         """
         price_int = int(price * 100)  # Умножаем на 100 для уникальности
         return f"{symbol}:{side}:{price_int}:{ts}"
-    
+
     @staticmethod
-    def format_redis_payload(signal: Signal) -> Dict[str, str]:
+    def format_redis_payload(signal: Signal) -> dict[str, str]:
         """
         Формирует payload для публикации в Redis Stream.
         
@@ -138,7 +141,7 @@ class UnifiedSignalFormatter:
             Словарь с полями для XADD в Redis
         """
         message = UnifiedSignalFormatter.format_telegram_message(signal)
-        
+
         # Calculate confidence values safely
         raw_conf = getattr(signal, "confidence", None)
         if hasattr(signal, "confidence_pct"):
@@ -164,11 +167,11 @@ class UnifiedSignalFormatter:
             "trail_profile": signal.trail_profile,
             "text": message,
         }
-        
+
         # ✅ Для крипты добавляем position_size_usd
         if signal.position_size_usd is not None:
             payload["position_size_usd"] = str(signal.position_size_usd)
-        
+
         # Добавляем индикаторы (сериализуем)
         indicators = getattr(signal, "indicators", None) or {}
         mix = UnifiedSignalFormatter._build_mix_dict(signal, [])
@@ -178,7 +181,7 @@ class UnifiedSignalFormatter:
         for key, value in indicators.items():
             if isinstance(value, (int, float, str, bool)):
                 payload[f"ind_{key}"] = str(value)
-        
+
         # Добавляем metadata
         if signal.metadata:
             for key, value in signal.metadata.items():
@@ -204,7 +207,7 @@ class UnifiedSignalFormatter:
         return payload
 
     @staticmethod
-    def format(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def format(payload: dict[str, Any]) -> dict[str, Any]:
         out = dict(payload)
 
         # Prefer compact rc16/rc over string reason_code.
@@ -260,7 +263,7 @@ class UnifiedSignalFormatter:
         is_precious = symbol_upper in {"XAUUSD", "XAGUSD"}
         if is_crypto or is_precious:
             import os
-            
+
             timestamp_ms = signal.ts or get_ny_time_millis()
             base_confirmations = UnifiedSignalFormatter._extract_confirmations(signal)
             reason_confirmation = UnifiedSignalFormatter._reason_to_confirmation(signal.reason)
@@ -273,11 +276,11 @@ class UnifiedSignalFormatter:
                 getattr(signal, "confidence_pct", None) if hasattr(signal, "confidence_pct") else getattr(signal, "confidence", 0.0)
             )
             confidence_ratio = confidence_pct_to_ratio(confidence_pct)
-            
+
             # Получаем настройки депозита и плеча из signal или из ENV
             deposit = signal.deposit if signal.deposit is not None else float(os.getenv("ACCOUNT_DEPOSIT_USD", "100"))
             leverage = signal.leverage if signal.leverage is not None else float(os.getenv("ACCOUNT_LEVERAGE", "100"))
-            
+
             crypto_signal = CryptoSignal(
                 sid=signal.sid,
                 symbol=signal.symbol,
@@ -315,21 +318,21 @@ class UnifiedSignalFormatter:
                 price_decimals = 3
             else:
                 price_decimals = 4
-        
+
         # Определяем количество знаков для лота
         if signal.metadata and "volume_decimals" in signal.metadata:
             volume_decimals = signal.metadata["volume_decimals"]
         else:
             volume_decimals = 2
-        
+
         # Формируем основное сообщение
         msg = f"{emoji} {signal.symbol} {signal.side} @ {signal.entry:.{price_decimals}f}"
         msg += f", Volume {signal.lot:.{volume_decimals}f} lot. "
         msg += f"{signal.reason}\n"
-        
+
         # Stop Loss
         msg += f"SL {signal.sl:.{price_decimals}f}"
-        
+
         # Take Profit уровни с Risk/Reward
         if signal.tp_levels:
             msg += " | "
@@ -339,9 +342,9 @@ class UnifiedSignalFormatter:
                     msg += "; "
                 msg += f"TP{i+1} {tp:.{price_decimals}f} (RR {rr:.1f})"
                 rr += 1.0
-        
+
         msg += "\n"
-        
+
         # Дополнительная информация
         msg += f"📊 ATR: {signal.atr:.{price_decimals}f} | "
         msg += f"Confidence: {signal.confidence:.0f}% | "
@@ -395,10 +398,10 @@ class UnifiedSignalFormatter:
         return msg
 
     @staticmethod
-    def _build_mix_dict(signal: Signal, confirmations: Sequence[str]) -> Dict[str, float]:
+    def _build_mix_dict(signal: Signal, confirmations: Sequence[str]) -> dict[str, float]:
         import math
         indicators = signal.indicators or {}
-        mix: Dict[str, float] = {}
+        mix: dict[str, float] = {}
 
         # 1. p_delta
         if "p_delta" in indicators:
@@ -419,10 +422,10 @@ class UnifiedSignalFormatter:
             z = UnifiedSignalFormatter._safe_float(indicators.get("z_delta"))
             if math.isnan(z):
                 z = UnifiedSignalFormatter._safe_float(indicators.get("delta_z"))
-            
+
             if not math.isnan(z):
                 mix["p_speed"] = round(UnifiedSignalFormatter._clamp01(abs(z) / 6.0), 2)
-        
+
         # 3. p_cluster (OBI)
         if "p_cluster" in indicators:
              mix["p_cluster"] = round(abs(float(indicators["p_cluster"])), 2)
@@ -441,7 +444,7 @@ class UnifiedSignalFormatter:
             if weak is not None and weak not in (False, True):
                  # Weak progress count (typ. 20..100)
                 mix["p_legacy"] = round(min(0.99, abs(float(weak)) / 100.0), 2)
-        
+
         # Keep legacy fields if needed
         z_legacy = UnifiedSignalFormatter._safe_float(indicators.get("z_delta"))
         if not math.isnan(z_legacy):
@@ -462,9 +465,9 @@ class UnifiedSignalFormatter:
         return mix
 
     @staticmethod
-    def _extract_confirmations(signal: Signal) -> List[str]:
+    def _extract_confirmations(signal: Signal) -> list[str]:
         indicators = signal.indicators or {}
-        confirmations: List[str] = []
+        confirmations: list[str] = []
         if "obi" in indicators and abs(float(indicators["obi"])) > 0.4:
             confirmations.append(f"obi={float(indicators['obi']):.2f}")
         if "weak_progress" in indicators and abs(float(indicators["weak_progress"])) > 20:
@@ -472,16 +475,16 @@ class UnifiedSignalFormatter:
         return confirmations
 
     @staticmethod
-    def _reason_to_confirmation(reason: Optional[str]) -> Optional[str]:
+    def _reason_to_confirmation(reason: str | None) -> str | None:
         if not reason:
             return None
-        clean = " ".join(str(reason).strip().split())
+        clean = " ".join(reason.strip().split())
         if not clean:
             return None
         return f"reason={clean}"
-    
+
     @staticmethod
-    def format_audit_payload(signal: Signal, extra_context: Optional[Dict] = None) -> Dict[str, Any]:
+    def format_audit_payload(signal: Signal, extra_context: dict | None = None) -> dict[str, Any]:
         """
         Формирует полный payload для audit stream (обучение ML моделей).
         
@@ -493,19 +496,19 @@ class UnifiedSignalFormatter:
             Полный словарь для аудита
         """
         audit = asdict(signal)
-        
+
         # Добавляем дополнительный контекст
         if extra_context:
             audit["extra_context"] = extra_context
-        
+
         # Timestamp в human-readable формате (UTC)
         from core.utc_utils import utc_from_timestamp_ms
         audit["ts_human"] = utc_from_timestamp_ms(signal.ts).isoformat()
-        
+
         return audit
-    
+
     @staticmethod
-    def format_order_push_payload(signal: Signal) -> Dict[str, Any]:
+    def format_order_push_payload(signal: Signal) -> dict[str, Any]:
         """
         Формирует payload для /orders/push endpoint (go-gateway или MT5).
         
@@ -532,9 +535,9 @@ class UnifiedSignalFormatter:
                 "indicators": signal.indicators
             }
         }
-    
+
     @staticmethod
-    def parse_from_redis(fields: Dict[str, str]) -> Signal:
+    def parse_from_redis(fields: dict[str, str]) -> Signal:
         """
         Парсит Signal из Redis stream fields.
         
@@ -549,8 +552,8 @@ class UnifiedSignalFormatter:
         """
         # Парсим TP levels
         tp_levels_str = fields.get("tp_levels", "")
-        tp_levels = [float(tp) for tp in tp_levels_str.split(",")] if tp_levels_str else []
-        
+        tp_levels = [tp for tp in tp_levels_str.split(",")] if tp_levels_str else []
+
         # Парсим indicators
         indicators = {}
         for key, value in fields.items():
@@ -562,7 +565,7 @@ class UnifiedSignalFormatter:
                 except ValueError:
                     # Если не получается - оставляем как строку
                     indicators[indicator_name] = value
-        
+
         # Парсим metadata
         metadata = {}
         for key, value in fields.items():
@@ -572,7 +575,7 @@ class UnifiedSignalFormatter:
                     metadata[meta_key] = float(value)
                 except ValueError:
                     metadata[meta_key] = value
-        
+
         return Signal(
             sid=fields.get("sid", ""),
             symbol=fields.get("symbol", ""),
@@ -600,15 +603,15 @@ def create_signal(
     side: str,
     entry: float,
     sl: float,
-    tp_levels: List[float],
+    tp_levels: list[float],
     lot: float,
     source: str,
     reason: str,
     confidence: float,
     atr: float,
-    ts: Optional[int] = None,
-    indicators: Optional[Dict[str, Any]] = None,
-    signal_settings: Optional[Dict[str, Any]] = None,
+    ts: int | None = None,
+    indicators: dict[str, Any] | None = None,
+    signal_settings: dict[str, Any] | None = None,
     entry_tag: str = ""
 ) -> Signal:
     """
@@ -634,12 +637,12 @@ def create_signal(
     """
     if ts is None:
         ts = get_ny_time_millis()
-    
+
     if indicators is None:
         indicators = {}
-    
+
     sid = UnifiedSignalFormatter.create_signal_id(symbol, side, entry, ts)
-    
+
     return Signal(
         sid=sid,
         symbol=symbol,

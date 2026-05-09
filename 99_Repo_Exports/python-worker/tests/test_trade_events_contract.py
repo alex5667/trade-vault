@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Unit-тесты контракта POSITION_CLOSED (A3).
 
 Покрывают:
@@ -11,24 +11,17 @@ from __future__ import annotations
   pytest python-worker/services/posttrade/test_trade_events_contract.py -v
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import hashlib
-import time
-from typing import Any, Dict
-
-import pytest
+from typing import Any
 
 from services.posttrade.trade_events_contract import (
     _HEAVY_FIELDS,
-    _MIN_EPOCH_MS,
-    _make_event_id,
     _safe_int_ms,
     normalize_position_closed_event,
     strip_heavy_fields,
     validate_position_closed_event,
 )
-
+from utils.time_utils import get_ny_time_millis
 
 # --------------------------------------------------------------------------- #
 # Helpers / fixtures
@@ -41,9 +34,9 @@ def _sha1(s: str) -> str:
     return hashlib.sha1(s.encode()).hexdigest()
 
 
-def _valid_event(**overrides: Any) -> Dict[str, Any]:
+def _valid_event(**overrides: Any) -> dict[str, Any]:
     """Минимально валидный нормализованный payload (V2: all required fields present)."""
-    base: Dict[str, Any] = {
+    base: dict[str, Any] = {
         "event_type": "POSITION_CLOSED",
         "sid": "sid-abc-123",
         "ts": str(NOW_MS),
@@ -72,7 +65,7 @@ def _valid_event(**overrides: Any) -> Dict[str, Any]:
 
 class TestStripHeavyFields:
     def test_strips_all_heavy(self):
-        evt = {k: "x" for k in _HEAVY_FIELDS}
+        evt = dict.fromkeys(_HEAVY_FIELDS, "x")
         evt["sid"] = "ok"
         result = strip_heavy_fields(evt)
         assert "sid" in result
@@ -313,7 +306,7 @@ class TestValidatePositionClosedEvent:
 
     def test_multiple_errors_collected(self):
         """Все ошибки собираются, не fail fast."""
-        evt: Dict[str, Any] = {}  # completely empty
+        evt: dict[str, Any] = {}  # completely empty
         ok, errs = validate_position_closed_event(evt)
         assert not ok
         assert len(errs) >= 3  # sid, ts, exit_ts_ms, event_id, price, side...

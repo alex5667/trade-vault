@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
 
@@ -10,7 +10,7 @@ class RedisSpy:
     def __init__(self) -> None:
         self.calls = 0
 
-    def hgetall(self, key: str) -> Dict[str, Any]:
+    def hgetall(self, key: str) -> dict[str, Any]:
         self.calls += 1
         # even if it returns something, the function must NOT use EMA when ts invalid
         return {"ema": "1.0", "samples": "999"}

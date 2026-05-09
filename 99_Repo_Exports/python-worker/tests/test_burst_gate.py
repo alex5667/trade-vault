@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from core.burst_gate import BurstCandidateSelector, BurstCandidate
+from core.burst_gate import BurstCandidate, BurstCandidateSelector
 
 
 def test_burst_selects_best_and_flushes():

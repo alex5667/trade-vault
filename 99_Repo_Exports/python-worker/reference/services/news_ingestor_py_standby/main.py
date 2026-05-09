@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import os
 import logging
+import os
 
 # Setup logging
 logging.basicConfig(
@@ -10,6 +10,7 @@ logging.basicConfig(
 
 # Import and run standby ingestor
 from news_pipeline.standby_ingestor import run
+
 
 def get_redis():
     """Get Redis client - reuse your existing pattern"""
@@ -21,9 +22,10 @@ def get_redis():
     redis.connection.Connection.lib_version = None
 
     # Ждем готовности Redis
-    import redis
-    import time
     import logging
+    import time
+
+    import redis
 
     max_retries = 60  # 10 минут при 10сек задержке
     retry_count = 0

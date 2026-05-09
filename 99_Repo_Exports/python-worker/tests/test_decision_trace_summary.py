@@ -1,5 +1,6 @@
 from common.decision_trace import make_trace_summary
 
+
 def test_make_trace_summary_empty():
     s = make_trace_summary({"trace_id": "t1", "sid": "s1", "events": []})
     assert s == "trace:empty"

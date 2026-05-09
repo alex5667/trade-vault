@@ -18,7 +18,7 @@ import json
 import math
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 SCHEMA_VERSION = 1
 DEFAULT_CTX_PREFIX = "ctx:provider:"
@@ -73,10 +73,10 @@ def _i(v: Any, d: int = 0) -> int:
 # ─── Deserialisation ──────────────────────────────────────────────────────────
 
 def ctx_key(symbol: str, prefix: str = DEFAULT_CTX_PREFIX) -> str:
-    return f"{prefix}{str(symbol or '').upper()}"
+    return f"{prefix}{(symbol or '').upper()}"
 
 
-def from_dict(payload: Dict[str, Any]) -> Optional[ProviderContextSnapshot]:
+def from_dict(payload: dict[str, Any]) -> ProviderContextSnapshot | None:
     try:
         symbol = _s(payload.get("symbol")).upper()
         if not symbol:
@@ -103,7 +103,7 @@ def from_dict(payload: Dict[str, Any]) -> Optional[ProviderContextSnapshot]:
         return None
 
 
-def from_json(raw: Any) -> Optional[ProviderContextSnapshot]:
+def from_json(raw: Any) -> ProviderContextSnapshot | None:
     try:
         if raw is None:
             return None
@@ -120,7 +120,7 @@ def from_json(raw: Any) -> Optional[ProviderContextSnapshot]:
 
 # ─── Async reader with 5-second local cache — fail-open ──────────────────────
 
-_LOCAL_CACHE: Dict[str, Tuple[int, Optional[ProviderContextSnapshot]]] = {}
+_LOCAL_CACHE: dict[str, tuple[int, ProviderContextSnapshot | None]] = {}
 
 
 def _now_ms() -> int:
@@ -132,7 +132,7 @@ async def aread_provider_context(
     *,
     symbol: str,
     prefix: str = DEFAULT_CTX_PREFIX,
-) -> Optional[ProviderContextSnapshot]:
+) -> ProviderContextSnapshot | None:
     """Read provider context from Redis with 5-second local cache.
 
     Fail-open: returns None on Redis errors, parse errors, or missing key.

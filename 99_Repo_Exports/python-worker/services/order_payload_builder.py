@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Dict, Any
+from typing import Any
 
 
-def build_order_payload(signal: Dict[str, Any]) -> Dict[str, Any]:
+def build_order_payload(signal: dict[str, Any]) -> dict[str, Any]:
     meta = signal.get("meta", {}) if isinstance(signal.get("meta"), dict) else {}
     prov = meta.get("policy_provenance", {}) if isinstance(meta.get("policy_provenance"), dict) else {}
 
-    policy_tag = str(prov.get("policy_tag") or "")
+    policy_tag = (prov.get("policy_tag") or "")
     comment_suffix = f":pol={policy_tag}" if policy_tag else ""
 
     return {

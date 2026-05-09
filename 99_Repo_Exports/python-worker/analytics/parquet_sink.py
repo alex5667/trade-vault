@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Parquet Sink - Универсальный писатель тайлов в Parquet.
 
@@ -16,10 +17,10 @@ Layout:
 """
 
 import os
-import time
 import pathlib
+import time
 import uuid
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -52,7 +53,7 @@ class ParquetSink:
     Где kind: 'signals', 'orders', 'events', etc.
     """
 
-    def __init__(self, base_dir: Optional[str] = None):
+    def __init__(self, base_dir: str | None = None):
         """
         Инициализация Parquet Sink.
         
@@ -110,9 +111,9 @@ class ParquetSink:
     def write_records(
         self,
         kind: str,
-        rows: List[Dict[str, Any]],
+        rows: list[dict[str, Any]],
         ts_field: str = "ts",
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Запись батча записей в Parquet файл.
         
@@ -160,10 +161,10 @@ class ParquetSink:
     def write_batch(
         self,
         kind: str,
-        batch: List[Dict[str, Any]],
+        batch: list[dict[str, Any]],
         ts_field: str = "ts",
         batch_size: int = 1000
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Запись большого батча с разбиением на файлы.
         
@@ -194,7 +195,7 @@ class ParquetSink:
 
         return files
 
-    def get_tile_stats(self) -> Dict[str, Any]:
+    def get_tile_stats(self) -> dict[str, Any]:
         """Получение статистики по тайлам"""
         stats = {
             "base_dir": self.base_dir,

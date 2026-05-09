@@ -1,5 +1,5 @@
-import pytest
-from services.entry_policy_ab_gate import regime_group, decide_active_arm, norm_arm
+from services.entry_policy_ab_gate import decide_active_arm, norm_arm, regime_group
+
 
 def test_regime_group():
     assert regime_group("thin") == "thin"

@@ -1,14 +1,16 @@
 # cache_service.py
 from __future__ import annotations
+
 """
 Функционал кеширования и хранения, извлеченный из base_orderflow_handler.py
 """
 
-from utils.time_utils import get_ny_time_millis
-
-from typing import Optional, Dict, Any
 import time
 from datetime import datetime
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+
 
 # from common.log import setup_logger
 def setup_logger(name):
@@ -29,7 +31,7 @@ class CacheService:
         # Ключи кеша (единый владелец пивотов для символа)
         self._pivot_bundle_key = f"pivots:{symbol}"  # bundle: {"ts_ms","date","hlc","pivots"}
         self._atr_cache_key = f"atr:{symbol}"        # unchanged
-        
+
         self._last_hlc_warning_ts = 0.0
 
     def _utc_date_str(self, ts_ms: int) -> str:
@@ -69,7 +71,7 @@ class CacheService:
             return now
         return v
 
-    def _decode_redis_str(self, raw: Any) -> Optional[str]:
+    def _decode_redis_str(self, raw: Any) -> str | None:
         if raw is None:
             return None
         if isinstance(raw, bytes):
@@ -78,7 +80,7 @@ class CacheService:
             return raw
         return str(raw)
 
-    def _build_pivots_bundle(self, *, ts_ms: int, hlc: Dict[str, float]) -> Dict[str, Any]:
+    def _build_pivots_bundle(self, *, ts_ms: int, hlc: dict[str, float]) -> dict[str, Any]:
         pivots = self._compute_pivots(hlc)
         return {
             "ts_ms": int(ts_ms),
@@ -87,7 +89,7 @@ class CacheService:
             "pivots": pivots,
         }
 
-    def _json_load(self, raw: Any) -> Optional[Dict[str, Any]]:
+    def _json_load(self, raw: Any) -> dict[str, Any] | None:
         """
         Надежный загрузчик JSON для Redis GET пейлоадов.
         Поддерживает: bytes/str/dict. Возвращает dict или None при ошибке.
@@ -114,7 +116,7 @@ class CacheService:
         # Неизвестный тип
         return None
 
-    def _unwrap_pivots_payload(self, payload: Dict[str, Any]) -> Dict[str, float]:
+    def _unwrap_pivots_payload(self, payload: dict[str, Any]) -> dict[str, float]:
         """
         Обратная совместимость:
           - new format: {"ts_ms":..., "pivots": {...}}
@@ -122,12 +124,10 @@ class CacheService:
         """
         if isinstance(payload.get("pivots"), dict):
             payload = payload["pivots"]
-        out: Dict[str, float] = {}
+        out: dict[str, float] = {}
         for k, v in (payload or {}).items():
             try:
-                if isinstance(v, (int, float)):
-                    out[k] = float(v)
-                elif isinstance(v, str) and v.strip() != "":
+                if isinstance(v, (int, float)) or isinstance(v, str) and v.strip() != "":
                     out[k] = float(v)
             except Exception:
                 continue
@@ -154,7 +154,7 @@ class CacheService:
 
             import json
             bundle = self._build_pivots_bundle(
-                ts_ms=int(ts_ms), 
+                ts_ms=int(ts_ms),
                 hlc={"high": high, "low": low, "close": close}
             )
 
@@ -164,7 +164,7 @@ class CacheService:
         except Exception as e:
             self.logger.warning(f"Failed to update pivots: {e}")
 
-    def _compute_pivots(self, hlc: Dict[str, float]) -> Dict[str, float]:
+    def _compute_pivots(self, hlc: dict[str, float]) -> dict[str, float]:
         high = float(hlc.get("high", 0.0) or 0.0)
         low = float(hlc.get("low", 0.0) or 0.0)
         close = float(hlc.get("close", 0.0) or 0.0)
@@ -187,7 +187,7 @@ class CacheService:
             "close": close,
         }
 
-    def _load_yesterday_hlc(self) -> Optional[Dict[str, float]]:
+    def _load_yesterday_hlc(self) -> dict[str, float] | None:
         """Load yesterday's HLC from storage."""
         try:
             keys = [
@@ -210,21 +210,21 @@ class CacheService:
         try:
             from services.persistence_manager import get_persistence_manager
             pm = get_persistence_manager()
-            
+
             # Use synchronous method
             data = pm.get_latest_daily_ohlc_sync(self.symbol)
-            
+
             if data:
                 self.logger.info(f"Restored yesterday_hlc from Postgres for {self.symbol}: {data['date']}")
-                
+
                 # Restore to Redis to avoid repeated DB hits
                 # Use standard key
                 key = f"yesterday_hlc:{self.symbol}"
-                
+
                 import json
                 # Ensure it's JSON serialization compliant (get_latest_daily_ohlc_sync returns dict with floats/strs)
                 self.redis.setex(key, 172800, json.dumps(data))
-                
+
                 return data
 
         except Exception as e:
@@ -233,7 +233,7 @@ class CacheService:
 
         return None
 
-    def _calculate_hlc_from_ticks(self) -> Dict[str, float]:
+    def _calculate_hlc_from_ticks(self) -> dict[str, float]:
         """Расчет HLC из тиков (заглушка - возвращает нулевые значения)."""
         return {
             'high': 0.0,
@@ -241,7 +241,7 @@ class CacheService:
             'close': 0.0,
         }
 
-    def _get_default_hlc(self) -> Dict[str, float]:
+    def _get_default_hlc(self) -> dict[str, float]:
         """Получение дефолтного HLC, когда данных нет."""
         # Заглушечные дефолтные значения
         return {
@@ -250,7 +250,7 @@ class CacheService:
             'close': 1.0,
         }
 
-    def _nearest_pivot_key(self, price: float, pivots: Dict[str, float]) -> str:
+    def _nearest_pivot_key(self, price: float, pivots: dict[str, float]) -> str:
         """Поиск ключа ближайшего уровня пивота."""
         if not pivots or price <= 0:
             return "none"
@@ -267,7 +267,7 @@ class CacheService:
 
         return nearest_key
 
-    def _breakout_cross_info(self, price: float, up: bool, pivots: Dict[str, float]) -> Optional[str]:
+    def _breakout_cross_info(self, price: float, up: bool, pivots: dict[str, float]) -> str | None:
         """Получение информации о пробое/пересечении пивотов."""
         if not pivots:
             return None
@@ -277,9 +277,7 @@ class CacheService:
 
         for level_name, level_price in pivots.items():
             if isinstance(level_price, (int, float)):
-                if up and price > level_price:
-                    return f"{direction}_break_{level_name}"
-                elif not up and price < level_price:
+                if up and price > level_price or not up and price < level_price:
                     return f"{direction}_break_{level_name}"
 
         return None
@@ -295,14 +293,14 @@ class CacheService:
                 self._update_pivots(ts_ms)
                 return
 
-            cached_date = str(bundle.get("date") or "")
+            cached_date = (bundle.get("date") or "")
             today = self._utc_date_str(ts_ms)
             if cached_date != today:
                 self._update_pivots(ts_ms)
         except Exception as e:
             self.logger.warning("ensure_pivots_bundle failed: %s", e)
 
-    def get_pivots_bundle(self) -> Optional[Dict[str, Any]]:
+    def get_pivots_bundle(self) -> dict[str, Any] | None:
         """Получение закешированного бандла пивотов: {"ts_ms","date","hlc","pivots"}."""
         try:
             obj = self._json_load(self.redis.get(self._pivot_bundle_key))
@@ -311,7 +309,7 @@ class CacheService:
             self.logger.warning("Failed to get pivots bundle: %s", e)
             return None
 
-    def get_pivots(self) -> Optional[Dict[str, float]]:
+    def get_pivots(self) -> dict[str, float] | None:
         """Обратная совместимость: возврат только dict пивотов."""
         b = self.get_pivots_bundle()
         if not b:

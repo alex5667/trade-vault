@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
+
 from news_pipeline.standby_ingestor import LeaderLock
+
 
 def test_leader_lock_try_acquire_calls_set_nx_px():
     r = MagicMock()

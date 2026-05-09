@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Concurrency utilities for OFConfirm engine build.
 
@@ -12,10 +13,11 @@ Migrated from ml_confirm_gate_old.py to the new ml_confirm_gate package.
 
 import asyncio
 import concurrent.futures
-import os
-from typing import Any, Callable, Optional, Tuple
-
 import logging
+import os
+from collections.abc import Callable
+from typing import Any
+import contextlib
 
 logger = logging.getLogger("ml_confirm_gate.concurrency")
 
@@ -25,8 +27,8 @@ logger = logging.getLogger("ml_confirm_gate.concurrency")
 # Max workers default=2: handles burst of 2 simultaneous signal evals;
 # configure via ML_CONFIRM_THREADS without rebuild.
 # ──────────────────────────────────────────────────────────────────────────────
-_ML_INFER_EXECUTOR: Optional[concurrent.futures.ThreadPoolExecutor] = None
-_OF_BUILD_SEMAPHORE: Optional[asyncio.Semaphore] = None
+_ML_INFER_EXECUTOR: concurrent.futures.ThreadPoolExecutor | None = None
+_OF_BUILD_SEMAPHORE: asyncio.Semaphore | None = None
 
 
 def _get_of_build_slots() -> int:
@@ -59,8 +61,8 @@ async def run_bounded_of_build(
     fn: Callable[[], Any],
     *,
     timeout_s: float,
-    acquire_timeout_s: Optional[float] = None,
-) -> Tuple[Any, Optional[str]]:
+    acquire_timeout_s: float | None = None,
+) -> tuple[Any, str | None]:
     """Run OF build in the shared executor without allowing unbounded backlog.
 
     Returns (result, error_reason). If error_reason is not None, result is None.
@@ -87,17 +89,13 @@ async def run_bounded_of_build(
 
     try:
         await asyncio.wait_for(semaphore.acquire(), timeout=acquire_timeout)
-    except asyncio.TimeoutError:
-        try:
+    except TimeoutError:
+        with contextlib.suppress(Exception):
             of_confirm_build_rejected_total.labels(symbol=symbol, tf=tf, reason="executor_busy").inc()
-        except Exception:
-            pass
         return None, "executor_busy"
 
-    try:
+    with contextlib.suppress(Exception):
         of_confirm_build_inflight.set(float(_get_of_build_slots() - semaphore._value))
-    except Exception:
-        pass
 
     loop = asyncio.get_running_loop()
     future = loop.run_in_executor(_get_ml_executor(), fn)
@@ -108,14 +106,10 @@ async def run_bounded_of_build(
         if released:
             return
         released = True
-        try:
+        with contextlib.suppress(Exception):
             semaphore.release()
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             of_confirm_build_inflight.set(float(_get_of_build_slots() - semaphore._value))
-        except Exception:
-            pass
 
     future.add_done_callback(_release_slot)
 
@@ -123,11 +117,9 @@ async def run_bounded_of_build(
         result = await asyncio.wait_for(asyncio.shield(future), timeout=timeout_s)
         _release_slot()
         return result, None
-    except asyncio.TimeoutError:
-        try:
+    except TimeoutError:
+        with contextlib.suppress(Exception):
             of_confirm_build_timeout_total.labels(symbol=symbol, tf=tf).inc()
-        except Exception:
-            pass
         return None, "timeout"
 
 
@@ -145,13 +137,12 @@ def _shutdown_ml_executor() -> None:
     """
     global _ML_INFER_EXECUTOR
     if _ML_INFER_EXECUTOR is not None:
-        try:
+        with contextlib.suppress(Exception):
             _ML_INFER_EXECUTOR.shutdown(wait=False)
-        except Exception:
-            pass
         _ML_INFER_EXECUTOR = None
 
 
 # Register graceful shutdown to prevent thread leak on process exit
 import atexit as _atexit
+
 _atexit.register(_shutdown_ml_executor)

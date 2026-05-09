@@ -1,7 +1,7 @@
-from pathlib import Path
 import importlib.util
 import json
 import sys
+from pathlib import Path
 
 mod_path = Path(__file__).parent.parent / 'binance_executor.py'
 spec = importlib.util.spec_from_file_location('binance_executor_p104', mod_path)

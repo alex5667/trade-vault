@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Pure unit tests for signal_quality.offline_job — no DB required.
 
@@ -10,12 +11,11 @@ import pytest
 
 from signal_quality.offline_job import (
     ALPHA,
-    MIN_N,
     LOOKBACK_DAYS,
+    MIN_N,
     _var_cvar,
     compute_quality_score,  # re-exported from stdlib statistics
 )
-
 
 # ──────────────────────────────────────────────
 # _var_cvar

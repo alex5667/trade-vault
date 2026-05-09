@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Optional, Tuple
 import json
 import os
 import time
+from dataclasses import dataclass
+from typing import Any
 
 from .isotonic import IsotonicCalibrator
 
@@ -18,7 +18,7 @@ def _safe_int(x: Any, default: int = 0) -> int:
         v = int(x)
         return v
     except Exception:
-        return int(default)
+        return default
 
 
 @dataclass(frozen=True)
@@ -44,7 +44,7 @@ class CalibStore:
     """
 
     def __init__(self, path: str, *, min_samples: int = 300, reload_sec: float = 5.0) -> None:
-        self.path = str(path or "")
+        self.path = (path or "")
         self.min_samples = int(min_samples)
         self.reload_sec = float(reload_sec)
 
@@ -59,7 +59,7 @@ class CalibStore:
         try:
             st = os.stat(self.path)
             mtime = float(st.st_mtime)
-            with open(self.path, "r", encoding="utf-8") as f:
+            with open(self.path, encoding="utf-8") as f:
                 obj = json.load(f)
             raw_groups = (obj or {}).get("groups", {}) or {}
 
@@ -73,7 +73,7 @@ class CalibStore:
                 n = _safe_int(vv.get("n", 10**9), 10**9)  # если нет n -> считаем "достаточно"
                 if n < self.min_samples:
                     continue
-                cal = IsotonicCalibrator(x=x, p=p, mode=str(vv.get("mode", "linear") or "linear"))
+                cal = IsotonicCalibrator(x=x, p=p, mode=(vv.get("mode", "linear") or "linear"))
                 if not cal.x or not cal.p:
                     continue
                 out[str(key)] = CalibGroup(cal=cal, n=int(n))
@@ -101,7 +101,7 @@ class CalibStore:
             # fail-open
             return
 
-    def get_group(self, *, kind: str, symbol: str, side: str) -> Optional[Tuple[IsotonicCalibrator, int]]:
+    def get_group(self, *, kind: str, symbol: str, side: str) -> tuple[IsotonicCalibrator, int] | None:
         """
         Возвращает (calibrator, n) или None.
 
@@ -120,9 +120,9 @@ class CalibStore:
           - kind+*
           - *+symbol
         """
-        k = str(kind or "*")
-        s = str(symbol or "*")
-        sd = str(side or "*")
+        k = (kind or "*")
+        s = (symbol or "*")
+        sd = (side or "*")
 
         keys = [
             f"kind:{k}|symbol:{s}|side:{sd}",
@@ -144,7 +144,7 @@ class CalibStore:
                 return (g.cal, int(g.n))
         return None
 
-    def get(self, *, kind: str, symbol: str) -> Optional[IsotonicCalibrator]:
+    def get(self, *, kind: str, symbol: str) -> IsotonicCalibrator | None:
         # legacy API: без side
         gg = self.get_group(kind=kind, symbol=symbol, side="*")
         return gg[0] if gg else None

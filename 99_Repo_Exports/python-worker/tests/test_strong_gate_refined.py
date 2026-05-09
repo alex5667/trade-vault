@@ -1,14 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
-
-import time
-import pytest
-from unittest.mock import patch
-from services.crypto_orderflow_service import CryptoOrderflowService
-from services.orderflow.runtime import SymbolRuntime
-from services.orderflow.configuration import DEFAULT_CONFIG
 
 import os
+from unittest.mock import patch
+
+from services.crypto_orderflow_service import CryptoOrderflowService
+from services.orderflow.configuration import DEFAULT_CONFIG
+from services.orderflow.runtime import SymbolRuntime
+from utils.time_utils import get_ny_time_millis
+
 
 # Mock classes for testing
 class MicroStructureSpikeDetector:
@@ -42,7 +41,8 @@ class MockDecision:
         self.ok = ok
         self.a, self.b, self.c = True, False, False
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
+
 
 class MockSweep:
     ts_ms = get_ny_time_millis()
@@ -59,7 +59,7 @@ def test_strong_gate_staleness_veto():
     os.environ["CRYPTO_SIGNAL_MIN_CONF"] = "0"
     service = CryptoOrderflowService(redis_dsn="redis://m", ticks_dsn="redis://t")
     service.logger = MagicMock()
-    
+
     now_ms = get_ny_time_millis()
     runtime = SymbolRuntime(symbol="BTCUSDT", config=DEFAULT_CONFIG.copy())
     runtime.delta_detector = MockDeltaDetector()
@@ -69,13 +69,13 @@ def test_strong_gate_staleness_veto():
     runtime.last_wp = MockWeakProgress()
     runtime.last_sweep = MockSweep()
     runtime.last_sweep.ts_ms = now_ms - 100 # FRESH
-    
+
     runtime.config["require_strong_confirmation"] = True
     runtime.config["obi_event_ttl_ms"] = 1000  # 1s TTL
     runtime.config["signal_min_conf"] = 0     # Ensure emission
     runtime.config["min_confirmations"] = 0   # Bypass gate
     runtime.config["delta_abs_min_confirm"] = 0.0
-    
+
     # STALE EVENT (1.5s old, TTL 1s)
     runtime.last_obi_event = {
         "ts_ms": now_ms - 1500,
@@ -83,9 +83,9 @@ def test_strong_gate_staleness_veto():
         "obi": 0.5,
         "stable_secs": 10.0  # High but stale
     }
-    
+
     tick = {"symbol": "BTCUSDT", "ts": now_ms, "price": 50000.0, "qty": 1.0, "side": "buy"}
-    
+
     # Mock engine
     mock_ofc = MagicMock()
     mock_ofc.ok = 1
@@ -97,12 +97,12 @@ def test_strong_gate_staleness_veto():
 
     with patch.object(service.of_engine, 'build', return_value=(mock_ofc, MagicMock())) as mock_build:
         res = service._handle_tick(runtime, tick)
-        
+
         assert mock_build.called
         assert res is not None
         # Verify that indicators recorded the age correctly (computed in engine but indicators passed in)
         # Note: In real run engine updates indicators. Here we mocked build.
-        # But wait, we want to test if BUILD received correct flags? 
+        # But wait, we want to test if BUILD received correct flags?
         # Actually, let's let the REAL engine run in these tests, but mock its dependencies?
         # No, better to mock build and check what it was called with.
         args, kwargs = mock_build.call_args
@@ -114,7 +114,7 @@ def test_iceberg_distance_veto():
     """Verify that iceberg_strict is False if price distance exceeds dist_bp."""
     service = CryptoOrderflowService(redis_dsn="redis://m", ticks_dsn="redis://t")
     service.logger = MagicMock()
-    
+
     now_ms = get_ny_time_millis()
     runtime = SymbolRuntime(symbol="BTCUSDT", config=DEFAULT_CONFIG.copy())
     runtime.delta_detector = MockDeltaDetector()
@@ -124,7 +124,7 @@ def test_iceberg_distance_veto():
     runtime.last_wp = MockWeakProgress()
     runtime.last_sweep = MockSweep()
     runtime.last_sweep.ts_ms = now_ms - 100 # FRESH
-    
+
     runtime.config["require_strong_confirmation"] = True
     runtime.config["iceberg_strict_refresh_min"] = 1
     runtime.config["iceberg_strict_duration_min"] = 1.0
@@ -132,7 +132,7 @@ def test_iceberg_distance_veto():
     runtime.config["signal_min_conf"] = 0
     runtime.config["min_confirmations"] = 0
     runtime.config["delta_abs_min_confirm"] = 0.0
-    
+
     # Price is 50000. Iceberg at 51000 (~200bp away)
     runtime.last_iceberg_event = {
         "ts_ms": now_ms - 100,
@@ -141,9 +141,9 @@ def test_iceberg_distance_veto():
         "duration": 5.0,
         "price": 51000.0
     }
-    
+
     tick = {"symbol": "BTCUSDT", "ts": now_ms, "price": 50000.0, "qty": 1.0, "side": "buy"}
-    
+
     # Mock engine
     mock_ofc = MagicMock()
     mock_ofc.ok = 1
@@ -153,7 +153,7 @@ def test_iceberg_distance_veto():
 
     with patch.object(service.of_engine, 'build', return_value=(mock_ofc, MagicMock())) as mock_build:
         res = service._handle_tick(runtime, tick)
-        
+
         assert mock_build.called
         assert res is not None
 
@@ -161,7 +161,7 @@ def test_indicators_propagation():
     """Verify that OBI analytical indicators (z, stacking) are propagated correctly."""
     service = CryptoOrderflowService(redis_dsn="redis://m", ticks_dsn="redis://t")
     service.logger = MagicMock()
-    
+
     runtime = SymbolRuntime(symbol="BTCUSDT", config=DEFAULT_CONFIG.copy())
     runtime.delta_detector = MockDeltaDetector()
     runtime.obi_detector = MockOBIDetector()
@@ -169,12 +169,12 @@ def test_indicators_propagation():
     runtime.microbar = MockMicroBar()
     runtime.last_wp = MockWeakProgress()
     runtime.last_div = MockDiv("bullish_hidden") # TRIGGER CONTINUATION PATH
-    
+
     runtime.config["require_strong_confirmation"] = True
     runtime.config["signal_min_conf"] = 0
     runtime.config["min_confirmations"] = 0
     runtime.config["delta_abs_min_confirm"] = 0.0
-    
+
     now_ms = get_ny_time_millis()
     runtime.last_obi_event = {
         "ts_ms": now_ms - 100,
@@ -185,9 +185,9 @@ def test_indicators_propagation():
         "stacking": 0.8,
         "concentration": 0.9
     }
-    
+
     tick = {"symbol": "BTCUSDT", "ts": now_ms, "price": 50000.0, "qty": 1.0, "side": "buy"}
-    
+
     # Mock engine
     mock_ofc = MagicMock()
     mock_ofc.ok = 1
@@ -200,13 +200,13 @@ def test_indicators_propagation():
     # Let's use a side effect to simulate the engine's behavior of calling compute_obi_flags.
     def mock_build_side_effect(*args, **kwargs):
         from core.book_evidence import compute_obi_flags
-        compute_obi_flags(direction=kwargs['direction'], now_ts_ms=kwargs['tick_ts_ms'], 
+        compute_obi_flags(direction=kwargs['direction'], now_ts_ms=kwargs['tick_ts_ms'],
                          last_event=runtime.last_obi_event, cfg=kwargs['cfg'], indicators=kwargs['indicators'])
         return mock_ofc, MagicMock()
 
     with patch.object(service.of_engine, 'build', side_effect=mock_build_side_effect) as mock_build:
         res = service._handle_tick(runtime, tick)
-        
+
         assert res is not None
         inds = res["indicators"]
         assert inds["obi_z"] == 2.5

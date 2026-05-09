@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-import time
 import zlib
-from typing import Any, Dict, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     from .confidence_cal_metrics import (
@@ -54,11 +55,11 @@ async def _xadd_any(redis: Any, stream: str, payload_json: str, maxlen: int) -> 
 
 def schedule_conf_cal_decision_log(
     redis: Any,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     *,
-    stream: Optional[str] = None,
-    maxlen: Optional[int] = None,
-    sample_rate: Optional[float] = None,
+    stream: str | None = None,
+    maxlen: int | None = None,
+    sample_rate: float | None = None,
     symbol="",
     stage: str = "",
     served_arm: str = "",
@@ -72,14 +73,12 @@ def schedule_conf_cal_decision_log(
     ml = int(maxlen or DEFAULT_MAXLEN)
     rate = float(sample_rate if sample_rate is not None else DEFAULT_SAMPLE)
 
-    sid = str(payload.get("sid") or "")
+    sid = (payload.get("sid") or "")
     sample_key = sid or f"{payload.get('symbol','')}|{payload.get('ts_ms',0)}"
 
     if not deterministic_sample(sample_key, rate):
-        try:
+        with contextlib.suppress(Exception):
             inc_decision_log_sampled_out(symbol or payload.get("symbol", ""), stage or payload.get("stage", ""))
-        except Exception:
-            pass
         return False
 
     # Ensure minimal metadata
@@ -89,39 +88,31 @@ def schedule_conf_cal_decision_log(
     try:
         payload_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     except Exception:
-        try:
+        with contextlib.suppress(Exception):
             inc_decision_log_error(symbol, stage, err="json")
-        except Exception:
-            pass
         return False
 
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         # no loop => cannot schedule
-        try:
+        with contextlib.suppress(Exception):
             inc_decision_log_error(symbol, stage, err="no_loop")
-        except Exception:
-            pass
         return False
 
     async def _run() -> None:
         try:
             await _xadd_any(redis, s, payload_json, ml)
-            try:
+            with contextlib.suppress(Exception):
                 inc_decision_log(
                     symbol or payload.get("symbol", ""),
                     stage or payload.get("stage", ""),
                     served_arm or payload.get("served_arm", ""),
                     mode or payload.get("mode", ""),
                 )
-            except Exception:
-                pass
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 inc_decision_log_error(symbol or payload.get("symbol", ""), stage or payload.get("stage", ""), err="xadd")
-            except Exception:
-                pass
 
     loop.create_task(_run())
     return True

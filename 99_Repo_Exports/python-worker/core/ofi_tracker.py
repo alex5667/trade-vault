@@ -5,8 +5,7 @@ OFIStabilityTracker (Order Flow Imbalance) — L1 incremental flow.
 Modified to satisfy runtime.py and test_ofi_tracker.py expectations.
 """
 
-from dataclasses import dataclass, asdict
-from typing import Optional, Tuple
+from dataclasses import asdict, dataclass
 
 from core.robust_stats import RollingRobustZ
 
@@ -34,9 +33,9 @@ class OFIStabilityTracker:
         self.stats = RollingRobustZ(window=max(32, int(z_window)))
 
         self._dir: int = 0
-        self._dir_start_ts_ms: Optional[int] = None
-        self._last_ts_ms: Optional[int] = None
-        self._last_non_zero_ts_ms: Optional[int] = None
+        self._dir_start_ts_ms: int | None = None
+        self._last_ts_ms: int | None = None
+        self._last_non_zero_ts_ms: int | None = None
 
     def reset(self) -> None:
         self._dir = 0
@@ -79,7 +78,7 @@ class OFIStabilityTracker:
         deadband_abs: float = 0.0,
         deadband_frac_depth: float = 0.02,
         z_full: float = 3.0,
-    ) -> Tuple[float, float, float]:
+    ) -> tuple[float, float, float]:
         ts_ms = int(ts_ms)
         ofi = float(ofi or 0.0)
         depth_qty = float(depth_qty or 1.0)
@@ -91,7 +90,7 @@ class OFIStabilityTracker:
             except Exception:
                 ofi_z = 0.0
             return ofi_z, 0.0, 0.0
-        
+
         self._last_ts_ms = ts_ms
 
         # Robust stats

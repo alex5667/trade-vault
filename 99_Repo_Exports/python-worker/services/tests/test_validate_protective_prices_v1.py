@@ -12,9 +12,7 @@ Run from project root:
 """
 
 import math
-import types
-from unittest.mock import MagicMock, patch
-
+from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # Minimal stub – avoids Redis/API-key init in BinanceExecutor.__init__

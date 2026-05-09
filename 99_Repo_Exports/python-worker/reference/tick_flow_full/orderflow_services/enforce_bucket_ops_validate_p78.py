@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """enforce_bucket_ops_validate_p78.py
 
 P78: Preflight checks for Enforce-Bucket system (slippage QA + bucket-aware enforcement).
@@ -28,14 +29,12 @@ Notes:
   - Designed to be fast and fail-open for non-critical optional fields.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
-import os
-import sys
-import time
 import logging
-from typing import Any, Dict, List, Tuple
+import os
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis
@@ -62,13 +61,13 @@ def _now_ms() -> int:
 
 def _env_int(name: str, default: str) -> int:
     try:
-        return int(str(os.getenv(name, default)).strip())
+        return int(os.getenv(name, default).strip())
     except Exception:
-        return int(default)
+        return default
 
 
-def _env_list(name: str, default: str) -> List[str]:
-    raw = str(os.getenv(name, default) or "").strip()
+def _env_list(name: str, default: str) -> list[str]:
+    raw = (os.getenv(name, default) or "").strip()
     if not raw:
         return []
     parts = []
@@ -87,8 +86,8 @@ def _b2s(x: Any) -> str:
     return str(x)
 
 
-def _parse_last_of_gate(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _parse_last_of_gate(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         ks = _b2s(k)
         vs = v
@@ -128,7 +127,7 @@ def _redis_client(url: str):
     return redis.Redis.from_url(url, decode_responses=False)
 
 
-def _check_redis(redis_url: str, stream: str, min_events: int, require_fields: List[str]) -> Tuple[bool, str]:
+def _check_redis(redis_url: str, stream: str, min_events: int, require_fields: list[str]) -> tuple[bool, str]:
     r = _redis_client(redis_url)
     try:
         # Ping
@@ -160,7 +159,7 @@ def _check_redis(redis_url: str, stream: str, min_events: int, require_fields: L
     return True, "ok"
 
 
-def _check_db(dsn: str, view: str, lookback_h: int, min_rows: int) -> Tuple[bool, str]:
+def _check_db(dsn: str, view: str, lookback_h: int, min_rows: int) -> tuple[bool, str]:
     if psycopg2 is None:
         return False, "psycopg2_not_installed"
 
@@ -208,7 +207,7 @@ def main() -> int:
     lookback_h = _env_int("ENFORCE_PREFLIGHT_LOOKBACK_H", "24")
     min_rows = _env_int("ENFORCE_PREFLIGHT_MIN_DB_SAMPLES", "100")
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ts_ms": _now_ms(),
         "ok": False,
         "redis": {"ok": False},

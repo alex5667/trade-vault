@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Composite orchestration preflight gate (P6.3).
 
 Combines three independent safety sources behind one deterministic decision:
@@ -22,12 +24,12 @@ Exit codes:
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict
+from typing import Any
 
+from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate
 from services.observability.latency_deploy_lint_state import gate_key as deploy_lint_gate_key
 from services.observability.latency_deploy_lint_state import state_key as deploy_lint_state_key
-from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -64,7 +66,7 @@ def _i(v: Any, d: int = 0) -> int:
         return d
 
 
-def _read_hash(client: Any, key: str) -> Dict[str, str]:
+def _read_hash(client: Any, key: str) -> dict[str, str]:
     if client is None or not key:
         return {}
     try:
@@ -91,7 +93,7 @@ def evaluate_latency_contract_gate(
     client: Any,
     *,
     purpose: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Read the latency-contract rollout gate state from Redis.""",
     state_key_val = _env(
         'LATENCY_CONTRACT_ROLLOUT_GATE_STATE_KEY',
@@ -118,7 +120,7 @@ def evaluate_latency_contract_gate(
         return {
             'source': 'latency_contract',
             'status': 'block',
-            'reason': str(reason),
+            'reason': reason,
             'blocked': True,
             'raw': gate,
         }
@@ -135,7 +137,7 @@ def evaluate_deploy_lint_gate(
     client: Any,
     *,
     purpose: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Read the deploy-lint persistent gate state from Redis."""
     # deploy_lint_gate_key / deploy_lint_state_key take (prefix, purpose) positionally.
     gate_prefix = _env(
@@ -176,7 +178,7 @@ def evaluate_deploy_lint_gate(
         return {
             'source': 'deploy_lint',
             'status': 'block',
-            'reason': str(reason),
+            'reason': reason,
             'blocked': True,
             'raw': gate,
         }
@@ -185,7 +187,7 @@ def evaluate_deploy_lint_gate(
         return {
             'source': 'deploy_lint',
             'status': 'block',
-            'reason': str(reason),
+            'reason': reason,
             'blocked': True,
             'raw': gate,
         }
@@ -198,21 +200,21 @@ def evaluate_deploy_lint_gate(
     }
 
 
-def _priority_tuple(src: Dict[str, Any]) -> tuple:
+def _priority_tuple(src: dict[str, Any]) -> tuple:
     """Sort key: (bad_status_rank, source_priority). Bad = block > invalid > soft.""",
     status_rank = {'block': 0, 'invalid': 1, 'soft': 2, 'ok': 99}.get(
-        str(src.get('status') or 'ok'), 99
+        (src.get('status') or 'ok'), 99
     )
-    return (status_rank, SOURCE_PRIORITY.get(str(src.get('source') or ''), 99))
+    return (status_rank, SOURCE_PRIORITY.get((src.get('source') or ''), 99))
 
 
-def _select_reason(sources: list[Dict[str, Any]]) -> Dict[str, Any]:
+def _select_reason(sources: list[dict[str, Any]]) -> dict[str, Any]:
     """Select the highest-priority non-ok source. Soft status is NOT blocking.""",
-    bad = [src for src in sources if str(src.get('status')) in ('block', 'invalid')]
+    bad = [src for src in sources if (src.get('status')) in ('block', 'invalid')]
     if not bad:
         return {'source': 'none', 'status': 'ok', 'reason': 'ok', 'priority_rank': 999}
     chosen = sorted(bad, key=_priority_tuple)[0]
-    rank = SOURCE_PRIORITY.get(str(chosen.get('source') or ''), 99)
+    rank = SOURCE_PRIORITY.get((chosen.get('source') or ''), 99)
     return {
         'source': chosen.get('source', 'none'),
         'status': chosen.get('status', 'invalid'),
@@ -223,24 +225,24 @@ def _select_reason(sources: list[Dict[str, Any]]) -> Dict[str, Any]:
 
 def _emit_audit_stream(
     client: Any,
-    composite: Dict[str, Any],
+    composite: dict[str, Any],
     *,
     stream: str,
 ) -> None:
     """Append one compact event to the ops stream for history/rollup consumers.""",
     fields = {
         'ts_ms': str(get_ny_time_millis()),
-        'purpose': str(composite.get('purpose') or ''),
-        'status': str(composite.get('decision_status') or 'invalid'),
-        'selected_source': str(composite.get('selected_source') or 'none'),
-        'selected_reason_code': str(composite.get('selected_reason_code') or 'none:ok'),
+        'purpose': (composite.get('purpose') or ''),
+        'status': (composite.get('decision_status') or 'invalid'),
+        'selected_source': (composite.get('selected_source') or 'none'),
+        'selected_reason_code': (composite.get('selected_reason_code') or 'none:ok'),
         'selected_priority_rank': str(composite.get('selected_priority_rank') or 999),
-        'deploy_lint_status': str(composite.get('deploy_lint_status') or 'unknown'),
-        'deploy_lint_reason': str(composite.get('deploy_lint_reason') or 'unknown'),
-        'latency_contract_status': str(composite.get('latency_contract_status') or 'unknown'),
-        'latency_contract_reason': str(composite.get('latency_contract_reason') or 'unknown'),
-        'strategy_research_stats_status': str(composite.get('strategy_research_stats_status') or 'unknown'),
-        'strategy_research_stats_reason': str(composite.get('strategy_research_stats_reason') or 'unknown'),
+        'deploy_lint_status': (composite.get('deploy_lint_status') or 'unknown'),
+        'deploy_lint_reason': (composite.get('deploy_lint_reason') or 'unknown'),
+        'latency_contract_status': (composite.get('latency_contract_status') or 'unknown'),
+        'latency_contract_reason': (composite.get('latency_contract_reason') or 'unknown'),
+        'strategy_research_stats_status': (composite.get('strategy_research_stats_status') or 'unknown'),
+        'strategy_research_stats_reason': (composite.get('strategy_research_stats_reason') or 'unknown'),
         'sources_json': json.dumps(dict(composite.get('sources') or {}), sort_keys=True),
     }
     client.xadd(stream, fields, maxlen=200000, approximate=True)
@@ -248,27 +250,27 @@ def _emit_audit_stream(
 
 def _emit_audit_state(
     client: Any,
-    composite: Dict[str, Any],
+    composite: dict[str, Any],
     *,
     state_prefix: str,
     state_ttl_s: int,
 ) -> None:
     """Persist composite state to a Redis hash per-purpose for the exporter.""",
-    purpose = str(composite.get('purpose') or '')
+    purpose = (composite.get('purpose') or '')
     skey = _state_prefix_key(state_prefix, purpose)
     mapping = {
         'updated_ts_ms': str(get_ny_time_millis()),
         'purpose': purpose,
-        'status': str(composite.get('decision_status') or 'invalid'),
-        'selected_source': str(composite.get('selected_source') or 'none'),
-        'selected_reason_code': str(composite.get('selected_reason_code') or 'none:ok'),
+        'status': (composite.get('decision_status') or 'invalid'),
+        'selected_source': (composite.get('selected_source') or 'none'),
+        'selected_reason_code': (composite.get('selected_reason_code') or 'none:ok'),
         'selected_priority_rank': str(composite.get('selected_priority_rank') or 999),
-        'deploy_lint_status': str(composite.get('deploy_lint_status') or 'unknown'),
-        'deploy_lint_reason': str(composite.get('deploy_lint_reason') or 'unknown'),
-        'latency_contract_status': str(composite.get('latency_contract_status') or 'unknown'),
-        'latency_contract_reason': str(composite.get('latency_contract_reason') or 'unknown'),
-        'strategy_research_stats_status': str(composite.get('strategy_research_stats_status') or 'unknown'),
-        'strategy_research_stats_reason': str(composite.get('strategy_research_stats_reason') or 'unknown'),
+        'deploy_lint_status': (composite.get('deploy_lint_status') or 'unknown'),
+        'deploy_lint_reason': (composite.get('deploy_lint_reason') or 'unknown'),
+        'latency_contract_status': (composite.get('latency_contract_status') or 'unknown'),
+        'latency_contract_reason': (composite.get('latency_contract_reason') or 'unknown'),
+        'strategy_research_stats_status': (composite.get('strategy_research_stats_status') or 'unknown'),
+        'strategy_research_stats_reason': (composite.get('strategy_research_stats_reason') or 'unknown'),
         'sources_json': json.dumps(dict(composite.get('sources') or {}), sort_keys=True),
     }
     client.hset(skey, mapping=mapping)
@@ -283,7 +285,7 @@ def evaluate_composite_gate(
     stage_mode: bool = False,
     emit_audit: bool = True,
     client: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Evaluate all three preflight safety sources and return the composite decision.
 
     Returns a dict with:
@@ -396,9 +398,9 @@ def evaluate_composite_gate(
     # soft from research_stats does NOT block; only block/invalid do.
     selected = _select_reason([deploy, latency, research_stats])
     sources = {
-        'deploy_lint': {'status': str(deploy.get('status') or 'invalid'), 'reason': str(deploy.get('reason') or 'unknown')},
-        'latency_contract': {'status': str(latency.get('status') or 'invalid'), 'reason': str(latency.get('reason') or 'unknown')},
-        'strategy_research_stats': {'status': str(research_stats.get('status') or 'invalid'), 'reason': str(research_stats.get('reason') or 'unknown')},
+        'deploy_lint': {'status': (deploy.get('status') or 'invalid'), 'reason': (deploy.get('reason') or 'unknown')},
+        'latency_contract': {'status': (latency.get('status') or 'invalid'), 'reason': (latency.get('reason') or 'unknown')},
+        'strategy_research_stats': {'status': (research_stats.get('status') or 'invalid'), 'reason': (research_stats.get('reason') or 'unknown')},
     }
     composite = {
         'purpose': purpose,
@@ -417,14 +419,10 @@ def evaluate_composite_gate(
     }
 
     if emit_audit:
-        try:
+        with contextlib.suppress(Exception):
             _emit_audit_state(client, composite, state_prefix=state_prefix, state_ttl_s=state_ttl_s)
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             _emit_audit_stream(client, composite, stream=stream)
-        except Exception:
-            pass
 
     return composite
 
@@ -454,7 +452,7 @@ def main() -> int:
     result = evaluate_composite_gate(redis_url, purpose=purpose, stage_mode=stage_mode)
 
     status = str(result.get('decision_status') or result.get('status') or 'invalid')
-    source = str(result.get('selected_source') or 'none')
+    source = (result.get('selected_source') or 'none')
     reason = str(result.get('strategy_research_stats_reason') if source == 'strategy_research_stats' else result.get(f'{source}_reason') or 'unknown')
 
     if status == 'ok':

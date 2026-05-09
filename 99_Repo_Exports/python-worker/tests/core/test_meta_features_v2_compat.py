@@ -1,5 +1,7 @@
 import unittest
-from core.meta_features_v2 import build_meta_features_v2, META_FEAT_V2_HASH
+
+from core.meta_features_v2 import META_FEAT_V2_HASH, build_meta_features_v2
+
 
 class TestMetaFeaturesV2Compat(unittest.TestCase):
     def test_hash_format(self):

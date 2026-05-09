@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools.ml_metrics_agg import agg_outcomes, agg_exec_risk, agg_health_ml_confirm
+from tools.ml_metrics_agg import agg_exec_risk, agg_health_ml_confirm, agg_outcomes
 
 
 def test_agg_outcomes_utility_metrics():

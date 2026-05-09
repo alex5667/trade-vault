@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -83,15 +84,15 @@ DEFAULT_ROLLBACK_COOLDOWN_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_VERI
 DB_URL = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -157,8 +158,8 @@ def parse_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -171,7 +172,7 @@ def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "advisory_only": parse_int(raw.get("advisory_only"), DEFAULT_ADVISORY_ONLY),
         "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
@@ -185,16 +186,16 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def shadow_mode_from_hash(raw: Dict[str, Any]) -> str:
-    return str(raw.get("mode") or "AUDIT_ONLY").upper()
+def shadow_mode_from_hash(raw: dict[str, Any]) -> str:
+    return (raw.get("mode") or "AUDIT_ONLY").upper()
 
 
-async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
+async def xr_recent(client: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await client.xrevrange(stream_key, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -220,13 +221,13 @@ async def pending_total_from_keys(r: Any, prefix: str) -> int:
         return 0
 
 
-def summarize_window(rows: List[Dict[str, Any]], window_min: int) -> Dict[str, Any]:
+def summarize_window(rows: list[dict[str, Any]], window_min: int) -> dict[str, Any]:
     cutoff = now_ms() - window_min * 60 * 1000
     selected = [r for r in rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
     total = len(selected)
-    match_n = sum(1 for r in selected if str(r.get("status") or "") == "MATCH")
-    drift_n = sum(1 for r in selected if str(r.get("status") or "") == "DRIFT")
-    mismatch_n = sum(1 for r in selected if str(r.get("status") or "") == "MISMATCH")
+    match_n = sum(1 for r in selected if (r.get("status") or "") == "MATCH")
+    drift_n = sum(1 for r in selected if (r.get("status") or "") == "DRIFT")
+    mismatch_n = sum(1 for r in selected if (r.get("status") or "") == "MISMATCH")
     return {
         "total": total,
         "match_n": match_n,
@@ -243,11 +244,11 @@ def evaluate_verification(
     current_mode: str,
     comparator_age_ms: int,
     pending_total: int,
-    window_stats: Dict[str, Any],
-    policy: Dict[str, Any],
+    window_stats: dict[str, Any],
+    policy: dict[str, Any],
     last_switch_ts_ms: int,
     now_ts_ms: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     total = int(window_stats["total"])
     match_rate = float(window_stats["match_rate"])
     drift_rate = float(window_stats["drift_rate"])
@@ -307,8 +308,8 @@ def evaluate_verification(
 
 async def persist_if_configured(
     db_url: str,
-    decision: Dict[str, Any],
-    snapshot: Dict[str, Any],
+    decision: dict[str, Any],
+    snapshot: dict[str, Any],
 ) -> None:
     if not db_url or psycopg is None:
         return
@@ -396,7 +397,7 @@ async def main() -> None:  # pragma: no cover
                 exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                 if exec_kill and exec_kill.decode().strip() == '1':
                     policy['kill_switch'] = 1
-            except: pass
+            except Exception: pass
             shadow_policy = as_dict(await r.hgetall(SHADOW_POLICY_KEY))
             current_mode = shadow_mode_from_hash(shadow_policy)
             last_switch_ts_ms = parse_int(shadow_policy.get("last_mode_switch_ts_ms"), 0)

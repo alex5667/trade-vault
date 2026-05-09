@@ -1,12 +1,9 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
-import time
-import types
-import pytest
 
 from services.smt_entry_policy_service import EntryPolicyService
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:
@@ -30,6 +27,7 @@ class FakeRedis:
 
 
 import asyncio
+
 
 def test_entry_policy_allow_happy_path(monkeypatch):
     async def _test():

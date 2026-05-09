@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Daily report for tick-quality gate outcomes stored in Redis Streams.
 
 Reads ops:tick_quality_gate (or configured stream) and produces a compact summary:
@@ -12,15 +13,15 @@ Designed to be robust to schema variations:
  - Otherwise, the entry fields are treated as a flat dict.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
 import sys
-import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _loads_maybe_json(v: Any) -> Any:
@@ -101,11 +102,11 @@ class GateEvent:
     status: str  # PASS|FAIL|INSUFFICIENT_DATA|ERROR|UNKNOWN
     return_code: int
     symbol: str
-    failures: List[Dict[str, Any]]
-    raw: Dict[str, Any]
+    failures: list[dict[str, Any]]
+    raw: dict[str, Any]
 
 
-def _extract_event_from_fields(msg_id: str, fields: Dict[str, Any]) -> GateEvent:
+def _extract_event_from_fields(msg_id: str, fields: dict[str, Any]) -> GateEvent:
     # Prefer JSON payload if present
     payload = None
     for k in ("json", "payload", "report", "gate", "result"):
@@ -116,7 +117,7 @@ def _extract_event_from_fields(msg_id: str, fields: Dict[str, Any]) -> GateEvent
     if not isinstance(payload, dict):
         payload = {}
 
-    merged: Dict[str, Any] = {}
+    merged: dict[str, Any] = {}
     # Merge: JSON payload first, then flat fields override
     merged.update(payload)
     merged.update(fields)
@@ -149,7 +150,7 @@ def _extract_event_from_fields(msg_id: str, fields: Dict[str, Any]) -> GateEvent
     symbol = _norm_str(merged.get("symbol") or merged.get("sym"), "")
 
     failures_raw = merged.get("failures") or merged.get("failed") or merged.get("reasons") or merged.get("violations")
-    failures: List[Dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
     fr = _loads_maybe_json(failures_raw)
     if isinstance(fr, list):
         for x in fr:
@@ -182,7 +183,7 @@ def _within_window(ev: GateEvent, *, start_ms: int) -> bool:
     return ev.ts_ms >= start_ms
 
 
-def _metric_name_from_failure(f: Dict[str, Any]) -> str:
+def _metric_name_from_failure(f: dict[str, Any]) -> str:
     # Prefer explicit key, fallback to reason string parsing
     metric = _norm_str(f.get("metric") or f.get("name"), "")
     if metric:
@@ -193,10 +194,10 @@ def _metric_name_from_failure(f: Dict[str, Any]) -> str:
     return "unknown"
 
 
-def aggregate_events(events: Iterable[GateEvent]) -> Dict[str, Any]:
+def aggregate_events(events: Iterable[GateEvent]) -> dict[str, Any]:
     counts = {"PASS": 0, "FAIL": 0, "INSUFFICIENT_DATA": 0, "ERROR": 0, "UNKNOWN": 0}
-    fail_metrics: Dict[str, int] = {}
-    by_symbol: Dict[str, Dict[str, int]] = {}
+    fail_metrics: dict[str, int] = {}
+    by_symbol: dict[str, dict[str, int]] = {}
     latest_ms = 0
 
     for ev in events:
@@ -228,10 +229,10 @@ def aggregate_events(events: Iterable[GateEvent]) -> Dict[str, Any]:
     }
 
 
-def _format_text(report: Dict[str, Any], *, window_hours: float) -> str:
+def _format_text(report: dict[str, Any], *, window_hours: float) -> str:
     counts = report.get("counts") or {}
     total = sum(int(v) for v in counts.values()) if isinstance(counts, dict) else 0
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"Tick Quality Gate — window={window_hours:.2f}h, n={total}")
     lines.append(
         "Counts: " + ", ".join(f"{k}={counts.get(k, 0)}" for k in ("PASS", "FAIL", "INSUFFICIENT_DATA", "ERROR", "UNKNOWN"))
@@ -260,7 +261,7 @@ def _read_redis_events(
     stream: str,
     start_ms: int,
     limit: int,
-) -> List[GateEvent]:
+) -> list[GateEvent]:
     try:
         import redis  # type: ignore
     except Exception as e:
@@ -269,11 +270,11 @@ def _read_redis_events(
     r = redis.Redis.from_url(redis_url, decode_responses=False)
     # Read newest first and filter by timestamp
     raw = r.xrevrange(stream, max="+", min="-", count=int(limit))
-    events: List[GateEvent] = []
+    events: list[GateEvent] = []
     for msg_id_b, fields in raw:
         msg_id = msg_id_b.decode("utf-8", errors="replace") if isinstance(msg_id_b, (bytes, bytearray)) else str(msg_id_b)
         # normalize fields to str->Any
-        f2: Dict[str, Any] = {}
+        f2: dict[str, Any] = {}
         for k, v in (fields or {}).items():
             kk = k.decode("utf-8", errors="replace") if isinstance(k, (bytes, bytearray)) else str(k)
             f2[kk] = v
@@ -285,7 +286,7 @@ def _read_redis_events(
     return events
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     p.add_argument("--stream", default=os.getenv("TICK_GATE_REDIS_STREAM", "ops:tick_quality_gate"))

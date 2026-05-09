@@ -1,5 +1,6 @@
 # domain/signal_outcome.py
 from __future__ import annotations
+
 """
 SignalOutcome — замыкание контура signal → outcome.
 
@@ -13,9 +14,8 @@ Fail-open: factory function NEVER raises; returns None on critical errors.
 """
 
 import logging
-import time
-from dataclasses import dataclass, asdict, field
-from typing import Any, Dict, Optional
+from dataclasses import asdict, dataclass
+from typing import Any
 
 log = logging.getLogger("signal_outcome")
 
@@ -27,7 +27,7 @@ class SignalOutcome:
     # --- identity ---
     sid: str = ""
     order_id: str = ""
-    symbol=""
+    symbol: str = ""
     strategy: str = ""
     source: str = ""
     tf: str = ""
@@ -78,10 +78,10 @@ class SignalOutcome:
     trace_id: str = ""
     event_id: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Flat dict suitable for Redis Stream XADD (all values → str)."""
         d = asdict(self)
-        result: Dict[str, str] = {}
+        result: dict[str, str] = {}
         for k, v in d.items():
             if isinstance(v, bool):
                 result[k] = "1" if v else "0"
@@ -92,7 +92,7 @@ class SignalOutcome:
         return result
 
 
-def from_trade_closed(closed: Any, pos: Any = None) -> Optional[SignalOutcome]:
+def from_trade_closed(closed: Any, pos: Any = None) -> SignalOutcome | None:
     """
     Фабрика: строит SignalOutcome из TradeClosed (+ опционально PositionState).
 

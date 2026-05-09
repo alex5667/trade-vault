@@ -8,13 +8,9 @@ on every signal. TypeError was swallowed by fail-open except in process_book.
 """
 
 import unittest
-import sys
-import os
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
-
 from services.orderflow.components.parsing import OrderFlowParsing
-from services.orderflow.utils import _parse_book_payload
 
 
 class TestBookParserContract(unittest.TestCase):
@@ -47,16 +43,17 @@ class TestBookParserContract(unittest.TestCase):
 
     def test_all_wrappers_match_util_arity(self):
         import inspect
+
         import services.orderflow.utils as utils
 
         for name, func in inspect.getmembers(OrderFlowParsing, predicate=inspect.isfunction):
             if not name.startswith("parse_"):
                 continue
-            
+
             # map wrapper name: parse_foo_payload -> _parse_foo_payload
             util_name = "_" + name
             util_func = getattr(utils, util_name, None)
-            
+
             # We skip assertions if the util isn't found exactly, but we know it usually is:
             if not util_func:
                 continue

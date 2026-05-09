@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Redis Stream -> Timescale writer for OFC contextual decision records.
@@ -13,9 +14,10 @@ import json
 import logging
 import os
 import socket
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from domain.evidence_keys import CtxKeys
 
 try:
     import redis.asyncio as aioredis  # type: ignore
@@ -36,14 +38,14 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(float(_env(name, str(default))))
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(name: str, default: float) -> float:
     try:
         return float(_env(name, str(default)))
     except Exception:
-        return float(default)
+        return default
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -82,14 +84,14 @@ def _to_int(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _to_bool(v: Any, default: bool = False) -> bool:
@@ -105,7 +107,7 @@ def _to_bool(v: Any, default: bool = False) -> bool:
     return default
 
 
-def _loads_json(v: Any) -> Optional[dict]:
+def _loads_json(v: Any) -> dict | None:
     if v is None:
         return None
     if isinstance(v, dict):
@@ -123,24 +125,24 @@ def _loads_json(v: Any) -> Optional[dict]:
         return None
 
 
-def _parse_stream_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
+def _parse_stream_fields(fields: dict[Any, Any]) -> dict[str, Any]:
     if b"payload" in fields:
         return _loads_json(fields.get(b"payload")) or {}
     if "payload" in fields:
         return _loads_json(fields.get("payload")) or {}
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         out[str(_decode(k))] = _decode(v)
     return out
 
 
-def _extract_ctx_source(evt: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_ctx_source(evt: dict[str, Any]) -> dict[str, Any]:
     ofc = evt.get("of_confirm") if isinstance(evt.get("of_confirm"), dict) else {}
     ev = ofc.get("evidence") if isinstance(ofc.get("evidence"), dict) else {}
     return ev if ev else evt
 
 
-def _normalize_row(evt: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
+def _normalize_row(evt: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
     src = _extract_ctx_source(evt)
     sid = str(evt.get("sid") or evt.get("signal_id") or "").strip()
     symbol = str(evt.get("symbol") or evt.get("sym") or "").strip()
@@ -152,7 +154,7 @@ def _normalize_row(evt: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
     if decision_ts_ms <= 0:
         return None, "bad:decision_ts_ms"
 
-    ctx_enabled = _to_bool(src.get("ctx_enable") if "ctx_enable" in src else evt.get("ctx_enabled"), False)
+    ctx_enabled = _to_bool(src.get(CtxKeys.ENABLE) if "ctx_enable" in src else evt.get("ctx_enabled"), False)
     # Accept records even if ctx layer ran in shadow-only, but skip completely empty non-ctx rows.
     has_any_ctx = ctx_enabled or any(k.startswith("ctx_") for k in list(evt.keys()) + list(src.keys()))
     if not has_any_ctx:
@@ -166,26 +168,26 @@ def _normalize_row(evt: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
         "session": str(evt.get("ctx_session") or evt.get("session") or ""),
         "dow": _to_int(evt.get("ctx_dow") or evt.get("dow"), 0),
         "hour_utc": _to_int(evt.get("ctx_hour_utc") or evt.get("hour_utc"), 0),
-        "scenario_v4": str(evt.get("scenario_v4") or ""),
+        "scenario_v4": (evt.get("scenario_v4") or ""),
         "legacy_rule_score": _to_float(evt.get("of_score_final") or evt.get("raw_score") or evt.get("score"), 0.0),
         "legacy_rule_ok": _to_bool(evt.get("ok"), False),
-        "legacy_reason": str(evt.get("reason") or ""),
+        "legacy_reason": (evt.get("reason") or ""),
         "ctx_enabled": bool(ctx_enabled),
-        "ctx_mode": str(src.get("ctx_mode") or evt.get("ctx_mode") or "off"),
-        "ctx_key": str(src.get("ctx_key") or evt.get("ctx_key") or ""),
-        "ctx_bundle_ver": str(src.get("ctx_bundle_ver") or evt.get("ctx_bundle_ver") or ""),
-        "ctx_p_rule_raw": _to_float(src.get("ctx_p_rule_raw") if src.get("ctx_p_rule_raw") is not None else evt.get("ctx_p_rule_raw"), 0.0),
-        "ctx_p_rule_cal": _to_float(src.get("ctx_p_rule_cal") if src.get("ctx_p_rule_cal") is not None else evt.get("ctx_p_rule_cal"), 0.0),
-        "ctx_cost_p50_bps": _to_float(src.get("ctx_cost_p50_bps") if src.get("ctx_cost_p50_bps") is not None else evt.get("ctx_cost_p50_bps"), 0.0),
-        "ctx_cost_p90_bps": _to_float(src.get("ctx_cost_p90_bps") if src.get("ctx_cost_p90_bps") is not None else evt.get("ctx_cost_p90_bps"), 0.0),
-        "ctx_exec_risk_ref_bps": _to_float(src.get("ctx_exec_risk_ref_bps") if src.get("ctx_exec_risk_ref_bps") is not None else evt.get("ctx_exec_risk_ref_bps"), 0.0),
-        "ctx_edge_net_p50_bps": _to_float(src.get("ctx_edge_net_p50_bps") if src.get("ctx_edge_net_p50_bps") is not None else evt.get("ctx_edge_net_p50_bps"), 0.0),
-        "ctx_edge_net_p90_bps": _to_float(src.get("ctx_edge_net_p90_bps") if src.get("ctx_edge_net_p90_bps") is not None else evt.get("ctx_edge_net_p90_bps"), 0.0),
-        "ctx_decision": str(evt.get("ctx_decision") or ("allow" if _to_bool(src.get("ctx_allow") if src.get("ctx_allow") is not None else evt.get("ctx_allow"), False) else "deny")),
-        "ctx_reason": str(src.get("ctx_reason") or evt.get("ctx_reason") or ""),
-        "ctx_fallback_level": str(src.get("ctx_fallback_level") or evt.get("ctx_fallback_level") or ""),
-        "ctx_shadow_disagree": _to_bool(src.get("ctx_shadow_disagree") if src.get("ctx_shadow_disagree") is not None else evt.get("ctx_shadow_disagree"), False),
-        "ctx_infer_latency_us": _to_int(src.get("ctx_infer_latency_us") if src.get("ctx_infer_latency_us") is not None else evt.get("ctx_infer_latency_us"), 0),
+        "ctx_mode": str(src.get(CtxKeys.MODE) or evt.get(CtxKeys.MODE) or "off"),
+        "ctx_key": str(src.get(CtxKeys.KEY) or evt.get(CtxKeys.KEY) or ""),
+        "ctx_bundle_ver": str(src.get(CtxKeys.BUNDLE_VER) or evt.get(CtxKeys.BUNDLE_VER) or ""),
+        "ctx_p_rule_raw": _to_float(src.get(CtxKeys.P_RULE_RAW) if src.get(CtxKeys.P_RULE_RAW) is not None else evt.get(CtxKeys.P_RULE_RAW), 0.0),
+        "ctx_p_rule_cal": _to_float(src.get(CtxKeys.P_RULE_CAL) if src.get(CtxKeys.P_RULE_CAL) is not None else evt.get(CtxKeys.P_RULE_CAL), 0.0),
+        "ctx_cost_p50_bps": _to_float(src.get(CtxKeys.COST_P50_BPS) if src.get(CtxKeys.COST_P50_BPS) is not None else evt.get(CtxKeys.COST_P50_BPS), 0.0),
+        "ctx_cost_p90_bps": _to_float(src.get(CtxKeys.COST_P90_BPS) if src.get(CtxKeys.COST_P90_BPS) is not None else evt.get(CtxKeys.COST_P90_BPS), 0.0),
+        "ctx_exec_risk_ref_bps": _to_float(src.get(CtxKeys.EXEC_RISK_REF_BPS) if src.get(CtxKeys.EXEC_RISK_REF_BPS) is not None else evt.get(CtxKeys.EXEC_RISK_REF_BPS), 0.0),
+        "ctx_edge_net_p50_bps": _to_float(src.get(CtxKeys.EDGE_NET_P50_BPS) if src.get(CtxKeys.EDGE_NET_P50_BPS) is not None else evt.get(CtxKeys.EDGE_NET_P50_BPS), 0.0),
+        "ctx_edge_net_p90_bps": _to_float(src.get(CtxKeys.EDGE_NET_P90_BPS) if src.get(CtxKeys.EDGE_NET_P90_BPS) is not None else evt.get(CtxKeys.EDGE_NET_P90_BPS), 0.0),
+        "ctx_decision": str(evt.get("ctx_decision") or ("allow" if _to_bool(src.get(CtxKeys.ALLOW) if src.get(CtxKeys.ALLOW) is not None else evt.get(CtxKeys.ALLOW), False) else "deny")),
+        "ctx_reason": str(src.get(CtxKeys.REASON) or evt.get(CtxKeys.REASON) or ""),
+        "ctx_fallback_level": str(src.get(CtxKeys.FALLBACK_LEVEL) or evt.get(CtxKeys.FALLBACK_LEVEL) or ""),
+        "ctx_shadow_disagree": _to_bool(src.get(CtxKeys.SHADOW_DISAGREE) if src.get(CtxKeys.SHADOW_DISAGREE) is not None else evt.get(CtxKeys.SHADOW_DISAGREE), False),
+        "ctx_infer_latency_us": _to_int(src.get(CtxKeys.INFER_LATENCY_US) if src.get(CtxKeys.INFER_LATENCY_US) is not None else evt.get(CtxKeys.INFER_LATENCY_US), 0),
         "spread_bps_missing": _to_bool(evt.get("spread_bps_missing"), False),
         "slippage_missing": _to_bool(evt.get("slippage_missing"), False),
     },
@@ -204,7 +206,7 @@ class PgWriter:
             import psycopg2  # type: ignore
             return psycopg2.connect(self.dsn)
 
-    def insert_rows(self, rows: List[Dict[str, Any]]) -> int:
+    def insert_rows(self, rows: list[dict[str, Any]]) -> int:
         if not rows:
             return 0
         conn = self._connect()
@@ -251,7 +253,7 @@ class Cfg:
     fail_sleep_sec: float
 
     @staticmethod
-    def from_env() -> "Cfg":
+    def from_env() -> Cfg:
         host = socket.gethostname()
         return Cfg(
             redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
@@ -283,11 +285,11 @@ async def _ensure_group(r: Any, *, stream: str, group: str) -> None:
             raise
 
 
-async def _publish_dlq(r: Any, *, stream: str, payload: Dict[str, Any], reason: str, maxlen: int) -> None:
+async def _publish_dlq(r: Any, *, stream: str, payload: dict[str, Any], reason: str, maxlen: int) -> None:
     try:
         body = {
             "payload": json.dumps(payload, ensure_ascii=False),
-            "reason": str(reason),
+            "reason": reason,
             "ts_ms": str(_now_ms()),
         },
         await r.xadd(stream, body, maxlen=maxlen, approximate=True)
@@ -295,7 +297,7 @@ async def _publish_dlq(r: Any, *, stream: str, payload: Dict[str, Any], reason: 
         return
 
 
-async def _update_status(r: Any, key: str, mapping: Dict[str, Any]) -> None:
+async def _update_status(r: Any, key: str, mapping: dict[str, Any]) -> None:
     try:
         m = {str(k): str(v) for k, v in mapping.items()}
         await r.hset(key, mapping=m)
@@ -338,8 +340,8 @@ async def main() -> None:
                     pass
                 continue
 
-            ack_ids: List[str] = []
-            rows: List[Dict[str, Any]] = []
+            ack_ids: list[str] = []
+            rows: list[dict[str, Any]] = []
             dlq_count = 0
             last_error = ""
             for _stream, entries in res:

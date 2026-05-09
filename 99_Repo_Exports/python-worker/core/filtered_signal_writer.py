@@ -1,22 +1,23 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 FilteredSignalWriter — финальный буфер и публикация.
 """
 
-from dataclasses import dataclass
-from typing import Dict, Any, List, Optional, Tuple
-import time
 import logging
-import requests
-import redis
+import time
+from dataclasses import dataclass
 
-from infra.config import Config
-from risk.position_sizer import PositionSizer, SymbolSpecs
+import redis
+import requests
 from dispatch.order_push_dispatcher import OrderPushDispatcher
-from specs.symbol_specs_repo import SymbolSpecsRepo, SymbolSpecsModel
-from core.xauusd_signal_formatter import XAUUSDSignalFormatter, XAUUSDSignal
+from risk.position_sizer import PositionSizer, SymbolSpecs
+from specs.symbol_specs_repo import SymbolSpecsModel, SymbolSpecsRepo
+
 from core.redis_keys import RedisKeyPrefixes as RK
+from core.xauusd_signal_formatter import XAUUSDSignal, XAUUSDSignalFormatter
+from infra.config import Config
 
 
 @dataclass
@@ -26,7 +27,7 @@ class FinalSignal:
     side: str
     price: float
     sl: float
-    tp_levels: List[float]
+    tp_levels: list[float]
     lot: float
     confidence: float
     reason: str
@@ -50,7 +51,7 @@ class FilteredSignalWriter:
     def _can_emit(self) -> bool:
         return (time.time() - self.last_ts) >= self.cfg.cooldown_sec
 
-    def _get_balance(self) -> Optional[float]:
+    def _get_balance(self) -> float | None:
         try:
             url = f"{self.cfg.gateway_url}{self.cfg.balance_path}"
             resp = requests.get(url, timeout=1.0)
@@ -87,7 +88,7 @@ class FilteredSignalWriter:
 
     def _select_lot_and_sl_tp(
         self, side: str, entry: float, atr: float
-    ) -> Tuple[float, float, List[float]]:
+    ) -> tuple[float, float, list[float]]:
         specs = self._get_specs()
         bal = self._get_balance() or 10_000.0
         ps = PositionSizer(specs)
@@ -122,18 +123,18 @@ class FilteredSignalWriter:
         return XAUUSDSignalFormatter.format_telegram_message(signal)
 
     def write_and_push(
-        self, 
-        symbol: str, 
-        side: str, 
-        entry: float, 
-        atr: float, 
-        confidence: float, 
-        reason: str, 
+        self,
+        symbol: str,
+        side: str,
+        entry: float,
+        atr: float,
+        confidence: float,
+        reason: str,
         source: str = "AggregatedHub",
         trail_after_tp1: bool = False,
         trail_profile: str = "rocket_v1",
         ttl: int = 86400
-    ) -> Optional[FinalSignal]:
+    ) -> FinalSignal | None:
         if atr <= 0 or entry <= 0:
             self.log.debug("skip emit: bad atr/entry")
             return None
@@ -146,7 +147,7 @@ class FilteredSignalWriter:
         lot, sl, tps = self._select_lot_and_sl_tp(side, entry, atr)
         ts = get_ny_time_millis()
         sid = XAUUSDSignalFormatter.create_signal_id(side, entry, ts)
-        
+
         fs = FinalSignal(
             sid=sid,
             symbol=symbol,
@@ -159,7 +160,7 @@ class FilteredSignalWriter:
             reason=reason,
         )
 
-        # Используем единый форматировщик для 
+        # Используем единый форматировщик для
         xauusd_signal = XAUUSDSignal(
             sid=sid,
             symbol=symbol,
@@ -178,7 +179,7 @@ class FilteredSignalWriter:
             trail_profile=trail_profile,
             expires_at=ts + ttl * 1000
         )
-        
+
         # Публикуем в notify stream с единым форматом
         try:
             redis_payload = XAUUSDSignalFormatter.format_redis_payload(xauusd_signal)
@@ -190,7 +191,7 @@ class FilteredSignalWriter:
                     redis_data[k] = json.dumps(v)
                 else:
                     redis_data[k] = str(v)
-            
+
             notify_counter_key = getattr(
                 self.cfg,
                 "notify_signal_counter_key",
@@ -221,13 +222,13 @@ class FilteredSignalWriter:
                     counter_value,
                     notify_every_n
                 )
-            
+
             if send_to_notify:
                 self.r.xadd(self.cfg.notify_stream, redis_data, maxlen=100000, approximate=True)
                 self.log.info("📨 Signal published to %s: %s", self.cfg.notify_stream, sid)
         except Exception as e:
             self.log.warning("Failed to publish to notify stream: %s", e)
-        
+
         # ✅ Публикуем также в signals:aggregated:SYMBOL для Signal Performance Tracker
         try:
             import json as json_lib
@@ -278,12 +279,12 @@ class FilteredSignalWriter:
             self.log.debug("💾 Signal saved to Redis: %s with ttl %s", signal_key, ttl)
         except Exception as e:
             self.log.warning("Failed to save signal to Redis: %s", e)
-        
+
         # Отправка ордеров во внешнюю систему временно отключена
         push_body = XAUUSDSignalFormatter.format_order_payload(xauusd_signal)
         ok = False
         self.log.info("🚫 Order push skipped (disabled): %s | payload=%s", fs.sid, push_body)
-        
+
         self.last_ts = time.time()
         self.log.info("✅ Meta-signal %s sent=%s, source=%s", fs.sid, ok, source)
         return fs

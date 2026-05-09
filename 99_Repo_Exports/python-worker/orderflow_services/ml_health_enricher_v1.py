@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+
 """Phase 0.1 health enricher for `ml_model_runtime_1m`.
 
 Consumes existing drift/calibration artifacts and enriches recent runtime rows with:
@@ -12,10 +14,12 @@ Fail-open and scanner_infra-only.
 import json
 import os
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 from prometheus_client import Gauge, Histogram, start_http_server
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -53,8 +57,8 @@ LOOP_LAT = Histogram("ml_health_enricher_loop_seconds", "Loop duration seconds")
 
 @dataclass
 class FamilyMetrics:
-    ece: Optional[float]
-    brier: Optional[float]
+    ece: float | None
+    brier: float | None
 
 
 def _now_ms() -> int:
@@ -72,7 +76,7 @@ def _as_str(v: Any, d: str = "") -> str:
         return d
 
 
-def _as_float(v: Any, d: Optional[float] = None) -> Optional[float]:
+def _as_float(v: Any, d: float | None = None) -> float | None:
     try:
         if v is None or v == "":
             return d
@@ -82,22 +86,22 @@ def _as_float(v: Any, d: Optional[float] = None) -> Optional[float]:
         return d
 
 
-def _read_json(path: str) -> Dict[str, Any]:
+def _read_json(path: str) -> dict[str, Any]:
     if not path:
         return {}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         return obj if isinstance(obj, dict) else {}
     except Exception:
         return {}
 
 
-def _drift_top_from_report(report_json_path: str) -> Tuple[List[str], List[str]]:
+def _drift_top_from_report(report_json_path: str) -> tuple[list[str], list[str]]:
     rep = _read_json(report_json_path)
     rows = rep.get("features") if isinstance(rep.get("features"), list) else []
-    ranked_psi: List[Tuple[float, str]] = []
-    ranked_ks: List[Tuple[float, str]] = []
+    ranked_psi: list[tuple[float, str]] = []
+    ranked_ks: list[tuple[float, str]] = []
     for row in rows:
         if not isinstance(row, Mapping):
             continue
@@ -113,8 +117,8 @@ def _drift_top_from_report(report_json_path: str) -> Tuple[List[str], List[str]]
     return [f for _, f in ranked_psi[:5]], [f for _, f in ranked_ks[:5]]
 
 
-def _family_metrics() -> Dict[str, FamilyMetrics]:
-    out: Dict[str, FamilyMetrics] = {}
+def _family_metrics() -> dict[str, FamilyMetrics]:
+    out: dict[str, FamilyMetrics] = {}
 
     edge = _read_json(EDGE_STACK_STATUS_FILE)
     try:
@@ -143,7 +147,7 @@ def _family_metrics() -> Dict[str, FamilyMetrics]:
     return out
 
 
-def _db_update_family(family: str, ece: Optional[float], brier: Optional[float], psi_top: Sequence[str], ks_top: Sequence[str]) -> int:
+def _db_update_family(family: str, ece: float | None, brier: float | None, psi_top: Sequence[str], ks_top: Sequence[str]) -> int:
     if not DB_ENABLE or not DB_DSN or psycopg2 is None:
         return 0
     conn = None
@@ -211,7 +215,7 @@ def main() -> int:
                 n = _db_update_family(family, metrics.ece, metrics.brier, psi_top, ks_top)
                 updated_total += n
                 ROWS_UPDATED.labels(family=family).set(float(n))
-            try:
+            with contextlib.suppress(Exception):
                 cli.hset(
                     OUT_SUMMARY_KEY,
                     mapping={
@@ -221,11 +225,9 @@ def main() -> int:
                         "ks_top_json": json.dumps(ks_top, separators=(",", ":")),
                     }
                 )
-            except Exception:
-                pass
             LAST_RUN_TS.set(time.time())
             UP.set(1)
-        except Exception as e:
+        except Exception:
             import traceback
             with open("/app/err.txt", "w") as f:
                 traceback.print_exc(file=f)

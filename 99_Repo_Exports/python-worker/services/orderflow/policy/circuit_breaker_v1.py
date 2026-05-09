@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 P68 — Circuit Breaker Policy (v1)
 
@@ -16,8 +17,8 @@ This module MUST be:
 """
 
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any
 
 
 def _norm_state(v: Any) -> str:
@@ -46,27 +47,27 @@ def _norm_state(v: Any) -> str:
     return "unknown"
 
 
-def _f(cfg: Dict[str, Any], key: str, default: float) -> float:
+def _f(cfg: dict[str, Any], key: str, default: float) -> float:
     try:
         v = cfg.get(key, default)
         if v is None:
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
-def _i(cfg: Dict[str, Any], key: str, default: int) -> int:
+def _i(cfg: dict[str, Any], key: str, default: int) -> int:
     try:
         v = cfg.get(key, default)
         if v is None:
-            return int(default)
+            return default
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
-def _b(cfg: Dict[str, Any], key: str, default: bool) -> bool:
+def _b(cfg: dict[str, Any], key: str, default: bool) -> bool:
     try:
         v = cfg.get(key, default)
         if v is None:
@@ -98,13 +99,13 @@ class CircuitBreakerDecision:
     expectancy_r_24h: float
     precision_top5p_24h: float
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 def decide_circuit_breaker(
     *,
-    cfg: Dict[str, Any],
+    cfg: dict[str, Any],
     dq_state: Any,
     drift_state: Any,
 ) -> CircuitBreakerDecision:
@@ -197,14 +198,14 @@ def decide_circuit_breaker(
 
 def apply_circuit_breaker_overrides(
     *,
-    cfg: Dict[str, Any],
+    cfg: dict[str, Any],
     decision: CircuitBreakerDecision,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """
     Return (cfg_overrides, policy_fields_for_indicators).
     The caller should merge cfg_overrides into effective cfg.
     """
-    overrides: Dict[str, Any] = {}
+    overrides: dict[str, Any] = {}
 
     # Strong-only mode is implemented via explicit flags consumed in TickProcessor and (optionally) engine.
     if decision.force_rule_strong_only:
@@ -239,16 +240,16 @@ def apply_circuit_breaker_overrides(
 
 
 def enforce_circuit_breaker_regime(
-    decision: CircuitBreakerDecision, 
-    effective_regime: str, 
-    cfg: Dict[str, Any]
+    decision: CircuitBreakerDecision,
+    effective_regime: str,
+    cfg: dict[str, Any]
 ) -> CircuitBreakerDecision:
     """
     Return a new decision with the effective regime applied (updating flags).
     """
     if decision.regime == effective_regime:
         return decision
-        
+
     # Re-calc overrides
     force_strong = False
     disable_ml = False
@@ -258,7 +259,7 @@ def enforce_circuit_breaker_regime(
     elif effective_regime == "warn":
         force_strong = _b(cfg, "cb_warn_force_rule_strong_only", False)
         disable_ml = _b(cfg, "cb_warn_disable_ml_enforce", False)
-        
+
     return CircuitBreakerDecision(
         ver=decision.ver,
         regime=effective_regime,

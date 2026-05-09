@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """P58 wrapper: archive trades:closed stream to NDJSON.
 
 Env overrides:
@@ -12,7 +13,6 @@ Env overrides:
 
 import os
 import sys
-from typing import Optional, List
 
 # Ensure we can import from ml_analysis
 sys.path.append("/app")
@@ -20,7 +20,7 @@ sys.path.append("/app")
 from ml_analysis.tools import stream_archiver_ndjson_v1
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     os.environ.setdefault("ARCHIVE_STREAM", os.environ.get("TRADES_CLOSED_STREAM", "trades:closed"))
     os.environ.setdefault(
         "ARCHIVE_DIR",

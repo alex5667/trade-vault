@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Redis-based distributed GPU lock for Ollama.
 
 Only one consumer (AIOps Agent, Local Fallback Plane, etc.)
@@ -22,9 +23,8 @@ Usage (async):
 import os
 import time
 import uuid
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from typing import Any, AsyncIterator, Iterator
-
 
 LOCK_KEY = os.getenv("OLLAMA_GPU_LOCK_KEY", "lock:ollama:gpu")
 DEFAULT_LOCK_TTL = int(os.getenv("OLLAMA_GPU_LOCK_TTL_SEC", "600"))

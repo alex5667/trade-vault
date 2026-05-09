@@ -1,18 +1,17 @@
 # news_pipeline/sources/fmp_calendar.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import json
-import time
 import hashlib
+import json
+import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from news_pipeline.calendar_mapping import map_calendar_asset_classes
+from utils.time_utils import get_ny_time_millis
 
 DEFAULT_BASE_URL = "https://financialmodelingprep.com"
 
@@ -57,14 +56,14 @@ def _parse_time_ms(s: str) -> int:
         try:
             dt = datetime.strptime(s, l)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             return int(dt.timestamp() * 1000)
         except Exception:
             continue
     try:
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return int(dt.timestamp() * 1000)
     except Exception:
         return 0
@@ -85,7 +84,7 @@ def _importance_to_int(v: Any) -> int:
     return 0
 
 
-def _http_get_json(url: str, *, headers: Dict[str, str], timeout_sec: float) -> Any:
+def _http_get_json(url: str, *, headers: dict[str, str], timeout_sec: float) -> Any:
     req = Request(url, method="GET")
     for k, v in headers.items():
         req.add_header(k, v)
@@ -103,13 +102,13 @@ class FMPCalendarConfig:
     base_url: str = DEFAULT_BASE_URL
     back_days: int = 1
     lookahead_days: int = 7
-    countries: Tuple[str, ...] = ()
-    importance: Tuple[str, ...] = ()
+    countries: tuple[str, ...] = ()
+    importance: tuple[str, ...] = ()
     user_agent: str = "trade-news-standby/1.0"
     http_timeout_sec: float = 12.0
 
     @staticmethod
-    def from_sources_json(src: Dict[str, Any]) -> "FMPCalendarConfig":
+    def from_sources_json(src: dict[str, Any]) -> FMPCalendarConfig:
         """
         Совместимо с вашим Go-конфигом:
         {
@@ -146,7 +145,7 @@ class FMPCalendarConfig:
         )
 
 
-def fetch_fmp_economic_calendar(*, cfg: FMPCalendarConfig) -> List[Dict[str, Any]]:
+def fetch_fmp_economic_calendar(*, cfg: FMPCalendarConfig) -> list[dict[str, Any]]:
     """
     GET /stable/economic-calendar?from=YYYY-MM-DD&to=YYYY-MM-DD&apikey=...
     """
@@ -154,7 +153,7 @@ def fetch_fmp_economic_calendar(*, cfg: FMPCalendarConfig) -> List[Dict[str, Any
     if not cfg.enabled or not api_key:
         return []
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     from_str = now.replace(hour=0, minute=0, second=0, microsecond=0).date().isoformat()
     # back/lookahead
     from_ord = now.date().toordinal() - cfg.back_days
@@ -180,11 +179,11 @@ def fetch_fmp_economic_calendar(*, cfg: FMPCalendarConfig) -> List[Dict[str, Any
     return []
 
 
-def normalize_calendar_events(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def normalize_calendar_events(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Превращает raw rows -> stream fields (stringable), делает fan-out по asset_class.
     """
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     now_ms = get_ny_time_millis()
     DAY_MS = 24 * 3600 * 1000
 
@@ -203,9 +202,9 @@ def normalize_calendar_events(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
         importance = _importance_to_int(r.get("impact") or r.get("importance") or r.get("volatility"))
 
         # при желании — фильтруйте по cfg.countries/cfg.importance на уровне fetcher-а
-        forecast = "" if r.get("forecast") is None else str(r.get("forecast"))
-        previous = "" if r.get("previous") is None else str(r.get("previous"))
-        unit = "" if r.get("unit") is None else str(r.get("unit"))
+        forecast = "" if r.get("forecast") is None else (r.get("forecast"))
+        previous = "" if r.get("previous") is None else (r.get("previous"))
+        unit = "" if r.get("unit") is None else (r.get("unit"))
 
         provider_id = str(r.get("id") or r.get("eventId") or r.get("updated") or "").strip()
         if not provider_id:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for signal_quality_gating/tools/of_gate_sre_monitor.py
 
 Tests cover: pctl, compute_stats, build_alerts.
@@ -10,9 +11,9 @@ with python-worker/tools/.
 
 
 import importlib.util
+import json
 import os
 import sys
-import json
 import types
 
 import pytest

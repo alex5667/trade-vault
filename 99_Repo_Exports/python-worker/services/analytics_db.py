@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Simple TimescaleDB connector for scanner_analytics.
 
@@ -8,18 +9,19 @@ Usage:
   from services.analytics_db import fetch_trades_closed
 """
 
-import os
 import json
-from typing import Any, Dict, List, Optional, Tuple
+import logging
+import os
+from typing import Any
 
 import psycopg2
-from psycopg2.extras import RealDictCursor, Json
-import logging
+from psycopg2.extras import Json, RealDictCursor
 
 logger = logging.getLogger("analytics_db")
 
 try:
-    from prometheus_client import Counter as _PCounter, REGISTRY as _PREG
+    from prometheus_client import REGISTRY as _PREG
+    from prometheus_client import Counter as _PCounter
 
     def _pcounter(name, doc, labels=()):
         try:
@@ -49,9 +51,9 @@ except ImportError:
 
 try:
     from services.horizon_contract import (
-        extract_horizon_contract_from_payload,
-        extract_horizon_bucket,
         extract_atr_tf_ms,
+        extract_horizon_bucket,
+        extract_horizon_contract_from_payload,
     )
 except ImportError:  # pragma: no cover
     def extract_horizon_contract_from_payload(p):  # type: ignore[misc]
@@ -107,6 +109,7 @@ _trade_p0_batch_writer = None
 
 
 from contextlib import contextmanager
+
 try:
     from psycopg2 import pool
 except ImportError:
@@ -115,6 +118,7 @@ except ImportError:
 _POOL = None
 
 import threading
+
 _pool_lock = threading.Lock()
 
 def _init_pool():
@@ -136,7 +140,7 @@ def get_conn():
     global _POOL
     if _POOL is None:
         _init_pool()
-    
+
     if _POOL:
         conn = _POOL.getconn()
         try:
@@ -193,7 +197,7 @@ def init_trade_batch_writer(dsn: str = "") -> None:
                 "health_signal_emit_rate", "health_dlq_rate",
                 "config_json", "is_virtual",
                 "meta_enforce_cov_bucket", "meta_enforce_applied",
-                "atr_policy_ver", "atr_policy_tag", "atr_policy_source", "atr_policy_scenario", 
+                "atr_policy_ver", "atr_policy_tag", "atr_policy_source", "atr_policy_scenario",
                 "atr_policy_regime", "atr_policy_bucket", "atr_stop_ttl_mode", "atr_trailing_mode",
                 "atr_recovery_run_id", "atr_restore_cert_id", "atr_restore_cert_status",
                 "atr_policy_snapshot_json",
@@ -236,9 +240,9 @@ def init_trade_batch_writer(dsn: str = "") -> None:
         )
 
 
-def _apply_filters(symbol: Optional[str], source: Optional[str]) -> Tuple[str, List[Any]]:
-    clauses: List[str] = []
-    params: List[Any] = []
+def _apply_filters(symbol: str | None, source: str | None) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
 
     if symbol:
         clauses.append("symbol = %s")
@@ -255,9 +259,9 @@ def _apply_filters(symbol: Optional[str], source: Optional[str]) -> Tuple[str, L
 
 def fetch_trades_closed(
     limit: int = 1000,
-    symbol: Optional[str] = None,
-    source: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    symbol: str | None = None,
+    source: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Fetch recent trades_closed sorted by exit_ts desc.
 
@@ -282,7 +286,7 @@ def fetch_trades_closed(
         return cur.fetchall()
 
 
-def fetch_trade_by_order_id(order_id: str) -> Optional[Dict[str, Any]]:
+def fetch_trade_by_order_id(order_id: str) -> dict[str, Any] | None:
     """Fetch a single closed trade by its order_id."""
     sql = "SELECT * FROM trades_closed WHERE order_id = %s LIMIT 1"
     with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -290,7 +294,7 @@ def fetch_trade_by_order_id(order_id: str) -> Optional[Dict[str, Any]]:
         return cur.fetchone()
 
 
-def fetch_signal_by_id(signal_id: str) -> Optional[Dict[str, Any]]:
+def fetch_signal_by_id(signal_id: str) -> dict[str, Any] | None:
     """Fetch a single signal by its signal_id from the signals table."""
     sql = "SELECT * FROM signals WHERE signal_id = %s LIMIT 1"
     with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -299,11 +303,11 @@ def fetch_signal_by_id(signal_id: str) -> Optional[Dict[str, Any]]:
 
 
 def fetch_daily_metrics(
-    date: Optional[str] = None,
-    symbol: Optional[str] = None,
-    source: Optional[str] = None,
+    date: str | None = None,
+    symbol: str | None = None,
+    source: str | None = None,
     limit: int = 365,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Fetch recent rows from daily_metrics."""
     where_sql, params = _apply_filters(symbol, source)
     if date:
@@ -325,12 +329,12 @@ def fetch_daily_metrics(
 
 
 def fetch_entry_tag_metrics(
-    date: Optional[str] = None,
-    symbol: Optional[str] = None,
-    source: Optional[str] = None,
-    entry_tag: Optional[str] = None,
+    date: str | None = None,
+    symbol: str | None = None,
+    source: str | None = None,
+    entry_tag: str | None = None,
     limit: int = 365,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Fetch rows from entry_tag_metrics."""
     where_sql, params = _apply_filters(symbol, source)
     if date:
@@ -630,7 +634,7 @@ def save_trade_closed(closed: TradeClosed) -> None:
     book_age_ms = getattr(closed, "book_age_ms", None) or sp.get("book_age_ms")
 
     # features snapshot
-    features: Dict[str, Any] = {}
+    features: dict[str, Any] = {}
     f1 = getattr(closed, "features", None)
     if isinstance(f1, dict):
         features = dict(f1)
@@ -679,10 +683,21 @@ def save_trade_closed(closed: TradeClosed) -> None:
         getattr(closed, "meta_enforce_applied", -1)
     )
 
-    # Sanitize parameters: replace any accidental empty tuples `()` with `None` to prevent psycopg2 syntax errors
-    params = tuple(None if val == () else val for val in params)
-    params_p0 = tuple(None if val == () else val for val in params_p0)
+    # Sanitize parameters: replace empty tuples `()` with `None`, and unbox 1-element tuples `(x,)`
+    # to prevent psycopg2 syntax errors at or near ")"
+    def sanitize_tuple(tup):
+        res = []
+        for val in tup:
+            if val == ():
+                res.append(None)
+            elif isinstance(val, tuple) and len(val) == 1:
+                res.append(val[0])
+            else:
+                res.append(val)
+        return tuple(res)
 
+    params = sanitize_tuple(params)
+    params_p0 = sanitize_tuple(params_p0)
     try:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(sql, params)
@@ -724,7 +739,7 @@ def save_trade_closed(closed: TradeClosed) -> None:
         pass
 
 
-def save_trade_closed_async(closed: "TradeClosed") -> bool:  # type: ignore[name-defined]
+def save_trade_closed_async(closed: TradeClosed) -> bool:  # type: ignore[name-defined]
     """Non-blocking version of save_trade_closed using AsyncBatchWriter.
 
     Enqueues the closed trade into the batch writer buffer (no DB round-trip on
@@ -846,23 +861,23 @@ def save_trade_closed_async(closed: "TradeClosed") -> bool:  # type: ignore[name
             regime = getattr(closed, "regime", None) or sp.get("regime")
             session = getattr(closed, "session", None) or sp.get("session")
             entry_reason = getattr(closed, "entry_reason", None) or sp.get("entry_reason")
-        
+
             mae_bps = getattr(closed, "mae_bps", None)
             mfe_bps = getattr(closed, "mfe_bps", None)
             time_to_mfe_ms = getattr(closed, "time_to_mfe_ms", None)
             hold_ms = getattr(closed, "hold_ms", None) or getattr(closed, "duration_ms", None)
-        
+
             spread_bps_at_entry = getattr(closed, "spread_bps_at_entry", None) or sp.get("spread_bps_at_entry") or sp.get("spread_bps")
             slippage_bps_est = getattr(closed, "slippage_bps_est", None) or sp.get("slippage_bps_est")
             book_age_ms = getattr(closed, "book_age_ms", None) or sp.get("book_age_ms")
-        
-            features: Dict[str, Any] = {}
+
+            features: dict[str, Any] = {}
             f1 = getattr(closed, "features", None)
             if isinstance(f1, dict):
                 features = dict(f1)
             else:
                 features = dict(sp.get("features") or sp.get("indicators") or {})
-        
+
             ALLOW = {
                 "delta_z","dn_usd","obi","cvd_slope",
                 "absorption_score","weak_progress","vwap_pos",
@@ -887,8 +902,8 @@ def save_trade_closed_async(closed: "TradeClosed") -> bool:  # type: ignore[name
             # Batch writers usually expect dicts, psycopg2 Json wrapper will be applied by db_batch_writer extra_adapter if needed,
             # or we can pass a json string.
             import datetime
-            dt = datetime.datetime.fromtimestamp(closed.exit_ts_ms / 1000.0, tz=datetime.timezone.utc).isoformat()
-            
+            dt = datetime.datetime.fromtimestamp(closed.exit_ts_ms / 1000.0, tz=datetime.UTC).isoformat()
+
             _trade_p0_batch_writer.enqueue({
                 "order_id": closed.order_id,
                 "exit_ts": dt,

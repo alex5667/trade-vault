@@ -8,22 +8,24 @@ import time
 _NORM_7D_MS: int = 7 * 24 * 3_600_000
 _NORM_1M_MS: int = 60_000
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any
 
-from handlers.tick_parser import Tick  # type: ignore
 from contexts import MarketRegime  # type: ignore
+from handlers.tick_parser import Tick  # type: ignore
 
 from ..types.crypto_orderflow_handler_types import RegimeFeatures, RegimeSample
+import contextlib
 
 
 def _safe_float(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
     except Exception:
-        return float(default)
+        return default
     if not math.isfinite(v):
-        return float(default)
+        return default
     return float(v)
 
 
@@ -31,7 +33,7 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return float(min(hi, max(lo, x)))
 
 
-def _safe_pos_float(x: Any) -> Optional[float]:
+def _safe_pos_float(x: Any) -> float | None:
     try:
         v = float(x)
     except Exception:
@@ -45,9 +47,9 @@ def _safe_pos_float(x: Any) -> Optional[float]:
     try:
         v = float(x)
     except Exception:
-        return float(default)
+        return default
     if not math.isfinite(v):
-        return float(default)
+        return default
     return float(v)
 
 
@@ -76,7 +78,7 @@ def _to_str(x: Any) -> str:
     return str(x)
 
 
-def _parse_bool(v: Any) -> Optional[bool]:
+def _parse_bool(v: Any) -> bool | None:
     if v is None:
         return None
     if isinstance(v, bool):
@@ -139,14 +141,14 @@ class TickParser:
     def __init__(self) -> None:
         self.stats = TickParserStats()
 
-    def parse(self, fields: Dict[str, Any]) -> Optional[Tick]:
+    def parse(self, fields: dict[str, Any]) -> Tick | None:
         self.stats.total += 1
         if not fields:
             self.stats.bad += 1
             self.stats.last_bad_reason = "empty_fields"
             return None
 
-        tick_json: Optional[Dict[str, Any]] = None
+        tick_json: dict[str, Any] | None = None
 
         try:
             if "data" in fields:
@@ -248,7 +250,7 @@ class RealizedSpreadTracker:
         self.dropped_pending = 0
         self.settled = 0
 
-    def update(self, *, ts: int, bid: float, ask: float, is_trade: bool, side: int) -> Tuple[float, float, float, float]:
+    def update(self, *, ts: int, bid: float, ask: float, is_trade: bool, side: int) -> tuple[float, float, float, float]:
         if ts <= 0 or bid <= 0 or ask <= 0 or ask < bid:
             return 0.0, self.last_realized_bps, self.realized_ema_bps, self.adverse_ratio_ema
 
@@ -359,11 +361,11 @@ class MicrostructureEngine:
 
     def attach_to_ctx(self, ctx: Any) -> None:
         s = self.last
-        setattr(ctx, "spread_bps", float(s.spread_bps))
-        setattr(ctx, "realized_bps", float(s.realized_bps))
-        setattr(ctx, "realized_ema_bps", float(s.realized_ema_bps))
-        setattr(ctx, "adverse_ratio_ema", float(s.adverse_ratio_ema))
-        setattr(ctx, "market_mode", str(s.market_mode))
+        ctx.spread_bps = float(s.spread_bps)
+        ctx.realized_bps = float(s.realized_bps)
+        ctx.realized_ema_bps = float(s.realized_ema_bps)
+        ctx.adverse_ratio_ema = float(s.adverse_ratio_ema)
+        ctx.market_mode = str(s.market_mode)
 
 
 
@@ -402,15 +404,15 @@ class RegimeDetector:
         self,
         cfg: RegimeDetectorCfg,
         *,
-        daily_open_cross_freq_provider: Optional[Callable[[str], Optional[float]]] = None,
-        htf_levels_provider: Optional[Callable[[str], Any]] = None,
-        now_provider: Optional[Callable[[], float]] = None,
+        daily_open_cross_freq_provider: Callable[[str], float | None] | None = None,
+        htf_levels_provider: Callable[[str], Any] | None = None,
+        now_provider: Callable[[], float] | None = None,
     ) -> None:
         self.cfg = cfg
         self._daily_open_cross_freq_provider = daily_open_cross_freq_provider
         self._htf_levels_provider = htf_levels_provider
         self._now = now_provider or time.time
-        self._history: Dict[str, deque[RegimeSample]] = {}
+        self._history: dict[str, deque[RegimeSample]] = {}
 
     def _hist(self, symbol: str) -> deque[RegimeSample]:
         h = self._history.get(symbol)
@@ -419,7 +421,7 @@ class RegimeDetector:
             self._history[symbol] = h
         return h
 
-    def _acc(self, score: float, wsum: float, val: Optional[float], w: float) -> Tuple[float, float]:
+    def _acc(self, score: float, wsum: float, val: float | None, w: float) -> tuple[float, float]:
         if val is None:
             return score, wsum
         v = _safe_float(val, default=0.0)
@@ -427,7 +429,7 @@ class RegimeDetector:
             return score, wsum
         return score + w * v, wsum + w
 
-    def _weighted_score(self, feats: RegimeFeatures) -> Tuple[float, Dict[str, Any]]:
+    def _weighted_score(self, feats: RegimeFeatures) -> tuple[float, dict[str, Any]]:
         cfg = self.cfg
         score = 0.0
         wsum = 0.0
@@ -495,7 +497,7 @@ class RegimeDetector:
             elif diff_o < 0.0:
                 daily_open_side = -1
 
-        self._hist(str(symbol)).append(
+        self._hist(symbol).append(
             RegimeSample(
                 ts=ts,
                 price=p,
@@ -507,7 +509,7 @@ class RegimeDetector:
             )
         )
 
-    def _fallback_daily_open_cross_freq(self, symbol: str) -> Optional[float]:
+    def _fallback_daily_open_cross_freq(self, symbol: str) -> float | None:
         """
         Фолбэк, если нет внешнего провайдера:
           частота пересечений daily_open ~= доля смен знака daily_open_side на окне.
@@ -543,22 +545,22 @@ class RegimeDetector:
         if p is None:
             return RegimeFeatures()
 
-        sym = str(symbol)
+        sym = symbol
 
         # 1) Расстояние до VWAP в bps
-        vwap_dev_bps: Optional[float] = None
+        vwap_dev_bps: float | None = None
         vv = _safe_pos_float(vwap)
         if vv is not None:
             vwap_dev_bps = float(abs(p - vv) / p * 10_000.0)
 
         # 2) Расстояние до daily_open в bps
-        daily_open_dev_bps: Optional[float] = None
+        daily_open_dev_bps: float | None = None
         oo = _safe_pos_float(daily_open)
         if oo is not None:
             daily_open_dev_bps = float(abs(p - oo) / oo * 10_000.0)
 
         # 3) Частота пересечений daily_open
-        daily_open_cross_freq: Optional[float] = None
+        daily_open_cross_freq: float | None = None
         if self._daily_open_cross_freq_provider is not None:
             try:
                 daily_open_cross_freq = self._daily_open_cross_freq_provider(sym)
@@ -570,7 +572,7 @@ class RegimeDetector:
             daily_open_cross_freq = _clamp(_safe_float(daily_open_cross_freq, 0.0), 0.0, 1.0)
 
         # 4) Расстояние до HTF уровней
-        htf_level_dist_bps: Optional[float] = None
+        htf_level_dist_bps: float | None = None
         if self._htf_levels_provider is not None:
             try:
                 htf_levels = self._htf_levels_provider(sym)
@@ -589,13 +591,13 @@ class RegimeDetector:
         # 5) bias'ы на основе сырых метрик
 
         # ATR bias: высокая волатильность -> тренд (+1), низкая -> рендж (-1)
-        atr_bias: Optional[float] = None
+        atr_bias: float | None = None
         ab = _safe_float(atr_14_bps, default=float("nan"))
         if math.isfinite(ab):
             atr_bias = _clamp((ab - 50.0) / 50.0, -1.0, 1.0)
 
         # Delta direction bias - получаем из истории
-        delta_dir_bias: Optional[float] = None
+        delta_dir_bias: float | None = None
         hist = self._history.get(sym)
         if hist and len(hist) >= 3:
             recent = list(hist)[-10:]
@@ -608,32 +610,32 @@ class RegimeDetector:
                     delta_dir_bias = _clamp((pos_count - neg_count) / total, -1.0, 1.0)
 
         # VWAP deviation bias: близко -> рендж (-1), далеко -> тренд (+1)
-        vwap_dev_bias: Optional[float] = None
+        vwap_dev_bias: float | None = None
         if vwap_dev_bps is not None and math.isfinite(vwap_dev_bps):
             vwap_dev_bias = _clamp((vwap_dev_bps - 25.0) / 75.0, -1.0, 1.0)
 
         # Daily open deviation bias
-        daily_open_dev_bias: Optional[float] = None
+        daily_open_dev_bias: float | None = None
         if daily_open_dev_bps is not None and math.isfinite(daily_open_dev_bps):
             daily_open_dev_bias = _clamp((daily_open_dev_bps - 25.0) / 75.0, -1.0, 1.0)
 
         # Daily open cross bias: частые пересечения -> рендж (-1), редкие -> тренд (+1)
-        daily_open_cross_bias: Optional[float] = None
+        daily_open_cross_bias: float | None = None
         if daily_open_cross_freq is not None and math.isfinite(daily_open_cross_freq):
             daily_open_cross_bias = _clamp(1.0 - 2.0 * daily_open_cross_freq, -1.0, 1.0)
 
         # HTF proximity bias: близко к уровням -> тренд (+1), далеко -> рендж (-1)
-        htf_prox_bias: Optional[float] = None
+        htf_prox_bias: float | None = None
         if htf_level_dist_bps is not None and math.isfinite(htf_level_dist_bps):
             htf_prox_bias = _clamp(1.0 - (htf_level_dist_bps / 50.0), -1.0, 1.0)
 
         # Weak progress bias: слабый прогресс -> рендж (-1), сильный -> тренд (+1)
-        weak_progress_bias: Optional[float] = None
+        weak_progress_bias: float | None = None
         wp = _safe_float(weak_progress_raw, default=float("nan"))
         if math.isfinite(wp):
             weak_progress_bias = _clamp((wp - 0.5) * 2.0, -1.0, 1.0)
 
-        session_bias: Optional[float] = None
+        session_bias: float | None = None
 
         return RegimeFeatures(
             # raw
@@ -654,13 +656,11 @@ class RegimeDetector:
 
     def detect(self, ctx: Any) -> MarketRegime:
         # 1) update history (fail-open)
-        try:
+        with contextlib.suppress(Exception):
             self.update_history(ctx)
-        except Exception:
-            pass
 
         # 2) compute features (fail-open)
-        breakdown: Dict[str, Any] = {}
+        breakdown: dict[str, Any] = {}
         try:
             feats = self.compute_features(ctx)
         except Exception:
@@ -683,15 +683,15 @@ class RegimeDetector:
             breakdown["micro_mode"] = mm
             breakdown["fallback_micro_mode"] = True
 
-        setattr(ctx, "market_regime_score", float(score))
+        ctx.market_regime_score = float(score)
         if score >= float(self.cfg.regime_trend_threshold):
             regime = MarketRegime.TREND
         elif score <= float(self.cfg.regime_range_threshold):
             regime = MarketRegime.RANGE
         else:
             regime = MarketRegime.MIXED
-        setattr(ctx, "market_regime", regime)
-        setattr(ctx, "regime_features", breakdown)
+        ctx.market_regime = regime
+        ctx.regime_features = breakdown
         return regime
 
 
@@ -703,7 +703,7 @@ class RegimeDetector:
 class ConfirmationResult:
     ok: bool
     code: str = "ok"
-    details: Dict[str, Any] | None = None
+    details: dict[str, Any] | None = None
 
     @property
     def veto(self) -> bool:
@@ -875,7 +875,7 @@ class ScoreResult:
     conf_factor: float
     final_score: float
     confidence_pct: float
-    parts: Dict[str, Any]
+    parts: dict[str, Any]
 
 
 def _clamp01(x: float) -> float:
@@ -895,7 +895,7 @@ class ScoreModel:
     def __init__(
         self,
         *,
-        conf_scorer: Callable[[Any, str], Tuple[float, Dict[str, Any]]],
+        conf_scorer: Callable[[Any, str], tuple[float, dict[str, Any]]],
         kind_normalizer: Callable[[Any], str],
         confidence_pct_k: float = 100.0,
     ) -> None:
@@ -920,11 +920,11 @@ class ScoreModel:
         cpct = self._confidence_pct_from_final(fs)
 
         # прикрепляем к контексту для дальнейшего использования
-        setattr(ctx, "raw_score", float(raw_score))
-        setattr(ctx, "conf_factor", float(cf))
-        setattr(ctx, "final_score", float(fs))
-        setattr(ctx, "confidence_pct", float(cpct))
-        setattr(ctx, "confidence_parts", parts or {})
+        ctx.raw_score = float(raw_score)
+        ctx.conf_factor = float(cf)
+        ctx.final_score = float(fs)
+        ctx.confidence_pct = float(cpct)
+        ctx.confidence_parts = parts or {}
 
         return ScoreResult(
             raw_score=float(raw_score),
@@ -949,8 +949,8 @@ class Emitter:
         audit_max_bytes: int = 12_000,
     ) -> None:
         self.manual_signal_enabled = bool(manual_signal_enabled)
-        self.manual_signal_stream = str(manual_signal_stream or "")
-        self.audit_level = str(audit_level or "full").strip().lower()
+        self.manual_signal_stream = (manual_signal_stream or "")
+        self.audit_level = (audit_level or "full").strip().lower()
         self.audit_max_bytes = int(audit_max_bytes or 0)
 
     def _estimate_json_bytes(self, obj: Any) -> int:
@@ -960,7 +960,7 @@ class Emitter:
         except Exception:
             return 0
 
-    def _shrink_manual_payload(self, mp: Dict[str, Any]) -> Dict[str, Any]:
+    def _shrink_manual_payload(self, mp: dict[str, Any]) -> dict[str, Any]:
         mp = dict(mp)
         mp.pop("metadata", None)
         if self.audit_level == "compact":
@@ -969,12 +969,12 @@ class Emitter:
 
     def extend_outbox_envelope(
         self,
-        envelope: Dict[str, Any],
+        envelope: dict[str, Any],
         *,
         signal: Any,
         ctx: Any,
-        build_audit_full: Callable[[Any], Dict[str, Any]],
-        build_audit_compact: Callable[[Any], Dict[str, Any]],
+        build_audit_full: Callable[[Any], dict[str, Any]],
+        build_audit_compact: Callable[[Any], dict[str, Any]],
     ) -> None:
         if not self.manual_signal_enabled or not self.manual_signal_stream:
             return

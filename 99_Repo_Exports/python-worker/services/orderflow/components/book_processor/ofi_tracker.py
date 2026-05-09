@@ -1,13 +1,15 @@
 import logging
-from typing import Dict, Any, Optional
-from services.orderflow.runtime import SymbolRuntime, BookSnapshot
+from typing import Any
+
 from core.dyn_cfg_keys import DynCfgKeys as DK
+from services.orderflow.runtime import BookSnapshot, SymbolRuntime
+import contextlib
 
 logger = logging.getLogger("orderflow_ofi_tracker")
 
 class OFITracker:
     @staticmethod
-    def update(runtime: SymbolRuntime, snap: BookSnapshot, prev_snap: Optional[BookSnapshot], book_ts_ms: int, book_raw: Dict[str, Any]) -> None:
+    def update(runtime: SymbolRuntime, snap: BookSnapshot, prev_snap: BookSnapshot | None, book_ts_ms: int, book_raw: dict[str, Any]) -> None:
         """
         Updates OFI (Order Flow Imbalance), Depth (L3-lite), and Resilience trackers.
         """
@@ -17,7 +19,7 @@ class OFITracker:
              if bids and asks:
                  bb_px = float(bids[0][0] or 0.0); bb_q = float(bids[0][1] or 0.0)
                  ba_px = float(asks[0][0] or 0.0); ba_q = float(asks[0][1] or 0.0)
-                 
+
                  if bb_px > 0 and ba_px > 0:
                      mid = 0.5 * (bb_px + ba_px)
                      runtime.last_book_mid = float(mid)
@@ -36,15 +38,13 @@ class OFITracker:
                      else:
                          # Crossed or zero spread: annotate but preserve last good value
                          runtime.book_crossed = 1
-                     
+
                      # Depth USD (Top 5)
                      db = 0.0; da = 0.0
                      for lv in bids[:5]:
-                         try: db += float(lv[1] or 0.0)
-                         except Exception: pass
+                         with contextlib.suppress(Exception): db += float(lv[1] or 0.0)
                      for lv in asks[:5]:
-                         try: da += float(lv[1] or 0.0)
-                         except Exception: pass
+                         with contextlib.suppress(Exception): da += float(lv[1] or 0.0)
                      runtime.last_depth_bid_5 = float(db)
                      runtime.last_depth_ask_5 = float(da)
                      runtime.last_depth_min_5_usd = float(min(db, da) * mid)
@@ -124,7 +124,7 @@ class OFITracker:
 
                  # Store OFI (signed, positive = buying pressure)
                  runtime.last_ofi = delta_bid - delta_ask
-                 
+
                  # P1 OFI EMA track for better stability
                  ofi_alpha = float(runtime.config.get("ofi_ema_alpha", 0.1))
                  if getattr(runtime, "last_ofi_ema", None) is None:
@@ -147,7 +147,7 @@ class OFITracker:
                              pass
                      except Exception:
                          pass
-                     
+
                      runtime.last_ofi_event = {
                          "ts_ms": _safe_int(ev.ts_ms),
                          "direction": str(ev.direction),
@@ -159,7 +159,7 @@ class OFITracker:
                      }
              except Exception:
                  pass
-             
+
              # Best Level OFI (if prev_snap)
              if prev_snap is not None:
                  try:
@@ -183,8 +183,7 @@ class OFITracker:
                          z_full=float(runtime.config.get("ofi_z_full", 3.0) or 3.0),
                      )
                      is_stable = bool(stable_secs >= 1.0 and score >= 0.8)
-                     
-                     from services.orderflow.metrics_events import OFIEvent # I'll just use a dict directly if I can't import
+
                      ev_ofi = {
                          "ts_ms": _safe_int(book_ts_ms),
                          "ofi": float(ofi_raw),

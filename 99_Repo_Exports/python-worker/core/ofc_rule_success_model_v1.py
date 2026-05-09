@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 
 def _clamp01(x: float) -> float:
@@ -35,14 +35,14 @@ class RuleSuccessModelV1:
         "global": {"score_mult": 1.0, "score_add": 0.0, "score_min_ctx": 0.60}
       }
     """
-    def __init__(self, payload: Dict[str, Any]) -> None:
+    def __init__(self, payload: dict[str, Any]) -> None:
         self.payload = dict(payload or {})
         self.groups = dict(self.payload.get("groups", {}) or {})
         self.global_group = dict(self.payload.get("global", {}) or {})
         self.model_version = str(self.payload.get("model_version", "rsm_v1") or "rsm_v1")
         self.artifact_version = str(self.payload.get("artifact_version", "") or "")
 
-    def predict(self, *, features: Dict[str, float], ctx_key: str, fallback_keys: List[str]) -> RuleSuccessPrediction:
+    def predict(self, *, features: dict[str, float], ctx_key: str, fallback_keys: list[str]) -> RuleSuccessPrediction:
         grp = None
         level = "global"
         for key in [ctx_key] + list(fallback_keys or []):

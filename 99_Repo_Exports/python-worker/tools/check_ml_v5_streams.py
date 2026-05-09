@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Проверка стримов ML Next Level v5: metrics:ml_confirm и metrics:ml_outcome.
 
 P27: добавлено раскрытие payload/indicators (если writer кладёт расширенные поля в JSON)
@@ -9,7 +10,7 @@ P27: добавлено раскрытие payload/indicators (если writer �
 
 
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
 
@@ -25,8 +26,8 @@ def check_stream(
     r: redis.Redis,
     stream: str,
     name: str,
-    required_fields: List[str],
-    optional_fields: List[str] | None = None,
+    required_fields: list[str],
+    optional_fields: list[str] | None = None,
 ) -> None:
     """Проверить наличие стрима и требуемых полей в последних сообщениях."""
     try:
@@ -57,13 +58,13 @@ def check_stream(
                 print(f"   ⚠️  Отсутствуют OPTIONAL поля (P27 payload): {', '.join(missing_opt)}")
             print(f"   ℹ️  OPTIONAL присутствуют: {len(present_opt)}/{len(opt)}")
 
-        print(f"   Пример значений:")
+        print("   Пример значений:")
         for field in required_fields[:6]:
             val = flat.get(field, "N/A")
             print(f"     {field} = {_short(val)}")
 
         if present_opt:
-            print(f"   Пример OPTIONAL:")
+            print("   Пример OPTIONAL:")
             for field in present_opt[:6]:
                 val = flat.get(field, "N/A")
                 print(f"     {field} = {_short(val)}")
@@ -90,7 +91,7 @@ def check_pred_cache(r: redis.Redis) -> None:
                 except Exception:
                     print(f"   Пример ключа: {sample_key} (не JSON)")
         else:
-            print(f"\n⚠️  ml:pred cache: записей не найдено")
+            print("\n⚠️  ml:pred cache: записей не найдено")
     except Exception as e:
         print(f"❌ ml:pred cache: ошибка - {e}")
 

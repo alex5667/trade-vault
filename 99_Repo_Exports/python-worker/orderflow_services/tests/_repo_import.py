@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Repo-local import helpers for tests.
 
 Why:
@@ -17,9 +18,9 @@ Contract:
 
 
 import importlib.util
+from collections.abc import Iterable
 from pathlib import Path
 from types import ModuleType
-from typing import Iterable, Tuple
 
 
 def find_repo_root(start: Path) -> Path:
@@ -47,7 +48,7 @@ def load_module_from_candidates(
     repo_root: Path,
     candidates: Iterable[str],
     module_name: str,
-) -> Tuple[ModuleType, Path]:
+) -> tuple[ModuleType, Path]:
     """Load module by relative path candidates.
 
     Returns (module, resolved_path).

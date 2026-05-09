@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Shared research-guard blocker helpers for rollout-sensitive jobs (P5.2).
@@ -14,8 +15,8 @@ Design goals:
 """
 
 import os
-import time
-from typing import Any, Dict, Mapping, Tuple
+from collections.abc import Mapping
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -31,17 +32,17 @@ def _to_int(value: Any, default: int = 0) -> int:
     try:
         return int(float(value))
     except Exception:
-        return int(default)
+        return default
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
     except Exception:
-        return float(default)
+        return default
 
 
-def _read_hash(client: Any, key: str) -> Dict[str, str]:
+def _read_hash(client: Any, key: str) -> dict[str, str]:
     if client is None or not key:
         return {}
     try:
@@ -70,7 +71,7 @@ def evaluate_research_guard_gate(
     max_age_sec: float = 0.0,
     fail_closed_missing: int = 1,
     client: Any | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Evaluate research guard gate for rollout-sensitive jobs.
 
     Returns a compact dict:
@@ -198,7 +199,7 @@ def check_research_guard_blocker(
     max_age_sec: float = 0.0,
     fail_closed_missing: int = 1,
     client: Any | None = None,
-) -> Tuple[bool, str, Dict[str, Any]]:
+) -> tuple[bool, str, dict[str, Any]]:
     """Compatibility bool API used by apply/promote jobs.
 
     Returns (blocked, reason, state).
@@ -211,7 +212,7 @@ def check_research_guard_blocker(
         fail_closed_missing=fail_closed_missing,
         client=client,
     )
-    return bool(state.get('blocked')), str(state.get('reason') or 'unknown'), state
+    return bool(state.get('blocked')), (state.get('reason') or 'unknown'), state
 
 
 def assert_research_guard_open(
@@ -233,8 +234,8 @@ def assert_research_guard_open(
         max_age_sec=_to_float(_env('STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC', '129600'), 129600.0),
         fail_closed_missing=_to_int(_env('STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING', '1'), 1),
     )
-    status = str(state.get('status') or 'invalid')
-    reason = str(state.get('reason') or 'unknown')
+    status = (state.get('status') or 'invalid')
+    reason = (state.get('reason') or 'unknown')
     if status == 'ok':
         return
     if status == 'block':

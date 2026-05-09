@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 sre_monitor_all.py
 
@@ -13,6 +14,7 @@ This avoids modifying existing scripts.
 import os
 import subprocess
 import sys
+
 
 def _run(cmd: list[str]) -> int:
     try:

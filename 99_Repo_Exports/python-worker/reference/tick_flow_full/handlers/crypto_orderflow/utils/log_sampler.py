@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Log Sampling Utility
 
@@ -34,12 +35,11 @@ Usage:
 """
 
 
-import os
-import math
-import threading
-from typing import Optional, Dict, Any
-from collections import defaultdict
 import logging
+import os
+import threading
+from collections import defaultdict
+from typing import Any
 
 
 def _env_int(name: str, default: int) -> int:
@@ -47,7 +47,7 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)) or default)
     except Exception:
-        return int(default)
+        return default
 
 
 class LogSampler:
@@ -76,7 +76,7 @@ class LogSampler:
 
         if use_threading:
             self._lock = threading.Lock()
-            self._counters: Dict[str, int] = {}
+            self._counters: dict[str, int] = {}
         else:
             self._counters = defaultdict(int)
 
@@ -102,7 +102,7 @@ class LogSampler:
         self._counters[key] = counter
         return (counter - 1) % self.sample_rate == 0
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get current sampling statistics.
 
@@ -115,7 +115,7 @@ class LogSampler:
         else:
             return dict(self._counters)
 
-    def reset(self, key: Optional[str] = None) -> None:
+    def reset(self, key: str | None = None) -> None:
         """
         Reset counters.
 
@@ -142,7 +142,7 @@ class LogSamplerFactory:
     Supports environment-based configuration for different log types.
     """
 
-    _instances: Dict[str, LogSampler] = {}
+    _instances: dict[str, LogSampler] = {}
     _lock = threading.Lock()
 
     @classmethod
@@ -173,7 +173,7 @@ class LogSamplerFactory:
             return sampler
 
     @classmethod
-    def get_stats(cls) -> Dict[str, Dict[str, Any]]:
+    def get_stats(cls) -> dict[str, dict[str, Any]]:
         """Get stats for all samplers."""
         with cls._lock:
             return {name: sampler.get_stats() for name, sampler in cls._instances.items()}

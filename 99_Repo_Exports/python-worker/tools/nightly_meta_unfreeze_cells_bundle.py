@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 """
 nightly_meta_unfreeze_cells_bundle.py
 
@@ -22,23 +25,22 @@ Usage:
   (reads ENV vars for thresholds, symbols, bootstrap params)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
+import hashlib
+import hmac
 import json
 import os
+import random
 import secrets
 import subprocess
 import sys
 import time
-import hmac
-import hashlib
-import random
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("NightlyMetaUnfreezeCells")
 
@@ -54,7 +56,7 @@ def sign(bid: str, secret: str) -> str:
     return d[:8]
 
 
-def _event_ts_ms(r: Dict[str, Any]) -> int:
+def _event_ts_ms(r: dict[str, Any]) -> int:
     """Extract timestamp in milliseconds from trade record."""
     for k in ("ts_ms", "ts", "exit_ts_ms", "event_ts_ms"):
         if k in r:
@@ -70,7 +72,7 @@ def _event_ts_ms(r: Dict[str, Any]) -> int:
     return 0
 
 
-def regime_bucket(r: Dict[str, Any]) -> str:
+def regime_bucket(r: dict[str, Any]) -> str:
     """
     Classify regime bucket from trade record.
     
@@ -95,7 +97,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -103,10 +105,10 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Calculate percentile from sorted list."""
     if not xs:
         return 0.0
@@ -116,7 +118,7 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def stats(rs: List[float]) -> Dict[str, float]:
+def stats(rs: list[float]) -> dict[str, float]:
     """Calculate basic statistics for returns list."""
     n = len(rs)
     if n == 0:
@@ -126,7 +128,7 @@ def stats(rs: List[float]) -> Dict[str, float]:
     return {"n": float(n), "meanR": float(mean), "tail_rate": float(tail), "medianR": float(pctl(rs, 0.5))}
 
 
-def bootstrap_tail_delta(enf: List[float], ctl: List[float], iters: int, seed: int) -> Dict[str, float]:
+def bootstrap_tail_delta(enf: list[float], ctl: list[float], iters: int, seed: int) -> dict[str, float]:
     """
     Bootstrap tail rate delta (enf - ctl) to get confidence interval.
     
@@ -136,7 +138,7 @@ def bootstrap_tail_delta(enf: List[float], ctl: List[float], iters: int, seed: i
     if len(enf) < 30 or len(ctl) < 30:
         return {"ok": 0.0}
 
-    def samp_tail(xs: List[float]) -> float:
+    def samp_tail(xs: list[float]) -> float:
         c = 0
         for _ in range(len(xs)):
             if xs[rng.randrange(0, len(xs))] <= -1.0:
@@ -207,7 +209,7 @@ def main() -> None:
     os.makedirs(run_dir, exist_ok=True)
     trades_out = f"{run_dir}/trades.ndjson"
 
-    trades_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    trades_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     logger.info(f"Exporting trades from {trades_stream} (since {since_hours}h)")
     subprocess.check_call([
         sys.executable, "tools/export_trade_closed_ndjson.py",
@@ -221,12 +223,12 @@ def main() -> None:
     # load trades into memory filtered to needed symbols
     sym_set = {s.strip().upper() for s in (args.symbols or "").split(",") if s.strip()}
     trades = []
-    with open(trades_out, "r", encoding="utf-8") as f:
+    with open(trades_out, encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
             t = json.loads(line)
-            sym = str(t.get("symbol", "") or "").upper()
+            sym = (t.get("symbol", "") or "").upper()
             if sym_set and sym not in sym_set:
                 continue
             trades.append(t)
@@ -243,23 +245,23 @@ def main() -> None:
     last_share_range = float(r.get("meta:ramp:last_share_range") or last_share)
 
     for rec in eligible:
-        sym = str(rec.get("symbol", "") or "").upper()
-        bucket = str(rec.get("bucket", "") or "").lower()
+        sym = (rec.get("symbol", "") or "").upper()
+        bucket = (rec.get("bucket", "") or "").lower()
         ck = f"{sym}|{bucket}"
 
         enf = []
         ctl = []
         for t in trades:
-            if str(t.get("symbol", "") or "").upper() != sym:
+            if (t.get("symbol", "") or "").upper() != sym:
                 continue
             if regime_bucket(t) != bucket:
                 continue
-            if t.get("meta_enforce_applied", None) is None:
+            if t.get(MetaKeys.ENFORCE_APPLIED, None) is None:
                 continue
             rm = t.get("r_mult", None)
             if rm is None:
                 continue
-            if _i(t.get("meta_enforce_applied", 0), 0) == 1:
+            if _i(t.get(MetaKeys.ENFORCE_APPLIED, 0), 0) == 1:
                 enf.append(_f(rm, 0.0))
             else:
                 ctl.append(_f(rm, 0.0))
@@ -372,7 +374,7 @@ def main() -> None:
         f"min_days=<code>{min_days}</code> window_hours=<code>{since_hours:.0f}</code>\n"
         f"note=<code>restore uses meta:ramp:last_share(_trend/_range)</code>"
     )
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
         "type": "report",
         "text": msg,
         "buttons": json.dumps(buttons, ensure_ascii=False, separators=(",", ":")),

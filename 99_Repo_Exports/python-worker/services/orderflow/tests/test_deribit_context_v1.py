@@ -3,16 +3,15 @@ Tests for deribit_context.py — DeribitContextSnapshot reader from Redis.
 """
 import json
 import math
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from services.orderflow.deribit_context import (
-    DeribitContextSnapshot,
-    aread_deribit_context,
     _f,
     _i,
+    aread_deribit_context,
 )
-
 
 # ─── _f / _i helpers ─────────────────────────────────────────────────────────
 

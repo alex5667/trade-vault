@@ -1,14 +1,11 @@
-import os
-import math
-import random
 import datetime as dt
+import os
+import random
 from decimal import Decimal
 
-import pytest
-
 from common.json_safe import to_json_safe
-from common.payload_policy import enforce_and_validate_payload, validate_tradeable_signal_payload, payload_max_bytes
 from common.outbox_contract import assert_json_safe
+from common.payload_policy import enforce_and_validate_payload, payload_max_bytes, validate_tradeable_signal_payload
 
 
 class WeirdObj:

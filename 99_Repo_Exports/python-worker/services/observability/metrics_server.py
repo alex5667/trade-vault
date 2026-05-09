@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import time
-from typing import List
 
 import redis
 from prometheus_client import start_http_server
@@ -22,9 +21,9 @@ def _b2s(x) -> str:
     return x.decode("utf-8") if isinstance(x, (bytes, bytearray)) else str(x)
 
 
-def _read_set(r: redis.Redis, key: str, max_n: int) -> List[str]:
+def _read_set(r: redis.Redis, key: str, max_n: int) -> list[str]:
     xs = list(r.smembers(key) or [])
-    out: List[str] = []
+    out: list[str] = []
     for x in xs[:max_n]:
         out.append(_b2s(x))
     return out

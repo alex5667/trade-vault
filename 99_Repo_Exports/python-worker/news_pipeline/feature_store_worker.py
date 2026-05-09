@@ -1,16 +1,16 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
+
 import logging
 import math
 import os
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
 
-from news_pipeline.stream_worker import StreamWorker
-from news_pipeline.grade import compute_news_grade_id, compute_horizon_sec
+from news_pipeline.grade import compute_horizon_sec, compute_news_grade_id
 from news_pipeline.postgres_writer import NewsPostgresWriter
+from news_pipeline.stream_worker import StreamWorker
+from utils.time_utils import get_ny_time_millis
 
 log = logging.getLogger("news_feature_store")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -49,7 +49,7 @@ class NewsFeatureStoreWorker(StreamWorker):
     Postgres: news_features_symbol, news_analysis
     """
 
-    def __init__(self, *, redis: redis.Redis, pg: Optional[NewsPostgresWriter] = None):
+    def __init__(self, *, redis: redis.Redis, pg: NewsPostgresWriter | None = None):
         super().__init__(
             redis=redis,
             stream=NEWS_ANALYSIS_STREAM,
@@ -62,9 +62,9 @@ class NewsFeatureStoreWorker(StreamWorker):
         )
         self.pg = pg
 
-    def handle_message(self, msg_id: str, fields: Dict[str, Any]) -> None:
-        uid = str(fields.get("uid") or "")
-        symbol = (str(fields.get("symbol") or "") or "GLOBAL").upper()
+    def handle_message(self, msg_id: str, fields: dict[str, Any]) -> None:
+        uid = (fields.get("uid") or "")
+        symbol = ((fields.get("symbol") or "") or "GLOBAL").upper()
         if not uid:
             return
 
@@ -136,7 +136,7 @@ class NewsFeatureStoreWorker(StreamWorker):
                     uid=uid,
                     symbol=symbol,
                     ts_ms=published_ts_ms or asof_ts_ms,
-                    source=str(fields.get("source") or "unknown"),
+                    source=(fields.get("source") or "unknown"),
                     risk=risk_new,
                     surprise=surprise_new,
                     tags_mask=tags_mask_new,

@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 # tick_flow_full/core/book_resilience_tracker.py
 # -*- coding: utf-8 -*-
-from __future__ import annotations
 """
 Side-aware adapter over BookResilienceTracker.
 
@@ -15,7 +16,6 @@ both legs; the tracker behaves correctly because min(x, x) == x.
 """
 
 
-from typing import Dict, Optional
 
 from core.book_resilience import BookResilienceTracker as _FullTracker
 
@@ -35,8 +35,8 @@ class BookResilienceTracker:
         recover_ratio: float = 0.85,        # alias for target_recovery_ratio
         max_recovery_ms: int = 30_000,      # alias for max_window_ms
         grace_ms: int = 5_000,              # ignored in full tracker, reserved for future use
-        target_recovery_ratio: Optional[float] = None,  # direct passthrough
-        max_window_ms: Optional[int] = None,             # direct passthrough
+        target_recovery_ratio: float | None = None,  # direct passthrough
+        max_window_ms: int | None = None,             # direct passthrough
         eps: float = 1e-9,
     ) -> None:
         # resolve aliases: explicit direct params take priority
@@ -101,7 +101,7 @@ class BookResilienceTracker:
         d = float(depth_now_usd or 0.0)
         self._inner.on_book(int(ts_ms or 0), bid_depth_usd=d, ask_depth_usd=d)
 
-    def snapshot(self) -> Dict[str, float]:
+    def snapshot(self) -> dict[str, float]:
         """Return resilience snapshot (same keys as the full tracker)."""
         return self._inner.snapshot()
 

@@ -12,10 +12,11 @@ Goals:
 This module is intentionally stdlib-only.
 """
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence
 import json
 import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 SECRET_KEY_RE = re.compile(
     r"(api[_-]?key|secret|token|password|passphrase|authorization|cookie)",
@@ -110,7 +111,7 @@ COMMON_SYSTEM_PROMPT = """Ты — Движок Анализа Уведомле�
 """
 
 
-OUTPUT_JSON_SCHEMA: Dict[str, Any] = {
+OUTPUT_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": [
@@ -174,7 +175,7 @@ class ModelProfile:
     seed: int = 42
 
 
-MODEL_PROFILE_REGISTRY: Dict[str, ModelProfile] = {
+MODEL_PROFILE_REGISTRY: dict[str, ModelProfile] = {
     "trade_event": ModelProfile(
         name="trade_event",
         temperature=0.15,
@@ -237,7 +238,7 @@ raw_payload={raw_payload}
 """
 
 
-PROMPT_REGISTRY: Dict[str, PromptSpec] = {
+PROMPT_REGISTRY: dict[str, PromptSpec] = {
     "entry_opened": PromptSpec(
         notification_type="entry_opened",
         notification_class="trade_event",
@@ -714,7 +715,7 @@ PROMPT_REGISTRY: Dict[str, PromptSpec] = {
 # Routing and payload sanitization
 # ---------------------------------------------------------------------------
 
-SOURCE_TO_NOTIFICATION_TYPE: Dict[str, str] = {
+SOURCE_TO_NOTIFICATION_TYPE: dict[str, str] = {
     "services/binance_dust_cleanup_admin_notifier.py": "dust_cleanup",
     "binance_dust_cleanup_admin_notifier.py": "dust_cleanup",
     "services/binance_iceberg_detector.py": "iceberg_detection",
@@ -731,7 +732,7 @@ SOURCE_TO_NOTIFICATION_TYPE: Dict[str, str] = {
 }
 
 
-SUBTYPE_TO_NOTIFICATION_TYPE: Dict[str, str] = {
+SUBTYPE_TO_NOTIFICATION_TYPE: dict[str, str] = {
     "active_symbol_guard_incident": "active_symbol_guard_incident",
     "iceberg": "iceberg_detection",
     "rollback": "rollback_alert",
@@ -745,7 +746,7 @@ SUBTYPE_TO_NOTIFICATION_TYPE: Dict[str, str] = {
 # More specific (longer) patterns MUST come BEFORE shorter/generic ones.
 # E.g. "auto_apply_job_entrypoint" MUST come before "freeze",
 # because auto_apply text often contains "ramp_or_freeze_bundle".
-TEXT_HEURISTIC_ROUTES: Dict[str, str] = {
+TEXT_HEURISTIC_ROUTES: dict[str, str] = {
     # ── Tier 1: exact multi-word phrases (most specific) ──
     "auto_apply_job_entrypoint_hardguard_v1": "auto_apply_skip",
     "auto_apply_job_entrypoint": "auto_apply_skip",
@@ -805,7 +806,7 @@ TEXT_HEURISTIC_ROUTES: Dict[str, str] = {
 
 
 
-PAYLOAD_WHITELISTS: Dict[str, Sequence[str]] = {
+PAYLOAD_WHITELISTS: dict[str, Sequence[str]] = {
 
     "entry_opened": (
         "type", "subtype", "source", "symbol", "sid", "signal_id", "side", "direction",
@@ -933,7 +934,7 @@ def _try_parse_json_doc(raw: Any) -> Any:
         return raw
 
 
-def _shallow_normalize(payload: Mapping[str, Any]) -> Dict[str, Any]:
+def _shallow_normalize(payload: Mapping[str, Any]) -> dict[str, Any]:
     out = dict(payload)
     for key in ("payload", "payload_json", "metadata"):
         if key in out:
@@ -952,12 +953,12 @@ def _shallow_normalize(payload: Mapping[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def sanitize_payload(notification_type: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
+def sanitize_payload(notification_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     normalized = _shallow_normalize(payload)
     whitelist = PAYLOAD_WHITELISTS.get(notification_type)
     if not whitelist:
         return _redact_and_cap(normalized)
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for key in whitelist:
         if key in normalized:
             out[key] = _redact_and_cap(normalized[key])
@@ -969,10 +970,10 @@ def sanitize_payload(notification_type: str, payload: Mapping[str, Any]) -> Dict
 
 
 def _normalize_route_key(x: Any) -> str:
-    return str(x or "").strip().lower()
+    return (x or "").strip().lower()
 
 
-def _route_by_source(source_service: Optional[str]) -> Optional[str]:
+def _route_by_source(source_service: str | None) -> str | None:
     src = _normalize_route_key(source_service)
     if not src:
         return None
@@ -993,10 +994,10 @@ def _route_by_source(source_service: Optional[str]) -> Optional[str]:
 
 def route_notification(
     *,
-    notification_type: Optional[str] = None,
-    subtype: Optional[str] = None,
-    source_service: Optional[str] = None,
-    payload: Optional[Mapping[str, Any]] = None,
+    notification_type: str | None = None,
+    subtype: str | None = None,
+    source_service: str | None = None,
+    payload: Mapping[str, Any] | None = None,
 ) -> str:
     if notification_type and notification_type in PROMPT_REGISTRY:
         return notification_type
@@ -1012,12 +1013,12 @@ def route_notification(
 
     # explicit fields first
     for key in ("notification_type", "kind", "event_type"):
-        val = str(normalized.get(key) or "").strip().lower()
+        val = (normalized.get(key) or "").strip().lower()
         if val in PROMPT_REGISTRY:
             return val
 
     hay = " ".join(
-        str(normalized.get(k) or "")
+        (normalized.get(k) or "")
         for k in ("type", "subtype", "text", "reason", "reason_code", "source", "message", "msg")
     ).lower()
     for token, routed in TEXT_HEURISTIC_ROUTES.items():
@@ -1047,10 +1048,10 @@ def build_deepseek_request(
     *,
     source_service: str,
     payload: Mapping[str, Any],
-    notification_type: Optional[str] = None,
-    subtype: Optional[str] = None,
+    notification_type: str | None = None,
+    subtype: str | None = None,
     model: str = "deepseek-14b",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     routed = route_notification(
         notification_type=notification_type,
         subtype=subtype,
@@ -1082,10 +1083,10 @@ def build_analysis_envelope(
     *,
     source_service: str,
     payload: Mapping[str, Any],
-    notification_type: Optional[str] = None,
-    subtype: Optional[str] = None,
+    notification_type: str | None = None,
+    subtype: str | None = None,
     model: str = "deepseek-14b",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return an apply-ready envelope for a notification-analysis worker.
 
     Example downstream flow:
@@ -1100,7 +1101,7 @@ def build_analysis_envelope(
         payload=payload,
     ),
     norm = _shallow_normalize(payload)
-    symbol = str(norm.get("symbol") or "")
+    symbol = (norm.get("symbol") or "")
     sid = str(norm.get("sid") or norm.get("signal_id") or norm.get("fingerprint") or "")
     ts_ms = norm.get("ts_ms") or norm.get("ts") or ""
     analysis_key = f"notify_analysis:{routed}:{symbol}:{sid}:{ts_ms}"
@@ -1119,7 +1120,7 @@ def build_analysis_envelope(
     }
 
 
-def validate_reason_code(parsed: Dict[str, Any], notification_type: str) -> None:
+def validate_reason_code(parsed: dict[str, Any], notification_type: str) -> None:
     """Ensure reason_code is valid for the given notification type."""
     if notification_type not in PROMPT_REGISTRY:
         return
@@ -1129,7 +1130,7 @@ def validate_reason_code(parsed: Dict[str, Any], notification_type: str) -> None
         parsed["reason_code"] = spec.reason_codes[0] if spec.reason_codes else "unknown"
 
 
-def validate_llm_response(parsed: Dict[str, Any], notification_type: str) -> None:
+def validate_llm_response(parsed: dict[str, Any], notification_type: str) -> None:
     """Validate LLM response against schema and correct missing fields in-place."""
     if not isinstance(parsed, dict):
         raise ValueError("LLM response must be a JSON object")
@@ -1148,7 +1149,7 @@ def validate_llm_response(parsed: Dict[str, Any], notification_type: str) -> Non
                 parsed[req] = {"needed": False, "urgency": "none", "owner": "unknown", "steps_now": [], "steps_later": []}
             else:
                 parsed[req] = None
-    
+
     validate_reason_code(parsed, notification_type)
 
 

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
 import redis
+from core.redis_keys import RedisStreams as RS
 
 
 def _redis():
@@ -23,7 +23,7 @@ def _dsn() -> str:
 
 
 def _chat_id() -> str:
-    return str(os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
+    return (os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
 
 
 def _top_n() -> int:
@@ -40,21 +40,21 @@ def _fmt(x: Any) -> str:
         return "n/a"
 
 
-def _notify(text: str, buttons: List[List[Dict[str, str]]] | None = None) -> bool:
-    payload: Dict[str, Any] = {"text": text}
+def _notify(text: str, buttons: list[list[dict[str, str]]] | None = None) -> bool:
+    payload: dict[str, Any] = {"text": text}
     if buttons:
         payload["buttons"] = json.dumps(buttons, ensure_ascii=False)
     cid = _chat_id()
     if cid:
         payload["chat_id"] = cid
     try:
-        _redis().xadd("notify:telegram", payload, maxlen=10000, approximate=True)
+        _redis().xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=10000, approximate=True)
         return True
     except Exception:
         return False
 
 
-def summary_menu_buttons() -> List[List[Dict[str, str]]]:
+def summary_menu_buttons() -> list[list[dict[str, str]]]:
     return [
         [
             {"text": "📥 Pending", "callback": "atrsum:pending"},
@@ -77,10 +77,10 @@ def publish_summary_menu() -> bool:
     )
 
 
-def _scan_active_keys() -> List[str]:
+def _scan_active_keys() -> list[str]:
     r = _redis()
     cur = 0
-    out: List[str] = []
+    out: list[str] = []
     while True:
         cur, keys = r.scan(cur, match="cfg:atr_policy:active:*", count=10000)
         out.extend(keys)
@@ -100,7 +100,7 @@ def report_pending() -> str:
         if not raw:
             continue
         obj = json.loads(raw)
-        if str(obj.get("status") or "") != "SUBMITTED":
+        if (obj.get("status") or "") != "SUBMITTED":
             continue
         lines.append(
             f"- {obj.get('symbol','')} | {obj.get('scenario','')} | "

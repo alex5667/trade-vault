@@ -3,10 +3,6 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-import pytest
-
-import sys
-
 from runners.trade_monitor_runner import _parse_signal
 from services.trade_monitor import TradeMonitorService
 

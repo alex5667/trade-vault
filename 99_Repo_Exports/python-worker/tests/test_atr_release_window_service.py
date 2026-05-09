@@ -1,10 +1,13 @@
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 from services.atr_release_window_service import (
-    classify_change, find_eligible_window, build_pre_release_checklist,
-    evaluate_release_blockers, get_required_signoffs, open_release_window,
-    close_release_window
+    build_pre_release_checklist,
+    classify_change,
+    evaluate_release_blockers,
+    find_eligible_window,
+    get_required_signoffs,
 )
+
 
 def test_classify_change():
     assert classify_change("update", ["execution", "mt5"]) == "CRITICAL_EXECUTION_TOUCHING"
@@ -50,13 +53,13 @@ def test_evaluate_release_blockers_clean(mock_get_db, mock_cert, mock_quar, mock
     mock_cur = MagicMock()
     mock_get_db.return_value.__enter__.return_value = mock_conn
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-    
+
     checks = {
         "control_plane": {"open_critical_drifts": 0},
         "protective": {"open_protective_critical_drift": 0},
         "rollback_ready": {"rollback_bundle_prepared": True}
     }
-    
+
     mock_cur.fetchone.return_value = {
         "checks_json": checks,
         "change_class": "CRITICAL_RUNTIME_GATING",
@@ -78,13 +81,13 @@ def test_evaluate_release_blockers_dirty(mock_get_db, mock_cert, mock_quar, mock
     mock_cur = MagicMock()
     mock_get_db.return_value.__enter__.return_value = mock_conn
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-    
+
     checks = {
         "control_plane": {"open_critical_drifts": 1}, # Blocker
         "protective": {"open_protective_critical_drift": 0},
         "rollback_ready": {"rollback_bundle_prepared": False} # Blocker
     }
-    
+
     mock_cur.fetchone.return_value = {
         "checks_json": checks,
         "change_class": "CRITICAL_RUNTIME_GATING",

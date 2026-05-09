@@ -69,17 +69,17 @@ def decide_book_seq_uu(*, prev_u: int, cur_U: int, cur_u: int) -> BookSeqDecisio
         return BookSeqDecision(True, "dup", 0, 0.0, p)
 
     # GAP: missing one or more book updates.
-    if U > expected_U:
+    if expected_U < U:
         gap = U - p - 1
         if gap < 0:
             gap = 0
         return BookSeqDecision(True, "gap", int(gap), 1.0, u)
 
     # OK / OVERLAP / REORDER
-    if U < expected_U and u >= expected_U:
+    if expected_U > U and u >= expected_U:
         return BookSeqDecision(True, "overlap", 0, 0.0, u)
 
-    if U < expected_U and u < expected_U:
+    if expected_U > U and u < expected_U:
         # Old/reordered chunk that does not cover the expected id.
         return BookSeqDecision(True, "reorder", 0, 0.0, u)
 

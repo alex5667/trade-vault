@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """test_enforce_exporter_v8_calib_health.py
 
 Tests for V8 slippage calibrator health additions to enforce_bucket_state_exporter_v1:
@@ -12,15 +13,13 @@ Tests for nightly_slippage_calibrator_v1 V8 additions:
   - Timestamp key name format
   - State key names written after calibration loop
 """
-from utils.time_utils import get_ny_time_millis
-
 import ast
 import os
-import time
 import types
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # Helper: load calibrator module into a namespace without running asyncio
@@ -39,7 +38,7 @@ def _load_source_as_module(path: str, module_name: str):
     """Load a Python source file without executing top-level side-effects on
     prometheus_client (which would call start_http_server or register dupes).
     """
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         source = fh.read()
     tree = ast.parse(source)
     code = compile(tree, path, "exec")
@@ -189,10 +188,10 @@ class TestExporterCalibStateMethod(unittest.TestCase):
             """
 def _as_int(x, default=0):
     try:
-        if x is None: return int(default)
-        return int(float(str(x).strip())) if str(x).strip() else int(default)
+        if x is None: return default
+        return int(float(str(x).strip())) if str(x).strip() else default
     except Exception:
-        return int(default)
+        return default
 
 def _now_ms():
     import time
@@ -219,7 +218,7 @@ class Exporter:
 """,
             {"gauge_mock": gauge_mock},
         )
-        ex_no_redis = ns.get("Exporter", None)
+        ex_no_redis = ns.get("Exporter")
         # Check it's in the exec namespace (exec populates differently)
         # Use a simple approach: run the method inline
         class _Ex:
@@ -257,10 +256,10 @@ class Exporter:
                 def _as_int(x, default=0):
                     try:
                         if x is None:
-                            return int(default)
-                        return int(float(str(x).strip())) if str(x).strip() else int(default)
+                            return default
+                        return int(float(str(x).strip())) if str(x).strip() else default
                     except Exception:
-                        return int(default)
+                        return default
 
                 import time as _t
                 _now = int(_t.time() * 1000)

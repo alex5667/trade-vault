@@ -1,6 +1,5 @@
-import pytest
 
-from monitoring.sem_dedup_reporter import SemDedupReporter, SemDedupPolicy, TelegramSink
+from monitoring.sem_dedup_reporter import SemDedupPolicy, SemDedupReporter, TelegramSink
 
 
 class FakeLogger:

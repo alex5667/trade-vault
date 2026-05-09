@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Latched control state for ExecHealth auto-freeze / operator thaw.
@@ -25,10 +26,9 @@ import hashlib
 import hmac
 import json
 import os
-import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping
-
+from typing import Any
 
 ACK_SIGNING_SECRET_ENV = "EXEC_HEALTH_ACK_SIGNING_SECRET"
 
@@ -41,14 +41,14 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _s(x: Any, d: str = "") -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
 def _b(x: Any) -> bool:
@@ -62,13 +62,13 @@ def _b(x: Any) -> bool:
 
 def _secret(explicit: str | None = None) -> str:
     sec = explicit if explicit is not None else os.getenv(ACK_SIGNING_SECRET_ENV, "")
-    return str(sec or "")
+    return (sec or "")
 
 
 def _require_dual_control(explicit: bool | None = None) -> bool:
     if explicit is not None:
-        return bool(explicit)
-    raw = str(os.getenv("EXEC_HEALTH_REQUIRE_DUAL_CONTROL_ACK", "1") or "1").strip().lower()
+        return explicit
+    raw = (os.getenv("EXEC_HEALTH_REQUIRE_DUAL_CONTROL_ACK", "1") or "1").strip().lower()
     return raw not in {"0", "false", "off", "no"}
 
 
@@ -137,7 +137,7 @@ class ExecHealthFreezeControlState:
     manual_commit_by: str
     manual_commit_ts_ms: int
     manual_commit_sig: str
-    raw_payload: Dict[str, Any]
+    raw_payload: dict[str, Any]
 
 
 def build_manual_ack_signing_message(
@@ -156,11 +156,11 @@ def build_manual_ack_signing_message(
     """
     parts = [
         "exec_health_manual_ack_v1",
-        str(action or "manual_ack_thaw"),
-        str(operator or ""),
-        str(reason or ""),
-        str(ticket or ""),
-        str(ack_nonce or ""),
+        action or "manual_ack_thaw",
+        operator or "",
+        reason or "",
+        ticket or "",
+        ack_nonce or "",
         str(int(trigger_ts_ms or 0)),
         str(int(ack_ts_ms or 0)),
     ]
@@ -251,13 +251,13 @@ def build_dual_control_commit_signing_message(
     """
     parts = [
         "exec_health_dual_control_commit_v1",
-        str(request_id or ""),
-        str(ack_nonce or ""),
-        str(prepared_by or ""),
-        str(approved_by or ""),
-        str(commit_by or ""),
-        str(reason or ""),
-        str(ticket or ""),
+        (request_id or ""),
+        (ack_nonce or ""),
+        (prepared_by or ""),
+        (approved_by or ""),
+        (commit_by or ""),
+        (reason or ""),
+        (ticket or ""),
         str(int(trigger_ts_ms or 0)),
         str(int(prepared_ts_ms or 0)),
         str(int(approved_ts_ms or 0)),
@@ -383,7 +383,7 @@ def parse_exec_health_freeze_control(raw: Any, *, now_ms: int | None = None) -> 
     Fail-open: any parse error returns effective_freeze_active=False.
     """
     now = int(now_ms or _now_ms())
-    obj: Dict[str, Any] = {}
+    obj: dict[str, Any] = {}
     if raw:
         try:
             if isinstance(raw, Mapping):
@@ -501,7 +501,7 @@ def build_autoguard_latch_update(
     freeze_until_ts_ms: int,
     ack_nonce: str | None = None,
     trigger_event_id: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the control hash payload written by autoguard on freeze trigger.
 
     Sets manual_ack_required=1 so that raw key deletion is not enough to thaw.
@@ -510,16 +510,16 @@ def build_autoguard_latch_update(
     P9: clears all dual-control fields so a fresh prepare-thaw must be initiated.
     """
     p = dict(prev or {})
-    nonce = str(ack_nonce or p.get("expected_ack_nonce") or f"ack-{int(now_ms)}")
+    nonce = str(ack_nonce or p.get("expected_ack_nonce") or f"ack-{now_ms}")
     return {
         "schema_name": "exec_health_freeze_control",
         "schema_version": 4,
-        "updated_ts_ms": int(now_ms),
+        "updated_ts_ms": now_ms,
         "effective_freeze_active": 1,
         "control_source": "autoguard",
-        "freeze_reason": ",".join(str(x) for x in reasons if str(x).strip()),
+        "freeze_reason": ",".join(x for x in reasons if x.strip()),
         "freeze_until_ts_ms": int(freeze_until_ts_ms),
-        "source_ts_ms": int(now_ms),
+        "source_ts_ms": now_ms,
         # ACK fields — cleared until operator explicitly thaws with valid nonce+sig
         "manual_ack_required": 1,
         "manual_ack_ts_ms": 0,
@@ -537,8 +537,8 @@ def build_autoguard_latch_update(
         "expected_ack_nonce": nonce,
         "last_trigger_nonce": nonce,
         # Audit fields
-        "last_trigger_ts_ms": int(now_ms),
-        "last_trigger_event_id": str(trigger_event_id or ""),
+        "last_trigger_ts_ms": now_ms,
+        "last_trigger_event_id": (trigger_event_id or ""),
         "last_trigger_ts_iso": "",
         "last_trigger_reasons_json": json.dumps(list(reasons), ensure_ascii=False),
         "last_operator_action": "autoguard_freeze",
@@ -577,7 +577,7 @@ def build_manual_ack_thaw_update(
     provided_ack_nonce: str = "",
     manual_ack_sig: str = "",
     manual_ack_event_id: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the control hash payload written by an operator thaw (legacy P8 single-operator path).
 
     P9: this path is still available but verify_thaw_release_signature will reject it
@@ -586,26 +586,26 @@ def build_manual_ack_thaw_update(
     """
     p = dict(prev or {})
     expected = _s(p.get("expected_ack_nonce"), "")
-    nonce = str(provided_ack_nonce or expected or f"ack-{int(now_ms)}")
+    nonce = str(provided_ack_nonce or expected or f"ack-{now_ms}")
     return {
         "schema_name": "exec_health_freeze_control",
         "schema_version": 4,
-        "updated_ts_ms": int(now_ms),
+        "updated_ts_ms": now_ms,
         "effective_freeze_active": 0,
         "control_source": "manual_override_thaw",
         "freeze_reason": _s(p.get("freeze_reason"), reason),
         "freeze_until_ts_ms": 0,
-        "source_ts_ms": int(now_ms),
+        "source_ts_ms": now_ms,
         # ACK written — clears the latch
         "manual_ack_required": 0,
-        "manual_ack_ts_ms": int(now_ms),
+        "manual_ack_ts_ms": now_ms,
         "manual_ack_operator": str(operator),
-        "manual_ack_reason": str(reason),
+        "manual_ack_reason": reason,
         "manual_ack_ticket": str(ticket),
         # P8: signed ack nonce + signature + event stream ID
         "manual_ack_nonce": nonce,
         "manual_ack_sig": str(manual_ack_sig),
-        "manual_ack_event_id": str(manual_ack_event_id or ""),
+        "manual_ack_event_id": (manual_ack_event_id or ""),
         # Override: thaw
         "manual_override_active": 1,
         "manual_override_action": "thaw",
@@ -624,20 +624,20 @@ def build_manual_ack_thaw_update(
         "active_thaw_request_id": "",
         "thaw_request_status": "legacy_committed",
         "thaw_request_nonce": nonce,
-        "thaw_prepare_ts_ms": int(now_ms),
+        "thaw_prepare_ts_ms": now_ms,
         "thaw_prepared_by": str(operator),
-        "thaw_request_reason": str(reason),
+        "thaw_request_reason": reason,
         "thaw_request_ticket": str(ticket),
-        "thaw_approve_ts_ms": int(now_ms),
+        "thaw_approve_ts_ms": now_ms,
         "thaw_approved_by": str(operator),
         "manual_commit_request_id": "legacy-single-operator",
         "manual_commit_by": str(operator),
-        "manual_commit_ts_ms": int(now_ms),
+        "manual_commit_ts_ms": now_ms,
         "manual_commit_sig": str(manual_ack_sig),
         # P10: no request-log event for legacy single-operator path
         "thaw_prepare_request_event_id": "",
         "thaw_approve_request_event_id": "",
-        "thaw_commit_request_event_id": str(manual_ack_event_id or ""),
+        "thaw_commit_request_event_id": (manual_ack_event_id or ""),
     }
 
 
@@ -651,7 +651,7 @@ def build_thaw_prepare_update(
     ticket: str,
     provided_ack_nonce: str,
     request_event_id: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the control hash payload for P9 prepare-thaw phase.
 
     Keeps effective_freeze_active=1 — only commit-thaw clears the freeze.
@@ -659,7 +659,7 @@ def build_thaw_prepare_update(
     """
     p = dict(prev or {})
     expected = _s(p.get("expected_ack_nonce"), "")
-    nonce = str(provided_ack_nonce or expected or f"ack-{int(now_ms)}")
+    nonce = str(provided_ack_nonce or expected or f"ack-{now_ms}")
     return {
         **{k: v for k, v in p.items() if k not in {
             "updated_ts_ms", "control_source",
@@ -671,7 +671,7 @@ def build_thaw_prepare_update(
         }},
         "schema_name": "exec_health_freeze_control",
         "schema_version": 4,
-        "updated_ts_ms": int(now_ms),
+        "updated_ts_ms": now_ms,
         "control_source": "manual_thaw_prepare",
         "effective_freeze_active": 1,
         "manual_ack_required": 1,
@@ -689,9 +689,9 @@ def build_thaw_prepare_update(
         "thaw_request_nonce": nonce,
         "active_thaw_request_id": str(request_id),
         "thaw_request_status": "prepared",
-        "thaw_prepare_ts_ms": int(now_ms),
+        "thaw_prepare_ts_ms": now_ms,
         "thaw_prepared_by": str(operator),
-        "thaw_request_reason": str(reason),
+        "thaw_request_reason": reason,
         "thaw_request_ticket": str(ticket),
         "thaw_approve_ts_ms": 0,
         "thaw_approved_by": "",
@@ -700,7 +700,7 @@ def build_thaw_prepare_update(
         "manual_commit_ts_ms": 0,
         "manual_commit_sig": "",
         # P10: link control projection to request-log event
-        "thaw_prepare_request_event_id": str(request_event_id or ""),
+        "thaw_prepare_request_event_id": (request_event_id or ""),
         "thaw_approve_request_event_id": "",
         "thaw_commit_request_event_id": "",
         "last_operator_action": "manual_ack_thaw_prepare",
@@ -714,7 +714,7 @@ def build_thaw_approve_update(
     request_id: str,
     approver: str,
     request_event_id: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the control hash payload for P9 approve-thaw phase.
 
     Keeps effective_freeze_active=1 until commit-thaw completes.
@@ -725,16 +725,16 @@ def build_thaw_approve_update(
         **p,
         "schema_name": "exec_health_freeze_control",
         "schema_version": 4,
-        "updated_ts_ms": int(now_ms),
+        "updated_ts_ms": now_ms,
         "control_source": "manual_thaw_approve",
         "effective_freeze_active": 1,
         "manual_ack_required": 1,
         "active_thaw_request_id": str(request_id),
         "thaw_request_status": "approved",
-        "thaw_approve_ts_ms": int(now_ms),
+        "thaw_approve_ts_ms": now_ms,
         "thaw_approved_by": str(approver),
         # P10: link approval step to request-log event
-        "thaw_approve_request_event_id": str(request_event_id or ""),
+        "thaw_approve_request_event_id": (request_event_id or ""),
         "last_operator_action": "manual_ack_thaw_approve",
     }
 
@@ -748,7 +748,7 @@ def build_dual_control_commit_thaw_update(
     commit_sig: str,
     commit_event_id: str,
     request_event_id: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the control hash payload for P9 commit-thaw (final phase).
 
     Clears effective_freeze_active and writes all commit fields so
@@ -759,19 +759,19 @@ def build_dual_control_commit_thaw_update(
         **p,
         "schema_name": "exec_health_freeze_control",
         "schema_version": 4,
-        "updated_ts_ms": int(now_ms),
+        "updated_ts_ms": now_ms,
         "effective_freeze_active": 0,
         "control_source": "manual_override_thaw",
         "freeze_until_ts_ms": 0,
-        "source_ts_ms": int(now_ms),
+        "source_ts_ms": now_ms,
         "manual_ack_required": 0,
-        "manual_ack_ts_ms": int(now_ms),
+        "manual_ack_ts_ms": now_ms,
         "manual_ack_operator": str(commit_by),
         "manual_ack_reason": _s(p.get("thaw_request_reason"), ""),
         "manual_ack_ticket": _s(p.get("thaw_request_ticket"), ""),
         "manual_ack_nonce": _s(p.get("thaw_request_nonce"), _s(p.get("expected_ack_nonce"), "")),
         "manual_ack_sig": str(commit_sig),
-        "manual_ack_event_id": str(commit_event_id or ""),
+        "manual_ack_event_id": (commit_event_id or ""),
         "manual_override_active": 1,
         "manual_override_action": "thaw",
         "manual_override_until_ts_ms": 0,
@@ -781,7 +781,7 @@ def build_dual_control_commit_thaw_update(
         "thaw_commit_request_event_id": str(request_event_id or commit_event_id or ""),
         "manual_commit_request_id": str(request_id),
         "manual_commit_by": str(commit_by),
-        "manual_commit_ts_ms": int(now_ms),
+        "manual_commit_ts_ms": now_ms,
         "manual_commit_sig": str(commit_sig),
         "last_operator_action": "manual_ack_thaw_commit",
         "thaw_total": _i(p.get("thaw_total"), 0) + 1,
@@ -796,7 +796,7 @@ def build_manual_freeze_update(
     reason: str,
     ticket: str,
     until_ts_ms: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the control hash payload for an operator-initiated force-freeze.
 
     Does NOT set manual_ack_required because the operator is already on record.
@@ -807,17 +807,17 @@ def build_manual_freeze_update(
     return {
         "schema_name": "exec_health_freeze_control",
         "schema_version": 4,
-        "updated_ts_ms": int(now_ms),
+        "updated_ts_ms": now_ms,
         "effective_freeze_active": 1,
         "control_source": "manual_override_freeze",
-        "freeze_reason": str(reason),
+        "freeze_reason": reason,
         "freeze_until_ts_ms": int(until_ts_ms),
-        "source_ts_ms": int(now_ms),
+        "source_ts_ms": now_ms,
         # manual_ack_required=0: operator is already the source, no ack needed
         "manual_ack_required": 0,
         "manual_ack_ts_ms": _i(p.get("manual_ack_ts_ms"), 0),
         "manual_ack_operator": _s(p.get("manual_ack_operator"), str(operator)),
-        "manual_ack_reason": _s(p.get("manual_ack_reason"), str(reason)),
+        "manual_ack_reason": _s(p.get("manual_ack_reason"), reason),
         "manual_ack_ticket": _s(p.get("manual_ack_ticket"), str(ticket)),
         # P8: carry forward signed ack fields
         "manual_ack_nonce": _s(p.get("manual_ack_nonce"), ""),
@@ -834,7 +834,7 @@ def build_manual_freeze_update(
         "last_trigger_event_id": _s(p.get("last_trigger_event_id"), ""),
         "last_operator_action": "manual_force_freeze",
         "last_manual_freeze_operator": str(operator),
-        "last_manual_freeze_reason": str(reason),
+        "last_manual_freeze_reason": reason,
         "last_manual_freeze_ticket": str(ticket),
         # Counters
         "manual_freeze_total": _i(p.get("manual_freeze_total"), 0) + 1,
@@ -857,6 +857,6 @@ def build_manual_freeze_update(
     }
 
 
-def stringify_mapping(d: Mapping[str, Any]) -> Dict[str, str]:
+def stringify_mapping(d: Mapping[str, Any]) -> dict[str, str]:
     """Convert all values to str for Redis hset (requires string values)."""
-    return {str(k): str(v) for k, v in d.items()}
+    return {k: str(v) for k, v in d.items()}

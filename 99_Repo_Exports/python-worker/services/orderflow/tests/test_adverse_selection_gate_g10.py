@@ -1,7 +1,9 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from ..strategy import OrderFlowStrategy
-from ..runtime import SymbolRuntime
+
 
 @pytest.fixture
 def service():
@@ -88,7 +90,7 @@ async def test_continuation_verified_by_bar_closed(service, runtime):
     }
     runtime.pending_adverse_payload = payload
     runtime.pending_adverse_ts_ms = 1000
-    
+
     # 2. Close bar
     bar = MagicMock()
     bar.open = 100.0
@@ -99,9 +101,9 @@ async def test_continuation_verified_by_bar_closed(service, runtime):
     bar.cvd_close = 0.0
     bar.end_ts_ms = 1500
     bar.fp_evictions = 0
-    
+
     await service._on_microbar_closed(runtime, bar)
-    
+
     # 3. Verify it was emitted
     service._emit_payload.assert_called_once()
     assert runtime.pending_adverse_payload is None, "Buffer should be cleared"
@@ -118,7 +120,7 @@ async def test_continuation_discarded_by_bar_closed(service, runtime):
     }
     runtime.pending_adverse_payload = payload
     runtime.pending_adverse_ts_ms = 1000
-    
+
     # 2. Close bar
     bar = MagicMock()
     bar.open = 105.0
@@ -129,9 +131,9 @@ async def test_continuation_discarded_by_bar_closed(service, runtime):
     bar.cvd_close = 0.0
     bar.end_ts_ms = 1500
     bar.fp_evictions = 0
-    
+
     await service._on_microbar_closed(runtime, bar)
-    
+
     # 3. Verify it was NOT emitted
     service._emit_payload.assert_not_called()
     assert runtime.pending_adverse_payload is None, "Buffer should be cleared"

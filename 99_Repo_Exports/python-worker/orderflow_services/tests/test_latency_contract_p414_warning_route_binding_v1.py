@@ -1,13 +1,13 @@
 from __future__ import annotations
+
 """P4.14 tests: warning-code policy route binding invalidation."""
 
-import pytest
 
 from services.observability.latency_deploy_lint_silence_approval_state import (
     DeployLintSilenceApprovalState,
     binding_mismatch_fields,
-    resolve_warning_severity_policy,
     resolve_notifier_route_class,
+    resolve_warning_severity_policy,
 )
 
 

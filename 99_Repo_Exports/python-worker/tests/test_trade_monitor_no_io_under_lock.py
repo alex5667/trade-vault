@@ -37,8 +37,8 @@ class DummyRepo:
 
 
 def test_on_tick_repo_io_outside_global_lock(monkeypatch):
-    from services.trade_monitor import TradeMonitorService
     import services.trade_monitor as tm
+    from services.trade_monitor import TradeMonitorService
 
     # Prevent real RedisTradeRepository init
     monkeypatch.setattr(tm, "RedisTradeRepository", lambda redis, health_provider=None: types.SimpleNamespace(load_open_positions=lambda limit=5000: []))
@@ -117,8 +117,8 @@ def test_on_tick_repo_io_outside_global_lock(monkeypatch):
 
 
 def test_external_sl_hit_repo_io_outside_global_lock(monkeypatch):
-    from services.trade_monitor import TradeMonitorService
     import services.trade_monitor as tm
+    from services.trade_monitor import TradeMonitorService
 
     monkeypatch.setattr(tm, "RedisTradeRepository", lambda redis, health_provider=None: types.SimpleNamespace(load_open_positions=lambda limit=5000: []))
     monkeypatch.setattr(tm.analytics_db, "save_trade_closed", lambda closed: None)

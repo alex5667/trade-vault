@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Utility helpers for working with Redis Streams consumer groups.
 
@@ -11,23 +13,24 @@ Available helpers:
  - AsyncRedisStreamHelper — for redis.asyncio clients
 """
 
-from __future__ import annotations
 
 import asyncio
-from core.retention import MAXLEN_GLOBAL
-from core.redis_keys import RedisStreams as RS
 import logging
-import time
 import os
+import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping as TMapping, Optional, Tuple, Union
+from typing import Any
+
+from core.redis_keys import RedisStreams as RS
+from core.retention import MAXLEN_GLOBAL
+import contextlib
 
 # redis-py is optional in unit-test environments.
 try:
     import redis  # type: ignore
     import redis.asyncio as aioredis  # type: ignore
-    from redis.exceptions import ResponseError, ConnectionError, TimeoutError  # type: ignore
+    from redis.exceptions import ConnectionError, ResponseError, TimeoutError  # type: ignore
 except Exception:  # pragma: no cover
     redis = None  # type: ignore
     aioredis = None  # type: ignore
@@ -67,7 +70,7 @@ def _decode_any(x: Any) -> str:
         return ""
 
 
-def _fields_to_dict(fields: Any) -> Dict[str, Any]:
+def _fields_to_dict(fields: Any) -> dict[str, Any]:
     """Normalize redis stream entry fields to a dict.
 
     redis-py usually returns a dict, but raw RESP / execute_command can return:
@@ -85,11 +88,11 @@ def _fields_to_dict(fields: Any) -> Dict[str, Any]:
             return dict(fields)
     if isinstance(fields, (list, tuple)):
         if fields and all(isinstance(it, (list, tuple)) and len(it) >= 2 for it in fields):
-            out: Dict[str, Any] = {}
+            out: dict[str, Any] = {}
             for k, v, *_ in fields:
                 out[_decode_any(k)] = v
             return out
-        out2: Dict[str, Any] = {}
+        out2: dict[str, Any] = {}
         it = list(fields)
         for i in range(0, len(it) - 1, 2):
             out2[_decode_any(it[i])] = it[i + 1]
@@ -131,13 +134,13 @@ def _parse_xpending_summary(res: Any) -> int:
     return 0
 
 
-def _parse_xpending_consumers(res: Any) -> Dict[str, int]:
+def _parse_xpending_consumers(res: Any) -> dict[str, int]:
     """
     XPENDING summary может вернуть consumers:
       - dict: {"consumers": [{"name": "...", "pending": 12}, ...]} или {"consumers": [["c1", 12], ...]}
       - tuple/list: (pending, min, max, consumers) где consumers = [[name, pending], ...]
     """
-    out: Dict[str, int] = {}
+    out: dict[str, int] = {}
     if res is None:
         return out
 
@@ -154,7 +157,7 @@ def _parse_xpending_consumers(res: Any) -> Dict[str, int]:
     if isinstance(consumers, list) and consumers and isinstance(consumers[0], dict):
         for c in consumers:
             try:
-                name = str(c.get("name", "") or "")
+                name = (c.get("name", "") or "")
                 pending = int(c.get("pending", 0) or 0)
                 if name:
                     out[name] = pending
@@ -179,12 +182,12 @@ def _parse_xpending_consumers(res: Any) -> Dict[str, int]:
     return out
 
 
-def _parse_xpending_details(res: Any) -> Dict[str, Any]:
+def _parse_xpending_details(res: Any) -> dict[str, Any]:
     """
     Normalize XPENDING summary into:
       {"pending": int, "min": str|None, "max": str|None, "consumers": [{"name": str, "pending": int}]}
     """
-    out: Dict[str, Any] = {"pending": 0, "min": None, "max": None, "consumers": []}
+    out: dict[str, Any] = {"pending": 0, "min": None, "max": None, "consumers": []}
     if res is None:
         return out
     # dict format
@@ -196,7 +199,7 @@ def _parse_xpending_details(res: Any) -> Dict[str, Any]:
         normalized = []
         for c in cons:
             if isinstance(c, dict):
-                normalized.append({"name": str(c.get("name", "")), "pending": int(c.get("pending", 0) or 0)})
+                normalized.append({"name": (c.get("name", "")), "pending": int(c.get("pending", 0) or 0)})
             elif isinstance(c, (list, tuple)) and len(c) >= 2:
                 normalized.append({"name": str(c[0]), "pending": int(c[1] or 0)})
         out["consumers"] = normalized
@@ -213,7 +216,7 @@ def _parse_xpending_details(res: Any) -> Dict[str, Any]:
         normalized = []
         for c in cons:
             if isinstance(c, dict):
-                normalized.append({"name": str(c.get("name", "")), "pending": int(c.get("pending", 0) or 0)})
+                normalized.append({"name": (c.get("name", "")), "pending": int(c.get("pending", 0) or 0)})
             elif isinstance(c, (list, tuple)) and len(c) >= 2:
                 normalized.append({"name": str(c[0]), "pending": int(c[1] or 0)})
         out["consumers"] = normalized
@@ -222,7 +225,7 @@ def _parse_xpending_details(res: Any) -> Dict[str, Any]:
     out["pending"] = _parse_xpending_summary(res)
     return out
 
-def _parse_xpending_consumers(res: Any) -> Dict[str, int]:
+def _parse_xpending_consumers(res: Any) -> dict[str, int]:
     """
     Возвращает dict consumer -> pending_count из XPENDING summary.
 
@@ -231,7 +234,7 @@ def _parse_xpending_consumers(res: Any) -> Dict[str, int]:
     redis-py иногда:
       -> dict {"pending":..., "min":..., "max":..., "consumers":[{"name":..,"pending":..}, ...]}
     """
-    out: Dict[str, int] = {}
+    out: dict[str, int] = {}
     if res is None:
         return out
     try:
@@ -265,10 +268,10 @@ class StreamMsg:
     """Message from Redis stream."""
     stream: str
     msg_id: str
-    fields: Dict[str, Any]
+    fields: dict[str, Any]
 
 
-def _normalize_streams(streams: Mapping[str, str | None] | Iterable[str]) -> Dict[str, str]:
+def _normalize_streams(streams: Mapping[str, str | None] | Iterable[str]) -> dict[str, str]:
     """
     Normalizes different stream specifications to a dict {stream_name: id}.
 
@@ -283,7 +286,7 @@ def _normalize_streams(streams: Mapping[str, str | None] | Iterable[str]) -> Dic
             name: stream_id if stream_id not in (None, "", ">") else ">"
             for name, stream_id in streams.items()
         }
-    return {name: ">" for name in streams}
+    return dict.fromkeys(streams, ">")
 
 
 class SyncRedisStreamHelper:
@@ -313,10 +316,8 @@ class SyncRedisStreamHelper:
         if start_id in (None, "", "$") and self.group_start_id:
             start_id = self.group_start_id
         if recreate:
-            try:
+            with contextlib.suppress(ResponseError):
                 self.client.xgroup_destroy(stream, self.group)
-            except ResponseError:
-                pass
 
         max_retries = 30  # Retry for up to 30 attempts
         retry_count = 0
@@ -427,7 +428,7 @@ class SyncRedisStreamHelper:
                     block=block,
                 )
 
-    def pending_details(self, stream: str) -> Dict[str, Any]:
+    def pending_details(self, stream: str) -> dict[str, Any]:
         """
         XPENDING summary + consumers list (для метрик "pending-by-consumer").
         Возвращает dict:
@@ -449,7 +450,7 @@ class SyncRedisStreamHelper:
         except Exception:
             return {"pending": 0, "min": None, "max": None, "consumers": []}
 
-        out: Dict[str, Any] = {"pending": 0, "min": None, "max": None, "consumers": []}
+        out: dict[str, Any] = {"pending": 0, "min": None, "max": None, "consumers": []}
 
         if isinstance(res, dict):
             out["pending"] = int(res.get("pending", 0) or 0)
@@ -489,7 +490,7 @@ class SyncRedisStreamHelper:
 
         return out
 
-    def consumers_info(self, stream: str) -> List[Dict[str, Any]]:
+    def consumers_info(self, stream: str) -> list[dict[str, Any]]:
         """
         XINFO CONSUMERS <stream> <group>
         Возвращает list[dict] (name,pending,idle,...) в decode_responses-совместимом виде.
@@ -507,7 +508,7 @@ class SyncRedisStreamHelper:
         except Exception:
             return []
 
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for row in res or []:
             if isinstance(row, dict):
                 out.append({str(_d(k)): _d(v) for k, v in row.items()})
@@ -574,7 +575,7 @@ class SyncRedisStreamHelper:
         count: int,
         block_ms: int,
         recover_start_id: str | None = None,
-    ) -> List[StreamMsg]:
+    ) -> list[StreamMsg]:
         """
         Reads new messages (>) from streams and returns list of StreamMsg.
 
@@ -629,7 +630,7 @@ class SyncRedisStreamHelper:
                     break
                 # If it's not a NOGROUP error, re-raise
                 raise exc
-        
+
         if not success and res is None:
             # We broke out because of NOGROUP error
             exc = ResponseError("NOGROUP")
@@ -640,7 +641,7 @@ class SyncRedisStreamHelper:
             # Auto-create consumer group if it doesn't exist
             # NOTE: rid controls whether we can replay (e.g. outbox must use "0")
             # Handle race conditions: multiple workers may try to create the same group
-            for s in streams_dict.keys():
+            for s in streams_dict:
                 max_create_retries = 3
                 for create_attempt in range(max_create_retries):
                     try:
@@ -679,7 +680,7 @@ class SyncRedisStreamHelper:
                         count=count,
                         block=block_ms,
                     )
-                    logger.info(f"✅ Successfully read from streams after group creation")
+                    logger.info("✅ Successfully read from streams after group creation")
                     success = True
                     break  # Success - exit inner retry loop
                 except (ConnectionError, TimeoutError) as retry_exc:
@@ -695,7 +696,7 @@ class SyncRedisStreamHelper:
                     if "NOGROUP" in retry_exc_str:
                         # Group was deleted between creation and read - recreate
                         logger.warning(f"⚠️ NOGROUP error after group creation (attempt {retry_attempt + 1}/{retry_after_create_max}): {retry_exc}. Recreating group...")
-                        for s in streams_dict.keys():
+                        for s in streams_dict:
                             recreate_retries = 2
                             for recreate_attempt in range(recreate_retries):
                                 try:
@@ -716,7 +717,7 @@ class SyncRedisStreamHelper:
                     elif "no such key" in retry_exc_str.lower() or "No such key" in retry_exc_str:
                         # Stream doesn't exist - try to create it with an initial message
                         logger.warning(f"⚠️ Stream not found after group creation (attempt {retry_attempt + 1}/{retry_after_create_max}): {retry_exc}. Creating stream...")
-                        for s in streams_dict.keys():
+                        for s in streams_dict:
                             try:
                                 # Create stream with an initial message if it doesn't exist
                                 self.client.xadd(s, {"init": "stream_created"}, maxlen=1, approximate=True)
@@ -738,11 +739,11 @@ class SyncRedisStreamHelper:
                         # Fatal error after all retries
                         logger.error(f"❌ Error after group creation after {retry_after_create_max} attempts: {retry_exc}")
                         raise
-            
+
             # If we successfully read after group creation, we just fall through to the message extraction
 
         # res: [(stream_name, [(msg_id, {field: value}), ...]), ...]
-        msgs: List[StreamMsg] = []
+        msgs: list[StreamMsg] = []
         for stream_name, items in res or []:
             stream_str = (
                 stream_name
@@ -755,7 +756,7 @@ class SyncRedisStreamHelper:
                 )
 
                 # Normalize fields: bytes -> str
-                fields_dict: Dict[str, Any] = {}
+                fields_dict: dict[str, Any] = {}
                 for k, v in (fields or {}).items():
                     k_str = k if isinstance(k, str) else k.decode("utf-8", errors="ignore")
                     if isinstance(v, str):
@@ -774,7 +775,7 @@ class SyncRedisStreamHelper:
         """ACKs a processed message."""
         self.client.xack(stream, self.group, message_id)
 
-    def ack_many(self, stream: str, message_ids: List[str]) -> None:
+    def ack_many(self, stream: str, message_ids: list[str]) -> None:
         """ACKs multiple processed messages."""
         if not message_ids:
             return
@@ -800,7 +801,7 @@ class SyncRedisStreamHelper:
                 return 0
         return 0
 
-    def pending_by_consumer(self, stream: str) -> Dict[str, int]:
+    def pending_by_consumer(self, stream: str) -> dict[str, int]:
         """Best-effort XPENDING details: pending counts per consumer."""
         if not stream:
             return {}
@@ -808,12 +809,12 @@ class SyncRedisStreamHelper:
             res = self.client.xpending(stream, self.group)
         except Exception:
             return {}
-        out: Dict[str, int] = {}
+        out: dict[str, int] = {}
         if isinstance(res, dict):
             consumers = res.get("consumers") or []
             for c in consumers:
                 try:
-                    name = str(c.get("name", "")) if isinstance(c, dict) else ""
+                    name = (c.get("name", "")) if isinstance(c, dict) else ""
                     cnt = int(c.get("pending", 0) or 0) if isinstance(c, dict) else 0
                     if name:
                         out[name] = cnt
@@ -829,7 +830,7 @@ class SyncRedisStreamHelper:
                         name = n if isinstance(n, str) else n.decode("utf-8", errors="ignore")
                         out[name] = int(p or 0)
                     elif isinstance(item, dict):
-                        name = str(item.get("name", ""))
+                        name = (item.get("name", ""))
                         if name:
                             out[name] = int(item.get("pending", 0) or 0)
                 except Exception:
@@ -837,14 +838,13 @@ class SyncRedisStreamHelper:
             return out
         return {}
 
-    def add_dlq(self, stream: str, fields: Dict[str, Any]) -> str:
+    def add_dlq(self, stream: str, fields: dict[str, Any]) -> str:
         """Adds a message to the Dead Letter Queue stream."""
         # Можно добавить maxlen=100_000 если нужно ограничить рост DLQ
-        return self.client.xadd(stream, fields, maxlen=MAXLEN_GLOBAL)
+        return self.client.xadd(stream, fields, maxlen=MAXLEN_GLOBAL, approximate=True)
 
-    def add_to_dlq(self, payload: Dict[str, Any]) -> str:
+    def add_to_dlq(self, payload: dict[str, Any]) -> str:
         """Adapter for MessageHandler compatibility."""
-        import os
         dlq_stream = os.getenv("ORDERFLOW_DLQ_STREAM", RS.DLQ_ORDERFLOW)
         return self.add_dlq(dlq_stream, payload)
 
@@ -855,7 +855,7 @@ class SyncRedisStreamHelper:
         start_id: str = "0-0",
         count: int = 100,
         create_group_start_id: str = "$",
-    ) -> Tuple[str, List[StreamMsg]]:
+    ) -> tuple[str, list[StreamMsg]]:
         """
         Claims pending messages using XAUTOCLAIM.
         Auto-creates consumer group if NOGROUP error occurs.
@@ -889,7 +889,7 @@ class SyncRedisStreamHelper:
                         logger.warning("Failed to create consumer group for %s: %s", stream, create_exc)
                     # Even if group created, this call failed. We can try one more time or just let MainLoop try next tick.
                     # Best effort: attempt fallback or retry
-                
+
                 try:
                     res = self.client.xautoclaim(
                         name=stream, groupname=self.group, consumername=self.consumer,
@@ -935,16 +935,16 @@ class SyncRedisStreamHelper:
         raw_msgs = res[1] or []
         next_id = _decode_any(next_id_raw)
 
-        msgs: List[StreamMsg] = []
+        msgs: list[StreamMsg] = []
         for item in raw_msgs:
             if not isinstance(item, (list, tuple)) or len(item) < 2:
                 continue
             msg_id, fields = item[0], item[1]
             msg_id_str = _decode_any(msg_id)
-            
+
             # Normalize fields (dict or list format)
             fields_map = _fields_to_dict(fields)
-            fields_dict: Dict[str, Any] = {}
+            fields_dict: dict[str, Any] = {}
             for k, v in fields_map.items():
                 k_str = _decode_any(k)
                 if isinstance(v, str):
@@ -992,7 +992,7 @@ class SyncRedisStreamHelper:
             # Other errors - safety return
             return 0
 
-    def pending_by_consumer(self, stream: str) -> Dict[str, int]:
+    def pending_by_consumer(self, stream: str) -> dict[str, int]:
         """
         Pending breakdown by consumer for (stream, group).
         Best-effort: never raises on transient / missing group.
@@ -1012,7 +1012,7 @@ class SyncRedisStreamHelper:
         except Exception:
             return {}
 
-    def pending_details(self, stream: str) -> Dict[str, Any]:
+    def pending_details(self, stream: str) -> dict[str, Any]:
         """
         XPENDING summary + per-consumer pending.
         Возвращает:
@@ -1035,7 +1035,7 @@ class SyncRedisStreamHelper:
         except Exception:
             return {"pending": 0, "min": None, "max": None, "consumers": {}}
 
-        out: Dict[str, Any] = {"pending": 0, "min": None, "max": None, "consumers": {}}
+        out: dict[str, Any] = {"pending": 0, "min": None, "max": None, "consumers": {}}
 
         # redis-py may return dict
         if isinstance(res, dict):
@@ -1046,11 +1046,11 @@ class SyncRedisStreamHelper:
             out["min"] = res.get("min")
             out["max"] = res.get("max")
             consumers = res.get("consumers") or []
-            m: Dict[str, int] = {}
+            m: dict[str, int] = {}
             for c in consumers:
                 # can be dict {"name": "...", "pending": n} or tuple(name, n)
                 if isinstance(c, dict):
-                    name = str(c.get("name") or "")
+                    name = (c.get("name") or "")
                     try:
                         m[name] = int(c.get("pending", 0) or 0)
                     except Exception:
@@ -1073,7 +1073,7 @@ class SyncRedisStreamHelper:
             out["min"] = res[1]
             out["max"] = res[2]
             consumers = res[3] or []
-            m: Dict[str, int] = {}
+            m: dict[str, int] = {}
             for c in consumers:
                 if isinstance(c, (list, tuple)) and len(c) >= 2:
                     name = str(c[0])
@@ -1112,10 +1112,8 @@ class AsyncRedisStreamHelper:
     ) -> None:
         """Ensures that a consumer group exists for async client usage."""
         if recreate:
-            try:
+            with contextlib.suppress(ResponseError):
                 await self.client.xgroup_destroy(stream, self.group)
-            except ResponseError:
-                pass
 
         max_retries = 30
         retry_count = 0
@@ -1277,7 +1275,7 @@ class AsyncRedisStreamHelper:
                 raise TimeoutError(
                     f"xreadgroup (post-NOGROUP) socket timeout (group={self.group})"
                 ) from exc
-        except (ConnectionError, OSError) as exc:
+        except (ConnectionError, OSError):
             # For connection-level errors, let the redis-py pool handle reconnection
             # of the single socket. Do NOT disconnect the whole pool as it would
             # kill all other active consumers sharing this pool (disconnect storm).
@@ -1288,7 +1286,7 @@ class AsyncRedisStreamHelper:
                 logger.warning("⏳ Redis is loading dataset in memory, waiting 5s before xreadgroup (async)...")
                 await asyncio.sleep(5.0)
                 return await _do_xreadgroup()
-            
+
             # For other truly unexpected exceptions (like redis-py bugs throwing 'NoneType' is not callable)
             # disconnect the pool to flush corrupted state.
             try:
@@ -1297,12 +1295,12 @@ class AsyncRedisStreamHelper:
                     _safe_disconnect_pool(pool)
             except Exception:
                 pass
-                
+
             if isinstance(exc, TypeError) and "nonetype" in exc_str and "callable" in exc_str:
                 # Workaround for redis-py async bug where a broken parser/callback throws NoneType not callable.
                 # Route as a transient ConnectionError so consumer gracefully backs off.
                 raise ConnectionError(f"redis-py internal TypeError wrapped as ConnectionError: {exc}") from exc
-                
+
             raise
 
 
@@ -1333,7 +1331,7 @@ class AsyncRedisStreamHelper:
         min_idle_ms: int = 5000,
         count: int = 100,
         start_id: str = "0-0",
-    ) -> Tuple[str, List["StreamMsg"]]:
+    ) -> tuple[str, list[StreamMsg]]:
         """
         Claim idle pending messages via XAUTOCLAIM (Redis ≥ 7.0).
         Falls back to XPENDING_RANGE + XCLAIM on older Redis.
@@ -1357,10 +1355,10 @@ class AsyncRedisStreamHelper:
                 return start_id, []
             next_id = res[0] if isinstance(res[0], str) else str(res[0])
             raw_entries = res[1] if len(res) > 1 else []
-            msgs: List[StreamMsg] = []
+            msgs: list[StreamMsg] = []
             for msg_id, fields in raw_entries or []:
                 msg_id_str = msg_id if isinstance(msg_id, str) else str(msg_id)
-                fields_dict: Dict[str, Any] = {}
+                fields_dict: dict[str, Any] = {}
                 for k, v in (fields or {}).items():
                     k_str = k if isinstance(k, str) else k.decode("utf-8", errors="ignore")
                     v_str = v if isinstance(v, str) else (
@@ -1387,7 +1385,7 @@ class AsyncRedisStreamHelper:
         """Async ACK wrapper."""
         await self.client.xack(stream, self.group, message_id)
 
-    async def ack_many(self, stream: str, message_ids: List[str]) -> None:
+    async def ack_many(self, stream: str, message_ids: list[str]) -> None:
         """Async ACK wrapper for multiple messages."""
         if not message_ids:
             return

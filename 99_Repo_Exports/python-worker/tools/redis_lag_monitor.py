@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 redis_lag_monitor.py — мониторинг Consumer Lag по всем Redis Streams тиков.
 
@@ -31,7 +32,6 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 try:
     import redis
@@ -69,8 +69,8 @@ class GroupInfo:
 class StreamInfo:
     name: str
     xlen: int = 0
-    groups: List[GroupInfo] = field(default_factory=list)
-    error: Optional[str] = None
+    groups: list[GroupInfo] = field(default_factory=list)
+    error: str | None = None
 
 
 # ─── Сбор данных ───────────────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ def collect_stream_info(r: redis.Redis, stream: str, warn_pending: int, warn_idl
     return info
 
 
-def collect_all(r: redis.Redis, pattern: str, warn_pending: int, warn_idle: int) -> List[StreamInfo]:
+def collect_all(r: redis.Redis, pattern: str, warn_pending: int, warn_idle: int) -> list[StreamInfo]:
     streams = sorted(r.scan_iter(pattern, count=10000))
     result = []
     for s in streams:
@@ -188,7 +188,7 @@ def fmt_idle(v: int, warn: int) -> str:
     return _color(label, GREEN)
 
 
-def print_table(infos: List[StreamInfo], warn_lag: int, warn_pending: int, warn_idle: int) -> None:
+def print_table(infos: list[StreamInfo], warn_lag: int, warn_pending: int, warn_idle: int) -> None:
     # Заголовок
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     print(f"\n{_color('  Redis Stream Consumer Lag Monitor', BOLD, CYAN)}  {_color(ts, DIM)}")

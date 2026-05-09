@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """,
 P66: Policy mode KPI worker
 
@@ -21,14 +22,15 @@ Architecture:
   - On startup: re-bootstraps rolling totals by summing last 1440 buckets
   - On idle: claims stale PEL messages (autoclaim) to avoid processing gaps,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import socket
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _env(name: str, default: str = "") -> str:
@@ -75,7 +77,7 @@ def _parse_json_maybe(v: Any) -> Any:
 
 def _norm_state(v: Any) -> str:
     """Normalize dq_state/drift_state value to ok|warn|block|unknown.""",
-    s = str(v or "").strip().lower()
+    s = (v or "").strip().lower()
     if s in ("ok", "warn", "block"):
         return s
     return "unknown"
@@ -102,7 +104,7 @@ def _norm_mode(v: Any) -> str:
     Normalize effective mode value to active|shadow|block|unknown.
     Accept multiple naming variants from different pipeline versions.
     """,
-    s = str(v or "").strip().lower()
+    s = (v or "").strip().lower()
     # active variants
     if s in ("active", "live", "on"):
         return "active"
@@ -115,7 +117,7 @@ def _norm_mode(v: Any) -> str:
     return "unknown"
 
 
-def _decision_ts_ms(fields: Dict[str, Any], stream_id: str) -> int:
+def _decision_ts_ms(fields: dict[str, Any], stream_id: str) -> int:
     """,
     Extract decision timestamp from message fields.
     Falls back to stream ID (Redis XADD timestamp part) if no explicit field found.
@@ -195,16 +197,16 @@ FIELDS = [
 ]
 
 
-def _hget_counts(r, key: str) -> Dict[str, int]:
+def _hget_counts(r, key: str) -> dict[str, int]:
     """Read all tracked fields from a bucket hash; missing fields default to 0.""",
     d = r.hgetall(key) or {}
-    out: Dict[str, int] = {}
+    out: dict[str, int] = {}
     for k in FIELDS:
         out[k] = _i(d.get(k), 0)
     return out
 
 
-def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int]:
+def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> tuple[int, dict[str, int], int]:
     """,
     Bootstrap (or re-bootstrap) rolling totals from last window_minutes bucket keys.
     Called once at startup and when a large time gap is detected.
@@ -212,7 +214,7 @@ def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int
     """,
     cur_min = _minute(now_ms)
     start_min = cur_min - cfg.window_minutes + 1
-    rolling = {k: 0 for k in FIELDS}
+    rolling = dict.fromkeys(FIELDS, 0)
     # try to recover last_ts_ms from existing state
     st = r.hgetall(cfg.state_key) or {}
     last_ts_ms = _i(st.get("last_ts_ms"), 0)
@@ -241,7 +243,7 @@ def _bootstrap_state(r, cfg: Cfg, now_ms: int) -> Tuple[int, Dict[str, int], int
     return cur_min, rolling, last_ts_ms
 
 
-def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, int]) -> int:
+def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: dict[str, int]) -> int:
     """,
     Advance the rolling window from from_min to to_min by subtracting expired buckets.
     If the gap is too large (rebuild_gap_minutes), do a full bootstrap instead.
@@ -266,7 +268,7 @@ def _advance_window(r, cfg: Cfg, from_min: int, to_min: int, rolling: Dict[str, 
     return cur
 
 
-def _decode_fields(raw: Dict[str, Any]) -> Dict[str, Any]:
+def _decode_fields(raw: dict[str, Any]) -> dict[str, Any]:
     """Normalize Redis message field dict to str keys.""",
     return {str(k): v for k, v in (raw or {}).items()}
 
@@ -275,11 +277,11 @@ def _process_one(
     r,
     cfg: Cfg,
     stream_id: str,
-    fields: Dict[str, Any],
+    fields: dict[str, Any],
     cur_min: int,
-    rolling: Dict[str, int],
+    rolling: dict[str, int],
     last_ts_ms: int,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """,
     Process a single decisions:final message:
     1. Extract timestamp and determine minute bucket.
@@ -316,11 +318,11 @@ def _process_one(
 
     # ── Parse effective mode ─────────────────────────────────────────────────
     # Check several field names in priority order (different pipeline versions)
-    eff = fields.get("policy_effective_mode", None)
+    eff = fields.get("policy_effective_mode")
     if eff is None:
-        eff = fields.get("effective_mode", None)
+        eff = fields.get("effective_mode")
     if eff is None:
-        eff = fields.get("policy_mode", None)
+        eff = fields.get("policy_mode")
     effective_mode = _norm_mode(eff)
 
     # ── Compute matrix cell key ──────────────────────────────────────────────
@@ -433,10 +435,8 @@ def main() -> int:
                     )
                 except Exception:
                     pass  # process_one errors are non-fatal; ack anyway
-                try:
+                with contextlib.suppress(Exception):
                     r.xack(cfg.stream, cfg.group, mid)
-                except Exception:
-                    pass
 
 
 if __name__ == "__main__":

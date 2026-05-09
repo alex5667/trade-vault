@@ -1,12 +1,11 @@
-import pytest
-import hashlib
 from core.meta_features_v6 import (
-    META_FEAT_V6_NAME,
-    META_FEAT_V6_VERSION,
     META_FEAT_V6_COLS,
+    META_FEAT_V6_NAME,
     META_FEAT_V6_NEW_COLS,
+    META_FEAT_V6_VERSION,
     build_meta_features_v6,
 )
+
 
 def test_v6_schema_basics():
     assert META_FEAT_V6_NAME == "meta_feat_v6"
@@ -24,21 +23,21 @@ def test_v6_builder_smoke():
         "book_staleness_ms": 100,
         "taker_buy_rate_ema": 1.2,
     }
-    
+
     feat, missing = build_meta_features_v6(
         evidence=evidence,
         indicators=indicators,
         have=3,
         need=4,
     )
-    
+
     # Check new cols
     assert feat["exec_risk_ref_bps"] == 12.5
     assert feat["exec_pen"] == 0.5
     assert feat["book_staleness_ms"] == 100
     assert feat["taker_buy_rate_ema"] == 1.2
     assert feat["have_need_ratio"] == 0.75  # 3/4
-    
+
     # Check inherited cols (e.g. from v5 or earlier)
     # v5 contains things like 'obi', 'ofi_z', etc.
     # We didn't provide them, so they should be 0.0 or missing.

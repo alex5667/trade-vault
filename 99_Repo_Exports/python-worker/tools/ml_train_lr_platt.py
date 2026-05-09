@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Train ML confirm model (Logistic Regression + Platt scaling).
 
 Input: dataset NDJSON produced by ml_build_dataset_from_ndjson.py
@@ -12,25 +12,24 @@ Validation: time split (train first, test last).
 Metrics: PR-AUC, logloss, Brier, ECE (approx).
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
-import math
-import time
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Iterator, List, Tuple
+from typing import Any
 
 import joblib
 import numpy as np
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.metrics import average_precision_score, log_loss, brier_score_loss
+from sklearn.metrics import average_precision_score, brier_score_loss, log_loss
+
+from utils.time_utils import get_ny_time_millis
 
 
-def _read_ndjson(path: str) -> Iterator[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def _read_ndjson(path: str) -> Iterator[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -83,7 +82,7 @@ def main() -> None:
     ap.add_argument("--class-weight", choices=["none", "balanced"], default="balanced")
     args = ap.parse_args()
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for r in _read_ndjson(args.dataset):
         if not isinstance(r, dict):
             continue

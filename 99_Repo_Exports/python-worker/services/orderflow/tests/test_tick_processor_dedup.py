@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for tick dedup logic: _compute_tick_uid + TickDeduper.
 
@@ -13,8 +14,8 @@ P1 contract under test:
 
 import unittest
 
-from services.orderflow.utils import _compute_tick_uid
 from services.orderflow.tick_dedup import TickDeduper
+from services.orderflow.utils import _compute_tick_uid
 
 NOW_MS = 1_700_000_100_000
 

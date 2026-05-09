@@ -1,5 +1,7 @@
 import unittest
-from core.atr_bps_calibrator import ATRBpsCalibrator, ATRBpsThresholds
+
+from core.atr_bps_calibrator import ATRBpsCalibrator
+
 
 class TestATRBpsCalibrator(unittest.TestCase):
     def test_bootstrap(self):
@@ -22,7 +24,7 @@ class TestATRBpsCalibrator(unittest.TestCase):
         # Feed 15 samples of value 10.0
         for _ in range(15):
             calib.update(regime="trend", atr_bps=10.0)
-        
+
         th = calib.thresholds(
             regime="trend",
             default_floor_t0=3.0,
@@ -42,7 +44,7 @@ class TestATRBpsCalibrator(unittest.TestCase):
         vals = [5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
         for v in vals:
             calib.update(regime="trend", atr_bps=v)
-        
+
         th = calib.thresholds(
             regime="trend",
             default_floor_t0=0,
@@ -57,7 +59,7 @@ class TestATRBpsCalibrator(unittest.TestCase):
         c1 = ATRBpsCalibrator(min_samples=10)
         c1.update(regime="range", atr_bps=50.0)
         ts = 123456789
-        
+
         state = c1.dump_regime_state(symbol="BTC", regime="range", updated_ts_ms=ts)
         self.assertEqual(state["symbol"], "BTC")
         self.assertEqual(state["regime"], "range")
@@ -66,9 +68,9 @@ class TestATRBpsCalibrator(unittest.TestCase):
         c2 = ATRBpsCalibrator(min_samples=10)
         c2.load_regime_state(state)
         th = c2.thresholds(
-            regime="range", 
-            default_floor_t0=0, 
-            default_floor_t1=0, 
+            regime="range",
+            default_floor_t0=0,
+            default_floor_t1=0,
             default_floor_t2=0
         )
         self.assertEqual(th.n, 1)

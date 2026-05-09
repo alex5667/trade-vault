@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Quality Gate Blocker Tests — B1, B2, B3, B4
 
@@ -9,14 +10,10 @@ B4: OF_SYNC_BUILD kill-switch присутствует в ml_confirm_gate
 """
 
 import os
-import time
-import importlib
 import threading
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-
 
 # ===========================================================================
 # B1: Smart Timeout zombie fix

@@ -1,20 +1,18 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
-import time
-import os
 import math
+import os
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Deque, Dict, List, Optional, Tuple
-
 from types import SimpleNamespace
-from news_pipeline.enricher_sync import NewsEnricherSync
+from typing import Any
+
 from common.news_gate import NewsGate
 from core.smt_symbol_snapshot import SymbolSnapshot
+from news_pipeline.enricher_sync import NewsEnricherSync
 from services.smt_logic import decide_smt
-from common.news_gate import NewsGate
+from utils.time_utils import get_ny_time_millis
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -26,7 +24,7 @@ def _i(x: Any, d: int = 0) -> int:
 def _s(x: Any) -> str:
     return str(x) if x is not None else ""
 
-def _read_calendar_agg(redis: Any, asset_class: str) -> Dict[str, Any]:
+def _read_calendar_agg(redis: Any, asset_class: str) -> dict[str, Any]:
     """
     Read calendar aggregate state from Redis:
       key = calendar:agg:{asset_class}
@@ -44,7 +42,7 @@ def _read_calendar_agg(redis: Any, asset_class: str) -> Dict[str, Any]:
     except Exception:
         return {}
 
-def _news_gate_from_agg(agg: Dict[str, Any], now_ms: int, pre_sec: int, post_sec: int, hi_grade: int = 4) -> Tuple[int, int, str]:
+def _news_gate_from_agg(agg: dict[str, Any], now_ms: int, pre_sec: int, post_sec: int, hi_grade: int = 4) -> tuple[int, int, str]:
     """
     Determine if we are within high-impact window.
     Returns: (blocked(0/1), until_ts_ms, reason)
@@ -93,7 +91,7 @@ def _b2s(x: Any) -> str:
     return str(x)
 
 
-def _read_price_latest(redis_client: Any, symbol: str) -> Tuple[float, int]:
+def _read_price_latest(redis_client: Any, symbol: str) -> tuple[float, int]:
     """
     Expected key:
       price:latest:{SYMBOL}
@@ -105,7 +103,7 @@ def _read_price_latest(redis_client: Any, symbol: str) -> Tuple[float, int]:
         d = redis_client.hgetall(f"price:latest:{symbol}") or {}
     except Exception:
         return 0.0, 0
-    dd: Dict[str, str] = {}
+    dd: dict[str, str] = {}
     try:
         for k, v in dict(d).items():
             dd[_b2s(k)] = _b2s(v)
@@ -122,7 +120,7 @@ def _logret(p0: float, p1: float) -> float:
     return math.log(p1 / p0)
 
 
-def _corr(xs: List[float], ys: List[float]) -> float:
+def _corr(xs: list[float], ys: list[float]) -> float:
     n = min(len(xs), len(ys))
     if n < 8:
         return 0.0
@@ -145,7 +143,7 @@ def _corr(xs: List[float], ys: List[float]) -> float:
     return float(c / den)
 
 
-def _corr_lag(lead: List[float], lagg: List[float], lag: int) -> float:
+def _corr_lag(lead: list[float], lagg: list[float], lag: int) -> float:
     """
     corr(lead[t], lagg[t+lag]) for lag>=0
     i.e. lead "leads" lagg by lag steps.
@@ -160,10 +158,10 @@ def _corr_lag(lead: List[float], lagg: List[float], lag: int) -> float:
 @dataclass
 class BundleSpec:
     bundle_id: str
-    symbols: List[str]
+    symbols: list[str]
 
 
-def _parse_bundles_from_env() -> List[BundleSpec]:
+def _parse_bundles_from_env() -> list[BundleSpec]:
     """
     Expected env:
       SMT_BUNDLE_1=btc_eth_sol:BTCUSDT,ETHUSDT,SOLUSDT
@@ -171,7 +169,7 @@ def _parse_bundles_from_env() -> List[BundleSpec]:
     Or single:
       SMT_COH_BUNDLE=btc_eth_sol (then must exist SMT_BUNDLE_1/..)
     """
-    bundles: List[BundleSpec] = []
+    bundles: list[BundleSpec] = []
     # Collect SMT_BUNDLE_* in order.
     for i in range(1, 32):
         v = os.getenv(f"SMT_BUNDLE_{i}", "") or ""
@@ -201,7 +199,7 @@ class SmtAggregatorConfig:
     write_key_prefix: str = "smt:bundle:v1:"
 
     @classmethod
-    def from_env(cls) -> "SmtAggregatorConfig":
+    def from_env(cls) -> SmtAggregatorConfig:
         def _i(name: str, d: int) -> int:
             try:
                 return int(float(os.getenv(name, str(d))))
@@ -231,29 +229,29 @@ class SmtBundleAggregator:
       - fail-open: if prices missing -> do not write garbage, keep previous.
       - state is used by pre-publish gate; must be robust.
     """
-    def __init__(self, *, redis_client: Any, bundles: List[BundleSpec], cfg: Optional[SmtAggregatorConfig] = None) -> None:
+    def __init__(self, *, redis_client: Any, bundles: list[BundleSpec], cfg: SmtAggregatorConfig | None = None) -> None:
         self.redis = redis_client
         self.bundles = bundles
         self.cfg = cfg or SmtAggregatorConfig.from_env()
         # in-memory histories
-        self._last_mid: Dict[str, float] = {}
-        self._last_ts: Dict[str, int] = {}
-        self._rets: Dict[str, Deque[float]] = {}
+        self._last_mid: dict[str, float] = {}
+        self._last_ts: dict[str, int] = {}
+        self._rets: dict[str, deque[float]] = {}
         for b in bundles:
             for s in b.symbols:
                 self._rets.setdefault(s, deque(maxlen=max(32, self.cfg.window_n)))
 
         # publish targets
-        self.smt_setup_stream = str(os.getenv("SMT_SETUP_STREAM", "stream:smt:setup"))
-        
+        self.smt_setup_stream = os.getenv("SMT_SETUP_STREAM", "stream:smt:setup")
+
         self._enricher = NewsEnricherSync(redis=self.redis)
         self._news = NewsGate(
             redis_client=self.redis,
-            asset_class=str(os.getenv("NEWS_ASSET_CLASS", "crypto")),
+            asset_class=os.getenv("NEWS_ASSET_CLASS", "crypto"),
             window_sec=int(os.getenv("NEWS_GATE_WINDOW_SEC", "300")),
             grade_min=int(os.getenv("NEWS_GATE_GRADE_MIN", "4")),
-            manual_key=str(os.getenv("NEWS_GATE_MANUAL_KEY", "news:hi:active")),
-            cal_agg_prefix=str(os.getenv("NEWS_GATE_CAL_AGG_PREFIX", "calendar:agg:")),
+            manual_key=os.getenv("NEWS_GATE_MANUAL_KEY", "news:hi:active"),
+            cal_agg_prefix=os.getenv("NEWS_GATE_CAL_AGG_PREFIX", "calendar:agg:"),
             # soft gate parameters
             soft_enabled=True,
             soft_window_sec=int(os.getenv("NEWS_GATE_WINDOW_SEC", "300")),
@@ -265,7 +263,7 @@ class SmtBundleAggregator:
             soft_news_min_bps=2500,
         )
 
-    def _load_snapshot(self, sym: str) -> Optional[SymbolSnapshot]:
+    def _load_snapshot(self, sym: str) -> SymbolSnapshot | None:
         try:
             raw = self.redis.get(f"smt:snap:{sym}")
             if not raw:
@@ -278,7 +276,7 @@ class SmtBundleAggregator:
             return None
         return None
 
-    def _publish_smt_setup(self, payload: Dict[str, Any], bundle_id: str) -> None:
+    def _publish_smt_setup(self, payload: dict[str, Any], bundle_id: str) -> None:
         """
         Publish SMT as SETUP (navigator), not as direct trade signal.
         Downstream should trigger entry only after retest + of_confirm.
@@ -309,7 +307,7 @@ class SmtBundleAggregator:
         self._last_ts[symbol] = int(ts)
         return True
 
-    def _leader_score(self, sym_i: str, syms: List[str]) -> Tuple[float, Dict[str, int]]:
+    def _leader_score(self, sym_i: str, syms: list[str]) -> tuple[float, dict[str, int]]:
         """
         Score = sum over others of max corr over lags [0..max_lag]
         Returns (score, best_lag_by_other)
@@ -317,7 +315,7 @@ class SmtBundleAggregator:
         ri = list(self._rets.get(sym_i) or [])
         if len(ri) < 12:
             return 0.0, {}
-        best_lags: Dict[str, int] = {}
+        best_lags: dict[str, int] = {}
         score = 0.0
         for sym_j in syms:
             if sym_j == sym_i:
@@ -337,13 +335,13 @@ class SmtBundleAggregator:
                 best_lags[sym_j] = best_lag
         return float(score), best_lags
 
-    def _dir_from_returns(self, rs: List[float]) -> str:
+    def _dir_from_returns(self, rs: list[float]) -> str:
         w = max(2, int(self.cfg.leader_dir_window))
         xs = rs[-w:]
         s = sum(xs)
         return "UP" if s >= 0 else "DOWN"
 
-    def _confirm_leader(self, rs: List[float]) -> int:
+    def _confirm_leader(self, rs: list[float]) -> int:
         """
         leader_confirm=1 if:
           - abs(cum_move_bps over last W) >= leader_confirm_min_bps
@@ -364,7 +362,7 @@ class SmtBundleAggregator:
                 agree += 1
         return 1 if agree >= max(3, w - 2) else 0
 
-    def compute_bundle_state(self, b: BundleSpec) -> Optional[Dict[str, Any]]:
+    def compute_bundle_state(self, b: BundleSpec) -> dict[str, Any] | None:
         # update returns from latest for all symbols
         ok_any = False
         for s in b.symbols:
@@ -379,7 +377,7 @@ class SmtBundleAggregator:
         # pick leader
         best_sym = ""
         best_score = -1.0
-        best_lags: Dict[str, int] = {}
+        best_lags: dict[str, int] = {}
         for s in b.symbols:
             sc, lags = self._leader_score(s, b.symbols)
             if sc > best_score:
@@ -396,10 +394,10 @@ class SmtBundleAggregator:
         # coherence: dir agreement + timing (median lag normalized) + quality (OF_ok ∧ Zone_ok share)
         dir_agree = 0
         qual_ok = 0
-        lags_list: List[int] = []
-        
+        lags_list: list[int] = []
+
         # Load snapshots for quality check
-        snaps_by_sym: Dict[str, SymbolSnapshot] = {}
+        snaps_by_sym: dict[str, SymbolSnapshot] = {}
         try:
             for s in b.symbols:
                 snap = self._load_snapshot(s)
@@ -418,7 +416,7 @@ class SmtBundleAggregator:
             if s != best_sym:
                 lag = int(best_lags.get(s, 0))
                 lags_list.append(lag)
-                
+
                 # Quality V2: OF_ok ∧ Zone_ok
                 snap = snaps_by_sym.get(s)
                 if snap is not None:
@@ -447,7 +445,7 @@ class SmtBundleAggregator:
         if self.cfg.max_lag > 0:
             timing = 1.0 - (float(med) / float(self.cfg.max_lag))
             timing = max(0.0, min(1.0, timing))
-        
+
         # quality share uses only non-leader members
         denom_q = max(1, len(b.symbols) - 1)
         qual_share = float(qual_ok) / float(denom_q)
@@ -471,14 +469,14 @@ class SmtBundleAggregator:
             "ts_ms": int(_now_ms()),
         }
 
-    def write_bundle_state(self, st: Dict[str, Any]) -> None:
+    def write_bundle_state(self, st: dict[str, Any]) -> None:
         key = f"{self.cfg.write_key_prefix}{st.get('bundle_id')}"
         try:
             self.redis.set(
                 key,
                 json.dumps({
-                    "leader": str(st.get("leader") or ""),
-                    "leader_dir": str(st.get("leader_dir") or ""),
+                    "leader": (st.get("leader") or ""),
+                    "leader_dir": (st.get("leader_dir") or ""),
                     "leader_confirm": int(st.get("leader_confirm") or 0),
                     "coh": float(st.get('coh') or 0.0),
                     "ts_ms": int(st.get("ts_ms") or _now_ms()),
@@ -505,7 +503,7 @@ class SmtBundleAggregator:
 
             # 2. SMT V2 Decision
             try:
-                leader_sym = str(st.get("leader"))
+                leader_sym = (st.get("leader"))
                 coh = float(st.get("coh") or 0.0)
                 ts_ms = int(st.get("ts_ms") or _now_ms())
 
@@ -514,14 +512,14 @@ class SmtBundleAggregator:
                 asset_class = getattr(b, "asset_class", None) or os.getenv("SMT_NEWS_ASSET_CLASS", "crypto")
 
                 # Read snapshots again (or reuse if cached, but for simplicity re-read logic flow)
-                snaps: List[SymbolSnapshot] = []
+                snaps: list[SymbolSnapshot] = []
                 for s in b.symbols:
                     snap = self._load_snapshot(s)
                     if snap is not None:
                         snaps.append(snap)
-                
+
                 leader_snap = next((x for x in snaps if x.symbol == leader_sym), None)
-                
+
                 # If leader missing, we can't decide properly.
                 if leader_snap is None:
                     continue
@@ -555,7 +553,7 @@ class SmtBundleAggregator:
                     "smt_coh_threshold": float(os.getenv("SMT_COH_THR", "0.65")),
                     "smt_leader_conf_min_score": float(os.getenv("SMT_LEADER_CONF_MIN_SCORE", "0.65")),
                     "smt_basket_k": int(os.getenv("SMT_BASKET_K", "2")),
-                    "smt_rank_mode": str(os.getenv("SMT_RANK_MODE", "ts")),
+                    "smt_rank_mode": os.getenv("SMT_RANK_MODE", "ts"),
                     "smt_rank_ts_window": int(os.getenv("SMT_RANK_TS_WINDOW", "240")),
                     "smt_zone_max_bp": float(os.getenv("SMT_ZONE_MAX_BP", "15.0")),
                     "smt_leader_min_of_score": float(os.getenv("SMT_LEADER_MIN_OF_SCORE", "1.0")),
@@ -565,7 +563,7 @@ class SmtBundleAggregator:
                     "news_until_ts_ms": int(gate_decision.until_ts_ms or 0),
                     "risk_factor_bps": gate_decision.risk_factor_bps,
                 }
-                
+
                 dec = decide_smt(leader_snap, snaps, coh=coh, cfg=d_cfg)
 
                 # Apply hard block: force kind none for audit
@@ -579,7 +577,7 @@ class SmtBundleAggregator:
                 else:
                     dec.news_blocked = 0
                     dec.news_until_ts_ms = 0
-                
+
                 # Override leader_confirm with snap-based truth if possible:
                 # confirmed iff decision is continuation and leader has strong-of+closeCross,
                 # OR you can read it directly from leader_confirm_reject_v2 via dec.reason.
@@ -606,12 +604,12 @@ class SmtBundleAggregator:
                     "dq_flags": gate_decision.dq_flags,
                     "meta": gate_decision.meta,
                 }
-                
+
                 # Re-write state with extended fields
                 key = f"{self.cfg.write_key_prefix}{b.bundle_id}"
                 mapping = {
                     "leader": str(leader_sym),
-                    "leader_dir": str(st.get("leader_dir") or ""),
+                    "leader_dir": (st.get("leader_dir") or ""),
                     "coh": float(st.get("coh") or 0.0),
                     "ts_ms": int(st.get("ts_ms") or _now_ms()),
                     "decision": str(dec.kind),

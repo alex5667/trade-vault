@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Reconnect self-healing for ExecHealth Redis service identity.
@@ -15,8 +16,7 @@ Prometheus export.
 
 import json
 import os
-import time
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from services.orderflow.exec_health_freeze_service_identity import (
     IDENTITY_ENFORCE_ENV,
@@ -34,7 +34,7 @@ HEAL_STATE_PREFIX_ENV = 'EXEC_HEALTH_FREEZE_CLIENT_HEAL_STATE_PREFIX'
 HEAL_CHECK_MS_ENV = 'EXEC_HEALTH_FREEZE_CLIENT_HEAL_CHECK_MS'
 HEAL_EVENT_STREAM_ENV = 'EXEC_HEALTH_FREEZE_EVENT_STREAM'
 
-_CACHE: Dict[Tuple[str, int], Dict[str, Any]] = {}
+_CACHE: dict[tuple[str, int], dict[str, Any]] = {}
 
 
 def _now_ms() -> int:
@@ -45,14 +45,14 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _s(x: Any, d: str = '') -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
 def get_heal_state_key(service: str) -> str:
@@ -68,25 +68,25 @@ def _check_ms() -> int:
     return max(500, _i(os.getenv(HEAL_CHECK_MS_ENV, '3000'), 3000))
 
 
-def _cache_key(r: Any, service: str) -> Tuple[str, int]:
+def _cache_key(r: Any, service: str) -> tuple[str, int]:
     return (service, id(r))
 
 
-def _read_state_sync(r: Any, service: str) -> Dict[str, Any]:
+def _read_state_sync(r: Any, service: str) -> dict[str, Any]:
     try:
         return r.hgetall(get_heal_state_key(service)) or {}
     except Exception:
         return {}
 
 
-async def _read_state_async(r: Any, service: str) -> Dict[str, Any]:
+async def _read_state_async(r: Any, service: str) -> dict[str, Any]:
     try:
         return await r.hgetall(get_heal_state_key(service)) or {}
     except Exception:
         return {}
 
 
-def _write_state_sync(r: Any, service: str, mapping: Dict[str, Any]) -> None:
+def _write_state_sync(r: Any, service: str, mapping: dict[str, Any]) -> None:
     try:
         r.hset(get_heal_state_key(service), mapping={str(k): str(v) for k, v in mapping.items()})
         r.expire(get_heal_state_key(service), 86400 * 14)
@@ -94,7 +94,7 @@ def _write_state_sync(r: Any, service: str, mapping: Dict[str, Any]) -> None:
         pass
 
 
-async def _write_state_async(r: Any, service: str, mapping: Dict[str, Any]) -> None:
+async def _write_state_async(r: Any, service: str, mapping: dict[str, Any]) -> None:
     try:
         await r.hset(get_heal_state_key(service), mapping={str(k): str(v) for k, v in mapping.items()})
         await r.expire(get_heal_state_key(service), 86400 * 14)
@@ -102,14 +102,14 @@ async def _write_state_async(r: Any, service: str, mapping: Dict[str, Any]) -> N
         pass
 
 
-def _emit_event_sync(r: Any, payload: Dict[str, Any]) -> str:
+def _emit_event_sync(r: Any, payload: dict[str, Any]) -> str:
     try:
         return _s(r.xadd(_event_stream(), {str(k): str(v) for k, v in payload.items()}, maxlen=5000) or '')
     except Exception:
         return ''
 
 
-async def _emit_event_async(r: Any, payload: Dict[str, Any]) -> str:
+async def _emit_event_async(r: Any, payload: dict[str, Any]) -> str:
     try:
         return _s(await r.xadd(_event_stream(), {str(k): str(v) for k, v in payload.items()}, maxlen=5000) or '')
     except Exception:
@@ -121,7 +121,7 @@ def _should_attempt_repair(violations: Any) -> bool:
     return bool(bad) and bad.issubset({'wrong_name', 'wrong_lib_name'})
 
 
-def _build_state(prev: Dict[str, Any], *, service: str, client_id: int, before: Dict[str, Any], after: Dict[str, Any], recovered: bool, reconnect_detected: bool, event_id: str, now_ms: int, repair_attempted: bool) -> Dict[str, Any]:
+def _build_state(prev: dict[str, Any], *, service: str, client_id: int, before: dict[str, Any], after: dict[str, Any], recovered: bool, reconnect_detected: bool, event_id: str, now_ms: int, repair_attempted: bool) -> dict[str, Any]:
     entry = dict(after.get('entry') or before.get('entry') or {})
     out = dict(prev or {})
     out.update({
@@ -154,7 +154,7 @@ def _build_state(prev: Dict[str, Any], *, service: str, client_id: int, before: 
     return out
 
 
-def _repair_sync(r: Any, service: str, before: Dict[str, Any]) -> Dict[str, Any]:
+def _repair_sync(r: Any, service: str, before: dict[str, Any]) -> dict[str, Any]:
     expected = get_expected_service(service)
     require_lib_name = _b(os.getenv(IDENTITY_REQUIRE_LIBNAME_ENV, '1'), True)
     if 'wrong_name' in list(before.get('violations') or []):
@@ -165,7 +165,7 @@ def _repair_sync(r: Any, service: str, before: Dict[str, Any]) -> Dict[str, Any]
     return verify_entry_against_expected(entry, expected, require_lib_name=require_lib_name)
 
 
-async def _repair_async(r: Any, service: str, before: Dict[str, Any]) -> Dict[str, Any]:
+async def _repair_async(r: Any, service: str, before: dict[str, Any]) -> dict[str, Any]:
     expected = get_expected_service(service)
     require_lib_name = _b(os.getenv(IDENTITY_REQUIRE_LIBNAME_ENV, '1'), True)
     if 'wrong_name' in list(before.get('violations') or []):
@@ -176,7 +176,7 @@ async def _repair_async(r: Any, service: str, before: Dict[str, Any]) -> Dict[st
     return verify_entry_against_expected(entry, expected, require_lib_name=require_lib_name)
 
 
-def heal_service_identity_sync(r: Any, service: str, *, enforce: bool | None = None, force: bool = False) -> Dict[str, Any]:
+def heal_service_identity_sync(r: Any, service: str, *, enforce: bool | None = None, force: bool = False) -> dict[str, Any]:
     expected = get_expected_service(service)
     enforce = _b(os.getenv(IDENTITY_ENFORCE_ENV, '1'), True) if enforce is None else bool(enforce)
     now = _now_ms()
@@ -218,7 +218,7 @@ def heal_service_identity_sync(r: Any, service: str, *, enforce: bool | None = N
     return result
 
 
-async def heal_service_identity_async(r: Any, service: str, *, enforce: bool | None = None, force: bool = False) -> Dict[str, Any]:
+async def heal_service_identity_async(r: Any, service: str, *, enforce: bool | None = None, force: bool = False) -> dict[str, Any]:
     expected = get_expected_service(service)
     enforce = _b(os.getenv(IDENTITY_ENFORCE_ENV, '1'), True) if enforce is None else bool(enforce)
     now = _now_ms()

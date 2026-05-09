@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 tests/news_pipeline/test_p6_stable_event_uuid.py
 
@@ -14,8 +15,6 @@ Verifies:
 """
 
 import uuid
-
-import pytest
 
 from news_pipeline.p6_dto import stable_event_uuid
 

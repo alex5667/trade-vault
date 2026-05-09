@@ -8,16 +8,17 @@ Tests cover:
 - Backward compatibility
 """
 
-import os
 import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Dict, Any
+import os
 
 # Import service class
-import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from services.of_confirm_service import OFConfirmService
+import contextlib
 
 
 @pytest.mark.asyncio
@@ -31,15 +32,15 @@ class TestEnsureMicrobarGroups:
         service.consumer_group = "test_group"
         service.stream_bars_template = "events:microbar_closed:{sym}"
         service.bars_max_streams = 200
-        
+
         # Mock SSCAN to return symbols
         service.redis.sscan = AsyncMock(side_effect=[
             (0, [b"BTCUSDT", b"ETHUSDT"]),  # First scan returns all
         ])
         service.redis.xgroup_create = AsyncMock()
-        
+
         result = await service._ensure_microbar_groups()
-        
+
         assert len(result) == 2
         assert "events:microbar_closed:BTCUSDT" in result
         assert "events:microbar_closed:ETHUSDT" in result
@@ -52,9 +53,9 @@ class TestEnsureMicrobarGroups:
         service.consumer_group = "test_group"
         service.stream_bars_template = "events:microbar_closed"
         service.bars_max_streams = 200
-        
+
         result = await service._ensure_microbar_groups()
-        
+
         assert result == ["events:microbar_closed"]
         service.redis.xgroup_create.assert_called_once()
 
@@ -65,15 +66,15 @@ class TestEnsureMicrobarGroups:
         service.consumer_group = "test_group"
         service.stream_bars_template = "events:microbar_closed:{sym}"
         service.bars_max_streams = 2
-        
+
         # Mock SSCAN to return more symbols than limit
         service.redis.sscan = AsyncMock(side_effect=[
             (0, [b"BTCUSDT", b"ETHUSDT", b"SOLUSDT", b"BNBUSDT"]),
         ])
         service.redis.xgroup_create = AsyncMock()
-        
+
         result = await service._ensure_microbar_groups()
-        
+
         assert len(result) == 2  # Limited by bars_max_streams
         assert service.redis.xgroup_create.call_count == 2
 
@@ -84,14 +85,14 @@ class TestEnsureMicrobarGroups:
         service.consumer_group = "test_group"
         service.stream_bars_template = "events:microbar_closed:{sym}"
         service.bars_max_streams = 200
-        
+
         service.redis.sscan = AsyncMock(return_value=(0, [b"BTCUSDT"]))
         # Simulate group already exists error
         service.redis.xgroup_create = AsyncMock(side_effect=Exception("BUSYGROUP"))
-        
+
         # Should not raise exception
         result = await service._ensure_microbar_groups()
-        
+
         assert len(result) == 1
         service.redis.xgroup_create.assert_called_once()
 
@@ -104,9 +105,9 @@ class TestPollMicrobarsOnce:
         """Return 0 when bars_enable is False."""
         service = OFConfirmService()
         service.bars_enable = False
-        
+
         result = await service._poll_microbars_once()
-        
+
         assert result == 0
 
     async def test_poll_no_streams(self):
@@ -114,9 +115,9 @@ class TestPollMicrobarsOnce:
         service = OFConfirmService()
         service.bars_enable = True
         service._microbar_streams = []
-        
+
         result = await service._poll_microbars_once()
-        
+
         assert result == 0
 
     async def test_poll_success(self):
@@ -127,7 +128,7 @@ class TestPollMicrobarsOnce:
         service.consumer_group = "test_group"
         service.consumer_name = "test_consumer"
         service._microbar_streams = ["events:microbar_closed:BTCUSDT"]
-        
+
         # Mock XREADGROUP response
         mock_fields = {"payload": json.dumps({"symbol": "BTCUSDT", "ts_ms": 1234567890})}
         service.redis.xreadgroup = AsyncMock(return_value=[
@@ -136,12 +137,12 @@ class TestPollMicrobarsOnce:
             ])
         ])
         service.redis.xack = AsyncMock()
-        
+
         # Mock _process_bar to avoid full state initialization
         service._process_bar = AsyncMock()
-        
+
         result = await service._poll_microbars_once()
-        
+
         assert result == 1
         service.redis.xreadgroup.assert_called_once()
         service.redis.xack.assert_called_once()
@@ -155,19 +156,19 @@ class TestPollMicrobarsOnce:
         service.consumer_group = "test_group"
         service.consumer_name = "test_consumer"
         service._microbar_streams = ["events:microbar_closed:BTCUSDT"]
-        
+
         mock_fields = {"payload": json.dumps({"symbol": "BTCUSDT"})}
         service.redis.xreadgroup = AsyncMock(return_value=[
             ("events:microbar_closed:BTCUSDT", [
                 ("1234567890-0", mock_fields)
             ])
         ])
-        
+
         # Mock _process_bar to raise exception
         service._process_bar = AsyncMock(side_effect=Exception("Processing error"))
-        
+
         result = await service._poll_microbars_once()
-        
+
         # Should return count but not ACK
         assert result == 1
         service.redis.xack.assert_not_called()  # No ACK on error
@@ -180,11 +181,11 @@ class TestPollMicrobarsOnce:
         service.consumer_group = "test_group"
         service.consumer_name = "test_consumer"
         service._microbar_streams = ["events:microbar_closed:BTCUSDT"]
-        
+
         service.redis.xreadgroup = AsyncMock(side_effect=Exception("Redis error"))
-        
+
         result = await service._poll_microbars_once()
-        
+
         assert result == 0  # Returns 0 on error
 
 
@@ -238,22 +239,21 @@ class TestConsumeMicrobars:
         service.stream_bars_template = "events:microbar_closed:{sym}"
         service.bars_max_streams = 200
         service._microbar_streams = ["events:microbar_closed:BTCUSDT"]
-        
+
         # Mock methods
         service._ensure_microbar_groups = AsyncMock(return_value=["events:microbar_closed:BTCUSDT"])
         service._poll_microbars_once = AsyncMock(return_value=0)
-        
+
         # Mock time to control refresh timing
-        with patch('time.time', return_value=1000.0):
-            with patch('os.getenv', return_value="1"):  # refresh_sec = 1
-                # Start task and let it run briefly
-                task = asyncio.create_task(service._consume_microbars())
-                await asyncio.sleep(0.1)
-                service.running = False
-                await asyncio.sleep(0.1)
-                
-                # Should have called _poll_microbars_once
-                assert service._poll_microbars_once.call_count > 0
+        with patch('time.time', return_value=1000.0), patch('os.getenv', return_value="1"):  # refresh_sec = 1
+            # Start task and let it run briefly
+            task = asyncio.create_task(service._consume_microbars())
+            await asyncio.sleep(0.1)
+            service.running = False
+            await asyncio.sleep(0.1)
+
+            # Should have called _poll_microbars_once
+            assert service._poll_microbars_once.call_count > 0
 
     async def test_consume_microbars_handles_cancellation(self):
         """Test graceful cancellation of microbar consumer."""
@@ -263,16 +263,16 @@ class TestConsumeMicrobars:
         service._microbar_streams = []
         service._poll_microbars_once = AsyncMock(return_value=0)
         service._ensure_microbar_groups = AsyncMock(return_value=[])
-        
+
         task = asyncio.create_task(service._consume_microbars())
         await asyncio.sleep(0.05)
         task.cancel()
-        
+
         try:
             await task
         except asyncio.CancelledError:
             pass  # Expected
-        
+
         # Should handle cancellation gracefully
         assert True
 
@@ -284,12 +284,12 @@ class TestConsumeMicrobars:
         service._microbar_streams = []
         service._poll_microbars_once = AsyncMock(side_effect=Exception("Test error"))
         service._ensure_microbar_groups = AsyncMock(return_value=[])
-        
+
         task = asyncio.create_task(service._consume_microbars())
         await asyncio.sleep(0.1)
         service.running = False
         await asyncio.sleep(0.1)
-        
+
         # Should handle errors without crashing
         assert True
 
@@ -304,7 +304,7 @@ class TestConsumeTicksIntegration:
         service.bars_enable = True
         service.redis = AsyncMock()
         service.running = True
-        
+
         # Mock pubsub
         mock_pubsub = AsyncMock()
         mock_listen = AsyncMock()
@@ -312,22 +312,20 @@ class TestConsumeTicksIntegration:
         mock_pubsub.listen = AsyncMock(return_value=mock_listen)
         mock_pubsub.psubscribe = AsyncMock()
         service.redis.pubsub = MagicMock(return_value=mock_pubsub)
-        
+
         # Start _consume_ticks in background
         task = asyncio.create_task(service._consume_ticks())
         await asyncio.sleep(0.1)
-        
+
         # Check that _bars_task was created
         assert hasattr(service, "_bars_task")
         assert service._bars_task is not None
-        
+
         # Cleanup
         service.running = False
         await asyncio.sleep(0.1)
-        try:
+        with contextlib.suppress(Exception):
             await task
-        except Exception:
-            pass
 
     async def test_consume_ticks_does_not_start_bars_task_when_disabled(self):
         """Test that _consume_ticks() does not start _bars_task when bars_enable=False."""
@@ -335,7 +333,7 @@ class TestConsumeTicksIntegration:
         service.bars_enable = False
         service.redis = AsyncMock()
         service.running = True
-        
+
         # Mock pubsub
         mock_pubsub = AsyncMock()
         mock_listen = AsyncMock()
@@ -343,22 +341,20 @@ class TestConsumeTicksIntegration:
         mock_pubsub.listen = AsyncMock(return_value=mock_listen)
         mock_pubsub.psubscribe = AsyncMock()
         service.redis.pubsub = MagicMock(return_value=mock_pubsub)
-        
+
         # Start _consume_ticks in background
         task = asyncio.create_task(service._consume_ticks())
         await asyncio.sleep(0.1)
-        
+
         # Check that _bars_task was NOT created
         if hasattr(service, "_bars_task"):
             assert service._bars_task is None
-        
+
         # Cleanup
         service.running = False
         await asyncio.sleep(0.1)
-        try:
+        with contextlib.suppress(Exception):
             await task
-        except Exception:
-            pass
 
     async def test_consume_ticks_cancels_bars_task_on_exit(self):
         """Test that _consume_ticks() cancels _bars_task on exit."""
@@ -366,12 +362,12 @@ class TestConsumeTicksIntegration:
         service.bars_enable = True
         service.redis = AsyncMock()
         service.running = True
-        
+
         # Create a mock task
         mock_task = AsyncMock()
         mock_task.cancel = MagicMock()
         service._bars_task = mock_task
-        
+
         # Mock pubsub
         mock_pubsub = AsyncMock()
         mock_listen = AsyncMock()
@@ -379,21 +375,19 @@ class TestConsumeTicksIntegration:
         mock_pubsub.listen = AsyncMock(return_value=mock_listen)
         mock_pubsub.psubscribe = AsyncMock()
         service.redis.pubsub = MagicMock(return_value=mock_pubsub)
-        
+
         # Start _consume_ticks in background
         task = asyncio.create_task(service._consume_ticks())
         await asyncio.sleep(0.1)
-        
+
         # Stop the service
         service.running = False
         await asyncio.sleep(0.1)
-        
+
         # Check that cancel was called (indirectly through the cleanup code)
         # Note: The actual cancellation happens in the finally block
-        try:
+        with contextlib.suppress(Exception):
             await task
-        except Exception:
-            pass
 
 
 if __name__ == "__main__":

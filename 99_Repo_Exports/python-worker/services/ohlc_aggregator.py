@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 OHLC Aggregator - агрегация дневных H/L/C из тиков для расчета Pivot уровней.
 
@@ -21,12 +22,12 @@ Systemd:
     deploy/systemd/ohlc-aggregator.service
 """
 
-import os
 import json
+import os
 import sys
-import time
 import threading
-from datetime import datetime, timezone
+import time
+from datetime import UTC, datetime
 
 try:
     from zoneinfo import ZoneInfo
@@ -38,8 +39,8 @@ except ImportError:
 # Добавляем путь к core для импорта
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.redis_client import get_redis
 from core.config import XAU_TICK_STREAM
+from core.redis_client import get_redis
 from core.redis_stream_consumer import SyncRedisStreamHelper
 
 # Конфигурация
@@ -58,7 +59,7 @@ class DailyAggregator:
     """
     Агрегатор дневных H/L/C из тиков.
     """
-    
+
     def __init__(self):
         """Инициализация aggregator."""
         try:
@@ -66,9 +67,9 @@ class DailyAggregator:
         except Exception as e:
             print(f"❌ Ошибка подключения к Redis: {e}")
             raise
-        
+
         self.is_running = False
-        
+
         # Состояние текущего дня
         self.current_day = None
         self.day_high = None
@@ -76,55 +77,55 @@ class DailyAggregator:
         self.day_close = None
         self.last_tick_time = None
         self.tick_count_total = 0
-        
+
         # Timezone
         try:
             self.tz = ZoneInfo(SESSION_TZ)
         except Exception:
-            self.tz = timezone.utc
+            self.tz = UTC
             print(f"⚠️ Timezone {SESSION_TZ} недоступен, используем UTC")
-        
+
         # Попытка загрузить последние данные из Redis при старте
         self._load_state_from_redis()
-        
+
         print("✅ Daily OHLC Aggregator инициализирован")
         print(f"   Tick Stream: {TICK_STREAM}")
         print(f"   Consumer Group: {GROUP}")
         print(f"   Session Close: {SESSION_HOUR:02d}:{SESSION_MIN:02d} {SESSION_TZ}")
         sys.stdout.flush()
-    
+
     def start(self) -> None:
         """Запускает aggregator в отдельном потоке."""
         if self.is_running:
             print("⚠️ Daily OHLC Aggregator уже запущен")
             return
-        
+
         self.is_running = True
         thread = threading.Thread(target=self._run_loop, daemon=True)
         thread.start()
         print("🚀 Daily OHLC Aggregator запущен")
         sys.stdout.flush()
-    
+
     def stop(self) -> None:
         """Останавливает aggregator."""
         self.is_running = False
         print("⛔ Daily OHLC Aggregator остановлен")
         sys.stdout.flush()
-    
+
     def _run_loop(self) -> None:
         """Основной цикл обработки тиков."""
         try:
             consumer_name = f"{CONSUMER_NAME_PREFIX}-{os.getpid()}-{int(time.time())}"
             stream_helper = SyncRedisStreamHelper(self.redis_client, GROUP, consumer_name)
             stream_helper.ensure_group(TICK_STREAM)
-            
+
             print(f"🔄 Запуск цикла агрегации (consumer: {consumer_name})...")
             sys.stdout.flush()
-            
+
             tick_count = 0
             day_count = 0
             start_time = time.time()
-            
+
             # Основной цикл
             while self.is_running:
                 try:
@@ -134,10 +135,10 @@ class DailyAggregator:
                         count=200,
                         block=1000,
                     )
-                    
+
                     if not messages:
                         continue
-                    
+
                     for stream, items in messages:
                         for msg_id, fields in items:
                             try:
@@ -150,10 +151,10 @@ class DailyAggregator:
                                         tick_data = fields
                                 else:
                                     tick_data = fields
-                                    
+
                                 self._process_tick(tick_data)
                                 tick_count += 1
-                                
+
                             except Exception as e:
                                 print(f"❌ Ошибка обработки тика {msg_id}: {e}")
                                 sys.stdout.flush()
@@ -164,7 +165,7 @@ class DailyAggregator:
                                 except Exception as e:
                                     print(f"❌ Ошибка ACK {msg_id}: {e}")
                                     sys.stdout.flush()
-                    
+
                     # Статистика каждые 60 секунд
                     if time.time() - start_time >= 60:
                         if tick_count > 0:
@@ -186,7 +187,7 @@ class DailyAggregator:
                         tick_count = 0
                         day_count = 0
                         start_time = time.time()
-                        
+
                 except Exception as e:
                     print(f"❌ Ошибка в цикле агрегации: {e}")
                     sys.stdout.flush()
@@ -207,11 +208,11 @@ class DailyAggregator:
                                 print(f"❌ Ошибка пересоздания consumer group: {recreate_err}")
                             sys.stdout.flush()
                     time.sleep(1)
-                    
+
         except Exception as e:
             print(f"❌ Критическая ошибка Daily OHLC Aggregator: {e}")
             sys.stdout.flush()
-    
+
     def _process_tick(self, tick_data: dict) -> None:
         """
         Обработка одного тика для агрегации.
@@ -225,20 +226,20 @@ class DailyAggregator:
             ask = float(tick_data.get("ask", 0))
             last = float(tick_data.get("last", 0))
             trade_price = float(tick_data.get("price", 0))
-            
+
             price = (bid + ask) / 2 if (bid and ask) else (last or trade_price)
-            
+
             if price <= 0:
                 return
-            
+
             # Определяем день (простая версия - UTC день)
             ts = int(tick_data.get("ts", get_ny_time_millis()))
-            day = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).date().isoformat()
-            
+            day = datetime.fromtimestamp(ts / 1000, tz=UTC).date().isoformat()
+
             # Обновляем счетчики
             self.last_tick_time = time.time()
             self.tick_count_total += 1
-            
+
             # Инициализация или смена дня
             if self.current_day is None:
                 self._init_day(day, price)
@@ -255,7 +256,7 @@ class DailyAggregator:
         except Exception as e:
             print(f"⚠️ Ошибка обработки тика: {e}, данные: {tick_data}")
             sys.stdout.flush()
-    
+
     def _init_day(self, day: str, price: float) -> None:
         """
         Инициализирует новый день.
@@ -268,10 +269,10 @@ class DailyAggregator:
         self.day_high = price
         self.day_low = price
         self.day_close = price
-        
+
         print(f"📅 Новый день начат: {day}, цена открытия: {price:.2f}")
         sys.stdout.flush()
-    
+
     def _load_state_from_redis(self) -> None:
         """
         Загружает последнее состояние из Redis при старте.
@@ -281,8 +282,8 @@ class DailyAggregator:
             hlc_str = self.redis_client.get("pivots:latest")
             if hlc_str:
                 hlc = json.loads(hlc_str)
-                today = datetime.now(tz=timezone.utc).date().isoformat()
-                
+                today = datetime.now(tz=UTC).date().isoformat()
+
                 # Если данные сегодняшние - восстанавливаем состояние
                 if hlc.get("day") == today:
                     self.current_day = hlc["day"]
@@ -298,30 +299,30 @@ class DailyAggregator:
         except Exception as e:
             print(f"⚠️ Не удалось загрузить состояние из Redis: {e}")
         sys.stdout.flush()
-    
+
     def _finalize_day(self) -> None:
         """
         Завершает текущий день и публикует H/L/C.
         """
         if self.current_day is None:
             return
-        
+
         hlc = {
             "H": self.day_high,
             "L": self.day_low,
             "C": self.day_close,
             "day": self.current_day
         }
-        
+
         hlc_json = json.dumps(hlc)
-        
+
         try:
             # 1. Сохраняем как последний (для handler)
             self.redis_client.set("pivots:latest", hlc_json)
-            
+
             # 2. Сохраняем в историю
             self.redis_client.set(f"pivots:hlc:{self.current_day}", hlc_json)
-            
+
             # 3. Публикуем событие
             self.redis_client.xadd(
                 "pivots:events",
@@ -329,11 +330,11 @@ class DailyAggregator:
                 maxlen=100,
                 approximate=True
             )
-            
+
             print(f"✅ День {self.current_day} завершен:")
             print(f"   H: {self.day_high:.2f}, L: {self.day_low:.2f}, C: {self.day_close:.2f}")
             sys.stdout.flush()
-            
+
         except Exception as e:
             print(f"❌ Ошибка публикации H/L/C: {e}")
             sys.stdout.flush()
@@ -343,7 +344,7 @@ def main():
     """Точка входа для standalone запуска."""
     aggregator = DailyAggregator()
     aggregator.start()
-    
+
     try:
         # Держим процесс alive
         while True:

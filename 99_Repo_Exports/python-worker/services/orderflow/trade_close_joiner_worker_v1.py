@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P46 — Deterministic Label Join (v1)
 
 Consumes POSITION_CLOSED events from `events:trades`, joins them with unified
@@ -40,38 +41,41 @@ Usage
   python -m services.orderflow.trade_close_joiner_worker_v1
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import asyncio
 import json
 import logging
 import os
 import socket
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import redis
+
+from core.redis_keys import STREAM_RETENTION
+from core.redis_keys import RedisStreams as RS
+from domain.evidence_keys import MetaKeys
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as aioredis
 except Exception:  # pragma: no cover
     aioredis = None
 
-from services.orderflow.utils import _fields_to_dict, _normalize_epoch_ms
-from services.orderflow.probability_utils_v1 import extract_prob_with_source
 from services.orderflow.metrics import (
     log_silent_error,
-    trade_close_joiner_seen_total,
+    trade_close_joiner_backfill_drop_total,
+    trade_close_joiner_backfill_ok_total,
+    trade_close_joiner_dedup_skipped_total,
     trade_close_joiner_join_ok_total,
     trade_close_joiner_missing_decision_total,
-    trade_close_joiner_written_total,
-    trade_close_joiner_dedup_skipped_total,
-    trade_close_joiner_backfill_ok_total,
-    trade_close_joiner_backfill_drop_total,
     trade_close_joiner_prob_missing_total,
     trade_close_joiner_prob_source_total,
+    trade_close_joiner_seen_total,
+    trade_close_joiner_written_total,
 )
-
+from services.orderflow.probability_utils_v1 import extract_prob_with_source
+from services.orderflow.utils import _fields_to_dict, _normalize_epoch_ms
+import contextlib
 
 logger = logging.getLogger("trade_close_joiner")
 
@@ -87,14 +91,14 @@ def _env_float(name: str, default: str) -> float:
     try:
         return float(os.getenv(name, default))
     except Exception:
-        return float(default)
+        return default
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _loads_json(s: Any) -> Optional[dict]:
+def _loads_json(s: Any) -> dict | None:
     if s is None:
         return None
     if isinstance(s, dict):
@@ -114,7 +118,7 @@ def _loads_json(s: Any) -> Optional[dict]:
         return None
 
 
-def parse_trade_event_fields(raw_fields: Dict[Any, Any]) -> Dict[str, Any]:
+def parse_trade_event_fields(raw_fields: dict[Any, Any]) -> dict[str, Any]:
     """Parse Redis Stream fields into a merged event dict.
 
     Supports:
@@ -126,7 +130,7 @@ def parse_trade_event_fields(raw_fields: Dict[Any, Any]) -> Dict[str, Any]:
     """
     fields = _fields_to_dict(raw_fields)
 
-    payload_obj: Optional[dict] = None
+    payload_obj: dict | None = None
     if "payload" in fields:
         payload_obj = _loads_json(fields.get("payload"))
     elif "json" in fields:
@@ -141,7 +145,7 @@ def parse_trade_event_fields(raw_fields: Dict[Any, Any]) -> Dict[str, Any]:
     return dict(fields)
 
 
-def is_position_closed(ev: Dict[str, Any]) -> bool:
+def is_position_closed(ev: dict[str, Any]) -> bool:
     et = str(ev.get("event_type") or ev.get("event") or ev.get("type") or "").upper()
     if et in {"POSITION_CLOSED", "CLOSE", "POSITION_CLOSE"}:
         return True
@@ -151,7 +155,7 @@ def is_position_closed(ev: Dict[str, Any]) -> bool:
     return False
 
 
-def extract_close_info(ev: Dict[str, Any]) -> Tuple[str, str, int, Optional[float], Dict[str, Any]]:
+def extract_close_info(ev: dict[str, Any]) -> tuple[str, str, int, float | None, dict[str, Any]]:
     sid = str(
         ev.get("sid")
         or ev.get("SID")
@@ -173,18 +177,16 @@ def extract_close_info(ev: Dict[str, Any]) -> Tuple[str, str, int, Optional[floa
         or 0
     )
 
-    r_mult: Optional[float] = None
+    r_mult: float | None = None
     for k in ("r_mult", "r", "rMultiple", "r_multiple", "rMult"):
         if k in ev and ev.get(k) is not None:
-            try:
+            with contextlib.suppress(Exception):
                 r_mult = float(ev.get(k))
-            except Exception:
-                pass
             break
 
     # Analytical extra fields for promotion
     extra = {}
-    
+
     # PnL
     pnl = None
     for k in ("pnl", "pnl_net", "net_pnl", "profit"):
@@ -198,7 +200,7 @@ def extract_close_info(ev: Dict[str, Any]) -> Tuple[str, str, int, Optional[floa
                 pass
             if pnl is not None:
                 break
-                
+
     # Prices
     exit_px = None
     for k in ("exit_px", "close_px", "price", "px", "exit_price"):
@@ -210,7 +212,7 @@ def extract_close_info(ev: Dict[str, Any]) -> Tuple[str, str, int, Optional[floa
                 pass
             if exit_px is not None:
                 break
-                
+
     entry_px = None
     for k in ("entry_px", "open_px", "entry_price", "open_price"):
         if k in ev and ev.get(k) is not None:
@@ -233,7 +235,7 @@ def extract_close_info(ev: Dict[str, Any]) -> Tuple[str, str, int, Optional[floa
                 pass
             if qty is not None:
                 break
-                
+
     side = str(ev.get("side") or ev.get("direction") or "").strip().upper()
     if side:
         if side in ("BUY", "LONG"):
@@ -246,26 +248,26 @@ def extract_close_info(ev: Dict[str, Any]) -> Tuple[str, str, int, Optional[floa
     # Risk/Fees
     for k in ("risk_usd", "one_r_money", "fees_usd", "fee_bps", "close_reason"):
         if k in ev and ev.get(k) is not None:
-            extra[k] = str(ev.get(k))
+            extra[k] = (ev.get(k))
 
     return sid, symbol, int(ts_ms), r_mult, extra
 
 
-def _extract_prob(decision: Dict[str, Any]) -> Optional[float]:
+def _extract_prob(decision: dict[str, Any]) -> float | None:
     # Legacy wrapper kept for minimal churn.
     p, _ = extract_prob_with_source(decision)
     return p
 
 
-def compute_label_and_brier(*, decision: Dict[str, Any], r_mult: Optional[float]) -> Dict[str, Any]:
+def compute_label_and_brier(*, decision: dict[str, Any], r_mult: float | None) -> dict[str, Any]:
     win_min = _env_float("LABEL_WIN_R_MIN", "0.0")
-    y: Optional[int] = None
+    y: int | None = None
     if r_mult is not None:
         y = 1 if float(r_mult) >= float(win_min) else 0
 
     p, p_source = extract_prob_with_source(decision)
 
-    brier: Optional[float] = None
+    brier: float | None = None
     if y is not None and p is not None:
         brier = float((p - float(y)) ** 2)
 
@@ -292,7 +294,7 @@ async def _xadd_payload(
     r: Any,
     *,
     stream: str,
-    fields: Dict[str, str],
+    fields: dict[str, str],
     maxlen: int,
 ) -> None:
     await r.xadd(stream, fields=fields, maxlen=maxlen, approximate=True)
@@ -301,22 +303,22 @@ async def _xadd_payload(
 async def _write_outputs(
     r: Any,
     *,
-    decision: Dict[str, Any],
-    close_ev: Dict[str, Any],
-    label: Dict[str, Any],
+    decision: dict[str, Any],
+    close_ev: dict[str, Any],
+    label: dict[str, Any],
 ) -> None:
     trades_stream = os.getenv("TRADES_CLOSED_STREAM", "trades:closed")
-    trades_maxlen = _env_int("TRADES_CLOSED_MAXLEN", "200000")
+    trades_maxlen = _env_int("TRADES_CLOSED_MAXLEN", str(STREAM_RETENTION[RS.TRADES_CLOSED]))
 
     ml_stream = os.getenv("ML_REPLAY_INPUTS_STREAM", "ml_replay_inputs_v1")
-    ml_maxlen = _env_int("ML_REPLAY_INPUTS_MAXLEN", "200000")
+    ml_maxlen = _env_int("ML_REPLAY_INPUTS_MAXLEN", str(STREAM_RETENTION[RS.ML_REPLAY_INPUTS]))
 
     sid, symbol, close_ts_ms, r_mult, extra = extract_close_info(close_ev)
     decision_ts_ms = int(decision.get("ts_ms") or 0)
 
     # prefer bucket from close payload, fallback to decision meta
     bucket = str(
-        close_ev.get("meta_enforce_cov_bucket")
+        close_ev.get(MetaKeys.ENFORCE_COV_BUCKET)
         or close_ev.get("meta_enforce_bucket")
         or (decision.get("meta", {}) or {}).get("meta_enforce_bucket")
         or ""
@@ -381,7 +383,7 @@ async def _write_outputs(
                 "symbol": symbol,
                 "ts_ms": str(close_ts_ms),
                 "r_mult": "" if r_mult is None else str(r_mult),
-                "y": "" if label.get("y") is None else str(label.get("y")),
+                "y": "" if label.get("y") is None else (label.get("y")),
                 "p": "" if label.get("p") is None else f"{float(label['p']):.6f}",
                 "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}",
                 "bucket": bucket,
@@ -399,7 +401,7 @@ async def _write_outputs(
                 "sid": sid,
                 "symbol": symbol,
                 "ts_ms": str(int(decision_ts_ms or close_ts_ms)),
-                "y": "" if label.get("y") is None else str(label.get("y")),
+                "y": "" if label.get("y") is None else (label.get("y")),
                 "p": "" if label.get("p") is None else f"{float(label['p']):.6f}",
                 "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}",
                 "bucket": bucket,
@@ -414,7 +416,7 @@ async def _write_outputs(
     except Exception:
         # Serialize decision as signal_payload for reporters
         signal_payload_str = json.dumps(decision, ensure_ascii=False, separators=(",", ":"), default=str)
-        
+
         await _xadd_payload(
             r,
             stream=trades_stream,
@@ -423,7 +425,7 @@ async def _write_outputs(
                 "symbol": symbol,
                 "ts_ms": str(close_ts_ms),
                 "r_mult": "" if r_mult is None else str(r_mult),
-                "y": "" if label.get("y") is None else str(label.get("y")),
+                "y": "" if label.get("y") is None else (label.get("y")),
                 "p": "" if label.get("p") is None else f"{float(label['p']):.6f}",
                 "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}",
                 "bucket": bucket,
@@ -441,7 +443,7 @@ async def _write_outputs(
                 "sid": sid,
                 "symbol": symbol,
                 "ts_ms": str(int(decision_ts_ms or close_ts_ms)),
-                "y": "" if label.get("y") is None else str(label.get("y")),
+                "y": "" if label.get("y") is None else (label.get("y")),
                 "p": "" if label.get("p") is None else f"{float(label['p']):.6f}",
                 "brier": "" if label.get("brier") is None else f"{float(label['brier']):.6f}",
                 "bucket": bucket,
@@ -459,7 +461,7 @@ async def _write_outputs(
 async def process_close_event(
     r: Any,
     *,
-    close_ev: Dict[str, Any],
+    close_ev: dict[str, Any],
     from_backfill: bool = False,
 ) -> bool:
     """Attempt join. Returns True if joined+written, False otherwise."""
@@ -505,7 +507,7 @@ async def process_close_event(
 
         if enq:
             wait_stream = os.getenv("CLOSE_WAIT_STREAM", "trades:close_wait")
-            wait_maxlen = _env_int("CLOSE_WAIT_MAXLEN", "50000")
+            wait_maxlen = _env_int("CLOSE_WAIT_MAXLEN", str(STREAM_RETENTION[RS.TRADES_CLOSE_WAIT]))
 
             payload = json.dumps(close_ev, ensure_ascii=False, separators=(",", ":"), default=str)
             try:
@@ -541,17 +543,15 @@ async def process_close_event(
     except Exception:
         pass
 
-    try:
+    with contextlib.suppress(Exception):
         await r.delete(wait_key)
-    except Exception:
-        pass
 
     # Probability extraction health metrics (alerts can be based on ratios)
     where = "backfill" if from_backfill else "realtime"
     if label.get("p") is None:
         trade_close_joiner_prob_missing_total.labels(symbol=symbol, where=where).inc()
     else:
-        src = str(label.get("p_source") or "unknown")
+        src = (label.get("p_source") or "unknown")
         trade_close_joiner_prob_source_total.labels(symbol=symbol, source=src).inc()
 
     await _write_outputs(r, decision=decision, close_ev=close_ev, label=label)
@@ -576,7 +576,7 @@ async def backfill_wait_stream(r: Any) -> None:
         try:
             ev = parse_trade_event_fields(raw_fields)
             sid, _, _, _, _ = extract_close_info(ev)
-            symbol = str(ev.get("symbol") or "unknown").upper()
+            symbol = (ev.get("symbol") or "unknown").upper()
             first_seen = _normalize_epoch_ms(ev.get("first_seen_ms") or 0)
 
             # On older entries we only store payload=close_ev JSON
@@ -596,10 +596,8 @@ async def backfill_wait_stream(r: Any) -> None:
 
             ok = await process_close_event(r, close_ev=close_ev, from_backfill=True)
             if ok:
-                try:
+                with contextlib.suppress(Exception):
                     await r.xdel(wait_stream, msg_id)
-                except Exception:
-                    pass
                 trade_close_joiner_backfill_ok_total.labels(symbol=symbol).inc()
         except Exception as e:
             log_silent_error(e, kind="joiner_backfill_error", symbol="unknown", where="trade_close_joiner")
@@ -615,7 +613,7 @@ async def run() -> None:
         raise RuntimeError("redis.asyncio is not available")
 
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-    stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     group = os.getenv("TRADE_EVENTS_GROUP", "trade_close_joiner_v1")
 
     consumer = os.getenv("TRADE_EVENTS_CONSUMER")
@@ -689,9 +687,21 @@ async def run() -> None:
                     except Exception as e:
                         log_silent_error(e, kind="joiner_loop_error", symbol="unknown", where="trade_close_joiner")
                         try:
-                            await r.xack(stream, group, msg_id)
+                            dlq_stream = os.getenv("TRADE_CLOSE_DLQ_STREAM", "dlq:events")
+                            await r.xadd(
+                                dlq_stream,
+                                {
+                                    b"source_stream": stream.encode() if isinstance(stream, str) else stream,
+                                    b"msg_id": str(msg_id).encode() if isinstance(msg_id, str) else msg_id,
+                                    b"error": str(e)[:200].encode(),
+                                },
+                                maxlen=2000,
+                                approximate=True,
+                            )
                         except Exception:
                             pass
+                        with contextlib.suppress(Exception):
+                            await r.xack(stream, group, msg_id)
 
         except asyncio.CancelledError:
             raise

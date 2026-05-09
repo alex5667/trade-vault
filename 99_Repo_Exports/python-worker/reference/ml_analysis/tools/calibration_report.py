@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Calibration report for raw vs calibrated confidences.
 
 Computes:
@@ -16,12 +17,12 @@ Requires joined JSONL with:
 
 import argparse
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
 
-def _get(ind: Dict[str, Any], keys: List[str]) -> float | None:
+def _get(ind: dict[str, Any], keys: list[str]) -> float | None:
     for k in keys:
         v = ind.get(k)
         if v is None:
@@ -35,10 +36,10 @@ def _get(ind: Dict[str, Any], keys: List[str]) -> float | None:
     return None
 
 
-def load(path: str) -> Dict[str, np.ndarray]:
+def load(path: str) -> dict[str, np.ndarray]:
     y, r = [], []
     p_v1, p_v2, c_v1, c_v2 = [], [], [], []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
@@ -108,7 +109,7 @@ def expectancy_topk(r: np.ndarray, p: np.ndarray, frac: float = 0.05) -> float:
     return float(rr.mean())
 
 
-def report(y: np.ndarray, r: np.ndarray, p: np.ndarray) -> Dict[str, float]:
+def report(y: np.ndarray, r: np.ndarray, p: np.ndarray) -> dict[str, float]:
     return {
         "ece": ece(y, p),
         "brier": brier(y, p),

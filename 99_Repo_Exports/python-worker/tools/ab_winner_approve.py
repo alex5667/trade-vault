@@ -1,16 +1,24 @@
-from utils.time_utils import get_ny_time_millis
 import argparse
 import asyncio
 import json
 import os
-import time
-from typing import Any, Dict
+from typing import Any
 
 import redis.asyncio as aioredis
 
 from services.ab_winner_approval import (
-    sugg_key, active_arm_key, lock_key, decide_approve, norm_sym, norm_rg, norm_grp, norm_arm
+    active_arm_key,
+    decide_approve,
+    lock_key,
+    norm_arm,
+    norm_grp,
+    norm_rg,
+    norm_sym,
+    sugg_key,
 )
+from utils.time_utils import get_ny_time_millis
+import contextlib
+
 
 def _now_ms() -> int:
     return get_ny_time_millis()
@@ -38,7 +46,7 @@ async def main() -> int:
         return 2
 
     try:
-        d: Dict[str, Any] = json.loads(raw)
+        d: dict[str, Any] = json.loads(raw)
     except Exception:
         print("BAD_JSON")
         return 3
@@ -117,7 +125,5 @@ async def main() -> int:
     return 0
 
 if __name__ == "__main__":
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(main())
-    except KeyboardInterrupt:
-        pass

@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """core.slippage_model
 
 Expected slippage (bps) model for adverse-selection filtering.
@@ -21,7 +22,7 @@ Design constraints:
 
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -45,7 +46,7 @@ class SlippageEstimate:
     reason: str
 
 
-def expected_slippage_bps(*, spread_bps: float, churn_score: float, book_rate_z: float, pressure_sps: float, atr_bps: float, cfg: Dict[str, Any]) -> SlippageEstimate:
+def expected_slippage_bps(*, spread_bps: float, churn_score: float, book_rate_z: float, pressure_sps: float, atr_bps: float, cfg: dict[str, Any]) -> SlippageEstimate:
     """Compute expected slippage in basis points.
 
     Inputs:

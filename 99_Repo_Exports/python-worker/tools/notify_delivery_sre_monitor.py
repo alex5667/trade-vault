@@ -1,16 +1,18 @@
+import json
 import os
+import subprocess
 import sys
 import time
-import json
+
 import redis
-import subprocess
+from core.redis_keys import RedisStreams as RS
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 NOTIFY_TELEGRAM_MIRROR_BASE = os.getenv("NOTIFY_TELEGRAM_MIRROR_BASE", "0")
 NOTIFY_DELIVERY_ALERT_COOLDOWN_SEC = int(os.getenv("NOTIFY_DELIVERY_ALERT_COOLDOWN_SEC", "300"))
 
-ALERT_STREAM = "notify:telegram:crit"
+ALERT_STREAM = RS.NOTIFY_TELEGRAM_CRIT
 
 def get_redis_client():
     return redis.Redis.from_url(REDIS_URL, decode_responses=True)
@@ -27,7 +29,7 @@ def send_alert(r, message):
         "severity": "critical",
         "timestamp": time.time()
     }
-    
+
     # Send to critical stream
     r.xadd(ALERT_STREAM, {"payload": json.dumps(payload)}, maxlen=50000)
     print(f"Sent alert to {ALERT_STREAM}: {message}")
@@ -46,7 +48,7 @@ def main():
 
     try:
         data = json.loads(result.stdout)
-    except:
+    except Exception:
         data = {}
 
     if result.returncode != 0:
@@ -54,20 +56,20 @@ def main():
         issues = data.get("issues", [])
         if not issues and data.get("error"):
             issues = [data.get("error")]
-        
+
         if not issues:
             if result.stderr:
                  issues = [f"Check tool process failed (code {result.returncode})", f"Diagnostic output: {result.stderr.strip()}"]
             else:
                  issues = ["Unknown error (check tool failed)"]
-            
+
         issue_str = "\n".join(issues)
         print(f"DETECTED FAILURE (exit {result.returncode}): {issue_str}")
-        
+
         if "loading the dataset" in issue_str or "BusyLoadingError" in issue_str or "ConnectionError" in issue_str:
             print("Redis is loading or unavailable, skipping alert.")
             sys.exit(0)
-            
+
         try:
             r = get_redis_client()
             send_alert(r, issue_str)

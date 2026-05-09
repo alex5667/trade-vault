@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from domain.evidence_keys import MetaKeys
 
 # Stream contract for SRE metrics: metrics:of_gate
 OF_GATE_SCHEMA_NAME = "of_gate_metrics"
@@ -18,7 +20,7 @@ REQUIRED_FIELDS_V1 = (
 )
 
 
-def _as_int01(v: Any) -> Optional[int]:
+def _as_int01(v: Any) -> int | None:
     try:
         x = int(v)
     except Exception:
@@ -34,7 +36,7 @@ def _safe_str(v: Any) -> str:
     return s
 
 
-def derive_reason_code(row: Dict[str, Any]) -> str:
+def derive_reason_code(row: dict[str, Any]) -> str:
     """
     Low-cardinality reason code (enum-like) for aggregation.
     Never put long free-form text here.
@@ -44,7 +46,7 @@ def derive_reason_code(row: Dict[str, Any]) -> str:
     ok_soft = _as_int01(row.get("ok_soft", 0)) or 0
 
     try:
-        meta_veto = int(row.get("meta_veto", 0) or 0)
+        meta_veto = int(row.get(MetaKeys.VETO, 0) or 0)
     except Exception:
         meta_veto = 0
 
@@ -82,7 +84,7 @@ def why_label(x: Any) -> str:
 
     Matches tick_flow_full/common/of_gate_metrics_contract.py#why_label.
     """
-    s = str(x or "na").strip().lower()
+    s = (x or "na").strip().lower()
     if not s:
         return "na"
     s = re.sub(r"[^a-z0-9_]+", "_", s)
@@ -93,12 +95,12 @@ def why_label(x: Any) -> str:
 
 
 def enrich_schema_fields(
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     *,
-    schema_name: Optional[str] = None,
-    schema_version: Optional[int] = None,
-    reason_code: Optional[str] = None,
-) -> Dict[str, Any]:
+    schema_name: str | None = None,
+    schema_version: int | None = None,
+    reason_code: str | None = None,
+) -> dict[str, Any]:
     """
     Low-cardinality schema markers for emitted metrics rows.
 
@@ -125,7 +127,7 @@ def enrich_schema_fields(
     return payload
 
 
-def validate_of_gate_row(row: Dict[str, Any]) -> Tuple[bool, str]:
+def validate_of_gate_row(row: dict[str, Any]) -> tuple[bool, str]:
     """
     Validate minimal contract for metrics:of_gate.
     Designed for both producers (payload dict) and consumers (rows from Redis Stream).

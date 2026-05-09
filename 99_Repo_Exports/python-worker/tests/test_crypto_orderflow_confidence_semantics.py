@@ -1,7 +1,5 @@
 from types import SimpleNamespace
 
-import pytest
-
 from handlers.crypto_orderflow.scoring.confidence_scorer import _crypto_conf_factor
 
 

@@ -1,8 +1,8 @@
 
-import json
 import sys
-from datetime import datetime
 from collections import Counter
+from datetime import datetime
+
 
 def parse_redis_xrange_output(lines):
     events = []
@@ -17,7 +17,7 @@ def parse_redis_xrange_output(lines):
             current_event = {'_id': line}
             i += 1
             continue
-        
+
         # Key-Value pairs
         key = line
         if i + 1 < len(lines):
@@ -26,7 +26,7 @@ def parse_redis_xrange_output(lines):
             i += 2
         else:
             i += 1
-            
+
     if current_event:
         events.append(current_event)
     return events
@@ -38,7 +38,7 @@ def analyze(events):
 
     # Sampling rate from docker-compose
     sampling_rate = 0.05
-    
+
     parsed = []
     for e in events:
         try:
@@ -46,9 +46,9 @@ def analyze(events):
             symbol = e.get('symbol', 'unknown')
             if ts_ms > 0:
                 parsed.append({'ts_ms': ts_ms, 'symbol': symbol})
-        except:
+        except Exception:
             continue
-            
+
     if not parsed:
         print("No valid timestamps found")
         return
@@ -57,19 +57,19 @@ def analyze(events):
     max_ts = max(e['ts_ms'] for e in parsed)
     timespan_ms = max_ts - min_ts
     timespan_hours = timespan_ms / (1000 * 3600)
-    
+
     # We want N in 2h.
     # Estimated N in 2h = (Count / timespan_hours) * 2 / sampling_rate
-    
+
     counts = Counter(e['symbol'] for e in parsed)
-    
+
     print(f"Analyzed {len(parsed)} events spanning {timespan_hours:.4f} hours")
     print(f"Sampling rate: {sampling_rate*100}%")
     print(f"Time range: {datetime.fromtimestamp(min_ts/1000)} to {datetime.fromtimestamp(max_ts/1000)}")
     print("\n" + "="*60)
     print(f"{'Symbol':<15} | {'Hits':<8} | {'Est N (2h)':<12} | {'SPS (raw)':<8}")
     print("-" * 60)
-    
+
     for symbol, hit_count in counts.most_common(30):
         if timespan_hours > 0:
             est_n_2h = (hit_count / timespan_hours) * 2 / sampling_rate

@@ -7,6 +7,7 @@ import time
 import psycopg2
 import psycopg2.extras
 import redis
+
 try:
     from core.redis_client import get_atr_redis
 except Exception:
@@ -163,7 +164,7 @@ def run_once() -> int:
 
                 key = f"cfg:suggestions:atr_policy:{row['source']}:{row['symbol']}:{row['scenario']}:{row['regime']}:{row['risk_horizon_bucket']}"
                 r.set(key, json.dumps(payload, ensure_ascii=False, sort_keys=True))
-                
+
                 try:
                     from services.atr_policy_workflow import submit_proposal
                     proposal_id = submit_proposal(payload)
@@ -179,7 +180,7 @@ def run_once() -> int:
                     atr_promotion_policy_suggest_total.labels(reason_code=reason).inc()
                 except Exception:
                     pass
-                
+
                 written += 1
     finally:
         conn.close()

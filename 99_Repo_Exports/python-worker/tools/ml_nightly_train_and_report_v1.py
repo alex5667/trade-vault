@@ -1,23 +1,24 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
+import hashlib
+import hmac
+import html
 import json
 import os
-import sys
-import time
-import hmac
-import hashlib
 import secrets
 import subprocess
+import sys
+import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
-import html
+from typing import Any
 
 import redis
 
-from services.ml_calibration import fit_platt_logit, brier_score, ece_score, logloss
-
+from services.ml_calibration import brier_score, ece_score, fit_platt_logit, logloss
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 # -----------------------------
 # Utils
@@ -57,8 +58,8 @@ def _mkdirp(p: str) -> None:
     os.makedirs(p, exist_ok=True)
 
 
-def _read_json(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def _read_json(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         return json.loads(f.read())
 
 
@@ -71,15 +72,15 @@ def _write_text(path: str, s: str) -> None:
 # Telegram notify (via Redis stream)
 # -----------------------------
 
-def notify_telegram(r: redis.Redis, text: str, buttons: Optional[List[List[Dict[str, str]]]] = None) -> None:
-    fields: Dict[str, str] = {
+def notify_telegram(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
+    fields: dict[str, str] = {
         "type": "report",
         "text": text,
         "ts": str(now_ms()),
     }
     if buttons is not None:
         fields["buttons"] = _safe_json_dumps(buttons)
-    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     r.xadd(stream, fields, maxlen=200000, approximate=True)
 
 
@@ -91,14 +92,14 @@ def notify_telegram(r: redis.Redis, text: str, buttons: Optional[List[List[Dict[
 class RecsBundle:
     bundle_id: str
     sig: str
-    bundle: Dict[str, Any]
+    bundle: dict[str, Any]
 
 
 def recs_sign(bundle_id: str, secret: str) -> str:
     return hmac.new(secret.encode(), bundle_id.encode(), hashlib.sha256).hexdigest()[:8]
 
 
-def make_hset_bundle(*, cfg_key: str, changes: Dict[str, str], who: str, ttl_sec: int) -> RecsBundle:
+def make_hset_bundle(*, cfg_key: str, changes: dict[str, str], who: str, ttl_sec: int) -> RecsBundle:
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_id = secrets.token_hex(6)
     sig = recs_sign(bundle_id, secret)
@@ -132,14 +133,14 @@ def export_of_inputs_ndjson(
     since_ms: int,
     max_scan: int,
     payload_field: str = "payload",
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """
     Reads signals:of:inputs backwards, writes NDJSON in chronological order.
     Each line is JSON of the payload (expanded), with fallback ts_ms from stream-id.
     Returns (written, scanned).
     """
     scanned = 0
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
 
     while scanned < max_scan:
@@ -185,7 +186,7 @@ def export_of_inputs_ndjson(
 
             if "sid" not in obj:
                 # Heuristic to reconstruct sid from symbol+time (matches older strategy logic)
-                sym = str(obj.get("symbol") or "")
+                sym = (obj.get("symbol") or "")
                 ts_val = obj.get("ts_ms") or obj.get("ts")
                 if sym and ts_val:
                     obj["sid"] = f"crypto-of:{sym}:{ts_val}"
@@ -201,8 +202,8 @@ def export_of_inputs_ndjson(
     return (len(rows), scanned)
 
 
-def _is_closed_event(obj: Dict[str, Any]) -> bool:
-    et = str(obj.get("event_type", obj.get("type", "")) or "").upper()
+def _is_closed_event(obj: dict[str, Any]) -> bool:
+    et = (obj.get("event_type", obj.get("type", "")) or "").upper()
     return et in ("POSITION_CLOSED", "CLOSE")
 
 
@@ -214,14 +215,14 @@ def export_trades_closed_ndjson(
     since_ms: int,
     max_scan: int,
     payload_field: str = "payload",
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """
     Reads events:trades backwards, filters POSITION_CLOSED/CLOSE, writes NDJSON chronological.
     Handles both root fields and payload JSON string.
     Returns (written, scanned).
     """
     scanned = 0
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
 
     while scanned < max_scan:
@@ -239,7 +240,7 @@ def export_trades_closed_ndjson(
             if not isinstance(fields, dict):
                 continue
 
-            obj: Dict[str, Any] = dict(fields)
+            obj: dict[str, Any] = dict(fields)
 
             # expand payload if present
             raw = fields.get(payload_field)
@@ -271,7 +272,7 @@ def export_trades_closed_ndjson(
                 break
 
             # must have sid to join
-            if not str(obj.get("sid", "") or ""):
+            if not (obj.get("sid", "") or ""):
                 continue
 
             rows.append(obj)
@@ -296,19 +297,18 @@ class CmdResult:
     err: str
 
 
-def run_cmd(cmd: List[str], env: Optional[Dict[str, str]] = None, cwd: Optional[str] = None) -> CmdResult:
+def run_cmd(cmd: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> CmdResult:
     p = subprocess.run(
         cmd,
         env=env,
         cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
     )
     return CmdResult(code=p.returncode, out=p.stdout[-8000:], err=p.stderr[-8000:])
 
 
-def choose_best_model(lr_meta: Dict[str, Any], gbdt_meta: Dict[str, Any]) -> str:
+def choose_best_model(lr_meta: dict[str, Any], gbdt_meta: dict[str, Any]) -> str:
     # Primary: lower Brier; tie-breaker: higher PR-AUC; then lower ECE
     lr = lr_meta.get("mean", {}) or {}
     gb = gbdt_meta.get("mean", {}) or {}
@@ -332,7 +332,7 @@ def choose_best_model(lr_meta: Dict[str, Any], gbdt_meta: Dict[str, Any]) -> str
     return "gbdt" if gb_ece < lr_ece else "lr"
 
 
-def format_model_summary(name: str, meta: Dict[str, Any]) -> str:
+def format_model_summary(name: str, meta: dict[str, Any]) -> str:
     mean = meta.get("mean", {}) or {}
     return (
         f"{name}: "
@@ -347,8 +347,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--workdir", default=os.getenv("ML_RUN_DIR", "/var/lib/trade/ml_runs"))
     ap.add_argument("--since-hours", type=float, default=float(os.getenv("ML_SINCE_HOURS", "168") or 168))
-    ap.add_argument("--inputs-stream", default=os.getenv("OF_INPUTS_STREAM", "signals:crypto:raw"))
-    ap.add_argument("--events-stream", default=os.getenv("TRADE_EVENTS_STREAM", "events:trades"))
+    ap.add_argument("--inputs-stream", default=os.getenv("OF_INPUTS_STREAM", RS.CRYPTO_RAW))
+    ap.add_argument("--events-stream", default=os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES))
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--max-scan", type=int, default=int(os.getenv("ML_EXPORT_MAX_SCAN", "600000") or 600000))
     ap.add_argument("--r-min", type=float, default=float(os.getenv("ML_LABEL_R_MIN", "0.5") or 0.5))
@@ -395,8 +395,8 @@ def main() -> None:
 
     # Also drop copies to /tmp for compatibility/debug
     try:
-        _write_text("/tmp/of_inputs.ndjson", open(inputs_ndjson, "r", encoding="utf-8").read())
-        _write_text("/tmp/closed_7d.ndjson", open(closed_ndjson, "r", encoding="utf-8").read())
+        _write_text("/tmp/of_inputs.ndjson", open(inputs_ndjson, encoding="utf-8").read())
+        _write_text("/tmp/closed_7d.ndjson", open(closed_ndjson, encoding="utf-8").read())
     except Exception:
         pass
 
@@ -413,7 +413,7 @@ def main() -> None:
 
     ds_summary_path = dataset_parquet + ".json"
     ds_summary = _read_json(ds_summary_path) if os.path.exists(ds_summary_path) else {}
-    
+
     joined_rows = int(ds_summary.get("joined_rows", 0))
     if joined_rows < 50:
         msg = f"<b>ML Nightly: SKIPPED (Not enough data)</b>\\njoined_rows={joined_rows} &lt; 50\\nCheck DN-GATE thresholds or market activity."
@@ -456,9 +456,10 @@ def main() -> None:
         import joblib
         import numpy as np
         import pandas as pd
+        from sklearn.model_selection import TimeSeriesSplit
+
         from core.ml_feature_schema_v2 import MLFeatureSchemaV2
         from ml_core.purged_cv import purged_kfold_time_series
-        from sklearn.model_selection import TimeSeriesSplit
 
         df = pd.read_parquet(dataset_parquet).sort_values("ts_ms")
         schema = MLFeatureSchemaV2()
@@ -493,12 +494,12 @@ def main() -> None:
         if len(val_idx) > 0:
             # Load best model and get predictions
             model = joblib.load(best_model)
-            
+
             # Get predictions from model (these are already calibrated by CalibratedClassifierCV)
             # We treat them as "raw" for our additional calibration layer
             # In practice, this adds a second calibration layer on top of sklearn's Platt scaling
             p_model = model.predict_proba(X[val_idx])[:, 1]
-            
+
             y_val = y[val_idx].tolist()
             p_raw_list = [float(p) for p in p_model]
 
@@ -550,7 +551,7 @@ def main() -> None:
     text.append(f"export inputs: written={w_in} scanned={s_in}")
     text.append(f"export closed: written={w_cl} scanned={s_cl}")
     if ds_summary:
-        try:
+        with contextlib.suppress(Exception):
             text.append(
                 "dataset: joined=<code>{}</code> pos_rate=<code>{:.4f}</code> missing_closed=<code>{}</code>".format(
                     ds_summary.get("joined_rows"),
@@ -558,8 +559,6 @@ def main() -> None:
                     ds_summary.get("missing_closed"),
                 )
             )
-        except Exception:
-            pass
     text.append("")
     text.append("<b>CV mean metrics</b>")
     text.append(f"<code>{format_model_summary('LR', lr_meta)}</code>")

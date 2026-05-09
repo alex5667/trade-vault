@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 # tick_flow_full/core/book_resilience.py
 # -*- coding: utf-8 -*-
-from __future__ import annotations
 """
 Liquidity resilience / replenishment tracker.
 
@@ -15,7 +16,6 @@ Usage:
 
 
 from dataclasses import dataclass
-from typing import Dict
 
 
 @dataclass
@@ -103,12 +103,10 @@ class BookResilienceTracker:
             self._snap.res_speed_per_s = float((curr_ratio - min_ratio) / max(elapsed_ms / 1000.0, 1e-6))
 
         # deactivate after window OR after recovered + small grace
-        if elapsed_ms >= self.max_window_ms:
-            self._snap.res_active = 0
-        elif self._snap.res_recovered == 1 and elapsed_ms >= max(250, min(self.max_window_ms, self._snap.res_recovery_ms + 250)):
+        if elapsed_ms >= self.max_window_ms or self._snap.res_recovered == 1 and elapsed_ms >= max(250, min(self.max_window_ms, self._snap.res_recovery_ms + 250)):
             self._snap.res_active = 0
 
-    def snapshot(self) -> Dict[str, float]:
+    def snapshot(self) -> dict[str, float]:
         s = self._snap
         return {
             "res_active": int(s.res_active),

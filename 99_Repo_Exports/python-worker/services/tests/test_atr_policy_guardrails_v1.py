@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Unit tests for Phase 3.6 ATR Policy Guard Rails.
 
@@ -12,8 +13,6 @@ Tests:
 import json
 import time
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -262,7 +261,7 @@ class TestConfirmTokens:
     @patch("services.atr_policy_confirm_tokens._redis")
     def test_issue_and_consume_once(self, mk_redis):
         mk_redis.return_value = self._make_redis_store()
-        from services.atr_policy_confirm_tokens import issue_confirm_token, consume_confirm_token
+        from services.atr_policy_confirm_tokens import consume_confirm_token, issue_confirm_token
 
         token = issue_confirm_token(actor="alice", action="APPROVE", target="pid123", payload={"x": 1})
         assert len(token) == 16
@@ -291,7 +290,7 @@ class TestConfirmTokens:
     def test_actor_mismatch_detected_by_caller(self, mk_redis):
         """The callback worker checks actor; confirm_tokens itself just returns payload."""
         mk_redis.return_value = self._make_redis_store()
-        from services.atr_policy_confirm_tokens import issue_confirm_token, consume_confirm_token
+        from services.atr_policy_confirm_tokens import consume_confirm_token, issue_confirm_token
 
         token = issue_confirm_token(actor="alice", action="REVOKE", target="pid456", payload={})
         tok = consume_confirm_token(token)

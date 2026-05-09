@@ -1,11 +1,16 @@
-import logging
 import json
+import logging
 import time
-from typing import Dict, Any, Tuple
 from datetime import datetime
+from typing import Any
 
 from services.analytics_db import get_conn
-from services.atr_rollout_cert_telegram import send_cert_start_message, send_cert_outcome_message, send_stop_condition_message, send_closeout_pack_ready
+from services.atr_rollout_cert_telegram import (
+    send_cert_outcome_message,
+    send_cert_start_message,
+    send_closeout_pack_ready,
+    send_stop_condition_message,
+)
 
 logger = logging.getLogger("atr_rollout_cert_service")
 
@@ -50,7 +55,7 @@ def create_certification(
     policy_ver: int,
     monitoring_window_from: datetime,
     monitoring_window_to: datetime,
-    thresholds: Dict[str, Any] = None
+    thresholds: dict[str, Any] = None
 ) -> bool:
     """Initialize a new certification tracker."""
     if thresholds is None:
@@ -73,20 +78,20 @@ def create_certification(
                 monitoring_window_from, monitoring_window_to,
                 json.dumps(thresholds), "{}", "{}"
             ))
-            
+
             cur.execute("""
                 INSERT INTO atr_rollout_cert_events (cert_id, change_id, rollout_stage, action, reason_code, event_json)
                 VALUES (%s, %s, %s, 'start', 'CERT_INIT', %s)
             """, (cert_id, change_id, rollout_stage, json.dumps({"thresholds": thresholds})))
             conn.commit()
-            
+
             send_cert_start_message(change_id, rollout_stage, thresholds)
             return True
     except Exception as e:
         logger.error(f"Failed to create certification for {change_id}: {e}")
         return False
 
-def get_post_trade_truth(policy_ver: int, t_from: datetime, t_to: datetime) -> Dict[str, float]:
+def get_post_trade_truth(policy_ver: int, t_from: datetime, t_to: datetime) -> dict[str, float]:
     """Query closed_trades for the real outcomes."""
     sql = """
         SELECT 
@@ -115,18 +120,18 @@ def get_post_trade_truth(policy_ver: int, t_from: datetime, t_to: datetime) -> D
         logger.error(f"Failed fetching stats for policy_ver {policy_ver}: {e}")
         return {'n_trades': 0, 'avg_pnl_bps': 0.0, 'avg_slippage_bps': 0.0, 'tp1_rate': 0.0, 'stop_rate': 0.0, 'max_mae_pct': 0.0}
 
-def evaluate_metrics(stats: Dict[str, float], thresholds: Dict[str, Any]) -> Tuple[str, str, Dict[str, bool]]:
+def evaluate_metrics(stats: dict[str, float], thresholds: dict[str, Any]) -> tuple[str, str, dict[str, bool]]:
     """Determine checks and state."""
     checks = {}
     n_t = stats.get('n_trades', 0)
-    
+
     checks["min_n_trades"] = n_t >= thresholds.get("min_n_trades", 10)
     checks["avg_pnl_bps"] = stats.get("avg_pnl_bps", -99) >= thresholds.get("min_avg_pnl_bps", -99)
     checks["avg_slippage_bps"] = stats.get("avg_slippage_bps", 99) <= thresholds.get("max_avg_slippage_bps", 99)
     checks["stop_rate"] = stats.get("stop_rate", 1.0) <= thresholds.get("max_stop_rate", 1.0)
     checks["tp1_rate"] = stats.get("tp1_rate", 0.0) >= thresholds.get("min_tp1_rate", 0.0)
     checks["max_mae_pct"] = stats.get("max_mae_pct", 1.0) <= thresholds.get("max_avg_mae_pct", 1.0)
-    
+
     # HARD STOP CONDITIONS
     if not checks["avg_pnl_bps"] and n_t > (thresholds.get("min_n_trades", 10)/2):
         if stats.get("avg_pnl_bps", 0) < thresholds.get("min_avg_pnl_bps", 0) - 5.0: # e.g. severe drop
@@ -135,12 +140,12 @@ def evaluate_metrics(stats: Dict[str, float], thresholds: Dict[str, Any]) -> Tup
         return "failed", "ROLL_CERT_SLIPPAGE_SPIKE", checks
     if not checks["stop_rate"] and stats.get("stop_rate", 0) > thresholds.get("max_stop_rate", 0) + 0.15:
         return "failed", "ROLL_CERT_STOP_RATE_BREACH", checks
-    
+
     if not checks["min_n_trades"]:
         return "pending", "WAIT_TRADES", checks
-        
+
     all_pass = all(checks.values())
-    
+
     if all_pass:
         return "passed", "ROLL_CERT_PASS", checks
     return "pending", "WAIT_METRICS_IMPROVE", checks
@@ -153,31 +158,31 @@ def certify_stage(cert_id: str, change_id: str, rollout_stage: str, advisory_onl
             cert = cur.fetchone()
             if not cert:
                 return {"error": "not found"}
-                
+
             if cert['status'] in ('passed', 'failed', 'rolled_back'):
                 return {"status": cert['status']}
-                
+
             stats = get_post_trade_truth(cert['policy_ver'], cert['monitoring_window_from'], cert['monitoring_window_to'])
-            
+
             thresholds = cert['thresholds_json']
             new_status, reason, checks = evaluate_metrics(stats, thresholds)
-            
+
             if new_status != cert['status']:
                 cur.execute("""
                     UPDATE atr_rollout_certifications 
                     SET status = %s, checks_json = %s, summary_json = %s, finished_at = %s
                     WHERE cert_id = %s
                 """, (new_status, json.dumps(checks), json.dumps(stats), datetime.now(), cert_id))
-                
+
                 action = 'pass' if new_status == 'passed' else 'fail' if new_status == 'failed' else 'hold'
-                
+
                 cur.execute("""
                     INSERT INTO atr_rollout_cert_events (cert_id, change_id, rollout_stage, action, reason_code, event_json)
                     VALUES (%s, %s, %s, %s, %s, %s)
                 """, (cert_id, change_id, rollout_stage, action, reason, json.dumps(stats)))
-                
+
                 conn.commit()
-                
+
                 payload = {
                     "cert_id": cert_id,
                     "change_id": change_id,
@@ -193,14 +198,14 @@ def certify_stage(cert_id: str, change_id: str, rollout_stage: str, advisory_onl
                     send_stop_condition_message(change_id, rollout_stage, reason, stats)
 
                 send_cert_outcome_message(payload)
-                
+
                 # IN ADVISORY MODE, do NOT actually trigger change control auto-move
                 if not advisory_only and new_status == 'failed':
                     # Need to integrate with atr_change_control to actually halt!
                     pass
-                
+
                 return payload
-            
+
             # just update summary internally
             cur.execute("""
                 UPDATE atr_rollout_certifications 
@@ -208,13 +213,13 @@ def certify_stage(cert_id: str, change_id: str, rollout_stage: str, advisory_onl
                 WHERE cert_id = %s
             """, (json.dumps(checks), json.dumps(stats), cert_id))
             conn.commit()
-            
+
             return {
                 "cert_id": cert_id,
                 "status": cert['status'],
                 "summary": stats
             }
-            
+
     except Exception as e:
         logger.error(f"Failed to certify step {cert_id}: {e}")
         return {"error": str(e)}
@@ -223,30 +228,30 @@ def closeout_change(change_id: str, final_status: str) -> bool:
     """Build the final closeout evidence pack."""
     sql_certs = "SELECT cert_id FROM atr_rollout_certifications WHERE change_id = %s"
     sql_trades = "SELECT COUNT(*) as c FROM trades_closed WHERE atr_policy_ver = (SELECT policy_ver FROM atr_change_requests WHERE change_id = %s)"
-    
+
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             cur.execute(sql_certs, (change_id,))
             certs = [r['cert_id'] for r in cur.fetchall()]
-            
+
             cur.execute(sql_trades, (change_id,))
             row = cur.fetchone()
             trades_c = row.get('c', 0) if row else 0
-            
+
             evidence = {
                 "change_id": change_id,
                 "rollout_certifications": certs,
                 "total_trades": trades_c,
                 "final_status": final_status
             }
-            
+
             cur.execute("""
                 INSERT INTO atr_rollout_closeout_packs (closeout_id, change_id, final_status, evidence_json)
                 VALUES (%s, %s, %s, %s)
             """, (f"closeout_{change_id}_{int(time.time())}", change_id, final_status, json.dumps(evidence)))
-            
+
             conn.commit()
-            
+
             send_closeout_pack_ready(change_id, final_status, trades_c)
             return True
     except Exception as e:

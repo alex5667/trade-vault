@@ -4,10 +4,11 @@ Backoff utilities for retry logic in the scanner infrastructure.
 Provides exponential backoff and retry mechanisms.
 """
 
-import time
 import random
-from typing import Callable, Any, Optional
+import time
+from collections.abc import Callable
 from functools import wraps
+from typing import Any
 
 
 class Backoff:
@@ -21,7 +22,7 @@ class Backoff:
         max_delay: float = 60.0,
         multiplier: float = 2.0,
         jitter: bool = True,
-        max_attempts: Optional[int] = None
+        max_attempts: int | None = None
     ):
         """
         Initialize backoff strategy.

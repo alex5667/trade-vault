@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 OrderflowOverridesV1
 Strict schema + validation + deterministic selection.
@@ -11,7 +12,7 @@ Goals:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def _s(x: Any, d: str = "") -> str:
@@ -25,24 +26,24 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 @dataclass
 class RolloutV1:
     mode: str = "full"  # "full" | "canary"
-    canary_symbols: List[str] = field(default_factory=list)
+    canary_symbols: list[str] = field(default_factory=list)
     canary_share: float = 1.0  # used only if mode="canary" and symbols empty (hash-share)
     promote_after_hours: int = 0
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         m = (self.mode or "full").lower()
         if m not in ("full", "canary"):
             return False, "rollout.mode"
@@ -63,25 +64,25 @@ class OrderflowOverridesV1:
     enabled: int = 1
     updated_ts_ms: int = 0
     # policy knobs (examples; extend as needed)
-    abs_lvl_tier_trend: Optional[int] = None
-    abs_lvl_tier_range: Optional[int] = None
-    abs_lvl_tier_thin: Optional[int] = None
+    abs_lvl_tier_trend: int | None = None
+    abs_lvl_tier_range: int | None = None
+    abs_lvl_tier_thin: int | None = None
 
-    strong_need_reversal: Optional[int] = None
-    strong_need_continuation: Optional[int] = None
+    strong_need_reversal: int | None = None
+    strong_need_continuation: int | None = None
 
-    burst_window_min_ms: Optional[int] = None
-    burst_window_max_ms: Optional[int] = None
+    burst_window_min_ms: int | None = None
+    burst_window_max_ms: int | None = None
 
     # ATR gate floors override (optional)
-    atr_floor_t0_bps: Optional[float] = None
-    atr_floor_t1_bps: Optional[float] = None
-    atr_floor_t2_bps: Optional[float] = None
+    atr_floor_t0_bps: float | None = None
+    atr_floor_t1_bps: float | None = None
+    atr_floor_t2_bps: float | None = None
 
     rollout: RolloutV1 = field(default_factory=RolloutV1)
 
     @staticmethod
-    def from_json(raw: str) -> Tuple[Optional["OrderflowOverridesV1"], str]:
+    def from_json(raw: str) -> tuple[OrderflowOverridesV1 | None, str]:
         import json
         try:
             d = json.loads(raw or "")
@@ -113,7 +114,7 @@ class OrderflowOverridesV1:
         except Exception:
             return None, "json_error"
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         if int(self.v or 0) != 1:
             return False, "v"
         self.enabled = 1 if int(self.enabled or 0) == 1 else 0
@@ -154,7 +155,7 @@ class OrderflowOverridesV1:
             return False, f"rollout:{reason}"
         return True, "ok"
 
-    def apply_to_cfg(self, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    def apply_to_cfg(self, cfg: dict[str, Any]) -> dict[str, Any]:
         """
         Apply overrides into runtime.config dict (copy-on-write).
         Only whitelisted keys are overridden.

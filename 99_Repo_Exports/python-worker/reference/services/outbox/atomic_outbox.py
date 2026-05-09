@@ -19,12 +19,11 @@ P3 additions:
 import os
 
 try:
-    from .time_contract import utc_epoch_ms, monotonic_ms
+    from .time_contract import monotonic_ms, utc_epoch_ms
 except Exception:
-    from time_contract import utc_epoch_ms, monotonic_ms
+    from time_contract import monotonic_ms, utc_epoch_ms
 import json
-from typing import Any, Dict, Optional
-
+from typing import Any
 
 _LUA_ATOMIC_XADD = r"""
 -- KEYS[1] = dedup_key (signal_id)
@@ -145,9 +144,9 @@ def _meta_key(signal_id: str) -> str:
 
 def _event_stream_key() -> str:
     """Return the orders:exec key for the P3 SoT event log, or '__none__' if disabled."""
-    if str(os.getenv("OUTBOX_EVENT_STREAM_ENABLE", "1")).strip().lower() not in {"1", "true", "yes", "on"}:
+    if os.getenv("OUTBOX_EVENT_STREAM_ENABLE", "1").strip().lower() not in {"1", "true", "yes", "on"}:
         return "__none__"
-    raw = str(os.getenv("OUTBOX_EVENT_STREAM_KEY", "orders:exec")).strip()
+    raw = os.getenv("OUTBOX_EVENT_STREAM_KEY", "orders:exec").strip()
     return raw or "__none__"
 
 
@@ -157,7 +156,7 @@ def _producer_instance_id() -> str:
     return str(os.getenv("PRODUCER_INSTANCE_ID") or f"{host}:{os.getpid()}")
 
 
-def _defaults() -> Dict[str, int]:
+def _defaults() -> dict[str, int]:
     """Align dedup/stream defaults with UnifiedSignalEmitter."""
     dedup_ttl_sec = max(1, int(int(os.getenv("EMIT_DEDUP_TTL_MS", "60000")) / 1000))
     pending_ttl_sec = max(1, int(int(os.getenv("EMIT_DEDUP_PENDING_TTL_MS", "60000")) / 1000))
@@ -175,9 +174,9 @@ def _prepare_contract_payload(
     signal_id: str,
     kind: str,
     symbol: str,
-    payload_obj: Dict[str, Any],
-    meta_obj: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
+    payload_obj: dict[str, Any],
+    meta_obj: dict[str, Any] | None,
+) -> dict[str, Any]:
     """Normalize payload into a concrete execution intent before XADD.
 
     Stamps missing contract fields (schema_ver, decision_id, execution_policy,
@@ -215,25 +214,25 @@ def _prepare_contract_payload(
     payload.setdefault(
         "exit_policy",
         meta.get("exit_policy") or payload.get("exit_policy") or {
-            "mode": str(os.getenv("EXIT_POLICY_MODE", "SAFETY_FIRST")).upper(),
+            "mode": os.getenv("EXIT_POLICY_MODE", "SAFETY_FIRST").upper(),
             "watchdog_timeout_ms": int(os.getenv("TP_LIMIT_WATCHDOG_TIMEOUT_MS", "4000")),
-            "market_fallback": str(os.getenv("TP_LIMIT_WATCHDOG_MARKET_FALLBACK", "1")).strip().lower() in {"1", "true", "yes", "on"},
+            "market_fallback": os.getenv("TP_LIMIT_WATCHDOG_MARKET_FALLBACK", "1").strip().lower() in {"1", "true", "yes", "on"},
         }
     )
     payload.setdefault("risk_snapshot", meta.get("risk_snapshot") or payload.get("risk_snapshot") or {})
     return payload
 
 
-def _build_exec_event(signal_id: str, stream_key: str, payload_obj: Dict[str, Any]) -> Dict[str, Any]:
+def _build_exec_event(signal_id: str, stream_key: str, payload_obj: dict[str, Any]) -> dict[str, Any]:
     """Build the INTENT_PUBLISHED fact for the orders:exec SoT event log."""
     return {
         "event_type": "INTENT_PUBLISHED",
         "sid": str(payload_obj.get("sid") or signal_id),
         "decision_id": str(payload_obj.get("decision_id") or signal_id),
-        "schema_ver": str(payload_obj.get("schema_ver") or "execution_intent:v1"),
-        "kind": str(payload_obj.get("kind") or ""),
-        "symbol": str(payload_obj.get("symbol") or ""),
-        "execution_policy": str(payload_obj.get("execution_policy") or "SAFETY_FIRST"),
+        "schema_ver": (payload_obj.get("schema_ver") or "execution_intent:v1"),
+        "kind": (payload_obj.get("kind") or ""),
+        "symbol": (payload_obj.get("symbol") or ""),
+        "execution_policy": (payload_obj.get("execution_policy") or "SAFETY_FIRST"),
         "stream_key": str(stream_key),
         "ts_event_ms": int(payload_obj.get("ts_event_ms") or utc_epoch_ms()),
         "ts_publish_ms": int(payload_obj.get("ts_publish_ms") or utc_epoch_ms()),
@@ -249,12 +248,12 @@ def atomic_xadd_sync(
     *,
     stream_key: str,
     signal_id: str,
-    payload_obj: Dict[str, Any],
+    payload_obj: dict[str, Any],
     kind: str = "",
     symbol="",
     ts: str = "",
-    meta_obj: Optional[Dict[str, Any]] = None,
-) -> Optional[str]:
+    meta_obj: dict[str, Any] | None = None,
+) -> str | None:
     """Sync atomic XADD with P3 execution-intent contract normalization.
 
     Returns entry_id on success, None on dedup hit.
@@ -309,12 +308,12 @@ async def atomic_xadd_async(
     *,
     stream_key: str,
     signal_id: str,
-    payload_obj: Dict[str, Any],
+    payload_obj: dict[str, Any],
     kind: str = "",
     symbol="",
     ts: str = "",
-    meta_obj: Optional[Dict[str, Any]] = None,
-) -> Optional[str]:
+    meta_obj: dict[str, Any] | None = None,
+) -> str | None:
     """Async version (redis.asyncio.Redis) with P3 execution-intent contract normalization.
 
     Returns entry_id on success, None on dedup hit.

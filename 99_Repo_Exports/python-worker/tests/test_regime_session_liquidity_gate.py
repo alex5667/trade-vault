@@ -1,8 +1,7 @@
-import time
 from types import SimpleNamespace
-import pytest
 
 from handlers.crypto_orderflow.utils.quality_gates import RegimeSessionLiquidityGate
+
 
 def _ctx(**kwargs):
     ctx = SimpleNamespace()
@@ -38,8 +37,8 @@ def test_rslg_regime_not_allowed(monkeypatch):
     monkeypatch.setenv("QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("QUALITY_ALLOW_REGIMES__BREAKOUT", "trending_bull,trending_bear")
     g = RegimeSessionLiquidityGate.from_env()
-    
-    # Missing regime => OK if allowlist is provided? 
+
+    # Missing regime => OK if allowlist is provided?
     # Actually wait: if allow_regimes is present and regime_s is empty, does it veto?
     # Code: `if allow_regimes and regime_s and regime_s not in allow_regimes:`
     # If regime is not present, it won't veto on missing! (unless strict metric maybe).
@@ -56,7 +55,7 @@ def test_rslg_session_not_allowed(monkeypatch):
     monkeypatch.setenv("QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("QUALITY_ALLOW_SESSIONS__BREAKOUT", "us_main,european")
     g = RegimeSessionLiquidityGate.from_env()
-    
+
     ctx = _ctx(session="asian")
     dec = g.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
     assert dec.veto is True
@@ -70,7 +69,7 @@ def test_rslg_spread_too_wide(monkeypatch):
     monkeypatch.setenv("QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("QUALITY_SPREAD_MAX_BPS_DEFAULT", "10.0")
     g = RegimeSessionLiquidityGate.from_env()
-    
+
     ctx = _ctx(of=_of(spread_bps=12.0))
     dec = g.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
     assert dec.veto is True
@@ -80,7 +79,7 @@ def test_rslg_depth_too_low(monkeypatch):
     monkeypatch.setenv("QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("QUALITY_DEPTH_MIN_DEFAULT", "50.0")
     g = RegimeSessionLiquidityGate.from_env()
-    
+
     ctx = _ctx(of=_of(depth_bid_5=40.0, depth_ask_5=100.0))
     dec = g.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
     assert dec.veto is True
@@ -90,7 +89,7 @@ def test_rslg_burst_flip_high(monkeypatch):
     monkeypatch.setenv("QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("QUALITY_BURST_FLIP_MAX_DEFAULT", "0.8")
     g = RegimeSessionLiquidityGate.from_env()
-    
+
     ctx = _ctx(of=_of(burst_flip_ratio=0.9))
     dec = g.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
     assert dec.veto is True
@@ -101,7 +100,7 @@ def test_rslg_daily_atr_bps_out_of_range(monkeypatch):
     monkeypatch.setenv("QUALITY_DAILY_ATR_BPS_MIN_DEFAULT", "50.0")
     monkeypatch.setenv("QUALITY_DAILY_ATR_BPS_MAX_DEFAULT", "200.0")
     g = RegimeSessionLiquidityGate.from_env()
-    
+
     # Below min
     ctx = _ctx(of=_of(daily_atr_bps=40.0))
     dec = g.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
@@ -135,9 +134,9 @@ def test_rslg_strict_missing_metrics(monkeypatch):
     monkeypatch.setenv("QUALITY_GATE_ENABLED", "1")
     monkeypatch.setenv("QUALITY_STRICT_MISSING_METRICS", "1")
     g = RegimeSessionLiquidityGate.from_env()
-    
+
     # Missing spread
-    ctx = _ctx() 
+    ctx = _ctx()
     dec = g.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", side="LONG")
     assert dec.veto is True
     assert dec.reason_code == "VETO_MISSING_SPREAD"
@@ -159,7 +158,7 @@ def test_rslg_hierarchy_overrides(monkeypatch):
     monkeypatch.setenv("QUALITY_SPREAD_MAX_BPS__BTCUSDT__BREAKOUT__TRENDING_BEAR", "20.0")
 
     g = RegimeSessionLiquidityGate.from_env()
-    
+
     # BTCUSDT, breakout, trending_bear -> picks 20.0
     ctx1 = _ctx(regime="trending_bear", of=_of(spread_bps=18.0))
     dec1 = g.evaluate(ctx=ctx1, symbol="BTCUSDT", kind="breakout", side="LONG")
@@ -168,8 +167,8 @@ def test_rslg_hierarchy_overrides(monkeypatch):
     ctx1_fail = _ctx(regime="trending_bear", of=_of(spread_bps=22.0))
     dec1_fail = g.evaluate(ctx=ctx1_fail, symbol="BTCUSDT", kind="breakout", side="LONG")
     assert dec1_fail.veto is True
-    
-    # ETHUSDT, breakout, trending_bear -> no sym match, goes to kind__regime which is not defined, 
+
+    # ETHUSDT, breakout, trending_bear -> no sym match, goes to kind__regime which is not defined,
     # so falls back to kind -> 12.0
     ctx2 = _ctx(regime="trending_bear", of=_of(spread_bps=13.0))
     dec2 = g.evaluate(ctx=ctx2, symbol="ETHUSDT", kind="breakout", side="LONG")

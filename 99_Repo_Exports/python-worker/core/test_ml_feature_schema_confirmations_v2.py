@@ -57,7 +57,6 @@ def test_schema_v1_does_not_include_confirmations():
 
 
 def test_schema_v2_appends_confirmations_and_maps_indicators():
-    from tick_flow_full.core import ml_feature_schema as m
 
     vec, names = _build_vec(2, indicators={
         "delta_z": 1.0,

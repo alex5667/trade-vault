@@ -1,14 +1,16 @@
-from utils.time_utils import get_ny_time_millis
-import os
-import time
 import json
 import logging
-import urllib.request
-import urllib.parse
-import urllib.error
-import redis
+import os
 import socket
-from prometheus_client import start_http_server, Counter, Histogram, Gauge
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+import redis
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
+from utils.time_utils import get_ny_time_millis
 
 # Configure logging
 logging.basicConfig(
@@ -85,11 +87,11 @@ def send_telegram_message(latched_chat_id, text):
         "text": text,
         "parse_mode": TELEGRAM_PARSE_MODE,
     }
-    
+
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        url, 
-        data=data, 
+        url,
+        data=data,
         headers={"Content-Type": "application/json"}
     )
 
@@ -110,24 +112,24 @@ def process_message(r, stream_key, message_id, message_data):
     try:
         payload_str = message_data.get("payload")
         payload = {}
-        
+
         if payload_str:
             try:
                 payload = json.loads(payload_str)
             except json.JSONDecodeError:
                 payload = {"message": str(payload_str)}
-        
+
         text = payload.get("message", "")
         if not text:
             # Fallback to direct fields in message_data or other payload fields
             text = (
-                message_data.get("message", "") or 
-                message_data.get("text", "") or 
+                message_data.get("message", "") or
+                message_data.get("text", "") or
                 message_data.get("caption", "") or
                 payload.get("text", "") or
                 payload.get("caption", "")
             )
-            
+
         if not text:
             keys = list(message_data.keys())
             p_keys = list(payload.keys())
@@ -147,14 +149,14 @@ def process_message(r, stream_key, message_id, message_data):
         # Determine target chat ID based on stream or payload override
         chat_id = TELEGRAM_CHAT_ID
         severity = "info"
-        
+
         if stream_key == "notify:telegram:crit":
             chat_id = NOTIFY_TELEGRAM_CHAT_ID_CRIT
             severity = "crit"
         elif stream_key == "notify:telegram:page":
             chat_id = NOTIFY_TELEGRAM_CHAT_ID_PAGE
             severity = "page"
-        
+
         # Override from payload if present (optional feature)
         if "chat_id" in payload:
             chat_id = payload["chat_id"]
@@ -163,7 +165,7 @@ def process_message(r, stream_key, message_id, message_data):
         sent = False
         last_error = ""
         start_ts = time.time()
-        
+
         for attempt in range(MAX_RETRIES):
             success, result, status_code = send_telegram_message(chat_id, text)
             if success:
@@ -184,25 +186,25 @@ def process_message(r, stream_key, message_id, message_data):
                             logger.warning(f"Telegram Rate Limit (429): retry_after={retry_after}s. Sleeping {wait_time}s...")
                     except Exception:
                         pass
-                
+
                 if status_code == 400:
                     logger.error(f"Telegram 400 Bad Request for {stream_key} ID {message_id}. Text: {text!r}")
 
                 logger.warning(f"Attempt {attempt+1}/{MAX_RETRIES} failed for {stream_key} ID {message_id}: {last_error[:200]}. Retrying in {wait_time}s...")
                 time.sleep(wait_time)
-        
+
         latency = (time.time() - start_ts) * 1000
-        
+
         # SLO Counters & Metrics
         bucket_1m = int(time.time() / 60)
         bucket_5m = int(time.time() / 300)
-        
+
         if sent:
             if NOTIFY_METRICS_ENABLE:
                 NOTIFY_SEND_TOTAL.labels(stream=stream_key, severity=severity, status="ok").inc()
                 NOTIFY_SEND_LATENCY.labels(stream=stream_key, severity=severity, status="ok").observe(latency)
                 NOTIFY_LAST_OK_TS.set_to_current_time()
-            
+
             # Redis Observable Stats (P6.8)
             r.set("notify:last_ok_ts_ms", get_ny_time_millis())
             r.set(f"notify:last_ok_ts_ms:{severity.upper()}", get_ny_time_millis())
@@ -211,7 +213,7 @@ def process_message(r, stream_key, message_id, message_data):
             key_1m = f"notify:win1m:{bucket_1m}"
             r.hincrby(key_1m, f"ok:{severity.upper()}", 1)
             r.expire(key_1m, 10800)
-            
+
             # Rolling counters (5m) - TTL 15m (optional, mostly 1m is used for accurate burn)
             key_5m = f"notify:win5m:{bucket_5m}"
             r.hincrby(key_5m, f"ok:{severity.upper()}", 1)
@@ -219,30 +221,30 @@ def process_message(r, stream_key, message_id, message_data):
 
         else:
             logger.error(f"Failed to send {stream_key} ID {message_id} after {MAX_RETRIES} attempts. Error: {last_error}")
-            
+
             if NOTIFY_METRICS_ENABLE:
                 NOTIFY_SEND_TOTAL.labels(stream=stream_key, severity=severity, status="err").inc()
                 NOTIFY_LAST_ERR_TS.set_to_current_time()
-            
+
             r.set("notify:last_err_ts_ms", get_ny_time_millis())
             r.set(f"notify:last_err_ts_ms:{severity.upper()}", get_ny_time_millis())
-            
+
             key_1m = f"notify:win1m:{bucket_1m}"
             r.hincrby(key_1m, f"err:{severity.upper()}", 1)
             r.expire(key_1m, 10800)
-            
+
             key_5m = f"notify:win5m:{bucket_5m}"
             r.hincrby(key_5m, f"err:{severity.upper()}", 1)
             r.expire(key_5m, 900)
 
-            # Strategy: we ACK even on failure to avoid blocking forever, 
+            # Strategy: we ACK even on failure to avoid blocking forever,
             # monitoring will catch the high burn rate.
             return True
 
         # Handle Receipt
         receipt_id = payload.get("receipt_id")
         require_receipt = payload.get("require_receipt")
-        
+
         if sent and receipt_id and str(require_receipt) == "1":
             receipt_key = f"{NOTIFY_RECEIPT_KEY_PREFIX}{receipt_id}"
             r.setex(receipt_key, NOTIFY_RECEIPT_TTL_SEC, "1")
@@ -257,7 +259,7 @@ def process_message(r, stream_key, message_id, message_data):
 
 def main():
     logger.info(f"Starting TelegramNotifierWorkerV2 consumer={CONSUMER_NAME}")
-    
+
     if NOTIFY_METRICS_ENABLE:
         logger.info(f"Starting Prometheus metrics on {NOTIFY_METRICS_ADDR}:{NOTIFY_METRICS_PORT}")
         start_http_server(NOTIFY_METRICS_PORT, addr=NOTIFY_METRICS_ADDR)
@@ -289,7 +291,7 @@ def main():
                         continue
                     else:
                         raise e
-                
+
                 if items:
                     processed_any = True
                     for _, messages in items:
@@ -298,10 +300,10 @@ def main():
                             try:
                                 msg_ts_ms = int(message_id.split("-")[0])
                                 lag_ms = get_ny_time_millis() - msg_ts_ms
-                                
+
                                 if NOTIFY_METRICS_ENABLE:
                                     NOTIFY_QUEUE_LAG.labels(stream=stream, severity="info").set(lag_ms) # Severity tag is approximation here
-                                
+
                                 r.set("notify:last_queue_lag_ms", lag_ms)
                             except Exception:
                                 pass

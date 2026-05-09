@@ -1,8 +1,12 @@
-import redis
 import json
 
+import redis
+
+from domain.evidence_keys import MLKeys
+from core.redis_keys import RedisStreams as RS
+
 r = redis.Redis.from_url("redis://redis-worker-1:6379/0", decode_responses=True)
-msgs = r.xrevrange("signals:crypto:raw", count=50)
+msgs = r.xrevrange(RS.CRYPTO_RAW, count=50)
 
 for msg_id, data in msgs:
     payload = data.get("payload")
@@ -11,7 +15,7 @@ for msg_id, data in msgs:
     p = json.loads(payload)
     if "ev" in p:
         ev = p["ev"]
-        ml = ev.get("ml_decision", {})
+        ml = ev.get(MLKeys.DECISION, {})
         mode = ml.get("mode")
         reason = ml.get("reason")
         status = ev.get("validation_status")

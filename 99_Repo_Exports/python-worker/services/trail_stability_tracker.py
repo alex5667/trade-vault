@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Trail Stability Tracker — monitors calibration parameter stability over multiple runs.
 
@@ -9,16 +10,14 @@ over the recorded history to determine if params are stable enough for enforce.
 Key pattern: trail:stability:{symbol}:{regime}  (Redis list of JSON snapshots)
 Fail-open: never raises.
 """
-from utils.time_utils import get_ny_time_millis
-
 import json
 import math
 import os
-import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("TrailStabilityTracker")
 
@@ -44,7 +43,7 @@ class StabilityConfig:
     ttl_sec: int
 
     @classmethod
-    def from_env(cls) -> "StabilityConfig":
+    def from_env(cls) -> StabilityConfig:
         return cls(
             enabled=_env_bool("TRAIL_STABILITY_ENABLED", True),
             min_runs=int(os.getenv("TRAIL_STABILITY_MIN_RUNS", "6") or 6),
@@ -69,11 +68,11 @@ class RunSnapshot:
     confidence: float
     n_total: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "RunSnapshot":
+    def from_dict(cls, d: dict[str, Any]) -> RunSnapshot:
         return cls(
             run_ts_ms=int(d.get("run_ts_ms", 0)),
             callback_atr_mult=float(d.get("callback_atr_mult", 0)),
@@ -100,7 +99,7 @@ class StabilityReport:
     latest_run_ts_ms: int
     days_observed: float          # calendar days between first and latest run
 
-    def to_redis_mapping(self) -> Dict[str, str]:
+    def to_redis_mapping(self) -> dict[str, str]:
         return {k: str(v) for k, v in asdict(self).items()}
 
 
@@ -108,7 +107,7 @@ class StabilityReport:
 # Pure computation
 # ---------------------------------------------------------------------------
 
-def _cv_pct(values: List[float]) -> float:
+def _cv_pct(values: list[float]) -> float:
     """Coefficient of variation in %, 0 if insufficient data."""
     if len(values) < 2:
         return 0.0
@@ -120,7 +119,7 @@ def _cv_pct(values: List[float]) -> float:
     return (std / abs(mean)) * 100.0
 
 
-def _linear_trend(values: List[float]) -> str:
+def _linear_trend(values: list[float]) -> str:
     """
     Simple linear regression trend: 'rising', 'falling', or 'flat'.
     values are ordered chronologically (oldest first).
@@ -154,7 +153,7 @@ def _linear_trend(values: List[float]) -> str:
 
 
 def compute_stability(
-    snapshots: List[RunSnapshot],
+    snapshots: list[RunSnapshot],
     min_runs: int,
     max_cv_pct: float,
     symbol: str,
@@ -215,14 +214,14 @@ class TrailStabilityTracker:
     Appends calibration snapshots to Redis lists, computes stability per bucket.
     """
 
-    def __init__(self, redis_client: Any, *, cfg: Optional[StabilityConfig] = None):
+    def __init__(self, redis_client: Any, *, cfg: StabilityConfig | None = None):
         self.redis = redis_client
         self.cfg = cfg or StabilityConfig.from_env()
 
     def record_and_assess(
         self,
-        calibrated_params: List[Any],
-    ) -> List[StabilityReport]:
+        calibrated_params: list[Any],
+    ) -> list[StabilityReport]:
         """
         Record a calibration run and assess stability.
 
@@ -236,7 +235,7 @@ class TrailStabilityTracker:
             logger.info("Stability tracker disabled (TRAIL_STABILITY_ENABLED=0)")
             return []
 
-        results: List[StabilityReport] = []
+        results: list[StabilityReport] = []
 
         for p in calibrated_params:
             symbol = getattr(p, "symbol", "")
@@ -286,7 +285,7 @@ class TrailStabilityTracker:
         except Exception as e:
             logger.error("Failed to append snapshot %s: %s", key, e)
 
-    def _read_history(self, symbol: str, regime: str) -> List[RunSnapshot]:
+    def _read_history(self, symbol: str, regime: str) -> list[RunSnapshot]:
         """Read all snapshots from Redis list."""
         if self.redis is None:
             return []
@@ -310,7 +309,7 @@ class TrailStabilityTracker:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def format_telegram_report(reports: List[StabilityReport]) -> str:
+    def format_telegram_report(reports: list[StabilityReport]) -> str:
         """Format stability assessment for Telegram."""
         if not reports:
             return ""

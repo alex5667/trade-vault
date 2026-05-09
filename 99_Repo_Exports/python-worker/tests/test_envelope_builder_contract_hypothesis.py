@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
 
-import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from services.outbox.envelope_builder import build_outbox_envelope
-
 
 FORBIDDEN_TOP_KEYS = {"trace", "events", "decision_trace", "payload_meta", "parts_full", "raw_trace"}
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Walk-Forward Threshold Calibrator — OOS-validated grid search.
 
@@ -23,9 +24,7 @@ Architecture:
 
 import argparse
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from itertools import product
-from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -63,7 +62,7 @@ class WFThresholdResult:
     n_stable_folds: int
     mean_oos_sharpe: float
     overfit_ratio: float
-    folds: List[FoldThresholdResult]
+    folds: list[FoldThresholdResult]
 
 
 def _objective(
@@ -71,7 +70,7 @@ def _objective(
     dz: float,
     obi: float,
     weight_profit: float = 0.7,
-) -> Tuple[float, float, float, int]:
+) -> tuple[float, float, float, int]:
     """
     Calculate composite score for given thresholds.
 
@@ -99,7 +98,7 @@ def _evaluate_oos(
     df: pd.DataFrame,
     dz: float,
     obi: float,
-) -> Tuple[float, float, float, float, int]:
+) -> tuple[float, float, float, float, int]:
     """
     Evaluate thresholds on OOS data.
 
@@ -135,8 +134,8 @@ def _evaluate_oos(
 
 def run_walk_forward(
     df: pd.DataFrame,
-    dz_grid: List[float],
-    obi_grid: List[float],
+    dz_grid: list[float],
+    obi_grid: list[float],
     min_train_days: int = 30,
     test_days: int = 7,
     step_days: int = 7,
@@ -204,7 +203,7 @@ def run_walk_forward(
         )
 
     # Generate expanding windows
-    folds: List[FoldThresholdResult] = []
+    folds: list[FoldThresholdResult] = []
     fold_idx = 0
     train_end_offset = pd.Timedelta(days=min_train_days)
 
@@ -365,7 +364,7 @@ def main():
     dzs = [float(x) for x in args.dz_grid.split(",")]
     obis = [float(x) for x in args.obi_grid.split(",")]
 
-    print(f"🔍 Walk-Forward parameters:")
+    print("🔍 Walk-Forward parameters:")
     print(f"   Delta Z grid:  {dzs}")
     print(f"   OBI grid:      {obis}")
     print(f"   Min train:     {args.min_train_days} days")
@@ -431,7 +430,7 @@ def main():
 
     # Write to env file
     with open(args.out_env, "w") as f:
-        f.write(f"# Walk-forward calibrated thresholds\n")
+        f.write("# Walk-forward calibrated thresholds\n")
         f.write(f"# Generated from {len(df)} records, {result.n_folds} folds\n")
         f.write(f"# Stability score: {result.stability_score:.4f}\n")
         f.write(f"# Mean OOS Sharpe: {result.mean_oos_sharpe:.4f}\n")

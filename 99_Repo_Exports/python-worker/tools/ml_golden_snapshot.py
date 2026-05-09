@@ -1,14 +1,16 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
 from collections import Counter, defaultdict
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -36,7 +38,7 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """
     Calculate percentile from sorted list.
     
@@ -55,7 +57,7 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 600000) -> List[Dict[str, Any]]:
+def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 600000) -> list[dict[str, Any]]:
     """
     Read messages from Redis stream within time window.
     
@@ -73,7 +75,7 @@ def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: i
         List of message dicts with _ts_ms field added, sorted by timestamp
     """
     end_ms = start_ms + window_ms
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -103,22 +105,22 @@ def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: i
     return rows
 
 
-def _key_group(d: Dict[str, Any]) -> str:
+def _key_group(d: dict[str, Any]) -> str:
     """
     Generate stable low-cardinality grouping key for topdiff analysis.
     
     Groups by symbol and bucket (if available) or scenario.
     Format: "SYMBOL|BUCKET" or "SYMBOL|SCENARIO"
     """
-    sym = str(d.get("symbol", "") or "").upper() or "NA"
-    sc = str(d.get("scenario_v4", d.get("scenario", "")) or "") or "na"
-    bucket = str(d.get("bucket", "") or "")
+    sym = (d.get("symbol", "") or "").upper() or "NA"
+    sc = (d.get("scenario_v4", d.get("scenario", "")) or "") or "na"
+    bucket = (d.get("bucket", "") or "")
     if bucket:
         return f"{sym}|{bucket}"
     return f"{sym}|{sc}"
 
 
-def compute_snapshot(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def compute_snapshot(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Compute aggregated snapshot statistics from stream rows.
     
@@ -134,13 +136,13 @@ def compute_snapshot(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         Snapshot dict with metrics and group summaries
     """
     n = len(rows)
-    pedge: List[float] = []
-    lat_ms: List[float] = []
+    pedge: list[float] = []
+    lat_ms: list[float] = []
     allow = 0
     abstain = 0
     miss = 0
     err = 0
-    conf: List[float] = []
+    conf: list[float] = []
     status = Counter()
     model_run = Counter()
     kind = Counter()
@@ -155,7 +157,7 @@ def compute_snapshot(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     for d in rows:
         pe = _f(d.get("p_edge", 0.0), 0.0)
         pedge.append(pe)
-        if str(d.get("latency_ms", "") or "").strip() != "":
+        if (d.get("latency_ms", "") or "").strip() != "":
             lm = _f(d.get("latency_ms", 0.0), 0.0)
         else:
             lm = _f(d.get("latency_us", 0.0), 0.0) / 1000.0
@@ -166,22 +168,22 @@ def compute_snapshot(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         allow += al
         abstain += ab
 
-        st = str(d.get("status", "") or "").upper()
+        st = (d.get("status", "") or "").upper()
         status[st or ""] += 1
 
         miss_flag = _i(d.get("missing", d.get("missing_n", 0)), 0) > 0 or st.startswith("MISSING")
         miss += 1 if miss_flag else 0
 
-        err_s = str(d.get("err", d.get("error", "")) or "").strip()
+        err_s = (d.get("err", d.get("error", "")) or "").strip()
         err += 1 if err_s != "" else 0
 
-        if str(d.get("conf", "") or "").strip() != "":
+        if (d.get("conf", "") or "").strip() != "":
             conf.append(_f(d.get("conf", 0.0), 0.0))
 
-        mr = str(d.get("model_run_id", "") or "")
+        mr = (d.get("model_run_id", "") or "")
         if mr:
             model_run[mr] += 1
-        kd = str(d.get("kind", "") or "")
+        kd = (d.get("kind", "") or "")
         if kd:
             kind[kd] += 1
 
@@ -222,7 +224,7 @@ def compute_snapshot(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     return snap
 
 
-def diff_snapshot(base: Dict[str, Any], cur: Dict[str, Any], *, topk: int = 20) -> Dict[str, Any]:
+def diff_snapshot(base: dict[str, Any], cur: dict[str, Any], *, topk: int = 20) -> dict[str, Any]:
     """
     Compute difference between baseline and candidate snapshots.
     
@@ -238,7 +240,7 @@ def diff_snapshot(base: Dict[str, Any], cur: Dict[str, Any], *, topk: int = 20) 
     Returns:
         Diff dict with core deltas and topdiff groups
     """
-    def g(base_path: List[str], dflt: float = 0.0) -> float:
+    def g(base_path: list[str], dflt: float = 0.0) -> float:
         """Get nested value from base dict by path."""
         x: Any = base
         for p in base_path:
@@ -247,7 +249,7 @@ def diff_snapshot(base: Dict[str, Any], cur: Dict[str, Any], *, topk: int = 20) 
             x = x[p]
         return float(x) if x is not None else dflt
 
-    def h(cur_path: List[str], dflt: float = 0.0) -> float:
+    def h(cur_path: list[str], dflt: float = 0.0) -> float:
         """Get nested value from cur dict by path."""
         x: Any = cur
         for p in cur_path:
@@ -321,7 +323,7 @@ def main() -> None:
     ap.add_argument("--write-baseline", type=int, default=int(os.getenv("ML_GOLDEN_WRITE_BASELINE", "0")))
     ap.add_argument("--fail-on-drift", type=int, default=int(os.getenv("ML_GOLDEN_FAIL_ON_DRIFT", "1")))
     ap.add_argument("--notify", type=int, default=int(os.getenv("ML_GOLDEN_NOTIFY", "1")))
-    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"))
+    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM))
 
     # drift thresholds (core)
     ap.add_argument("--min-n", type=int, default=int(os.getenv("ML_GOLDEN_MIN_N", "500")))
@@ -352,7 +354,7 @@ def main() -> None:
         print(json.dumps({"ok": True, "mode": "baseline_written", "baseline": args.baseline, "candidate": cur_path}, ensure_ascii=False, indent=2))
         return
 
-    with open(args.baseline, "r", encoding="utf-8") as f:
+    with open(args.baseline, encoding="utf-8") as f:
         base = json.load(f)
 
     diff = diff_snapshot(base, cur, topk=20)
@@ -393,10 +395,8 @@ def main() -> None:
         )
         import html
         safe_msg = html.escape(msg)
-        try:
+        with contextlib.suppress(Exception):
             r.xadd(args.notify_stream, {"type": "report", "subtype": "ml_golden", "ts_ms": str(_now_ms()), "text": safe_msg}, maxlen=200000, approximate=True)
-        except Exception:
-            pass
 
     out = {"ok": True, "candidate": cur_path, "diff": diff_path, "fail": bool(fail), "reasons": reasons}
     print(json.dumps(out, ensure_ascii=False, indent=2))

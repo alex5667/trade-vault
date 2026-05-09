@@ -12,7 +12,6 @@ Rules
 - Top loser on BUY / top gainer on SELL → warning flag only.
 """
 
-from typing import Dict, List
 
 
 def evaluate_provider_context(
@@ -30,7 +29,7 @@ def evaluate_provider_context(
     max_disagreement_bps: float = 100.0,
     tighten_mult: float = 1.0,
     tighten_cap_bps: float = 4.0,
-) -> Dict:
+) -> dict:
     """Evaluate provider context and return a decision dict.
 
     Returns
@@ -41,9 +40,9 @@ def evaluate_provider_context(
         veto             : bool   (always False — provider ctx never hard-veto)
         veto_reason      : str
     """
-    _profile = str(profile or "monitor").strip().lower()
-    _side = str(side or "").strip().upper()
-    flags: List[str] = []
+    _profile = (profile or "monitor").strip().lower()
+    _side = (side or "").strip().upper()
+    flags: list[str] = []
 
     # Provider quality degradation
     if provider_quality == "fallback":

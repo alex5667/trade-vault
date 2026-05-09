@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """P76 — OF gate contract smoke exporter (v1)
 
 Reads the latest record from Redis Stream `sre:of_gate_contract_smoke` and
@@ -23,7 +24,7 @@ import logging
 import os
 import sys
 import time
-from typing import Any, List, Tuple
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server
 
@@ -65,12 +66,12 @@ def _safe_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def _parse_top_pairs(s: str) -> List[Tuple[str, int]]:
+def _parse_top_pairs(s: str) -> list[tuple[str, int]]:
     try:
         obj = json.loads(s)
         if not isinstance(obj, list):
             return []
-        out: List[Tuple[str, int]] = []
+        out: list[tuple[str, int]] = []
         for it in obj:
             if not (isinstance(it, (list, tuple)) and len(it) == 2):
                 continue
@@ -82,7 +83,7 @@ def _parse_top_pairs(s: str) -> List[Tuple[str, int]]:
         return []
 
 
-def _set_labeled(g: Gauge, pairs: List[Tuple[str, int]], label: str) -> None:
+def _set_labeled(g: Gauge, pairs: list[tuple[str, int]], label: str) -> None:
     for k, v in pairs:
         try:
             g.labels(**{label: k}).set(float(v))
@@ -120,9 +121,9 @@ def run() -> int:
             G_SCHEMA_V_MODE.set(float(_safe_int(fields.get("schema_version_mode"), 0)))
             G_SCHEMA_MISSING_SHARE.set(_safe_float(fields.get("schema_missing_share"), 0.0))
 
-            _set_labeled(G_DQ, _parse_top_pairs(str(fields.get("top_dq_json") or "[]")), "dq_code")
-            _set_labeled(G_REASON_ALL, _parse_top_pairs(str(fields.get("top_reason_code_json") or "[]")), "reason_code")
-            _set_labeled(G_REASON_BAD, _parse_top_pairs(str(fields.get("top_reason_code_bad_json") or "[]")), "reason_code")
+            _set_labeled(G_DQ, _parse_top_pairs((fields.get("top_dq_json") or "[]")), "dq_code")
+            _set_labeled(G_REASON_ALL, _parse_top_pairs((fields.get("top_reason_code_json") or "[]")), "reason_code")
+            _set_labeled(G_REASON_BAD, _parse_top_pairs((fields.get("top_reason_code_bad_json") or "[]")), "reason_code")
 
         except Exception as e:
             logger.warning(f"collect failed: {e}")

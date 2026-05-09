@@ -1,9 +1,8 @@
-from utils.time_utils import get_ny_time_millis
-import os
-import time
-import json
 import logging
-from typing import Dict, Any
+import os
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis
@@ -17,7 +16,7 @@ logger = logging.getLogger("monitoring_smoke_exporter")
 def _env(name: str, default: str = "") -> str:
     return (os.getenv(name) or default).strip()
 
-def _read_redis() -> Dict[str, Any]:
+def _read_redis() -> dict[str, Any]:
     if not redis:
         return {}
     url = _env("REDIS_URL", "redis://redis-worker-1:6379/0")

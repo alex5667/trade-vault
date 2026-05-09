@@ -29,7 +29,7 @@ Order Book Metrics - метрики для детекции iceberg orders из 
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Any
 
 
 @dataclass
@@ -37,9 +37,9 @@ class LevelState:
     """
     Состояние одного уровня (best bid или best ask).
     """
-    price: Optional[float] = None          # Текущая цена уровня
-    since_ms: Optional[int] = None         # С какого времени на этой цене (мс)
-    last_vol: Optional[float] = None       # Последний объем
+    price: float | None = None          # Текущая цена уровня
+    since_ms: int | None = None         # С какого времени на этой цене (мс)
+    last_vol: float | None = None       # Последний объем
     saw_decrease: bool = False             # Видели уменьшение объема
     refresh: int = 0                       # Количество refresh-ей
 
@@ -57,16 +57,16 @@ class BestLevelTracker:
     Это индикатор скрытого крупного ордера, который "докладывает"
     объем постепенно, чтобы не показывать полный размер.
     """
-    
+
     # Параметры детекции
     min_duration_ms: int = 1500              # Минимальная длительность "залипания" (мс)
     refresh_min_abs: float = 1.0             # Минимальное увеличение объема для refresh
     refresh_count_target: int = 2            # Целевое количество refresh-ей
-    
+
     # Состояние уровней
     bid: LevelState = field(default_factory=LevelState)
     ask: LevelState = field(default_factory=LevelState)
-    
+
     def _update_side(self, side: LevelState, price: float, vol: float, ts: int) -> None:
         """
         Обновляет состояние одного уровня (bid или ask).
@@ -85,25 +85,25 @@ class BestLevelTracker:
             side.saw_decrease = False
             side.refresh = 0
             return
-        
+
         # Цена та же - отслеживаем изменения объема
         if side.last_vol is None:
             side.last_vol = vol
             return
-        
+
         # Уменьшение объема (часть ордера исполнена)
         if vol < side.last_vol - 1e-9:
             side.saw_decrease = True
-        
+
         # Увеличение объема после уменьшения (refresh!)
         elif side.saw_decrease and vol > side.last_vol + self.refresh_min_abs:
             side.refresh += 1
             side.saw_decrease = False
-        
+
         # Обновляем last_vol
         side.last_vol = vol
-    
-    def feed_book(self, book: Dict[str, Any], ts: int) -> None:
+
+    def feed_book(self, book: dict[str, Any], ts: int) -> None:
         """
         Обрабатывает Order Book snapshot.
         
@@ -115,22 +115,22 @@ class BestLevelTracker:
         """
         if not book:
             return
-        
+
         # Сортируем и берем best levels
         bids = sorted(book.get("bids", []), key=lambda x: x[0], reverse=True)
         asks = sorted(book.get("asks", []), key=lambda x: x[0])
-        
+
         # Обновляем best bid
         if bids:
             price_bid, vol_bid = float(bids[0][0]), float(bids[0][1])
             self._update_side(self.bid, price_bid, vol_bid, ts)
-        
+
         # Обновляем best ask
         if asks:
             price_ask, vol_ask = float(asks[0][0]), float(asks[0][1])
             self._update_side(self.ask, price_ask, vol_ask, ts)
-    
-    def metrics(self, ts: int) -> Dict[str, Dict[str, float]]:
+
+    def metrics(self, ts: int) -> dict[str, dict[str, float]]:
         """
         Возвращает текущие метрики для обоих уровней.
         
@@ -144,7 +144,7 @@ class BestLevelTracker:
             if state.since_ms is None:
                 return 0.0
             return max(0, ts - state.since_ms) / 1000.0  # в секундах
-        
+
         return {
             "bid": {
                 "duration": calc_duration(self.bid),
@@ -159,7 +159,7 @@ class BestLevelTracker:
                 "volume": self.ask.last_vol or 0.0
             }
         }
-    
+
     def is_iceberg(self, side: str, ts: int) -> bool:
         """
         Проверяет условие iceberg для указанного уровня.
@@ -172,19 +172,19 @@ class BestLevelTracker:
             True если детектирован iceberg order
         """
         state = self.bid if side.lower() == "bid" else self.ask
-        
+
         if state.since_ms is None:
             return False
-        
+
         # Проверяем длительность "залипания"
         duration_ms = ts - state.since_ms
-        
+
         # Iceberg = долго держится + достаточно refresh-ей
         if duration_ms >= self.min_duration_ms and state.refresh >= self.refresh_count_target:
             return True
-        
+
         return False
-    
+
     def reset(self) -> None:
         """Сбрасывает все состояние трекера."""
         self.bid = LevelState()

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 build_edge_stack_train_dataset.py
 
@@ -36,16 +36,15 @@ Usage:
     --r-min 0.20
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import time
-from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _now_ms() -> int:
@@ -72,12 +71,12 @@ def _s(v: Any, d: str = "") -> str:
 
 def _normalize_sid(raw_sid: Any, *, symbol: str, ts_ms: int) -> str:
     """Normalize sid to canonical: crypto-of:{SYMBOL}:{TS_MS}."""
-    sym = str(symbol or "").upper() or "NA"
+    sym = (symbol or "").upper() or "NA"
     try:
         ts = int(ts_ms)
     except Exception:
         ts = 0
-    s = str(raw_sid or "")
+    s = (raw_sid or "")
     if s.startswith("crypto-of:"):
         head = s.split("|", 1)[0]
         parts = head.split(":", 2)
@@ -107,9 +106,9 @@ def read_ml_confirm_metrics(
     stream: str,
     since_ms: int,
     max_scan: int = 500_000,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Читает metrics:ml_confirm и возвращает dict по sid."""
-    by_sid: Dict[str, Dict[str, Any]] = {}
+    by_sid: dict[str, dict[str, Any]] = {}
     scanned = 0
     last_id = f"{since_ms}-0"
 
@@ -139,7 +138,7 @@ def read_ml_confirm_metrics(
                 continue
 
             # Извлекаем indicators из payload или полей
-            indicators: Dict[str, Any] = {}
+            indicators: dict[str, Any] = {}
             payload_str = fields.get("payload") or fields.get("indicators") or ""
             if payload_str and isinstance(payload_str, str):
                 try:
@@ -162,10 +161,8 @@ def read_ml_confirm_metrics(
                     if k in fields:
                         v = fields.get(k)
                         if v is not None:
-                            try:
+                            with contextlib.suppress(Exception):
                                 indicators[k] = float(v) if "." in str(v) else int(v)
-                            except Exception:
-                                pass
 
             direction = _s(fields.get("direction"), "").upper()
             scenario = _s(fields.get("scenario") or fields.get("scenario_v4"), "").lower()
@@ -189,9 +186,9 @@ def read_trades_closed(
     stream: str,
     since_ms: int,
     max_scan: int = 500_000,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Читает trades:closed и возвращает dict по sid."""
-    by_sid: Dict[str, Dict[str, Any]] = {}
+    by_sid: dict[str, dict[str, Any]] = {}
     scanned = 0
     last_id = f"{since_ms}-0"
 
@@ -254,12 +251,12 @@ def read_trades_closed(
 
 
 def build_dataset(
-    ml_confirm_by_sid: Dict[str, Dict[str, Any]],
-    trades_by_sid: Dict[str, Dict[str, Any]],
+    ml_confirm_by_sid: dict[str, dict[str, Any]],
+    trades_by_sid: dict[str, dict[str, Any]],
     r_min: float = 0.20,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Строит train dataset из joined данных."""
-    dataset: List[Dict[str, Any]] = []
+    dataset: list[dict[str, Any]] = []
 
     for sid, ml_data in ml_confirm_by_sid.items():
         trade_data = trades_by_sid.get(sid)

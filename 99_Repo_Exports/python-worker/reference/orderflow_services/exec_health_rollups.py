@@ -26,9 +26,9 @@ Key design rules
 
 import math
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
-
+from typing import Any
 
 ALL = "all"
 _SCOPE_TO_ENV = {
@@ -42,14 +42,14 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         v = float(x)
     except Exception:
-        return float(d)
+        return d
     if not math.isfinite(v):
-        return float(d)
+        return d
     return float(v)
 
 
 def _norm_side(side: Any) -> str:
-    s = str(side or "NA").strip().upper()
+    s = (side or "NA").strip().upper()
     if s == "BUY":
         return "LONG"
     if s == "SELL":
@@ -57,9 +57,9 @@ def _norm_side(side: Any) -> str:
     return s or "NA"
 
 
-def _csv_ints(raw: Any, default: Sequence[int]) -> List[int]:
-    vals: List[int] = []
-    for part in str(raw or "").split(','):
+def _csv_ints(raw: Any, default: Sequence[int]) -> list[int]:
+    vals: list[int] = []
+    for part in (raw or "").split(','):
         p = part.strip()
         if not p:
             continue
@@ -67,7 +67,7 @@ def _csv_ints(raw: Any, default: Sequence[int]) -> List[int]:
             vals.append(int(float(p)))
         except Exception:
             continue
-    out: List[int] = []
+    out: list[int] = []
     seen = set()
     for v in vals or list(default):
         if int(v) <= 0:
@@ -88,10 +88,10 @@ class ExecHealthThresholds:
     tighten_k_mult: float = 1.0
     veto_require_both_is_and_impact: bool = True
     veto_on_adverse: bool = False
-    delta_sec_list: Tuple[int, ...] = (1, 5)
+    delta_sec_list: tuple[int, ...] = (1, 5)
 
     @staticmethod
-    def from_env(prefix: str = "EXEC_") -> "ExecHealthThresholds":
+    def from_env(prefix: str = "EXEC_") -> ExecHealthThresholds:
         deltas = tuple(_csv_ints(os.getenv(f"{prefix}TCA_DELTA_SEC_LIST", "1,5"), default=(1, 5)))
         return ExecHealthThresholds(
             max_is_p95_bps=_f(os.getenv(f"{prefix}MAX_IS_P95_BPS", "0"), 0.0),
@@ -123,12 +123,12 @@ class ExecHealthDecision:
     apply: bool
     veto: bool
     mode: str = ""
-    flags: List[str] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list)
     reason_code: str = ""
     tighten_add_bps: float = 0.0
     tighten_k_mult: float = 1.0
     scope: str = ""
-    rollups: Dict[str, float] = field(default_factory=dict)
+    rollups: dict[str, float] = field(default_factory=dict)
 
 
 def build_rollup_keys(
@@ -140,14 +140,14 @@ def build_rollup_keys(
     tf: str,
     kind: str,
     side: str,
-) -> List[str]:
+) -> list[str]:
     """Build bounded fallback keys for a single rollup metric.
 
     The search space is strictly capped at 16 combinations:
       session exact|all × tf exact|all × kind exact|all × side exact|all
     """
-    sym_n = str(sym or "").upper()
-    venue_n = str(venue or "na").lower()
+    sym_n = (sym or "").upper()
+    venue_n = (venue or "na").lower()
     dims = [
         str(session or ALL).lower(),
         str(tf or ALL).lower(),
@@ -155,7 +155,7 @@ def build_rollup_keys(
         _norm_side(side),
     ]
 
-    out: List[str] = []
+    out: list[str] = []
     seen = set()
     for mask in range(16):
         vals = []
@@ -170,8 +170,8 @@ def build_rollup_keys(
 
 def _metric_key_map(
     *, sym: str, venue: str, session: str, tf: str, kind: str, side: str, deltas: Sequence[int]
-) -> Dict[str, List[str]]:
-    metric_keys: Dict[str, List[str]] = {
+) -> dict[str, list[str]]:
+    metric_keys: dict[str, list[str]] = {
         "is_p95_bps": build_rollup_keys(
             metric="is_p95_bps", sym=sym, venue=venue, session=session, tf=tf, kind=kind, side=side
         )
@@ -188,7 +188,7 @@ def _metric_key_map(
     return metric_keys
 
 
-def _pick_first_numeric(keys: Sequence[str], values_by_key: Mapping[str, Any]) -> Optional[float]:
+def _pick_first_numeric(keys: Sequence[str], values_by_key: Mapping[str, Any]) -> float | None:
     for key in keys:
         fv = _f(values_by_key.get(key), float("nan"))
         if math.isfinite(fv):
@@ -196,14 +196,14 @@ def _pick_first_numeric(keys: Sequence[str], values_by_key: Mapping[str, Any]) -
     return None
 
 
-def _aggregate_rollups(metric_values: Mapping[str, Optional[float]], deltas: Sequence[int]) -> Dict[str, float]:
-    out: Dict[str, float] = {}
+def _aggregate_rollups(metric_values: Mapping[str, float | None], deltas: Sequence[int]) -> dict[str, float]:
+    out: dict[str, float] = {}
     v_is = metric_values.get("is_p95_bps")
     if v_is is not None and math.isfinite(float(v_is)):
         out["is_p95_bps"] = float(v_is)
 
-    perm_pairs: List[Tuple[int, float]] = []
-    rs_pairs: List[Tuple[int, float]] = []
+    perm_pairs: list[tuple[int, float]] = []
+    rs_pairs: list[tuple[int, float]] = []
     for delta_sec in deltas:
         k_pi = f"perm_impact_p95_bps_{int(delta_sec)}"
         k_rs = f"realized_spread_p50_bps_{int(delta_sec)}"
@@ -228,7 +228,7 @@ def _aggregate_rollups(metric_values: Mapping[str, Optional[float]], deltas: Seq
     return out
 
 
-def _sync_mget_values(redis: Any, keys: Sequence[str]) -> Dict[str, Any]:
+def _sync_mget_values(redis: Any, keys: Sequence[str]) -> dict[str, Any]:
     flat = list(keys)
     if not flat:
         return {}
@@ -238,7 +238,7 @@ def _sync_mget_values(redis: Any, keys: Sequence[str]) -> Dict[str, Any]:
             vals = list(vals)
         return {k: v for k, v in zip(flat, vals or [])}
     except Exception:
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         for key in flat:
             try:
                 out[key] = redis.get(key)
@@ -247,7 +247,7 @@ def _sync_mget_values(redis: Any, keys: Sequence[str]) -> Dict[str, Any]:
         return out
 
 
-async def _async_mget_values(redis: Any, keys: Sequence[str]) -> Dict[str, Any]:
+async def _async_mget_values(redis: Any, keys: Sequence[str]) -> dict[str, Any]:
     flat = list(keys)
     if not flat:
         return {}
@@ -257,7 +257,7 @@ async def _async_mget_values(redis: Any, keys: Sequence[str]) -> Dict[str, Any]:
             vals = list(vals)
         return {k: v for k, v in zip(flat, vals or [])}
     except Exception:
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         for key in flat:
             try:
                 out[key] = await redis.get(key)
@@ -275,8 +275,8 @@ def read_exec_health_rollups_sync(
     tf: str,
     kind: str,
     side: str,
-    delta_sec_list: Optional[Sequence[int]] = None,
-) -> Dict[str, float]:
+    delta_sec_list: Sequence[int] | None = None,
+) -> dict[str, float]:
     """Synchronous reader for TCA rollups — used in EdgeCostGate hot-path."""
     if redis is None:
         return {}
@@ -299,8 +299,8 @@ async def aread_exec_health_rollups(
     tf: str,
     kind: str,
     side: str,
-    delta_sec_list: Optional[Sequence[int]] = None,
-) -> Dict[str, float]:
+    delta_sec_list: Sequence[int] | None = None,
+) -> dict[str, float]:
     """Async reader for TCA rollups — used in SignalPipeline and EntryPolicyService."""
     if redis is None:
         return {}
@@ -322,13 +322,13 @@ def _resolve_mode(*, profile: str, scope: str) -> str:
       2. Global EXEC_HEALTH_MODE
       3. Auto-mapping from GATE_PROFILE: hard->veto, strict->tighten, else monitor
     """
-    env_name = _SCOPE_TO_ENV.get(str(scope or "").strip().lower())
+    env_name = _SCOPE_TO_ENV.get((scope or "").strip().lower())
     if env_name:
         raw = str(
             os.getenv(env_name, os.getenv("EXEC_HEALTH_MODE", "auto")) or "auto"
         ).strip().lower()
     else:
-        raw = str(os.getenv("EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
+        raw = (os.getenv("EXEC_HEALTH_MODE", "auto") or "auto").strip().lower()
 
     if raw in {"off", "monitor", "tighten", "veto"}:
         return raw
@@ -368,7 +368,7 @@ def decide_exec_health_from_env(
     v_pi = _f(rollups.get("perm_impact_p95_bps"), float("nan"))
     v_rs = _f(rollups.get("realized_spread_p50_bps"), float("nan"))
 
-    flags: List[str] = []
+    flags: list[str] = []
     if math.isfinite(v_is) and thr.max_is_p95_bps > 0.0 and v_is >= thr.max_is_p95_bps:
         flags.append("is_p95_high")
     if math.isfinite(v_pi) and thr.max_perm_impact_p95_bps > 0.0 and v_pi >= thr.max_perm_impact_p95_bps:

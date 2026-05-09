@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
-
 
 # ---- Tag bitmask (uint64) ----
 # Набор фиксированный. Не переименовывайте биты без миграции бэктеста.

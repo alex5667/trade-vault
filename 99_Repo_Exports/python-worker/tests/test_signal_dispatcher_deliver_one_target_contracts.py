@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import types
+
 import pytest
 
 from services.signal_dispatcher import SignalDispatcher

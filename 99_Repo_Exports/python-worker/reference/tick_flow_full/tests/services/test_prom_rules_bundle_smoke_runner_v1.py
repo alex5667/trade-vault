@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for tick_flow_full.services.prom_rules_bundle_smoke_runner_v1 (P104 mirror).
 
 Mirrors the services/ test suite but imports from tick_flow_full.*
@@ -7,16 +8,12 @@ and validates the tick_flow_full manifest.
 
 import json
 
-import pytest
-
 import tick_flow_full.services.prom_rules_bundle_smoke_runner_v1 as runner_mod
 from tick_flow_full.services.prom_rules_bundle_smoke_runner_v1 import (
     _block_keys,
     _clear_block_if_owned,
-    _set_block,
     main,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -115,7 +112,9 @@ def test_clear_block_respects_owner(monkeypatch):
 
 
 def test_manifest_tick_flow_full_valid():
-    import yaml, pathlib
+    import pathlib
+
+    import yaml
     p = pathlib.Path(__file__).resolve().parents[3] / "tick_flow_full" / "orderflow_services" / "prometheus_rules_bundle_manifest_v1.yml"
     doc = yaml.safe_load(p.read_text())
     assert isinstance(doc, dict), "tick_flow_full manifest must be a YAML dict"

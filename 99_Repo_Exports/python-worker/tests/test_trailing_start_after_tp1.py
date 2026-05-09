@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import os
-
-import pytest
-
+from domain.handlers import _maybe_start_trailing_after_tp1, _should_start_trailing_after_tp1
 from domain.models import PositionState
-from domain.handlers import _should_start_trailing_after_tp1, _maybe_start_trailing_after_tp1
 
 
 def _mk_pos(*, allow: bool, profile: str = "rocket_v1") -> PositionState:

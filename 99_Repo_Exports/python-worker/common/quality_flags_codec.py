@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Unified quality_flags codec (Phase 3 contract unification).
 
@@ -26,15 +27,15 @@ staged — remove the legacy branch only after all producers are upgraded.
 
 
 import json
-from typing import Any, List, Sequence
-
+from collections.abc import Sequence
+from typing import Any
 
 # Comma-separated tokens that mean "no DQ issue" on the Go side.
 # "ok" is the canonical default emitted when everything is clean.
 _OK_SENTINELS = frozenset({"ok", "clean", ""})
 
 
-def decode_quality_flags(raw: Any) -> List[str]:
+def decode_quality_flags(raw: Any) -> list[str]:
     """Accept any of (None, list, tuple, set, JSON string, comma-separated string)
     and return a normalised, de-duplicated, sorted list of flags.
 
@@ -93,9 +94,9 @@ def is_clean(raw: Any) -> bool:
 
 # ── internals ────────────────────────────────────────────────────────────
 
-def _canonicalize(items: Any) -> List[str]:
+def _canonicalize(items: Any) -> list[str]:
     seen: set[str] = set()
-    out: List[str] = []
+    out: list[str] = []
     for x in items:
         if x is None:
             continue

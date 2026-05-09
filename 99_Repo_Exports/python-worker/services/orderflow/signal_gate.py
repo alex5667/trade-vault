@@ -19,7 +19,8 @@ import asyncio
 import logging
 import os
 import random
-from typing import Any, Dict, Optional, Set
+from typing import Any
+import contextlib
 
 logger = logging.getLogger("signal_gate")
 
@@ -35,27 +36,49 @@ except Exception:
 
 try:
     from services.risk.risk_policy_engine import (
-        PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-        infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+        RISK_DENY_HARD,
+        RISK_DENY_SOFT,
+        RISK_FORCE_FLATTEN,
+        PortfolioPosition,
+        PortfolioRiskInput,
+        PortfolioRiskLimits,
+        evaluate_portfolio_risk,
+        infer_symbol_tier,
     )
 except Exception:
     try:
         from risk.risk_policy_engine import (  # type: ignore
-            PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-            infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+            RISK_DENY_HARD,
+            RISK_DENY_SOFT,
+            RISK_FORCE_FLATTEN,
+            PortfolioPosition,
+            PortfolioRiskInput,
+            PortfolioRiskLimits,
+            evaluate_portfolio_risk,
+            infer_symbol_tier,
         )
     except Exception:
         try:
             from services.risk.portfolio_risk_engine import (  # type: ignore
-                PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-                RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+                RISK_DENY_HARD,
+                RISK_DENY_SOFT,
+                RISK_FORCE_FLATTEN,
+                PortfolioPosition,
+                PortfolioRiskInput,
+                PortfolioRiskLimits,
+                evaluate_portfolio_risk,
             )
             infer_symbol_tier = None
         except Exception:
             try:
                 from risk.portfolio_risk_engine import (  # type: ignore
-                    PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-                    RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+                    RISK_DENY_HARD,
+                    RISK_DENY_SOFT,
+                    RISK_FORCE_FLATTEN,
+                    PortfolioPosition,
+                    PortfolioRiskInput,
+                    PortfolioRiskLimits,
+                    evaluate_portfolio_risk,
                 )
                 infer_symbol_tier = None
             except Exception:
@@ -99,7 +122,7 @@ def _runtime_ms(runtime: Any, *names: str) -> int:
     return 0
 
 
-def _ensure_audit_chain_fields(signal: Dict[str, Any]) -> Dict[str, Any]:
+def _ensure_audit_chain_fields(signal: dict[str, Any]) -> dict[str, Any]:
     """Материализует signal_id / execution_plan_id / decision_id перед публикацией."""
     if not isinstance(signal, dict):
         return signal
@@ -128,10 +151,10 @@ class SignalGate:
         *,
         redis_main: Any,                              # aioredis.Redis для quarantine cache
         publisher: Any,                               # AsyncSignalPublisher (для outbox_backlog)
-        risk_limits: Optional[Any],                   # PortfolioRiskLimits | None
-        dq_thresholds: Optional[Any],                 # RedisDQThresholds | None
+        risk_limits: Any | None,                   # PortfolioRiskLimits | None
+        dq_thresholds: Any | None,                 # RedisDQThresholds | None
         risk_hard_veto: bool = True,
-        risk_audit_sink: Optional[Any] = None,
+        risk_audit_sink: Any | None = None,
         quarantine_enable: bool = True,
         quarantine_sids_key: str = "orders:quarantine:state:sids",
         quarantine_cache_ms: int = 1000,
@@ -146,11 +169,11 @@ class SignalGate:
         self._quarantine_sids_key = quarantine_sids_key
         self._quarantine_cache_ms = quarantine_cache_ms
 
-        self._sid_cache: Set[str] = set()
+        self._sid_cache: set[str] = set()
         self._sid_cache_ts_ms: int = 0
 
     @classmethod
-    def from_service(cls, svc: Any) -> "SignalGate":
+    def from_service(cls, svc: Any) -> SignalGate:
         """Фабрика из сервиса — принимает уже созданные объекты, не дублирует from_env()."""
         rc = svc._svc_cfg.risk
         return cls(
@@ -167,7 +190,7 @@ class SignalGate:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    async def allows(self, runtime: Any, signal: Dict[str, Any]) -> bool:
+    async def allows(self, runtime: Any, signal: dict[str, Any]) -> bool:
         """Возвращает True если сигнал разрешён к публикации.
 
         Мутирует signal: добавляет audit-поля, dq_snapshot, risk_snapshot.
@@ -181,7 +204,7 @@ class SignalGate:
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
-    async def _check(self, runtime: Any, signal: Dict[str, Any]) -> bool:
+    async def _check(self, runtime: Any, signal: dict[str, Any]) -> bool:
         now_ms = _utc_epoch_ms()
         signal = _ensure_audit_chain_fields(signal)
         signal.setdefault("ts_event_ms", now_ms)
@@ -195,7 +218,7 @@ class SignalGate:
             return False
         return True
 
-    async def _check_quarantine(self, signal: Dict[str, Any], now_ms: int) -> bool:
+    async def _check_quarantine(self, signal: dict[str, Any], now_ms: int) -> bool:
         if not self._quarantine_enable or check_signal_against_quarantine_cache is None:
             return True
         await self._refresh_sid_cache(now_ms)
@@ -211,7 +234,7 @@ class SignalGate:
             return False
         return True
 
-    def _check_dq(self, runtime: Any, signal: Dict[str, Any], now_ms: int) -> bool:
+    def _check_dq(self, runtime: Any, signal: dict[str, Any], now_ms: int) -> bool:
         if not self._dq_thresholds or evaluate_redis_dq is None:
             return True
         snap = self._build_dq_snapshot(runtime, now_ms)
@@ -229,7 +252,7 @@ class SignalGate:
             return False
         return True
 
-    def _check_risk(self, runtime: Any, signal: Dict[str, Any]) -> bool:
+    def _check_risk(self, runtime: Any, signal: dict[str, Any]) -> bool:
         if not self._risk_limits or evaluate_portfolio_risk is None:
             return True
         risk_input = self._build_risk_input(runtime, signal)
@@ -261,7 +284,7 @@ class SignalGate:
 
     # ── Builders ──────────────────────────────────────────────────────────────
 
-    def _build_dq_snapshot(self, runtime: Any, now_ms: int) -> Optional[Any]:
+    def _build_dq_snapshot(self, runtime: Any, now_ms: int) -> Any | None:
         if RedisDQSnapshot is None:
             return None
         last_tick_ms = _runtime_ms(
@@ -297,7 +320,7 @@ class SignalGate:
             force_hard_veto=bool(getattr(runtime, "force_hard_veto", False)),
         )
 
-    def _build_risk_input(self, runtime: Any, signal: Dict[str, Any]) -> Optional[Any]:
+    def _build_risk_input(self, runtime: Any, signal: dict[str, Any]) -> Any | None:
         if PortfolioRiskInput is None:
             return None
         positions = []
@@ -306,11 +329,11 @@ class SignalGate:
                 continue
             try:
                 positions.append(PortfolioPosition(
-                    symbol=str(p.get("symbol") or ""),
+                    symbol=(p.get("symbol") or ""),
                     notional_usd=float(p.get("notional_usd") or 0.0),
-                    side=str(p.get("side") or "LONG"),
-                    cluster=str(p.get("cluster") or "default"),
-                    tier=str(p.get("tier") or "B"),
+                    side=(p.get("side") or "LONG"),
+                    cluster=(p.get("cluster") or "default"),
+                    tier=(p.get("tier") or "B"),
                     beta=float(p.get("beta") or 1.0),
                 ))
             except Exception:
@@ -352,13 +375,13 @@ class SignalGate:
             maker_policy_requested=bool(
                 signal.get("maker_policy_requested")
                 or signal.get("prefer_maker")
-                or str(signal.get("execution_policy") or "").strip().upper() == "MAKER_FIRST"
+                or (signal.get("execution_policy") or "").strip().upper() == "MAKER_FIRST"
             ),
             infra_degraded=bool(signal.get("infra_degraded") or signal.get("dq_hard_veto")),
             high_vol=bool(signal.get("high_vol") or signal.get("regime_high_vol")),
             kill_switch=bool(signal.get("risk_kill_switch") or signal.get("kill_switch")),
             net_beta=_f("net_beta", "beta", default=1.0),
-            leader_symbol=str(signal.get("leader_symbol") or "BTCUSDT"),
+            leader_symbol=(signal.get("leader_symbol") or "BTCUSDT"),
             leader_drawdown_bps=_f("leader_drawdown_bps"),
             news_blackout=bool(
                 signal.get("news_blackout")
@@ -385,7 +408,7 @@ class SignalGate:
     def _persist_risk_decision(
         self,
         *,
-        signal: Dict[str, Any],
+        signal: dict[str, Any],
         risk_input: Any,
         decision: Any,
     ) -> None:
@@ -393,12 +416,13 @@ class SignalGate:
             return
         try:
             import uuid
+
             from utils.task_manager import safe_create_task
             decision_id = str(signal.get("decision_id") or signal.get("id") or uuid.uuid4().hex)
             signal["decision_id"] = decision_id
 
             async def _bg():
-                try:
+                with contextlib.suppress(Exception):
                     await asyncio.to_thread(
                         self._audit_sink.record_decision,
                         decision_id=decision_id,
@@ -406,8 +430,6 @@ class SignalGate:
                         risk_input=risk_input,
                         risk_decision=decision,
                     )
-                except Exception:
-                    pass
 
             safe_create_task(_bg(), name=f"risk-audit-{signal.get('symbol', '?')}")
         except Exception as exc:

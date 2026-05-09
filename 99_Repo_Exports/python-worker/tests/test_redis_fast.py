@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import os
-import types
-
-import pytest
-
 
 def test_make_fast_redis_from_env_config(monkeypatch):
     # Arrange

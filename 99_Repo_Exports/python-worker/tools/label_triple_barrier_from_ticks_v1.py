@@ -3,13 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Any, Dict, Iterable, List, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 from core.triple_barrier import BarrierSpec, label_path, pick_entry_price
 
 
-def _read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def _read_ndjson(path: str) -> Iterable[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -35,10 +36,10 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def group_ticks(ticks: Iterable[Dict[str, Any]]) -> Dict[str, List[Tuple[int, float]]]:
-    out: Dict[str, List[Tuple[int, float]]] = {}
+def group_ticks(ticks: Iterable[dict[str, Any]]) -> dict[str, list[tuple[int, float]]]:
+    out: dict[str, list[tuple[int, float]]] = {}
     for t in ticks:
-        sym = str(t.get("symbol", "") or "").upper()
+        sym = (t.get("symbol", "") or "").upper()
         ts = _i(t.get("ts_ms", 0), 0)
         px = _f(t.get("price", 0.0), 0.0)
         if not sym or ts <= 0 or px <= 0:
@@ -49,11 +50,11 @@ def group_ticks(ticks: Iterable[Dict[str, Any]]) -> Dict[str, List[Tuple[int, fl
     return out
 
 
-def slice_path(series: List[Tuple[int, float]], ts0: int, ts1: int) -> List[Tuple[int, float]]:
+def slice_path(series: list[tuple[int, float]], ts0: int, ts1: int) -> list[tuple[int, float]]:
     return [(ts, px) for ts, px in series if ts0 <= ts <= ts1]
 
 
-def infer_tp_sl_bps(indicators: Dict[str, Any], *, tp_k_atr: float, sl_k_atr: float, fallback_tp_bps: float, fallback_sl_bps: float) -> Tuple[float, float, float]:
+def infer_tp_sl_bps(indicators: dict[str, Any], *, tp_k_atr: float, sl_k_atr: float, fallback_tp_bps: float, fallback_sl_bps: float) -> tuple[float, float, float]:
     stop_bps = _f(indicators.get("stop_bps", 0.0), 0.0)
     atr_bps = _f(indicators.get("atr_bps", 0.0), 0.0)
     if stop_bps > 1e-6:
@@ -79,13 +80,13 @@ def main() -> None:
     args = ap.parse_args()
 
     tick_map = group_ticks(_read_ndjson(args.ticks))
-    out_rows: List[Dict[str, Any]] = []
+    out_rows: list[dict[str, Any]] = []
 
     for inp in _read_ndjson(args.inputs):
-        sid = str(inp.get("sid", "") or "")
-        sym = str(inp.get("symbol", "") or "").upper()
+        sid = (inp.get("sid", "") or "")
+        sym = (inp.get("symbol", "") or "").upper()
         ts0 = _i(inp.get("ts_ms", inp.get("ts", 0)), 0)
-        direction = str(inp.get("direction", "") or "").upper()
+        direction = (inp.get("direction", "") or "").upper()
         indicators = inp.get("indicators") if isinstance(inp.get("indicators"), dict) else {}
 
         if not sid or not sym or ts0 <= 0 or direction not in ("LONG", "SHORT"):

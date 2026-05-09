@@ -8,13 +8,15 @@ Smoke тесты для новых криптовалютных символов
 """
 
 import os
+
 import pytest
+
 from core.instrument_config import (
-    get_config,
-    get_specs,
     INSTRUMENT_CONFIGS,
     INSTRUMENT_SPECS,
     OrderFlowConfig,
+    get_config,
+    get_specs,
 )
 
 

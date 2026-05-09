@@ -5,16 +5,15 @@ import json
 import os
 import sys
 import time
-from typing import Dict, List, Optional
 
-from core.skew_stats import calculate_proportion_skew
 from core.confirmations_schema_v1 import CONF_KEYS_V1
+from core.skew_stats import calculate_proportion_skew
 
 
 def iter_ndjson(path: str):
     if not os.path.exists(path):
         return
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -25,12 +24,12 @@ def iter_ndjson(path: str):
                 continue
 
 
-def collect_stats(path: str, keys: List[str]) -> Dict[str, Dict[str, float]]:
+def collect_stats(path: str, keys: list[str]) -> dict[str, dict[str, float]]:
     """Collect sample size and positive count for each key."""
-    counts = {k: 0 for k in keys}
+    counts = dict.fromkeys(keys, 0)
     n = 0
     symbols = set()
-    
+
     for row in iter_ndjson(path):
         n += 1
         symbols.add(row.get("symbol", "unknown"))
@@ -39,7 +38,7 @@ def collect_stats(path: str, keys: List[str]) -> Dict[str, Dict[str, float]]:
             val = row.get(f"conf_{k}", row.get(k, 0))
             if float(val or 0) > 0:
                 counts[k] += 1
-                
+
     return {
         "n": n,
         "counts": counts,
@@ -58,7 +57,7 @@ def main():
     ap.add_argument("--out-json", help="Path to write machine-readable JSON report")
     args = ap.parse_args()
 
-    print(f"--- Skew Audit v7 ---")
+    print("--- Skew Audit v7 ---")
     print(f"Training data: {args.train}")
     print(f"Serving data:  {args.serve}")
 
@@ -69,26 +68,26 @@ def main():
     sn = serve_stats["n"]
 
     print(f"Samples: Train={tn}, Serve={sn}")
-    
+
     if tn < args.min_n or sn < args.min_n:
         print(f"ERROR: Insufficient data (min_n={args.min_n})")
         sys.exit(1)
 
     bad_features = []
-    
+
     results = {}
     for k in CONF_KEYS_V1:
         tp = train_stats["proportions"][k]
         sp = serve_stats["proportions"][k]
-        
+
         res = calculate_proportion_skew(tn, tp, sn, sp, alpha=args.alpha)
         results[k] = res
-        
+
         status = "OK"
         if res.is_significant:
             status = "WARN" if res.drift_score < 0.1 else "BAD"
             bad_features.append(k)
-            
+
         print(f"Feature: {k:15} | Train: {tp:.4f} | Serve: {sp:.4f} | Diff: {res.drift_score:+.4f} | Z: {res.z_score:6.2f} | P: {res.p_value:.4f} | {status}")
 
     # Write Prometheus metrics if requested
@@ -98,12 +97,12 @@ def main():
             f.write("# TYPE conf_skew_z_score gauge\n")
             for k, res in results.items():
                 f.write(f'conf_skew_z_score{{feature="{k}"}} {res.z_score}\n')
-                
+
             f.write("# HELP conf_skew_drift Absolute proportion difference\n")
             f.write("# TYPE conf_skew_drift gauge\n")
             for k, res in results.items():
                 f.write(f'conf_skew_drift{{feature="{k}"}} {res.drift_score}\n')
-                
+
             f.write("# HELP conf_skew_significant 1 if skew is statistically significant\n")
             f.write("# TYPE conf_skew_significant gauge\n")
             for k, res in results.items():

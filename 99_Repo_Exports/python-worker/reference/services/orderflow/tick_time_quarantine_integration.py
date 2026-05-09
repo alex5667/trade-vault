@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Integration module for bad time quarantine with Redis stream and Prometheus metrics.
 
@@ -8,28 +9,25 @@ This module wires up TickTimeGuard + BadTimeQuarantine with:
 - Signal quality impact tracking
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import os
-import json
-import time
-import logging
 import asyncio
-from utils.task_manager import safe_create_task
+import json
+import logging
+import os
+from typing import Any
 
-from typing import Any, Dict, Optional
-from common.tick_time import TickTimeGuard, TickTimePolicy, SanitizeResult
+from common.tick_time import SanitizeResult, TickTimeGuard, TickTimePolicy
 from common.time_quarantine import BadTimeQuarantine, BadTimeQuarantinePolicy
-
 from services.orderflow.metrics import (
+    tick_time_hard_drop_total,
     tick_time_quarantine_active_gauge,
     tick_time_quarantine_enabled_total,
-    tick_time_hard_drop_total,
+    tick_time_quarantine_score_gauge,
+    tick_time_recovery_passed_total,
     tick_time_soft_event_total,
     tick_time_state_freeze_total,
-    tick_time_recovery_passed_total,
-    tick_time_quarantine_score_gauge,
 )
+from utils.task_manager import safe_create_task
+from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger("tick_time_quarantine")
 
@@ -42,13 +40,13 @@ class TickTimeQuarantineIntegration:
     def __init__(
         self,
         symbol: str,
-        redis_client: Optional[Any] = None,
+        redis_client: Any | None = None,
         *,
         sample_rate: float = 0.01,  # 1% sampling for Redis stream
-        stream_name: Optional[str] = None,
+        stream_name: str | None = None,
         stream_maxlen: int = 50000,
     ):
-        self.symbol = str(symbol)
+        self.symbol = symbol
         self.redis_client = redis_client
         self.sample_rate = float(sample_rate)
         self.stream_name = stream_name or os.getenv(
@@ -118,7 +116,7 @@ class TickTimeQuarantineIntegration:
             return False
 
     async def _publish_to_redis_stream(
-        self, payload: Dict[str, Any], now_ms: int
+        self, payload: dict[str, Any], now_ms: int
     ) -> None:
         """Publish sampled bad time payload to Redis stream (fail-open)."""
         if not self.redis_client:
@@ -139,8 +137,8 @@ class TickTimeQuarantineIntegration:
             logger.debug("Failed to publish to Redis stream: %r", e)
 
     def sanitize_and_track(
-        self, ts: Any, *, now_ms: Optional[int] = None
-    ) -> Optional[SanitizeResult]:
+        self, ts: Any, *, now_ms: int | None = None
+    ) -> SanitizeResult | None:
         """
         Sanitize timestamp and track bad time events.
         Returns SanitizeResult or None if ts cannot be parsed.

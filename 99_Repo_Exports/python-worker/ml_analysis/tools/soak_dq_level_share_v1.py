@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Soak helper: summarize dq_level==2 share and key DQ inputs per symbol.
 
 Intended usage:
@@ -18,9 +19,10 @@ import json
 import math
 import sys
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -38,7 +40,7 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def _get_nested(d: Dict[str, Any], keys: Iterable[str]) -> Any:
+def _get_nested(d: dict[str, Any], keys: Iterable[str]) -> Any:
     cur: Any = d
     for k in keys:
         if not isinstance(cur, dict):
@@ -49,7 +51,7 @@ def _get_nested(d: Dict[str, Any], keys: Iterable[str]) -> Any:
     return cur
 
 
-def _extract_symbol(rec: Dict[str, Any]) -> str:
+def _extract_symbol(rec: dict[str, Any]) -> str:
     for path in (
         ("symbol",),
         ("meta", "symbol"),
@@ -62,7 +64,7 @@ def _extract_symbol(rec: Dict[str, Any]) -> str:
     return "UNKNOWN"
 
 
-def _extract_indicators(rec: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_indicators(rec: dict[str, Any]) -> dict[str, Any]:
     v = rec.get("indicators")
     if isinstance(v, dict):
         return v
@@ -75,7 +77,7 @@ def _extract_indicators(rec: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
-def _extract_dq_level(rec: Dict[str, Any], ind: Dict[str, Any]) -> int:
+def _extract_dq_level(rec: dict[str, Any], ind: dict[str, Any]) -> int:
     for path in (
         ("dq_level",),
         ("dq", "dq_level"),
@@ -95,9 +97,9 @@ class SymStats:
     n: int = 0
     dq2: int = 0
     # bounded samples for quantiles
-    book_ema: List[float] = None  # type: ignore
-    tick_ema: List[float] = None  # type: ignore
-    gap_p95: List[float] = None  # type: ignore
+    book_ema: list[float] = None  # type: ignore
+    tick_ema: list[float] = None  # type: ignore
+    gap_p95: list[float] = None  # type: ignore
 
     def __post_init__(self) -> None:
         self.book_ema = []
@@ -105,7 +107,7 @@ class SymStats:
         self.gap_p95 = []
 
 
-def _maybe_sample(arr: List[float], x: float, max_points: int) -> None:
+def _maybe_sample(arr: list[float], x: float, max_points: int) -> None:
     if max_points <= 0:
         return
     if len(arr) < max_points:
@@ -116,7 +118,7 @@ def _maybe_sample(arr: List[float], x: float, max_points: int) -> None:
     arr[idx] = float(x)
 
 
-def _q(arr: List[float], q: float) -> float:
+def _q(arr: list[float], q: float) -> float:
     if not arr:
         return float("nan")
     a = sorted(arr)
@@ -136,7 +138,7 @@ def main() -> int:
         print(f"Not found: {path}", file=sys.stderr)
         return 2
 
-    stats: Dict[str, SymStats] = defaultdict(SymStats)
+    stats: dict[str, SymStats] = defaultdict(SymStats)
 
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -171,7 +173,7 @@ def main() -> int:
                 _maybe_sample(s.gap_p95, g, args.max_points)
 
     # Output
-    rows: List[Tuple[str, SymStats]] = sorted(stats.items(), key=lambda kv: (-kv[1].dq2 / max(1, kv[1].n), kv[0]))
+    rows: list[tuple[str, SymStats]] = sorted(stats.items(), key=lambda kv: (-kv[1].dq2 / max(1, kv[1].n), kv[0]))
 
     print("symbol\tn\tdq2\tshare\tbook_ema_p50\tbook_ema_p90\tbook_ema_p99\ttick_ema_p90\tgap_p95_p90")
     for sym, s in rows:

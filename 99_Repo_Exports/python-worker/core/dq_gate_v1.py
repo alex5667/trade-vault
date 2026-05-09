@@ -1,12 +1,12 @@
 import math
 import os
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Any
 
-from core.core_snapshot.runtime_clock import snapshot as runtime_snapshot
 from core.core_snapshot.dq_observe_only import apply_observe_only_book_veto
+from core.core_snapshot.runtime_clock import snapshot as runtime_snapshot
 
 
-def _cfg_get(cfg2: Dict[str, Any], key: str, default: Any, *, env: Optional[str] = None, aliases: Optional[List[str]] = None) -> Any:
+def _cfg_get(cfg2: dict[str, Any], key: str, default: Any, *, env: str | None = None, aliases: list[str] | None = None) -> Any:
     """Config getter with optional aliases + env fallback.
 
     - cfg2 wins over env
@@ -24,23 +24,23 @@ def _cfg_get(cfg2: Dict[str, Any], key: str, default: Any, *, env: Optional[str]
     return default
 
 
-def _cfg_float(cfg2: Dict[str, Any], key: str, default: float, *, env: Optional[str] = None, aliases: Optional[List[str]] = None) -> float:
+def _cfg_float(cfg2: dict[str, Any], key: str, default: float, *, env: str | None = None, aliases: list[str] | None = None) -> float:
     v = _cfg_get(cfg2, key, default, env=env, aliases=aliases)
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
-def _cfg_int(cfg2: Dict[str, Any], key: str, default: int, *, env: Optional[str] = None, aliases: Optional[List[str]] = None) -> int:
+def _cfg_int(cfg2: dict[str, Any], key: str, default: int, *, env: str | None = None, aliases: list[str] | None = None) -> int:
     v = _cfg_get(cfg2, key, default, env=env, aliases=aliases)
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
-def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str, Any]:
+def eval_dq_gate(indicators: dict[str, Any], cfg2: dict[str, Any]) -> dict[str, Any]:
     """
     P14 DQ / time-determinism gate (services-ветка).
     Returns a dict that is safe to persist into decision-record.
@@ -70,7 +70,7 @@ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str, 
         }
 
     # Extract indicators with default fail-open values (NaN/Inf -> fail open).
-    def _get(k: str, default: float = 0.0, aliases: Optional[List[str]] = None) -> float:
+    def _get(k: str, default: float = 0.0, aliases: list[str] | None = None) -> float:
         val = indicators.get(k)
         if val is None and aliases:
             for al in aliases:
@@ -148,7 +148,7 @@ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str, 
     # 3) Severity evaluation (dq_level, reasons)
     # -----------------------------
     dq_level = 0
-    dq_reasons: List[str] = []
+    dq_reasons: list[str] = []
 
     def _bump(level: int, reason: str) -> None:
         nonlocal dq_level
@@ -348,7 +348,7 @@ def eval_dq_gate(indicators: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str, 
     # -----------------------------
     bucket = _reason_bucket(primary_reason)
 
-    res: Dict[str, Any] = {
+    res: dict[str, Any] = {
         "dq_pen": float(dq_pen),
         "dq_veto": int(dq_veto),
         "dq_level": int(dq_level),

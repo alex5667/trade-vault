@@ -1,5 +1,6 @@
-import time
 import sys
+import time
+
 from .redis_client import get_redis
 
 
@@ -12,7 +13,7 @@ def wait_for_redis() -> bool:
     """
     r = get_redis()
     max_attempts = 10
-    
+
     for i in range(max_attempts):
         try:
             r.ping()
@@ -23,7 +24,7 @@ def wait_for_redis() -> bool:
             print(f"⚠️ Ожидание Redis (попытка {i+1}/{max_attempts}): {e}")
             sys.stdout.flush()
             time.sleep(2)
-    
+
     print("✅ Продолжение работы...")
     sys.stdout.flush()
-    return False 
+    return False

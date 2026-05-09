@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator, Tuple
+
 import numpy as np
 
 
@@ -21,7 +22,7 @@ class PurgedEmbargoTimeSeriesSplitV2:
     purge_ms: int = 180_000
     embargo_ms: int = 60_000
 
-    def split(self, ts_ms: np.ndarray) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+    def split(self, ts_ms: np.ndarray) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         n = len(ts_ms)
         if n < self.n_splits + 2:
             return

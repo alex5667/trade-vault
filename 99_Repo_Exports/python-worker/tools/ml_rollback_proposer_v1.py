@@ -1,20 +1,19 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
+import hashlib
+import hmac
 import json
 import os
-import time
-import hmac
-import hashlib
 import secrets
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
 
-from tools.redis_window import read_recent_stream
-from tools.ml_metrics_agg_v3 import agg_health_ml_confirm, agg_selected
-from core.share_map import parse_map, dump_map
 from common.redis_errors import retry_redis_operation
+from tools.ml_metrics_agg_v3 import agg_health_ml_confirm, agg_selected
+from tools.redis_window import read_recent_stream
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -26,12 +25,12 @@ def notify(r: redis.Redis, text: str, buttons=None) -> None:
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
     retry_redis_operation(
-        lambda: r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True),
+        lambda: r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True),
         operation_name="notify xadd",
     )
 
 
-def make_bundle_hset(cfg_key: str, changes: Dict[str, str], who: str, ttl: int):
+def make_bundle_hset(cfg_key: str, changes: dict[str, str], who: str, ttl: int):
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bid = secrets.token_hex(6)
     sig = hmac.new(secret.encode(), bid.encode(), hashlib.sha256).hexdigest()[:8]
@@ -41,7 +40,7 @@ def make_bundle_hset(cfg_key: str, changes: Dict[str, str], who: str, ttl: int):
     return bid, sig, bundle
 
 
-def write_bundle(r: redis.Redis, bid: str, bundle: Dict[str, Any], ttl: int) -> None:
+def write_bundle(r: redis.Redis, bid: str, bundle: dict[str, Any], ttl: int) -> None:
     retry_redis_operation(
         lambda: r.set(f"recs:bundle:{bid}", json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), ex=ttl),
         operation_name="write_bundle set",
@@ -59,9 +58,9 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def filter_rows(rows: List[Dict[str, Any]], bucket: str) -> List[Dict[str, Any]]:
+def filter_rows(rows: list[dict[str, Any]], bucket: str) -> list[dict[str, Any]]:
     b = bucket.lower()
-    return [r for r in rows if str(r.get("bucket", "")).lower() == b]
+    return [r for r in rows if (r.get("bucket", "")).lower() == b]
 
 
 def main() -> None:
@@ -128,7 +127,7 @@ def main() -> None:
     st_tr = agg_selected(trend_rows, p_bucket_tr)
     st_rg = agg_selected(range_rows, p_bucket_rg)
 
-    def bad(st: Dict[str, Any]) -> bool:
+    def bad(st: dict[str, Any]) -> bool:
         if st.get("n", 0) < min_n:
             return False
         if float(st.get("tail_rate", 0.0)) > tail_max:

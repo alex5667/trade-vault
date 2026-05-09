@@ -1,5 +1,5 @@
-from dataclasses import dataclass, asdict
-from typing import Dict, List
+from dataclasses import asdict, dataclass
+
 
 @dataclass(frozen=True)
 class InvariantChaosDrill:
@@ -9,7 +9,7 @@ class InvariantChaosDrill:
     expected_action: str     # deny | clip | scope_freeze | rollout_pause | rollback_request | incident_open_and_hard_freeze_new_entries
     execute_mode: str        # runtime | replay | release_gate
 
-DRILLS: Dict[str, InvariantChaosDrill] = {
+DRILLS: dict[str, InvariantChaosDrill] = {
     "BUY_ORDERING_BROKEN": InvariantChaosDrill(
         code="BUY_ORDERING_BROKEN",
         invariant_id="INV_PAYLOAD_BUY_ORDERING",
@@ -54,5 +54,5 @@ DRILLS: Dict[str, InvariantChaosDrill] = {
     ),
 }
 
-def list_drills() -> List[dict]:
+def list_drills() -> list[dict]:
     return [asdict(x) for x in DRILLS.values()]

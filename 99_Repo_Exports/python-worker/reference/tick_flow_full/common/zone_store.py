@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -47,7 +47,7 @@ class Zone:
     px_hi: float
     ts_ms: int
     weight: float = 1.0
-    meta: Dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
 
     def clamp_ref_px(self, px: float) -> float:
         """Nearest point on band [px_lo, px_hi]. If inside, returns px itself (distance 0)."""
@@ -78,10 +78,10 @@ class ZonePack:
     v: int
     symbol: str
     ts_ms: int
-    zones: List[Zone]
+    zones: list[Zone]
 
     @staticmethod
-    def from_json(raw: str) -> Optional["ZonePack"]:
+    def from_json(raw: str) -> ZonePack | None:
         try:
             d = json.loads(raw)
             if not isinstance(d, dict):
@@ -112,9 +112,9 @@ class ZonePack:
         except Exception:
             return None
 
-    def nearest(self, px: float) -> Tuple[Optional[Zone], float, bool]:
+    def nearest(self, px: float) -> tuple[Zone | None, float, bool]:
         """Return (zone, dist_bp, inside_band). Tie-break: lower dist then higher weight."""
-        best: Optional[Zone] = None
+        best: Zone | None = None
         best_d = 1e18
         best_inside = False
         best_w = -1.0

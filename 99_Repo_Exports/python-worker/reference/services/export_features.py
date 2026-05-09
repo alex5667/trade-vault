@@ -11,12 +11,12 @@ Usage:
                                 --out features.parquet
 """
 
-import os
-import json
 import argparse
-import redis
+import json
+import os
 from datetime import datetime
-from typing import List, Dict, Optional
+
+import redis
 
 try:
     import pandas as pd
@@ -36,11 +36,10 @@ except Exception:
     cp = None  # type: ignore
     _GPU_AVAILABLE = False
 
-import sys
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from signals.featurizer import make_features, Rolling
-from core.config import XAU_TICK_STREAM, XAU_BOOK_STREAM
+from core.config import XAU_BOOK_STREAM, XAU_TICK_STREAM
+from signals.featurizer import Rolling, make_features
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -70,7 +69,7 @@ def parse_time(s: str) -> int:
         # Try as epoch ms first
         if s.isdigit():
             return int(s)
-        
+
         # Try ISO format
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         return int(dt.timestamp() * 1000)
@@ -99,16 +98,16 @@ def xranges(
         (msg_id, fields) tuples
     """
     last = start
-    
+
     while True:
         chunk = r.xrange(stream, min=last, max=end, count=count)
         if not chunk:
             break
-        
+
         for mid, fields in chunk:
             last = mid
             yield mid, fields
-        
+
         # Advance ID to avoid returning same last message
         parts = last.split("-")
         last = f"{parts[0]}-{int(parts[1]) + 1}"
@@ -118,7 +117,7 @@ def load_ticks(
     r: redis.Redis,
     start_ms: int,
     end_ms: int
-) -> List[Dict]:
+) -> list[dict]:
     """
     Load ticks from Redis Stream.
     
@@ -133,7 +132,7 @@ def load_ticks(
     ticks = []
     start_id = f"{start_ms}-0"
     end_id = f"{end_ms}-999999"
-    
+
     print(f"Loading ticks from {TICK_STREAM}...")
     for _, fields in xranges(r, TICK_STREAM, start_id, end_id):
         try:
@@ -142,7 +141,7 @@ def load_ticks(
         except (KeyError, json.JSONDecodeError) as e:
             print(f"Warning: Failed to parse tick: {e}")
             continue
-    
+
     print(f"Loaded {len(ticks)} ticks")
     return ticks
 
@@ -151,7 +150,7 @@ def load_books(
     r: redis.Redis,
     start_ms: int,
     end_ms: int
-) -> Dict[int, Dict]:
+) -> dict[int, dict]:
     """
     Load order books from Redis Stream.
     
@@ -166,7 +165,7 @@ def load_books(
     books_map = {}
     start_id = f"{start_ms}-0"
     end_id = f"{end_ms}-999999"
-    
+
     print(f"Loading books from {BOOK_STREAM}...")
     for _, fields in xranges(r, BOOK_STREAM, start_id, end_id):
         try:
@@ -176,16 +175,16 @@ def load_books(
         except (KeyError, json.JSONDecodeError) as e:
             print(f"Warning: Failed to parse book: {e}")
             continue
-    
+
     print(f"Loaded {len(books_map)} book snapshots")
     return books_map
 
 
 def find_nearest_book(
-    books_map: Dict[int, Dict],
+    books_map: dict[int, dict],
     ts: int,
     max_age_ms: int = 1000
-) -> Optional[Dict]:
+) -> dict | None:
     """
     Find nearest book snapshot for given timestamp.
     
@@ -200,18 +199,18 @@ def find_nearest_book(
     # Exact match
     if ts in books_map:
         return books_map[ts]
-    
+
     # Find closest earlier book within max_age
-    candidates = [k for k in books_map.keys() if k <= ts and ts - k <= max_age_ms]
+    candidates = [k for k in books_map if k <= ts and ts - k <= max_age_ms]
     if candidates:
         return books_map[max(candidates)]
-    
+
     return None
 
 
 def extract_features(
-    ticks: List[Dict],
-    books_map: Dict[int, Dict],
+    ticks: list[dict],
+    books_map: dict[int, dict],
     delta_window: int = 120,
     use_gpu: bool = False,
 ):
@@ -229,11 +228,11 @@ def extract_features(
         DataFrame with features
     """
     print("Extracting features...")
-    
+
     # ✅ GPU Support: используем batch processor для больших объемов
     use_batch = len(ticks) > 5000
     batch_processor = None
-    
+
     if use_batch:
         try:
             from services.batch_processor import get_batch_processor
@@ -241,33 +240,33 @@ def extract_features(
             print("🚀 Using GPU-accelerated batch processing")
         except ImportError:
             use_batch = False
-    
+
     roll = Rolling(size=delta_window)
     rows = []
-    
+
     # ✅ OBI Batch Optimization: накапливаем книги для батч обработки
     obi_books_buffer = []
     obi_ticks_indices = []
     obi_batch_size = 10  # Обрабатываем OBI батчами из 10+ книг
-    
+
     # Обрабатываем батчами если много данных
     if use_batch and batch_processor:
         batch_size = 1000
         for batch_start in range(0, len(ticks), batch_size):
             batch = ticks[batch_start:batch_start + batch_size]
-            
+
             for tick in batch:
                 ts = int(tick["ts"])
                 book = find_nearest_book(books_map, ts)
-                
+
                 # Накапливаем книги для батч OBI вычислений
                 if book:
                     obi_books_buffer.append(book)
                     obi_ticks_indices.append(len(rows))
-                
+
                 feat = make_features(tick, book, roll)
                 rows.append(feat)
-            
+
             # ✅ Обрабатываем накопленные книги батчем для OBI
             if len(obi_books_buffer) >= obi_batch_size:
                 try:
@@ -281,7 +280,7 @@ def extract_features(
                     pass  # Fallback уже использован в make_features
                 obi_books_buffer.clear()
                 obi_ticks_indices.clear()
-            
+
             if (batch_start + len(batch)) % 10000 == 0:
                 print(f"Processed {batch_start + len(batch)}/{len(ticks)} ticks...")
     else:
@@ -289,15 +288,15 @@ def extract_features(
         for i, tick in enumerate(ticks):
             ts = int(tick["ts"])
             book = find_nearest_book(books_map, ts)
-            
+
             # Накапливаем книги для батч OBI вычислений
             if book:
                 obi_books_buffer.append(book)
                 obi_ticks_indices.append(len(rows))
-            
+
             feat = make_features(tick, book, roll)
             rows.append(feat)
-            
+
             # ✅ Обрабатываем накопленные книги батчем для OBI
             if len(obi_books_buffer) >= obi_batch_size:
                 try:
@@ -311,10 +310,10 @@ def extract_features(
                     pass  # Fallback уже использован в make_features
                 obi_books_buffer.clear()
                 obi_ticks_indices.clear()
-            
+
             if (i + 1) % 10000 == 0:
                 print(f"Processed {i + 1}/{len(ticks)} ticks...")
-    
+
     # Обрабатываем оставшиеся книги
     if obi_books_buffer:
         try:
@@ -325,7 +324,7 @@ def extract_features(
                     rows[idx]["obi"] = obi_val
         except Exception:
             pass
-    
+
     if use_gpu and _GPU_AVAILABLE:
         try:
             df_gpu = cudf.DataFrame(rows)
@@ -335,7 +334,7 @@ def extract_features(
             print("⚠️ GPU DataFrame failed, falling back to pandas")
     df_cpu = pd.DataFrame(rows)
     print(f"Extracted {len(df_cpu)} feature rows")
-    
+
     return df_cpu
 
 
@@ -373,44 +372,44 @@ Examples:
         help="Enable GPU acceleration for DataFrame output (cuDF + cuIO).",
     )
     args = ap.parse_args()
-    
+
     # Parse timestamps
     start_ms = parse_time(args.start)
     end_ms = parse_time(args.end)
-    
+
     if start_ms >= end_ms:
         raise SystemExit("Error: start time must be before end time")
-    
+
     print(f"Time range: {start_ms} - {end_ms} ({(end_ms - start_ms) / 1000 / 60:.1f} minutes)")
-    
+
     # Connect to Redis
     print(f"Connecting to Redis: {REDIS_URL}")
     r = redis.from_url(REDIS_URL, decode_responses=True)
-    
+
     # Load data
     ticks = load_ticks(r, start_ms, end_ms)
     books_map = load_books(r, start_ms, end_ms)
-    
+
     if not ticks:
         print("Warning: No ticks found in time range")
         return
-    
+
     use_gpu = bool(args.use_gpu and _GPU_AVAILABLE)
     if args.use_gpu and not _GPU_AVAILABLE:
         print("⚠️ GPU requested but cuDF/CuPy not available, using CPU\n")
     elif use_gpu:
         print("🚀 GPU mode enabled (cuDF)\n")
-    
+
     # Extract features
     df = extract_features(ticks, books_map, delta_window=args.delta_window, use_gpu=use_gpu)
-    
+
     # Save
     print(f"Saving to {args.out}...")
     if args.out.endswith(".parquet"):
         df.to_parquet(args.out, index=False)
     else:
         df.to_csv(args.out, index=False)
-    
+
     print(f"✅ Wrote {len(df)} rows to {args.out}")
     print(f"   Columns: {', '.join(df.columns)}")
     print(f"   Size: {os.path.getsize(args.out) / 1024:.1f} KB")

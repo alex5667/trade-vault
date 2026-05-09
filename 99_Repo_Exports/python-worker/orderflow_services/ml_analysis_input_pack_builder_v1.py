@@ -1,15 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
+from utils.time_utils import get_ny_time_millis
 
 SNAPSHOT_STREAM = os.getenv("ML_MODEL_SNAPSHOT_STREAM", "stream:ml:model_snapshot")
 TRAINING_STREAM = os.getenv("ML_TRAINING_RUNS_STREAM", "stream:ml:training_runs")
@@ -67,7 +67,7 @@ class Snapshot:
     artifact_uri: str
     schema_ver: str
     schema_hash: str
-    reason_codes: List[str]
+    reason_codes: list[str]
     latest_runtime_ts_ms: int
     runtime_age_sec: float
     latency_p95_max_ms: float
@@ -77,15 +77,15 @@ class Snapshot:
     abstain_rate_avg: float
     shadow_rate_avg: float
     error_rate_max: float
-    ece_max: Optional[float]
-    brier_max: Optional[float]
+    ece_max: float | None
+    brier_max: float | None
     missing_critical_rate_max: float
-    hot_symbols: List[str]
-    psi_top_json: List[Any]
-    ks_top_json: List[Any]
+    hot_symbols: list[str]
+    psi_top_json: list[Any]
+    ks_top_json: list[Any]
 
 
-def normalize_snapshot(d: Dict[str, Any]) -> Snapshot:
+def normalize_snapshot(d: dict[str, Any]) -> Snapshot:
     reason_codes = _jloads(d.get("reason_codes_json"), [])
     hot_symbols = _jloads(d.get("hot_symbols_json"), [])
     psi_top = _jloads(d.get("psi_top_json"), [])
@@ -119,8 +119,8 @@ def normalize_snapshot(d: Dict[str, Any]) -> Snapshot:
     )
 
 
-def severity_of_snapshot(s: Snapshot) -> Tuple[str, List[str]]:
-    reasons: List[str] = []
+def severity_of_snapshot(s: Snapshot) -> tuple[str, list[str]]:
+    reasons: list[str] = []
     severity = "normal"
     if s.status in ("critical", "warning"):
         severity = "high" if s.status == "critical" else "normal"
@@ -140,7 +140,7 @@ def severity_of_snapshot(s: Snapshot) -> Tuple[str, List[str]]:
     return severity, sorted(set(reasons))
 
 
-def build_analysis_request(snapshot: Snapshot, training_run: Dict[str, Any], window_min: int = 60) -> Dict[str, Any]:
+def build_analysis_request(snapshot: Snapshot, training_run: dict[str, Any], window_min: int = 60) -> dict[str, Any]:
     severity, reasons = severity_of_snapshot(snapshot)
     task_type = "root_cause_degradation" if reasons else "health_summary"
     priority = "high" if severity == "high" else "normal"
@@ -216,7 +216,7 @@ def build_analysis_request(snapshot: Snapshot, training_run: Dict[str, Any], win
     }
 
 
-async def _latest_stream_payload(r, stream: str, model_id: str) -> Dict[str, Any]:
+async def _latest_stream_payload(r, stream: str, model_id: str) -> dict[str, Any]:
     rows = await r.xrevrange(stream, max="+", min="-", count=200)
     for _msg_id, fields in rows:
         data = {_s(k): _s(v) for k, v in fields.items()}

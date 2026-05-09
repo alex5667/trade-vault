@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Low-overhead ExecHealth rollout contract state writer.
@@ -23,9 +24,9 @@ import math
 import os
 import socket
 import threading
-import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, MutableMapping, Optional
+from typing import Any
 
 from services.orderflow.exec_health_rollups import ExecHealthDecision, get_exec_health_policy_from_env
 
@@ -40,9 +41,9 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         v = float(x)
     except Exception:
-        return float(d)
+        return d
     if not math.isfinite(v):
-        return float(d)
+        return d
     return float(v)
 
 
@@ -50,16 +51,16 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _s(x: Any, d: str = "") -> str:
     try:
         if x is None:
-            return str(d)
+            return d
         return str(x)
     except Exception:
-        return str(d)
+        return d
 
 
 @dataclass
@@ -89,7 +90,7 @@ class _LocalScopeState:
 
 
 _LOCK = threading.RLock()
-_STATE: Dict[str, _LocalScopeState] = {}
+_STATE: dict[str, _LocalScopeState] = {}
 
 
 def _instance_id() -> str:
@@ -142,7 +143,7 @@ def _state_key(scope: str, instance_id: str) -> str:
 
 
 
-def _build_hash(state: _LocalScopeState) -> Dict[str, str]:
+def _build_hash(state: _LocalScopeState) -> dict[str, str]:
     return {
         "schema_name": "exec_health_scope_state",
         "schema_version": "1",
@@ -173,7 +174,7 @@ def _build_hash(state: _LocalScopeState) -> Dict[str, str]:
 
 
 def _get_state(scope: str) -> _LocalScopeState:
-    sc = str(scope or "unknown")
+    sc = (scope or "unknown")
     now = _now_ms()
     with _LOCK:
         st = _STATE.get(sc)
@@ -204,8 +205,8 @@ def record_exec_health_contract_state(
     scope: str,
     profile: str,
     symbol: str,
-    decision: Optional[ExecHealthDecision],
-    now_ms: Optional[int] = None,
+    decision: ExecHealthDecision | None,
+    now_ms: int | None = None,
 ) -> None:
     """Update in-memory counters/state from the already computed SoT decision."""
     ts = int(now_ms or _now_ms())

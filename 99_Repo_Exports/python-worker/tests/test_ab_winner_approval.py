@@ -1,5 +1,6 @@
 
-from services.ab_winner_approval import decide_approve, active_arm_key, lock_key
+from services.ab_winner_approval import active_arm_key, decide_approve, lock_key
+
 
 def test_approve_reject_min_samples():
     sugg = {"winner_arm":"B","arms":{"B":{"n":10,"mean_r":0.2},"A":{"n":100,"mean_r":0.1}}}

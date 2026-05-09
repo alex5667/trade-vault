@@ -13,10 +13,10 @@ def _env_bool(name: str, default: bool) -> bool:
 def _safe_float(v: Any, default: float = 0.0) -> float:
     try:
         if v is None:
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _canon_regime(v: Any) -> str:
@@ -40,7 +40,7 @@ class TrailStatsConfig:
     ttl_sec: int = 60 * 60 * 24 * 60  # 60d
 
     @classmethod
-    def from_env(cls) -> "TrailStatsConfig":
+    def from_env(cls) -> TrailStatsConfig:
         return cls(
             enabled=_env_bool("TRAIL_STATS_ENABLED", True),
             alpha=float(os.getenv("TRAIL_STATS_EMA_ALPHA", "0.08") or 0.08),

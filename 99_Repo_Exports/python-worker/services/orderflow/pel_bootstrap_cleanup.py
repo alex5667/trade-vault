@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 pel_bootstrap_cleanup.py — Automatic zombie consumer cleanup on worker startup.
 
@@ -27,9 +28,7 @@ ENV:
 
 import asyncio
 import logging
-import os
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("pel_cleanup")
 
@@ -60,7 +59,7 @@ except Exception:
 
 async def cleanup_zombie_consumers(
     redis_client: Any,
-    symbols: List[str],
+    symbols: list[str],
     *,
     current_consumer_id: str,
     idle_threshold_ms: int = 60_000,
@@ -69,7 +68,7 @@ async def cleanup_zombie_consumers(
     group_prefix: str = "crypto-of:",
     book_stream_prefix: str = "stream:book_",
     book_group_prefix: str = "crypto-of-book:",
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """Remove zombie consumers and ACK their pending entries.
 
     Returns dict with summary stats: {zombies_removed, pending_acked, symbols_processed}.
@@ -81,7 +80,7 @@ async def cleanup_zombie_consumers(
     total_zombies = 0
     total_acked = 0
 
-    stream_configs: List[Tuple[str, str, str]] = []
+    stream_configs: list[tuple[str, str, str]] = []
     for sym in symbols:
         stream_configs.append((f"{stream_prefix}{sym}", f"{group_prefix}{sym}", "ticks"))
         stream_configs.append((f"{book_stream_prefix}{sym}", f"{book_group_prefix}{sym}", "books"))
@@ -220,7 +219,7 @@ async def _ack_consumer_pending(
             # Active PEL Management: XCLAIM the messages to current consumer before ACKing
             if current_consumer:
                 await redis_client.xclaim(stream, group, current_consumer, min_idle_time=0, message_ids=ids)
-            
+
             await redis_client.xack(stream, group, *ids)
             total_acked += len(ids)
         except Exception:

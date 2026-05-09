@@ -1,12 +1,13 @@
 # config_manager.py
 from __future__ import annotations
+
 """
 Функционал управления конфигурацией, извлеченный из base_orderflow_handler.py
 """
 
 
-from typing import Optional, Dict, Any
 import os
+from typing import Any
 
 # from common.log import setup_logger
 
@@ -19,7 +20,7 @@ class ConfigManager:
     Управляет конфигурацией и настройками для orderflow handler.
     """
 
-    def __init__(self, symbol: str, *, signal_stream_prefix: Optional[str] = None, strategy_key: str = "orderflow"):
+    def __init__(self, symbol: str, *, signal_stream_prefix: str | None = None, strategy_key: str = "orderflow"):
         self.symbol = symbol
         self._signal_stream_prefix = signal_stream_prefix
         self._strategy_key = strategy_key
@@ -126,7 +127,7 @@ class ConfigManager:
             return max(5, base // 2)  # Минимум 5, но половина от требований бара
         return base
 
-    def _get_calibrated_trailing_params(self) -> Dict[str, Any]:
+    def _get_calibrated_trailing_params(self) -> dict[str, Any]:
         """
         Получение откалиброванных параметров трейлинга из Redis или дефолтных.
         """
@@ -194,11 +195,11 @@ class ConfigManager:
         """Минимальный порог уверенности (шкала 0..1)."""
         return self.get_min_confidence_for_symbol(symbol or self.symbol)
 
-    def trailing_params(self) -> Dict[str, Any]:
+    def trailing_params(self) -> dict[str, Any]:
         """Откалиброванные параметры трейлинга."""
         return self._get_calibrated_trailing_params()
 
-    def get_config_summary(self) -> Dict[str, Any]:
+    def get_config_summary(self) -> dict[str, Any]:
         """Сводка текущей конфигурации."""
         return {
             'symbol': self.symbol,

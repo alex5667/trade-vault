@@ -26,13 +26,11 @@ import difflib
 import hashlib
 import json
 import os
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Set, Tuple
-
-
 import sys
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 # Ensure `core.*` imports work (repo uses tick_flow_full as PYTHONPATH root).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -41,7 +39,7 @@ if _TICK_FLOW_FULL.exists() and str(_TICK_FLOW_FULL) not in sys.path:
     sys.path.insert(0, str(_TICK_FLOW_FULL))
 
 
-UTC = timezone.utc
+UTC = UTC
 
 
 @dataclass(frozen=True)
@@ -60,7 +58,7 @@ def _sha1_8(s: str) -> str:
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
 
 
-def _read_csv_dicts(path: Path) -> List[Dict[str, str]]:
+def _read_csv_dicts(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         return [dict(r) for r in reader]
@@ -78,7 +76,7 @@ def _try_float(x: object, default: float = 0.0) -> float:
         return default
 
 
-def _parse_feature_name(raw: str) -> Tuple[str, Optional[str]]:
+def _parse_feature_name(raw: str) -> tuple[str, str | None]:
     """Return (key, kind_hint) where kind_hint in {'num','bool',None}."""
     s = (raw or "").strip()
     if s.startswith("n:"):
@@ -95,7 +93,7 @@ def _parse_feature_name(raw: str) -> Tuple[str, Optional[str]]:
     return s, None
 
 
-def _load_registry_keys() -> Tuple[Set[str], Set[str], Set[str], Set[str]]:
+def _load_registry_keys() -> tuple[set[str], set[str], set[str], set[str]]:
     """Return (v4_num, v4_bool, v5_num, v5_bool) sets of raw keys (no prefixes)."""
     try:
         from core.feature_registry import get_schema_info
@@ -103,9 +101,9 @@ def _load_registry_keys() -> Tuple[Set[str], Set[str], Set[str], Set[str]]:
         v4 = get_schema_info("v4_of").feature_names
         v5 = get_schema_info("v5_of").feature_names
 
-        def split(names: Sequence[str]) -> Tuple[Set[str], Set[str]]:
-            n: Set[str] = set()
-            b: Set[str] = set()
+        def split(names: Sequence[str]) -> tuple[set[str], set[str]]:
+            n: set[str] = set()
+            b: set[str] = set()
             for nm in names:
                 if nm.startswith("n:"):
                     n.add(nm[2:])
@@ -121,7 +119,7 @@ def _load_registry_keys() -> Tuple[Set[str], Set[str], Set[str], Set[str]]:
         return set(), set(), set(), set()
 
 
-def _load_denylist_json(path: Path) -> Dict:
+def _load_denylist_json(path: Path) -> dict:
     if not path.exists():
         return {
             "ver": "v1",
@@ -158,7 +156,7 @@ def _unified_diff(a_text: str, b_text: str, a_path: str, b_path: str) -> str:
     return "\n".join(diff) + "\n"
 
 
-def _find_stability_table(fs_run_dir: Path) -> Optional[Path]:
+def _find_stability_table(fs_run_dir: Path) -> Path | None:
     if fs_run_dir.is_file() and fs_run_dir.name.endswith(".csv"):
         return fs_run_dir
     p = fs_run_dir / "stability_table.csv"
@@ -172,8 +170,8 @@ def _find_stability_table(fs_run_dir: Path) -> Optional[Path]:
     return None
 
 
-def _list_recent_manifests(proposals_dir: Path, since: datetime) -> List[Path]:
-    out: List[Path] = []
+def _list_recent_manifests(proposals_dir: Path, since: datetime) -> list[Path]:
+    out: list[Path] = []
     if not proposals_dir.exists():
         return out
     for p in sorted(proposals_dir.glob("denylist_proposal_*.manifest.json")):
@@ -187,16 +185,16 @@ def _list_recent_manifests(proposals_dir: Path, since: datetime) -> List[Path]:
 
 
 def _select_candidates(
-    rows: List[Dict[str, str]],
-    extras_num: Set[str],
-    extras_bool: Set[str],
-    v5_num: Set[str],
-    v5_bool: Set[str],
+    rows: list[dict[str, str]],
+    extras_num: set[str],
+    extras_bool: set[str],
+    v5_num: set[str],
+    v5_bool: set[str],
     max_features: int,
     min_importance: float,
     max_cv: float,
-) -> List[Candidate]:
-    cands: List[Candidate] = []
+) -> list[Candidate]:
+    cands: list[Candidate] = []
 
     for r in rows:
         feat = (r.get("feature") or r.get("name") or r.get("col") or "").strip()
@@ -241,8 +239,8 @@ def _select_candidates(
     cands.sort(key=lambda x: x.score, reverse=True)
 
     # dedup by key
-    seen: Set[Tuple[str, str]] = set()
-    out: List[Candidate] = []
+    seen: set[tuple[str, str]] = set()
+    out: list[Candidate] = []
     for c in cands:
         k = (c.kind, c.key)
         if k in seen:
@@ -331,11 +329,11 @@ def main() -> int:
         return 0
 
     current = _load_denylist_json(denylist_path)
-    deny_num: Set[str] = set(current.get("deny_num") or [])
-    deny_bool: Set[str] = set(current.get("deny_bool") or [])
+    deny_num: set[str] = set(current.get("deny_num") or [])
+    deny_bool: set[str] = set(current.get("deny_bool") or [])
 
-    added_num: List[str] = []
-    added_bool: List[str] = []
+    added_num: list[str] = []
+    added_bool: list[str] = []
 
     for c in cands:
         if c.kind == "bool":
@@ -367,7 +365,7 @@ def main() -> int:
     for mp in _list_recent_manifests(proposals_dir, since=since):
         try:
             m = json.loads(mp.read_text(encoding="utf-8"))
-            if isinstance(m, dict) and str(m.get("proposal_hash") or "") == ph:
+            if isinstance(m, dict) and (m.get("proposal_hash") or "") == ph:
                 print(f"[denylist] dedup hit: {ph} already proposed recently ({mp.name})")
                 return 0
         except Exception:

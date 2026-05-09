@@ -1,7 +1,6 @@
 import logging
-from prometheus_client import Counter, Gauge, start_http_server
 
-from services.analytics_db import get_conn
+from prometheus_client import Counter, Gauge, start_http_server
 
 logger = logging.getLogger("atr_release_gate_exporter")
 

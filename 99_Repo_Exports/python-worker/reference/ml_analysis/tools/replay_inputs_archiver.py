@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Archive ml_replay_inputs_v1 stream to NDJSON on disk.
 
 Why (P56):
@@ -24,8 +25,6 @@ CLI examples:
   python -m ml_analysis.tools.replay_inputs_archiver --loop-s 1 --batch 2000
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import gzip
 import json
@@ -33,10 +32,12 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from utils.time_utils import get_ny_time_millis
 
 if TYPE_CHECKING:  # pragma: no cover
-    import redis  # type: ignore
+    pass  # type: ignore
 
 
 def _now_ms() -> int:
@@ -53,29 +54,29 @@ def _as_str(x: Any) -> str:
 
 def _as_int(x: Any, default: int = 0) -> int:
     if x is None:
-        return int(default)
+        return default
     if isinstance(x, bool):
-        return int(default)
+        return default
     if isinstance(x, (int, float)):
         try:
             return int(x)
         except Exception:
-            return int(default)
+            return default
     if isinstance(x, bytes):
         try:
             x = x.decode("utf-8", "ignore")
         except Exception:
-            return int(default)
+            return default
     try:
         s = str(x).strip()
         if not s:
-            return int(default)
+            return default
         return int(float(s))
     except Exception:
-        return int(default)
+        return default
 
 
-def _safe_json_loads(x: Any) -> Optional[Dict[str, Any]]:
+def _safe_json_loads(x: Any) -> dict[str, Any] | None:
     if x is None:
         return None
     if isinstance(x, dict):
@@ -101,7 +102,7 @@ def _utc_day_from_ts_ms(ts_ms: int) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(int(ts_ms) / 1000))
 
 
-def _pick_ts_ms(payload: Dict[str, Any]) -> int:
+def _pick_ts_ms(payload: dict[str, Any]) -> int:
     close = payload.get("close") if isinstance(payload.get("close"), dict) else None
     if close:
         v = close.get("close_ts_ms")
@@ -202,7 +203,7 @@ class _Writer:
     def __init__(self, cfg: ArchiverCfg):
         self.cfg = cfg
         self.cfg.archive_dir.mkdir(parents=True, exist_ok=True)
-        self._open_day: Optional[str] = None
+        self._open_day: str | None = None
         self._fh = None  # type: ignore
         self._n_since_flush = 0
         self._n_since_fsync = 0
@@ -221,7 +222,7 @@ class _Writer:
         self._n_since_flush = 0
         self._n_since_fsync = 0
 
-    def write_line(self, day: str, obj: Dict[str, Any]) -> None:
+    def write_line(self, day: str, obj: dict[str, Any]) -> None:
         self._open_for_day(day)
         assert self._fh is not None
         line = (json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
@@ -252,7 +253,7 @@ class _Writer:
 
 
 def _seen_key(cfg: ArchiverCfg, stream_id: str) -> bytes:
-    return f"{cfg.seen_prefix}{stream_id}".encode("utf-8")
+    return f"{cfg.seen_prefix}{stream_id}".encode()
 
 
 def _ack_and_optional_delete(r, cfg: ArchiverCfg, stream_id: bytes) -> None:
@@ -264,7 +265,7 @@ def _ack_and_optional_delete(r, cfg: ArchiverCfg, stream_id: bytes) -> None:
             pass
 
 
-def _process_one(r, cfg: ArchiverCfg, writer: _Writer, stream_id: bytes, fields: Dict[bytes, bytes]) -> None:
+def _process_one(r, cfg: ArchiverCfg, writer: _Writer, stream_id: bytes, fields: dict[bytes, bytes]) -> None:
     sid = None
     try:
         stream_id_str = stream_id.decode("utf-8", "replace")
@@ -338,8 +339,9 @@ def main() -> None:
     cfg = load_cfg()
     r = _redis(cfg)
 
-    import redis
     import time
+
+    import redis
     while True:
         try:
             r.ping()

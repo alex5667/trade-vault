@@ -1,7 +1,8 @@
+
 import pytest
-import types
 
 from services.signal_dispatcher import SignalDispatcher
+from core.redis_keys import RedisStreams as RS
 
 
 @pytest.fixture()
@@ -11,7 +12,7 @@ def dispatcher(r, monkeypatch):
     d.simple_redis = r
     d.dual_redis = r
 
-    d.outbox_stream = "stream:signals:outbox"
+    d.outbox_stream = RS.SIGNAL_OUTBOX
     d.group = "g"
     d.consumer = "c"
 

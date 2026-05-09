@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis.asyncio as aioredis
 
@@ -14,8 +14,8 @@ async def capture_range(
     start_id: str,
     end_id: str,
     count: int = 2000,
-) -> List[Tuple[str, Dict[str, Any]]]:
-    out: List[Tuple[str, Dict[str, Any]]] = []
+) -> list[tuple[str, dict[str, Any]]]:
+    out: list[tuple[str, dict[str, Any]]] = []
     cur = start_id
     while True:
         rows = await r.xrange(stream, min=cur, max=end_id, count=count)
@@ -35,7 +35,7 @@ async def capture_range(
     return out
 
 
-def ndjson_dump(path: str, rows: List[Dict[str, Any]]) -> None:
+def ndjson_dump(path: str, rows: list[dict[str, Any]]) -> None:
     with open(path, "w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")

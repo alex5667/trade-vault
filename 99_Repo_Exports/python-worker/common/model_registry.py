@@ -1,5 +1,4 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
@@ -7,7 +6,9 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 @dataclass(frozen=True)
@@ -47,7 +48,7 @@ def write_bytes_atomic(dst_path: str, data: bytes, mode: int = 0o644) -> WriteRe
     return WriteResult(path=str(dst), sha256=_sha256_bytes(data), size=len(data))
 
 
-def write_json_atomic(dst_path: str, obj: Dict[str, Any], mode: int = 0o644) -> WriteResult:
+def write_json_atomic(dst_path: str, obj: dict[str, Any], mode: int = 0o644) -> WriteResult:
     data = (json.dumps(obj, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
     return write_bytes_atomic(dst_path, data, mode=mode)
 
@@ -66,7 +67,7 @@ def ensure_dir(path: str) -> str:
     return path
 
 
-def version_stamp(ts_ms: Optional[int] = None) -> str:
+def version_stamp(ts_ms: int | None = None) -> str:
     ts = ts_ms if ts_ms is not None else get_ny_time_millis()
     # YYYYMMDD_HHMMSS_mmm (UTC)
     t = time.gmtime(ts / 1000.0)
@@ -78,9 +79,9 @@ def write_versioned_model(
     registry_dir: str,
     *,
     kind: str = "meta_lr",
-    ts_ms: Optional[int] = None,
-    extra_meta: Optional[Dict[str, Any]] = None,
-) -> Tuple[WriteResult, str]:
+    ts_ms: int | None = None,
+    extra_meta: dict[str, Any] | None = None,
+) -> tuple[WriteResult, str]:
     """
     Store a copy into registry dir under a versioned name and write a small metadata json.
     Returns (write_result, version_id).
@@ -103,7 +104,7 @@ def write_versioned_model(
     return wr, v
 
 
-def promote_version(registry_dir: str, kind: str, version: str, dst_path: str) -> Dict[str, Any]:
+def promote_version(registry_dir: str, kind: str, version: str, dst_path: str) -> dict[str, Any]:
     """
     Promote a version from registry to dst_path atomically.
     """

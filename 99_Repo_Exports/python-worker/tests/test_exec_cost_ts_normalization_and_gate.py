@@ -1,12 +1,12 @@
 import pytest
 
 from domain.time_utils import session_from_ts_ms
+from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
 from services.execution_cost_ema import (
     ExecCostEmaConfig,
     build_exec_cost_ema_key,
     update_exec_cost_ema,
 )
-from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
 
 
 class FakeRedis:

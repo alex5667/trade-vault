@@ -1,5 +1,5 @@
 import copy
-import json
+
 import pytest
 
 from services.signal_dispatcher import SignalDispatcher
@@ -30,7 +30,6 @@ json_value = st.recursive(
 
 @hypothesis.given(payload=st.dictionaries(st.text(min_size=1, max_size=16), json_value, max_size=12))
 def test_deliver_does_not_mutate_env_targets(payload):
-    from services.signal_dispatcher import SignalDispatcher
 
     sd = object.__new__(SignalDispatcher)
     sd.redis = object()

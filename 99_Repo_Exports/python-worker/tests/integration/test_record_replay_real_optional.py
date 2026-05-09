@@ -19,6 +19,7 @@ Notes:
 import importlib
 import json
 import os
+
 import pytest
 
 from replay.replay_runner import replay_jsonl
@@ -47,7 +48,7 @@ def test_record_replay_real_optional() -> None:
     # If golden provided, compare.
     gpath = os.getenv("REPLAY_GOLDEN", "").strip()
     if gpath:
-        with open(gpath, "r", encoding="utf-8") as fh:
+        with open(gpath, encoding="utf-8") as fh:
             g = json.load(fh)
         assert rep.counts_by_kind == g["counts_by_kind"]
         assert rep.score_p50_by_kind == g["score_p50_by_kind"]

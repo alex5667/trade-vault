@@ -16,7 +16,6 @@ CryptoOrderFlowHandler, MultiSymbolOrderFlowService).
 import os
 import signal
 import sys
-from typing import List
 
 from handlers.handler_factory import OrderFlowHandlerFactory
 from main_multi_symbol import MultiSymbolOrderFlowService
@@ -24,7 +23,7 @@ from main_multi_symbol import MultiSymbolOrderFlowService
 DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 
 
-def parse_symbols() -> List[str]:
+def parse_symbols() -> list[str]:
     """
     Возвращает список символов для запуска обработчиков.
 
@@ -51,7 +50,7 @@ def parse_symbols() -> List[str]:
     return DEFAULT_SYMBOLS
 
 
-def configure_environment(symbols: List[str]) -> None:
+def configure_environment(symbols: list[str]) -> None:
     """
     Готовит переменные окружения для обработчиков.
 
@@ -69,7 +68,7 @@ def configure_environment(symbols: List[str]) -> None:
         os.environ.setdefault(f"{key}_BOOK_STREAM", f"stream:book_{key}")
 
 
-def ensure_support(symbols: List[str]) -> None:
+def ensure_support(symbols: list[str]) -> None:
     """
     Проверяет, что все символы поддерживаются фабрикой обработчиков.
     """

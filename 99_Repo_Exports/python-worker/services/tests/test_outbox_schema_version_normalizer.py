@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for `_normalize_schema_version` + `ACCEPTED_SCHEMA_VERSIONS`
 introduced in Phase 3.2 for dual-typed schema_version support.
 
@@ -7,7 +8,6 @@ existing chaos/integration suites in this directory.
 """
 
 
-import importlib
 import os
 from unittest import mock
 

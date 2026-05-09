@@ -1,12 +1,9 @@
 # tick_flow_full/tests/services/test_l3_lite_tracker_fill_prob.py
-# -*- coding: utf-8 -*-
 """
 Tests for fill_prob enrichment in L3LiteTracker and L3LiteSnapshot.
 Validates that fill_prob_bid / fill_prob_ask are computed and propagated correctly.
 """
-import pytest
-from tick_flow_full.services.l3_lite_tracker import L3LiteTracker, L3LiteSnapshot
-
+from tick_flow_full.services.l3_lite_tracker import L3LiteSnapshot, L3LiteTracker
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers

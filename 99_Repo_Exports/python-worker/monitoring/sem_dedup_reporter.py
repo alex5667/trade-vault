@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,7 @@ class SemDedupReporter:
     Pulls cumulative sem_dedup counters from UnifiedSignalEmitter snapshot,
     computes interval deltas and sends Telegram diagnostics with explanations.
     """
-    def __init__(self, *, emitter: Any, tg: TelegramSink, logger: Any, policy: Optional[SemDedupPolicy] = None) -> None:
+    def __init__(self, *, emitter: Any, tg: TelegramSink, logger: Any, policy: SemDedupPolicy | None = None) -> None:
         self._emitter = emitter
         self._tg = tg
         self._logger = logger
@@ -46,8 +47,8 @@ class SemDedupReporter:
             hits_spike_per_min=int(os.getenv("SEM_DEDUP_HITS_SPIKE_PER_MIN", "200")),
             top_n=int(os.getenv("SEM_DEDUP_REPORT_TOP_N", "6")),
         )
-        self._prev: Optional[dict[str, Any]] = None
-        self._prev_ms: Optional[int] = None
+        self._prev: dict[str, Any] | None = None
+        self._prev_ms: int | None = None
 
     def _now_ms(self) -> int:
         return get_ny_time_millis()
@@ -102,7 +103,7 @@ class SemDedupReporter:
         rows.sort(key=lambda x: (x[3], x[1] + x[2]), reverse=True)
         return rows[: max(1, int(self._policy.top_n))]
 
-    def run_once(self, *, now_ms: Optional[int] = None) -> Optional[str]:
+    def run_once(self, *, now_ms: int | None = None) -> str | None:
         if now_ms is None:
             now_ms = self._now_ms()
 
@@ -212,8 +213,6 @@ class SemDedupReporter:
             ok = self._tg.send(msg)
             return bool(ok)
         except Exception as e:
-            try:
+            with contextlib.suppress(Exception):
                 self._logger.exception(f"SemDedupReporter failed: {e}")
-            except Exception:
-                pass
             return False

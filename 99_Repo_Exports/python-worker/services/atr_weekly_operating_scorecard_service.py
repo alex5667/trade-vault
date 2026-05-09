@@ -4,14 +4,12 @@ ATR Weekly Operating Scorecard Service (Phase 9.1)
 Forms the canonical weekly scorecard, review ceremony data, and action loop.
 """
 
+import json
 import os
 import time
-import json
 import uuid
-import logging
-from datetime import datetime, timezone, timedelta
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from datetime import UTC, datetime, timedelta
+
 import redis
 
 from common.log import setup_logger
@@ -90,7 +88,7 @@ class ATRWeeklyScorecardService:
 
     def derive_domain_status(self, domain: str, metrics: dict) -> str:
         status = "GREEN"
-        
+
         if domain == "signal_gates":
             if metrics.get("top_veto_reasons", {}).get("book_stale", 0) > 1000 or metrics.get("veto_drift_detected"):
                 status = "RED"
@@ -113,7 +111,7 @@ class ATRWeeklyScorecardService:
                 status = "YELLOW"
             if metrics.get("expired_overrides_active", 0) > 0 or metrics.get("hidden_dependency_findings", 0) > 0:
                 status = "RED"
-                
+
         return status
 
     def propose_weekly_decision(self, domain_statuses: dict, domain_metrics: dict) -> str:
@@ -124,7 +122,7 @@ class ATRWeeklyScorecardService:
             return "HOLD"
         if dr_metrics.get("runtime_critical_drifts", 0) > 0:
             return "HOLD"
-            
+
         # Check FREEZE_ESCALATION & ROLLBACK_REVIEW_REQUIRED rules
         pl_metrics = domain_metrics.get("protective_lifecycle", {})
         if pl_metrics.get("protective_critical_drifts", 0) > 0:
@@ -134,12 +132,12 @@ class ATRWeeklyScorecardService:
         counts = {"GREEN": 0, "YELLOW": 0, "RED": 0}
         for s in domain_statuses.values():
             counts[s] += 1
-            
+
         if counts["RED"] > 0:
             return "HOLD"
         elif counts["YELLOW"] > 0:
             return "GO_WITH_CONSTRAINTS"
-        
+
         return "GO"
 
     def suggest_action_items(self, scorecard_id: str, domain_statuses: dict, domain_metrics: dict) -> list:
@@ -150,7 +148,7 @@ class ATRWeeklyScorecardService:
                 mets = domain_metrics.get(domain, {})
                 priority = "P1" if status == "RED" else "P2"
                 due_delta = timedelta(days=3) if priority == "P1" else timedelta(days=7)
-                
+
                 reason_code = f"{domain}_degraded"
                 if domain == "control_plane_graph" and mets.get("graph_consistency_cert") == "failed":
                     reason_code = "graph_cert_failed"
@@ -158,7 +156,7 @@ class ATRWeeklyScorecardService:
                     due_delta = timedelta(days=1)
                 elif domain == "execution" and mets.get("mt5_requotes_total", 0) > 10:
                     reason_code = "mt5_requote_spike"
-                    
+
                 actions.append({
                     "action_id": self.generate_id("act"),
                     "scorecard_id": scorecard_id,
@@ -168,7 +166,7 @@ class ATRWeeklyScorecardService:
                     "status": "open",
                     "title": f"Investigate {domain} degradation",
                     "reason_code": reason_code,
-                    "due_at": datetime.now(timezone.utc) + due_delta,
+                    "due_at": datetime.now(UTC) + due_delta,
                     "action_json": json.dumps({"source_metrics": mets})
                 })
         return actions
@@ -177,11 +175,11 @@ class ATRWeeklyScorecardService:
         if not self.enable:
             logger.info("Weekly Scorecard skipped, enable=False")
             return None
-            
+
         scorecard_id = self.generate_scorecard_id(week_start)
         all_metrics = {}
         domain_statuses = {}
-        
+
         for domain in DOMAINS:
             # allow passing custom metrics for testing
             if custom_metrics and domain in custom_metrics:
@@ -190,10 +188,10 @@ class ATRWeeklyScorecardService:
                 mets = self._get_metrics_for_domain(domain, conn, r)
             all_metrics[domain] = mets
             domain_statuses[domain] = self.derive_domain_status(domain, mets)
-            
+
         decision = self.propose_weekly_decision(domain_statuses, all_metrics)
         actions = self.suggest_action_items(scorecard_id, domain_statuses, all_metrics)
-        
+
         # Build JSON
         domains_json = {}
         for domain in DOMAINS:
@@ -201,13 +199,13 @@ class ATRWeeklyScorecardService:
                 "status": domain_statuses[domain],
                 "metrics": all_metrics[domain]
             }
-            
+
         summary_json = {
             "constraints": []
         }
         if decision == "GO_WITH_CONSTRAINTS":
             summary_json["constraints"].append("System operable, but with limits. Handle YELLOW alerts.")
-            
+
         with conn.cursor() as cur:
             # Insert scorecard
             cur.execute("""
@@ -215,7 +213,7 @@ class ATRWeeklyScorecardService:
                     scorecard_id, week_start, week_end, overall_status, domains_json, summary_json
                 ) VALUES (%s, %s, %s, %s, %s, %s)
             """, (scorecard_id, week_start, week_end, decision, json.dumps(domains_json), json.dumps(summary_json)))
-            
+
             # Insert decision
             decision_id = self.generate_id("dec")
             cur.execute("""
@@ -223,7 +221,7 @@ class ATRWeeklyScorecardService:
                     decision_id, scorecard_id, decision_type, actor, reason_code, decision_json
                 ) VALUES (%s, %s, %s, %s, %s, %s)
             """, (decision_id, scorecard_id, decision, "system", "weekly_auto_build", json.dumps(summary_json)))
-            
+
             # Insert Action items
             for act in actions:
                 cur.execute("""
@@ -235,7 +233,7 @@ class ATRWeeklyScorecardService:
                     act["priority"], act["status"], act["title"], act["reason_code"],
                     act["due_at"], act["action_json"]
                 ))
-                
+
             conn.commit()
 
         # Phase 10.6: Closure Readiness
@@ -253,11 +251,11 @@ class ATRWeeklyScorecardService:
             f"Overall: {decision}",
             ""
         ]
-        
+
         green_domains = [d for d, v in domains_json.items() if v["status"] == "GREEN"]
         yellow_domains = [d for d, v in domains_json.items() if v["status"] == "YELLOW"]
         red_domains = [d for d, v in domains_json.items() if v["status"] == "RED"]
-        
+
         if green_domains:
             msg.append("GREEN:")
             for d in green_domains:
@@ -270,13 +268,13 @@ class ATRWeeklyScorecardService:
             msg.append("RED:")
             for d in red_domains:
                 msg.append(f"- {d}")
-                
+
         if actions:
             msg.append("\nATR Weekly Action Items (P0/P1 Open):")
             for act in actions:
                 if act["priority"] in ("P0", "P1"):
                     msg.append(f"- {act['domain']} | owner={act['owner']} | {act['priority']} | {act['title']}")
-                    
+
         if closure_info:
             msg.append("\nProgram Closure Readiness:")
             status_icon = "✅" if closure_info["passed"] else "⏳"
@@ -284,14 +282,14 @@ class ATRWeeklyScorecardService:
             msg.append(f"- Reason: {closure_info['reason']}")
 
         msg.append(f"\nDecision Artifact: {scorecard_id}")
-        
+
         full_text = "\n".join(msg)
         logger.info(f"Telegram Digest emitted:\n{full_text}")
         # Real integration would push to Telegram topics using atr_policy_telegram_pack_service
 
 def main():
-    enable = str(os.getenv("ATR_WEEKLY_SCORECARD_ENABLE", "1")).lower() in ("1", "true", "yes")
-    enforce = str(os.getenv("ATR_WEEKLY_SCORECARD_ENFORCE", "0")).lower() in ("1", "true", "yes")
+    enable = os.getenv("ATR_WEEKLY_SCORECARD_ENABLE", "1").lower() in ("1", "true", "yes")
+    enforce = os.getenv("ATR_WEEKLY_SCORECARD_ENFORCE", "0").lower() in ("1", "true", "yes")
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     check_interval = int(os.getenv("ATR_WEEKLY_SCORECARD_INTERVAL_SEC", "86400"))
 
@@ -307,10 +305,10 @@ def main():
         try:
             with get_conn() as conn:
                 # Mock week period for the cron
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 week_start = now - timedelta(days=now.weekday(), hours=now.hour, minutes=now.minute, seconds=now.second, microseconds=now.microsecond)
                 week_end = week_start + timedelta(days=6)
-                
+
                 # Check if this week's scorecard was already built
                 with conn.cursor() as cur:
                     try:
@@ -324,10 +322,10 @@ def main():
                         # might fail if migrations not run yet
                         logger.error(f"Waiting for migrations: {pg_err}")
                         conn.rollback()
-                        
+
         except Exception as e:
             logger.error(f"Error in ATR Weekly Scorecard cycle: {e}")
-            
+
         time.sleep(check_interval)
 
 if __name__ == "__main__":

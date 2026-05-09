@@ -1,19 +1,19 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import time
-import json
-import hmac
 import hashlib
+import hmac
+import json
+import os
 import secrets
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis
 
+from core.ok_fields import get_ts_ms, parse_ok_fields
 from core.redis_client import get_redis
-from core.ok_fields import parse_ok_fields, get_ts_ms
-
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 # ---------------- basic utils ----------------
 
@@ -21,7 +21,7 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     xs = sorted(xs)
@@ -34,14 +34,14 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def sign(bundle_id: str, secret: str) -> str:
@@ -49,11 +49,11 @@ def sign(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def _notify(r: redis.Redis, text: str, buttons: Optional[List[List[Dict[str, str]]]] = None) -> None:
+def _notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
 def _mode(r: redis.Redis) -> str:
@@ -82,8 +82,8 @@ def _allow_restore(r: redis.Redis) -> bool:
 
 # ---------------- metrics:of_gate global + segment health ----------------
 
-def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -108,7 +108,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     return rows
 
 
-def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+def summarize_health(rows: list[dict[str, Any]]) -> dict[str, float]:
     n = len(rows)
     if n == 0:
         return {"n": 0.0}
@@ -131,8 +131,8 @@ def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def is_unhealthy(health: Dict[str, float], *, prefix: str,
-                min_n: int, lat_thr: float, exec_thr: float, soft_thr: float, ok_min: float) -> Tuple[bool, List[str]]:
+def is_unhealthy(health: dict[str, float], *, prefix: str,
+                min_n: int, lat_thr: float, exec_thr: float, soft_thr: float, ok_min: float) -> tuple[bool, list[str]]:
     reasons = []
     n = float(health.get("n", 0.0))
     lat_p99 = float(health.get("lat_p99_us", 0.0))
@@ -152,7 +152,7 @@ def is_unhealthy(health: Dict[str, float], *, prefix: str,
     return (len(reasons) > 0), reasons
 
 
-def _metric_bucket(m: Dict[str, Any]) -> str:
+def _metric_bucket(m: dict[str, Any]) -> str:
     g = str(m.get("regime_group", "") or m.get("regime", "") or m.get("scenario_v4", "") or "")
     s = g.lower()
     if "trend" in s or "bull" in s or "bear" in s:
@@ -163,27 +163,27 @@ def _metric_bucket(m: Dict[str, Any]) -> str:
     return "other"
 
 
-def summarize_exec_p90_by_symbol_for_bucket(rows: List[Dict[str, Any]], bucket: str) -> Dict[str, Dict[str, float]]:
+def summarize_exec_p90_by_symbol_for_bucket(rows: list[dict[str, Any]], bucket: str) -> dict[str, dict[str, float]]:
     """
     returns {SYM: {n, exec_p90}}
     requires metrics to include `symbol`.
     """
-    acc: Dict[str, List[float]] = {}
+    acc: dict[str, list[float]] = {}
     for r in rows:
         if _metric_bucket(r) != bucket:
             continue
-        sym = str(r.get("symbol", "") or "").upper().strip()
+        sym = (r.get("symbol", "") or "").upper().strip()
         if not sym:
             continue
         acc.setdefault(sym, [])
         acc[sym].append(_f(r.get("exec_risk_norm", 0.0), 0.0))
-    out: Dict[str, Dict[str, float]] = {}
+    out: dict[str, dict[str, float]] = {}
     for sym, xs in acc.items():
         out[sym] = {"n": float(len(xs)), "exec_p90": float(pctl(xs, 0.90))}
     return out
 
 
-def range_segment_ok(seg_exec: Dict[str, float], *, min_n: int, exec_p90_max: float) -> Tuple[bool, str]:
+def range_segment_ok(seg_exec: dict[str, float], *, min_n: int, exec_p90_max: float) -> tuple[bool, str]:
     n = float(seg_exec.get("n", 0.0))
     ex = float(seg_exec.get("exec_p90", 0.0))
     if n < float(min_n):
@@ -195,7 +195,7 @@ def range_segment_ok(seg_exec: Dict[str, float], *, min_n: int, exec_p90_max: fl
 
 # ---------------- clamp audit + cell state ----------------
 
-def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
+def _read_audit_list(r: redis.Redis, bundle_id: str) -> list[dict[str, Any]]:
     key = f"recs:audit:{bundle_id}"
     n = r.llen(key)
     out = []
@@ -203,17 +203,15 @@ def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
         s = r.lindex(key, i)
         if not s:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(json.loads(s))
-        except Exception:
-            pass
     return out
 
 
-def _extract_symbols_from_audit(audit: List[Dict[str, Any]], cfg_prefix: str) -> List[str]:
+def _extract_symbols_from_audit(audit: list[dict[str, Any]], cfg_prefix: str) -> list[str]:
     syms = set()
     for a in audit:
-        k = str(a.get("key", ""))
+        k = (a.get("key", ""))
         if k.startswith(cfg_prefix):
             sym = k[len(cfg_prefix):].strip().upper()
             if sym:
@@ -221,11 +219,11 @@ def _extract_symbols_from_audit(audit: List[Dict[str, Any]], cfg_prefix: str) ->
     return sorted(list(syms))
 
 
-def _audit_has_field_for_sym(audit: List[Dict[str, Any]], cfg_key: str, field: str) -> bool:
+def _audit_has_field_for_sym(audit: list[dict[str, Any]], cfg_key: str, field: str) -> bool:
     for a in audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        if str(a.get("key")) == cfg_key and str(a.get("field")) == field:
+        if (a.get("key")) == cfg_key and (a.get("field")) == field:
             return True
     return False
 
@@ -235,10 +233,10 @@ def _init_remaining_cells_if_needed(
     *,
     remaining_cells_key: str,
     cell_state_key: str,
-    clamp_audit: List[Dict[str, Any]],
+    clamp_audit: list[dict[str, Any]],
     cfg_prefix: str,
     ttl: int,
-) -> List[str]:
+) -> list[str]:
     if r.scard(remaining_cells_key) > 0:
         return sorted(list(r.smembers(remaining_cells_key)))
 
@@ -262,47 +260,47 @@ def _init_remaining_cells_if_needed(
 
 # ---------------- events:trades outcome per symbol per bucket ----------------
 
-def _event_ts_ms(fields: Dict[str, Any]) -> int:
+def _event_ts_ms(fields: dict[str, Any]) -> int:
     return _i(fields.get("ts_ms", fields.get("ts", fields.get("timestamp", 0))), 0)
 
 
-def _is_closed(fields: Dict[str, Any]) -> bool:
-    et = str(fields.get("event_type", fields.get("type", "")) or "").upper()
+def _is_closed(fields: dict[str, Any]) -> bool:
+    et = (fields.get("event_type", fields.get("type", "")) or "").upper()
     if et in ("POSITION_CLOSED", "CLOSE"):
         return True
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            et2 = str(j.get("event_type", j.get("type", "")) or "").upper()
+            et2 = (j.get("event_type", j.get("type", "")) or "").upper()
             return et2 in ("POSITION_CLOSED", "CLOSE")
         except Exception:
             return False
     return False
 
 
-def _get_symbol(fields: Dict[str, Any]) -> str:
-    s = str(fields.get("symbol", "") or "").upper()
+def _get_symbol(fields: dict[str, Any]) -> str:
+    s = (fields.get("symbol", "") or "").upper()
     if s:
         return s
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            return str(j.get("symbol", "") or "").upper()
+            return (j.get("symbol", "") or "").upper()
         except Exception:
             return ""
     return ""
 
 
-def _get_bucket(fields: Dict[str, Any]) -> str:
-    g = str(fields.get("regime_group", fields.get("regime", fields.get("scenario_v4", ""))) or "").lower()
+def _get_bucket(fields: dict[str, Any]) -> str:
+    g = (fields.get("regime_group", fields.get("regime", fields.get("scenario_v4", ""))) or "").lower()
     if not g:
         p = fields.get("payload")
         if isinstance(p, str) and p and p[0] == "{":
             try:
                 j = json.loads(p)
-                g = str(j.get("regime_group", j.get("regime", j.get("scenario_v4", ""))) or "").lower()
+                g = (j.get("regime_group", j.get("regime", j.get("scenario_v4", ""))) or "").lower()
             except Exception:
                 g = ""
     if "trend" in g or "bull" in g or "bear" in g:
@@ -312,7 +310,7 @@ def _get_bucket(fields: Dict[str, Any]) -> str:
     return "other"
 
 
-def _get_r_mult(fields: Dict[str, Any]) -> Optional[float]:
+def _get_r_mult(fields: dict[str, Any]) -> float | None:
     if "r_mult" in fields:
         try:
             return float(fields["r_mult"])
@@ -329,7 +327,7 @@ def _get_r_mult(fields: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def _stats_r(rs: List[float]) -> Dict[str, float]:
+def _stats_r(rs: list[float]) -> dict[str, float]:
     n = len(rs)
     if n == 0:
         return {"n": 0.0}
@@ -343,11 +341,11 @@ def read_outcome_stats_sym_bucket(
     *,
     stream: str,
     since_ms: int,
-    symbols: List[str],
+    symbols: list[str],
     max_scan: int,
-) -> Dict[str, Dict[str, Dict[str, float]]]:
+) -> dict[str, dict[str, dict[str, float]]]:
     symset = set([s.upper() for s in symbols if s])
-    acc: Dict[str, Dict[str, List[float]]] = {s: {"trend": [], "range": []} for s in symset}
+    acc: dict[str, dict[str, list[float]]] = {s: {"trend": [], "range": []} for s in symset}
     scanned = 0
     last_id = "+"
     while scanned < max_scan:
@@ -377,13 +375,13 @@ def read_outcome_stats_sym_bucket(
             if rm is None:
                 continue
             acc[sym][b].append(float(rm))
-    out: Dict[str, Dict[str, Dict[str, float]]] = {}
+    out: dict[str, dict[str, dict[str, float]]] = {}
     for s in symset:
         out[s] = {"trend": _stats_r(acc[s]["trend"]), "range": _stats_r(acc[s]["range"])}
     return out
 
 
-def outcome_ok(stats: Dict[str, float], *, min_n: int, mean_min: float, tail_max: float) -> bool:
+def outcome_ok(stats: dict[str, float], *, min_n: int, mean_min: float, tail_max: float) -> bool:
     n = float(stats.get("n", 0.0))
     meanR = float(stats.get("meanR", 0.0))
     tail = float(stats.get("tail_rate", 0.0))
@@ -403,8 +401,8 @@ def _apply_restores_direct(
     *,
     who: str,
     ttl_sec: int,
-    restores: List[Dict[str, Any]],
-) -> Tuple[str, str]:
+    restores: list[dict[str, Any]],
+) -> tuple[str, str]:
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_id = secrets.token_hex(6)
     sig = sign(bundle_id, secret)
@@ -431,7 +429,7 @@ def _apply_restores_direct(
             pipe.hdel(k, f)
             ops_out.append({"op": "HDEL", "key": k, "field": f})
         else:
-            v = str(op.get("value", ""))
+            v = (op.get("value", ""))
             pipe.hset(k, f, v)
             ops_out.append({"op": "HSET", "key": k, "field": f, "value": v})
 
@@ -451,9 +449,9 @@ def _create_proposal_bundle(
     *,
     who: str,
     ttl_sec: int,
-    ops: List[Dict[str, Any]],
-    meta: Dict[str, Any],
-) -> Tuple[str, str]:
+    ops: list[dict[str, Any]],
+    meta: dict[str, Any],
+) -> tuple[str, str]:
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_id = secrets.token_hex(6)
     sig = sign(bundle_id, secret)
@@ -467,24 +465,24 @@ def _create_proposal_bundle(
 # ---------------- ops builders per cell ----------------
 
 def build_relax_ops_cells(
-    clamp_audit: List[Dict[str, Any]],
+    clamp_audit: list[dict[str, Any]],
     *,
     cfg_prefix: str,
-    eligible_cells: List[str],
+    eligible_cells: list[str],
     cap_trend: float,
     cap_range: float,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     elig = set([c.upper() for c in eligible_cells])
     ops = []
     for a in clamp_audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        key = str(a.get("key", ""))
+        key = (a.get("key", ""))
         if not key.startswith(cfg_prefix):
             continue
         sym = key[len(cfg_prefix):].strip().upper()
 
-        field = str(a.get("field", ""))
+        field = (a.get("field", ""))
         if field not in ("meta_enforce_share_trend", "meta_enforce_share_range"):
             continue
         bucket = "trend" if field.endswith("_trend") else "range"
@@ -508,22 +506,22 @@ def build_relax_ops_cells(
 
 
 def build_restore_ops_cells(
-    clamp_audit: List[Dict[str, Any]],
+    clamp_audit: list[dict[str, Any]],
     *,
     cfg_prefix: str,
-    eligible_cells: List[str],
-) -> List[Dict[str, Any]]:
+    eligible_cells: list[str],
+) -> list[dict[str, Any]]:
     elig = set([c.upper() for c in eligible_cells])
     ops = []
     for a in clamp_audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        key = str(a.get("key", ""))
+        key = (a.get("key", ""))
         if not key.startswith(cfg_prefix):
             continue
         sym = key[len(cfg_prefix):].strip().upper()
 
-        field = str(a.get("field", ""))
+        field = (a.get("field", ""))
         if field not in ("meta_enforce_share_trend", "meta_enforce_share_range"):
             continue
         bucket = "trend" if field.endswith("_trend") else "range"
@@ -535,13 +533,13 @@ def build_restore_ops_cells(
         if old_null == 1:
             ops.append({"op": "HDEL", "key": key, "field": field})
         else:
-            ops.append({"op": "HSET", "key": key, "field": field, "value": ("" if a.get("old") is None else str(a.get("old","")))})
+            ops.append({"op": "HSET", "key": key, "field": field, "value": ("" if a.get("old") is None else (a.get("old","")))})
     return ops
 
 
 # ---------------- selection + quotas ----------------
 
-def _cell_sym_bucket(cell: str) -> Tuple[str, str]:
+def _cell_sym_bucket(cell: str) -> tuple[str, str]:
     if "|" not in cell:
         return "", ""
     s, b = cell.split("|", 1)
@@ -574,12 +572,12 @@ def _build_preclamp_map_from_audit(clamp_audit: list[dict], cfg_prefix: str) -> 
     """
     m = {}
     for a in clamp_audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        key = str(a.get("key", ""))
+        key = (a.get("key", ""))
         if not key.startswith(cfg_prefix):
             continue
-        field = str(a.get("field", ""))
+        field = (a.get("field", ""))
         if field not in ("meta_enforce_share_trend", "meta_enforce_share_range"):
             continue
         sym = key[len(cfg_prefix):].strip().upper()
@@ -606,7 +604,7 @@ def _target_value_for_action(spec: dict, action: str, cap_trend: float, cap_rang
     if old_null == 1:
         return False, 0.0
     old_val = float(spec.get("old_value", 0.0) or 0.0)
-    b = str(spec.get("bucket", ""))
+    b = (spec.get("bucket", ""))
     if action == "RELAX":
         cap = cap_trend if b == "trend" else cap_range
         return True, min(old_val, float(cap))
@@ -683,12 +681,12 @@ def apply_budget_limit(
 def apply_quotas_and_rank(
     *,
     action: str,
-    cells: List[str],
-    st_long: Dict[str, Dict[str, Dict[str, float]]],
-    seg_range_sym: Dict[str, Dict[str, float]],
+    cells: list[str],
+    st_long: dict[str, dict[str, dict[str, float]]],
+    seg_range_sym: dict[str, dict[str, float]],
     max_range: int,
     max_trend: int,
-) -> List[str]:
+) -> list[str]:
     """
     Rank:
       range: (seg_exec_p90 asc, long_meanR desc)
@@ -768,7 +766,7 @@ def main() -> None:
         if isinstance(pend, dict) and pend.get("bundle_id"):
             bid = str(pend["bundle_id"])
             st = (r.get(f"recs:status:{bid}") or "").strip().upper()
-            action = str(pend.get("action","")).upper()
+            action = (pend.get("action","")).upper()
             cells = [str(x).upper() for x in (pend.get("cells") or []) if str(x).strip()]
 
             if st == "APPLIED":
@@ -894,7 +892,7 @@ def main() -> None:
     if not seg_sym_enabled:
         seg_range_sym = {}
     # ---------------- outcome short+long per sym bucket ----------------
-    trades_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    trades_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     out_max_scan = int(os.getenv("META_UNCLAMP_OUTCOME_MAX_SCAN", "400000") or 400000)
 
     out_short_h = float(os.getenv("META_UNCLAMP_OUTCOME_SHORT_HOURS", "2") or 2)
@@ -989,7 +987,7 @@ def main() -> None:
     cap_relax_range = float(os.getenv("META_RELAX_CAP_RANGE", "0.10") or 0.10)
 
     action = None
-    cells_to_act: List[str] = []
+    cells_to_act: list[str] = []
 
     if stage == "CLAMPED" and relax_streak >= relax_n and relax_cells_all:
         action = "RELAX"

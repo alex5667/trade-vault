@@ -1,12 +1,13 @@
 
-import sys
 import os
+import sys
 
 # Add project root to path
 sys.path.append(os.getcwd())
 sys.path.append(os.path.join(os.getcwd(), "python-worker"))
 
 from core.crypto_signal_formatter import CryptoSignal, CryptoSignalFormatter
+
 
 def reproduce():
     # Helper to create a dummy signal
@@ -37,17 +38,17 @@ def reproduce():
     sig_raw = make_signal("test:1", "SUIUSDT", 5100.0, 4.08)
     formatted_raw = CryptoSignalFormatter.format_telegram_message(sig_raw)
     print("--- Case 1: Raw Volume (Current) ---")
-    print(f"p_delta input: 5100.0")
+    print("p_delta input: 5100.0")
     print("Formatted output extract:")
     for line in formatted_raw.split("\n"):
         if "mix:" in line:
             print(line)
-    
+
     # Case 2: Score (Expected?)
     sig_score = make_signal("test:2", "SUIUSDT", 0.95, 4.08)
     formatted_score = CryptoSignalFormatter.format_telegram_message(sig_score)
     print("\n--- Case 2: Score 0.95 (Expected?) ---")
-    print(f"p_delta input: 0.95")
+    print("p_delta input: 0.95")
     print("Formatted output extract:")
     for line in formatted_score.split("\n"):
         if "mix:" in line:
@@ -57,7 +58,7 @@ def reproduce():
     sig_bnb = make_signal("test:3", "BNBUSDT", 13.64, 4.18)
     formatted_bnb = CryptoSignalFormatter.format_telegram_message(sig_bnb)
     print("\n--- Case 3: BNB Small Delta ---")
-    print(f"p_delta input: 13.64")
+    print("p_delta input: 13.64")
     print("Formatted output extract:")
     for line in formatted_bnb.split("\n"):
         if "mix:" in line:

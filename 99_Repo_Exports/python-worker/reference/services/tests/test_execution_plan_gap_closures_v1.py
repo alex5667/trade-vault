@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for P0–P4 gap closures in binance_futures_client.py and binance_executor.py.
 
 Covers:
@@ -11,22 +12,22 @@ Covers:
   - structured state contract: _structured_order_contract / _causal_timestamps
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import hashlib
 import os
-import time
-import json
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
+
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # Import targets (handle both package and standalone paths)
 # ---------------------------------------------------------------------------
 
 try:
+    from services.binance_executor import BinanceExecutor
     from services.binance_futures_client import (
         AlgoOrderRef,
+        BinanceFuturesClient,
         PlainOrderRef,
         _float_or_none,
         _require_positive,
@@ -34,22 +35,16 @@ try:
         _validate_algo_order_contract,
         _validate_plain_order_contract,
         _validate_working_type,
-        BinanceFuturesClient,
     )
-    from services.binance_executor import BinanceExecutor
 except ImportError:
+    from binance_executor import BinanceExecutor
     from binance_futures_client import (
         AlgoOrderRef,
+        BinanceFuturesClient,
         PlainOrderRef,
-        _float_or_none,
-        _require_positive,
-        _truthy,
         _validate_algo_order_contract,
         _validate_plain_order_contract,
-        _validate_working_type,
-        BinanceFuturesClient,
     )
-    from binance_executor import BinanceExecutor
 
 
 # ===========================================================================

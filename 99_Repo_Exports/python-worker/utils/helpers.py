@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """utils.helpers — Shared low-level type-coercion helpers.
 
 These tiny helpers are intentionally fail-open (return default on any error)

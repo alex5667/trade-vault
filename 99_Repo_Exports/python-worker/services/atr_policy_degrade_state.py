@@ -1,6 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
-class AtrPolicyDegradeState(str, Enum):
+
+class AtrPolicyDegradeState(StrEnum):
     NORMAL = "normal"
     CLIP = "clip"
     REDUCE_ONLY = "reduce_only"

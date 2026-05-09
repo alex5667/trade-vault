@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+
 from news_pipeline.enricher_sync import NewsEnricherSync
 
 

@@ -1,12 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
-import json
 import os
-import random
 import time
-from typing import Any, Dict, List
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -87,7 +86,7 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 
@@ -120,7 +119,7 @@ async def experiment_loop(r: Any) -> None:
                 try:
                     row = as_dict(payload)
                     route_change_id = row.get("route_change_id", "unknown")
-                    
+
                     bucket = "control"
                     overrides = {}
                     is_experimented = "0"
@@ -136,11 +135,11 @@ async def experiment_loop(r: Any) -> None:
                     out = dict(row)
                     for k, v in overrides.items():
                         out[k] = v
-                    
+
                     out["experiment_id"] = EXPERIMENT_ID if ENABLE_EXPERIMENTS else "none"
                     out["experiment_bucket"] = bucket
                     out["is_experimented"] = is_experimented
-                    
+
                     exposure_event = {
                         "route_change_id": route_change_id,
                         "experiment_id": EXPERIMENT_ID if ENABLE_EXPERIMENTS else "none",
@@ -158,10 +157,10 @@ async def experiment_loop(r: Any) -> None:
                         await r.xadd(EXPOSURE_STREAM, exposure_event, maxlen=MAXLEN, approximate=True)
                         if EXPOSURES:
                             EXPOSURES.labels(experiment_id=EXPERIMENT_ID, bucket=bucket).inc()
-                    
+
                     await r.xadd(OUT_STREAM, out, maxlen=MAXLEN, approximate=True)
                     await r.xadd(AUDIT_STREAM, exposure_event, maxlen=MAXLEN, approximate=True)
-                    
+
                     await r.xack(REQUESTS_STREAM, GROUP, msg_id)
                 except Exception:
                     status = "error"

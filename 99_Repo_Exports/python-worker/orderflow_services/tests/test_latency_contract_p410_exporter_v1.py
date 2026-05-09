@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P4.10 exporter module dual-control metrics presence tests."""
 
 
@@ -17,7 +18,8 @@ def test_exporter_has_dual_control_metrics():
 
 
 def test_exporter_cfg_has_approval_prefix():
-    from orderflow_services.latency_contract_deploy_lint_exporter_v1 import Cfg
     import dataclasses
+
+    from orderflow_services.latency_contract_deploy_lint_exporter_v1 import Cfg
     fields = {f.name for f in dataclasses.fields(Cfg)}
     assert 'approval_prefix' in fields

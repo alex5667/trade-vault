@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Staged auto-unclamp v3: triple-window health check (30m + 2h + 12h baseline) + outcome gate, AUTO/PROPOSE modes.
 
 This is the next level above auto-clamp: when hard-stop disappears and health holds,
@@ -37,20 +39,19 @@ Environment Variables:
   - Rec/bot: NOTIFY_TELEGRAM_STREAM, RECS_TTL_SEC, RECS_HMAC_SECRET
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import os
-import time
-import json
-import hmac
 import hashlib
+import hmac
+import json
+import os
 import secrets
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis
 
 from common.log import setup_logger
 from core.redis_client import get_redis
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 logger = setup_logger("OfGateHardstopCapUnclampV3")
 
@@ -62,7 +63,7 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Computes percentile q (0.0-1.0) from sorted list xs."""
     if not xs:
         return 0.0
@@ -77,7 +78,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -85,7 +86,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def sign(bundle_id: str, secret: str) -> str:
@@ -94,12 +95,12 @@ def sign(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def _notify(r: redis.Redis, text: str, buttons: Optional[List[List[Dict[str, str]]]] = None) -> None:
+def _notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Sends notification to Telegram stream with optional buttons."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    notify_stream = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    notify_stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     r.xadd(notify_stream, fields, maxlen=200000, approximate=True)
 
 
@@ -128,7 +129,7 @@ def _mode(r: redis.Redis) -> str:
 
 # ---------------- metrics read ----------------
 
-def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
+def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
     """
     Reads metrics from Redis stream within time window.
     
@@ -141,7 +142,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     Returns:
         List of metric records (dict with fields + _ts_ms)
     """
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -173,7 +174,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     return rows
 
 
-def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+def summarize_health(rows: list[dict[str, Any]]) -> dict[str, float]:
     """
     Summarizes health metrics from metric rows.
     
@@ -207,8 +208,8 @@ def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def is_unhealthy(health: Dict[str, float], *, prefix: str, min_n: int,
-                lat_thr: float, exec_thr: float, soft_thr: float, ok_min: float) -> Tuple[bool, List[str]]:
+def is_unhealthy(health: dict[str, float], *, prefix: str, min_n: int,
+                lat_thr: float, exec_thr: float, soft_thr: float, ok_min: float) -> tuple[bool, list[str]]:
     """
     Checks if health summary indicates unhealthy state.
     
@@ -248,7 +249,7 @@ def is_unhealthy(health: Dict[str, float], *, prefix: str, min_n: int,
 
 # ---------------- clamp audit read ----------------
 
-def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
+def _read_audit_list(r: redis.Redis, bundle_id: str) -> list[dict[str, Any]]:
     """
     Reads audit log from Redis list.
     
@@ -266,27 +267,25 @@ def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
         s = r.lindex(key, i)
         if not s:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(json.loads(s))
-        except Exception:
-            pass
     return out
 
 
 # ---------------- trades outcome gate ----------------
 
-def _event_ts_ms(fields: Dict[str, Any]) -> int:
+def _event_ts_ms(fields: dict[str, Any]) -> int:
     """Extracts timestamp from event fields."""
     return _i(fields.get("ts_ms", fields.get("ts", fields.get("timestamp", 0))), 0)
 
 
-def _is_closed(fields: Dict[str, Any]) -> bool:
+def _is_closed(fields: dict[str, Any]) -> bool:
     """
     Checks if event represents a closed position.
     
     Supports both direct fields and payload JSON.
     """
-    et = str(fields.get("event_type", fields.get("type", "")) or "").upper()
+    et = (fields.get("event_type", fields.get("type", "")) or "").upper()
     if et in ("POSITION_CLOSED", "CLOSE"):
         return True
     # tolerate payload JSON
@@ -294,29 +293,29 @@ def _is_closed(fields: Dict[str, Any]) -> bool:
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            et2 = str(j.get("event_type", j.get("type", "")) or "").upper()
+            et2 = (j.get("event_type", j.get("type", "")) or "").upper()
             return et2 in ("POSITION_CLOSED", "CLOSE")
         except Exception:
             return False
     return False
 
 
-def _get_symbol(fields: Dict[str, Any]) -> str:
+def _get_symbol(fields: dict[str, Any]) -> str:
     """Extracts symbol from event fields (supports payload JSON)."""
-    s = str(fields.get("symbol", "") or "").upper()
+    s = (fields.get("symbol", "") or "").upper()
     if s:
         return s
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            return str(j.get("symbol", "") or "").upper()
+            return (j.get("symbol", "") or "").upper()
         except Exception:
             return ""
     return ""
 
 
-def _get_r_mult(fields: Dict[str, Any]) -> Optional[float]:
+def _get_r_mult(fields: dict[str, Any]) -> float | None:
     """Extracts r_mult from event fields (supports payload JSON)."""
     if "r_mult" in fields:
         try:
@@ -339,15 +338,15 @@ def read_outcome_stats(
     *,
     stream: str,
     since_ms: int,
-    symbols: List[str],
+    symbols: list[str],
     max_scan: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Reads outcome statistics from events:trades stream for closed positions.
     
     Args:
         r: Redis client
-        stream: Stream name (e.g., "events:trades")
+        stream: Stream name (e.g., RS.EVENTS_TRADES)
         since_ms: Start timestamp (epoch ms)
         symbols: List of symbols to filter (empty = all)
         max_scan: Maximum number of messages to scan
@@ -356,7 +355,7 @@ def read_outcome_stats(
         Dict with: n, meanR, tail_rate, p05, p50
     """
     symset = set([s.upper() for s in symbols if s])
-    rs: List[float] = []
+    rs: list[float] = []
     scanned = 0
     last_id = "+"
 
@@ -402,7 +401,7 @@ def read_outcome_stats(
     }
 
 
-def outcome_ok(stats: Dict[str, float], *, min_n: int, mean_min: float, tail_max: float) -> Tuple[bool, List[str]]:
+def outcome_ok(stats: dict[str, float], *, min_n: int, mean_min: float, tail_max: float) -> tuple[bool, list[str]]:
     """
     Checks if outcome statistics are acceptable.
     
@@ -437,8 +436,8 @@ def _apply_restores_direct(
     *,
     who: str,
     ttl_sec: int,
-    restores: List[Dict[str, Any]],
-) -> Tuple[str, str]:
+    restores: list[dict[str, Any]],
+) -> tuple[str, str]:
     """
     AUTO mode: apply now, write recs:bundle + recs:audit so rollback works.
     restores: list of {"op":"HSET"/"HDEL", "key":..., "field":..., "value":... optional}
@@ -480,7 +479,7 @@ def _apply_restores_direct(
             pipe.hdel(k, f)
             ops_out.append({"op": "HDEL", "key": k, "field": f})
         else:
-            v = str(op.get("value", ""))
+            v = (op.get("value", ""))
             pipe.hset(k, f, v)
             ops_out.append({"op": "HSET", "key": k, "field": f, "value": v})
 
@@ -507,9 +506,9 @@ def _create_proposal_bundle(
     *,
     who: str,
     ttl_sec: int,
-    ops: List[Dict[str, Any]],
-    meta: Dict[str, Any],
-) -> Tuple[str, str]:
+    ops: list[dict[str, Any]],
+    meta: dict[str, Any],
+) -> tuple[str, str]:
     """
     PROPOSE mode: create recs:bundle, status=PENDING, return id+sig (for buttons).
     
@@ -543,7 +542,7 @@ def _create_proposal_bundle(
 
 # ---------------- restore builders ----------------
 
-def build_relax_ops_from_clamp_audit(clamp_audit: List[Dict[str, Any]], relax_caps: Dict[str, float]) -> List[Dict[str, Any]]:
+def build_relax_ops_from_clamp_audit(clamp_audit: list[dict[str, Any]], relax_caps: dict[str, float]) -> list[dict[str, Any]]:
     """
     Use pre-clamp old values, capped by relax caps.
     Only for fields that existed pre-clamp (old_null==0).
@@ -557,9 +556,9 @@ def build_relax_ops_from_clamp_audit(clamp_audit: List[Dict[str, Any]], relax_ca
     """
     ops = []
     for a in clamp_audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        field = str(a.get("field", ""))
+        field = (a.get("field", ""))
         if field not in relax_caps:
             continue
         old_null = int(a.get("old_null", 0) or 0)
@@ -571,11 +570,11 @@ def build_relax_ops_from_clamp_audit(clamp_audit: List[Dict[str, Any]], relax_ca
             oldf = 0.0
         cap = float(relax_caps[field])
         target = min(oldf, cap)
-        ops.append({"op": "HSET", "key": str(a.get("key", "")), "field": field, "value": f"{target:.2f}"})
+        ops.append({"op": "HSET", "key": (a.get("key", "")), "field": field, "value": f"{target:.2f}"})
     return ops
 
 
-def build_full_restore_ops_from_clamp_audit(clamp_audit: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def build_full_restore_ops_from_clamp_audit(clamp_audit: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Restore exact pre-clamp: if old_null==1 -> HDEL, else HSET old.
     
@@ -587,21 +586,21 @@ def build_full_restore_ops_from_clamp_audit(clamp_audit: List[Dict[str, Any]]) -
     """
     ops = []
     for a in clamp_audit:
-        if str(a.get("op")) != "HSET":
+        if (a.get("op")) != "HSET":
             continue
-        key = str(a.get("key", ""))
-        field = str(a.get("field", ""))
+        key = (a.get("key", ""))
+        field = (a.get("field", ""))
         old_null = int(a.get("old_null", 0) or 0)
         if old_null == 1:
             ops.append({"op": "HDEL", "key": key, "field": field})
         else:
-            ops.append({"op": "HSET", "key": key, "field": field, "value": ("" if a.get("old") is None else str(a.get("old", "")))})
+            ops.append({"op": "HSET", "key": key, "field": field, "value": ("" if a.get("old") is None else (a.get("old", "")))})
     return ops
 
 
 # ---------------- optional regress + emergency gates ----------------
 
-def regress_ok(r: redis.Redis) -> Tuple[bool, str]:
+def regress_ok(r: redis.Redis) -> tuple[bool, str]:
     """
     Optional: require baseline regression PASS streak.
     
@@ -621,7 +620,7 @@ def regress_ok(r: redis.Redis) -> Tuple[bool, str]:
     max_age_h = float(os.getenv("META_UNCLAMP_REGRESS_MAX_AGE_HOURS", "30") or 30.0)
 
     streak = _i(r.get(streak_key), 0)
-    last_status = str(r.get(last_status_key) or "").upper()
+    last_status = (r.get(last_status_key) or "").upper()
     last_ts = _i(r.get(last_ts_key), 0)
     age_ok = True
     if last_ts > 0:
@@ -631,7 +630,7 @@ def regress_ok(r: redis.Redis) -> Tuple[bool, str]:
     return ok, f"streak={streak} need={min_streak} last={last_status} age_ok={int(age_ok)}"
 
 
-def no_recent_emergency(r: redis.Redis) -> Tuple[bool, str]:
+def no_recent_emergency(r: redis.Redis) -> tuple[bool, str]:
     """
     Checks if enough time has passed since last emergency.
     
@@ -687,7 +686,7 @@ def main() -> None:
             pend = None
         if isinstance(pend, dict) and pend.get("bundle_id"):
             bid = str(pend["bundle_id"])
-            action = str(pend.get("action", "")).upper()
+            action = (pend.get("action", "")).upper()
             st = (r.get(f"recs:status:{bid}") or "").strip().upper()
 
             if st == "APPLIED":
@@ -766,7 +765,7 @@ def main() -> None:
     reasons = r30 + r120 + r720
 
     # outcome gate from events:trades
-    trades_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    trades_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     out_hours = float(os.getenv("META_UNCLAMP_OUTCOME_WINDOW_HOURS", "6") or 6)
     out_since = now_ms() - int(out_hours * 3600_000)
     out_max_scan = int(os.getenv("META_UNCLAMP_OUTCOME_MAX_SCAN", "400000") or 400000)

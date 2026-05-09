@@ -8,13 +8,13 @@ Uses psycopg2 ThreadedConnectionPool for sync multi-threaded access.
 from __future__ import annotations
 
 import contextlib
-from typing import Any, Dict, Tuple
 from dataclasses import asdict, is_dataclass
+from typing import Any
 
-import psycopg2 as psycopg
 from psycopg2.extras import RealDictCursor as dict_row
 
 from .models import ExecutionPlan
+
 # SignalPerformance imported locally to avoid circular import
 
 
@@ -46,7 +46,7 @@ class SignalRepository:
 
     # --- Insert raw signals ---
 
-    def insert_signal(self, ctx: Any, extra_json: Dict[str, Any] | None = None) -> None:
+    def insert_signal(self, ctx: Any, extra_json: dict[str, Any] | None = None) -> None:
         """
         Store raw SignalContext in signals table.
         ctx should serialize to dict (.to_dict() method assumed).
@@ -183,7 +183,7 @@ class SignalRepository:
 
     # --- Insert performance ---
 
-    def insert_signal_performance(self, perf: "SignalPerformance") -> None:
+    def insert_signal_performance(self, perf: SignalPerformance) -> None:
 
         with self._conn() as conn, conn.cursor(cursor_factory=dict_row) as cur:
             cur.execute(
@@ -278,7 +278,7 @@ class SignalRepository:
 
     # --- Load setup configs for ExecutionPlanner ---
 
-    def load_setup_configs(self) -> Dict[Tuple[str, str], Any]:
+    def load_setup_configs(self) -> dict[tuple[str, str], Any]:
         """
         Load signal_ttd_config + apply defaults.
         Return dict[((symbol, setup_type), SymbolSetupConfig)] for ExecutionPlanner.
@@ -286,7 +286,7 @@ class SignalRepository:
         """
         from .execution_planner import SymbolSetupConfig
 
-        configs: Dict[Tuple[str, str], SymbolSetupConfig] = {}
+        configs: dict[tuple[str, str], SymbolSetupConfig] = {}
         with self._conn() as conn, conn.cursor(cursor_factory=dict_row) as cur:
             cur.execute(
                 """

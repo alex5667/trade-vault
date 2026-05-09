@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Prometheus exporter for OFInputs DLQ/quarantine DB archiver status (P98).
 
 Reads Redis hashes written by of_inputs_dlq_archive_to_db_p98.py:
@@ -23,13 +24,13 @@ ENV:
   OF_INPUTS_QUARANTINE_DB_ARCHIVE_METRICS_KEY (default metrics:of_inputs_quarantine_db_archive)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server  # type: ignore
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -103,19 +104,19 @@ class Exporter:
         )
         self.r = redis.Redis.from_url(self.redis_url, decode_responses=False) if redis else None
 
-    def _hgetall(self, key: str) -> Dict[str, Any]:
+    def _hgetall(self, key: str) -> dict[str, Any]:
         if not self.r:
             return {}
         try:
             raw = self.r.hgetall(key) or {}
-            out: Dict[str, Any] = {}
+            out: dict[str, Any] = {}
             for k, v in raw.items():
                 out[_s(k)] = v
             return out
         except Exception:
             return {}
 
-    def _emit(self, kind: str, d: Dict[str, Any]) -> None:
+    def _emit(self, kind: str, d: dict[str, Any]) -> None:
         last_run = _i(d.get("last_run_ts_ms"), 0)
         last_stream_id = _s(d.get("last_stream_id"))
         inserted_total = _i(d.get("inserted_total"), 0)

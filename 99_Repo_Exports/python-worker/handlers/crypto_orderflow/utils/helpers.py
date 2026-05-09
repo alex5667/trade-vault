@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from handlers.base_orderflow_handler import Tick
 
@@ -22,10 +22,10 @@ def _f(x: Any, default: float = 0.0) -> float:
     """
     try:
         if x is None:
-            return float(default)
+            return default
         return float(x)
     except Exception:
-        return float(default)
+        return default
 
 
 def _b(x: Any) -> bool:
@@ -76,7 +76,7 @@ def _is_trade_tick(tick: Tick) -> bool:
     return bool(tick.flags & 1) or bool(tick.last and tick.volume and tick.volume > 0)
 
 
-def _parse_bool(v: Any) -> Optional[bool]:
+def _parse_bool(v: Any) -> bool | None:
     if v is None:
         return None
     if isinstance(v, bool):

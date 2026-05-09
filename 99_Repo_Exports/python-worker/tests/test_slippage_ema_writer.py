@@ -1,6 +1,5 @@
-from tests.fake_redis import FakeRedis
-
 from services.slippage_ema_stats import update_slippage_ema
+from tests.fake_redis import FakeRedis
 
 
 def _hget(redis, key: str, field: str) -> str:

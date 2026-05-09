@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
-import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import psycopg
@@ -89,14 +89,13 @@ class ExperimentWinnerRepo:
     def __init__(self, db_url: str) -> None:
         self.db_url = db_url
 
-    def fetch_bucket_stats(self) -> List[Dict[str, Any]]:
+    def fetch_bucket_stats(self) -> list[dict[str, Any]]:
         if psycopg is None:
             return []
         cutoff_ms = now_ms() - (WINDOW_MINUTES * 60 * 1000)
-        with psycopg.connect(self.db_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """,
+        with psycopg.connect(self.db_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """,
                     SELECT
                         bucket,
                         COUNT(*) as sample_n,
@@ -111,9 +110,9 @@ class ExperimentWinnerRepo:
                       AND r.usefulness_score IS NOT NULL
                     GROUP BY bucket,
                     """
-                    (EXPERIMENT_ID, cutoff_ms),
-                )
-                rows = cur.fetchall()
+                (EXPERIMENT_ID, cutoff_ms),
+            )
+            rows = cur.fetchall()
         return [
             {
                 "bucket": row[0],
@@ -131,10 +130,10 @@ def calculate_combined_score(avg_quality: float, avg_usefulness: float) -> float
     return (avg_quality * 0.4) + (avg_usefulness * 0.6)
 
 
-def select_winner(stats: List[Dict[str, Any]]) -> Tuple[str, float]:
+def select_winner(stats: list[dict[str, Any]]) -> tuple[str, float]:
     best_bucket = "none"
     best_score = -1.0
-    
+
     for s in stats:
         if s["sample_n"] < MIN_SAMPLE:
             continue
@@ -142,7 +141,7 @@ def select_winner(stats: List[Dict[str, Any]]) -> Tuple[str, float]:
         if score > best_score:
             best_score = score
             best_bucket = s["bucket"]
-            
+
     return best_bucket, best_score
 
 
@@ -152,7 +151,7 @@ async def winner_loop(r: Any, repo: ExperimentWinnerRepo) -> None:
     try:
         stats = repo.fetch_bucket_stats()
         winner_bucket, winner_score = select_winner(stats)
-        
+
         if winner_bucket != "none":
             # formulate decision
             decision = {
@@ -162,18 +161,18 @@ async def winner_loop(r: Any, repo: ExperimentWinnerRepo) -> None:
                 "ts_ms": now_ms(),
                 "advisory_only": "1",
             }
-            
+
             # append stats
             for s in stats:
                 b = s["bucket"]
                 decision[f"bucket_{b}_sample_n"] = s["sample_n"]
                 decision[f"bucket_{b}_avg_quality"] = s["avg_quality"]
                 decision[f"bucket_{b}_avg_usefulness"] = s["avg_usefulness"]
-                
+
             # Publish
             await r.xadd(DECISIONS_STREAM, decision, maxlen=MAXLEN, approximate=True)
             await r.xadd(AUDIT_STREAM, decision, maxlen=MAXLEN, approximate=True)
-            
+
             # Update advisory state hash
             key = f"{WINNER_KEY_PREFIX}:{EXPERIMENT_ID}"
             await r.hset(key, mapping={
@@ -181,7 +180,7 @@ async def winner_loop(r: Any, repo: ExperimentWinnerRepo) -> None:
                 "winner_score": str(winner_score),
                 "ts_ms": str(decision["ts_ms"])
             })
-            
+
             if WINNERS_SELECTED:
                 WINNERS_SELECTED.labels(experiment_id=EXPERIMENT_ID, winner_bucket=winner_bucket).inc()
 

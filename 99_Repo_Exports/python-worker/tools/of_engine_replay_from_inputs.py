@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Engine-based replay from OFInputs → NDJSON with full evidence/legs_detail/score_breakdown.
 
 Why:
@@ -13,14 +14,14 @@ Usage:
 import argparse
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from core.of_confirm_engine import OFConfirmEngine
 
 
 def iter_ndjson(path: str):
     """Iterator over NDJSON lines."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -64,7 +65,7 @@ class RuntimeStub:
     Anything missing is fail-open via __getattr__.
     """
     def __init__(self) -> None:
-        self.dynamic_cfg: Dict[str, Any] = {}
+        self.dynamic_cfg: dict[str, Any] = {}
         self.pressure = _PressureStub()
         self.book_churn_hi = 0
         self.last_regime = "na"
@@ -96,37 +97,37 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(d)
+        return d
 
 
-def build_runtime_from_inputs(inp: Dict[str, Any]) -> RuntimeStub:
+def build_runtime_from_inputs(inp: dict[str, Any]) -> RuntimeStub:
     """
     Reconstruct minimal runtime from OFInputsV1 flags.
     Fields we try to use if present:
       sweep_recent, reclaim_recent, obi_stable, iceberg_strict, ofi_stable, ofi_dir_ok, fp_edge_absorb, weak_progress
     """
     ts_ms = _i(inp.get("ts_ms", 0))
-    direction = str(inp.get("direction", ""))
+    direction = (inp.get("direction", ""))
     rt = RuntimeStub()
 
     # optional market context
     if "regime" in inp:
-        rt.last_regime = str(inp.get("regime") or "na")
+        rt.last_regime = (inp.get("regime") or "na")
     if "book_churn_hi" in inp:
         rt.book_churn_hi = _i(inp.get("book_churn_hi", 0))
 
     # sweep/reclaim
     if _bool(inp.get("sweep_recent", 0)):
-        rt.last_sweep = {"ts_ms": ts_ms, "dir": direction, "kind": str(inp.get("sweep_kind", "na"))}
+        rt.last_sweep = {"ts_ms": ts_ms, "dir": direction, "kind": (inp.get("sweep_kind", "na"))}
     if _bool(inp.get("reclaim_recent", 0)):
-        rt.last_reclaim = {"ts_ms": ts_ms, "dir": direction, "kind": str(inp.get("reclaim_kind", "na"))}
+        rt.last_reclaim = {"ts_ms": ts_ms, "dir": direction, "kind": (inp.get("reclaim_kind", "na"))}
 
     # OBI
     if _bool(inp.get("obi_stable", 0)):
@@ -146,7 +147,7 @@ def build_runtime_from_inputs(inp: Dict[str, Any]) -> RuntimeStub:
             ofi_ts_ms = ts_ms - ofi_age_ms
         else:
             ofi_ts_ms = ts_ms
-        
+
         rt.last_ofi_event = {
             "ts_ms": ofi_ts_ms,
             "direction": direction,
@@ -168,7 +169,7 @@ def build_runtime_from_inputs(inp: Dict[str, Any]) -> RuntimeStub:
             fp_ts_ms = ts_ms - fp_age_ms
         else:
             fp_ts_ms = ts_ms
-        
+
         rt.last_fp_edge = {
             "ts_ms": fp_ts_ms,
             "direction": direction,
@@ -184,12 +185,12 @@ def build_runtime_from_inputs(inp: Dict[str, Any]) -> RuntimeStub:
     rt.last_wp = _WpStub(weak_any=_bool(inp.get("weak_progress", 0)))
 
     # symbol holder (strategy uses runtime.symbol)
-    rt.symbol = str(inp.get("symbol", "") or "")
+    rt.symbol = (inp.get("symbol", "") or "")
 
     return rt
 
 
-def build_cfg_indicators(inp: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Optional[Dict[str, Any]]]:
+def build_cfg_indicators(inp: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
     """
     OFConfirmEngine.build expects:
       cfg: dict
@@ -209,14 +210,14 @@ def build_cfg_indicators(inp: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str,
     # optional: fp edge absorb may be passed via indicators (engine reads indicators)
     if "fp_edge_absorb" in inp:
         indicators["fp_edge_absorb"] = int(_bool(inp.get("fp_edge_absorb", 0)))
-    
+
     # V2 OFI fields (if present, propagate to indicators)
     version = _i(inp.get("v", 1))
     if version == 2:
         for k in ("ofi", "ofi_z", "ofi_stable", "ofi_dir_ok", "ofi_stable_secs", "ofi_stability_score", "ofi_age_ms"):
             if k in inp and k not in indicators:
                 indicators[k] = inp[k]
-        
+
         # FP edge fields
         if "fp_edge_absorb" in inp and "fp_edge_absorb" not in indicators:
             indicators["fp_edge_absorb"] = int(_bool(inp.get("fp_edge_absorb", 0)))
@@ -237,9 +238,9 @@ def build_cfg_indicators(inp: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str,
 
     # propagate sid for deterministic canary-share ENFORCE
     if "sid" in inp:
-        indicators["sid"] = str(inp.get("sid") or "")
+        indicators["sid"] = (inp.get("sid") or "")
     elif "signal_id" in inp:
-        indicators["sid"] = str(inp.get("signal_id") or "")
+        indicators["sid"] = (inp.get("signal_id") or "")
 
     absorption = None
     if "absorption" in inp and isinstance(inp["absorption"], dict):
@@ -257,11 +258,11 @@ def main() -> None:
     args = ap.parse_args()
 
     engine = OFConfirmEngine()
-    out_rows: List[Dict[str, Any]] = []
+    out_rows: list[dict[str, Any]] = []
 
     for inp in load_inputs(args.inputs):
-        symbol = str(inp.get("symbol", "") or "")
-        direction = str(inp.get("direction", "") or "")
+        symbol = (inp.get("symbol", "") or "")
+        direction = (inp.get("direction", "") or "")
         ts_ms = _i(inp.get("ts_ms", 0))
 
         # Force deterministic time for replay
@@ -271,7 +272,7 @@ def main() -> None:
         price = _f(inp.get("price", inp.get("entry_price", 0.0)), 0.0)
 
         # sid is essential for outcome join
-        sid = str(inp.get("sid", inp.get("signal_id", "")) or "")
+        sid = (inp.get("sid", inp.get("signal_id", "")) or "")
 
         runtime = build_runtime_from_inputs(inp)
         cfg, indicators, absorption = build_cfg_indicators(inp)
@@ -297,7 +298,7 @@ def main() -> None:
         out_rows.append(row)
 
     if args.sort == 1:
-        out_rows.sort(key=lambda x: (int(x.get("ts_ms", 0) or 0), str(x.get("symbol", "")), str(x.get("direction", ""))))
+        out_rows.sort(key=lambda x: (int(x.get("ts_ms", 0) or 0), (x.get("symbol", "")), (x.get("direction", ""))))
 
     with open(args.out, "w", encoding="utf-8") as f:
         for r in out_rows:

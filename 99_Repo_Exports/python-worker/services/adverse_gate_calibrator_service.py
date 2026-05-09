@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Adverse Gate Calibrator Service — IO layer (PG + Redis + Telegram).
 
@@ -28,16 +28,15 @@ Usage:
   - python -m services.adverse_gate_calibrator_service
   - Called from of_timers_worker.py as an hourly timer task
 """
-from utils.time_utils import get_ny_time_millis
-
 import hashlib
 import json
 import os
 import time
 import uuid
-from dataclasses import asdict
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis as redis_lib
@@ -58,16 +57,16 @@ except ImportError:
     logger = logging.getLogger("AdverseGateCalibrator")
 
 from core.adverse_gate_calibrator import (
-    AdverseOutcome,
     AdverseGateCalibResult,
-    evaluate_adverse_gate,
+    AdverseOutcome,
     adv_mode_to_int,
-    is_adv_enable,
+    evaluate_adverse_gate,
     is_adv_disable,
+    is_adv_enable,
 )
 from core.dyn_cfg_keys import DynCfgKeys as DK
 from core.redis_keys import RedisStreams as RS
-
+import contextlib
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -83,7 +82,7 @@ NOTIFY_STREAM = RS.NOTIFY_TELEGRAM
 # Default major pairs to start with
 DEFAULT_SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
-    "DOGEUSDT", "ADAUSDT", "DOTUSDT", 
+    "DOGEUSDT", "ADAUSDT", "DOTUSDT",
 ]
 
 
@@ -92,7 +91,7 @@ DEFAULT_SYMBOLS = [
 # ---------------------------------------------------------------------------
 
 try:
-    from prometheus_client import Gauge, Counter
+    from prometheus_client import Counter, Gauge
 
     adv_calib_veto_precision_gauge = Gauge(
         "adv_calib_reversal_veto_precision",
@@ -160,8 +159,8 @@ def _update_prometheus(result: AdverseGateCalibResult) -> None:
 def load_adverse_outcomes(
     dsn: str,
     window_hours: int = 24,
-    symbols: Optional[List[str]] = None,
-) -> Dict[str, List[AdverseOutcome]]:
+    symbols: list[str] | None = None,
+) -> dict[str, list[AdverseOutcome]]:
     """
     Load per-symbol trade outcomes with G10 adverse gate annotations.
 
@@ -218,12 +217,12 @@ def load_adverse_outcomes(
             cur.execute(sql)
             rows = cur.fetchall()
 
-        by_symbol: Dict[str, List[AdverseOutcome]] = {}
+        by_symbol: dict[str, list[AdverseOutcome]] = {}
         for row in rows:
             try:
-                sym = str(row.get("symbol") or "")
+                sym = (row.get("symbol") or "")
                 pnl = float(row.get("pnl_pct") or 0.0)
-                scenario = str(row.get("scenario") or "")
+                scenario = (row.get("scenario") or "")
                 if not scenario:
                     scenario = "reversal"  # Default scenario for signals without annotation
 
@@ -232,7 +231,7 @@ def load_adverse_outcomes(
                     pnl_pct=pnl,
                     is_loss=pnl < 0,
                     scenario=scenario,
-                    direction=str(row.get("direction") or ""),
+                    direction=(row.get("direction") or ""),
                     reversal_vetoed=int(row.get("rev_vetoed") or 0) == 1,
                     reversal_passed=int(row.get("rev_passed") or 0) == 1,
                     has_evidence=int(row.get("evidence_count") or 0) > 0,
@@ -258,17 +257,15 @@ def load_adverse_outcomes(
         return {}
     finally:
         if conn:
-            try:
+            with contextlib.suppress(Exception):
                 conn.close()
-            except Exception:
-                pass
 
 
 # ---------------------------------------------------------------------------
 # State persistence (Redis) — per-symbol
 # ---------------------------------------------------------------------------
 
-def _load_symbol_state(redis_client: Any, symbol: str) -> Dict[str, Any]:
+def _load_symbol_state(redis_client: Any, symbol: str) -> dict[str, Any]:
     """Load per-symbol calibrator state from Redis."""
     try:
         raw = redis_client.get(f"{STATE_KEY_PREFIX}{symbol}")
@@ -298,7 +295,7 @@ def _save_symbol_state(
         "n_total": result.n_total,
         "n_reversals": result.n_reversals,
         "run_id": run_id,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         "updated_ms": get_ny_time_millis(),
     }
     try:
@@ -344,7 +341,7 @@ def _generate_run_id() -> str:
 
 
 def format_telegram_report(
-    results: List[Tuple[str, AdverseGateCalibResult]],
+    results: list[tuple[str, AdverseGateCalibResult]],
     run_id: str,
     changed_only: bool = True,
 ) -> str:
@@ -400,7 +397,7 @@ def format_telegram_report(
     return "\n".join(lines)
 
 
-def _build_buttons(run_id: str, symbols_to_approve: List[str]) -> Optional[str]:
+def _build_buttons(run_id: str, symbols_to_approve: list[str]) -> str | None:
     """Build Telegram inline keyboard for per-symbol enforcement.
 
     Shows 'Enforce All' if there are symbols in shadow ready for enforcement.
@@ -419,8 +416,8 @@ def _build_buttons(run_id: str, symbols_to_approve: List[str]) -> Optional[str]:
 def _store_pending(
     redis_client: Any,
     run_id: str,
-    symbols_to_approve: List[str],
-    results: Dict[str, AdverseGateCalibResult],
+    symbols_to_approve: list[str],
+    results: dict[str, AdverseGateCalibResult],
 ) -> None:
     """Store pending approval data for Telegram callback handler."""
     symbol_data = {}
@@ -458,11 +455,11 @@ def _store_pending(
 def _send_telegram(
     redis_client: Any,
     text: str,
-    buttons_json: Optional[str] = None,
+    buttons_json: str | None = None,
 ) -> None:
     """Push message to notify:telegram stream."""
     notify_stream = os.getenv("NOTIFY_STREAM", NOTIFY_STREAM)
-    fields: Dict[str, str] = {
+    fields: dict[str, str] = {
         "type": "report",
         "text": text,
         "ts": str(get_ny_time_millis()),
@@ -503,10 +500,8 @@ def _should_run(redis_client: Any, interval_sec: int) -> bool:
 
 
 def _record_run(redis_client: Any, interval_sec: int) -> None:
-    try:
+    with contextlib.suppress(Exception):
         redis_client.set(THROTTLE_KEY, str(time.time()), ex=interval_sec * 3)
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -520,8 +515,8 @@ def run_adverse_gate_calibration(
     window_hours: int = 24,
     send_telegram: bool = True,
     telegram_interval_sec: int = 3600,
-    symbols: Optional[List[str]] = None,
-) -> Optional[Dict[str, AdverseGateCalibResult]]:
+    symbols: list[str] | None = None,
+) -> dict[str, AdverseGateCalibResult] | None:
     """
     Run one calibration cycle for G10 Adverse Gate (per-symbol).
 
@@ -564,16 +559,16 @@ def run_adverse_gate_calibration(
     # Load outcomes from PG (grouped by symbol)
     outcomes_by_symbol = load_adverse_outcomes(dsn, window_hours, symbols)
 
-    results: Dict[str, AdverseGateCalibResult] = {}
-    changed_symbols: List[str] = []
-    symbols_in_shadow: List[str] = []
+    results: dict[str, AdverseGateCalibResult] = {}
+    changed_symbols: list[str] = []
+    symbols_in_shadow: list[str] = []
 
     for sym in symbols:
         outcomes = outcomes_by_symbol.get(sym, [])
 
         # Load previous state
         prev_state = _load_symbol_state(r, sym)
-        prev_mode = str(prev_state.get("mode", "disabled") or "disabled")
+        prev_mode = (prev_state.get("mode", "disabled") or "disabled")
         prev_proof_streak = int(prev_state.get("proof_streak", 0) or 0)
         prev_rollback_streak = int(prev_state.get("rollback_streak", 0) or 0)
 
@@ -638,7 +633,7 @@ def run_adverse_gate_calibration(
             "enabled_symbols": [s for s, res in results.items() if res.effective_mode != "disabled"],
             "changed_symbols": changed_symbols,
             "run_id": run_id,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
         r.set(RESULT_KEY, json.dumps(agg, default=str), ex=STATE_TTL_SEC)
     except Exception:

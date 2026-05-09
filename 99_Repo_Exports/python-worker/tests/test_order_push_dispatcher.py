@@ -1,7 +1,7 @@
-from unittest.mock import patch, MagicMock
-import json
+from unittest.mock import MagicMock, patch
 
 from order_push_dispatcher import post_order
+
 
 @patch("order_push_dispatcher.ORDER_PUSH_DISABLED", False)
 @patch("order_push_dispatcher.ORDER_PUSH_ENABLE", True)

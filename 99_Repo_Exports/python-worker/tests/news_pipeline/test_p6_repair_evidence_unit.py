@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 tests/news_pipeline/test_p6_repair_evidence_unit.py
 
@@ -14,15 +15,13 @@ Dependencies: pydantic (already installed in python-worker venv).
 """
 
 import json
-import uuid
+
 import pytest
 
 # ── DTOs under test ────────────────────────────────────────────────────────────
 from news_pipeline.p6_dto import (
     NewsEventContractDTO,
-    stable_event_uuid,
 )
-
 
 # ── Test data helpers ──────────────────────────────────────────────────────────
 

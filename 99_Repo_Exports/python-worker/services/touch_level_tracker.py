@@ -1,9 +1,8 @@
 # services/touch_level_tracker.py
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections import deque
-from typing import Deque, Tuple, Optional
+from dataclasses import dataclass
 
 
 @dataclass
@@ -29,7 +28,7 @@ class TouchSnapshot:
 class _RollingQtyWindow:
     def __init__(self, window_ms: int):
         self.window_ms = max(1, int(window_ms))
-        self.q: Deque[Tuple[int, float]] = deque()
+        self.q: deque[tuple[int, float]] = deque()
         self.sum = 0.0
 
     def add(self, ts: int, qty: float) -> None:
@@ -59,8 +58,8 @@ class _SideState:
     best_qty: float = 0.0
     last_ts: int = 0
 
-    trades: Optional[_RollingQtyWindow] = None
-    drops: Optional[_RollingQtyWindow] = None
+    trades: _RollingQtyWindow | None = None
+    drops: _RollingQtyWindow | None = None
 
     drop_started_ts: int = 0
     qty_before_drop: float = 0.0
@@ -219,7 +218,7 @@ class TouchLevelTracker:
         self._update_side(self.bid, ts=ts, best_p=bid_p, best_q=bid_q, is_bid=True)
         self._update_side(self.ask, ts=ts, best_p=ask_p, best_q=ask_q, is_bid=False)
 
-    def _tag(self, *, T: float, D: float, refill_lag_ms: int) -> Tuple[str, float]:
+    def _tag(self, *, T: float, D: float, refill_lag_ms: int) -> tuple[str, float]:
         eps = 1e-9
         rho = float(T) / (float(D) + eps)
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """utils.telegram_notify — Thin Telegram sender for batch reports.
 
 Environment variables:
@@ -29,7 +30,7 @@ _CHUNK_SIZE = 3_900  # leave headroom for Telegram's limit
 
 def _chunks(text: str, limit: int = _CHUNK_SIZE) -> list[str]:
     """Split *text* into chunks of at most *limit* characters."""
-    s = str(text or "")
+    s = (text or "")
     if not s:
         return []
     return [s[i : i + limit] for i in range(0, len(s), limit)]

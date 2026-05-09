@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Auto-apply Tick Gate Exporter
 
@@ -23,9 +24,9 @@ ENV:
 import json
 import os
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
-from prometheus_client import Gauge, Counter, start_http_server
+from prometheus_client import Counter, Gauge, start_http_server
 
 
 def _env(name: str, default: str) -> str:
@@ -33,7 +34,7 @@ def _env(name: str, default: str) -> str:
     return default if v is None or str(v).strip() == "" else str(v).strip()
 
 
-def parse_json_maybe(s: Any) -> Dict[str, Any]:
+def parse_json_maybe(s: Any) -> dict[str, Any]:
     if s is None:
         return {}
     if isinstance(s, dict):
@@ -50,7 +51,7 @@ def parse_json_maybe(s: Any) -> Dict[str, Any]:
         return {}
 
 
-def normalize_reason(raw: Optional[str], mode: str, allowlist: Optional[set]) -> str:
+def normalize_reason(raw: str | None, mode: str, allowlist: set | None) -> str:
     """
     Normalize reason into a safe label:
       - collapse: unknown -> __other__
@@ -70,7 +71,7 @@ def normalize_reason(raw: Optional[str], mode: str, allowlist: Optional[set]) ->
     return r
 
 
-def read_block_state(rds, prefix: str) -> Tuple[bool, Dict[str, Any], int]:
+def read_block_state(rds, prefix: str) -> tuple[bool, dict[str, Any], int]:
     """
     Returns: (blocked, meta_dict, ts_ms)
     """
@@ -79,7 +80,7 @@ def read_block_state(rds, prefix: str) -> Tuple[bool, Dict[str, Any], int]:
     k_ts = f"{prefix}:tick_gate:ts_ms"
 
     blocked = False
-    meta: Dict[str, Any] = {}
+    meta: dict[str, Any] = {}
     ts_ms = 0
     try:
         v = rds.get(k_block)

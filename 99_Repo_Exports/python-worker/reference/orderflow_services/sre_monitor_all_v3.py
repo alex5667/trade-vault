@@ -11,11 +11,11 @@ Unified entrypoint for SRE checks:
 Usage:
   python3 -m tools.sre_monitor_all_v3 --emit-metrics --notify
 """
-import os
-import sys
-import subprocess
 import argparse
 import logging
+import os
+import subprocess
+import sys
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("sre_monitor_v3")
@@ -41,12 +41,12 @@ def main():
     base = os.path.dirname(__file__)
     # Optional: auto-downgrade meta ENFORCE per coverage bucket based on outcomes (P33)
     enable_meta_cov_outcome = bool(int(os.getenv("ENABLE_META_COV_OUTCOME_AUTO_APPLY", "0") or 0))
-    
+
     flags = []
     if args.emit_metrics: flags.append("--emit-metrics")
     if args.notify: flags.append("--notify")
     if args.dry_run: flags.append("--dry-run")
-    
+
     # Specific flags for specific tools
     notify_flags = []
     if args.emit_suggestions:
@@ -91,7 +91,7 @@ def main():
         else:
             tools.append([os.path.join("..", "tools", "policy_regime_effectiveness_report_worker_p72.py"), ["--once"]])
 
-    
+
     # P74: Policy calibration suggester (advisory actions based on P71/P72 snapshots)
     if os.getenv("ENABLE_POLICY_CALIBRATION_SUGGESTER_P74", "0") == "1":
         local = os.path.join(base, "policy_calibration_suggester_p74.py")
@@ -116,7 +116,7 @@ def main():
     for tool_def in tools:
         tool_script = tool_def[0]
         tool_extra_args = tool_def[1] if len(tool_def) > 1 else []
-        
+
         full_cmd = [py, os.path.join(base, tool_script)] + flags + tool_extra_args
         rc = run_tool(full_cmd)
         exit_codes.append(rc)
@@ -124,7 +124,7 @@ def main():
     # 0 = OK, 1 = Error/Exception, 2 = Alert found
     # We return the worst status (2 > 1 > 0)
     max_rc = max(exit_codes) if exit_codes else 0
-    
+
     logger.info(f"All monitors finished. Max exit code: {max_rc}")
     sys.exit(max_rc)
 

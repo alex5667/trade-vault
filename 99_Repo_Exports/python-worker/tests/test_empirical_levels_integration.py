@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from signals.level_enricher import attach_trade_levels_to_ctx
 from signals.empirical_levels import EmpiricalLevels, EmpiricalLevelStats
+from signals.level_enricher import attach_trade_levels_to_ctx
 
 
 class _FakeProvider:

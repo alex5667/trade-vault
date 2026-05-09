@@ -9,6 +9,7 @@ Verifies that:
 5. Configurable threshold works
 """
 import types
+
 import pytest
 
 

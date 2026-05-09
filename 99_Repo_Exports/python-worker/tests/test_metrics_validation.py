@@ -4,10 +4,10 @@ Tests use mock metrics collectors to verify exact-once behavior is properly meas
 """
 import json
 import time
-import pytest
-from unittest.mock import Mock, MagicMock
-from core.signal_outbox import SignalOutboxPublisher, OutboxSettings
+
+from core.signal_outbox import OutboxSettings, SignalOutboxPublisher
 from services.signal_dispatcher import SignalDispatcher
+from core.redis_keys import RedisStreams as RS
 
 
 class MockMetricsCollector:
@@ -51,7 +51,7 @@ class TestMetricsValidation:
     def test_outbox_publish_metrics_on_success(self, r):
         """Outbox должен инкрементировать правильные метрики при успешной публикации."""
         metrics = MockMetricsCollector()
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         # Mock metrics в outbox (если есть)
@@ -68,7 +68,7 @@ class TestMetricsValidation:
         assert msg_id is not None
 
         # Проверяем что сообщение в outbox
-        assert r.xlen("stream:signals:outbox") == 1
+        assert r.xlen(RS.SIGNAL_OUTBOX) == 1
 
         # В реальном коде здесь должны быть проверки метрик:
         # assert metrics.get_counter("signal_publish_success", source="metrics_test") == 1
@@ -77,7 +77,7 @@ class TestMetricsValidation:
     def test_outbox_dedup_metrics_on_duplicate(self, r):
         """Outbox должен инкрементировать dedup метрики при дубликате."""
         metrics = MockMetricsCollector()
-        settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
 
         env = {"sid": "metrics_dedup_1", "ts_ms": 1700000000000, "symbol": "BTCUSDT"}
@@ -109,7 +109,7 @@ class TestMetricsValidation:
         metrics = MockMetricsCollector()
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="metrics-group",
         )
 
@@ -135,9 +135,9 @@ class TestMetricsValidation:
         metrics = MockMetricsCollector()
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="metrics-group",
-            dlq_stream="stream:signals:dlq",
+            dlq_stream=RS.SIGNAL_DLQ,
         )
 
         # Malformed envelope без sid
@@ -148,14 +148,14 @@ class TestMetricsValidation:
 
         # Проверяем DLQ метрики
         # assert metrics.get_counter("signal_dlq_sent", reason="missing_sid") == 1
-        # assert r.xlen("stream:signals:dlq") == 1
+        # assert r.xlen(RS.SIGNAL_DLQ) == 1
 
     def test_dispatcher_retry_metrics_on_failure(self, r, monkeypatch):
         """Dispatcher должен инкрементировать retry метрики при transient failures."""
         metrics = MockMetricsCollector()
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="metrics-group",
             max_attempts=3,
         )
@@ -184,10 +184,10 @@ class TestMetricsValidation:
         metrics = MockMetricsCollector()
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="metrics-group",
             max_attempts=2,
-            dlq_stream="stream:signals:dlq",
+            dlq_stream=RS.SIGNAL_DLQ,
         )
 
         sid = "metrics_max_attempts_1"
@@ -204,7 +204,7 @@ class TestMetricsValidation:
         assert ok1 is True
 
         # Находим re-enqueued сообщение и обрабатываем его
-        messages = r.xrange("stream:signals:outbox")
+        messages = r.xrange(RS.SIGNAL_OUTBOX)
         for msg_id, fields in messages:
             if "data" in fields:
                 re_env = json.loads(fields["data"])
@@ -223,12 +223,12 @@ class TestMetricsValidation:
         metrics = MockMetricsCollector()
 
         # Настройка компонентов
-        outbox_settings = OutboxSettings(outbox_stream="stream:signals:outbox")
+        outbox_settings = OutboxSettings(outbox_stream=RS.SIGNAL_OUTBOX)
         outbox = SignalOutboxPublisher(redis_client=r, settings=outbox_settings)
 
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="e2e-metrics-group",
         )
 
@@ -355,7 +355,7 @@ class TestMetricsValidation:
                     dispatcher._handle_one(f"error_{error_type}", {"data": envelope})
                 else:
                     dispatcher._handle_one(f"error_{error_type}", {"data": json.dumps(envelope, ensure_ascii=False)})
-            except:
+            except Exception:
                 pass
 
             # Проверяем классификацию ошибок

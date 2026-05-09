@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """,
@@ -15,8 +16,7 @@ import argparse
 import json
 import os
 import sys
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 try:
     import redis
@@ -47,7 +47,7 @@ def _load_json(v: Any) -> Any:
     return v
 
 
-def get_cfg_snapshot(r: redis.Redis, key: str) -> Dict[str, Any]:
+def get_cfg_snapshot(r: redis.Redis, key: str) -> dict[str, Any]:
     raw = r.hgetall(key)
     out = {}
     for k, v in raw.items():
@@ -64,7 +64,7 @@ def main() -> int:
     parser.add_argument("--apply", type=int, default=int(os.getenv("META_COV_GUARD_APPLY", "1")))
     parser.add_argument("--max-stale-ms", type=int, default=int(os.getenv("META_COV_GUARD_MAX_STALE_MS", str(6 * 3600 * 1000))))
     parser.add_argument("--block-on-quarantine", type=int, default=int(os.getenv("META_COV_GUARD_BLOCK_ON_QUARANTINE", "1")))
-    
+
     args = parser.parse_args()
 
     if redis is None:
@@ -72,7 +72,7 @@ def main() -> int:
         return 1
 
     r = redis.Redis.from_url(args.redis_url, decode_responses=False)
-    
+
     try:
         snapshot = get_cfg_snapshot(r, args.cfg_key)
     except Exception as e:
@@ -81,10 +81,10 @@ def main() -> int:
 
     ts_ms = int(snapshot.get("meta_cov_ops_last_ts_ms") or 0)
     now = now_ms()
-    
+
     # Check staleness
     stale = ts_ms == 0 or (now - ts_ms) > args.max_stale_ms
-    
+
     # Check last run status
     last_ok = int(snapshot.get("meta_cov_ops_last_ok") or 0)
     last_run_not_ok = (last_ok != 1)
@@ -107,15 +107,15 @@ def main() -> int:
              quarantined = True
 
     block = stale or last_run_not_ok or quarantined
-    
+
     reason = []
     if stale: reason.append("stale_snapshot")
     if last_run_not_ok: reason.append("last_run_failed")
     if preflight_soft: reason.append("preflight_soft_block_ignored")
     if quarantined: reason.append("quarantine")
-    
+
     reason_str = ",".join(reason) if reason else None
-    
+
     meta = {
         "blocked": block,
         "reason": reason_str,
@@ -134,7 +134,7 @@ def main() -> int:
         block_key = f"{prefix}:meta_cov"
         meta_key = f"{prefix}:meta_cov:meta"
         ts_key = f"{prefix}:meta_cov:ts_ms"
-        
+
         if block:
             r.set(block_key, reason_str or "unknown", ex=int(os.getenv("META_COV_GUARD_BLOCK_TTL_SEC", "3600")))
             r.set(meta_key, json.dumps(meta), ex=int(os.getenv("META_COV_GUARD_BLOCK_TTL_SEC", "3600")))

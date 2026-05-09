@@ -1,9 +1,10 @@
-# core/feature_engineering.py
 from __future__ import annotations
 
+# core/feature_engineering.py
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 try:
     import numpy as np
@@ -23,7 +24,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def clip(x: float, lo: Optional[float] = None, hi: Optional[float] = None) -> float:
+def clip(x: float, lo: float | None = None, hi: float | None = None) -> float:
     if x != x:  # NaN
         return 0.0
     if lo is not None and x < lo:
@@ -55,7 +56,7 @@ def apply_transform(x: float, spec: Any) -> float:
         return x
     if isinstance(spec, str):
         t = spec
-        s: Dict[str, Any] = {"type": t}
+        s: dict[str, Any] = {"type": t}
     elif isinstance(spec, dict):
         s = spec
     else:
@@ -112,7 +113,7 @@ def apply_robust_scale(x: Any, *, center: float, scale: float, eps: float = 1e-9
 @dataclass
 class RobustScalerPack:
     # feature -> {"center": median, "scale": mad_scaled}
-    params: Dict[str, Dict[str, float]]
+    params: dict[str, dict[str, float]]
 
     def scale(self, name: str, x: float) -> float:
         p = self.params.get(name)
@@ -120,7 +121,7 @@ class RobustScalerPack:
             return x
         return apply_robust_scale(x, center=float(p.get("center", 0.0)), scale=float(p.get("scale", 1.0)))
 
-    def transform(self, X: np.ndarray, feature_names: Optional[List[str]] = None) -> np.ndarray:
+    def transform(self, X: np.ndarray, feature_names: list[str] | None = None) -> np.ndarray:
         """Transform array X using robust scaling per feature.
         
         Args:
@@ -136,17 +137,17 @@ class RobustScalerPack:
         X_arr = np.asarray(X, dtype=np.float64)
         if len(X_arr.shape) != 2:
             raise ValueError(f"X must be 2D array, got shape {X_arr.shape}")
-        
+
         X_out = X_arr.copy()
         # If params is empty, return as-is
         if not self.params:
             return X_out
-        
+
         # If feature_names provided, use them; otherwise try to infer from params keys
         if feature_names is None:
             # Try to get feature names from params (assumes params keys are feature names)
             feature_names = list(self.params.keys())
-        
+
         # Scale each column by corresponding feature name
         n_features = X_arr.shape[1]
         for i in range(n_features):
@@ -158,11 +159,11 @@ class RobustScalerPack:
                     center = float(p.get("center", 0.0))
                     scale = float(p.get("scale", 1.0))
                     X_out[: i] = apply_robust_scale(X_arr[: i], center=center, scale=scale)
-        
+
         return X_out
 
     @staticmethod
-    def fit(X: np.ndarray, feature_names: Optional[List[str]] = None) -> "RobustScalerPack":
+    def fit(X: np.ndarray, feature_names: list[str] | None = None) -> RobustScalerPack:
         """Fit robust scaler on array X.
         
         Computes median (center) and MAD*1.4826 (scale) per feature.
@@ -177,17 +178,17 @@ class RobustScalerPack:
         import numpy as np
         if X is None or X.size == 0:
             return RobustScalerPack(params={})
-        
+
         X_arr = np.asarray(X, dtype=np.float64)
         if len(X_arr.shape) != 2:
             raise ValueError(f"X must be 2D array, got shape {X_arr.shape}")
-        
+
         n_features = X_arr.shape[1]
-        params: Dict[str, Dict[str, float]] = {}
-        
+        params: dict[str, dict[str, float]] = {}
+
         # MAD constant (makes MAD equivalent to std for normal distribution)
         MAD_CONST = 1.4826
-        
+
         for i in range(n_features):
             col = X_arr[: i]
             # Remove NaN/Inf
@@ -199,10 +200,10 @@ class RobustScalerPack:
                 center = float(np.median(col_clean))
                 mad = float(np.median(np.abs(col_clean - center)))
                 scale = max(1e-9, mad * MAD_CONST)
-            
+
             feature_name = feature_names[i] if feature_names and i < len(feature_names) else f"f_{i}"
             params[feature_name] = {"center": center, "scale": scale}
-        
+
         return RobustScalerPack(params=params)
 
 
@@ -220,7 +221,7 @@ def bucketize(x: float, edges: Sequence[float]) -> int:
     return i
 
 
-def derive_session_label(ts_ms: int, *, tz: str = "UTC", cfg: Optional[Dict[str, Any]] = None) -> str:
+def derive_session_label(ts_ms: int, *, tz: str = "UTC", cfg: dict[str, Any] | None = None) -> str:
     """Deterministic session label derived ONLY from ts_ms.
 
     Default uses UTC hour buckets. You can override via cfg["session_hours"]:
@@ -256,7 +257,7 @@ def derive_session_label(ts_ms: int, *, tz: str = "UTC", cfg: Optional[Dict[str,
     return "other"
 
 
-def derive_regime_label(x: Any, *, fallback_score: Optional[float] = None, cfg: Optional[Dict[str, Any]] = None) -> str:
+def derive_regime_label(x: Any, *, fallback_score: float | None = None, cfg: dict[str, Any] | None = None) -> str:
     """Derive a regime label.
 
     Priority:
@@ -295,9 +296,9 @@ def derive_regime_label(x: Any, *, fallback_score: Optional[float] = None, cfg: 
 def get_numeric_feature(
     *,
     name: str,
-    indicators: Dict[str, Any],
-    transforms: Optional[Dict[str, Any]] = None,
-    scaler: Optional[RobustScalerPack] = None,
+    indicators: dict[str, Any],
+    transforms: dict[str, Any] | None = None,
+    scaler: RobustScalerPack | None = None,
 ) -> float:
     x = _f(indicators.get(name, 0.0), 0.0)
     if transforms and name in transforms:

@@ -7,7 +7,6 @@ from services.orderflow.derivatives_context_gate import (
     evaluate_derivatives_context_v2,
 )
 
-
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _v2(

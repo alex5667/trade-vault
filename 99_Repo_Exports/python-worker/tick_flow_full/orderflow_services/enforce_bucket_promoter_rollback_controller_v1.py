@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """enforce_bucket_promoter_rollback_controller_v1.py
 
 Rollback controller for bucket-aware enforcement.
@@ -41,16 +42,15 @@ Usage:
   python -m orderflow_services.enforce_bucket_promoter_rollback_controller_v1 --apply 1
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
+import asyncio
 import json
 import os
-import time
-import asyncio
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     import redis.asyncio as aioredis  # type: ignore
@@ -59,10 +59,12 @@ except Exception:  # pragma: no cover
 
 try:
     # Prefer local package when running as -m ...
-    from orderflow_services.redis_lock_v1 import acquire_lock as _acquire_lock, release_lock as _release_lock  # type: ignore
+    from orderflow_services.redis_lock_v1 import acquire_lock as _acquire_lock  # type: ignore
+    from orderflow_services.redis_lock_v1 import release_lock as _release_lock
 except Exception:  # pragma: no cover
     try:
-        from .redis_lock_v1 import acquire_lock as _acquire_lock, release_lock as _release_lock  # type: ignore
+        from .redis_lock_v1 import acquire_lock as _acquire_lock  # type: ignore
+        from .redis_lock_v1 import release_lock as _release_lock
     except Exception:  # pragma: no cover
         _acquire_lock = None
         _release_lock = None
@@ -77,12 +79,12 @@ def _notify_stream_name() -> str:
         os.getenv("ENFORCE_BUCKET_NOTIFY_STREAM")
         or os.getenv("NOTIFY_TELEGRAM_STREAM")
         or os.getenv("CRYPTO_NOTIFY_STREAM")
-        or "notify:telegram"
+        or RS.NOTIFY_TELEGRAM
     )
 
 
 def _notify_enabled() -> bool:
-    return str(os.getenv("ENFORCE_BUCKET_NOTIFY", "1") or "1").strip().lower() in ("1", "true", "yes", "on")
+    return (os.getenv("ENFORCE_BUCKET_NOTIFY", "1") or "1").strip().lower() in ("1", "true", "yes", "on")
 
 
 async def _notify_once(r: Any, text: str, *, cooldown_key: str, cooldown_sec: int) -> None:
@@ -99,38 +101,36 @@ async def _notify_once(r: Any, text: str, *, cooldown_key: str, cooldown_sec: in
                 pass
         fields = {"type": "report", "text": str(text)[:3500], "ts": str(now)}
         await r.xadd(_notify_stream_name(), fields, maxlen=200000, approximate=True)
-        try:
+        with contextlib.suppress(Exception):
             await r.set(cooldown_key, str(now), ex=int(cooldown_sec))
-        except Exception:
-            pass
     except Exception:
         return
 
 
 def _env_int(name: str, default: str) -> int:
     try:
-        return int(str(os.getenv(name, default)).strip())
+        return int(os.getenv(name, default).strip())
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(name: str, default: str) -> float:
     try:
-        return float(str(os.getenv(name, default)).strip())
+        return float(os.getenv(name, default).strip())
     except Exception:
-        return float(default)
+        return default
 
 
 def _norm_bucket(b: Any) -> str:
-    s = str(b or "").strip().upper()
+    s = (b or "").strip().upper()
     return s or "NORMAL"
 
 
-def _parse_allowlist(raw: Any) -> List[str]:
-    raw = str(raw or "").strip()
+def _parse_allowlist(raw: Any) -> list[str]:
+    raw = (raw or "").strip()
     if not raw:
         return []
-    xs: List[str] = []
+    xs: list[str] = []
     for p in raw.replace(";", ",").split(","):
         s = p.strip().upper()
         if s and s not in xs:
@@ -138,7 +138,7 @@ def _parse_allowlist(raw: Any) -> List[str]:
     return xs
 
 
-def _allowlist_to_str(xs: List[str]) -> str:
+def _allowlist_to_str(xs: list[str]) -> str:
     return ",".join(xs)
 
 
@@ -154,15 +154,15 @@ class BucketStats:
 @dataclass(frozen=True)
 class RollbackDecision:
     rollback: bool
-    reasons: List[str]
+    reasons: list[str]
     target_slip: str
     target_taker: str
 
 
 def decide_rollback(
     *,
-    added_buckets: List[str],
-    stats_by_bucket: Dict[str, BucketStats],
+    added_buckets: list[str],
+    stats_by_bucket: dict[str, BucketStats],
     min_db_n: int,
     max_p95: float,
     max_p99: float,
@@ -170,7 +170,7 @@ def decide_rollback(
     target_slip: str,
     target_taker: str,
 ) -> RollbackDecision:
-    reasons: List[str] = []
+    reasons: list[str] = []
     for b in added_buckets:
         bb = _norm_bucket(b)
         st = stats_by_bucket.get(bb)
@@ -191,7 +191,7 @@ def decide_rollback(
     return RollbackDecision(rollback=do, reasons=reasons[:12], target_slip=target_slip, target_taker=target_taker)
 
 
-async def _xadd_event(r: Any, *, stream: str, fields: Dict[str, Any], maxlen: int) -> None:
+async def _xadd_event(r: Any, *, stream: str, fields: dict[str, Any], maxlen: int) -> None:
     try:
         payload = {str(k): ("" if v is None else str(v)) for k, v in (fields or {}).items()}
         await r.xadd(stream, payload, maxlen=maxlen, approximate=True)
@@ -199,7 +199,7 @@ async def _xadd_event(r: Any, *, stream: str, fields: Dict[str, Any], maxlen: in
         return
 
 
-async def _fetch_bucket_stats(conn: Any, *, since_ts_ms: int, lookback_h: int) -> Dict[str, BucketStats]:
+async def _fetch_bucket_stats(conn: Any, *, since_ts_ms: int, lookback_h: int) -> dict[str, BucketStats]:
     # We include a lookback cap to limit scans.
     q = f"""
     SELECT
@@ -213,7 +213,7 @@ async def _fetch_bucket_stats(conn: Any, *, since_ts_ms: int, lookback_h: int) -
     GROUP BY exec_regime_bucket
     """
     rows = await conn.fetch(q, float(since_ts_ms))
-    out: Dict[str, BucketStats] = {}
+    out: dict[str, BucketStats] = {}
     for r in rows:
         b = _norm_bucket(r.get("exec_regime_bucket") or "NORMAL")
         out[b] = BucketStats(
@@ -321,7 +321,7 @@ async def run(apply: bool) -> int:
         await r.aclose()
         return 0
 
-    added: List[str] = []
+    added: list[str] = []
     # Determine added buckets (union across components)
     cur_s = set(_parse_allowlist(cur_slip))
     prev_s = set(_parse_allowlist(prev_slip))

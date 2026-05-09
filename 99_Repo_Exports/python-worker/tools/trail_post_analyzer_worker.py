@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Trail Post-Analyzer & Calibrator Worker — unified timer entry point.
 
@@ -21,8 +23,6 @@ Usage:
   python3 -m tools.trail_post_analyzer_worker --once
   python3 -m tools.trail_post_analyzer_worker --loop --interval 21600
 """
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
@@ -32,10 +32,11 @@ import time
 import redis
 
 from common.log import setup_logger
-from services.trail_post_analyzer import TrailPostAnalyzer, TrailAnalyzerConfig
-from services.trail_calibrator import TrailCalibrator, TrailCalibratorConfig, CalibratedTrailParams
-from services.trail_shadow_simulator import TrailShadowSimulator, ShadowSimConfig
-from services.trail_stability_tracker import TrailStabilityTracker, StabilityConfig
+from services.trail_calibrator import CalibratedTrailParams, TrailCalibrator, TrailCalibratorConfig
+from services.trail_post_analyzer import TrailAnalyzerConfig, TrailPostAnalyzer
+from services.trail_shadow_simulator import ShadowSimConfig, TrailShadowSimulator
+from services.trail_stability_tracker import StabilityConfig, TrailStabilityTracker
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("TrailWorker")
 
@@ -43,7 +44,7 @@ logger = setup_logger("TrailWorker")
 # Config
 # ---------------------------------------------------------------------------
 
-NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", "notify:telegram") or "notify:telegram"
+NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM) or RS.NOTIFY_TELEGRAM
 PENDING_PREFIX = "trail:calib:pending"
 PENDING_TTL = int(os.getenv("TRAIL_CALIB_PENDING_TTL_SEC", "86400") or 86400)
 REMINDER_SEC = int(os.getenv("TRAIL_CALIB_REMINDER_SEC", "1800") or 1800)

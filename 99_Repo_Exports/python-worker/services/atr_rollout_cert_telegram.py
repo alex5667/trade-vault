@@ -1,9 +1,10 @@
 import json
 import logging
-from typing import Dict, Any
+import os
+from typing import Any
 
 import redis
-import os
+from core.redis_keys import RedisStreams as RS
 
 logger = logging.getLogger("atr_rollout_cert_telegram")
 
@@ -11,7 +12,7 @@ def _redis():
     return redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
 
 def _ops_chat_id() -> str:
-    return str(os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
+    return (os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
 
 def notify_telegram(text: str, parse_mode: str = "HTML"):
     payload = {"text": text, "parse_mode": parse_mode}
@@ -19,7 +20,7 @@ def notify_telegram(text: str, parse_mode: str = "HTML"):
     if chat_id:
         payload["chat_id"] = chat_id
     try:
-        _redis().xadd("notify:telegram", payload, maxlen=10000, approximate=True)
+        _redis().xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=10000, approximate=True)
     except Exception as e:
         logger.error(f"Failed to xadd to notify:telegram: {e}")
 
@@ -35,13 +36,13 @@ def format_bps(val: float) -> str:
     prefix = "+" if val > 0 else ""
     return f"{prefix}{str(round(val, 1))}"
 
-def format_checks(checks: Dict[str, bool]) -> str:
+def format_checks(checks: dict[str, bool]) -> str:
     """Format boolean checks dictionary into standard list."""
     if not checks:
         return "- no checks"
     return "\n".join([f"- {k}={'✅' if v else '❌'}" for k, v in checks.items()])
 
-def send_cert_start_message(change_id: str, stage: str, thresholds: Dict[str, Any]):
+def send_cert_start_message(change_id: str, stage: str, thresholds: dict[str, Any]):
     """Notify that a new stage certification has started."""
     text = (
         f"⏳ <b>ATR Rollout Certification Started</b>\n\n"
@@ -52,7 +53,7 @@ def send_cert_start_message(change_id: str, stage: str, thresholds: Dict[str, An
     )
     notify_telegram(text, parse_mode="HTML")
 
-def send_cert_outcome_message(cert_data: Dict[str, Any]):
+def send_cert_outcome_message(cert_data: dict[str, Any]):
     """Notify certification outcome (PASSED / FAILED / PENDING) with summary."""
     change_id = cert_data.get("change_id", "unknown")
     stage = cert_data.get("rollout_stage", "unknown")
@@ -60,16 +61,16 @@ def send_cert_outcome_message(cert_data: Dict[str, Any]):
     next_action = cert_data.get("next_action", "WAIT_FOR_DATA")
     checks = cert_data.get("checks", {})
     summary = cert_data.get("summary", {})
-    
+
     # Emoji based on status
     emoji = "✅" if status == "PASSED" else "❌" if status == "FAILED" else "⏳"
-    
+
     n_trades = summary.get('n_trades', 0)
     avg_pnl_bps = format_bps(summary.get('avg_pnl_bps'))
     avg_slip = format_bps(summary.get('avg_slippage_bps'))
     stop_rate = format_percentage(summary.get('stop_rate'))
     tp1_rate = format_percentage(summary.get('tp1_rate'))
-    
+
     text = (
         f"{emoji} <b>ATR Rollout Certification</b>\n\n"
         f"<b>Change</b>: {change_id}\n"
@@ -86,7 +87,7 @@ def send_cert_outcome_message(cert_data: Dict[str, Any]):
     )
     notify_telegram(text, parse_mode="HTML")
 
-def send_stop_condition_message(change_id: str, stage: str, reason_code: str, evidence: Dict[str, Any]):
+def send_stop_condition_message(change_id: str, stage: str, reason_code: str, evidence: dict[str, Any]):
     """Notify if a hard stop-condition has been hit."""
     text = (
         f"🚨 <b>ATR Rollout Stop-Condition Hit</b> 🚨\n\n"

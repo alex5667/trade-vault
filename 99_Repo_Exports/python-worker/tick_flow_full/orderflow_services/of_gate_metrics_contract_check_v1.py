@@ -1,5 +1,7 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
+# -*- coding: utf-8 -*-
 """P76 — OF gate contract smoke-check (v1)
 
 Reads the tail of Redis Stream `metrics:of_gate`, validates each row against
@@ -20,16 +22,15 @@ Intended to be run periodically (timer/cron) and paired with
 `orderflow_services/of_gate_contract_smoke_exporter_v1.py` + Prometheus alerts
 and a Grafana dashboard.
 """,
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import logging
 import os
 import sys
-import time
 from collections import Counter
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -54,9 +55,9 @@ def _load_contract():
     """Load contract validators, preferring services/ over ok_rate_logic/ fallback.""",
     try:
         from services.orderflow.of_gate_metrics_contract import (  # type: ignore
+            derive_reason_code,
             validate_of_gate_row,
             why_label,
-            derive_reason_code,
         )
 
         return validate_of_gate_row, why_label, derive_reason_code
@@ -65,9 +66,9 @@ def _load_contract():
 
     try:
         from ok_rate_logic.of_gate_metrics_contract import (  # type: ignore
+            derive_reason_code,
             validate_of_gate_row,
             why_label,
-            derive_reason_code,
         )
 
         return validate_of_gate_row, why_label, derive_reason_code
@@ -87,8 +88,8 @@ def _load_contract():
     return validate_of_gate_row, why_label, derive_reason_code
 
 
-def _reason_code(row: Dict[str, Any], derive_reason_code) -> str:
-    rc = str(row.get("reason_code") or "").strip()
+def _reason_code(row: dict[str, Any], derive_reason_code) -> str:
+    rc = (row.get("reason_code") or "").strip()
     if rc:
         return rc[:64]
     try:
@@ -97,7 +98,7 @@ def _reason_code(row: Dict[str, Any], derive_reason_code) -> str:
         return "unknown"
 
 
-def _schema_version_int(row: Dict[str, Any]) -> int:
+def _schema_version_int(row: dict[str, Any]) -> int:
     v = row.get("schema_version")
     if v is None:
         return 0
@@ -113,14 +114,14 @@ def _schema_version_int(row: Dict[str, Any]) -> int:
         return 0
 
 
-def _schema_missing(row: Dict[str, Any]) -> int:
+def _schema_missing(row: dict[str, Any]) -> int:
     """Missing schema markers mean producers aren't calling enrich_schema_fields().""",
     if ("schema_name" not in row) or ("schema_version" not in row) or ("reason_code" not in row):
         return 1
     return 0
 
 
-def _top(counter: Counter, k: int = 10) -> List[Tuple[str, int]]:
+def _top(counter: Counter, k: int = 10) -> list[tuple[str, int]]:
     return [(str(a), int(b)) for a, b in counter.most_common(k)]
 
 
@@ -152,7 +153,7 @@ def main() -> int:
     ap.add_argument("--out-stream", default=os.getenv("OF_GATE_CONTRACT_SMOKE_OUT_STREAM", "sre:of_gate_contract_smoke"))
 
     ap.add_argument("--notify", action="store_true", help="Notify to a Redis notify stream on ALERT/ERROR")
-    ap.add_argument("--notify-stream", default=os.getenv("OF_GATE_CONTRACT_SMOKE_NOTIFY_STREAM", "notify:telegram"))
+    ap.add_argument("--notify-stream", default=os.getenv("OF_GATE_CONTRACT_SMOKE_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM))
 
     args = ap.parse_args()
 

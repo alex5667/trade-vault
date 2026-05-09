@@ -1,4 +1,4 @@
-from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync, get_heal_state_key
+from services.orderflow.exec_health_freeze_reconnect_healing import get_heal_state_key, heal_service_identity_sync
 
 
 class FakeRedis:

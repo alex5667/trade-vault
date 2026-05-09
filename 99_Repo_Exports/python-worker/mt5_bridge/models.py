@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 MT5 Bridge Models
 
@@ -7,8 +8,7 @@ MT5 Bridge Models
 
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import List
+from datetime import UTC, datetime
 
 
 @dataclass
@@ -34,8 +34,8 @@ class Mt5ExecutionPlan:
     entry_zone_high: float
     stop_price: float
 
-    tp_levels: List[float]          # абсолютные цены TP
-    partials: List[float]           # доли объёма: [0.5, 0.5] и т.п.
+    tp_levels: list[float]          # абсолютные цены TP
+    partials: list[float]           # доли объёма: [0.5, 0.5] и т.п.
 
     risk_usd: float
     position_size_lots: float       # объём в лотах для MT5
@@ -68,7 +68,7 @@ class Mt5ExecutionPlan:
         """
         Проверяет, истек ли TTL сигнала относительно текущего времени.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         elapsed = (now - self.ts_signal).total_seconds()
         return elapsed > self.ttl_seconds
 
@@ -116,7 +116,7 @@ def plan_from_dict(data: dict) -> Mt5ExecutionPlan:
         """
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt
 
     return Mt5ExecutionPlan(

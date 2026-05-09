@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+
 def env(name: str, default: str) -> str:
     v = os.getenv(name)
     return v if v is not None and v != "" else default

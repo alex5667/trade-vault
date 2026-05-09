@@ -1,4 +1,3 @@
-import os
 import pytest
 
 from handlers.emitter.unified_signal_emitter import UnifiedSignalEmitter

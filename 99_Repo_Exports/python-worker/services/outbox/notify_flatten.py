@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from common.json_fast import dumps1
 from common.json_safe import to_json_safe
 
 
-def flatten_notify_fields(payload: Dict[str, Any]) -> List[str]:
+def flatten_notify_fields(payload: dict[str, Any]) -> list[str]:
     """
     Контракт для notify Lua:
       - возвращает flat список ["k1","v1","k2","v2",...]
@@ -17,7 +17,7 @@ def flatten_notify_fields(payload: Dict[str, Any]) -> List[str]:
     if not isinstance(payload, dict):
         return []
 
-    flat: List[str] = []
+    flat: list[str] = []
     for k in sorted(payload.keys(), key=lambda x: str(x)):
         kk = str(k)
 

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
 from core.of_confirm_contract import pack_bits
-
-
 from core.signal_payload import StrongGateDecision
 
 
@@ -24,7 +22,7 @@ def eval_reversal(
     abs_lvl_ok: bool = False,
     fp_edge_absorb: bool = False,
     ofi_leg: bool = False,
-    cfg: Dict[str, Any],
+    cfg: dict[str, Any],
 ) -> StrongGateDecision:
     """
     Reversal requires 2 of 3:
@@ -45,7 +43,7 @@ def eval_reversal(
 
     # Absorption-on-level can count as one confirmation (configurable)
     if bool(int(cfg.get("abs_lvl_enable", 1))) and bool(abs_lvl_ok):
-        mode = str(cfg.get("abs_lvl_counts_as", "A")).upper()  # "A" or "C"
+        mode = (cfg.get("abs_lvl_counts_as", "A")).upper()  # "A" or "C"
         if mode == "C":
             C = 1
         else:
@@ -66,7 +64,7 @@ def eval_reversal(
     )
 
 
-def hidden_trend_dir(last_div_kind: Optional[str]) -> Optional[str]:
+def hidden_trend_dir(last_div_kind: str | None) -> str | None:
     if not last_div_kind:
         return None
     k = str(last_div_kind)
@@ -80,7 +78,7 @@ def hidden_trend_dir(last_div_kind: Optional[str]) -> Optional[str]:
 def eval_continuation(
     *,
     direction: str,
-    trend_dir: Optional[str],
+    trend_dir: str | None,
     hidden_ctx_recent: bool,
     iceberg_strict: bool,
     obi_stable: bool,
@@ -88,7 +86,7 @@ def eval_continuation(
     abs_lvl_ok: bool = False,
     ofi_leg: bool = False,
     fp_edge_absorb: bool = False,
-    cfg: Dict[str, Any],
+    cfg: dict[str, Any],
     trend_dir_source: str = "none",
     delta_z: float = 0.0,
 ) -> StrongGateDecision:
@@ -102,12 +100,12 @@ def eval_continuation(
         return StrongGateDecision(ok=False, scenario="continuation", need=2, have=0, a=0, b=0, c=0, reason="no_trend_dir")
 
     is_aligned = (str(direction).upper() == str(trend_dir).upper())
-    
+
     # If trend context is derived from regime/direction fallback (not hidden div),
     # we treat being robustly aligned with the HTF regime as a proxy for the context leg (A).
     fallback_en = bool(int(cfg.get("strong_cont_allow_fallback_a", 1))) # DEFAULT TO 1 (enabled)
     fallback_a = fallback_en and (trend_dir_source in ("regime", "direction"))
-    
+
     # NEW: Intensity fallback - if regime is missing, allow strong delta_z to substitute for trend confirmation
     delta_z_abs = abs(delta_z)
     delta_z_thr = float(cfg.get("strong_cont_delta_z_thr", 3.0))
@@ -125,7 +123,7 @@ def eval_continuation(
 
     # Optional: abs_lvl_ok can assist in continuation too
     if bool(int(cfg.get("abs_lvl_enable", 1))) and bool(abs_lvl_ok):
-        mode = str(cfg.get("abs_lvl_counts_as", "A")).upper()
+        mode = (cfg.get("abs_lvl_counts_as", "A")).upper()
         if mode == "B":
             B = 1
         else:

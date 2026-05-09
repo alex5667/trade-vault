@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Simple TimescaleDB connector for scanner_analytics.
 
@@ -8,12 +9,12 @@ Usage:
   from services.analytics_db import fetch_trades_closed
 """
 
-import os
 import json
-from typing import Any, Dict, List, Optional, Tuple
+import os
+from typing import Any
 
 import psycopg2
-from psycopg2.extras import RealDictCursor, Json
+from psycopg2.extras import Json, RealDictCursor
 
 try:
     from domain.models import TradeClosed
@@ -28,6 +29,7 @@ ANALYTICS_P0_HARD_FAIL = os.getenv("ANALYTICS_P0_HARD_FAIL", "0") == "1"
 
 
 from contextlib import contextmanager
+
 try:
     from psycopg2 import pool
 except ImportError:
@@ -47,7 +49,7 @@ def get_conn():
     global _POOL
     if _POOL is None:
         _init_pool()
-    
+
     if _POOL:
         conn = _POOL.getconn()
         try:
@@ -65,9 +67,9 @@ def get_conn():
             conn.close()
 
 
-def _apply_filters(symbol: Optional[str], source: Optional[str]) -> Tuple[str, List[Any]]:
-    clauses: List[str] = []
-    params: List[Any] = []
+def _apply_filters(symbol: str | None, source: str | None) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
 
     if symbol:
         clauses.append("symbol = %s")
@@ -84,9 +86,9 @@ def _apply_filters(symbol: Optional[str], source: Optional[str]) -> Tuple[str, L
 
 def fetch_trades_closed(
     limit: int = 1000,
-    symbol: Optional[str] = None,
-    source: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    symbol: str | None = None,
+    source: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Fetch recent trades_closed sorted by exit_ts desc.
 
@@ -111,7 +113,7 @@ def fetch_trades_closed(
         return cur.fetchall()
 
 
-def fetch_trade_by_order_id(order_id: str) -> Optional[Dict[str, Any]]:
+def fetch_trade_by_order_id(order_id: str) -> dict[str, Any] | None:
     """Fetch a single closed trade by its order_id."""
     sql = "SELECT * FROM trades_closed WHERE order_id = %s LIMIT 1"
     with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -119,7 +121,7 @@ def fetch_trade_by_order_id(order_id: str) -> Optional[Dict[str, Any]]:
         return cur.fetchone()
 
 
-def fetch_signal_by_id(signal_id: str) -> Optional[Dict[str, Any]]:
+def fetch_signal_by_id(signal_id: str) -> dict[str, Any] | None:
     """Fetch a single signal by its signal_id from the signals table."""
     sql = "SELECT * FROM signals WHERE signal_id = %s LIMIT 1"
     with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -128,11 +130,11 @@ def fetch_signal_by_id(signal_id: str) -> Optional[Dict[str, Any]]:
 
 
 def fetch_daily_metrics(
-    date: Optional[str] = None,
-    symbol: Optional[str] = None,
-    source: Optional[str] = None,
+    date: str | None = None,
+    symbol: str | None = None,
+    source: str | None = None,
     limit: int = 365,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Fetch recent rows from daily_metrics."""
     where_sql, params = _apply_filters(symbol, source)
     if date:
@@ -154,12 +156,12 @@ def fetch_daily_metrics(
 
 
 def fetch_entry_tag_metrics(
-    date: Optional[str] = None,
-    symbol: Optional[str] = None,
-    source: Optional[str] = None,
-    entry_tag: Optional[str] = None,
+    date: str | None = None,
+    symbol: str | None = None,
+    source: str | None = None,
+    entry_tag: str | None = None,
     limit: int = 365,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Fetch rows from entry_tag_metrics."""
     where_sql, params = _apply_filters(symbol, source)
     if date:
@@ -344,7 +346,7 @@ def save_trade_closed(closed: TradeClosed) -> None:
     book_age_ms = getattr(closed, "book_age_ms", None) or sp.get("book_age_ms")
 
     # features snapshot
-    features: Dict[str, Any] = {}
+    features: dict[str, Any] = {}
     f1 = getattr(closed, "features", None)
     if isinstance(f1, dict):
         features = dict(f1)
@@ -405,6 +407,7 @@ def save_trade_closed(closed: TradeClosed) -> None:
                     raise
                 # Log optional here? User showed empty catch. I will stick to minimal risk.
                 import logging
+
                 logging.getLogger("analytics_db").warning("P0 upsert failed silently", exc_info=True)
 
         conn.commit()

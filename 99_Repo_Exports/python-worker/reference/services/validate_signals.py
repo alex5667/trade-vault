@@ -13,11 +13,10 @@ Usage:
 """
 
 import argparse
-from typing import Dict, List, Tuple
 
 try:
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 except ImportError:
     print("Error: pandas and numpy required. Run: pip install pandas numpy pyarrow")
     exit(1)
@@ -34,7 +33,7 @@ except Exception:
     _GPU_AVAILABLE = False
 
 
-def _compute_quantiles(values: List[float], probs: List[float], use_gpu: bool) -> List[float]:
+def _compute_quantiles(values: list[float], probs: list[float], use_gpu: bool) -> list[float]:
     """
     Безопасно вычисляет квантили с GPU при доступности.
     """
@@ -67,7 +66,7 @@ def forward_return(mid: pd.Series, horizon: int = 60) -> pd.Series:
     return (mid.shift(-horizon) - mid) / mid
 
 
-def run_rules(df: pd.DataFrame, cfg: Dict, use_gpu: bool) -> List[Tuple[int, int, str]]:
+def run_rules(df: pd.DataFrame, cfg: dict, use_gpu: bool) -> list[tuple[int, int, str]]:
     """
     Apply signal generation rules to data.
     
@@ -136,11 +135,11 @@ def run_rules(df: pd.DataFrame, cfg: Dict, use_gpu: bool) -> List[Tuple[int, int
 
 def evaluate(
     df: pd.DataFrame,
-    sigs: List[Tuple[int, int, str]],
+    sigs: list[tuple[int, int, str]],
     horizon: int = 60,
     min_edge: float = 0.0,
     use_gpu: bool = False,
-) -> Dict:
+) -> dict:
     """
     Evaluate signal performance using forward returns.
     
@@ -239,7 +238,7 @@ def evaluate(
 
     wins = 0
     losses = 0
-    edges: List[float] = []
+    edges: list[float] = []
 
     for idx, side, _ in sigs:
         r = fwd.iloc[idx] * side
@@ -305,7 +304,7 @@ Examples:
         help="Enable GPU acceleration (requires cupy and available GPU).",
     )
     args = ap.parse_args()
-    
+
     # Load data
     print(f"📂 Loading data from {args.data}...")
     if args.data.endswith(".parquet"):
@@ -314,22 +313,22 @@ Examples:
         df = pd.read_csv(args.data)
     else:
         raise SystemExit("Error: Data file must be .parquet or .csv")
-    
+
     print(f"✅ Loaded {len(df)} rows\n")
-    
+
     # Configuration
     cfg = {
         "DELTA_Z_THRESHOLD": args.delta_z,
         "OBI_THRESHOLD": args.obi
     }
-    
+
     print("🔧 Configuration:")
     print(f"   DELTA_Z_THRESHOLD = {cfg['DELTA_Z_THRESHOLD']}")
     print(f"   OBI_THRESHOLD     = {cfg['OBI_THRESHOLD']}")
     print(f"   Forward horizon   = {args.horizon} samples (~{args.horizon}s)")
     print(f"   Min edge for win  = {args.min_edge}")
     print()
-    
+
     use_gpu = bool(args.use_gpu and _GPU_AVAILABLE)
     if args.use_gpu and not _GPU_AVAILABLE:
         print("⚠️ GPU requested but not available, falling back to CPU\n")
@@ -340,7 +339,7 @@ Examples:
     print("🔍 Generating signals...")
     sigs = run_rules(df, cfg, use_gpu=use_gpu)
     print(f"✅ Generated {len(sigs)} signals\n")
-    
+
     # Evaluate
     print("📊 Evaluating performance...")
     metrics = evaluate(
@@ -350,7 +349,7 @@ Examples:
         min_edge=args.min_edge,
         use_gpu=use_gpu,
     )
-    
+
     # Display results
     print("\n" + "=" * 60)
     print("📈 VALIDATION RESULTS")
@@ -365,7 +364,7 @@ Examples:
     print(f"  Max edge:            {metrics['max_edge']:.5f} ({metrics['max_edge']*100:.3f}%)")
     print(f"  Min edge:            {metrics['min_edge']:.5f} ({metrics['min_edge']*100:.3f}%)")
     print("=" * 60)
-    
+
     # Interpretation
     print("\n💡 Interpretation:")
     if metrics['win_rate'] >= 0.55:
@@ -374,19 +373,19 @@ Examples:
         print("  ⚠️  Moderate win rate (50-55%)")
     else:
         print("  ❌ Low win rate (< 50%)")
-    
+
     if metrics['avg_edge'] > 0.0001:
-        print(f"  ✅ Positive average edge")
+        print("  ✅ Positive average edge")
     else:
-        print(f"  ❌ Negative or zero average edge")
-    
+        print("  ❌ Negative or zero average edge")
+
     if metrics['signals'] < 10:
         print("  ⚠️  Very few signals - consider loosening thresholds")
     elif metrics['signals'] > 1000:
         print("  ⚠️  Many signals - consider tightening thresholds")
     else:
-        print(f"  ✅ Reasonable signal frequency")
-    
+        print("  ✅ Reasonable signal frequency")
+
     print()
 
 

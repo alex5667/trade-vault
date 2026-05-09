@@ -1,5 +1,7 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
+#!/usr/bin/env python3
 """enforce_bucket_slo_freezer_p80.py
 
 P80: Freeze auto-apply for enforce-bucket promoter if SLO degrades on enforced buckets.
@@ -37,13 +39,13 @@ Status/notify:
 Audit:
   ENFORCE_FREEZER_EVENTS_STREAM (default events:enforce_bucket_slo_freezer)
 """,
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import sys
-import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     import psycopg2  # type: ignore
@@ -62,20 +64,20 @@ def _now_ms() -> int:
 
 def _env_int(name: str, default: str) -> int:
     try:
-        return int(str(os.getenv(name, default)).strip())
+        return int(os.getenv(name, default).strip())
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(name: str, default: str) -> float:
     try:
-        return float(str(os.getenv(name, default)).strip())
+        return float(os.getenv(name, default).strip())
     except Exception:
-        return float(default)
+        return default
 
 
-def _env_list(name: str, default: str) -> List[str]:
-    raw = str(os.getenv(name, default) or "").strip()
+def _env_list(name: str, default: str) -> list[str]:
+    raw = (os.getenv(name, default) or "").strip()
     if not raw:
         return []
     out = []
@@ -88,7 +90,7 @@ def _env_list(name: str, default: str) -> List[str]:
 
 def _write_status(path: str, obj: dict) -> None:
     try:
-        p = str(path or "").strip()
+        p = (path or "").strip()
         if not p:
             return
         d = os.path.dirname(p)
@@ -123,19 +125,20 @@ def _read_pref(r: Any, base: str, sym: str) -> str:
     if v:
         return str(v)
     v = r.get(base)
-    return str(v or "")
+    return (v or "")
 
 
-def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int, float, float, float]]:
+def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> dict[str, tuple[int, float, float, float]]:
     mv = os.getenv("ENFORCE_STATS_MV", "mv_exec_slippage_eval_1h_stats").strip() or "mv_exec_slippage_eval_1h_stats"
     view = os.getenv("ENFORCE_STATS_VIEW", "v_exec_slippage_eval").strip() or "v_exec_slippage_eval"
 
+    assert psycopg2 is not None, "psycopg2 is required"
     conn = psycopg2.connect(dsn)
     cur = conn.cursor()
-    out: Dict[str, Tuple[int, float, float, float]] = {}
+    out: dict[str, tuple[int, float, float, float]] = {}
     try:
         cur.execute(
-            f""",
+            f"""
             select exec_regime_bucket,
                    sum(n)::bigint as n,
                    max(resid_p95_bps) as resid_p95_bps,
@@ -143,9 +146,9 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
                    max(edge_neg_share) as edge_neg_share
             from {mv}
             where sym=%s and t >= now() - (%s || ' hours')::interval
-            group by 1,
-            """
-            (sym, int(lookback_h)),
+            group by 1
+            """,
+            (sym, lookback_h),
         )
         rows = cur.fetchall()
         for b, n, p95, p99, neg in rows:
@@ -153,7 +156,7 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
         return out
     except Exception:
         cur.execute(
-            f""",
+            f"""
             select exec_regime_bucket,
                    count(*)::bigint as n,
                    percentile_cont(0.95) within group (order by slippage_residual_bps) as resid_p95_bps,
@@ -161,23 +164,19 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
                    avg(case when edge_minus_expected_bps < 0 then 1 else 0 end) as edge_neg_share
             from {view}
             where sym=%s and ts >= now() - (%s || ' hours')::interval
-            group by 1,
-            """
-            (sym, int(lookback_h)),
+            group by 1
+            """,
+            (sym, lookback_h),
         )
         rows = cur.fetchall()
         for b, n, p95, p99, neg in rows:
             out[str(b).upper()] = (int(n or 0), float(p95 or 0.0), float(p99 or 0.0), float(neg or 0.0))
         return out
     finally:
-        try:
+        with contextlib.suppress(Exception):
             cur.close()
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             conn.close()
-        except Exception:
-            pass
 
 
 def _allow_bucket(allow: str, bucket: str, default_bucket: str = "HIGH_VOL_LOW_LIQ") -> bool:
@@ -204,11 +203,11 @@ def _notify_freeze(r: Any, *, text: str) -> None:
     if last and (now - last) < (cooldown * 1000):
         return
 
-    stream = os.getenv("ENFORCE_BUCKET_NOTIFY_STREAM") or os.getenv("NOTIFY_TELEGRAM_STREAM") or "notify:telegram"
+    stream = os.getenv("ENFORCE_BUCKET_NOTIFY_STREAM") or os.getenv("NOTIFY_TELEGRAM_STREAM") or RS.NOTIFY_TELEGRAM
     try:
         r.set(key, str(now))
         r.expire(key, max(60, cooldown))
-        r.xadd(stream, {"type": "report", "ts_ms": str(now), "text": text[:3500]}, maxlen=50000)
+        r.xadd(stream, {"type": "report", "ts_ms": str(now), "text": text[:3500]}, maxlen=50000, approximate=True)
     except Exception:
         return
 
@@ -224,7 +223,7 @@ def _xadd_event(r: Any, *, sym: str, bucket: str, meta: dict) -> None:
             "bucket": str(bucket),
             "meta": json.dumps(meta, separators=(",", ":"))[:3500],
         }
-        r.xadd(stream, fields, maxlen=50000)
+        r.xadd(stream, fields, maxlen=50000, approximate=True)
     except Exception:
         return
 

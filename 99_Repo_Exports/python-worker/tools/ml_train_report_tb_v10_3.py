@@ -1,29 +1,30 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
+import subprocess
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
-import subprocess
 
 from tools.export_stream_payload_ndjson_v1 import export_stream_since
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
-def _read_json(path: str) -> Dict[str, Any]:
+def _read_json(path: str) -> dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
 
 
-def send_telegram(r: redis.Redis, text: str, buttons: Optional[list] = None) -> None:
-    stream = os.getenv("TELEGRAM_NOTIFY_STREAM", "notify:telegram")
+def send_telegram(r: redis.Redis, text: str, buttons: list | None = None) -> None:
+    stream = os.getenv("TELEGRAM_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     fields = {"text": text}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
@@ -40,7 +41,7 @@ def main() -> None:
 
     r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
 
-    inputs_stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+    inputs_stream = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
     inputs_field = os.getenv("OF_INPUTS_FIELD", "payload")
     tb_stream = os.getenv("TB_LABELS_STREAM", "labels:tb")
     tb_field = os.getenv("TB_LABELS_FIELD", "payload")

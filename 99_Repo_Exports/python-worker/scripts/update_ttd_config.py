@@ -21,9 +21,10 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 try:
-    from core.config import PG_DSN
     import psycopg2
     from psycopg2.extras import DictCursor
+
+    from core.config import PG_DSN
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print("Make sure you're running from python-worker directory")
@@ -45,15 +46,14 @@ def update_ttd_config(pg_dsn: str) -> None:
         print(f"❌ SQL file not found: {sql_file}")
         return
 
-    with open(sql_file, 'r') as f:
+    with open(sql_file) as f:
         sql_script = f.read()
 
     # Execute the update
     try:
-        with psycopg2.connect(pg_dsn) as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql_script)
-                conn.commit()
+        with psycopg2.connect(pg_dsn) as conn, conn.cursor() as cur:
+            cur.execute(sql_script)
+            conn.commit()
 
         print("✅ TTD configuration updated successfully")
 

@@ -1,7 +1,6 @@
 from orderflow_services.ml_recommendation_executor_v1 import evaluate_apply_request, evaluate_rollback_request
 
 
-
 def test_apply_requires_replay_for_threshold_canary():
     payload = {
         "action_type": "propose_threshold_canary",

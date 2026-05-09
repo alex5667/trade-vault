@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for Redis Stream integration in calibration and replay tools.
 
@@ -10,18 +11,16 @@ Tests:
 
 
 import json
-import pytest
-from typing import Any, Dict, List
 from unittest.mock import Mock, patch
 
-# Test imports
-from tools.calib_replay_from_inputs import load_payload_redis_streams, _to_str
-from tools.replay.replay_runner import iter_ctx_redis_streams
 from local_calibration.calibrate_local_thresholds import (
-    load_signals_from_redis,
     _to_float,
-    SignalRow,
+    load_signals_from_redis,
 )
+
+# Test imports
+from tools.calib_replay_from_inputs import _to_str, load_payload_redis_streams
+from tools.replay.replay_runner import iter_ctx_redis_streams
 
 
 class TestToStr:

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Analyze Reliability Calibration Data
 
@@ -8,20 +9,19 @@ Shows patterns across different outcomes and dimensions.
 """
 
 
+import math
 import os
 import sys
-import math
 from collections import defaultdict
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Any
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from services.reliability_calibrator import _bucket_conf_pct
 from core.redis_client import get_redis
 
 
-def get_all_relcal_keys(redis_client) -> List[str]:
+def get_all_relcal_keys(redis_client) -> list[str]:
     """Get all reliability calibration keys."""
     keys = []
     cursor = 0
@@ -33,7 +33,7 @@ def get_all_relcal_keys(redis_client) -> List[str]:
     return keys
 
 
-def parse_relcal_key(key: str) -> Optional[Dict[str, str]]:
+def parse_relcal_key(key: str) -> dict[str, str] | None:
     """Parse relcal key into components."""
     parts = key.split(":")
     if len(parts) != 8 or parts[0] != "relcal":
@@ -52,7 +52,7 @@ def parse_relcal_key(key: str) -> Optional[Dict[str, str]]:
     }
 
 
-def get_relcal_data(redis_client, key: str) -> Dict[str, Any]:
+def get_relcal_data(redis_client, key: str) -> dict[str, Any]:
     """Extract reliability data from Redis key."""
     h = redis_client.hgetall(key)
     if not h:
@@ -78,7 +78,7 @@ def get_relcal_data(redis_client, key: str) -> Dict[str, Any]:
     return data
 
 
-def analyze_outcome_performance(data_by_key: Dict[str, Dict]) -> Dict[str, Any]:
+def analyze_outcome_performance(data_by_key: dict[str, dict]) -> dict[str, Any]:
     """Analyze performance across outcomes."""
     outcome_stats = defaultdict(lambda: {"total_samples": 0, "total_hits": 0, "buckets": defaultdict(list)})
 
@@ -111,7 +111,7 @@ def analyze_outcome_performance(data_by_key: Dict[str, Dict]) -> Dict[str, Any]:
     return dict(outcome_stats)
 
 
-def analyze_symbol_performance(data_by_key: Dict[str, Dict]) -> Dict[str, Any]:
+def analyze_symbol_performance(data_by_key: dict[str, dict]) -> dict[str, Any]:
     """Analyze performance by symbol."""
     symbol_stats = defaultdict(lambda: {"outcomes": defaultdict(lambda: {"samples": 0, "hits": 0})})
 
@@ -131,7 +131,7 @@ def analyze_symbol_performance(data_by_key: Dict[str, Dict]) -> Dict[str, Any]:
     return dict(symbol_stats)
 
 
-def find_best_performing_configs(data_by_key: Dict[str, Dict], min_samples: int = 50) -> List[Dict]:
+def find_best_performing_configs(data_by_key: dict[str, dict], min_samples: int = 50) -> list[dict]:
     """Find configurations with best performance."""
     configs = []
 
@@ -153,7 +153,7 @@ def find_best_performing_configs(data_by_key: Dict[str, Dict], min_samples: int 
     return configs[:20]  # Top 20
 
 
-def print_analysis_report(outcome_analysis: Dict, symbol_analysis: Dict, top_configs: List):
+def print_analysis_report(outcome_analysis: dict, symbol_analysis: dict, top_configs: list):
     """Print comprehensive analysis report."""
 
     print("=" * 80)

@@ -10,12 +10,10 @@
 import logging
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
-
 from regime_worker.adx_atr import WilderState, update_adx_atr
-
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 CANDLE_KEY_TMPL = "candles:{symbol}:1m"
@@ -29,20 +27,20 @@ logging.basicConfig(level=logging.INFO)
 
 
 class AdxUpdater:
-    def __init__(self, redis_client: redis.Redis, symbols: List[str]):
+    def __init__(self, redis_client: redis.Redis, symbols: list[str]):
         self.r = redis_client
         self.symbols = symbols
-        self.states: Dict[str, WilderState] = {s: WilderState() for s in symbols}
+        self.states: dict[str, WilderState] = {s: WilderState() for s in symbols}
 
-    def _decode_hash(self, raw: Dict[Any, Any]) -> Dict[str, str]:
-        decoded: Dict[str, str] = {}
+    def _decode_hash(self, raw: dict[Any, Any]) -> dict[str, str]:
+        decoded: dict[str, str] = {}
         for k, v in raw.items():
             key = k.decode() if isinstance(k, bytes) else k
             val = v.decode() if isinstance(v, bytes) else v
             decoded[key] = val
         return decoded
 
-    def _load_last_candle(self, symbol: str) -> Dict[str, str]:
+    def _load_last_candle(self, symbol: str) -> dict[str, str]:
         key = CANDLE_KEY_TMPL.format(symbol=symbol)
         try:
             data = self.r.hgetall(key)
@@ -52,7 +50,7 @@ class AdxUpdater:
             return {}
         return self._decode_hash(data)
 
-    def _parse_float(self, source: Dict[str, str], key: str, fallback: float) -> float:
+    def _parse_float(self, source: dict[str, str], key: str, fallback: float) -> float:
         value = source.get(key)
         if value is None:
             return fallback

@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Набор детекторов Order Flow для криптовалютных рынков.
 
@@ -12,18 +13,17 @@ from utils.time_utils import get_ny_time_millis
 """
 
 import logging
+import math
 import os
 import time
-import math
 from collections import deque
-from typing import Any, Deque, Dict, List, Optional, Tuple
-
+from typing import Any
 
 DEBUG_DELTAS = os.getenv("CRYPTO_OF_DEBUG_DELTAS", "false").strip().lower() in ("1", "true", "yes", "on")
 logger = logging.getLogger("crypto_orderflow_detectors")
 
 
-def classify_signed_qty(tick: Dict[str, Any], override_qty: Optional[float] = None) -> float:
+def classify_signed_qty(tick: dict[str, Any], override_qty: float | None = None) -> float:
     """
     Shared tick классификация в signed volume (delta_tick). Оптимизировано под Zero-Allocation.
     """
@@ -31,7 +31,7 @@ def classify_signed_qty(tick: Dict[str, Any], override_qty: Optional[float] = No
         volume = override_qty
     else:
         try:
-            vol_raw = tick.get("qty", None)
+            vol_raw = tick.get("qty")
             if vol_raw is None:
                 vol_raw = tick.get("volume", 0.0)
             volume = float(vol_raw or 0.0)
@@ -59,7 +59,7 @@ def classify_signed_qty(tick: Dict[str, Any], override_qty: Optional[float] = No
     # 3) Slow path (Fallback для сырых данных без нормализации)
     if side:
         try:
-            side_lower = str(side).strip().lower()
+            side_lower = side.strip().lower()
             if side_lower in ("buy", "b", "long", "bid"):
                 return volume
             if side_lower in ("sell", "s", "short", "ask"):
@@ -74,7 +74,7 @@ class RingBuffer:
     """Простой кольцевой буфер с ограничением по длине."""
 
     def __init__(self, maxlen: int):
-        self.buf: Deque[Any] = deque(maxlen=maxlen)
+        self.buf: deque[Any] = deque(maxlen=maxlen)
 
     def append(self, item: Any) -> None:
         self.buf.append(item)
@@ -82,7 +82,7 @@ class RingBuffer:
     def __len__(self) -> int:
         return len(self.buf)
 
-    def items(self) -> List[Any]:
+    def items(self) -> list[Any]:
         return list(self.buf)
 
 
@@ -97,18 +97,18 @@ class DeltaSpikeDetector:
         self.window = window
         self.z_threshold = z_threshold
         self.min_abs_volume = min_abs_volume
-        self.values: Deque[float] = deque(maxlen=window)
+        self.values: deque[float] = deque(maxlen=window)
         self._sum = 0.0
         self._sum_sq = 0.0
 
-    def classify_tick(self, tick: Dict[str, Any]) -> float:
+    def classify_tick(self, tick: dict[str, Any]) -> float:
         """
         NOTE: делегируем в shared функцию, чтобы TickCVDState и delta_spike
         не расходились по определению signed volume.
         """
         return classify_signed_qty(tick)
 
-    def push(self, tick: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def push(self, tick: dict[str, Any]) -> dict[str, Any] | None:
         """
         Добавляет тик и возвращает событие, если дельта превысила порог.
 
@@ -182,18 +182,18 @@ class OBIDetector:
         self.depth = depth
         self.threshold = threshold
         self.hold_secs = hold_secs
-        self.last_ok_ts: Optional[float] = None
-        self.last_direction: Optional[str] = None
+        self.last_ok_ts: float | None = None
+        self.last_direction: str | None = None
         # EWMA stats for OBI normalization
         self.z_alpha = float(z_alpha)
         self.z_mu = 0.0
         self.z_var = float(z_floor_var)
         self.z_floor_var = float(z_floor_var)
         # Raw snapshot (always updated on push for consumers)
-        self._last_raw: Optional[Dict[str, Any]] = None
+        self._last_raw: dict[str, Any] | None = None
 
     @staticmethod
-    def _stacking_score(levels: List[List[float]], k: int) -> float:
+    def _stacking_score(levels: list[list[float]], k: int) -> float:
         """
         Score in [0..1]: share of non-decreasing sizes as we go deeper.
         Example: sizes [5,6,7,2,1] => (>=) holds for first 2 transitions => 2/(k-1).
@@ -213,7 +213,7 @@ class OBIDetector:
         return float(ok) / float(max(1, len(sizes) - 1))
 
     @staticmethod
-    def _concentration(levels: List[List[float]], k: int) -> float:
+    def _concentration(levels: list[list[float]], k: int) -> float:
         if not levels:
             return 0.0
         tot = 0.0
@@ -230,11 +230,11 @@ class OBIDetector:
             return 0.0
         return top / tot
 
-    def snapshot(self) -> Optional[Dict[str, Any]]:
+    def snapshot(self) -> dict[str, Any] | None:
         """Return the latest raw OBI snapshot (always available after first push)."""
         return self._last_raw
 
-    def push(self, book: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def push(self, book: dict[str, Any]) -> dict[str, Any] | None:
         bids = book.get("bids") or []
         asks = book.get("asks") or []
 
@@ -264,7 +264,7 @@ class OBIDetector:
         conc_bid = self._concentration(bids, self.depth)
         conc_ask = self._concentration(asks, self.depth)
         concentration = (conc_bid - conc_ask)  # [-1..+1]
-        
+
         # Deterministic time if book has timestamp
         # Accept common fields: ts (ms), ts_ms (ms), timestamp (ms)
         now_s: float
@@ -326,10 +326,10 @@ class AbsorptionDetector:
         self.price_tolerance = price_tolerance
         self.min_volume = min_volume
         self.window_sec = window_sec
-        self._ticks: Deque[Tuple[float, float, float]] = deque()
+        self._ticks: deque[tuple[float, float, float]] = deque()
         self._running_volume = 0.0 # O(1) state
 
-    def push(self, tick: Dict[str, Any], book: Optional[Dict[str, Any]], price: float) -> Optional[Dict[str, Any]]:
+    def push(self, tick: dict[str, Any], book: dict[str, Any] | None, price: float) -> dict[str, Any] | None:
         """
         Анализирует поток тиков для выявления абсорбции.
         """
@@ -380,10 +380,10 @@ class IcebergDetector:
         self.min_duration = float(min_duration)
         self.state_ttl_sec = float(state_ttl_sec)
         self.max_states = int(max_states)
-        self._level_state: Dict[Tuple[str, float], Dict[str, Any]] = {}
+        self._level_state: dict[tuple[str, float], dict[str, Any]] = {}
         self._last_cleanup = 0.0  # NEW: Таймер троттлинга
 
-    def push(self, book: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def push(self, book: dict[str, Any]) -> dict[str, Any] | None:
         # Deterministic time if possible
         ts_ms = None
         try:
@@ -401,7 +401,7 @@ class IcebergDetector:
         if not bids and not asks:
             return None
 
-        events: List[Dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
 
         for side, levels in (("bid", bids), ("ask", asks)):
             if not levels:
@@ -424,7 +424,7 @@ class IcebergDetector:
                 state["refresh"] += 1
                 if diff > 0:
                      state["total_refresh_qty"] += diff
-            
+
             state["last_qty"] = qty
 
             if state["refresh"] >= self.min_refresh and (now - state["start"]) >= self.min_duration:
@@ -471,7 +471,7 @@ class IcebergDetector:
 class LevelProximityFilter:
     """Проверяет близость цены к заранее заданным уровням."""
 
-    def __init__(self, levels: List[float], max_dist: float):
+    def __init__(self, levels: list[float], max_dist: float):
         self.levels = levels
         self.max_dist = max_dist
 

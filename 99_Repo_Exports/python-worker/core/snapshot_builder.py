@@ -1,20 +1,23 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 SnapshotBuilder — собирает срез рынка.
 """
 
-from dataclasses import dataclass
-from typing import Dict, Any, List, Optional, Tuple
 import json
+import logging
 import time
 import warnings
-import requests
-import logging
-import redis
+from dataclasses import dataclass
+from typing import Any
 
-from infra.redis_client import try_get_json
+import redis
+import requests
+
 from infra.config import Config
+from infra.redis_client import try_get_json
+import contextlib
 
 
 @dataclass
@@ -54,7 +57,7 @@ class SnapshotBuilder:
             )
         return tpl.replace("{SYMBOL}", symbol).replace("{symbol}", symbol)
 
-    def _get_last_tick(self, symbol: str) -> Optional[Tick]:
+    def _get_last_tick(self, symbol: str) -> Tick | None:
         max_retries = 10
         for i in range(max_retries):
             try:
@@ -94,17 +97,15 @@ class SnapshotBuilder:
                 return None
         return None
 
-    def _get_pivots(self) -> Dict[str, float]:
+    def _get_pivots(self) -> dict[str, float]:
         piv = try_get_json(self.r, self.cfg.pivots_key) or {}
-        out: Dict[str, float] = {}
+        out: dict[str, float] = {}
         for k, v in piv.items():
-            try:
+            with contextlib.suppress(Exception):
                 out[k] = float(v)
-            except Exception:
-                pass
         return out
 
-    def _get_dom_levels(self, symbol: str, depth: int = 10) -> List[Dict[str, float]]:
+    def _get_dom_levels(self, symbol: str, depth: int = 10) -> list[dict[str, float]]:
         key = self._key(self.cfg.dom_levels_key_tpl, symbol)
         arr = try_get_json(self.r, key)
         if not isinstance(arr, list):
@@ -121,7 +122,7 @@ class SnapshotBuilder:
                 continue
         return levels
 
-    def _get_atr_redis(self, symbol: str) -> Optional[float]:
+    def _get_atr_redis(self, symbol: str) -> float | None:
         """
         Получает ATR из Redis (приоритет 1).
         
@@ -141,7 +142,7 @@ class SnapshotBuilder:
                         return atr
                 except (json.JSONDecodeError, KeyError, ValueError) as e:
                     self.log.debug(f"Failed to parse ATR JSON from {key}: {e}")
-            
+
             # Fallback: legacy форматы
             for legacy_key in [f"atr:val:{symbol}:1m", f"atr:{symbol}:1m"]:
                 try:
@@ -157,7 +158,7 @@ class SnapshotBuilder:
             self.log.debug(f"Redis ATR error: {e}")
         return None
 
-    def _get_atr_gateway(self, symbol: str) -> Optional[float]:
+    def _get_atr_gateway(self, symbol: str) -> float | None:
         try:
             url = f"{self.cfg.gateway_url}{self.cfg.runtime_atr_path}?symbol={symbol}&period={self.cfg.atr_period}"
             resp = requests.get(url, timeout=1.5)
@@ -168,13 +169,12 @@ class SnapshotBuilder:
             return None
         return None
 
-    def _get_atr_local(self, symbol: str) -> Optional[float]:
+    def _get_atr_local(self, symbol: str) -> float | None:
         key = self._key(self.cfg.ohlc_m1_list_tpl, symbol)
         try:
             N = self.cfg.atr_period + 25
             vals = self.r.lrange(key, -N, -1)
-            import math
-            c: List[Tuple[float, float, float, float]] = []
+            c: list[tuple[float, float, float, float]] = []
             for v in vals:
                 o = json.loads(v)
                 c.append((float(o["open"]), float(o["high"]), float(o["low"]), float(o["close"])) )
@@ -191,15 +191,15 @@ class SnapshotBuilder:
             atr = seed
             for tr in trs[p:]:
                 atr = (atr*(p-1) + tr) / p
-            return float(atr)
+            return atr
         except Exception as e:
             self.log.warning("Local ATR error: %s", e)
             return None
 
-    def build(self, symbol: str, with_dom_depth: int = 10) -> Dict[str, Any]:
+    def build(self, symbol: str, with_dom_depth: int = 10) -> dict[str, Any]:
         tick = self._get_last_tick(symbol)
         pivots = self._get_pivots()
-        
+
         # ATR приоритеты: 1) Redis → 2) Gateway API → 3) Local calculation
         atr = self._get_atr_redis(symbol)
         if atr is None:
@@ -207,7 +207,7 @@ class SnapshotBuilder:
         if atr is None:
             atr = self._get_atr_local(symbol)
 
-        snap: Dict[str, Any] = {
+        snap: dict[str, Any] = {
             "symbol": symbol,
             "ts": get_ny_time_millis(),
             "tick": {"ts": 0, "bid": 0.0, "ask": 0.0, "last": 0.0},

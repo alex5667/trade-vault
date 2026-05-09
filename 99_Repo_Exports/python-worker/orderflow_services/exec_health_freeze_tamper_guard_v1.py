@@ -1,6 +1,9 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 """P10 ExecHealth Freeze Tamper Guard.
 
 Мониторит целостность freeze_control/state хешей и автоматически
@@ -11,7 +14,7 @@ import json
 import os
 import secrets
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -20,11 +23,12 @@ except Exception:  # pragma: no cover
 from prometheus_client import Counter, Gauge, start_http_server
 
 from services.orderflow.exec_health_freeze_control import build_autoguard_latch_update, stringify_mapping
-from services.orderflow.exec_health_freeze_sealed_state import sealed_set_sync
 from services.orderflow.exec_health_freeze_integrity import evaluate_freeze_integrity
-from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
-from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
 from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+from services.orderflow.exec_health_freeze_request_log import DEFAULT_REQUEST_STREAM
+from services.orderflow.exec_health_freeze_sealed_state import sealed_set_sync
+from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
+import contextlib
 
 
 def _now_ms() -> int:
@@ -35,10 +39,10 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
-def _read_events(r: Any, key: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+def _read_events(r: Any, key: str, count: int) -> list[tuple[str, dict[str, Any]]]:
     try:
         rows = r.xrevrange(key, count=max(1, int(count))) or []
         return [(str(eid), dict(payload or {})) for eid, payload in rows]
@@ -64,7 +68,7 @@ TAMPER_REFREEZE_KINDS = {
 }
 
 
-def should_refreeze(violation_kinds: List[str]) -> bool:
+def should_refreeze(violation_kinds: list[str]) -> bool:
     return any(k in TAMPER_REFREEZE_KINDS for k in list(violation_kinds or []))
 
 
@@ -86,7 +90,7 @@ class Guard:
         self.freeze_key = os.getenv('EXEC_HEALTH_AUTO_FREEZE_KEY', 'cfg:orderflow:exec_health:auto_freeze:v1')
         self.event_stream = os.getenv('EXEC_HEALTH_FREEZE_EVENT_STREAM', 'ops:exec_health:freeze_events:v1')
         self.request_stream = os.getenv('EXEC_HEALTH_FREEZE_REQUEST_STREAM', DEFAULT_REQUEST_STREAM)
-        self.notify_stream = os.getenv('EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM', 'notify:telegram')
+        self.notify_stream = os.getenv('EXEC_HEALTH_AUTOGUARD_NOTIFY_STREAM', RS.NOTIFY_TELEGRAM)
         self.guard_state_key = os.getenv('EXEC_HEALTH_TAMPER_GUARD_STATE_KEY', 'metrics:exec_health:freeze_tamper_guard:last')
         self.interval_s = float(os.getenv('EXEC_HEALTH_TAMPER_GUARD_INTERVAL_S', '10') or 10)
         self.cooldown_s = max(30, int(os.getenv('EXEC_HEALTH_TAMPER_GUARD_COOLDOWN_S', '300') or 300))
@@ -118,20 +122,20 @@ class Guard:
                 )
                 time.sleep(delay)
                 delay = min(delay * 2, 30.0)
-                
+
                 if max_attempts > 0 and attempt >= max_attempts:
                     raise RuntimeError(
                         f"[tamper-guard] Redis unavailable after {max_attempts} attempts: {last_exc}"
                     )
                 attempt += 1
 
-    def _read_hash(self, key: str) -> Dict[str, Any]:
+    def _read_hash(self, key: str) -> dict[str, Any]:
         try:
             return self.r.hgetall(key) or {}
         except Exception:
             return {}
 
-    def _write_hash(self, key: str, payload: Dict[str, Any], *, entrypoint: str, force: bool = False, force_reason: str = '') -> None:
+    def _write_hash(self, key: str, payload: dict[str, Any], *, entrypoint: str, force: bool = False, force_reason: str = '') -> None:
         """P11: write hash. guard_state_key пишем напрямую (seal не применяется к guard state).
         control/state ключи пишем через sealed_set_sync (FCALL whitelist entrypoint).
         """,
@@ -153,23 +157,19 @@ class Guard:
         if not res.get('ok'):
             raise RuntimeError(f"tamper guard sealed write failed for {key}: {res.get('error') or res.get('rc')}")
 
-    def _emit_event(self, payload: Dict[str, Any]) -> str:
+    def _emit_event(self, payload: dict[str, Any]) -> str:
         try:
             return str(self.r.xadd(self.event_stream, stringify_mapping(payload), maxlen=5000) or '')
         except Exception:
             return ''
 
     def _notify(self, text: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.r.xadd(self.notify_stream, {'ts_ms': str(_now_ms()), 'source': 'exec_health_freeze_tamper_guard_v1', 'text': text}, maxlen=5000)
-        except Exception:
-            pass
 
-    def run_once(self) -> Dict[str, Any]:
-        try:
+    def run_once(self) -> dict[str, Any]:
+        with contextlib.suppress(Exception):
             heal_service_identity_sync(self.r, "exec_health_freeze_tamper_guard_v1")
-        except Exception:
-            pass
         now = _now_ms()
         control = self._read_hash(self.control_key)
         state = self._read_hash(self.state_key)

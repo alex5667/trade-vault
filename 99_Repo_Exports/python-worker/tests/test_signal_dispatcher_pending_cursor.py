@@ -1,4 +1,3 @@
-import pytest
 
 
 def test_try_restore_pending_cursor_none():

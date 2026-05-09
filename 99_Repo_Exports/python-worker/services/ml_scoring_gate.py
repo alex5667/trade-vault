@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 ML Scoring Gate — runtime inference for ML Scorer V2.
 
@@ -13,27 +13,67 @@ Design:
   - Fail-open: if model unavailable → returns None → caller uses rule-based fallback
   - Same interface as ConfidenceScorer.score(): returns (conf01, parts_dict)
 """
-from utils.time_utils import get_ny_time_millis
-
 import logging
 import math
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger("ml_scoring_gate")
 
 
 def _f(obj: Any, name: str, default: float = 0.0) -> float:
-    """Safe float accessor from object attribute."""
+    """Safe float accessor from object attribute OR dict key."""
     try:
-        v = getattr(obj, name, default)
+        if isinstance(obj, dict):
+            v = obj.get(name, default)
+        else:
+            v = getattr(obj, name, default)
         if v is None:
-            return float(default)
+            return default
         x = float(v)
-        return x if math.isfinite(x) else float(default)
+        return x if math.isfinite(x) else default
     except Exception:
-        return float(default)
+        return default
+
+
+def _fd(d: dict, name: str, default: float = 0.0) -> float:
+    """Safe float accessor from dict key."""
+    try:
+        v = d.get(name, default)
+        if v is None:
+            return default
+        x = float(v)
+        return x if math.isfinite(x) else default
+    except Exception:
+        return default
+
+
+# ---------------------------------------------------------------------------
+# Legacy Feature Schema V2 (17 raw + 6 derived = 23 features)
+# Used by scorer_v2/v3 .joblib files trained with train_ml_scorer*.py
+# ---------------------------------------------------------------------------
+_NUMERIC_FEATURE_ATTRS: list[str] = [
+    "atr_14",
+    "obi_avg_20",
+    "weak_progress_ratio",
+    "l3_spread_bps",
+    "l3_microprice_shift_bps_20",
+    "l3_microprice_velocity_bps",
+    "l3_obi_5",
+    "l3_obi_20",
+    "l3_obi_50",
+    "l3_obi_persistence_score",
+    "l3_cancel_to_trade_bid_5s",
+    "l3_cancel_to_trade_ask_5s",
+    "l3_cancel_to_trade_bid_20s",
+    "l3_cancel_to_trade_ask_20s",
+    "l3_queue_pressure_bid",
+    "l3_queue_pressure_ask",
+    "l3_market_depth_imbalance",
+]
 
 
 def _f_any(obj: Any, *names: str, default: float = 0.0) -> float:
@@ -48,7 +88,7 @@ def _f_any(obj: Any, *names: str, default: float = 0.0) -> float:
                 return x
         except Exception:
             continue
-    return float(default)
+    return default
 
 
 def _dir_sign_from_side(side: str) -> int:
@@ -70,38 +110,7 @@ def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, v))
 
 
-# Feature names — must match train_ml_scorer.py NUMERIC_FEATURES + DERIVED_FEATURES
-_NUMERIC_FEATURE_ATTRS = [
-    ("atr_14", ["atr_14", "atr"]),
-    ("obi_avg_20", ["obi_avg_20", "obi_avg", "obi"]),
-    ("weak_progress_ratio", ["weak_progress_ratio", "weak_progress"]),
-    ("l3_spread_bps", ["l3_spread_bps", "spread_bps"]),
-    ("l3_microprice_shift_bps_20", ["l3_microprice_shift_bps_20", "microprice_shift_bps_20"]),
-    ("l3_microprice_velocity_bps", ["l3_microprice_velocity_bps", "microprice_velocity_bps"]),
-    ("l3_obi_5", ["l3_obi_5", "obi_5"]),
-    ("l3_obi_20", ["l3_obi_20", "obi_20"]),
-    ("l3_obi_50", ["l3_obi_50", "obi_50"]),
-    ("l3_obi_persistence_score", ["l3_obi_persistence_score", "obi_persistence_score"]),
-    ("l3_cancel_to_trade_bid_5s", ["l3_cancel_to_trade_bid_5s", "cancel_to_trade_bid_5s", "cancel_to_trade_bid"]),
-    ("l3_cancel_to_trade_ask_5s", ["l3_cancel_to_trade_ask_5s", "cancel_to_trade_ask_5s", "cancel_to_trade_ask"]),
-    ("l3_cancel_to_trade_bid_20s", ["l3_cancel_to_trade_bid_20s", "cancel_to_trade_bid_20s"]),
-    ("l3_cancel_to_trade_ask_20s", ["l3_cancel_to_trade_ask_20s", "cancel_to_trade_ask_20s"]),
-    ("l3_queue_pressure_bid", ["l3_queue_pressure_bid", "queue_pressure_bid"]),
-    ("l3_queue_pressure_ask", ["l3_queue_pressure_ask", "queue_pressure_ask"]),
-    ("l3_market_depth_imbalance", ["l3_market_depth_imbalance", "market_depth_imbalance"]),
-    # V3: Continuation-context quality (non-zero only for continuation scenarios)
-    # NOTE: Commented out to match current 23-feature V3 model. 
-    # Will be re-enabled in V3.1 after retraining.
-    # ("cont_ctx_age_ms", ["cont_ctx_age_ms"]),
-    # ("hidden_ctx_recent", ["hidden_ctx_recent"]),
-]
-
-_EXPECTED_FEATURE_NAMES = [name for name, _ in _NUMERIC_FEATURE_ATTRS] + [
-    "direction_long", "cancel_to_trade_max", "obi_spread", "queue_imbalance", "outlier_count", "has_outlier"
-]
-import hashlib
-_EXPECTED_FEATURE_HASH = hashlib.sha256(",".join(_EXPECTED_FEATURE_NAMES).encode()).hexdigest()[:8]
-_EXPECTED_SCHEMA_VERSION = 3
+# Hardcoded feature names and hashes removed to support dynamic schema loading
 
 
 class MLScoringGate:
@@ -128,7 +137,7 @@ class MLScoringGate:
         )
         # Phase 4.1: ML acceptance threshold
         raw_thr = os.getenv("ML_CONFIDENCE_THRESHOLD", "").strip()
-        self._threshold: Optional[float] = None
+        self._threshold: float | None = None
         if raw_thr:
             try:
                 t = float(raw_thr)
@@ -150,10 +159,10 @@ class MLScoringGate:
         self._last_mtime_check_ms = 0
         self._last_mtime = 0.0
 
-        self._pack: Optional[Dict[str, Any]] = None
+        self._pack: dict[str, Any] | None = None
         self._model: Any = None
-        self._feature_names: List[str] = []
-        self._scaler_params: Dict[str, Dict[str, float]] = {}
+        self._feature_names: list[str] = []
+        self._scaler_params: dict[str, dict[str, float]] = {}
         self._calibrator: Any = None
         self._last_load_ms: int = 0
         self._load_attempts: int = 0
@@ -168,12 +177,12 @@ class MLScoringGate:
         if self._pack is None:
             # First load: try every 10s until success
             return (now_ms - self._last_load_ms) > 10_000
-            
+
         if (now_ms - self._last_load_ms) > self._refresh_ms:
             # [REMEDIATION P4.1] Throttle mtime check to reduce syscall pressure
             if (now_ms - self._last_mtime_check_ms) < self._mtime_check_interval_ms:
                 return False
-            
+
             self._last_mtime_check_ms = now_ms
             try:
                 mtime = os.path.getmtime(self._model_path)
@@ -221,9 +230,12 @@ class MLScoringGate:
             self._scaler_params = dict(pack.get("robust_scaler_params", {}))
             self._calibrator = pack.get("calibrator")
             self._load_failures = 0
-            
-            # Extract schema properties
-            self._feature_schema_version = pack.get("feature_schema_version", 0)
+
+            # Extract schema properties — support both old and new key names
+            self._feature_schema_version = pack.get(
+                "feature_schema_version", pack.get("schema_version", 0)
+            )
+            self._feature_schema_ver = (pack.get("feature_schema_ver", "")).lower().strip()
             self._feature_hash = pack.get("feature_hash", "")
 
             metrics = pack.get("metrics", {})
@@ -251,54 +263,149 @@ class MLScoringGate:
     # Feature extraction (from live ctx object → feature vector)
     # ------------------------------------------------------------------
 
-    def _extract_features(self, ctx: Any, side: str) -> Optional[List[float]]:
-        """Extract feature vector from live context — matches train_ml_scorer.py order."""
+    def _extract_features(self, ctx: Any, side: str) -> list[float] | None:
+        """Extract feature vector from live context dynamically based on model schema."""
         try:
-            out: List[float] = []
+            ts_ms = getattr(ctx, "ts_ms", 0)
+            if not ts_ms and isinstance(ctx, dict):
+                ts_ms = ctx.get("ts_ms", 0)
 
-            # Numeric features (same order as NUMERIC_FEATURES in trainer)
-            for _name, attr_names in _NUMERIC_FEATURE_ATTRS:
-                out.append(_f_any(ctx, *attr_names, default=0.0))
+            scenario = getattr(ctx, "scenario", "none")
+            if not scenario and isinstance(ctx, dict):
+                scenario = ctx.get("scenario", "none")
 
-            # Derived features
-            dir_sign = _dir_sign_from_side(side)
-            out.append(1.0 if dir_sign > 0 else 0.0)  # direction_long
+            cancel_spike_veto = getattr(ctx, "cancel_spike_veto", False)
+            if not cancel_spike_veto and isinstance(ctx, dict):
+                cancel_spike_veto = ctx.get("cancel_spike_veto", False)
 
-            c2t_vals = [
-                _f_any(ctx, "l3_cancel_to_trade_bid_5s", "cancel_to_trade_bid_5s", "cancel_to_trade_bid", default=0.0),
-                _f_any(ctx, "l3_cancel_to_trade_ask_5s", "cancel_to_trade_ask_5s", "cancel_to_trade_ask", default=0.0),
-                _f_any(ctx, "l3_cancel_to_trade_bid_20s", "cancel_to_trade_bid_20s", default=0.0),
-                _f_any(ctx, "l3_cancel_to_trade_ask_20s", "cancel_to_trade_ask_20s", default=0.0),
-            ]
-            out.append(max(c2t_vals))  # cancel_to_trade_max
+            if hasattr(ctx, "indicators") and isinstance(ctx.indicators, dict):
+                ind = ctx.indicators
+            elif isinstance(ctx, dict) and "indicators" in ctx:
+                ind = ctx["indicators"]
+            else:
+                ind = ctx if isinstance(ctx, dict) else vars(ctx) if hasattr(ctx, "__dict__") else {}
 
-            obi_5 = _f_any(ctx, "l3_obi_5", "obi_5", default=0.0)
-            obi_50 = _f_any(ctx, "l3_obi_50", "obi_50", default=0.0)
-            out.append(obi_5 - obi_50)  # obi_spread
+            sv = str(getattr(self, "_feature_schema_version", "3")).lower()
+            sv_tag = getattr(self, "_feature_schema_ver", "").lower().strip()
+            n_model_features = len(self._feature_names)
 
-            qp_bid = _f_any(ctx, "l3_queue_pressure_bid", "queue_pressure_bid", default=0.0)
-            qp_ask = _f_any(ctx, "l3_queue_pressure_ask", "queue_pressure_ask", default=0.0)
-            out.append(qp_bid - qp_ask)  # queue_imbalance
+            # Routing: sv_tag ALWAYS takes priority over numeric sv.
+            # Exception: if the model's actual feature count matches legacy v2 (23),
+            # use v2 extractor regardless of sv_tag — train/serve parity takes precedence.
+            if n_model_features == len(_NUMERIC_FEATURE_ATTRS) + 6:
+                # 23-feature model → always use legacy v2 extractor
+                sv = "2"
+            elif sv_tag in ("v4_of", "v4"):
+                sv = "4"
+            elif sv_tag in ("v5_of", "v5"):
+                sv = "5"
+            elif sv_tag in (
+                "v6_of", "v6", "v7_of", "v7", "v7_of_stable",
+                "v9_of", "v9", "v10_of", "v10",
+                "v11_of", "v11", "v12_of", "v12", "v13_of", "v13",
+            ):
+                sv = "registry"
+            elif sv_tag in ("v3", "3"):
+                sv = "3"
+            elif sv_tag in ("v2", "2"):
+                sv = "2"
+            # else: numeric sv used as-is
 
-            # Explicit right-tail outlier penalization markers
-            outlier_count = 0.0
-            for val in out:
-                if abs(val) > 10.0:
-                    outlier_count += 1.0
-            out.append(outlier_count)
-            out.append(1.0 if outlier_count > 0 else 0.0)
+            if sv == "registry":
+                # Generic vectorizer via feature_registry
+                try:
+                    from core.feature_registry import get_schema_info
+                    schema_info = get_schema_info(sv_tag)
+                    vec: list[float] = []
+                    for feat_name in schema_info.feature_names:
+                        if feat_name.startswith(("n:", "b:")):
+                            key = feat_name[2:]
+                            vec.append(_fd(ind, key, 0.0))
+                        elif feat_name == "dir:LONG":
+                            vec.append(1.0 if _dir_sign_from_side(side) > 0 else 0.0)
+                        elif feat_name == "dir:SHORT":
+                            vec.append(1.0 if _dir_sign_from_side(side) < 0 else 0.0)
+                        elif feat_name.startswith("bucket:"):
+                            bucket = feat_name[len("bucket:"):]
+                            vec.append(1.0 if (scenario or "").lower() == bucket else 0.0)
+                        elif feat_name.startswith("hour:"):
+                            import datetime as _dt
+                            try:
+                                dt = _dt.datetime.fromtimestamp(int(ts_ms) / 1000.0, _dt.timezone.utc)
+                                vec.append(1.0 if dt.hour == int(feat_name[5:]) else 0.0)
+                            except Exception:
+                                vec.append(0.0)
+                        elif feat_name.startswith("dow:"):
+                            import datetime as _dt
+                            try:
+                                dt = _dt.datetime.fromtimestamp(int(ts_ms) / 1000.0, _dt.timezone.utc)
+                                vec.append(1.0 if dt.weekday() == int(feat_name[4:]) else 0.0)
+                            except Exception:
+                                vec.append(0.0)
+                        else:
+                            vec.append(0.0)
+                    return vec
+                except Exception as e:
+                    logger.error("Registry vectorizer failed for %s: %s", sv_tag, e)
+                    return None
 
-            # Schema guard evaluation is done in score() using the metrics
-            if len(out) != len(self._feature_names):
-                logger.warning("Feature vector length mismatch: expected %d, got %d.", len(self._feature_names), len(out))
+            elif sv in ("2", "v2"):
+                # Legacy 23-feature schema (17 raw + 6 derived)
+                out: list[float] = [_fd(ind, attr) for attr in _NUMERIC_FEATURE_ATTRS]
+                out.append(1.0 if _dir_sign_from_side(side) > 0 else 0.0)  # direction_long
+                c2t = [
+                    _fd(ind, "l3_cancel_to_trade_bid_5s"),
+                    _fd(ind, "l3_cancel_to_trade_ask_5s"),
+                    _fd(ind, "l3_cancel_to_trade_bid_20s"),
+                    _fd(ind, "l3_cancel_to_trade_ask_20s"),
+                ]
+                out.append(max(c2t))  # cancel_to_trade_max
+                out.append(_fd(ind, "l3_obi_5") - _fd(ind, "l3_obi_50"))  # obi_spread
+                out.append(_fd(ind, "l3_queue_pressure_bid") - _fd(ind, "l3_queue_pressure_ask"))  # queue_imbalance
+                outlier_count = sum(1.0 for v in out if abs(v) > 10.0)
+                out.append(outlier_count)
+                out.append(1.0 if outlier_count > 0 else 0.0)
+                return out
 
-            return out
+            elif sv == "3":
+                from core.ml_feature_schema import build_feature_vector
+                vec, _ = build_feature_vector(
+                    symbol=getattr(ctx, "symbol", "unknown"),
+                    ts_ms=ts_ms,
+                    direction=side,
+                    scenario=scenario,
+                    indicators=ind,
+                    rule_score=0.0, rule_have=0, rule_need=0,
+                    cancel_spike_veto=int(cancel_spike_veto),
+                    schema_ver=3
+                )
+                return vec
+            elif sv in ("v4", "v4_of", "4"):
+                from core.ml_feature_schema_v4_of import MLFeatureSchemaV4OF
+                schema = MLFeatureSchemaV4OF()
+                return schema.vectorize(
+                    ts_ms=ts_ms, direction=side, scenario=scenario,
+                    indicators=ind, cancel_spike_veto=bool(cancel_spike_veto)
+                )
+            elif sv in ("v5", "v5_of", "5"):
+                from core.ml_feature_schema_v5_of import MLFeatureSchemaV5OF
+                schema = MLFeatureSchemaV5OF()
+                return schema.vectorize(
+                    ts_ms=ts_ms, direction=side, scenario=scenario,
+                    indicators=ind, cancel_spike_veto=bool(cancel_spike_veto)
+                )
+            else:
+                logger.error(
+                    "Unsupported schema: sv=%r sv_tag=%r — check model pack metadata",
+                    sv, sv_tag,
+                )
+                return None
 
         except Exception as e:
             logger.error("Feature extraction failed: %s", e)
             return None
 
-    def _scale_features(self, raw: List[float]) -> List[float]:
+    def _scale_features(self, raw: list[float]) -> list[float]:
         """Apply robust scaler to feature vector."""
         import numpy as _np
 
@@ -314,7 +421,7 @@ class MLScoringGate:
     # Inference
     # ------------------------------------------------------------------
 
-    def _predict_r(self, features: List[float]) -> Optional[float]:
+    def _predict_r(self, features: list[float]) -> float | None:
         """Run model inference → predicted R-multiple."""
         try:
             import numpy as _np
@@ -331,7 +438,6 @@ class MLScoringGate:
         """Map predicted R-multiple → conf01 (0..1)."""
         if self._calibrator is not None:
             try:
-                import numpy as _np
 
                 p = self._calibrator.predict([predicted_r])
                 return _clamp(float(p[0]), 0.05, 0.98)
@@ -357,14 +463,14 @@ class MLScoringGate:
         kind: str = "",
         side: str = "",
         ctx: Any = None,
-    ) -> Tuple[Optional[float], Dict[str, Any]]:
+    ) -> tuple[float | None, dict[str, Any]]:
         """Score a signal using ML model.
 
         Returns:
             (conf01, parts) if model available.
             (None, {}) if model unavailable — caller should fallback to rule-based.
         """
-        parts: Dict[str, Any] = {"scorer": "ml_v2"}
+        parts: dict[str, Any] = {"scorer": "ml_v2"}
 
         if not self._ensure_model():
             parts["ml_status"] = "model_unavailable"
@@ -380,13 +486,12 @@ class MLScoringGate:
             parts["ml_status"] = "feature_extraction_failed"
             return None, parts
 
-        from services.orderflow.metrics import ml_feature_mismatch_total, ml_scorer_status_total, ml_scorer_latency_ms
-        import time
+        from services.orderflow.metrics import ml_feature_mismatch_total, ml_scorer_latency_ms, ml_scorer_status_total
         t0 = time.monotonic_ns()
-        
+
         # Schema matching
         schema_mismatch = False
-        if len(raw_features) != len(self._feature_names) or self._feature_names != _EXPECTED_FEATURE_NAMES:
+        if len(raw_features) != len(self._feature_names):
             schema_mismatch = True
             model_ver = str(self._pack.get("kind", "unknown")) if self._pack else "unknown"
             schema_ver = str(getattr(self, "_feature_schema_version", 0))
@@ -395,11 +500,13 @@ class MLScoringGate:
                 model_ver=model_ver,
                 schema_ver=schema_ver
             ).inc()
-            logger.error("MLScoringGate schema mismatch: extracted features do not match model expectations (fail-open)")
+            logger.error("MLScoringGate schema mismatch: extracted features do not match model expectations (fail-closed)")
             parts["ml_status"] = "schema_mismatch"
-            ml_scorer_status_total.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-open", mode="enforce").inc()
-            ml_scorer_latency_ms.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-open").observe((time.monotonic_ns() - t0) / 1_000_000.0)
-            return None, parts
+            ml_scorer_status_total.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-closed", mode="enforce").inc()
+            ml_scorer_latency_ms.labels(symbol=getattr(ctx, "symbol", "unknown"), status="fail-closed").observe((time.monotonic_ns() - t0) / 1_000_000.0)
+
+            # FAIL CLOSED: We return (0.0, parts) to explicitly reject the trade instead of None (which triggers rule-based fail-open)
+            return 0.0, parts
 
         # Scale
         scaled_features = self._scale_features(raw_features)
@@ -447,7 +554,7 @@ class MLScoringGate:
         return self._model is not None
 
     @property
-    def model_metrics(self) -> Dict[str, Any]:
+    def model_metrics(self) -> dict[str, Any]:
         if self._pack is None:
             return {}
         return dict(self._pack.get("metrics", {}))

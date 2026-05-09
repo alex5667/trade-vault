@@ -1,125 +1,107 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-from dataclasses import dataclass, asdict
 import hashlib
 import json
 import math
 import os
 import time
+from dataclasses import asdict, dataclass
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, Tuple, List
-from common.normalization import generate_signal_id, normalize_direction, normalize_direction_safe
-from common.enums.trading import Direction
+from typing import Any
 
-from core_snapshot.policy_snapshot_v1 import build_dq_policy_snapshot, build_feature_manifest_v1, to_public_dict
-
-from core.book_evidence import compute_obi_flags, compute_iceberg_flags, compute_ofi_flags
-from core.meta_model_lr import MetaModelLR
-from core.meta_feature_coverage import compute_meta_feature_coverage, apply_meta_coverage_guard
-from core.meta_model_guard import validate_meta_model
-from core.of_evidence import compute_sweep_recent, compute_reclaim_recent, compute_absorption_flags
-from core.strong_of_gate import eval_reversal, eval_continuation, hidden_trend_dir
-from core.absorption_level_score import compute_absorption_level_score
-from core.of_confirm_contract import OFConfirmV3, pack_bits
-from core.cfg_merge import merged_cfg
-from core.ofc_bundle_loader_v1 import OFCBundleLoaderV1
-from core.ofc_context_key_v1 import iter_ctx_fallback_keys, make_ctx_key
-from core.retention import MAXLEN_GLOBAL
-from core.ofc_context_v1 import build_ofc_context
-from core.strong_need_policy import compute_strong_need_same_tick
 from common.metrics_stage import (
-    veto_total, dist,
-    meta_feature_seen_total,
-    meta_feature_missing_total,
+    dist,
     feature_missing_total,
+    meta_feature_missing_total,
+    meta_feature_seen_total,
+    veto_total,
 )
+from common.normalization import generate_signal_id, normalize_direction_safe
+from core.absorption_level_score import compute_absorption_level_score
+from core.book_evidence import compute_iceberg_flags, compute_obi_flags, compute_ofi_flags
+from core.book_microstructure_v2 import compute_ofi_multilevel_topn, compute_queue_imbalance_topn
+from core.book_microstructure_v4 import compute_microstructure_v4
+from core.burst_gate_v1 import eval_burst_gate
+from core.cfg_merge import merged_cfg
+from core.fill_prob_proxy import compute_fill_prob_proxy
 from core.fp_edge_evidence import compute_fp_edge_absorb
-from core.book_microstructure_v2 import compute_queue_imbalance_topn, compute_ofi_multilevel_topn
-from core.scenario_v4 import classify_v4
+from core.liq_pressure_gate_v1 import eval_liq_pressure_gate
+from core.meta_feature_coverage import apply_meta_coverage_guard, compute_meta_feature_coverage
 from core.meta_features_v1 import (
+    META_FEAT_V1_HASH,
     META_FEAT_V1_NAME,
     META_FEAT_V1_VERSION,
-    META_FEAT_V1_HASH,
-    META_FEAT_V1_COLS,
     build_meta_features_v1,
 )
 from core.meta_features_v2 import (
-    META_FEAT_V2_COLS, META_FEAT_V2_HASH,
+    META_FEAT_V2_HASH,
     META_FEAT_V2_NAME,
     META_FEAT_V2_VERSION,
     build_meta_features_v2,
 )
-from core.burst_gate_v1 import eval_burst_gate
-from core.liq_pressure_gate_v1 import eval_liq_pressure_gate
-from core.taker_flow_gate_v1 import eval_taker_flow_gate
-from core.fill_prob_proxy import compute_fill_prob_proxy
 from core.meta_features_v3 import (
+    META_FEAT_V3_HASH,
     META_FEAT_V3_NAME,
     META_FEAT_V3_VERSION,
-    META_FEAT_V3_HASH,
-    META_FEAT_V3_COLS,
     build_meta_features_v3,
 )
-from core.book_microstructure_v4 import compute_microstructure_v4
 from core.meta_features_v4 import (
+    META_FEAT_V4_HASH,
     META_FEAT_V4_NAME,
     META_FEAT_V4_VERSION,
-    META_FEAT_V4_HASH,
-    META_FEAT_V4_COLS,
-    META_FEAT_V4_TRANSFORMS,
     build_meta_features_v4,
 )
 from core.meta_features_v5 import (
+    META_FEAT_V5_HASH,
     META_FEAT_V5_NAME,
     META_FEAT_V5_VERSION,
-    META_FEAT_V5_HASH,
-    META_FEAT_V5_COLS,
-    META_FEAT_V5_TRANSFORMS,
     build_meta_features_v5,
 )
 from core.meta_features_v6 import (
+    META_FEAT_V6_HASH,
     META_FEAT_V6_NAME,
     META_FEAT_V6_VERSION,
-    META_FEAT_V6_HASH,
-    META_FEAT_V6_COLS,
-    META_FEAT_V6_TRANSFORMS,
     build_meta_features_v6,
 )
 from core.meta_features_v7 import (
+    META_FEAT_V7_HASH,
     META_FEAT_V7_NAME,
     META_FEAT_V7_VERSION,
-    META_FEAT_V7_HASH,
-    META_FEAT_V7_COLS,
-    META_FEAT_V7_TRANSFORMS,
     build_meta_features_v7,
 )
-
 from core.meta_features_v8 import (
+    META_FEAT_V8_HASH,
     META_FEAT_V8_NAME,
     META_FEAT_V8_VERSION,
-    META_FEAT_V8_HASH,
-    META_FEAT_V8_COLS,
-    META_FEAT_V8_TRANSFORMS,
     build_meta_features_v8,
 )
-
 from core.meta_features_v9 import (
+    META_FEAT_V9_HASH,
     META_FEAT_V9_NAME,
     META_FEAT_V9_VERSION,
-    META_FEAT_V9_HASH,
-    META_FEAT_V9_COLS,
-    META_FEAT_V9_TRANSFORMS,
     build_meta_features_v9,
 )
 from core.meta_features_v10 import (
+    META_FEAT_V10_HASH,
     META_FEAT_V10_NAME,
     META_FEAT_V10_VERSION,
-    META_FEAT_V10_HASH,
-    META_FEAT_V10_COLS,
-    META_FEAT_V10_TRANSFORMS,
     build_meta_features_v10,
 )
+from core.meta_model_lr import MetaModelLR
+from core.of_confirm_contract import OFConfirmV3
+from core.of_evidence import compute_absorption_flags, compute_reclaim_recent, compute_sweep_recent
+from core.ofc_bundle_loader_v1 import OFCBundleLoaderV1
+from core.ofc_context_key_v1 import iter_ctx_fallback_keys, make_ctx_key
+from core.ofc_context_v1 import build_ofc_context
+from core.retention import MAXLEN_GLOBAL
+from core.scenario_v4 import classify_v4
+from core.strong_need_policy import compute_strong_need_same_tick
+from core.strong_of_gate import eval_continuation, eval_reversal, hidden_trend_dir
+from core.taker_flow_gate_v1 import eval_taker_flow_gate
+from core_snapshot.policy_snapshot_v1 import build_dq_policy_snapshot, build_feature_manifest_v1, to_public_dict
+from domain.evidence_keys import CtxKeys, HzGateKeys, MetaKeys, MLKeys
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 # Optional gates (may live in the full repo). Keep engine importable even in
 # partial archives; engine remains functional with graceful degradation.
@@ -146,7 +128,7 @@ except Exception:
 # ---- Meta feature schema registry (code-side) ----
 # Used by OFConfirmEngine to keep Train==Serve consistency and to guard ENFORCE mode
 # against schema mismatch. Hash is enforced only if it exists on both model and code.
-META_SCHEMA_REGISTRY: Dict[str, Tuple[int, str]] = {
+META_SCHEMA_REGISTRY: dict[str, tuple[int, str]] = {
     META_FEAT_V1_NAME: (META_FEAT_V1_VERSION, META_FEAT_V1_HASH),
     META_FEAT_V2_NAME: (META_FEAT_V2_VERSION, META_FEAT_V2_HASH),
     META_FEAT_V3_NAME: (META_FEAT_V3_VERSION, META_FEAT_V3_HASH),
@@ -242,21 +224,21 @@ class OFConfirm:
     have: int
     need: int
     score: float                 # 0..1
-    evidence: Dict[str, Any]
-    contrib: Dict[str, float]    # score contributions per key
+    evidence: dict[str, Any]
+    contrib: dict[str, float]    # score contributions per key
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 # Process-level shared caches for MetaModelLR to prevent redundant I/O across engine instances.
-_SHARED_META_MODELS: Dict[str, Any] = {}
-_SHARED_META_STATS: Dict[str, Tuple[float, int]] = {} # path -> (mtime, size)
-_SHARED_CONT_CTX_CAPTURE_CLIENT: Optional[Any] = None
+_SHARED_META_MODELS: dict[str, Any] = {}
+_SHARED_META_STATS: dict[str, tuple[float, int]] = {} # path -> (mtime, size)
+_SHARED_CONT_CTX_CAPTURE_CLIENT: Any | None = None
 _SHARED_CONT_CTX_CAPTURE_CLIENT_URL: str = ""
 
 
-def _get_sync_redis_client_for_cont_ctx_capture(cfg: Dict[str, Any]) -> Optional[Any]:
+def _get_sync_redis_client_for_cont_ctx_capture(cfg: dict[str, Any]) -> Any | None:
     """Best-effort cached Redis client for cont_ctx capture.
 
     This helper is intentionally lazy and fail-open: if redis-py is unavailable or
@@ -272,7 +254,7 @@ def _get_sync_redis_client_for_cont_ctx_capture(cfg: Dict[str, Any]) -> Optional
         ).strip()
         if not url:
             return None
-        if _SHARED_CONT_CTX_CAPTURE_CLIENT is not None and _SHARED_CONT_CTX_CAPTURE_CLIENT_URL == url:
+        if _SHARED_CONT_CTX_CAPTURE_CLIENT is not None and url == _SHARED_CONT_CTX_CAPTURE_CLIENT_URL:
             return _SHARED_CONT_CTX_CAPTURE_CLIENT
         import redis  # type: ignore
         _SHARED_CONT_CTX_CAPTURE_CLIENT = redis.Redis.from_url(
@@ -291,8 +273,8 @@ def _get_sync_redis_client_for_cont_ctx_capture(cfg: Dict[str, Any]) -> Optional
 def _emit_cont_ctx_calib_capture_v1(
     *,
     runtime: Any,
-    indicators: Dict[str, Any],
-    cfg2: Dict[str, Any],
+    indicators: dict[str, Any],
+    cfg2: dict[str, Any],
     ofc: Any,
     dec: Any,
     now_ts_ms: int,
@@ -335,7 +317,7 @@ def _emit_cont_ctx_calib_capture_v1(
             "signal_id": signal_id,
             "symbol": symbol,
             "ts_ms": str(signal_ts_ms),
-            "tf": str(indicators.get("tf") or ""),
+            "tf": (indicators.get("tf") or ""),
             "direction": direction,
             "scenario": scenario_base,
             "scenario_v4": str(indicators.get("scenario_v4", scenario_base) or scenario_base),
@@ -346,7 +328,7 @@ def _emit_cont_ctx_calib_capture_v1(
             "score": str(float(getattr(ofc, "score", 0.0) or 0.0)),
             "reason": str(getattr(ofc, "reason", "") or ""),
             "strong_gate_missing": strong_gate_missing,
-            "trend_dir_source": str(indicators.get("trend_dir_source", "") or ""),
+            "trend_dir_source": (indicators.get("trend_dir_source", "") or ""),
             "cont_ctx_ts_ms": str(cont_ctx_ts_ms),
             "cont_ctx_age_ms": str(cont_ctx_age_ms),
             "hidden_ctx_recent": str(int(indicators.get("hidden_ctx_recent", 0) or 0)),
@@ -382,12 +364,12 @@ def _emit_cont_ctx_calib_capture_v1(
             or "stream:ofc:cont_ctx_capture"
         ).strip()
         maxlen = int(cfg2.get("cont_ctx_calib_capture_maxlen", os.getenv("CONT_CTX_CALIB_CAPTURE_MAXLEN", str(MAXLEN_GLOBAL))) or MAXLEN_GLOBAL)
-        
+
         from services.observability.metrics_registry import ml_telemetry_io_time_us
         t0_xadd = time.perf_counter()
         client.xadd(stream, payload, maxlen=maxlen, approximate=True)
         dt_xadd = (time.perf_counter() - t0_xadd) * 1_000_000
-        ml_telemetry_io_time_us.labels(symbol=str(symbol), op="xadd_cont_ctx").observe(dt_xadd)
+        ml_telemetry_io_time_us.labels(symbol=symbol, op="xadd_cont_ctx").observe(dt_xadd)
     except Exception:
         return
 
@@ -435,7 +417,7 @@ class OFConfirmEngine:
         'fp_move_bp',
     )
 
-    def __init__(self, version: int = 3, cancel_gate: Optional[Any] = None, ml_gate: Optional[Any] = None) -> None:
+    def __init__(self, version: int = 3, cancel_gate: Any | None = None, ml_gate: Any | None = None) -> None:
         self.version = int(version)
         # Cancellation spike gate is intentionally always available so we can snapshot/restore
         # it for golden replay. The internal state is per-symbol.
@@ -458,7 +440,7 @@ class OFConfirmEngine:
         self._meta_model_ch_last_check_ms = 0
         # Replay determinism support
         self._replay_mode: bool = False
-        self._replay_now_ms: Optional[int] = None
+        self._replay_now_ms: int | None = None
         # Startup timestamp (ms) - used by _should_apply_dq_veto for warmup checks.
         self._start_ms: int = get_ny_time_millis()
         self._ofc_ctx_loader = None
@@ -466,7 +448,7 @@ class OFConfirmEngine:
         self._ofc_ctx_last_check_ms = 0
 
     @property
-    def ml_gate(self) -> Optional[Any]:
+    def ml_gate(self) -> Any | None:
         return self._ml_gate
 
     def set_replay_time_ms(self, ts_ms: int) -> None:
@@ -500,10 +482,10 @@ class OFConfirmEngine:
     # ------------------------------------------------------------------
     # OFC contextual bundle state
     # ------------------------------------------------------------------
-    def _ensure_ofc_ctx_bundle(self, cfg: Dict[str, Any]) -> None:
+    def _ensure_ofc_ctx_bundle(self, cfg: dict[str, Any]) -> None:
         try:
             enabled = bool(cfg.get("ofc_ctx_enable", False))
-            path = str(cfg.get("ofc_ctx_bundle_path", "") or "")
+            path = (cfg.get("ofc_ctx_bundle_path", "") or "")
             reload_sec = int(cfg.get("ofc_ctx_reload_sec", 30) or 30)
             if not enabled or not path:
                 self._ofc_ctx_loader = None
@@ -519,7 +501,7 @@ class OFConfirmEngine:
     def _build_ofc_ctx_features(
         self,
         *,
-        indicators: Dict[str, Any],
+        indicators: dict[str, Any],
         score: float,
         score_raw: float,
         exec_risk_bps: float,
@@ -529,12 +511,12 @@ class OFConfirmEngine:
         slip_bps: float,
         score_min: float,
         now_ts: int,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         dt_h = int((int(now_ts) // 1000) // 3600 % 24)
         dt_d = int((int(now_ts) // 1000) // 86400 + 3) % 7  # stable UTC weekday proxy
         h_ang = (2.0 * math.pi * float(dt_h)) / 24.0
         d_ang = (2.0 * math.pi * float(dt_d)) / 7.0
-        out: Dict[str, float] = {
+        out: dict[str, float] = {
             "raw_score": float(score),
             "score_raw": float(score_raw),
             "of_score_final": float(score),
@@ -572,7 +554,7 @@ class OFConfirmEngine:
     # ------------------------------------------------------------------
     # Cancellation gate state (for deterministic golden replay)
     # ------------------------------------------------------------------
-    def snapshot_cancel_gate_state(self, symbol: str) -> Optional[Dict[str, Any]]:
+    def snapshot_cancel_gate_state(self, symbol: str) -> dict[str, Any] | None:
         """Return serializable state for CancellationSpikeGate (per-symbol) or None."""
         try:
             gate = getattr(self, "_cancel_spike_gate", None)
@@ -585,15 +567,15 @@ class OFConfirmEngine:
                 if fn is None:
                     return None
                 # snapshot returns full format, extract per-symbol
-                full = fn(str(symbol))
+                full = fn(symbol)
                 if isinstance(full, dict) and "symbols" in full:
-                    return full["symbols"].get(str(symbol), None)
+                    return full["symbols"].get(symbol, None)
                 return full
-            return fn(str(symbol))
+            return fn(symbol)
         except Exception:
             return None
 
-    def restore_cancel_gate_state(self, symbol: str, state: Optional[Dict[str, Any]]) -> bool:
+    def restore_cancel_gate_state(self, symbol: str, state: dict[str, Any] | None) -> bool:
         """Restore CancellationSpikeGate state for a symbol. Returns True if applied."""
         if not state:
             return False
@@ -609,9 +591,9 @@ class OFConfirmEngine:
                 fn = getattr(gate, "restore", None)
                 if fn is None:
                     return False
-                fn(state, symbol=str(symbol))
+                fn(state, symbol=symbol)
                 return True
-            fn(str(symbol), dict(state))
+            fn(symbol, dict(state))
             return True
         except Exception:
             return False
@@ -620,7 +602,7 @@ class OFConfirmEngine:
     # Gate state snapshot API (for deterministic golden replay)
     # ------------------------------------------------------------------
 
-    def cancel_gate_snapshot(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+    def cancel_gate_snapshot(self, symbol: str | None = None) -> dict[str, Any]:
         """Serialize CancellationSpikeGate state.
 
         If symbol is provided, returns the per-symbol payload.
@@ -631,21 +613,21 @@ class OFConfirmEngine:
         except Exception:
             return {"version": 1, "symbols": {}}
 
-    def cancel_gate_restore(self, snap: Dict[str, Any], symbol: Optional[str] = None) -> None:
+    def cancel_gate_restore(self, snap: dict[str, Any], symbol: str | None = None) -> None:
         """Restore CancellationSpikeGate state."""
         try:
             self._cancel_spike_gate.restore(snap, symbol=symbol)
         except Exception:
             return
 
-    def cancel_gate_reset(self, symbol: Optional[str] = None) -> None:
+    def cancel_gate_reset(self, symbol: str | None = None) -> None:
         """Clear CancellationSpikeGate state (per symbol or all)."""
         try:
             self._cancel_spike_gate.reset(symbol=symbol)
         except Exception:
             return
 
-    def _should_apply_dq_veto(self, cfg: Dict[str, Any]) -> bool:
+    def _should_apply_dq_veto(self, cfg: dict[str, Any]) -> bool:
         """Observe-only rollout guard for book_missing_seq_hard DQ veto.
 
         During the initial 24–48h observe period, the hard DQ veto based on
@@ -674,14 +656,14 @@ class OFConfirmEngine:
         except Exception:
             return False  # fail-open: never veto if guard errors
 
-    def export_gate_state(self, *, symbol: Optional[str] = None) -> Dict[str, Any]:
+    def export_gate_state(self, *, symbol: str | None = None) -> dict[str, Any]:
         """Export internal state of stateful gates (fail-open).
 
         Used by OFC_CAPTURE to guarantee deterministic offline replay.
 
         """
         try:
-            out: Dict[str, Any] = {"version": 1, "gates": {}}
+            out: dict[str, Any] = {"version": 1, "gates": {}}
 
             g = getattr(self, "_cancel_spike_gate", None)
 
@@ -693,7 +675,7 @@ class OFConfirmEngine:
         except Exception:
             return {"version": 1, "gates": {}}
 
-    def import_gate_state(self, state: Dict[str, Any], *, replace: bool = False) -> None:
+    def import_gate_state(self, state: dict[str, Any], *, replace: bool = False) -> None:
         """Restore stateful gate state from export_gate_state() (fail-open)."""
         try:
             if not isinstance(state, dict):
@@ -715,7 +697,7 @@ class OFConfirmEngine:
             return
 
     # Backward/targeted wrappers for Cancel Spike gate
-    def export_cancel_spike_state(self, *, symbol: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def export_cancel_spike_state(self, *, symbol: str | None = None) -> dict[str, Any] | None:
         try:
             g = getattr(self, "_cancel_spike_gate", None)
 
@@ -727,7 +709,7 @@ class OFConfirmEngine:
         except Exception:
             return None
 
-    def import_cancel_spike_state(self, state: Dict[str, Any], *, replace: bool = False) -> None:
+    def import_cancel_spike_state(self, state: dict[str, Any], *, replace: bool = False) -> None:
         try:
             g = getattr(self, "_cancel_spike_gate", None)
 
@@ -749,7 +731,7 @@ class OFConfirmEngine:
         except Exception:
             return d
 
-    def _resolve_now_ts(self, tick_ts_ms: int, indicators: Dict[str, Any]) -> int:
+    def _resolve_now_ts(self, tick_ts_ms: int, indicators: dict[str, Any]) -> int:
         """
         Canonical time source for build().
         Priority:
@@ -764,14 +746,14 @@ class OFConfirmEngine:
             return int(v)
         return int(self._now_ms())
 
-    def _load_meta_model_slot(self, slot: str, path: str, now_ms: int, reload_sec: int) -> Optional[Any]:
+    def _load_meta_model_slot(self, slot: str, path: str, now_ms: int, reload_sec: int) -> Any | None:
         """
         Fail-open loader with coarse reload interval and process-level caching.
         NOTE: in replay mode we must not refresh by wall-clock timers.
         """
         try:
-            slot = str(slot or "champion").lower()
-            path = str(path or "").strip()
+            slot = (slot or "champion").lower()
+            path = (path or "").strip()
             if not path:
                 return None
 
@@ -845,19 +827,19 @@ class OFConfirmEngine:
                         )
                 except Exception:
                     mm = None
-            
+
             if mm:
                 _SHARED_META_MODELS[path] = mm
                 _SHARED_META_STATS[path] = stats
                 setattr(self, model_attr, mm)
                 setattr(self, path_attr, path)
                 setattr(self, mtime_attr, float(mtime))
-            
+
             return getattr(self, model_attr, None)
         except Exception:
             return None
 
-    def _load_meta_model(self, path: str, now_ms: int, reload_sec: int) -> Optional[MetaModelLR]:
+    def _load_meta_model(self, path: str, now_ms: int, reload_sec: int) -> MetaModelLR | None:
         """Backward-compatible champion loader."""
         return self._load_meta_model_slot("champion", path, now_ms, reload_sec)
 
@@ -870,14 +852,14 @@ class OFConfirmEngine:
         tick_ts_ms: int,
         price: float,
         delta_z: float,
-        snap_t0: Optional[Any] = None,
-        snap_prev: Optional[Any] = None,
+        snap_t0: Any | None = None,
+        snap_prev: Any | None = None,
         runtime: Any,
-        cfg: Dict[str, Any],
-        indicators: Dict[str, Any],
-        absorption: Optional[Dict[str, Any]] = None,
+        cfg: dict[str, Any],
+        indicators: dict[str, Any],
+        absorption: dict[str, Any] | None = None,
         worker_lag_ms: float = 0.0,
-    ) -> Tuple[Optional[OFConfirmV3], Optional[Any]]:
+    ) -> tuple[OFConfirmV3 | None, Any | None]:
         """
         Returns:
           (of_confirm, gate_decision)
@@ -890,10 +872,8 @@ class OFConfirmEngine:
         def _snap_stage(stage_name, t_prev):
             t_now = time.perf_counter()
             dt_us = int((t_now - t_prev) * 1_000_000.0)
-            try:
-                ofconfirm_build_stages_us.labels(symbol=str(symbol), stage=stage_name).observe(dt_us)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                ofconfirm_build_stages_us.labels(symbol=symbol, stage=stage_name).observe(dt_us)
             return t_now
 
         _t_stage = _t_start
@@ -909,7 +889,7 @@ class OFConfirmEngine:
         # Deterministic time source (replay-safe)
         now_ts = self._resolve_now_ts(tick_ts_ms, indicators)
         evidence = {}
-        
+
         # --- Book evidence (OBI/Iceberg) ---
         obi_dir_ok, obi_stable, obi_stable_secs, obi_val = compute_obi_flags(
             direction=direction,
@@ -939,14 +919,12 @@ class OFConfirmEngine:
         )
 
         # Optional: stamp now_ts used (useful for replay/debug)
-        try:
+        with contextlib.suppress(Exception):
             indicators["now_ts_ms_used"] = int(now_ts)
-        except Exception:
-            pass
 
         # --- Book health gate for book-based evidences (OBI/Iceberg/OFI) ---
         book_ok = _i(indicators.get("book_health_ok", 1), 1)
-        
+
         # --- Data health gate (stricter than book_ok) ---
         # If overall data_health is low, we fail-closed ONLY for evidences that depend on book/time.
         try:
@@ -957,7 +935,7 @@ class OFConfirmEngine:
         if dh < dh_min:
             book_ok = 0
             indicators["data_health_veto_book_evidence"] = 1
-        
+
         if book_ok == 0:
             # Do not allow these evidences to contribute to StrongGate B/C components
             obi_dir_ok, obi_stable, obi_stable_secs, obi_val = False, False, 0.0, 0.0
@@ -1000,7 +978,7 @@ class OFConfirmEngine:
             rsi_ok = 0
         indicators["rsi_agree"] = int(rsi_ok)
 
-        kind = str(indicators.get("sweep_kind", "") or "")
+        kind = (indicators.get("sweep_kind", "") or "")
         indicators["sweep_eqh"] = int(1 if (sweep_recent and kind == "EQH_SWEEP") else 0)
         indicators["sweep_eql"] = int(1 if (sweep_recent and kind == "EQL_SWEEP") else 0)
 
@@ -1009,42 +987,36 @@ class OFConfirmEngine:
         div_source = "none"
         try:
             cvd_q = int(indicators.get("cvd_quarantine_active", 0) or 0)
-            dbias = str(indicators.get("sweep_dir_bias", "") or "").upper()
+            dbias = (indicators.get("sweep_dir_bias", "") or "").upper()
             div = _get_attr_or_key(runtime, "last_div", None)
-            
+
             if cvd_q != 1:
                 # Primary path: use multi-bar divergence object
                 if sweep_recent and div is not None:
                     dkind = str(_get_attr_or_key(div, "kind", "") or "").lower()
-                    if dbias == "SHORT" and dkind.startswith("bearish"):
-                        div_ok = 1
-                        div_source = "divergence_object"
-                    elif dbias == "LONG" and dkind.startswith("bullish"):
+                    if dbias == "SHORT" and dkind.startswith("bearish") or dbias == "LONG" and dkind.startswith("bullish"):
                         div_ok = 1
                         div_source = "divergence_object"
             else:
                 # Fallback path: use snapshot delta_tick during CVD baseline quarantine
                 delta_val = float(indicators.get("delta_tick", indicators.get("delta", 0.0) or 0.0) or 0.0)
-                
+
                 # P1-10: Strict time scoping. Delta is an indicator, must not be newer than signal!
                 evidence_ts = int(indicators.get("ts_ms", indicators.get("event_ts", 0)) or 0)
                 signal_ts = int(now_ts)  # now_ts is the tick_ts_ms for the current signal
                 time_ok = True
                 if evidence_ts > 0 and signal_ts > 0 and evidence_ts > signal_ts:
                     time_ok = False
-                
+
                 if sweep_recent and time_ok:
-                    if dbias == "SHORT" and delta_val < 0.0:
-                        div_fallback = 1
-                        div_source = "delta_tick_fallback"
-                    elif dbias == "LONG" and delta_val > 0.0:
+                    if dbias == "SHORT" and delta_val < 0.0 or dbias == "LONG" and delta_val > 0.0:
                         div_fallback = 1
                         div_source = "delta_tick_fallback"
         except Exception:
             div_ok = 0
             div_fallback = 0
             div_source = "error"
-            
+
         indicators["div_match"] = int(div_ok)
         indicators["div_match_fallback"] = int(div_fallback)
         indicators["div_match_source"] = str(div_source)
@@ -1095,7 +1067,7 @@ class OFConfirmEngine:
             if cvd_q == 1:
                 indicators["hidden_div_ignored"] = 1
             trend_dir = hidden_trend_dir(_get_attr_or_key(div, 'kind', None) if div else None)
-            
+
             if trend_dir is not None:
                 indicators["trend_dir_source"] = "hidden_div"
                 evidence["trend_dir_source"] = "hidden_div"
@@ -1103,13 +1075,13 @@ class OFConfirmEngine:
 
             # FAILBACK: If no hidden divergence, use REGIME as trend definition (Trend Following)
             if trend_dir is None:
-                 from contexts import normalize_regime_label, MARKET_REGIME_NA
+                 from contexts import MARKET_REGIME_NA, normalize_regime_label
                  rg = normalize_regime_label(_get_attr_or_key(runtime, 'last_regime', MARKET_REGIME_NA))
-                 if "bull" in rg or rg == "trending" or rg == "trend": 
+                 if "bull" in rg or rg == "trending" or rg == "trend":
                      trend_dir = "LONG"
-                 elif "bear" in rg: 
+                 elif "bear" in rg:
                      trend_dir = "SHORT"
-                 
+
                  if trend_dir is not None:
                      indicators["trend_dir_source"] = "regime"
                      evidence["trend_dir_source"] = "regime"
@@ -1148,10 +1120,8 @@ class OFConfirmEngine:
                 if trend_dir is None:
                     scenario = "none"
                     fallback_reason = "no_sweep_and_no_trend"
-                    try:
+                    with contextlib.suppress(Exception):
                          indicators["of_debug_fail"] = f"no_trend:regime={getattr(runtime, 'last_regime', 'na')}"
-                    except Exception: 
-                         pass
 
         scenario_v4 = scenario
         policy_reason = "ok"
@@ -1188,7 +1158,7 @@ class OFConfirmEngine:
         abs_lvl_bias = "NONE"
         abs_lvl_dir_match = False
         bar = None
-        
+
         try:
             if bool(int(cfg.get("abs_lvl_enable", 1))):
                 bar = getattr(runtime, "last_bar", None)
@@ -1240,20 +1210,20 @@ class OFConfirmEngine:
             if snap is not None:
                 # We need prev_snap for shift calculation
                 # runtime.book_state is usually the *current* state.
-                # Does runtime have prev_state? 
+                # Does runtime have prev_state?
                 # In scanner_infra, runtime.book_state might be a robust object or just current snap.
                 # We often used 'runtime.book_state.snap' and 'runtime.book_state.prev_snap' in older code?
                 # Let's check the context or just use what we have.
                 # Evidence contract says: "compute_microstructure_v4(snap, prev_snap, levels=5)"
-                # We will try to extract snap/prev from runtime.book_state if available, 
+                # We will try to extract snap/prev from runtime.book_state if available,
                 # or pass runtime.book_state as snap.
-                
+
                 # Check if runtime.book_state has 'snap' attr
-                s = getattr(snap, "snap", snap) 
+                s = getattr(snap, "snap", snap)
                 p = getattr(snap, "prev_snap", None)
-                
+
                 micro_v4 = compute_microstructure_v4(s, p, levels=5)
-                
+
                 # Extract to evidence
                 for k, v in micro_v4.items():
                     evidence[k] = float(v)
@@ -1270,7 +1240,7 @@ class OFConfirmEngine:
 
         # Determine regime / instability / pressure / churn same-tick inputs
         try:
-            from contexts import normalize_regime_label, MARKET_REGIME_NA
+            from contexts import MARKET_REGIME_NA, normalize_regime_label
             regime = normalize_regime_label(_get_attr_or_key(runtime, 'last_regime', MARKET_REGIME_NA))
         except Exception:
             regime = "na"
@@ -1292,7 +1262,7 @@ class OFConfirmEngine:
                     except Exception:
                         pressure_hi = bool(ph)
                 else:
-                    pressure_hi = bool(getattr(runtime, "pressure").is_pressure_hi(int(now_ts), float(cfg2.get("pressure_hi_per_min", 4.0))))
+                    pressure_hi = bool(runtime.pressure.is_pressure_hi(int(now_ts), float(cfg2.get("pressure_hi_per_min", 4.0))))
         except Exception:
             pressure_hi = False
         try:
@@ -1318,7 +1288,7 @@ class OFConfirmEngine:
             ofi_leg = bool(ofi_dir_ok and ofi_stable)
             # No longer need implicit OR substitution because eval_reversal now handles ofi_leg natively.
             # But we keep explicit params clean.
-            
+
             # A2: fp_edge absorption is "absorption-like" evidence; we can safely let it satisfy abs_lvl_ok input
             # to avoid changing strong_of_gate signatures (still doesn't increase number of legs).
             # No longer need implicit OR substitution because abs_lvl_ok counts as A or C based on config,
@@ -1328,7 +1298,7 @@ class OFConfirmEngine:
 
             # C1: Optional arguments for legs (ofi_leg, fp_edge_absorb) are passed if the callee accepts them.
             # We use filter_kwargs to be compatible with both old (3-arg) and new (5-arg) signatures of eval_*.
-            
+
             # test_ofi_substitutes_obi_stable_in_eval_reversal expects implicit substitution:
             _last_obi = _get_attr_or_key(runtime, 'last_obi_event', None)
             if not obi_stable and _last_obi is None and ofi_leg:
@@ -1336,7 +1306,7 @@ class OFConfirmEngine:
             if not abs_lvl_ok and fp_edge_absorb:
                 abs_lvl_ok = True
 
-            
+
             reversal_kwargs = {
                 "direction": direction,
                 "delta_z": float(delta_z),
@@ -1350,7 +1320,7 @@ class OFConfirmEngine:
                 "ofi_leg": ofi_leg,
                 "fp_edge_absorb": fp_edge_absorb,
             }
-            
+
             dec = eval_reversal(**_filter_kwargs_for_callable(eval_reversal, **reversal_kwargs))
         elif scenario == "continuation" and trend_dir is not None:
             # continuation context (countertrend absorption observed) is maintained in runtime
@@ -1358,7 +1328,7 @@ class OFConfirmEngine:
             cont_ts = int(getattr(runtime, "cont_ctx_ts_ms", 0) or 0)
             cont_valid = int(cfg2.get("cont_ctx_valid_ms", 120_000))
             cont_ctx_recent = (cont_ts > 0 and 0 <= now_ts_for_cont - cont_ts <= cont_valid)
-            
+
             # hidden ctx recent
             div = getattr(runtime, "last_div", None)
             hidden_ms = int(cfg2.get("hidden_ctx_valid_ms", 120_000))
@@ -1367,17 +1337,17 @@ class OFConfirmEngine:
 
             # Regime fallback bypass: If we derived trend from regime or direction, we consider the context satisfied.
             if not hidden_ctx_recent:
-                src = str(indicators.get("trend_dir_source", ""))
+                src = (indicators.get("trend_dir_source", ""))
                 if src in ("regime", "direction") or indicators.get("scenario_dz_bypass"):
                     hidden_ctx_recent = True
-            
+
             # WARMUP BYPASS FOR MISSING LEGS ON RESTART
             try:
                 from core.core_snapshot.runtime_clock import snapshot as runtime_snapshot
                 _clock = runtime_snapshot(event_ts_ms=now_ts_for_cont)
                 uptime_sec = int(_clock.uptime_sec)
                 warmup_s = int(cfg2.get("continuation_warmup_sec", 1800))
-                
+
                 # If we are in the warmup window, allow fallback for strictly unpopulated history legs.
                 if 0 < uptime_sec < warmup_s:
                     if div is None:
@@ -1400,7 +1370,7 @@ class OFConfirmEngine:
             ofi_leg = bool(ofi_dir_ok and ofi_stable)
 
             from core.compat_utils import _filter_kwargs_for_callable
-            
+
             continuation_kwargs = {
                 "direction": direction,
                 "trend_dir": trend_dir,
@@ -1412,7 +1382,7 @@ class OFConfirmEngine:
                 "ofi_leg": bool(ofi_leg),
                 "fp_edge_absorb": bool(fp_edge_absorb),
                 "cfg": cfg2,
-                "trend_dir_source": str(indicators.get("trend_dir_source", "none")),
+                "trend_dir_source": (indicators.get("trend_dir_source", "none")),
                 "delta_z": float(delta_z),
             }
 
@@ -1421,15 +1391,15 @@ class OFConfirmEngine:
         # Attach need escalation diagnostics
         try:
             if dec is not None:
-                setattr(dec, "need_reason", str(nd.reason))
+                dec.need_reason = str(nd.reason)
         except Exception:
             pass
 
         # -------------------------------------------------------
         # A3) Execution-risk penalty (mandatory): spread + slippage
         # -------------------------------------------------------
-        spread_bps = _f(indicators.get("spread_bps", None), -1.0)
-        slip_bps = _f(indicators.get("expected_slippage_bps", None), -1.0)
+        spread_bps = _f(indicators.get("spread_bps"), -1.0)
+        slip_bps = _f(indicators.get("expected_slippage_bps"), -1.0)
 
         # If missing => do NOT silently become zero
         if spread_bps <= 0:
@@ -1454,23 +1424,23 @@ class OFConfirmEngine:
                  ref_base = float(get_default_dist_bp_threshold(symbol) or 20.0)
         except Exception:
              ref_base = 20.0
-             
+
         # exec_ref is typically 1.0 * dist_bp for normal, maybe 0.7 * dist_bp for strict
         exec_ref = ref_base * float(cfg.get("exec_risk_ref_mult", 1.0) or 1.0)
-        
+
         # Adaptive reference for low liquidity / thin regimes
-        liq_regime = str(indicators.get("liq_regime", getattr(runtime, "liq_regime", "na")) or "na")
+        liq_regime = (indicators.get("liq_regime", getattr(runtime, "liq_regime", "na")) or "na")
         lr = liq_regime.lower()
         if "low" in lr or "thin" in lr or "illiquid" in lr or "news" in lr:
              # Stricter reference in bad conditions (e.g. 0.8x of normal)
              exec_ref *= 0.8
 
         exec_risk_norm = _clamp01(exec_risk_bps / max(1e-9, exec_ref))
-        
+
         # Penalty calculation
         w_exec = _f(cfg.get("w_exec_risk", 0.18), 0.18)
         exec_pen = _clamp01(exec_risk_norm) * w_exec
-        
+
         indicators["exec_risk_bps"] = float(exec_risk_bps)
         indicators["exec_risk_norm"] = float(exec_risk_norm)
         indicators["exec_risk_ref_bps"] = float(exec_ref)
@@ -1506,16 +1476,14 @@ class OFConfirmEngine:
             w_fill = float(cfg.get("exec_fill_pen_w", 0.20) or 0.20)
             exec_fill_pen = w_fill * (1.0 - float(fp["fill_prob_proxy"]))
             indicators["exec_fill_pen"] = float(exec_fill_pen)
-            try:
+            with contextlib.suppress(Exception):
                 exec_pen = float(exec_pen) + float(exec_fill_pen)
-            except Exception:
-                pass
         except Exception:
             pass
 
         # --- Score (0..1), stable under feature additions ---
         # We use weighted-mean aggregation by default so adding OFI/FP-edge doesn't saturate score.
-        contrib: Dict[str, float] = {}
+        contrib: dict[str, float] = {}
         raw_sum = 0.0
         w_sum = 0.0
 
@@ -1564,10 +1532,10 @@ class OFConfirmEngine:
         # A3 Execution risk penalty (mandatory)
         contrib["exec_risk_penalty"] = -float(exec_pen)
 
-        agg = str(cfg.get("of_score_agg", "weighted_mean") or "weighted_mean").lower()
-        
+        agg = (cfg.get("of_score_agg", "weighted_mean") or "weighted_mean").lower()
+
         # EXPERT HYBRID: Use 'sum' if we have strong evidence (>=2 legs) but still below 'need',
-        # provided confidence is high (>75%). This helps capturing signals that are very clear 
+        # provided confidence is high (>75%). This helps capturing signals that are very clear
         # but don't meet the strict leg count (common for memes).
         is_hybrid = bool(int(cfg.get("of_score_agg_hybrid", 1)))
         effective_agg = agg
@@ -1576,7 +1544,7 @@ class OFConfirmEngine:
              if conf >= 75.0:
                   effective_agg = "sum"
                   indicators["of_agg_hybrid_active"] = 1
-        
+
         if effective_agg == "sum":
             base_score = _clamp01(raw_sum)
         else:
@@ -1584,13 +1552,13 @@ class OFConfirmEngine:
 
         # Apply penalty after base score
         # NEW (2026-02-12): Decoupled scoring for ML/Meta analysis
-        
+
         # --- Burst / Hawkes Gate (derived from indicators) ---
         burst_pen, burst_veto, burst_reason, burst_snap = eval_burst_gate(indicators, cfg2)
-        
+
         # --- P2d: Liquidity Pressure Gate (Queue Imbalance + Multi-level OFI) ---
         # Added in P8, applies dynamic boost/penalty based on orderbook intent alignment.
-        
+
         # 1. Retrieve snapshots (t0 and prev)
         # Try direct access first for speed, fallback to runtime, then indicators
         if snap_t0 is None:
@@ -1599,7 +1567,7 @@ class OFConfirmEngine:
              snap_t0 = getattr(runtime, "last_book", None)
         if snap_t0 is None:
              snap_t0 = indicators.get("book_snapshot") # fallback
-             
+
         if snap_prev is None:
             snap_prev = getattr(runtime.book_state, "prev_snap", None) if hasattr(runtime, "book_state") else None
         if snap_prev is None:
@@ -1624,7 +1592,7 @@ class OFConfirmEngine:
             evidence[k] = v
         for k, v in ofi_res.items():
             evidence[k] = v
-            
+
         # 4. Evaluate Gate
         # safe extract args
         qimb_val = float(qimb_res.get("qimb_wmean", 0.0))
@@ -1657,7 +1625,7 @@ class OFConfirmEngine:
                 dec.gate_bits = 0
             except Exception:
                 pass
-        
+
         _t_stage = _snap_stage("scoring", _t_stage)
 
         # P9c: Isolated Taker-Flow contra gate (optional hard veto)
@@ -1673,7 +1641,7 @@ class OFConfirmEngine:
             taker_soft   = int(getattr(tfg, "soft",        0) or 0)
             taker_reason = str(getattr(tfg, "reason",    "ok") or "ok")
             if taker_soft == 1:
-                setattr(dec, "gate_bits", int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_TAKER_FLOW)
+                dec.gate_bits = int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_TAKER_FLOW
         except Exception:
             pass
 
@@ -1701,7 +1669,7 @@ class OFConfirmEngine:
                         hard_veto = "vol_shock_fail_closed"
         except Exception:
             pass
-        
+
         # --- P14: DQ / Time-Determinism Gate ---
         dq_meta = {}
         if eval_dq_gate is not None:
@@ -1709,18 +1677,18 @@ class OFConfirmEngine:
                 dq_meta = eval_dq_gate(indicators=dict(indicators), cfg2=cfg2)
             except Exception:
                 dq_meta = {}
-        
+
         dq_pen = float(dq_meta.get("dq_pen", 0.0))
         dq_veto = int(dq_meta.get("dq_veto", 0))
         dq_level = int(dq_meta.get("dq_level", 0) or 0)
-        dq_reason = str(dq_meta.get("dq_reason", "ok"))
+        dq_reason = (dq_meta.get("dq_reason", "ok"))
         dq_reasons = dq_meta.get("dq_reasons", [])
         dq_health = float(dq_meta.get("dq_health_score", 1.0))
-        dq_bucket = str(dq_meta.get("dq_reason_bucket", "ok"))
+        dq_bucket = (dq_meta.get("dq_reason_bucket", "ok"))
         dq_uptime_sec = int(dq_meta.get("uptime_sec", 0) or 0)
         dq_runtime_start_ts_ms = dq_meta.get("runtime_start_ts_ms")
         dq_veto_suppressed = int(dq_meta.get("dq_veto_suppressed", 0) or 0)
-        dq_veto_suppressed_reason = str(dq_meta.get("dq_veto_suppressed_reason", "") or "")
+        dq_veto_suppressed_reason = (dq_meta.get("dq_veto_suppressed_reason", "") or "")
 
         if dq_veto == 1:
             try:
@@ -1743,7 +1711,7 @@ class OFConfirmEngine:
         liqmap_reward_bps = 0.0
         liqmap_adverse_peak_usd = 0.0
         liqmap_favorable_peak_usd = 0.0
-        liqmap_window_used = str(cfg2.get("liqmap_gate_window", "5m") or "5m")
+        liqmap_window_used = (cfg2.get("liqmap_gate_window", "5m") or "5m")
         liqmap_mode = "OFF"
         try:
             # Evaluate unconditionally if implementation is available.
@@ -1765,8 +1733,8 @@ class OFConfirmEngine:
                     if dec is None:
                         # Build a minimal decision container so gate_bits propagate into OFConfirm.
                         dec = type("GateDec", (), {})()
-                        setattr(dec, "scenario", scenario)
-                    setattr(dec, "gate_bits", int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_LIQMAP)
+                        dec.scenario = scenario
+                    dec.gate_bits = int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_LIQMAP
         except Exception:
             pass
 
@@ -1809,23 +1777,23 @@ class OFConfirmEngine:
                 horizon_sec=indicators.get("news_horizon_sec"),
                 asof_ts_ms=indicators.get("news_asof_ts_ms"),
             )
-            
+
             news_hard_block = ndec.hard_block
             news_reason = ndec.hard_reason
             news_soft_bps = ndec.risk_factor_bps
-            
+
             if news_hard_block:
                 news_veto = 1
                 if dec is None:
                     dec = type("GateDec", (), {})()
-                    setattr(dec, "scenario", scenario)
-                setattr(dec, "gate_bits", int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_NEWS)
+                    dec.scenario = scenario
+                dec.gate_bits = int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_NEWS
 
             if news_soft_bps < 10000:
                 news_pen = float(cfg2.get("w_news_soft_pen", 0.20)) * (10000 - news_soft_bps) / 10000.0
                 exec_pen = float(exec_pen) + news_pen
                 indicators["news_pen"] = news_pen
-                
+
         except Exception as e:
             indicators["news_gate_error"] = str(e)
 
@@ -1837,12 +1805,12 @@ class OFConfirmEngine:
         # User spec: "final_score_raw = base - exec_pen - burst_pen + liq_boost - liq_pen"
 
         final_score_raw = float(base_score) - float(exec_pen) - float(burst_pen) - float(dq_pen)
-        
+
         if liq_boost > 0:
             final_score_raw += liq_boost
         if liq_pen > 0:
             final_score_raw -= liq_pen
-            
+
         score_raw = final_score_raw
         score = _clamp01(score_raw)
 
@@ -1868,9 +1836,9 @@ class OFConfirmEngine:
         indicators["dq_pen"] = dq_pen
 
         self._ensure_ofc_ctx_bundle(cfg2)
-        ctx_mode = str(cfg2.get("ofc_ctx_mode", "off") or "off").lower()
+        ctx_mode = (cfg2.get("ofc_ctx_mode", "off") or "off").lower()
         ctx = build_ofc_context(
-            symbol=str(symbol),
+            symbol=symbol,
             direction=str(direction),
             ts_ms=int(now_ts),
             indicators=indicators,
@@ -1892,7 +1860,7 @@ class OFConfirmEngine:
             score_min=float(cfg2.get("of_score_min", 0.40) or 0.40),
             now_ts=int(now_ts),
         )
-        indicators["ctx_key"] = str(ctx_key)
+        indicators[CtxKeys.KEY] = str(ctx_key)
         indicators["ctx_session"] = str(ctx.session)
         indicators["ctx_hour_utc"] = int(ctx.hour_utc)
         indicators["ctx_dow"] = int(ctx.dow)
@@ -1942,7 +1910,7 @@ class OFConfirmEngine:
             indicators["dq_policy_hash"] = str(dq_hash)
 
             # Bind meta-schema + cols ordering to policy via manifest.
-            meta_name = str(cfg2.get("meta_schema_name", "meta_feat_v8"))
+            meta_name = (cfg2.get(MetaKeys.SCHEMA_NAME, "meta_feat_v8"))
             reg = globals().get("META_SCHEMA_REGISTRY", {})
             ver, h = (0, "")
             try:
@@ -1967,14 +1935,14 @@ class OFConfirmEngine:
         indicators["of_base_score"] = float(base_score)
         indicators["of_score_final_raw"] = float(final_score_raw)
         indicators["of_score_final"] = float(score)
-        
+
         indicators["liq_pressure_boost"] = liq_boost
         indicators["liq_pressure_pen"] = liq_pen
         indicators["liq_pressure_veto"] = liq_veto
         indicators["liq_pressure_reason"] = liq_reason
         indicators["liq_q_align"] = liq_q_align
         indicators["liq_ofi_align"] = liq_ofi_align
-        
+
         # Export burst snapshot to indicators (for evidence/logging)
         for k, v in burst_snap.items():
             indicators[k] = v
@@ -2012,7 +1980,7 @@ class OFConfirmEngine:
                 dec.have = int(have)
                 dec.need = int(need)
                 dec.scenario = str(scenario)
-                dec.reason = str(reason)
+                dec.reason = reason
                 dec.gate_bits = 0
             except Exception:
                 # If even this fails, we keep dec=None and rely on fail-open behavior.
@@ -2026,17 +1994,17 @@ class OFConfirmEngine:
         score_min = _f(cfg.get("of_score_min", 0.40), 0.40)
         if ok == 1 and score < score_min:
              # Logic: if score is too low, we can veto even if 2-of-3 passed (optional but recommended)
-             # But we only do this if it's not shadow mode in the caller. 
+             # But we only do this if it's not shadow mode in the caller.
              # We'll just return ok=0 and let the service decide.
              ok = 0
              hard_veto = "score_veto"
              # Optional: log if we vetoed by score
-        
+
         indicators["ok_soft"] = int(ok)
 
-        
+
         # P14: DQ Gate Veto
-        if dq_veto and str(cfg2.get("dq_gate_mode", "off")).lower() in ("enforce", "both", "veto", "hard"):
+        if dq_veto and (cfg2.get("dq_gate_mode", "off")).lower() in ("enforce", "both", "veto", "hard"):
             try:
                 ok = 0
                 hard_veto = "dq_gate"
@@ -2051,13 +2019,13 @@ class OFConfirmEngine:
         #   shadow: record shadow_veto only
         #   enforce: hard veto
         #   both: treat shadow_veto as enforce (for staged rollouts)
-        _lm_mode = str(cfg2.get("liqmap_gate_mode", "shadow") or "shadow").lower()
+        _lm_mode = (cfg2.get("liqmap_gate_mode", "shadow") or "shadow").lower()
         _lm_shadow = int(indicators.get("liqmap_gate_shadow_veto", 0) or 0)
         _lm_veto = int(indicators.get("liqmap_gate_veto", 0) or 0)
         if (_lm_veto == 1 and _lm_mode in ("enforce", "both", "veto", "hard")) or (_lm_shadow == 1 and _lm_mode in ("both",)):
             try:
                 ok = 0
-                _r = str(indicators.get("liqmap_gate_veto_reason", indicators.get("liqmap_gate_reason", "veto")) or "veto")
+                _r = (indicators.get("liqmap_gate_veto_reason", indicators.get("liqmap_gate_reason", "veto")) or "veto")
                 hard_veto = f"liqmap_{_r}"
                 # Map liqmap reason to canonical code (P2-4: prevent cardinality explosion).
                 veto_total(self, reason_code="VETO_LIQMAP_RR")
@@ -2065,13 +2033,13 @@ class OFConfirmEngine:
                 pass
         # P16: News Agent Reco Gate Veto
         _news_veto = int(indicators.get("news_gate_veto", 0) or 0)
-        _news_mode = str(cfg2.get("news_gate_mode", "enforce") or "enforce").lower()
+        _news_mode = (cfg2.get("news_gate_mode", "enforce") or "enforce").lower()
         if _news_veto == 1 and _news_mode in ("enforce", "both", "veto", "hard"):
             try:
                 ok = 0
                 hard_veto = "news_gate"
                 # Canonical code from VetoReason registry (P2-4).
-                veto_total(self, reason_code="VETO_NEWS_RECO_HARD", kind="news_gate", symbol=str(symbol))
+                veto_total(self, reason_code="VETO_NEWS_RECO_HARD", kind="news_gate", symbol=symbol)
             except Exception:
                 pass
 
@@ -2106,7 +2074,7 @@ class OFConfirmEngine:
         gate_vetoed = False
         ok_pre_gate = int(ok)
         try:
-            if not hasattr(self, "_cancel_spike_gate") or getattr(self, "_cancel_spike_gate") is None:
+            if not hasattr(self, "_cancel_spike_gate") or self._cancel_spike_gate is None:
                 try:
                     self._cancel_spike_gate = CancellationSpikeGate()  # type: ignore
                 except Exception:
@@ -2115,12 +2083,10 @@ class OFConfirmEngine:
             if self._cancel_spike_gate is not None:
                 # Deterministic replay support: allow caller to pass gate state
                 # (captured via OFC_CAPTURE) to fully reproduce decisions.
-                cgs = indicators.get("cancel_gate_state", None)
+                cgs = indicators.get("cancel_gate_state")
                 if isinstance(cgs, dict) and hasattr(self._cancel_spike_gate, "restore_state"):
-                    try:
+                    with contextlib.suppress(Exception):
                         self._cancel_spike_gate.restore_state(cgs)
-                    except Exception:
-                        pass
 
                 # prefer explicit keys from indicators
                 c_bid = _f(indicators.get("cancel_bid_rate_ema", 0.0), 0.0)
@@ -2151,19 +2117,19 @@ class OFConfirmEngine:
                 if gd is not None:
                     gate_reason = str(getattr(gd, "reason", "OK"))
                     gate_meta = dict(getattr(gd, "meta", {}) or {})
-                    
+
                     if not gd.allow:
                         ok = 0
                         gate_vetoed = True
                         try:
                             if dec is not None:
                                 # Mark as gate bit
-                                setattr(dec, "gate_bits", int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_CANCEL_SPIKE)
+                                dec.gate_bits = int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_CANCEL_SPIKE
                         except Exception:
                             pass
                         # Use canonical VETO_CANCEL_SPIKE code; raw gate_reason is
                         # preserved in gate_meta for debugging (P2-4).
-                        veto_total(runtime, reason_code="VETO_CANCEL_SPIKE", kind="cancel_spike", symbol=str(symbol))
+                        veto_total(runtime, reason_code="VETO_CANCEL_SPIKE", kind="cancel_spike", symbol=symbol)
                 else:
                     gate_reason = "OK"
                     gate_meta = {}
@@ -2245,51 +2211,51 @@ class OFConfirmEngine:
             if scenario_base == "none" and scenario_v4 == "range_meanrev":
                 # Range policy (C2): require absorption + micro-stability + (iceberg or reclaim).
                 # Purpose: handle sideways markets with absorption evidence (mean-reversion setups).
-                
+
                 # Legs definitions strictly per spec:
                 # abs_leg = abs_lvl_ok OR (absorption && abs_vol >= range_abs_min_vol)
                 abs_vol_min = _f(cfg2.get("range_abs_min_vol", 0.0), 0.0)
                 # Note: abs_ok is (absorption==1), abs_vol is passed from compute_absorption_flags
                 abs_leg = bool(abs_lvl_ok or (abs_ok and abs_vol >= abs_vol_min))
-                
+
                 # micro_leg = ofi_stable OR obi_stable
                 # Note: ofi_stable variable here is actually (ofi_dir_ok and ofi_stable) from compute_ofi_flags
                 # Let's be explicit:
                 micro_leg = bool(obi_stable or (ofi_dir_ok and ofi_stable))
-                
+
                 # edge_leg = fp_edge_absorb OR iceberg_strict
                 edge_leg = bool(fp_edge_ok or iceberg_strict)
-                
+
                 have = int(abs_leg) + int(micro_leg) + int(edge_leg)
-                
+
                 # Optional reclaim bonus
                 if bool(int(cfg2.get("range_reclaim_counts", 0) or 0)) and reclaim_recent:
                     have += 1
-                
+
                 need = int(cfg2.get("strong_need_range", 3) or 3)
-                
+
                 # score min can be higher in range (optional)
                 score_min_rng = _f(cfg2.get("of_score_min_range", score_min), score_min)
-                
+
                 # Hard pass check
                 is_hard_pass = (have >= need and score >= score_min_rng)
-                
+
                 # Soft-fail check (analytics only)
                 # If have == need-1 AND score is high enough AND exec risk is low enough -> Soft Pass (ok=0 but logged)
                 soft_min_score = _f(cfg2.get("range_soft_score_min", 0.72), 0.72)
                 soft_max_risk = _f(cfg2.get("range_soft_exec_risk_norm_max", 0.60), 0.60)
-                
+
                 is_soft_pass = False
                 soft_reason = "ok"
-                
+
                 if not is_hard_pass and (have == need - 1):
                     if score >= soft_min_score and exec_risk_norm <= soft_max_risk:
                         is_soft_pass = True
                         soft_reason = "range_soft_fail"
-                
+
                 ok = 1 if is_hard_pass else 0
                 indicators["ok_soft"] = int(is_soft_pass)
-                
+
                 # Export range-specific diagnostics to evidence/indicators
                 indicators["range_abs_ok"] = int(abs_leg)
                 indicators["range_micro_ok"] = int(micro_leg)
@@ -2298,7 +2264,7 @@ class OFConfirmEngine:
                     indicators["range_ok_soft"] = 1
                     indicators["range_soft_reason"] = soft_reason
                     # We also stash it in evidence dict later (it's constructed below)
-                
+
                 # build a small dec-like object for downstream (strategy expects have/need/scenario/reason)
                 dec = type("GateDec", (), {})()
                 dec.ok = bool(ok)
@@ -2309,22 +2275,22 @@ class OFConfirmEngine:
                 dec.gate_bits = int(getattr(dec, "gate_bits", 0))
                 # Attach soft fail info to dec for downstream if needed, or just rely on evidence
                 if is_soft_pass:
-                    setattr(dec, "ok_soft", 1)
-                    setattr(dec, "soft_reason", soft_reason)
+                    dec.ok_soft = 1
+                    dec.soft_reason = soft_reason
             elif scenario_v4 == "vol_shock_news_proxy":
                 # Vol shock policy: optional fail-closed, otherwise need=4 and stricter caps.
                 fail_closed = bool(int(cfg2.get("vol_shock_fail_closed", 0) or 0))
-                
+
                 # B2: Strict execution risk cap (mandatory for vol shock)
                 exec_norm_max = _f(cfg2.get("vol_shock_exec_risk_norm_max", 1.0), 1.0)
                 exec_bps_max = _f(cfg2.get("vol_shock_exec_risk_max_bps", 20.0), 20.0) # compat
                 exec_cap_hit = bool(exec_risk_norm > exec_norm_max or exec_risk_bps > exec_bps_max)
-                
+
                 # Add diagnostics for policy
                 indicators["policy_vol_shock_exec_risk_norm_max"] = float(exec_norm_max)
                 indicators["policy_vol_shock_exec_risk_max_bps"] = float(exec_bps_max)
                 indicators["policy_vol_shock_exec_risk_cap_hit"] = int(exec_cap_hit)
-                
+
                 # Add boolean leg for exec risk to legs map
                 legs["vol_shock_exec_risk_ok"] = 0 if exec_cap_hit else 1
 
@@ -2342,18 +2308,18 @@ class OFConfirmEngine:
                     micro_leg = bool(obi_stable or (ofi_dir_ok and ofi_stable))
                     r_leg = bool(reclaim_recent)
                     i_leg = bool(iceberg_strict)
-                    
+
                     # Store composite legs for accurate reporting of what caused veto
                     legs["vs_abs_leg"] = 1 if abs_leg else 0
                     legs["vs_micro_leg"] = 1 if micro_leg else 0
                     legs["vs_r_leg"] = 1 if r_leg else 0
                     legs["vs_i_leg"] = 1 if i_leg else 0
-                    
+
                     have_vs = int(abs_leg) + int(micro_leg) + int(r_leg) + int(i_leg)
                     need_vs = int(cfg2.get("strong_need_vol_shock", 4) or 4)
-                    
+
                     score_min_vs = _f(cfg2.get("of_score_min_vol_shock", max(score_min, 0.70)), max(score_min, 0.70))
-                    
+
                     # Logic: must satisfy exec cap AND have>=need AND score
                     if exec_cap_hit:
                         ok = 0
@@ -2377,14 +2343,14 @@ class OFConfirmEngine:
             elif scenario_v4 == "saw_chop_spoof_proxy":
                 # Saw/chop policy: very strict. Requires strong microstructure + absorption + reclaim/iceberg.
                 fail_closed = bool(int(cfg2.get("saw_chop_fail_closed", 0) or 0))
-                
+
                 # B2: Exec risk cap also applies here (spoofing often widens spread)
                 exec_norm_max = _f(cfg2.get("saw_chop_exec_risk_norm_max", 1.0), 1.0)
                 exec_cap_hit = bool(exec_risk_norm > exec_norm_max)
                 indicators["policy_saw_chop_exec_risk_norm_max"] = float(exec_norm_max)
                 indicators["policy_saw_chop_exec_risk_cap_hit"] = int(exec_cap_hit)
                 legs["saw_chop_exec_risk_ok"] = 0 if exec_cap_hit else 1
-                
+
                 # Legs for saw/chop (hard evidence required)
                 # We require SPECIFIC quality legs: iceberg_strict, ofi_stable, fp_edge_absorb.
                 # Just "have >= need" isn't enough if it's made of weak signals.
@@ -2392,21 +2358,21 @@ class OFConfirmEngine:
                 l_ofi = bool(ofi_dir_ok and ofi_stable)
                 l_fp = bool(fp_edge_ok)
                 l_rec = bool(reclaim_recent) # extra strict leg
-                
+
                 # Store composite legs for accurate reporting
                 legs["sc_ice_leg"] = 1 if l_ice else 0
                 legs["sc_ofi_leg"] = 1 if l_ofi else 0
                 legs["sc_fp_leg"] = 1 if l_fp else 0
                 legs["sc_rec_leg"] = 1 if l_rec else 0
-                
+
                 hard_evidence_ok = bool(l_ice and l_ofi and l_fp)
-                
+
                 have_sc = int(l_ice) + int(l_ofi) + int(l_fp) + int(l_rec)
                 need_sc = int(cfg2.get("strong_need_saw_chop", 3) or 3) # default 3 (ice+ofi+fp)
                 # If configured higher (e.g. 4), we also need reclaim
-                
+
                 score_min_sc = _f(cfg2.get("of_score_min_saw_chop", max(score_min, 0.75)), max(score_min, 0.75))
-                
+
                 if fail_closed:
                     ok = 0
                     reason = "saw_chop_fail_closed"
@@ -2454,7 +2420,7 @@ class OFConfirmEngine:
             req = ["leg_a", "leg_b", "leg_c"]
             _map = {"leg_a": "abs_lvl_ok", "leg_b": "obi_stable", "leg_c": "reclaim_recent"}
             missing = [_map.get(k, k) for k in req if int(legs.get(k, 0)) == 0]
-        
+
         if scenario_base not in ("continuation", "reversal"):
             missing = [k for k in req if int(legs.get(k, 0)) == 0]
 
@@ -2466,7 +2432,7 @@ class OFConfirmEngine:
         ok_soft = int(indicators.get("ok_soft", 0))
         soft_reason = ""
         if ok_soft == 1:
-            soft_reason = str(indicators.get("range_soft_reason", ""))
+            soft_reason = (indicators.get("range_soft_reason", ""))
 
         try:
             # Only absolute hard-vetoes block ok_soft classification.
@@ -2501,12 +2467,12 @@ class OFConfirmEngine:
             elif int(ok) == 0 and hard_veto and not _hard_veto_blocks_soft:
                 soft_reason = f"policy_veto:{hard_veto}"
                 indicators["ok_soft_reason"] = soft_reason
-            
+
             indicators["ok_soft"] = int(ok_soft)
             evidence["ok_soft"] = int(ok_soft)
             if soft_reason:
                 evidence["soft_reason"] = soft_reason
-            
+
             if ok_soft == 1:
                 _miss_gap = int(need) - int(have)
                 final_reason = f"near_miss_{_miss_gap}|{getattr(dec, 'reason', fallback_reason)}"
@@ -2542,18 +2508,16 @@ class OFConfirmEngine:
         # P9c: Taker-Flow contra Veto (ENFORCE mode only)
         if int(indicators.get("taker_flow_gate_veto", 0) or 0) == 1:
             ok = 0
-            tr = str(indicators.get("taker_flow_gate_reason", "taker_flow_contra") or "taker_flow_contra")
+            tr = (indicators.get("taker_flow_gate_reason", "taker_flow_contra") or "taker_flow_contra")
             final_reason = f"taker_flow:{tr}(veto)|{final_reason}"
-            try:
-                setattr(dec, "gate_bits", int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_TAKER_FLOW)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                dec.gate_bits = int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_TAKER_FLOW
 
         _t_stage = _snap_stage("gates", _t_stage)
 
         # --- legs_detail (D1) ---
         legs_detail = []
-        
+
         # OFI
         legs_detail.append({
             "name": "ofi_leg",
@@ -2576,7 +2540,7 @@ class OFConfirmEngine:
             },
             "why": "edge absorb proxy"
         })
-        
+
         # Exec Risk
         legs_detail.append({
             "name": "exec_risk",
@@ -2587,7 +2551,7 @@ class OFConfirmEngine:
             },
             "why": "penalty + caps in vol_shock"
         })
-        
+
         # OBI
         legs_detail.append({
             "name": "obi_stable",
@@ -2620,7 +2584,7 @@ class OFConfirmEngine:
             },
             "why": "absorption-on-level"
         })
-        
+
         # Weak Progress
         legs_detail.append({
             "name": "weak_progress",
@@ -2628,7 +2592,7 @@ class OFConfirmEngine:
             "value": {},
             "why": "inefficient move"
         })
-        
+
         # Reclaim
         legs_detail.append({
             "name": "reclaim_recent",
@@ -2676,7 +2640,7 @@ class OFConfirmEngine:
             "ofi_stability_score": float(ofi_stability_score),
             "ofi_age_ms": int(indicators.get("ofi_age_ms", -1)),
             "ofi_leg": int(ofi_leg),
-            
+
             # FP edge absorb (A2)
             "fp_edge_absorb": int(fp_edge_absorb),
             "fp_edge_strength": float(fp_edge_strength),
@@ -2692,7 +2656,7 @@ class OFConfirmEngine:
             "cancel_spike_veto": int(gate_vetoed),
             "cancel_spike_ratio_support": float(gate_meta.get("ratio_support", 0.0) if isinstance(gate_meta, dict) else 0.0),
             "cancel_spike_z_support": float(gate_meta.get("z_support", 0.0) if isinstance(gate_meta, dict) else 0.0),
-            
+
             # P8c: Liquidity Pressure Gate Evidence
             "liq_pressure_boost": float(liq_boost),
             "liq_pressure_pen": float(liq_pen),
@@ -2708,7 +2672,7 @@ class OFConfirmEngine:
             "taker_flow_soft": int(taker_soft),
             "taker_flow_reason": str(taker_reason),
         })
-        
+
         # Add burst snapshot to evidence
         if burst_snap:
             evidence.update(burst_snap)
@@ -2735,7 +2699,7 @@ class OFConfirmEngine:
             if ml_scenario.lower() in ("reversal", "continuation", "none", ""):
                 sv4 = ""
                 try:
-                    sv4 = str(indicators.get("scenario_v4", "") or "")
+                    sv4 = (indicators.get("scenario_v4", "") or "")
                 except Exception:
                     sv4 = ""
                 if sv4:
@@ -2751,7 +2715,7 @@ class OFConfirmEngine:
             try:
                 sb = evidence.get('score_breakdown', {}) if isinstance(evidence, dict) else {}
                 sb_small = {
-                    'agg': str(sb.get('agg', '')) ,
+                    'agg': (sb.get('agg', '')) ,
                     'raw_sum': float(sb.get('raw_sum', 0.0) or 0.0),
                     'w_sum': float(sb.get('w_sum', 0.0) or 0.0),
                     'base_score': float(sb.get('base_score', 0.0) or 0.0),
@@ -2791,7 +2755,7 @@ class OFConfirmEngine:
                     'ofi_z': float(evidence.get('ofi_z', 0.0) or 0.0),
                     'ofi_stability_score': float(evidence.get('ofi_stability_score', 0.0) or 0.0),
                 })
-                
+
                 # P28: Enrich indicators_with_v4 with runtime-only micro stats (needed by v6; harmless for older schemas)
                 try:
                     # Canonical have/need ratio (may be produced elsewhere as of_confirm_have_need_ratio)
@@ -2987,7 +2951,7 @@ class OFConfirmEngine:
                 ml_dec = _MockMLDec()
             else:
                 ml_dec = self._ml_gate.check(
-                    symbol=str(symbol),
+                    symbol=symbol,
                     ts_ms=int(now_ts),
                     direction=str(direction),
                     scenario=str(ml_scenario),
@@ -3001,10 +2965,10 @@ class OFConfirmEngine:
             t_ml_dt = time.perf_counter() - t_ml_start
             try:
                 from services.orderflow.metrics import ml_inference_time_us
-                ml_inference_time_us.labels(symbol=str(symbol), scenario=str(ml_scenario)).observe(int(t_ml_dt * 1_000_000.0))
+                ml_inference_time_us.labels(symbol=symbol, scenario=str(ml_scenario)).observe(int(t_ml_dt * 1_000_000.0))
             except Exception:
                 pass
-            evidence["ml"] = ml_dec.to_dict()
+            evidence[MLKeys.DECISION] = ml_dec.to_dict()
 
             # ENFORCE blocks only when heuristic ok==1
             if str(ml_dec.mode).upper() == "ENFORCE" and int(ok) == 1 and not bool(ml_dec.allow):
@@ -3019,7 +2983,7 @@ class OFConfirmEngine:
                     final_reason = f"ml_block(p={ml_dec.p_edge:.3f}<thr={ml_dec.p_min:.3f})|" + str(final_reason)
         except Exception as _e:
             # last-resort safety: do not crash confirm engine
-            evidence["ml"] = {"mode": "ERR", "error": str(_e)[:200]}
+            evidence[MLKeys.DECISION] = {"mode": "ERR", "error": str(_e)[:200]}
 
         _t_stage = _snap_stage("ml_confirm", _t_stage)
 
@@ -3029,7 +2993,7 @@ class OFConfirmEngine:
             "need_reason": str(nd.reason if nd is not None else ""),
             "policy_reason": str(policy_reason),
             "score_breakdown": score_breakdown,
-            
+
             # OFI (already in evidence, but ensure consistency)
             "ofi_dir_ok": int(ofi_dir_ok),
             "ofi": float(ofi_val),
@@ -3037,7 +3001,7 @@ class OFConfirmEngine:
             "ofi_stable_secs": float(ofi_stable_secs),
             "ofi_stability_score": float(ofi_stability_score),
             "ofi_leg": int(ofi_leg),
-            
+
             # FP edge + exec risk
             "fp_edge_absorb": int(fp_edge_absorb),
             "spread_bps": float(spread_bps),
@@ -3046,15 +3010,15 @@ class OFConfirmEngine:
             "exec_risk_norm": float(exec_risk_norm),
             "exec_risk_ref_bps": float(exec_ref),
             "exec_pen": float(exec_pen),
-            
+
             # Soft-fail (set above)
             "ok_soft": int(ok_soft),
             "hard_veto": str(hard_veto),
-            
+
             "legs": dict(legs),
             "missing_legs": list(missing),
             "legs_detail": legs_detail,
-            
+
             # Meta-model fields (will be updated below if meta is enabled)
             "meta_enable": 0,
             "meta_mode": "",
@@ -3083,30 +3047,30 @@ class OFConfirmEngine:
 
         try:
             meta_enable = bool(int(cfg2.get("meta_model_enable", int(os.getenv("META_MODEL_ENABLE", "0")))))
-            meta_mode = str(cfg2.get("meta_model_mode", os.getenv("META_MODEL_MODE", "SHADOW"))).upper()
-            meta_p_min = float(cfg2.get("meta_p_min", float(os.getenv("META_P_MIN", "0.55"))))
+            meta_mode = (cfg2.get("meta_model_mode", os.getenv("META_MODEL_MODE", "SHADOW"))).upper()
+            meta_p_min = float(cfg2.get(MetaKeys.P_MIN, float(os.getenv("META_P_MIN", "0.55"))))
             meta_enable = bool(int(cfg2.get("meta_model_enable", int(os.getenv("META_MODEL_ENABLE", "0")))))
-            meta_path = str(cfg2.get("meta_model_path", os.getenv("META_MODEL_PATH", "")) or "").strip()
+            meta_path = (cfg2.get("meta_model_path", os.getenv("META_MODEL_PATH", "")) or "").strip()
             reload_sec = int(cfg2.get("meta_model_reload_sec", int(os.getenv("META_MODEL_RELOAD_SEC", "60"))))
-            meta_path_ch = str(cfg2.get("meta_model_path_challenger", os.getenv("META_MODEL_CHALLENGER_PATH", "")) or "").strip()
+            meta_path_ch = (cfg2.get("meta_model_path_challenger", os.getenv("META_MODEL_CHALLENGER_PATH", "")) or "").strip()
             meta_ab_share = float(cfg2.get("meta_ab_challenger_share", float(os.getenv("META_AB_CHALLENGER_SHARE", "0.0")) ) or 0.0)
             meta_ab_share = max(0.0, min(1.0, meta_ab_share))
-            meta_ab_salt = str(cfg2.get("meta_ab_salt", os.getenv("META_AB_SALT", "ab_v1")) or "ab_v1")
+            meta_ab_salt = (cfg2.get(MetaKeys.AB_SALT, os.getenv("META_AB_SALT", "ab_v1")) or "ab_v1")
             meta_freeze = bool(int(cfg2.get("meta_model_freeze", int(os.getenv("META_MODEL_FREEZE", "0"))) or 0))
-            meta_freeze_mode = str(cfg2.get("meta_freeze_mode", os.getenv("META_FREEZE_MODE", "OPEN")) or "OPEN").upper()
+            meta_freeze_mode = (cfg2.get("meta_freeze_mode", os.getenv("META_FREEZE_MODE", "OPEN")) or "OPEN").upper()
             meta_allow_legacy = bool(int(cfg2.get("meta_allow_legacy_schema", int(os.getenv("META_ALLOW_LEGACY_SCHEMA", "0"))) or 0))
 
             # P25: model signature + schema pinning (runtime)
             meta_require_sig = bool(int(cfg2.get("meta_require_signature", int(os.getenv("META_MODEL_REQUIRE_SIGNATURE", "1"))) or 1))
             meta_enforce_requires_schema = bool(int(cfg2.get("meta_enforce_requires_schema", int(os.getenv("META_MODEL_ENFORCE_REQUIRES_SCHEMA", "1"))) or 1))
-            meta_schema_pin_name = str(cfg2.get("meta_schema_pin_name", os.getenv("META_MODEL_SCHEMA", "")) or "")
-            meta_schema_pin_hash = str(cfg2.get("meta_schema_pin_hash", os.getenv("META_MODEL_SCHEMA_HASH", "")) or "")
+            meta_schema_pin_name = (cfg2.get("meta_schema_pin_name", os.getenv("META_MODEL_SCHEMA", "")) or "")
+            meta_schema_pin_hash = (cfg2.get("meta_schema_pin_hash", os.getenv("META_MODEL_SCHEMA_HASH", "")) or "")
 
 
             if meta_enable and meta_path:
                 mm_champ = self._load_meta_model_slot("champion", meta_path, now_ts, reload_sec)
                 mm_chal = self._load_meta_model_slot("challenger", meta_path_ch, now_ts, reload_sec) if meta_path_ch else None
-                
+
                 if mm_champ is not None:
                     # 1. Build features using schema registry (Train==Serve parity)
                     model_schema_name = str(getattr(mm_champ, "schema_name", "") or "legacy")
@@ -3139,15 +3103,15 @@ class OFConfirmEngine:
 
                     local_schema_name = str(schema_cfg["name"])
                     local_schema_vers = int(schema_cfg["version"])
-                    local_schema_hash = str(schema_cfg.get("hash", "") or "")
+                    local_schema_hash = (schema_cfg.get("hash", "") or "")
                     builder = schema_cfg["builder"]
 
-                    evidence["meta_schema_name"] = local_schema_name
-                    evidence["meta_schema_version"] = local_schema_vers
-                    evidence["meta_schema_hash"] = local_schema_hash
-                    evidence["meta_model_schema_name"] = model_schema_name
-                    evidence["meta_model_schema_version"] = model_schema_vers
-                    evidence["meta_model_schema_hash"] = model_schema_hash
+                    evidence[MetaKeys.SCHEMA_NAME] = local_schema_name
+                    evidence[MetaKeys.SCHEMA_VERSION] = local_schema_vers
+                    evidence[MetaKeys.SCHEMA_HASH] = local_schema_hash
+                    evidence[MetaKeys.MODEL_SCHEMA_NAME] = model_schema_name
+                    evidence[MetaKeys.MODEL_SCHEMA_VERSION] = model_schema_vers
+                    evidence[MetaKeys.MODEL_SCHEMA_HASH] = model_schema_hash
 
                     # 2. Schema Guard: mismatch => SHADOW (unless explicitly allowed)
                     is_compatible = (model_schema_name == local_schema_name and model_schema_vers == local_schema_vers)
@@ -3201,27 +3165,27 @@ class OFConfirmEngine:
                             mm_feats = list(getattr(mm_champ, "features", []) or [])
                             export_cols = mm_feats[:max(0, max_k)]
                             export_vec = {k: float(feat.get(k, 0.0) or 0.0) for k in export_cols}
-                            evidence["meta_features_export"] = export_vec
-                            evidence["meta_features_export_n"] = int(len(export_vec))
-                            evidence["meta_features_export_cols_hash"] = hashlib.sha1(
+                            evidence[MetaKeys.FEATURES_EXPORT] = export_vec
+                            evidence[MetaKeys.FEATURES_EXPORT_N] = int(len(export_vec))
+                            evidence[MetaKeys.FEATURES_EXPORT_COLS_HASH] = hashlib.sha1(
                                 (",".join(mm_feats)).encode("utf-8")
                             ).hexdigest()
-                            evidence["meta_features_export_schema"] = str(local_schema_name)
-                            evidence["meta_features_export_schema_hash"] = str(local_schema_hash)
+                            evidence[MetaKeys.FEATURES_EXPORT_SCHEMA] = str(local_schema_name)
+                            evidence[MetaKeys.FEATURES_EXPORT_SCHEMA_HASH] = str(local_schema_hash)
                         except Exception:
                             pass
 
                     # 4. Export meta schema info to evidence (for drift monitoring)
-                    evidence["meta_schema_name"] = local_schema_name
-                    evidence["meta_schema_version"] = local_schema_vers
-                    evidence["meta_schema_hash"] = local_schema_hash
-                    evidence["meta_model_schema_name"] = model_schema_name
-                    evidence["meta_model_schema_version"] = model_schema_vers
-                    evidence["meta_model_schema_hash"] = model_schema_hash
+                    evidence[MetaKeys.SCHEMA_NAME] = local_schema_name
+                    evidence[MetaKeys.SCHEMA_VERSION] = local_schema_vers
+                    evidence[MetaKeys.SCHEMA_HASH] = local_schema_hash
+                    evidence[MetaKeys.MODEL_SCHEMA_NAME] = model_schema_name
+                    evidence[MetaKeys.MODEL_SCHEMA_VERSION] = model_schema_vers
+                    evidence[MetaKeys.MODEL_SCHEMA_HASH] = model_schema_hash
 
-                    evidence["meta_missing_feature_count"] = len(feat_missing)
+                    evidence[MetaKeys.MISSING_FEATURE_COUNT] = len(feat_missing)
                     # Cap list to avoid huge logs if everything is missing
-                    evidence["meta_missing_features"] = feat_missing[:32]
+                    evidence[MetaKeys.MISSING_FEATURES] = feat_missing[:32]
 
                     # 4. Metrics Emission (P10)
                     # Emission strict on MM features.
@@ -3230,7 +3194,7 @@ class OFConfirmEngine:
                         missing_set = set(feat_missing)
                         # We use model_schema_name as 'schema' label
                         sch_label = str(model_schema_name)
-                        
+
                         for f in mm_feats:
                             meta_feature_seen_total(runtime, schema=sch_label, feature=f)
                             if f in missing_set:
@@ -3245,11 +3209,11 @@ class OFConfirmEngine:
                         mm_feats2 = getattr(mm_champ, "features", []) or []
                         cov_obj = compute_meta_feature_coverage(mm_feats2, feat_missing, max_list=32)
 
-                        evidence["meta_model_feature_total"] = int(cov_obj.model_total)
-                        evidence["meta_model_feature_missing"] = int(cov_obj.model_missing)
-                        evidence["meta_model_feature_coverage"] = float(cov_obj.coverage)
-                        evidence["meta_model_feature_missing_rate"] = float(cov_obj.missing_rate)
-                        evidence["meta_model_missing_features"] = list(cov_obj.missing_model_features)
+                        evidence[MetaKeys.MODEL_FEATURE_TOTAL] = int(cov_obj.model_total)
+                        evidence[MetaKeys.MODEL_FEATURE_MISSING] = int(cov_obj.model_missing)
+                        evidence[MetaKeys.FEATURE_COVERAGE] = float(cov_obj.coverage)
+                        evidence[MetaKeys.FEATURE_MISSING_RATE] = float(cov_obj.missing_rate)
+                        evidence[MetaKeys.MODEL_MISSING_FEATURES] = list(cov_obj.missing_model_features)
 
                         sch_label = str(model_schema_name)
                         dist(runtime, "meta_feature_coverage", float(cov_obj.coverage), schema=sch_label)
@@ -3260,14 +3224,14 @@ class OFConfirmEngine:
                         max_miss = int(float(cfg2.get("meta_max_missing_model_features", os.getenv("META_MAX_MISSING_MODEL_FEATURES", "999"))))
 
                         new_mode, cov_reason = apply_meta_coverage_guard(
-                            meta_mode=str(meta_mode or ""),
+                            meta_mode=(meta_mode or ""),
                             cov=cov_obj,
                             min_coverage=float(min_cov),
                             max_missing=int(max_miss),
                         )
                         if cov_reason:
                             # Preserve an existing reason if already set later by other checks
-                            evidence["meta_coverage_guard_reason"] = cov_reason
+                            evidence[MetaKeys.COVERAGE_GUARD_REASON] = cov_reason
                             if not meta_reason:
                                 meta_reason = cov_reason
                         meta_mode = new_mode
@@ -3276,20 +3240,20 @@ class OFConfirmEngine:
 
                     # SID already derived above (used for A/B + enforce)
                     from services.observability.metrics_registry import ml_inference_time_us
-                    
+
                     t0_inf = time.perf_counter()
                     meta_p_champion = float(mm_champ.predict_proba(feat))
                     dt_inf_champ = (time.perf_counter() - t0_inf) * 1_000_000
-                    ml_inference_time_us.labels(symbol=str(symbol), model="champion").observe(dt_inf_champ)
+                    ml_inference_time_us.labels(symbol=symbol, model="champion").observe(dt_inf_champ)
 
                     if mm_chal is not None:
                         t0_inf_chal = time.perf_counter()
                         meta_p_challenger = float(mm_chal.predict_proba(feat))
                         dt_inf_chal = (time.perf_counter() - t0_inf_chal) * 1_000_000
-                        ml_inference_time_us.labels(symbol=str(symbol), model="challenger").observe(dt_inf_chal)
+                        ml_inference_time_us.labels(symbol=symbol, model="challenger").observe(dt_inf_chal)
                     else:
                         meta_p_challenger = -1.0
-                    
+
                     # Deterministic A/B: select which model's p to apply for this sid
                     meta_arm = _ab_pick_arm(sid=sid, share=meta_ab_share, salt=meta_ab_salt) if (mm_chal is not None and meta_ab_share > 0.0) else "champion"
                     meta_p = float(meta_p_challenger if meta_arm == "challenger" and meta_p_challenger >= 0.0 else meta_p_champion)
@@ -3317,16 +3281,16 @@ class OFConfirmEngine:
                         bucket = "range"
                     else:
                         bucket = "other"
-                    
+
                     # Per-regime share: use per-bucket key if enabled, otherwise legacy meta_enforce_share
                     use_per_regime = bool(int(cfg2.get("meta_enforce_per_regime", 0) or 0))
                     if use_per_regime:
                         share_key = f"meta_enforce_share_{bucket}"
-                        meta_enforce_share = float(cfg2.get(share_key, cfg2.get("meta_enforce_share", 1.0)) or 1.0)
+                        meta_enforce_share = float(cfg2.get(share_key, cfg2.get(MetaKeys.ENFORCE_SHARE, 1.0)) or 1.0)
                     else:
-                        meta_enforce_share = float(cfg2.get("meta_enforce_share", 1.0) or 1.0)
+                        meta_enforce_share = float(cfg2.get(MetaKeys.ENFORCE_SHARE, 1.0) or 1.0)
                     meta_enforce_share = max(0.0, min(1.0, meta_enforce_share))
-                    meta_enforce_salt = str(cfg2.get("meta_enforce_salt", "enf_v1") or "enf_v1")
+                    meta_enforce_salt = (cfg2.get(MetaKeys.ENFORCE_SALT, "enf_v1") or "enf_v1")
 
                     hkey = f"{meta_enforce_salt}:{sid}"
                     apply_enforce = 1 if (_hash01(hkey) < meta_enforce_share) else 0
@@ -3337,7 +3301,7 @@ class OFConfirmEngine:
                         # mark bit
                         try:
                             if dec is not None:
-                                setattr(dec, "gate_bits", int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_META_VETO)
+                                dec.gate_bits = int(getattr(dec, "gate_bits", 0)) | self.GATE_BIT_META_VETO
                         except Exception:
                             pass
                         final_reason = f"{final_reason}|meta_veto"
@@ -3345,23 +3309,23 @@ class OFConfirmEngine:
             pass
 
         # Update evidence with meta fields
-        evidence["meta_enable"] = int(meta_enable)
-        evidence["meta_mode"] = str(meta_mode)
-        evidence["meta_p_min"] = float(meta_p_min)
-        evidence["meta_p"] = float(meta_p if meta_p is not None else -1.0)
-        evidence["meta_veto"] = int(meta_veto)
-        evidence["meta_reason"] = str(meta_reason)
+        evidence[MetaKeys.ENABLE] = int(meta_enable)
+        evidence[MetaKeys.MODE] = str(meta_mode)
+        evidence[MetaKeys.P_MIN] = float(meta_p_min)
+        evidence[MetaKeys.P] = float(meta_p if meta_p is not None else -1.0)
+        evidence[MetaKeys.VETO] = int(meta_veto)
+        evidence[MetaKeys.REASON] = str(meta_reason)
 
         # A/B fields (for outcome attribution)
         try:
-            evidence["meta_arm"] = str(locals().get("meta_arm", "") or "")
-            evidence["meta_ab_share"] = float(locals().get("meta_ab_share", 0.0) or 0.0)
-            evidence["meta_ab_salt"] = str(locals().get("meta_ab_salt", "") or "")
-            evidence["meta_p_champion"] = float(locals().get("meta_p_champion", -1.0) or -1.0)
-            evidence["meta_p_challenger"] = float(locals().get("meta_p_challenger", -1.0) or -1.0)
+            evidence[MetaKeys.ARM] = str(locals().get(MetaKeys.ARM, "") or "")
+            evidence[MetaKeys.AB_SHARE] = float(locals().get(MetaKeys.AB_SHARE, 0.0) or 0.0)
+            evidence[MetaKeys.AB_SALT] = str(locals().get(MetaKeys.AB_SALT, "") or "")
+            evidence[MetaKeys.P_CHAMPION] = float(locals().get(MetaKeys.P_CHAMPION, -1.0) or -1.0)
+            evidence[MetaKeys.P_CHALLENGER] = float(locals().get(MetaKeys.P_CHALLENGER, -1.0) or -1.0)
         except Exception:
             pass
-        
+
         # Rollout fields (for observability)
         try:
             # Recompute regime bucket for evidence (same logic as above)
@@ -3374,30 +3338,30 @@ class OFConfirmEngine:
                 bucket_ev = "range"
             else:
                 bucket_ev = "other"
-            
+
             # Use per-regime share if enabled, otherwise legacy
             use_per_regime_ev = bool(int(cfg2.get("meta_enforce_per_regime", 0) or 0))
             if use_per_regime_ev:
                 share_key_ev = f"meta_enforce_share_{bucket_ev}"
-                meta_enforce_share_ev = float(cfg2.get(share_key_ev, cfg2.get("meta_enforce_share", 1.0)) or 1.0)
+                meta_enforce_share_ev = float(cfg2.get(share_key_ev, cfg2.get(MetaKeys.ENFORCE_SHARE, 1.0)) or 1.0)
             else:
-                meta_enforce_share_ev = float(cfg2.get("meta_enforce_share", 1.0) or 1.0)
-            
-            meta_enforce_salt = str(cfg2.get("meta_enforce_salt", "enf_v1") or "enf_v1")
+                meta_enforce_share_ev = float(cfg2.get(MetaKeys.ENFORCE_SHARE, 1.0) or 1.0)
+
+            meta_enforce_salt = (cfg2.get(MetaKeys.ENFORCE_SALT, "enf_v1") or "enf_v1")
             sid = str(indicators.get("sid", "") or indicators.get("stable_sid", "") or "")
             if not sid:
                 sid = f"{symbol}|{now_ts}|{direction}|{scenario}"
-            evidence["meta_enforce_share"] = float(meta_enforce_share_ev)
-            evidence["meta_enforce_bucket"] = str(bucket_ev)
-            evidence["meta_enforce_salt"] = str(meta_enforce_salt)
-            evidence["meta_enforce_key"] = str(sid)
-            evidence["meta_enforce_applied"] = int(apply_enforce if meta_mode == "ENFORCE" else 0)
+            evidence[MetaKeys.ENFORCE_SHARE] = float(meta_enforce_share_ev)
+            evidence[MetaKeys.ENFORCE_COV_BUCKET] = str(bucket_ev)
+            evidence[MetaKeys.ENFORCE_SALT] = str(meta_enforce_salt)
+            evidence[MetaKeys.ENFORCE_KEY] = str(sid)
+            evidence[MetaKeys.ENFORCE_APPLIED] = int(apply_enforce if meta_mode == "ENFORCE" else 0)
         except Exception:
-            evidence["meta_enforce_share"] = 1.0
-            evidence["meta_enforce_bucket"] = "other"
-            evidence["meta_enforce_key"] = ""
-            evidence["meta_enforce_applied"] = 0
-        
+            evidence[MetaKeys.ENFORCE_SHARE] = 1.0
+            evidence[MetaKeys.ENFORCE_COV_BUCKET] = "other"
+            evidence[MetaKeys.ENFORCE_KEY] = ""
+            evidence[MetaKeys.ENFORCE_APPLIED] = 0
+
         _t_stage = _snap_stage("meta_model", _t_stage)
 
         # ------------------------------------------------------------------
@@ -3416,19 +3380,19 @@ class OFConfirmEngine:
         # Rollback: set HZ_ENFORCE_MODE=SHADOW (no deploy needed).
         # ------------------------------------------------------------------
         try:
-            hz_mode = str(cfg2.get("hz_enforce_mode", os.getenv("HZ_ENFORCE_MODE", "SHADOW")) or "SHADOW").upper()
+            hz_mode = (cfg2.get("hz_enforce_mode", os.getenv("HZ_ENFORCE_MODE", "SHADOW")) or "SHADOW").upper()
             hz_share = float(cfg2.get("hz_enforce_share", float(os.getenv("HZ_ENFORCE_SHARE", "0.05"))) or 0.05)
             hz_share = max(0.0, min(1.0, hz_share))
-            hz_salt = str(cfg2.get("hz_enforce_salt", os.getenv("HZ_ENFORCE_SALT", "hz_atr_v5")) or "hz_atr_v5")
-            hz_symbols_raw = str(cfg2.get("hz_enforce_symbols", os.getenv("HZ_ENFORCE_SYMBOLS", "")) or "")
+            hz_salt = (cfg2.get("hz_enforce_salt", os.getenv("HZ_ENFORCE_SALT", "hz_atr_v5")) or "hz_atr_v5")
+            hz_symbols_raw = (cfg2.get("hz_enforce_symbols", os.getenv("HZ_ENFORCE_SYMBOLS", "")) or "")
             hz_symbols = {s.strip().upper() for s in hz_symbols_raw.split(",") if s.strip()} if hz_symbols_raw else set()
 
             # Determine if this signal's symbol is in the canary whitelist
-            sym_upper = str(symbol).upper()
+            sym_upper = symbol.upper()
             hz_symbol_ok = (not hz_symbols) or (sym_upper in hz_symbols)
 
             # Sticky routing: deterministic by symbol|session|kind
-            _session = str(indicators.get("session", "") or "")
+            _session = (indicators.get("session", "") or "")
             _kind = str(indicators.get("scenario_v4", "") or scenario)
             hz_routing_key = f"{hz_salt}:{sym_upper}|{_session}|{_kind}"
             hz_in_canary = hz_symbol_ok and (_hash01(hz_routing_key) < hz_share)
@@ -3438,12 +3402,12 @@ class OFConfirmEngine:
             hz_veto = 0  # placeholder: real veto logic goes here when calibration is ready
 
             # Record gate status in evidence for observability
-            evidence["hz_gate_mode"] = str(hz_mode)
-            evidence["hz_gate_active"] = int(hz_active)
-            evidence["hz_gate_share"] = float(hz_share)
-            evidence["hz_gate_symbol_ok"] = int(hz_symbol_ok)
-            evidence["hz_gate_in_canary"] = int(hz_in_canary)
-            evidence["hz_gate_veto"] = int(hz_veto)
+            evidence[HzGateKeys.MODE] = str(hz_mode)
+            evidence[HzGateKeys.ACTIVE] = int(hz_active)
+            evidence[HzGateKeys.SHARE] = float(hz_share)
+            evidence[HzGateKeys.SYMBOL_OK] = int(hz_symbol_ok)
+            evidence[HzGateKeys.IN_CANARY] = int(hz_in_canary)
+            evidence[HzGateKeys.VETO] = int(hz_veto)
 
             # Phase 8 block: only apply when hz_active and calibration ready
             # (hz_veto currently = 0; will be wired to horizon policy check later)
@@ -3451,24 +3415,24 @@ class OFConfirmEngine:
                 ok = 0
                 final_reason = f"hz_gate_enforce|{final_reason}"
         except Exception:
-            evidence["hz_gate_mode"] = "ERR"
-            evidence["hz_gate_active"] = 0
-            evidence["hz_gate_veto"] = 0
+            evidence[HzGateKeys.MODE] = "ERR"
+            evidence[HzGateKeys.ACTIVE] = 0
+            evidence[HzGateKeys.VETO] = 0
 
-        evidence["ctx_enable"] = int(bool(cfg2.get("ofc_ctx_enable", False)))
-        evidence["ctx_mode"] = str(ctx_mode)
-        evidence["ctx_key"] = str(ctx_key)
-        evidence["ctx_bundle_ver"] = str(getattr(self._ofc_ctx_bundle, "version", "") if self._ofc_ctx_bundle else "")
-        evidence["ctx_exec_model_ver"] = str(getattr(exec_pred, "model_version", "")) if exec_pred is not None else ""
-        evidence["ctx_rule_model_ver"] = str(getattr(rule_pred, "model_version", "")) if rule_pred is not None else ""
-        evidence["ctx_p_rule_raw"] = float(getattr(rule_pred, "p_rule_raw", -1.0)) if rule_pred is not None else -1.0
-        evidence["ctx_p_rule_cal"] = float(getattr(rule_pred, "p_rule_cal", -1.0)) if rule_pred is not None else -1.0
-        evidence["ctx_cost_p50_bps"] = float(getattr(exec_pred, "cost_p50_bps", -1.0)) if exec_pred is not None else -1.0
-        evidence["ctx_cost_p90_bps"] = float(getattr(exec_pred, "cost_p90_bps", -1.0)) if exec_pred is not None else -1.0
-        evidence["ctx_exec_risk_ref_bps"] = float(getattr(exec_pred, "exec_risk_ref_bps_ctx", exec_ref)) if exec_pred is not None else float(exec_ref)
-        evidence["ctx_score_min"] = float(getattr(rule_pred, "score_min_ctx", cfg2.get("of_score_min", 0.40))) if rule_pred is not None else float(cfg2.get("of_score_min", 0.40))
-        evidence["ctx_reason"] = str(getattr(ctx_decision, "reason", "")) if ctx_decision is not None else ""
-        evidence["ctx_infer_latency_us"] = int(ctx_infer_latency_us)
+        evidence[CtxKeys.ENABLE] = int(bool(cfg2.get("ofc_ctx_enable", False)))
+        evidence[CtxKeys.MODE] = str(ctx_mode)
+        evidence[CtxKeys.KEY] = str(ctx_key)
+        evidence[CtxKeys.BUNDLE_VER] = str(getattr(self._ofc_ctx_bundle, "version", "") if self._ofc_ctx_bundle else "")
+        evidence[CtxKeys.EXEC_MODEL_VER] = str(getattr(exec_pred, "model_version", "")) if exec_pred is not None else ""
+        evidence[CtxKeys.RULE_MODEL_VER] = str(getattr(rule_pred, "model_version", "")) if rule_pred is not None else ""
+        evidence[CtxKeys.P_RULE_RAW] = float(getattr(rule_pred, "p_rule_raw", -1.0)) if rule_pred is not None else -1.0
+        evidence[CtxKeys.P_RULE_CAL] = float(getattr(rule_pred, "p_rule_cal", -1.0)) if rule_pred is not None else -1.0
+        evidence[CtxKeys.COST_P50_BPS] = float(getattr(exec_pred, "cost_p50_bps", -1.0)) if exec_pred is not None else -1.0
+        evidence[CtxKeys.COST_P90_BPS] = float(getattr(exec_pred, "cost_p90_bps", -1.0)) if exec_pred is not None else -1.0
+        evidence[CtxKeys.EXEC_RISK_REF_BPS] = float(getattr(exec_pred, "exec_risk_ref_bps_ctx", exec_ref)) if exec_pred is not None else float(exec_ref)
+        evidence[CtxKeys.SCORE_MIN] = float(getattr(rule_pred, "score_min_ctx", cfg2.get("of_score_min", 0.40))) if rule_pred is not None else float(cfg2.get("of_score_min", 0.40))
+        evidence[CtxKeys.REASON] = str(getattr(ctx_decision, "reason", "")) if ctx_decision is not None else ""
+        evidence[CtxKeys.INFER_LATENCY_US] = int(ctx_infer_latency_us)
 
         # --------------------------------------------------------------
         # B5 Golden Replay: optional capture sidecar (inputs + runtime snapshot)
@@ -3483,20 +3447,18 @@ class OFConfirmEngine:
         except Exception:
             cap_enable = False
         if cap_enable:
-            try:
+            with contextlib.suppress(Exception):
                 evidence["golden_replay_inputs_v1"] = {
-                    "symbol": str(symbol),
-                    "tf": str(tf),
+                    "symbol": symbol,
+                    "tf": tf,
                     "direction": str(direction),
                     "tick_ts_ms": int(tick_ts_ms),
                     "price": float(price),
                     "delta_z": float(delta_z),
-                    "dq_policy_hash": str(indicators.get("dq_policy_hash") or ""),
-                    "dq_policy_feature_manifest_hash_v1": str(indicators.get("dq_policy_feature_manifest_hash_v1") or ""),
+                    "dq_policy_hash": (indicators.get("dq_policy_hash") or ""),
+                    "dq_policy_feature_manifest_hash_v1": (indicators.get("dq_policy_feature_manifest_hash_v1") or ""),
                     "runtime_snapshot": OFConfirmEngine.export_runtime_snapshot(runtime, indicators),
                 }
-            except Exception:
-                pass
 
         legacy_reason = str(final_reason)
         score_veto_family = {
@@ -3508,11 +3470,11 @@ class OFConfirmEngine:
         if ctx_decision is not None:
             ctx_allow = bool(getattr(ctx_decision, "allow", False))
             ctx_shadow_disagree = 1 if int(ok) != int(ctx_allow) else 0
-            evidence["ctx_shadow_disagree"] = int(ctx_shadow_disagree)
-            evidence["ctx_allow"] = int(ctx_allow)
-            evidence["ctx_edge_net_p50_bps"] = float(getattr(ctx_decision, "edge_net_p50_bps", -999.0))
-            evidence["ctx_edge_net_p90_bps"] = float(getattr(ctx_decision, "edge_net_p90_bps", -999.0))
-            evidence["ctx_fallback_level"] = str(getattr(ctx_decision, "fallback_level", ""))
+            evidence[CtxKeys.SHADOW_DISAGREE] = int(ctx_shadow_disagree)
+            evidence[CtxKeys.ALLOW] = int(ctx_allow)
+            evidence[CtxKeys.EDGE_NET_P50_BPS] = float(getattr(ctx_decision, "edge_net_p50_bps", -999.0))
+            evidence[CtxKeys.EDGE_NET_P90_BPS] = float(getattr(ctx_decision, "edge_net_p90_bps", -999.0))
+            evidence[CtxKeys.FALLBACK_LEVEL] = str(getattr(ctx_decision, "fallback_level", ""))
             if ctx_mode == "tighten_only" and int(ok) == 1 and not ctx_allow:
                 ok = 0
                 final_reason = f"ctx_tighten:{getattr(ctx_decision, 'reason', 'deny')}"
@@ -3522,7 +3484,7 @@ class OFConfirmEngine:
 
         ofc = OFConfirmV3(
             v=3,
-            symbol=str(symbol),
+            symbol=symbol,
             ts_ms=int(now_ts),
             direction=str(direction),
             scenario=str(getattr(dec, "scenario", scenario) if dec else scenario),
@@ -3552,12 +3514,11 @@ class OFConfirmEngine:
                 _ind = locals().get("indicators") or locals().get("ind") or {}
                 _ts = locals().get("now_ts_ms") or locals().get("ts_ms") or 0
                 if not _ts:
-                    import time as _time
                     _ts = int(_get_ny_time_millis())
                 maybe_capture_ofc_v1(engine=self, runtime=_rt, indicators=_ind, cfg2=cfg2, ofc=ofc, dec=dec, now_ts_ms=int(_ts))
             except Exception:
                 pass
-        
+
         # Calib capture (optional)
         if not is_shedding:
             try:
@@ -3569,13 +3530,13 @@ class OFConfirmEngine:
                 pass
         else:
              indicators["calib_capture_shedded"] = 1
-             
+
         _t_stage = _snap_stage("capture_export", _t_stage)
-        
+
         return ofc, dec
 
 
-    def restore_cancel_gate_state(self, state: Dict[str, Any]) -> None:
+    def restore_cancel_gate_state(self, state: dict[str, Any]) -> None:
         """Restore cancellation gate snapshot if available."""
         if not isinstance(state, dict):
             return
@@ -3591,7 +3552,7 @@ class OFConfirmEngine:
         if callable(restore):
             restore(state)
 
-    def export_cancel_gate_state(self) -> Optional[Dict[str, Any]]:
+    def export_cancel_gate_state(self) -> dict[str, Any] | None:
         """Export cancel gate state for replay (fail-open)."""
         g = getattr(self, '_cancel_spike_gate', None)
         if g is None:
@@ -3610,7 +3571,7 @@ class OFConfirmEngine:
             return None
 
     @staticmethod
-    def export_runtime_snapshot(runtime: Any, indicators: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def export_runtime_snapshot(runtime: Any, indicators: dict[str, Any] | None = None) -> dict[str, Any]:
         """Minimal runtime snapshot for deterministic replay.
 
         Contract philosophy:
@@ -3623,10 +3584,10 @@ class OFConfirmEngine:
         """
         ind = indicators or {}
 
-        def _pick(obj: Any, keys: Tuple[str, ...]) -> Optional[Dict[str, Any]]:
+        def _pick(obj: Any, keys: tuple[str, ...]) -> dict[str, Any] | None:
             if obj is None:
                 return None
-            out: Dict[str, Any] = {}
+            out: dict[str, Any] = {}
             for k in keys:
                 try:
                     v = _get_attr_or_key(obj, k, None)
@@ -3637,19 +3598,17 @@ class OFConfirmEngine:
                 if isinstance(v, (str, int, float, bool)) or v is None:
                     out[k] = v
                 elif isinstance(v, dict):
-                    vv: Dict[str, Any] = {}
+                    vv: dict[str, Any] = {}
                     for kk, x in v.items():
                         if isinstance(x, (str, int, float, bool)) or x is None:
                             vv[str(kk)] = x
                     out[k] = vv
                 else:
-                    try:
+                    with contextlib.suppress(Exception):
                         out[k] = str(v)
-                    except Exception:
-                        pass
             return out
 
-        snap: Dict[str, Any] = {
+        snap: dict[str, Any] = {
             "schema": 3,
             "symbol": None,
             "ts_ms": None,
@@ -3689,10 +3648,8 @@ class OFConfirmEngine:
                 if isinstance(v, (str, int, float, bool)):
                     snap[k] = v
                 else:
-                    try:
+                    with contextlib.suppress(Exception):
                         snap[k] = str(v)
-                    except Exception:
-                        pass
 
         # pressure_hi: prefer deterministic inputs
         try:
@@ -3791,7 +3748,7 @@ class OFConfirmEngine:
         return snap
 
     @staticmethod
-    def runtime_snapshot_schema() -> Dict[str, Any]:
+    def runtime_snapshot_schema() -> dict[str, Any]:
         """Schema for runtime_snapshot (contract).
 
         Used by tools/tests to detect drift when engine starts reading new fields.
@@ -3838,7 +3795,7 @@ class OFConfirmEngine:
         }
 
     @staticmethod
-    def validate_runtime_snapshot_contract(snap: Dict[str, Any]) -> Tuple[bool, list[str]]:
+    def validate_runtime_snapshot_contract(snap: dict[str, Any]) -> tuple[bool, list[str]]:
         """Validate snapshot keys presence. Fail-open; returns (ok, missing_paths)."""
         missing: list[str] = []
         sch = OFConfirmEngine.runtime_snapshot_schema()
@@ -3861,9 +3818,9 @@ class OFConfirmEngine:
                     missing.append(f"runtime_snapshot.{parent}.{k}")
         return (len(missing) == 0), missing
 
-    def validate_runtime_snapshot(self, snap: Dict[str, Any]) -> List[str]:
+    def validate_runtime_snapshot(self, snap: dict[str, Any]) -> list[str]:
         """Validate snapshot has required fields. Returns list of missing keys."""
-        missing: List[str] = []
+        missing: list[str] = []
         if not isinstance(snap, dict):
             return ['snap_not_dict']
         for k in ('schema', 'symbol', 'dynamic_cfg', 'last_regime', 'liq_regime', 'book_churn_hi', 'pressure_hi', 'cont_ctx_ts_ms'):
@@ -3871,7 +3828,7 @@ class OFConfirmEngine:
                 missing.append(k)
         return missing
 
-    
+
     @staticmethod
     def _json_sanitize(obj: Any, *, max_depth: int = 6, max_items: int = 2000) -> Any:
         """Best-effort JSON-safe conversion (deterministic).
@@ -3885,7 +3842,7 @@ class OFConfirmEngine:
             if d <= 0:
                 return str(x)
             if isinstance(x, dict):
-                out: Dict[str, Any] = {}
+                out: dict[str, Any] = {}
                 # deterministic key order
                 for i, k in enumerate(sorted(x.keys(), key=lambda z: str(z))):
                     if i >= max_items:
@@ -3896,7 +3853,7 @@ class OFConfirmEngine:
                         out[str(k)] = None
                 return out
             if isinstance(x, (list, tuple)):
-                out_l: List[Any] = []
+                out_l: list[Any] = []
                 for i, v in enumerate(x):
                     if i >= max_items:
                         break
@@ -3905,7 +3862,7 @@ class OFConfirmEngine:
             return str(x)
         return _walk(obj, int(max_depth))
 
-    def export_cfg_snapshot(self, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    def export_cfg_snapshot(self, cfg: dict[str, Any]) -> dict[str, Any]:
         """Capture JSON-safe cfg snapshot for deterministic replay."""
         try:
             if not isinstance(cfg, dict):
@@ -3916,7 +3873,7 @@ class OFConfirmEngine:
             return {}
 
     @classmethod
-    def runtime_snapshot_schema(cls) -> Dict[str, Any]:
+    def runtime_snapshot_schema(cls) -> dict[str, Any]:
         """Contract for runtime_snapshot (capture/replay)."""
         return {
             "top": [
@@ -3959,7 +3916,7 @@ class OFConfirmEngine:
         }
 
     @classmethod
-    def validate_runtime_snapshot_contract(cls, snap: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+    def validate_runtime_snapshot_contract(cls, snap: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
         """Validate snapshot against schema; returns (ok, report)."""
         schema = cls.runtime_snapshot_schema()
         top = set(schema.get("top") or [])
@@ -3974,7 +3931,7 @@ class OFConfirmEngine:
                     continue
                 missing_top.append(k)
 
-        missing_nested: Dict[str, Any] = {}
+        missing_nested: dict[str, Any] = {}
         for obj_key, fields in (nested.items() if isinstance(nested, dict) else []):
             obj = snap.get(obj_key)
             if obj is None or not isinstance(obj, dict):
@@ -3986,14 +3943,12 @@ class OFConfirmEngine:
         ok = (not missing_top) and (not missing_nested)
         return ok, {"missing_top": missing_top, "missing_nested": missing_nested, "schema": schema.get("schema")}
 
-    def build_runtime_from_snapshot(self, snap: Dict[str, Any]) -> Any:
+    def build_runtime_from_snapshot(self, snap: dict[str, Any]) -> Any:
         """Build SimpleNamespace runtime from snapshot (replay-safe)."""
         rt = SimpleNamespace()
         for k, v in (snap or {}).items():
-            try:
+            with contextlib.suppress(Exception):
                 setattr(rt, k, v)
-            except Exception:
-                pass
         if not hasattr(rt, 'dynamic_cfg'):
-            setattr(rt, 'dynamic_cfg', {})
+            rt.dynamic_cfg = {}
         return rt

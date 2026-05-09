@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 check_ml_confirm_stream_health.py
 
@@ -14,18 +15,16 @@ Designed to be safe in prod:
 - tolerant to different payload layouts: {payload: json}, or flat fields.
 - does not require any project imports.
 """
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import sys
-import time
-from typing import Any, Dict, Tuple, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
-except Exception as e:
+except Exception:
     redis = None  # type: ignore
 
 
@@ -54,10 +53,10 @@ def _loads_maybe_json(v: Any) -> Any:
     return v
 
 
-def _parse_entry(fields: Dict[bytes, bytes]) -> Dict[str, Any]:
+def _parse_entry(fields: dict[bytes, bytes]) -> dict[str, Any]:
     # Convert bytes->str and try to parse payload if present
-    out: Dict[str, Any] = {}
-    payload_obj: Optional[Dict[str, Any]] = None
+    out: dict[str, Any] = {}
+    payload_obj: dict[str, Any] | None = None
     for kb, vb in fields.items():
         k = kb.decode("utf-8", "replace")
         out[k] = _loads_maybe_json(vb)
@@ -73,7 +72,7 @@ def _parse_entry(fields: Dict[bytes, bytes]) -> Dict[str, Any]:
     return out
 
 
-def _get_float(d: Dict[str, Any], *keys: str, default: float = 0.0) -> float:
+def _get_float(d: dict[str, Any], *keys: str, default: float = 0.0) -> float:
     for k in keys:
         if k in d:
             try:
@@ -83,7 +82,7 @@ def _get_float(d: Dict[str, Any], *keys: str, default: float = 0.0) -> float:
     return default
 
 
-def _get_int(d: Dict[str, Any], *keys: str, default: int = 0) -> int:
+def _get_int(d: dict[str, Any], *keys: str, default: int = 0) -> int:
     for k in keys:
         if k in d:
             try:
@@ -93,7 +92,7 @@ def _get_int(d: Dict[str, Any], *keys: str, default: int = 0) -> int:
     return default
 
 
-def compute_health(samples: list[Dict[str, Any]], now_ms: int, max_stale_ms: int) -> Tuple[bool, Dict[str, Any]]:
+def compute_health(samples: list[dict[str, Any]], now_ms: int, max_stale_ms: int) -> tuple[bool, dict[str, Any]]:
     n = len(samples)
     if n == 0:
         return False, {
@@ -118,7 +117,7 @@ def compute_health(samples: list[Dict[str, Any]], now_ms: int, max_stale_ms: int
     err_count = 0
     abstain_count = 0
     allow_count = 0
-    status_counts: Dict[str, int] = {}
+    status_counts: dict[str, int] = {}
 
     for s in samples:
         status = str(s.get("status") or s.get("st") or "unknown")

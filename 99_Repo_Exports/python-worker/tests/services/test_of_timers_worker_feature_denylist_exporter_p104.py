@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for run_feature_denylist_proposal_exporter (P104).
 
 Covers:
@@ -15,10 +16,7 @@ Covers:
 import subprocess
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from services.of_timers_worker import run_feature_denylist_proposal_exporter
-
 
 # ---------------------------------------------------------------------------
 # Guard: disabled by default

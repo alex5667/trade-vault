@@ -4,19 +4,18 @@ import json
 import os
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Tuple
-
+from typing import Any
 
 OLLAMA_BASE_URL = os.getenv("LOCAL_FALLBACK_OLLAMA_BASE_URL", "http://host.docker.internal:11434")
 OLLAMA_CHAT_URL = f"{OLLAMA_BASE_URL.rstrip('/')}/api/chat"
 REQUEST_TIMEOUT_SEC = int(os.getenv("LOCAL_FALLBACK_OLLAMA_TIMEOUT_SEC", "120"))
 
 
-def _headers() -> Dict[str, str]:
+def _headers() -> dict[str, str]:
     return {"Content-Type": "application/json"}
 
 
-def _post_json(url: str, payload: Dict[str, Any], timeout_sec: int) -> Dict[str, Any]:
+def _post_json(url: str, payload: dict[str, Any], timeout_sec: int) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers=_headers(), method="POST")
     try:
@@ -44,7 +43,7 @@ def _system_prompt(task_type: str) -> str:
     return base + " Provide emergency summarization only."
 
 
-def _default_schema(task_type: str) -> Dict[str, Any]:
+def _default_schema(task_type: str) -> dict[str, Any]:
     if task_type == "offline_debug":
         return {
             "type": "object",
@@ -90,9 +89,9 @@ def build_ollama_payload(
     model: str,
     task_type: str,
     user_prompt: str,
-    schema: Dict[str, Any],
+    schema: dict[str, Any],
     keep_alive: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         "model": model,
         "messages": [
@@ -125,8 +124,8 @@ class OllamaLocalFallbackProviderV30:
         *,
         task_type: str,
         prompt: str,
-        schema: Dict[str, Any] | None = None,
-    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        schema: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         model = self.choose_model(task_type)
         if not model:
             raise RuntimeError("local_fallback_model_not_configured")

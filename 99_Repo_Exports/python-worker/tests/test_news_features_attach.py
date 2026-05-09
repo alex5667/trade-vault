@@ -1,10 +1,11 @@
-from utils.time_utils import get_ny_time_millis
-import time
+
 import pytest
 import redis
 
-from contexts import OrderflowSignalContext, NewsFeatures
+from contexts import NewsFeatures, OrderflowSignalContext
 from news_pipeline.enricher_sync import NewsEnricherSync
+from utils.time_utils import get_ny_time_millis
+
 
 @pytest.fixture
 def redis_conn():

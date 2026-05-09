@@ -1,7 +1,8 @@
 from __future__ import annotations
-import hashlib
-from typing import Union, Optional, Dict, Any
+
 from dataclasses import dataclass
+from typing import Any
+
 from common.enums.trading import Direction, Side
 
 
@@ -30,9 +31,9 @@ _SIDE_SELL_ALIASES = frozenset(("SELL", "S", "-1", "SHORT"))
 
 
 def normalize_direction(
-    d: Union[str, Direction, None],
+    d: str | Direction | None,
     *,
-    default: Optional[Direction] = None,
+    default: Direction | None = None,
 ) -> Direction:
     """Normalize direction to Direction.LONG|SHORT.
 
@@ -50,8 +51,8 @@ def normalize_direction(
 
 
 def normalize_direction_safe(
-    d: Union[str, Direction, None],
-) -> Optional[Direction]:
+    d: str | Direction | None,
+) -> Direction | None:
     """Hot-path wrapper: returns None instead of raising for unknown input."""
     try:
         return normalize_direction(d)
@@ -60,9 +61,9 @@ def normalize_direction_safe(
 
 
 def normalize_side(
-    s: Union[str, Side, None],
+    s: str | Side | None,
     *,
-    default: Optional[Side] = None,
+    default: Side | None = None,
 ) -> Side:
     """Normalize side to Side.BUY|SELL.
 
@@ -79,8 +80,8 @@ def normalize_side(
 
 
 def normalize_side_safe(
-    s: Union[str, Side, None],
-) -> Optional[Side]:
+    s: str | Side | None,
+) -> Side | None:
     """Hot-path wrapper: returns None instead of raising for unknown input."""
     try:
         return normalize_side(s)
@@ -88,7 +89,7 @@ def normalize_side_safe(
         return None
 
 
-def normalize_side_3(value: Union[str, int, Direction, Side, None]) -> NormalizedSide:
+def normalize_side_3(value: str | int | Direction | Side | None) -> NormalizedSide:
     """Unified side/direction normalizer.
 
     Returns (Direction, Side, side_int). Raises ValueError for unknown input.
@@ -100,8 +101,8 @@ def normalize_side_3(value: Union[str, int, Direction, Side, None]) -> Normalize
 
 
 def normalize_side_3_safe(
-    value: Union[str, int, Direction, Side, None],
-) -> Optional[NormalizedSide]:
+    value: str | int | Direction | Side | None,
+) -> NormalizedSide | None:
     """Hot-path wrapper for normalize_side_3: returns None on unknown input."""
     try:
         return normalize_side_3(value)
@@ -109,14 +110,14 @@ def normalize_side_3_safe(
         return None
 
 
-def get_side_int(d_or_s: Union[str, Direction, Side, int, None]) -> int:
+def get_side_int(d_or_s: str | Direction | Side | int | None) -> int:
     """Return 1 for LONG/BUY, -1 for SHORT/SELL. Raises ValueError on unknown input."""
     if isinstance(d_or_s, int):
         if d_or_s > 0:
             return 1
         if d_or_s < 0:
             return -1
-        raise ValueError(f"unknown_side_int:0")
+        raise ValueError("unknown_side_int:0")
     val = _ev(d_or_s).upper().strip()
     if val in _SIDE_BUY_ALIASES | _DIRECTION_LONG_ALIASES:
         return 1
@@ -125,7 +126,7 @@ def get_side_int(d_or_s: Union[str, Direction, Side, int, None]) -> int:
     raise ValueError(f"unknown_side_int:{d_or_s!r}")
 
 
-def get_side_int_safe(d_or_s: Union[str, Direction, Side, int, None]) -> Optional[int]:
+def get_side_int_safe(d_or_s: str | Direction | Side | int | None) -> int | None:
     """Hot-path wrapper for get_side_int: returns None on unknown input."""
     try:
         return get_side_int(d_or_s)
@@ -147,7 +148,7 @@ SIGNAL_ID_ALGO_V1 = "v1"
 def generate_signal_id(
     symbol: str,
     ts_ms: int,
-    direction: Union[str, Direction],
+    direction: str | Direction,
     kind: str = "crypto-of",
 ) -> str:
     """Unified signal_id algorithm (v1).
@@ -157,5 +158,5 @@ def generate_signal_id(
     """
     d_norm = normalize_direction(direction)
     d_short = "L" if d_norm == Direction.LONG else "S"
-    symbol_norm = str(symbol or "UNKNOWN").upper().strip()
+    symbol_norm = (symbol or "UNKNOWN").upper().strip()
     return f"{kind}:{symbol_norm}:{int(ts_ms)}:{d_short}"

@@ -53,7 +53,7 @@ def test_legacy_gate_cost_edge_respects_apply_flag_and_veto_reason():
 
             try:
                 decision = gate.evaluate(ctx=ctx, kind=str(kind), symbol=str(sym))
-            except Exception as e:
+            except Exception:
                 # fail-open but observable - mock this part
                 return True, ""
 

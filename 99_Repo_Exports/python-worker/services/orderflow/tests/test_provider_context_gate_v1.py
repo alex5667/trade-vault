@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 """Tests for provider_context_gate.py — pure policy evaluation."""
 
 import pytest
+
 from services.orderflow.provider_context_gate import evaluate_provider_context
 
 _BASE = dict(

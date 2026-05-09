@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Regression: Adverse Gate Calibrator — boundary math conditions (merge-blocker).
 
@@ -13,13 +13,11 @@ Run:
     cd python-worker && python -m pytest tests/test_adverse_gate_calibrator_boundary.py -v
 """
 
-import math
 import pytest
 
 from core.adverse_gate_calibrator import (
     AdverseOutcome,
     evaluate_adverse_gate,
-    AdverseGateCalibResult,
 )
 
 

@@ -67,7 +67,7 @@ def test_schema_defaults():
 def test_schema_bucket_onehot():
     """Test bucket one-hot encoding."""
     s = MLFeatureSchemaV2()
-    
+
     # Test trend bucket
     x_trend = s.vectorize(
         symbol="BTCUSDT",
@@ -87,7 +87,7 @@ def test_schema_bucket_onehot():
     assert x_trend[trend_idx] == 1.0
     assert x_trend[range_idx] == 0.0
     assert x_trend[other_idx] == 0.0
-    
+
     # Test range bucket
     x_range = s.vectorize(
         symbol="BTCUSDT",
@@ -111,7 +111,7 @@ def test_schema_direction_onehot():
     names = s.feature_names()
     long_idx = names.index("dir:LONG")
     short_idx = names.index("dir:SHORT")
-    
+
     x_long = s.vectorize(
         symbol="BTCUSDT",
         ts_ms=1700000000000,
@@ -125,7 +125,7 @@ def test_schema_direction_onehot():
     )
     assert x_long[long_idx] == 1.0
     assert x_long[short_idx] == 0.0
-    
+
     x_short = s.vectorize(
         symbol="BTCUSDT",
         ts_ms=1700000000000,

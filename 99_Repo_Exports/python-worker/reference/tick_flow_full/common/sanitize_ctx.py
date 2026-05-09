@@ -14,11 +14,10 @@ from __future__ import annotations
   - "случайные тики с шумом: никакие NaN/Inf не пробивают пайплайн"
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from common.sanitize_math import finite_float
 from common.strict_mode import strict_contracts_enabled
-
 
 # "Горячие" поля ctx, которые часто используются в сравнениях/скоринге/валидации.
 # Список намеренно короткий и практичный: меньше риск повредить редкие поля.
@@ -57,19 +56,19 @@ def _push_flag(ctx: Any, flag: str) -> None:
     try:
         flags = getattr(ctx, "data_quality_flags", None)
         if flags is None:
-            setattr(ctx, "data_quality_flags", [flag])
+            ctx.data_quality_flags = [flag]
             return
         if isinstance(flags, list):
             flags.append(flag)
             return
         # если кто-то положил не list — заменяем fail-open
-        setattr(ctx, "data_quality_flags", [flag, "dq_flags_schema_fail_open"])
+        ctx.data_quality_flags = [flag, "dq_flags_schema_fail_open"]
     except Exception:
         # вообще ничего не делаем: санитизация не должна валить пайплайн
         pass
 
 
-def sanitize_ctx_inplace(ctx: Any, *, logger: Optional[Any] = None) -> None:
+def sanitize_ctx_inplace(ctx: Any, *, logger: Any | None = None) -> None:
     """
     Мутирует ctx "на месте". Ничего не возвращает: fail-open.
     """

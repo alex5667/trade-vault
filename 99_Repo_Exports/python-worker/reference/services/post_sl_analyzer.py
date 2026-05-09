@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """
 Post-SL Analyzer Service.
@@ -19,16 +20,18 @@ Outputs:
     ...
 """
 
-import os
-import math
 import hashlib
+import json
+import math
+import os
+import signal
 import sys
 import time
-import json
-import signal
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Tuple, Callable, Union
+from typing import Any, Union
+
 import redis
 
 # Ensure we can import from project root
@@ -103,13 +106,13 @@ class TrackState:
     start_ts_ms: int
     atr_entry: float
     regime: str = "na"
-    
+
     # Tracking State
     max_favorable: float = field(init=False)
     min_favorable: float = field(init=False)
     bars_seen: int = 0
     max_mfe_atr: float = 0.0
-    
+
     def __post_init__(self):
         self.max_favorable = self.entry_price
         self.min_favorable = self.entry_price
@@ -124,12 +127,12 @@ class PostSlAnalyzer:
         self.running = False
         self.redis = redis.from_url(REDIS_URL, decode_responses=True)
         # Active tracks: symbol -> List[TrackState]
-        self.tracks: Dict[str, List[TrackState]] = defaultdict(list)
-        
+        self.tracks: dict[str, list[TrackState]] = defaultdict(list)
+
         # Ensure groups exist
         self._ensure_group(TRADES_STREAM, TRADES_GROUP)
         self._ensure_group(CANDLES_STREAM, CANDLES_GROUP)
-        
+
         # init finish_meta controls (sampling + bounds) once (avoid getenv in hot path)
         self._init_finish_meta_controls()
 
@@ -152,7 +155,7 @@ class PostSlAnalyzer:
     DEFAULT_SAMPLE_DEFAULT = 0.05
 
     # finish_meta type: dict or lazy builder (called only if sampling keeps meta)
-    FinishMetaT = Union[Dict[str, Any], Callable[[], Dict[str, Any]]]
+    FinishMetaT = Union[dict[str, Any], Callable[[], dict[str, Any]]]
 
     def _init_finish_meta_controls(self) -> None:
         """
@@ -166,7 +169,7 @@ class PostSlAnalyzer:
         def _f01(key: str, default: float) -> float:
             raw = os.getenv(key, "")
             try:
-                v = float(raw) if raw else float(default)
+                v = float(raw) if raw else default
             except Exception:
                 v = float(default)
             if v < 0.0:
@@ -212,7 +215,7 @@ class PostSlAnalyzer:
             return self._sample_p_time_cap
         return self._sample_p_default
 
-    def _want_finish_meta(self, track: "TrackState", reason: str) -> Tuple[bool, float, float]:
+    def _want_finish_meta(self, track: "TrackState", reason: str) -> tuple[bool, float, float]:
         """
         Returns (want_meta, p, u). Deterministic for same (trade_id,start_ts,reason).
         """
@@ -249,7 +252,7 @@ class PostSlAnalyzer:
         except Exception:
             pass
         if isinstance(obj, dict):
-            out: Dict[str, Any] = {}
+            out: dict[str, Any] = {}
             n = 0
             for k, v in obj.items():
                 if n >= max_items:
@@ -273,7 +276,7 @@ class PostSlAnalyzer:
             s = s[:max_str]
         return s
 
-    def _safe_finish_meta_json(self, finish_meta: Dict[str, Any]) -> Tuple[Optional[str], int, int]:
+    def _safe_finish_meta_json(self, finish_meta: dict[str, Any]) -> tuple[str | None, int, int]:
         try:
             sanitized = self._json_sanitize(
                 finish_meta,
@@ -306,7 +309,7 @@ class PostSlAnalyzer:
                     logger.warning(f"Redis is loading data, retrying group {group} creation in {wait_time}s... ({i+1}/{max_retries})")
                     time.sleep(wait_time)
                     continue
-                
+
                 logger.error(f"Failed to create group {group}: {e}")
                 return
 
@@ -314,7 +317,7 @@ class PostSlAnalyzer:
     # Helpers: finish-condition telemetry
     # -----------------------------
     @staticmethod
-    def _tp1_hit_bool(direction: str, bar_h: float, bar_l: float, tp1_price: float, eps_bps: float) -> Tuple[bool, float, float]:
+    def _tp1_hit_bool(direction: str, bar_h: float, bar_l: float, tp1_price: float, eps_bps: float) -> tuple[bool, float, float]:
         """
         Returns:
           hit: bool
@@ -331,7 +334,7 @@ class PostSlAnalyzer:
         return hit, eps_val, trigger_px
 
     @staticmethod
-    def _tp1_hit_details(direction: str, tp1_price: float, eps_bps: float, eps_val: float, trigger_px: float) -> Dict[str, Any]:
+    def _tp1_hit_details(direction: str, tp1_price: float, eps_bps: float, eps_val: float, trigger_px: float) -> dict[str, Any]:
         """
         Build compact meta for TP1 hit. Intended for telemetry/debug, JSON-safe.
         dist_bps_signed:
@@ -360,7 +363,7 @@ class PostSlAnalyzer:
         }
 
     @staticmethod
-    def _atr_cap_details(direction: str, sl_price: float, atr_entry: float, atr_cap_mult: float, bar_h: float, bar_l: float) -> Dict[str, Any]:
+    def _atr_cap_details(direction: str, sl_price: float, atr_entry: float, atr_cap_mult: float, bar_h: float, bar_l: float) -> dict[str, Any]:
         """
         Telemetry for ATR cap condition.
         For LONG: cap_level = SL - ATR_CAP*ATR_entry, breach if bar_low <= cap_level
@@ -388,23 +391,23 @@ class PostSlAnalyzer:
         }
 
     @staticmethod
-    def _time_cap_details(bars_seen: int, max_bars: int) -> Dict[str, Any]:
+    def _time_cap_details(bars_seen: int, max_bars: int) -> dict[str, Any]:
         return {"bars_seen": int(bars_seen), "max_bars": int(max_bars)}
 
     def start(self):
         self.running = True
         logger.info("Starting analysis loop...")
-        
+
         last_log = time.time()
-        
+
         while self.running:
             try:
                 # 1. Read new trades
                 self._poll_trades()
-                
+
                 # 2. Read new candles (drivers of analysis)
                 self._poll_candles()
-                
+
                 # 3. Cleanup / Stats
                 now = time.time()
                 if now - last_log > 60:
@@ -412,9 +415,9 @@ class PostSlAnalyzer:
                     if total_active > 0:
                         logger.info(f"Stats: Tracking {total_active} active post-SL trades across {len(self.tracks)} symbols")
                     last_log = now
-                    
+
                 time.sleep(0.01) # Avoid tight loop cpu spin
-                
+
             except Exception as e:
                 logger.error(f"Error in main loop: {e}", exc_info=True)
                 time.sleep(1)
@@ -435,7 +438,7 @@ class PostSlAnalyzer:
                 self._ensure_group(TRADES_STREAM, TRADES_GROUP)
                 return
             raise e
-        
+
         if not entries:
             return
 
@@ -448,11 +451,11 @@ class PostSlAnalyzer:
                 finally:
                     self.redis.xack(TRADES_STREAM, TRADES_GROUP, msg_id)
 
-    def _handle_new_trade(self, msg_id: str, fields: Dict[str, Any]):
+    def _handle_new_trade(self, msg_id: str, fields: dict[str, Any]):
         # Hydrate for safety (ensure number formats etc)
-        # Note: hydrate_trade_closed might be expensive if we do it for ALL trades, 
+        # Note: hydrate_trade_closed might be expensive if we do it for ALL trades,
         # but filtering close_reason is cheap.
-        
+
         close_reason = fields.get("close_reason", "")
         if close_reason != "SL" and "SL" not in close_reason:
             # Not an SL trade, ignore
@@ -463,13 +466,13 @@ class PostSlAnalyzer:
 
         # Hydrate to get full prices float conversion
         t = hydrate_trade_closed(self.redis, fields, require_closed=False)
-        
+
         symbol = t.get("symbol")
-        if not symbol: 
+        if not symbol:
             return
 
         # Create TrackState
-        direction = str(t.get("direction", "")).upper()
+        direction = (t.get("direction", "")).upper()
         if direction not in ("LONG", "SHORT"):
             return
 
@@ -485,7 +488,7 @@ class PostSlAnalyzer:
         if entry <= 0 or sl <= 0 or tp1 <= 0:
             return
 
-        regime = str(t.get("regime", "na"))
+        regime = (t.get("regime", "na"))
 
         track = TrackState(
             trade_id=str(t.get("trade_id") or msg_id),
@@ -498,7 +501,7 @@ class PostSlAnalyzer:
             atr_entry=atr,
             regime=regime
         )
-        
+
         self.tracks[symbol].append(track)
         # logger.debug(f"Started tracking post-SL for {symbol} trade {track.trade_id}")
 
@@ -514,7 +517,7 @@ class PostSlAnalyzer:
                 self._ensure_group(CANDLES_STREAM, CANDLES_GROUP)
                 return
             raise e
-        
+
         if not entries:
             return
 
@@ -527,23 +530,23 @@ class PostSlAnalyzer:
                 finally:
                     self.redis.xack(CANDLES_STREAM, CANDLES_GROUP, msg_id)
 
-    def _handle_candle(self, fields: Dict[str, Any]):
+    def _handle_candle(self, fields: dict[str, Any]):
         # Parse Unified Candle Format
         # We need symbol, tf=1m, and valid OHLC
-        
+
         # 1. Symbol/TF check
         sym = fields.get("symbol")
         tf = fields.get("tf") or fields.get("timeframe")
-        
-        if not sym or str(tf).lower() not in ("1m", "m1"):
+
+        if not sym or tf.lower() not in ("1m", "m1"):
             # We only track on 1m bars for standard granularity
             return
-            
+
         # 2. Payload check
         payload = fields.get("payload") or fields.get("data")
         if not payload:
             return
-            
+
         try:
             d = json.loads(payload)
         except json.JSONDecodeError:
@@ -553,13 +556,13 @@ class PostSlAnalyzer:
         try:
             h = float(d.get("high") or d.get("h", 0))
             l = float(d.get("low") or d.get("l", 0))
-            # c = float(d.get("close") or d.get("c", 0)) 
+            # c = float(d.get("close") or d.get("c", 0))
             # We mostly need High/Low for validation
         except (ValueError, TypeError):
             return
 
         ts_ms = int(d.get("ts", 0) or 0)
-        
+
         # Update tracks for this symbol
         if sym in self.tracks:
             self._update_symbol_tracks(sym, h, l, ts_ms)
@@ -567,25 +570,25 @@ class PostSlAnalyzer:
     def _update_symbol_tracks(self, symbol: str, bar_h: float, bar_l: float, bar_ts_ms: int):
         active = self.tracks[symbol]
         finished_indices = []
-        
+
         for i, track in enumerate(active):
             # Skip if candle is OLDER than trade exit (should not happen in real-time but possible in replays)
             if bar_ts_ms < track.start_ts_ms:
                 continue
 
             track.bars_seen += 1
-            
+
             # --- Update local extrema ---
             track.max_favorable = max(track.max_favorable, bar_h)
             track.min_favorable = min(track.min_favorable, bar_l)
-            
+
             # --- Check Conditions ---
-            
+
             # 1. TP1 Hit?
             is_tp_hit, eps_val, trigger_px = self._tp1_hit_bool(
                 track.direction, bar_h, bar_l, track.tp1_price, TP1_EPS_BPS
             )
-            
+
             if is_tp_hit:
                 meta = self._tp1_hit_details(track.direction, track.tp1_price, TP1_EPS_BPS, eps_val, trigger_px)
                 self._finish_track(track, "tp1_hit", bar_ts_ms, finish_meta=meta)
@@ -616,7 +619,7 @@ class PostSlAnalyzer:
                 else:
                     if bar_h >= (track.sl_price + dist):
                         is_atr_cap = True
-                
+
                 if is_atr_cap:
                     self._finish_track(
                         track,
@@ -633,11 +636,11 @@ class PostSlAnalyzer:
             for i in sorted(finished_indices, reverse=True):
                 active.pop(i)
 
-    def _finish_track(self, track: TrackState, reason: str, end_ts_ms: int, finish_meta: Optional[FinishMetaT] = None):
+    def _finish_track(self, track: TrackState, reason: str, end_ts_ms: int, finish_meta: FinishMetaT | None = None):
         # Calculate metrics
         tp1_hit = (reason == "tp1_hit")
         time_to_tp1 = (end_ts_ms - track.start_ts_ms) if tp1_hit else None
-        
+
         # MFE calculation (favorable excursion from Entry)
         # LONG: max_high - entry
         # SHORT: entry - min_low
@@ -646,11 +649,11 @@ class PostSlAnalyzer:
             mfe_money = track.max_favorable - track.entry_price
         else:
             mfe_money = track.entry_price - track.min_favorable
-        
+
         mfe_r = 0.0
         if track.risk_dist > 0:
             mfe_r = mfe_money / track.risk_dist
-            
+
         mfe_atr = 0.0
         if track.atr_entry > 0:
             mfe_atr = mfe_money / track.atr_entry
@@ -667,7 +670,7 @@ class PostSlAnalyzer:
             # If max_favorable > sl_price
             if track.max_favorable > track.sl_price:
                 req_buffer_money = track.max_favorable - track.sl_price
-        
+
         req_buffer_atr = 0.0
         if track.atr_entry > 0:
             req_buffer_atr = req_buffer_money / track.atr_entry
@@ -680,7 +683,7 @@ class PostSlAnalyzer:
             "regime": _norm_regime(track.regime),
             "post_sl_tp1_hit": int(tp1_hit),
             "post_sl_tp1_time_ms": int(time_to_tp1) if time_to_tp1 is not None else -1,
-            "post_sl_end_reason": str(reason or ""),
+            "post_sl_end_reason": (reason or ""),
             "post_sl_bars_observed": int(track.bars_seen),
             "post_sl_mfe_r": float(mfe_r),
             "post_sl_mfe_atr": float(mfe_atr),
@@ -690,7 +693,7 @@ class PostSlAnalyzer:
             "ingest_ts_ms": now_ms,
             "ts": now_ms  # Legacy validation
         }
-        
+
         # finish_meta sampling + lazy builder
         if finish_meta:
             want, p, _ = self._want_finish_meta(track, reason)
@@ -705,7 +708,7 @@ class PostSlAnalyzer:
                 if self._finish_meta_sample_tags:
                     result["finish_meta_sampled_out"] = 1
                     result["finish_meta_sample_p"] = float(p)
-        
+
         # Publish to output stream
         try:
             self.redis.xadd(OUTPUT_STREAM, result, maxlen=10000)
@@ -715,11 +718,11 @@ class PostSlAnalyzer:
 
 if __name__ == "__main__":
     service = PostSlAnalyzer()
-    
+
     def signal_handler(sig, frame):
         service.stop()
-        
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
     service.start()

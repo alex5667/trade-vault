@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Meta-features schema v10.
 
 v10 = v9 + scenario-awareness features.
@@ -33,22 +34,21 @@ Notes:
 """
 
 
-from typing import Any, Dict, List, Tuple
 import hashlib
+from typing import Any
 
 from core.meta_features_v9 import (
     META_FEAT_V9_COLS,
     META_FEAT_V9_TRANSFORMS,
-    build_meta_features_v9,
     _try_get_float,
+    build_meta_features_v9,
 )
-
 
 META_FEAT_V10_NAME = "meta_feat_v10"
 META_FEAT_V10_VERSION = 10
 
 # ---- New columns added by v10 ----
-META_FEAT_V10_NEW_COLS: List[str] = [
+META_FEAT_V10_NEW_COLS: list[str] = [
     # Scenario source reliability (ordinal: 3=hidden_div, 2=regime, 1=fallback/dz, 0=none)
     "trend_dir_source_int",
     # Binary flags for specific sources
@@ -68,13 +68,13 @@ META_FEAT_V10_NEW_COLS: List[str] = [
     "spread_bps_missing",       # 1 if spread_bps came from static default
 ]
 
-META_FEAT_V10_COLS: List[str] = list(META_FEAT_V9_COLS) + list(META_FEAT_V10_NEW_COLS)
+META_FEAT_V10_COLS: list[str] = list(META_FEAT_V9_COLS) + list(META_FEAT_V10_NEW_COLS)
 META_FEAT_V10_HASH: str = hashlib.sha1(
     ",".join(META_FEAT_V10_COLS).encode("utf-8")
 ).hexdigest()
 
 # ---- Transforms ----
-META_FEAT_V10_TRANSFORMS: Dict[str, str] = dict(META_FEAT_V9_TRANSFORMS)
+META_FEAT_V10_TRANSFORMS: dict[str, str] = dict(META_FEAT_V9_TRANSFORMS)
 META_FEAT_V10_TRANSFORMS.update(
     {
         "trend_dir_source_int":     "identity",   # ordinal [0,3]
@@ -93,7 +93,7 @@ META_FEAT_V10_TRANSFORMS.update(
 
 
 # Ordinal encoding for trend_dir_source string → int
-_TREND_DIR_SOURCE_ORD: Dict[str, int] = {
+_TREND_DIR_SOURCE_ORD: dict[str, int] = {
     "hidden_div": 3,
     "regime":     2,
     "direction":  1,
@@ -108,10 +108,10 @@ def _encode_trend_dir_source(source: str) -> float:
 
 
 def build_meta_features_v10(
-    evidence: Dict[str, Any],
-    indicators: Dict[str, Any],
+    evidence: dict[str, Any],
+    indicators: dict[str, Any],
     **kwargs,
-) -> Tuple[Dict[str, float], List[str]]:
+) -> tuple[dict[str, float], list[str]]:
     """Build meta_feat_v10 (v9 base + scenario awareness features)."""
 
     feat, missing = build_meta_features_v9(evidence=evidence, indicators=indicators, **kwargs)
@@ -128,9 +128,9 @@ def build_meta_features_v10(
     # --- trend_dir_source_int ---
     td_src_raw = ""
     if isinstance(indicators, dict):
-        td_src_raw = str(indicators.get("trend_dir_source", "") or "")
+        td_src_raw = (indicators.get("trend_dir_source", "") or "")
     if not td_src_raw and isinstance(evidence, dict):
-        td_src_raw = str(evidence.get("trend_dir_source", "") or "")
+        td_src_raw = (evidence.get("trend_dir_source", "") or "")
 
     # dz_bypass also signals the "direction" tier
     dz_bp = _get("scenario_dz_bypass", 0.0)
@@ -146,14 +146,14 @@ def build_meta_features_v10(
     # --- Scenario type flags (from indicators["scenario"] or evidence["scenario"]) ---
     scn_raw = ""
     if isinstance(indicators, dict):
-        scn_raw = str(indicators.get("scenario", "") or "")
+        scn_raw = (indicators.get("scenario", "") or "")
     if not scn_raw and isinstance(evidence, dict):
-        scn_raw = str(evidence.get("scenario", "") or "")
+        scn_raw = (evidence.get("scenario", "") or "")
     # Also check of_confirm dict (where scenario is stored post-build)
     if not scn_raw and isinstance(evidence, dict):
         ofc = evidence.get("of_confirm") or {}
         if isinstance(ofc, dict):
-            scn_raw = str(ofc.get("scenario", "") or "")
+            scn_raw = (ofc.get("scenario", "") or "")
 
     feat["scenario_is_reversal"]     = 1.0 if scn_raw == "reversal" else 0.0
     feat["scenario_is_continuation"] = 1.0 if scn_raw == "continuation" else 0.0

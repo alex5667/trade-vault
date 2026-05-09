@@ -1,7 +1,7 @@
-from pathlib import Path
 import importlib.util
 import sys
 import types
+from pathlib import Path
 
 # Allow running from repo root or from services/ directly
 root = Path(__file__).resolve().parents[2]
@@ -69,13 +69,13 @@ class DummyStore:
         self.docs = {}
 
     def load_raw(self, symbol):
-        return dict(self.docs.get(str(symbol).upper()) or {})
+        return dict(self.docs.get(symbol.upper()) or {})
 
     def load_view(self, symbol):
-        return dict(self.docs.get(str(symbol).upper()) or {})
+        return dict(self.docs.get(symbol.upper()) or {})
 
     def mark_released(self, *, symbol, expected_sid='', release_reason='', writer='', extra_patch=None, **kwargs):
-        symbol = str(symbol).upper()
+        symbol = symbol.upper()
         doc = dict(self.docs.get(symbol) or {'symbol': symbol, 'sid': expected_sid, 'guard_version': 1})
         doc.update(extra_patch or {})
         doc['guard_status'] = 'released'

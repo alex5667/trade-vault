@@ -1,19 +1,19 @@
-from utils.time_utils import get_ny_time_millis
 import asyncio
-from utils.task_manager import safe_create_task
-
 import hashlib
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import redis.asyncio as aioredis
 
-from core.redis_lock import RedisLock
-from core.lcb_evaluator import ArmAgg, evaluate_winner_lcb, regime_thresholds
 from core.entry_policy_suggestion_meta_v1 import EntryPolicySuggestionMetaV1
+from core.lcb_evaluator import ArmAgg, evaluate_winner_lcb, regime_thresholds
 from core.redis_keys import RedisStreams as RS
+from core.redis_lock import RedisLock
+from utils.task_manager import safe_create_task
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _now_ms() -> int:
@@ -25,7 +25,7 @@ def _sha1(s: str) -> str:
 
 
 def _s(x: Any) -> str:
-    return str(x or "").strip()
+    return (x or "").strip()
 
 
 def _sym(x: Any) -> str:
@@ -58,10 +58,8 @@ async def _send_telegram_report(r: aioredis.Redis, text: str) -> None:
     Stream/key name is env-tunable because deployments differ.
     """
     stream = os.getenv("TELEGRAM_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
-    try:
+    with contextlib.suppress(Exception):
         await r.xadd(stream, {"type": "report", "text": str(text)}, maxlen=20000, approximate=True)
-    except Exception:
-        pass
 
 
 @dataclass
@@ -86,7 +84,7 @@ class ABWinnerSuggesterV3:
         redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.r: aioredis.Redis = aioredis.from_url(redis_url, decode_responses=True)
 
-        self.events_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+        self.events_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
         self.audit_stream = os.getenv("AB_SUGGEST_STREAM", "cfg:suggestions:entry_policy:stream")
         self.latest_prefix = os.getenv(
             "AB_LATEST_PREFIX",
@@ -100,8 +98,8 @@ class ABWinnerSuggesterV3:
         self._last_id = "0-0"
 
         # in-memory aggregation: (sym,rg,grp,scn)-> arm -> agg
-        self._agg: Dict[Tuple[str, str, str, str], Dict[str, ArmAgg]] = {}
-        self._seen_keys: Dict[Tuple[str, str, str, str], int] = {}
+        self._agg: dict[tuple[str, str, str, str], dict[str, ArmAgg]] = {}
+        self._seen_keys: dict[tuple[str, str, str, str], int] = {}
 
         # scheduling
         self.eval_every_sec = int(os.getenv("AB_EVAL_EVERY_SEC", "3600"))  # hourly
@@ -119,18 +117,16 @@ class ABWinnerSuggesterV3:
             pass
 
     async def _save_cursor(self, x: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             await self.r.set(self.cursor_key, str(x))
-        except Exception:
-            pass
 
-    def _ingest_event(self, ev: Dict[str, Any]) -> None:
+    def _ingest_event(self, ev: dict[str, Any]) -> None:
         """
         Expected flattened fields in events:trades (your logger expands payload to root):
           event_type, sid, symbol, ts, r_mult, ab_arm, ab_group, regime, scenario
         """
         try:
-            if str(ev.get("event_type") or "") != "POSITION_CLOSED":
+            if (ev.get("event_type") or "") != "POSITION_CLOSED":
                 return
             sym = _sym(ev.get("symbol"))
             rg = _rg(ev.get("regime", "na"))
@@ -170,7 +166,7 @@ class ABWinnerSuggesterV3:
             except Exception:
                 await asyncio.sleep(1.0)
 
-    async def _emit_proposal(self, ctx: KeyCtx, winner: str, metrics: Dict[str, Any], reason: str, min_n: int, alpha: float, min_edge_r: float) -> str:
+    async def _emit_proposal(self, ctx: KeyCtx, winner: str, metrics: dict[str, Any], reason: str, min_n: int, alpha: float, min_edge_r: float) -> str:
         now = _now_ms()
         sid = _sha1(f"abwinner|v3|{ctx.symbol}|{ctx.regime}|{ctx.group}|{ctx.scenario}|{winner}|{int(now/1000/60)}")
 
@@ -189,7 +185,7 @@ class ABWinnerSuggesterV3:
             min_n=min_n,
             alpha=float(alpha),
             min_edge_r=float(min_edge_r),
-            reason=str(reason),
+            reason=reason,
             arm_metrics=metrics,
             approvals_required=int(self.approvals_required),
         )
@@ -259,18 +255,12 @@ class ABWinnerSuggesterV3:
                 # regime thresholds (world-practice: stricter in thin/news)
                 min_n, alpha, min_edge_r = regime_thresholds(rg)
                 # ENV overrides (optional)
-                try:
+                with contextlib.suppress(Exception):
                     min_n = int(os.getenv(f"AB_MIN_N_{rg.upper()}", str(min_n)))
-                except Exception:
-                    pass
-                try:
+                with contextlib.suppress(Exception):
                     alpha = float(os.getenv(f"AB_ALPHA_{rg.upper()}", str(alpha)))
-                except Exception:
-                    pass
-                try:
+                with contextlib.suppress(Exception):
                     min_edge_r = float(os.getenv(f"AB_MIN_EDGE_R_{rg.upper()}", str(min_edge_r)))
-                except Exception:
-                    pass
 
                 winner, res, reason = evaluate_winner_lcb(
                     stats_by_arm=per_arm,
@@ -283,7 +273,7 @@ class ABWinnerSuggesterV3:
                     continue
 
                 # compress metrics for meta
-                m: Dict[str, Any] = {}
+                m: dict[str, Any] = {}
                 for arm, rr in (res or {}).items():
                     m[arm] = {
                         "n": rr.n,

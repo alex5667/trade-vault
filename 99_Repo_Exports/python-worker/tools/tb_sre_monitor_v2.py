@@ -3,10 +3,11 @@ from __future__ import annotations
 import argparse
 import os
 import time
-from typing import Optional
 
 from common.telegram_notify import send_telegram
 from tools.tb_sre_checks import check_tb_health
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _fmt_ms(ms: int) -> str:
@@ -35,7 +36,7 @@ def send_tb_alert(h, *, prefix: str = "SRE ALERT | TB_LABELER") -> bool:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", default=os.getenv("REDIS_URL") or os.getenv("TB_REDIS_URL"))
-    ap.add_argument("--input_stream", default=os.getenv("TB_INPUT_STREAM") or "signals:of:inputs")
+    ap.add_argument("--input_stream", default=os.getenv("TB_INPUT_STREAM") or RS.OF_INPUTS)
     ap.add_argument("--labels_stream", default=os.getenv("TB_LABELS_STREAM") or "labels:tb")
     ap.add_argument("--group", default=os.getenv("OF_INPUTS_GROUP"))
     ap.add_argument("--max_input_lag_ms", type=int, default=int(os.getenv("TB_MAX_INPUT_LAG_MS") or "120000"))
@@ -76,10 +77,8 @@ def main() -> int:
             last = 0
         if now - last < args.cooldown_sec:
             return 0
-        try:
+        with contextlib.suppress(Exception):
             r.setex(last_sent_key, args.cooldown_sec * 2, str(now).encode())
-        except Exception:
-            pass
 
     if args.dry_run:
         return 2

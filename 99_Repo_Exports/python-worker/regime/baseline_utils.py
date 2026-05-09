@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable, Sequence, List, Dict
+from collections.abc import Iterable, Sequence
 
-from .models import SignalExecRow, BaselineQuantiles
+from .models import BaselineQuantiles, SignalExecRow
 
 
 def sliding_windows(seq: Sequence[SignalExecRow], window_size: int) -> Iterable[Sequence[SignalExecRow]]:
@@ -17,7 +17,7 @@ def sliding_windows(seq: Sequence[SignalExecRow], window_size: int) -> Iterable[
         yield seq[start:start + window_size]
 
 
-def _quantile(values: List[float], q: float) -> float:
+def _quantile(values: list[float], q: float) -> float:
     """
     Вычисляет квантиль с линейной интерполяцией.
     q в [0,1]
@@ -37,7 +37,7 @@ def _quantile(values: List[float], q: float) -> float:
     return xs[lo] * (1.0 - w) + xs[hi] * w
 
 
-def compute_quantiles(values: List[float]) -> BaselineQuantiles:
+def compute_quantiles(values: list[float]) -> BaselineQuantiles:
     """Вычисляет все необходимые квантили для списка значений."""
     if not values:
         return BaselineQuantiles(
@@ -64,9 +64,9 @@ def compute_quantiles(values: List[float]) -> BaselineQuantiles:
 
 
 def compute_family_baseline(
-    rows: List[SignalExecRow],
+    rows: list[SignalExecRow],
     window_size: int,
-) -> Dict[str, BaselineQuantiles]:
+) -> dict[str, BaselineQuantiles]:
     """
     Вычисляет baseline для одной пары symbol+family.
 
@@ -77,8 +77,8 @@ def compute_family_baseline(
     """
     rows = sorted(rows, key=lambda r: r.opened_at)
 
-    hit_rates: List[float] = []
-    expectancies: List[float] = []
+    hit_rates: list[float] = []
+    expectancies: list[float] = []
 
     for win in sliding_windows(rows, window_size):
         # результаты по окну

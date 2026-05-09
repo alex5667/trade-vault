@@ -1,15 +1,15 @@
-import os
-import json
 import logging
+import os
 import time
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any
 
 from services.analytics_db import get_conn
 
 logger = logging.getLogger("atr_effective_state_resolver")
 
 from services.atr_constants import PRECEDENCE_MAP
+
 
 class EffectiveStateResolver:
     """
@@ -19,7 +19,7 @@ class EffectiveStateResolver:
     """
 
     @staticmethod
-    def _parse_scope(scope_value: str) -> Dict[str, str]:
+    def _parse_scope(scope_value: str) -> dict[str, str]:
         parts = scope_value.split("|")
         if len(parts) >= 8:
             return {
@@ -39,7 +39,7 @@ class EffectiveStateResolver:
         return PRECEDENCE_MAP.get(state.lower(), 0)
 
     @staticmethod
-    def resolve_legacy(scope_kind: str, scope_value: str) -> Dict[str, Any]:
+    def resolve_legacy(scope_kind: str, scope_value: str) -> dict[str, Any]:
         rollout_stage = "none"
         freeze_state = "none"
         override_state = "none"
@@ -96,7 +96,7 @@ class EffectiveStateResolver:
         eff_state = "normal"
         if rollout_stage in ("none", "stopped"):
             eff_state = "no_new_risk"
-            
+
         if freeze_state != "none" and override_state == "none":
             if freeze_state in PRECEDENCE_MAP:
                 eff_state = freeze_state
@@ -106,13 +106,13 @@ class EffectiveStateResolver:
              eff_state = "clip"  # naive legacy assumption
 
         return EffectiveStateResolver._build_output(
-            scope_value, rollout_stage, eff_state, 
-            "blocked" if release_blocked else "allowed", 
+            scope_value, rollout_stage, eff_state,
+            "blocked" if release_blocked else "allowed",
             freeze_state, override_state
         )
 
     @staticmethod
-    def resolve_from_graph(scope_kind: str, scope_value: str) -> Dict[str, Any]:
+    def resolve_from_graph(scope_kind: str, scope_value: str) -> dict[str, Any]:
         rollout_stage = "none"
         freeze_state = "none"
         override_state = "none"
@@ -135,13 +135,13 @@ class EffectiveStateResolver:
                 from services.atr_graph_backed_freeze_override_service import ATRGraphBackedFreezeOverrideService
                 graph_state = ATRGraphBackedFreezeOverrideService.resolve_effective_state(scope_kind, scope_value)
                 freeze_state = graph_state.get("highest_graph_freeze", "none")
-                
+
                 # Override logic: Cannot weaken forbidden paths
                 # But can override to clip for allowed temporary safe state
                 if graph_state.get("override_active"):
                     override_state = "active"
                     override_level = graph_state.get("active_override_level", "clip")
-                    
+
                     # Merge precedence
                     freeze_prec = EffectiveStateResolver._get_precedence(freeze_state)
                     override_prec = EffectiveStateResolver._get_precedence(override_level)
@@ -160,7 +160,7 @@ class EffectiveStateResolver:
                     WHERE n.scope_value = %s AND e.edge_type = 'blocks'
                 """, (scope_value,))
                 release_blocked = cur.fetchone()["c"] > 0
-                
+
                 # if release_blocked is true we can also deduce release_frozen.
                 # If rollout is stopped/none it implies no_new_risk
                 if effective_level == "none" or EffectiveStateResolver._get_precedence(effective_level) < 20:
@@ -181,15 +181,15 @@ class EffectiveStateResolver:
         ),
 
     @staticmethod
-    def _build_output(scope_val, rollout, eff_state, release, freeze, override) -> Dict[str, Any]:
-        
+    def _build_output(scope_val, rollout, eff_state, release, freeze, override) -> dict[str, Any]:
+
         # Constraints logic
         new_entries_allowed = True,
         if EffectiveStateResolver._get_precedence(eff_state) >= 20: # no_new_risk or higher,
             new_entries_allowed = False,
 
         release_allowed = (release != "blocked"),
-        
+
         return {
             "scope": EffectiveStateResolver._parse_scope(scope_val),
             "states": {
@@ -214,14 +214,14 @@ class EffectiveStateResolver:
         }
 
     @staticmethod
-    def resolve_scope(scope_kind: str, scope_value: str, is_shadow_graph_mode: bool = False) -> Dict[str, Any]:
+    def resolve_scope(scope_kind: str, scope_value: str, is_shadow_graph_mode: bool = False) -> dict[str, Any]:
         """ Backward compatibility for 8.1 / existing code expecting this """
         if is_shadow_graph_mode:
             return EffectiveStateResolver.resolve_from_graph(scope_kind, scope_value)
         return EffectiveStateResolver.resolve_legacy(scope_kind, scope_value)
 
     @staticmethod
-    def resolve(scope_kind: str, scope_value: str, mode: str = None) -> Dict[str, Any]:
+    def resolve(scope_kind: str, scope_value: str, mode: str = None) -> dict[str, Any]:
         """
         Mode can be: legacy_only, shadow_compare, graph_primary
         """
@@ -230,7 +230,7 @@ class EffectiveStateResolver:
 
         if mode == "graph_primary" or mode == "graph_read_primary":
             return EffectiveStateResolver.resolve_from_graph(scope_kind, scope_value)
-            
+
         # Phase 8.8: Dynamic component cutover check
         try:
             from services.atr_graph_reconciliation_service import ATRGraphReconciliationService

@@ -1,8 +1,7 @@
-from utils.time_utils import get_ny_time_millis
 import time
-import pytest
 
 from handlers.emitter.unified_signal_emitter import UnifiedSignalEmitter
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeLogger:

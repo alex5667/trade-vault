@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Redis-side sealed-state helpers for ExecHealth freeze control.
@@ -17,8 +18,8 @@ checks / tamper-guard.
 
 import hashlib
 import os
-import time
-from typing import Any, Dict, Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 SEAL_SECRET_ENV = "EXEC_HEALTH_FREEZE_SEAL_SECRET"
 SEAL_ENFORCE_ENV = "EXEC_HEALTH_FREEZE_SEAL_ENFORCE"
@@ -91,14 +92,14 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _s(x: Any, d: str = "") -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
 def _secret(explicit: str | None = None) -> str:
@@ -106,12 +107,12 @@ def _secret(explicit: str | None = None) -> str:
 
 
 def seal_enforced() -> bool:
-    raw = str(os.getenv(SEAL_ENFORCE_ENV, "1") or "1").strip().lower()
+    raw = (os.getenv(SEAL_ENFORCE_ENV, "1") or "1").strip().lower()
     return raw not in {"0", "false", "off", "no"}
 
 
 def allow_unsealed_bootstrap() -> bool:
-    raw = str(os.getenv(SEAL_BOOTSTRAP_ENV, "1") or "1").strip().lower()
+    raw = (os.getenv(SEAL_BOOTSTRAP_ENV, "1") or "1").strip().lower()
     return raw not in {"0", "false", "off", "no"}
 
 
@@ -134,7 +135,7 @@ def compute_seal_digest(mapping: Mapping[str, Any], *, secret: str | None = None
     if not sec:
         return ""
     payload = build_seal_payload(mapping)
-    msg = f"exec_health_freeze_sealed_v1|{sec}|{payload}".encode("utf-8")
+    msg = f"exec_health_freeze_sealed_v1|{sec}|{payload}".encode()
     return hashlib.sha1(msg).hexdigest()
 
 
@@ -160,7 +161,7 @@ def prepare_sealed_mapping(
     now_ms: int | None = None,
     secret: str | None = None,
     force_reason: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     sec = _secret(secret)
     prev = dict(prev_raw or {})
     prev_valid = verify_sealed_hash(prev, secret=sec) if prev else True
@@ -171,9 +172,9 @@ def prepare_sealed_mapping(
             "seal_algorithm": "sha1_v1",
             "seal_version": int(version),
             "seal_prev_digest": _s(prev.get("seal_digest"), "") if prev_valid else "",
-            "seal_entrypoint": str(entrypoint or ""),
+            "seal_entrypoint": (entrypoint or ""),
             "sealed_at_ts_ms": int(now_ms or _now_ms()),
-            "seal_force_reason": str(force_reason or ""),
+            "seal_force_reason": (force_reason or ""),
         }
     )
     out["seal_digest"] = compute_seal_digest(out, secret=secret)
@@ -229,7 +230,7 @@ def sealed_set_sync(
     force: bool = False,
     secret: str | None = None,
     force_reason: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     sec = _secret(secret)
     if not sec and seal_enforced():
         return {"ok": False, "rc": -93, "error": "missing_seal_secret", "mapping": dict(mapping)}
@@ -274,7 +275,7 @@ async def asealed_set(
     force: bool = False,
     secret: str | None = None,
     force_reason: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     sec = _secret(secret)
     if not sec and seal_enforced():
         return {"ok": False, "rc": -93, "error": "missing_seal_secret", "mapping": dict(mapping)}

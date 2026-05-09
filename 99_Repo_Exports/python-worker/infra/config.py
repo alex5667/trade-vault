@@ -1,14 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 Централизованная конфигурация (ENV → объект).
 Ничего не импортирует из ваших модулей, чтобы избежать циклов.
 """
 
-from dataclasses import dataclass, field
 import os
-from typing import List
+from dataclasses import dataclass, field
 
 from core.redis_keys import RedisStreams as RS
+import contextlib
 
 
 def _f(v: str, default: float) -> float:
@@ -56,7 +55,7 @@ class Config:
     # ATR / риск
     atr_period: int = _i(os.getenv("ATR_PERIOD", "14"), 14)
     atr_sl_mult: float = _f(os.getenv("ATR_SL_MULTIPLIER", "1.5"), 1.5)
-    atr_tp_mults: List[float] = field(default_factory=lambda: [2.0, 3.0, 4.0])
+    atr_tp_mults: list[float] = field(default_factory=lambda: [2.0, 3.0, 4.0])
     risk_pct: float = _f(os.getenv("RISK_PERCENT", "5.0"), 5.0)
     min_lot: float = _f(os.getenv("MIN_LOT", "0.01"), 0.01)
     max_lot: float = _f(os.getenv("MAX_LOT", "1.0"), 1.0)
@@ -82,10 +81,8 @@ def load_config() -> Config:
     cfg = Config()
     atr_env = os.getenv("ATR_TP_MULTIPLIERS")
     if atr_env:
-        try:
+        with contextlib.suppress(Exception):
             cfg.atr_tp_mults = [float(x) for x in atr_env.split(",") if x.strip()]
-        except Exception:
-            pass
     return cfg
 
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Auto-trigger checkpoint scrubber from health report.
 
@@ -40,9 +42,8 @@ import argparse
 import json
 import os
 import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Allow direct execution without installing the package
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -57,7 +58,7 @@ except Exception:  # pragma: no cover
     retention_quarantine = None  # type: ignore
 
 
-def should_trigger(report: Dict[str, Any], *, trigger_on_warning: bool = True) -> Dict[str, Any]:
+def should_trigger(report: dict[str, Any], *, trigger_on_warning: bool = True) -> dict[str, Any]:
     """Decide whether to trigger scrub + quarantine from the health report dict.
 
     Returns a dict with 'trigger' (bool) and 'reasons' (list[str]).
@@ -66,7 +67,7 @@ def should_trigger(report: Dict[str, Any], *, trigger_on_warning: bool = True) -
     fields present in the health snapshot so that tests can exercise it without
     connecting to external services.
     """
-    overall = str(report.get('overall_status') or 'unknown')
+    overall = (report.get('overall_status') or 'unknown')
     consistency = dict(report.get('consistency') or {})
     retention = dict(report.get('retention_guard') or {})
 
@@ -116,7 +117,7 @@ def main() -> int:
     report = json.loads(health_path.read_text(encoding='utf-8')) if health_path.exists() else {}
     decision = should_trigger(report, trigger_on_warning=bool(args.trigger_on_warning))
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         'checked_at_ms': get_ny_time_millis(),
         'health_report': str(health_path),
         'decision': decision,
@@ -127,7 +128,7 @@ def main() -> int:
     if decision['trigger']:
         out['scrub_report'] = scrubber.run_scrub(
             r,
-            exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
+            exec_stream=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC),
             checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'),
             state_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
             journal_dsn=args.journal_dsn,
@@ -142,7 +143,7 @@ def main() -> int:
         ):
             out['retention_quarantine_report'] = retention_quarantine.run_policy(
                 r,
-                exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
+                exec_stream=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC),
                 checkpoint_prefix=os.getenv('EXEC_REPLAY_CHECKPOINT_KEY_PREFIX', 'orders:exec:replay:cursor:'),
                 state_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
                 journal_dsn=args.journal_dsn,

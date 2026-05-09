@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Any, Dict, Optional
+from typing import Any
+from core.redis_keys import RedisStreams as RS
 
 try:
     import redis  # type: ignore
@@ -12,7 +13,7 @@ except Exception as e:  # pragma: no cover
     raise SystemExit("redis package is required") from e
 
 
-def _safe_loads(raw: Any) -> Optional[Dict[str, Any]]:
+def _safe_loads(raw: Any) -> dict[str, Any] | None:
     if raw is None:
         return None
     if isinstance(raw, (bytes, bytearray)):
@@ -32,7 +33,7 @@ def _safe_loads(raw: Any) -> Optional[Dict[str, Any]]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", required=True)
-    ap.add_argument("--stream", default="signals:of:inputs")
+    ap.add_argument("--stream", default=RS.OF_INPUTS)
     ap.add_argument("--field", default="payload")
     ap.add_argument("--prefix", default="idx:of_inputs:sid:")
     ap.add_argument("--ttl_sec", type=int, default=172800)
@@ -49,7 +50,7 @@ def main() -> None:
         o = _safe_loads(raw)
         if not o:
             continue
-        sid = str(o.get("sid") or "")
+        sid = (o.get("sid") or "")
         if not sid:
             continue
         sid_key = f"{args.prefix}{sid}"

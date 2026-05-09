@@ -1,6 +1,6 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Dict
 
 
 @dataclass
@@ -15,10 +15,10 @@ class ActiveArmStabilizer:
     hold_down_ms: int = 10 * 60_000
     min_switch_gap_ms: int = 30 * 60_000
 
-    _eff: Dict[str, str] = None
-    _eff_ts: Dict[str, int] = None
-    _cand: Dict[str, str] = None
-    _cand_ts: Dict[str, int] = None
+    _eff: dict[str, str] = None
+    _eff_ts: dict[str, int] = None
+    _cand: dict[str, str] = None
+    _cand_ts: dict[str, int] = None
 
     def __post_init__(self) -> None:
         if self._eff is None:
@@ -31,8 +31,8 @@ class ActiveArmStabilizer:
             self._cand_ts = {}
 
     def update(self, *, key: str, raw: str, now_ms: int) -> str:
-        k = str(key or "").strip()
-        rv = str(raw or "").strip()
+        k = (key or "").strip()
+        rv = (raw or "").strip()
         if not k:
             return rv
 
@@ -76,7 +76,7 @@ class ActiveArmStabilizer:
         return eff
 
     def snapshot(self, key: str) -> dict:
-        k = str(key or "").strip()
+        k = (key or "").strip()
         return {
             "eff": str(self._eff.get(k, "") or ""),
             "eff_ts": int(self._eff_ts.get(k, 0) or 0),

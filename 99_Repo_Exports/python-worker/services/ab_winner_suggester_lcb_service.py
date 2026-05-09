@@ -1,17 +1,18 @@
-from utils.time_utils import get_ny_time_millis
-
 import asyncio
 import hashlib
 import json
 import logging
 import os
 import sys
-import time
 from dataclasses import dataclass
-from typing import Dict, Any, List
+from typing import Any
 
 import redis.asyncio as aioredis
-from core.ab_lcb_evaluator import eval_winner_lcb, RegimeThresholds
+
+from core.ab_lcb_evaluator import RegimeThresholds, eval_winner_lcb
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ABWinnerSuggesterLCB")
@@ -28,7 +29,7 @@ def regime_group(rg: str) -> str:
 
 @dataclass
 class Cfg:
-    events_stream: str = os.getenv("AB_EVENTS_STREAM", "events:trades")
+    events_stream: str = os.getenv("AB_EVENTS_STREAM", RS.EVENTS_TRADES)
     group: str = os.getenv("AB_EVENTS_GROUP", "ab-winner-lcb")
     consumer: str = os.getenv("AB_EVENTS_CONSUMER", f"ab-winner-{os.getpid()}")
     read_count: int = int(os.getenv("AB_EVENTS_READ_COUNT", "200"))
@@ -55,12 +56,12 @@ class ABWinnerSuggesterLCB:
         self.r = aioredis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
         self.running = True
         self.one_shot = one_shot
-        
+
         # Hysteresis state
-        self._eff: Dict[str, str] = {} # effective winner
-        self._eff_ts: Dict[str, int] = {}
-        self._cand: Dict[str, str] = {} # candidate winner
-        self._cand_ts: Dict[str, int] = {}
+        self._eff: dict[str, str] = {} # effective winner
+        self._eff_ts: dict[str, int] = {}
+        self._cand: dict[str, str] = {} # candidate winner
+        self._cand_ts: dict[str, int] = {}
 
     async def _ensure_group(self):
         try:
@@ -69,7 +70,7 @@ class ABWinnerSuggesterLCB:
             if "BUSYGROUP" not in str(e):
                 logger.warning(f"Group create error: {e}")
 
-    def _thr_map(self) -> Dict[str, RegimeThresholds]:
+    def _thr_map(self) -> dict[str, RegimeThresholds]:
         # Helper to load thresholds from env (simplified)
         def _th(r: str, d_n=200, d_r=0.05, d_wr=0.45, d_d=0.0):
             n = int(os.getenv(f"AB_MIN_N_{r.upper()}", str(d_n)))
@@ -77,7 +78,7 @@ class ABWinnerSuggesterLCB:
             lwr = float(os.getenv(f"AB_MIN_LCB_WR_{r.upper()}", str(d_wr)))
             d = float(os.getenv(f"AB_MIN_DELTA_LCB_R_{r.upper()}", str(d_d)))
             # No Z override per regime in env parsing here for brevity, rely on default or extend if needed
-            z = float(self.cfg.z) 
+            z = float(self.cfg.z)
             return RegimeThresholds(min_n=n, min_lcb_r=lr, min_lcb_wr=lwr, min_delta_lcb_vs_a=d, z=z)
 
         return {
@@ -85,7 +86,7 @@ class ABWinnerSuggesterLCB:
             "thin": _th("THIN", 100, 0.02, 0.40, 0.0),
         }
 
-    async def _read_stats(self, symbol: str, regime: str, group: str, scenario: str) -> Dict[str, List[float]]:
+    async def _read_stats(self, symbol: str, regime: str, group: str, scenario: str) -> dict[str, list[float]]:
         # Read raw R-multiples for A, B, C
         arms = ["A", "B", "C"]
         res = {}
@@ -95,10 +96,8 @@ class ABWinnerSuggesterLCB:
             vals = await self.r.lrange(key, 0, 999)
             floats = []
             for v in vals:
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     floats.append(float(v))
-                except (ValueError, TypeError):
-                    pass
             res[arm] = floats
         return res
 
@@ -108,24 +107,24 @@ class ABWinnerSuggesterLCB:
     def _winner_hysteresis(self, key: str, raw_winner: str, now_ms: int) -> str:
         eff = self._eff.get(key, "A")
         eff_ts = self._eff_ts.get(key, 0)
-        
-        # If forcing A (raw_winner "A"), apply immediately if we want fast fallback? 
+
+        # If forcing A (raw_winner "A"), apply immediately if we want fast fallback?
         # Or apply hysteresis too? Usually fallback to A should be fast if A is better.
         # Expert logic usually implies stable switch.
-        
+
         if raw_winner == eff:
             self._cand.pop(key, None)
             return eff
-        
+
         # Candidate check
         cand = self._cand.get(key, "")
         cand_ts = self._cand_ts.get(key, 0)
-        
+
         if cand != raw_winner:
             self._cand[key] = raw_winner
             self._cand_ts[key] = now_ms
             return eff
-            
+
         # If candidate held long enough
         if cand_ts > 0 and (now_ms - cand_ts) >= self.cfg.winner_hold_down_ms:
             # Also check min switch gap
@@ -133,7 +132,7 @@ class ABWinnerSuggesterLCB:
                 self._eff[key] = raw_winner
                 self._eff_ts[key] = now_ms
                 return raw_winner
-        
+
         return eff
 
     async def _propose(self, *, symbol: str, regime: str, group: str, scenario: str, winner: str, dec: dict) -> None:
@@ -155,7 +154,7 @@ class ABWinnerSuggesterLCB:
             "type": "ab_winner_lcb_v2",
             "decision": dec,
         }
-        
+
         try:
             pipe = self.r.pipeline()
             pipe.set(meta_key, json.dumps(meta, ensure_ascii=False, separators=(",", ":")), ex=14 * 24 * 3600)
@@ -170,7 +169,7 @@ class ABWinnerSuggesterLCB:
     async def _eval_bucket(self, symbol: str, regime: str, group: str, scenario: str) -> None:
         samples = await self._read_stats(symbol, regime, group, scenario)
         thr_map = self._thr_map()
-        
+
         dec = eval_winner_lcb(
             samples_by_arm=samples,
             regime=regime,
@@ -184,14 +183,14 @@ class ABWinnerSuggesterLCB:
              # Even if winner is A, we might need to switch BACK to A if currently B/C.
              # So we proceed to hysteresis check with "A"
              pass
-        
+
         now = _now_ms()
         bkey = self._bucket_key(symbol, regime, group, scenario)
         chosen = self._winner_hysteresis(bkey, dec.winner, now)
-        
+
         # Always proposal if it changes stable state or confirms it?
         # Use latest logic: suggest current chosen winner.
-        
+
         # Serialize LCBs for debug
         lcb_r_clean = {k: float(v) for k, v in dec.lcb_r.items()}
         lcb_wr_clean = {k: float(v) for k, v in dec.lcb_wr.items()}
@@ -212,33 +211,29 @@ class ABWinnerSuggesterLCB:
             }
         )
 
-    async def _process_msg(self, msg: Dict[str, Any]):
+    async def _process_msg(self, msg: dict[str, Any]):
         try:
             # Flattened payload from TradeMonitor
             p = msg
             if "payload" in p and isinstance(p["payload"], str):
-                 try:
+                 with contextlib.suppress(ValueError, TypeError):
                      p.update(json.loads(p["payload"]))
-                 except (ValueError, TypeError):
-                     pass
 
-            sym = str(p.get("symbol") or "").upper()
+            sym = (p.get("symbol") or "").upper()
             if not sym: return
 
-            arm = str(p.get("ab_arm") or "A").upper()
-            group = str(p.get("ab_group") or "default").lower()
-            regime = str(p.get("regime") or "na").lower()
-            scenario = str(p.get("scenario") or "").lower()
+            arm = (p.get("ab_arm") or "A").upper()
+            group = (p.get("ab_group") or "default").lower()
+            regime = (p.get("regime") or "na").lower()
+            scenario = (p.get("scenario") or "").lower()
             if not scenario:
                 # heuristics if missing
                 scenario = "continuation" # default? or "na"
 
             r_mult = 0.0
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 r_mult = float(p.get("r_mult") or 0.0)
-            except (ValueError, TypeError):
-                pass
-            
+
             # Store sample
             # List key: ab:vals:v1:{sym}:{regime}:{group}:{scenario}:{arm}
             k = f"{self.cfg.agg_prefix}:{sym}:{regime}:{group}:{scenario}:{arm}"
@@ -249,7 +244,7 @@ class ABWinnerSuggesterLCB:
             reg_key = "ab:agg:registry:v1"
             bk = f"{sym}|{regime}|{group}|{scenario}"
             await self.r.sadd(reg_key, bk)
-            
+
         except Exception as e:
             logger.error(f"process error: {e}")
 
@@ -259,7 +254,7 @@ class ABWinnerSuggesterLCB:
             members = await self.r.smembers(reg_key)
         except Exception:
             members = []
-        
+
         for m in members:
             try:
                 sym, rg, gr, scn = str(m).split("|", 3)
@@ -278,7 +273,7 @@ class ABWinnerSuggesterLCB:
         # Else consumer loop
         await self._ensure_group()
         last_eval = _now_ms()
-        
+
         while self.running:
             # 1. Read messages
             try:
@@ -309,7 +304,5 @@ if __name__ == "__main__":
     one_shot = "--once" in sys.argv
     svc = ABWinnerSuggesterLCB(one_shot=one_shot)
     loop = asyncio.get_event_loop()
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         loop.run_until_complete(svc.run())
-    except KeyboardInterrupt:
-        pass

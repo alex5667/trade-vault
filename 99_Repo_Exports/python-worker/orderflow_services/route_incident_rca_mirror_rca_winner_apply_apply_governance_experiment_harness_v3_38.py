@@ -1,13 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import hashlib
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -99,15 +100,15 @@ ALLOWED_MODES = {"DISABLED", "SHADOW", "SINGLE_ARM", "MULTI_ARM"}
 ALLOWED_ARMS = {"deterministic", "vertex_candidate", "local_fallback_candidate"}
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -150,8 +151,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -179,11 +180,11 @@ def default_allow_severities() -> set[str]:
     return {x.strip().lower() for x in DEFAULT_ALLOW_SEVERITIES.split(",") if x.strip()}
 
 
-def default_arm_weights() -> Dict[str, int]:
+def default_arm_weights() -> dict[str, int]:
     parsed = maybe_json(DEFAULT_ARM_WEIGHTS_JSON, {})
     if not isinstance(parsed, dict):
         parsed = {}
-    out: Dict[str, int] = {}
+    out: dict[str, int] = {}
     for k, v in parsed.items():
         kk = str(k)
         if kk in ALLOWED_ARMS:
@@ -191,14 +192,14 @@ def default_arm_weights() -> Dict[str, int]:
     return out or {"deterministic": 100}
 
 
-def default_shadow_arms() -> List[str]:
+def default_shadow_arms() -> list[str]:
     parsed = maybe_json(DEFAULT_SHADOW_ARMS_JSON, [])
     if not isinstance(parsed, list):
         parsed = []
     return [str(x) for x in parsed if str(x) in ALLOWED_ARMS and str(x) != DEFAULT_PRIMARY_ARM]
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     mode = str(raw.get("mode") or DEFAULT_MODE).upper()
     if mode not in ALLOWED_MODES:
         mode = DEFAULT_MODE
@@ -208,7 +209,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     arm_weights = maybe_json(raw.get("arm_weights_json"), default_arm_weights())
     if not isinstance(arm_weights, dict):
         arm_weights = default_arm_weights()
-    weights: Dict[str, int] = {}
+    weights: dict[str, int] = {}
     for arm, weight in arm_weights.items():
         arm_s = str(arm)
         if arm_s in ALLOWED_ARMS:
@@ -235,11 +236,11 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def choose_arm(bundle_id: str, salt: str, weights: Dict[str, int]) -> str:
+def choose_arm(bundle_id: str, salt: str, weights: dict[str, int]) -> str:
     total = sum(weights.values())
     if total <= 0:
         return "deterministic"
-    digest = hashlib.sha256(f"{salt}|{bundle_id}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{salt}|{bundle_id}".encode()).hexdigest()
     value = int(digest[:16], 16) % total
     cursor = 0
     for arm in sorted(weights.keys()):
@@ -249,9 +250,9 @@ def choose_arm(bundle_id: str, salt: str, weights: Dict[str, int]) -> str:
     return sorted(weights.keys())[0]
 
 
-def evaluate_bundle(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
-    severity = str(bundle.get("trigger_severity") or "").lower()
-    bundle_id = str(bundle.get("bundle_id") or "")
+def evaluate_bundle(bundle: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    severity = (bundle.get("trigger_severity") or "").lower()
+    bundle_id = (bundle.get("bundle_id") or "")
     out = {
         "decision": "REJECT",
         "reason_code": "REJECTED",
@@ -299,12 +300,12 @@ def evaluate_bundle(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str,
     return out
 
 
-def exposure_row(bundle: Dict[str, Any], arm: str, is_primary: bool, mode: str) -> Dict[str, Any]:
+def exposure_row(bundle: dict[str, Any], arm: str, is_primary: bool, mode: str) -> dict[str, Any]:
     return {
         "schema_version": 1,
-        "bundle_id": str(bundle.get("bundle_id") or ""),
-        "trigger_type": str(bundle.get("trigger_type") or ""),
-        "trigger_severity": str(bundle.get("trigger_severity") or ""),
+        "bundle_id": (bundle.get("bundle_id") or ""),
+        "trigger_type": (bundle.get("trigger_type") or ""),
+        "trigger_severity": (bundle.get("trigger_severity") or ""),
         "arm": arm,
         "is_primary": "1" if is_primary else "0",
         "mode": mode,
@@ -312,17 +313,17 @@ def exposure_row(bundle: Dict[str, Any], arm: str, is_primary: bool, mode: str) 
     }
 
 
-def build_arm_request(bundle: Dict[str, Any], arm: str, is_primary: bool) -> Dict[str, Any]:
+def build_arm_request(bundle: dict[str, Any], arm: str, is_primary: bool) -> dict[str, Any]:
     base = {
         "schema_version": 1,
         "request_id": f"{bundle.get('bundle_id','')}:{arm}",
-        "bundle_id": str(bundle.get("bundle_id") or ""),
+        "bundle_id": (bundle.get("bundle_id") or ""),
         "task_family": "route_incident_rca_mirror_rca_winner_apply_apply_governance_rca",
         "arm": arm,
         "is_primary": "1" if is_primary else "0",
         "source": APP_NAME,
         "bundle_json": stable_json(bundle),
-        "severity": str(bundle.get("trigger_severity") or "warning"),
+        "severity": (bundle.get("trigger_severity") or "warning"),
         "ts_ms": str(now_ms()),
     }
     if arm == "deterministic":
@@ -357,15 +358,15 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_hash(r: Any, key: str) -> Dict[str, Any]:
+async def read_hash(r: Any, key: str) -> dict[str, Any]:
     return as_dict(await r.hgetall(key))
 
 
 async def persist_if_configured(
     db_url: str,
-    bundle: Dict[str, Any],
-    decision: Dict[str, Any],
-    exposures: List[Dict[str, Any]],
+    bundle: dict[str, Any],
+    decision: dict[str, Any],
+    exposures: list[dict[str, Any]],
 ) -> None:
     if not db_url or psycopg is None:
         return
@@ -432,8 +433,8 @@ async def persist_if_configured(
             conn.commit()
 
 
-async def route_exposures(r: Any, bundle: Dict[str, Any], decision: Dict[str, Any], mode: str) -> List[Dict[str, Any]]:
-    exposures: List[Dict[str, Any]] = []
+async def route_exposures(r: Any, bundle: dict[str, Any], decision: dict[str, Any], mode: str) -> list[dict[str, Any]]:
+    exposures: list[dict[str, Any]] = []
     arms = [(decision["primary_arm"], True)] + [(a, False) for a in decision["shadow_arms"]]
     for arm, is_primary in arms:
         exp = exposure_row(bundle, arm, is_primary, mode)
@@ -483,19 +484,19 @@ async def main() -> None:  # pragma: no cover
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     decision = evaluate_bundle(bundle, policy)
                     decision_label = decision["decision"]
-                    exposures: List[Dict[str, Any]] = []
+                    exposures: list[dict[str, Any]] = []
                     if decision["decision"] == "EXPOSE":
                         exposures = await route_exposures(r, bundle, decision, policy["mode"])
                     await persist_if_configured(db_url, bundle, decision, exposures)
 
                     out = {
                         "schema_version": 1,
-                        "bundle_id": str(bundle.get("bundle_id") or ""),
-                        "trigger_type": str(bundle.get("trigger_type") or ""),
-                        "trigger_severity": str(bundle.get("trigger_severity") or ""),
+                        "bundle_id": (bundle.get("bundle_id") or ""),
+                        "trigger_type": (bundle.get("trigger_type") or ""),
+                        "trigger_severity": (bundle.get("trigger_severity") or ""),
                         "decision": decision["decision"],
                         "reason_code": decision["reason_code"],
                         "primary_arm": decision["primary_arm"],
@@ -513,7 +514,7 @@ async def main() -> None:  # pragma: no cover
                     await r.hset(
                         LAST_HASH,
                         mapping={
-                            "bundle_id": str(bundle.get("bundle_id") or ""),
+                            "bundle_id": (bundle.get("bundle_id") or ""),
                             "decision": decision["decision"],
                             "reason_code": decision["reason_code"],
                             "primary_arm": decision["primary_arm"],

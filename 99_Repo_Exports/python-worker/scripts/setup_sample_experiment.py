@@ -10,9 +10,9 @@ This script demonstrates how to:
 3. Query experiment results
 """
 
-import os
 import json
-from datetime import datetime, timedelta
+import os
+
 import psycopg2
 from psycopg2.extras import RealDictCursor
 

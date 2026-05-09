@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -51,15 +52,15 @@ MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_ESCALATIONS_MAXLEN", "20000
 RUN_EVERY_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_ESCALATIONS_RUN_EVERY_SEC", "300"))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -73,8 +74,8 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -105,12 +106,12 @@ def parse_float(v: Any, default: float = 0.0) -> float:
         return default
 
 
-def decide_severity(slo: Dict[str, Any], retry: Dict[str, Any]) -> Dict[str, Any]:
+def decide_severity(slo: dict[str, Any], retry: dict[str, Any]) -> dict[str, Any]:
     promotion_apply_rate = parse_float(slo.get("promotion_apply_rate"), 1.0)
     rollback_apply_rate = parse_float(slo.get("rollback_apply_rate"), 1.0)
     mttr_p95 = parse_float(slo.get("rollback_mttr_p95_sec"), 0.0)
-    retry_decision = str(retry.get("decision") or "NOOP")
-    retry_reason = str(retry.get("reason_code") or "NO_ACTION")
+    retry_decision = (retry.get("decision") or "NOOP")
+    retry_reason = (retry.get("reason_code") or "NO_ACTION")
 
     severity = "info"
     reason_codes = []
@@ -139,7 +140,7 @@ def decide_severity(slo: Dict[str, Any], retry: Dict[str, Any]) -> Dict[str, Any
     }
 
 
-async def persist_if_configured(db_url: str, summary: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, summary: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover

@@ -1,9 +1,6 @@
 """Tests for observability alerts worker."""
 
-import os
-from unittest.mock import Mock, patch
-
-import pytest
+from unittest.mock import Mock
 
 from services.observability.alerts_worker import _b2s, _cooldown_ok, _read_set
 

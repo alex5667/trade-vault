@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for signal_quality_gating/services/ml_calibration.py
 
 Tests cover: clip_prob, logit, sigmoid, PlattLogitCalibrator,
@@ -7,25 +8,21 @@ brier_score, logloss, ece_score, fit_platt_logit.
 
 
 import math
-import sys
-import os
 
 import pytest
 
 # Ensure signal_quality_gating is importable from the parent package
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-
 from services.ml_calibration import (
-    clip_prob,
-    logit,
-    sigmoid,
     PlattLogitCalibrator,
     brier_score,
-    logloss,
+    clip_prob,
     ece_score,
     fit_platt_logit,
+    logit,
+    logloss,
+    sigmoid,
 )
-
 
 # ---------------------------------------------------------------------------
 # clip_prob

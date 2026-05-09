@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Comprehensive unit tests for SmtLeaderCoherenceGate (gate #8).
 
@@ -20,13 +21,12 @@ Covers all scenarios from the spec table:
 import json
 import math
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
-from tests.fake_redis import FakeRedis
 from handlers.crypto_orderflow.utils.smt_coherence_gate import SmtLeaderCoherenceGate
-
+from tests.fake_redis import FakeRedis
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,8 +72,8 @@ def _mk_state_hash(r: FakeRedis, bundle: str, **kwargs) -> None:
     mapping = {
         "leader": kwargs.get("leader", "BTCUSDT"),
         "leader_dir": kwargs.get("leader_dir", "UP"),
-        "leader_confirm": str(kwargs.get("leader_confirm", 1)),
-        "coh": str(kwargs.get("coh", 0.80)),
+        "leader_confirm": (kwargs.get("leader_confirm", 1)),
+        "coh": (kwargs.get("coh", 0.80)),
     }
     mapping.update({k: str(v) for k, v in kwargs.items()
                     if k not in ("leader", "leader_dir", "leader_confirm", "coh")})
@@ -146,16 +146,16 @@ def test_observe_mode_attaches_all_audit_fields(monkeypatch):
     ctx = _ctx()
     g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="breakout", direction="LONG")
 
-    assert getattr(ctx, "smt_bundle") == "btc_eth"
-    assert getattr(ctx, "smt_leader") == "BTCUSDT"
-    assert getattr(ctx, "smt_leader_dir") == "UP"
-    assert int(getattr(ctx, "smt_leader_confirm")) == 1
-    assert math.isfinite(float(getattr(ctx, "smt_coh")))
-    assert float(getattr(ctx, "smt_coh")) == pytest.approx(0.80)
-    assert int(getattr(ctx, "smt_coh_hi")) == 1   # >= 0.65
-    assert int(getattr(ctx, "smt_align")) == 1     # LONG vs UP → align
-    assert int(getattr(ctx, "smt_blocked")) == 0
-    assert getattr(ctx, "smt_block_reason") == ""
+    assert ctx.smt_bundle == "btc_eth"
+    assert ctx.smt_leader == "BTCUSDT"
+    assert ctx.smt_leader_dir == "UP"
+    assert int(ctx.smt_leader_confirm) == 1
+    assert math.isfinite(float(ctx.smt_coh))
+    assert float(ctx.smt_coh) == pytest.approx(0.80)
+    assert int(ctx.smt_coh_hi) == 1   # >= 0.65
+    assert int(ctx.smt_align) == 1     # LONG vs UP → align
+    assert int(ctx.smt_blocked) == 0
+    assert ctx.smt_block_reason == ""
 
 
 # ===========================================================================
@@ -172,9 +172,9 @@ def test_veto_countertrend_with_confirm_and_coh_hi(monkeypatch):
     assert dec.apply is True
     assert dec.veto is True
     assert dec.reason_code == "VETO_SMT_COUNTERTREND"
-    assert int(getattr(ctx, "smt_blocked")) == 1
-    assert getattr(ctx, "smt_block_reason") == "COUNTERTREND_VS_CONFIRMED_LEADER"
-    assert int(getattr(ctx, "smt_align")) == 0
+    assert int(ctx.smt_blocked) == 1
+    assert ctx.smt_block_reason == "COUNTERTREND_VS_CONFIRMED_LEADER"
+    assert int(ctx.smt_align) == 0
 
 
 def test_veto_aligned_no_veto(monkeypatch):
@@ -217,7 +217,7 @@ def test_coh_exactly_at_threshold_triggers_hi(monkeypatch):
     g = _mk_gate(r, mode="veto", thr=0.65, monkeypatch=monkeypatch)
     ctx = _ctx()
     dec = g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="breakout", direction="SHORT")
-    assert int(getattr(ctx, "smt_coh_hi")) == 1
+    assert int(ctx.smt_coh_hi) == 1
     assert dec.veto is True
 
 
@@ -228,7 +228,7 @@ def test_coh_just_below_threshold_not_hi(monkeypatch):
     g = _mk_gate(r, mode="veto", thr=0.65, monkeypatch=monkeypatch)
     ctx = _ctx()
     dec = g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="breakout", direction="SHORT")
-    assert int(getattr(ctx, "smt_coh_hi")) == 0
+    assert int(ctx.smt_coh_hi) == 0
     assert dec.veto is False
 
 
@@ -257,8 +257,8 @@ def test_news_veto_sets_audit_fields(monkeypatch):
     g = _mk_gate(r, mode="veto", monkeypatch=monkeypatch)
     ctx = _ctx()
     g.evaluate(ctx=ctx, symbol="BTCUSDT", kind="breakout", direction="LONG")
-    assert int(getattr(ctx, "smt_blocked")) == 1
-    assert getattr(ctx, "smt_block_reason") == "NEWS_GATE"
+    assert int(ctx.smt_blocked) == 1
+    assert ctx.smt_block_reason == "NEWS_GATE"
 
 
 def test_news_veto_not_triggered_in_observe_mode(monkeypatch):
@@ -296,9 +296,9 @@ def test_golden_reversal_sets_ctx_fields(monkeypatch):
     g = _mk_gate(r, mode="veto", monkeypatch=monkeypatch)
     ctx = _ctx()
     g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="breakout", direction="SHORT")
-    assert int(getattr(ctx, "smt_blocked")) == 0
-    assert getattr(ctx, "smt_block_reason") == "GOLDEN_REVERSAL"
-    assert int(getattr(ctx, "smt_golden")) == 1
+    assert int(ctx.smt_blocked) == 0
+    assert ctx.smt_block_reason == "GOLDEN_REVERSAL"
+    assert int(ctx.smt_golden) == 1
 
 
 def test_golden_reversal_not_matched_for_other_symbol(monkeypatch):
@@ -328,8 +328,8 @@ def test_continuation_veto_when_countertrend(monkeypatch):
     dec = g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="breakout", direction="SHORT")
     assert dec.veto is True
     assert dec.reason_code == "VETO_SMT_COUNTERTREND"
-    assert int(getattr(ctx, "smt_blocked")) == 1
-    assert getattr(ctx, "smt_block_reason") == "COUNTER_CONTINUATION"
+    assert int(ctx.smt_blocked) == 1
+    assert ctx.smt_block_reason == "COUNTER_CONTINUATION"
 
 
 def test_continuation_no_veto_when_aligned(monkeypatch):
@@ -406,7 +406,7 @@ def test_direction_normalization(monkeypatch, direction: str, expected_align: in
     g = _mk_gate(r, mode="observe", monkeypatch=monkeypatch)
     ctx = _ctx()
     g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="breakout", direction=direction)
-    assert int(getattr(ctx, "smt_align")) == expected_align
+    assert int(ctx.smt_align) == expected_align
 
 
 # ===========================================================================
@@ -423,8 +423,8 @@ def test_hash_state_read_path(monkeypatch):
     dec = g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="breakout", direction="SHORT")
     assert dec.apply is True
     assert dec.veto is True
-    assert getattr(ctx, "smt_leader") == "BTCUSDT"
-    assert float(getattr(ctx, "smt_coh")) == pytest.approx(0.80)
+    assert ctx.smt_leader == "BTCUSDT"
+    assert float(ctx.smt_coh) == pytest.approx(0.80)
 
 
 # ===========================================================================
@@ -465,5 +465,5 @@ def test_threshold_fallback_to_reliability_thr(monkeypatch):
     ctx = _ctx()
     dec = g.evaluate(ctx=ctx, symbol="ETHUSDT", kind="breakout", direction="SHORT")
     # 0.70 >= 0.65 → coh_hi=1
-    assert int(getattr(ctx, "smt_coh_hi")) == 1
+    assert int(ctx.smt_coh_hi) == 1
     assert dec.veto is True

@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-
-import pytest
 
 
 def test_finalize_trade_adds_realized_slippage_spread_and_adverse(monkeypatch):
@@ -22,7 +19,7 @@ def test_finalize_trade_adds_realized_slippage_spread_and_adverse(monkeypatch):
         contract_size = 1.0
         def pnl_money(self, entry_price: float, price: float, lot: float, direction: str, symbol="") -> float:
             sign = 1.0 if str(direction).upper() == "LONG" else -1.0
-            return (float(price) - float(entry_price)) * sign * float(lot)
+            return (float(price) - float(entry_price)) * sign * lot
 
     spec = FakeSpec()
 
@@ -59,12 +56,12 @@ def test_finalize_trade_adds_realized_slippage_spread_and_adverse(monkeypatch):
 
     # realized_slippage_bps = |98.5-99|/99*1e4 ≈ 50.505...
     assert hasattr(closed, "realized_slippage_bps")
-    assert float(getattr(closed, "realized_slippage_bps")) > 0
+    assert float(closed.realized_slippage_bps) > 0
 
     assert hasattr(closed, "realized_spread_bps")
-    assert abs(float(getattr(closed, "realized_spread_bps")) - 50.0) < 1e-9
+    assert abs(float(closed.realized_spread_bps) - 50.0) < 1e-9
 
     assert hasattr(closed, "adverse_bps_t")
-    adv = json.loads(getattr(closed, "adverse_bps_t"))
+    adv = json.loads(closed.adverse_bps_t)
     assert adv["500"] == 12.0 or adv.get(500) == 12.0
     assert adv["2000"] == 25.0 or adv.get(2000) == 25.0

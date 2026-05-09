@@ -10,7 +10,9 @@ import argparse
 import json
 import os
 import sys
+
 import redis
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -30,13 +32,13 @@ def main():
         return 1
 
     print(f"Target Key: {args.key}")
-    
+
     # Check existing config
     current_cfg = r.hgetall(args.key)
     if not current_cfg:
         print(f"WARNING: Key {args.key} is empty or does not exist.")
         current_cfg = {}
-    
+
     print("Current Config (partial):")
     print(f"  kind: {current_cfg.get('kind')}")
     print(f"  calibrator: {current_cfg.get('calibrator')}")
@@ -51,17 +53,17 @@ def main():
 
     print("\nProposed Change:")
     print(f"  calibrator -> {new_cal_json}")
-    
+
     if args.apply:
         r.hset(args.key, "calibrator", new_cal_json)
         # Also ensure calibration is enabled
         r.hset(args.key, "calibrate_p_edge", "1")
         print("\nAPPLIED successfully.")
-        
+
         # Verify
         final_cal = r.hget(args.key, "calibrator")
         final_flag = r.hget(args.key, "calibrate_p_edge")
-        print(f"\nVerification:")
+        print("\nVerification:")
         print(f"  calibrator: {final_cal}")
         print(f"  calibrate_p_edge: {final_flag}")
     else:

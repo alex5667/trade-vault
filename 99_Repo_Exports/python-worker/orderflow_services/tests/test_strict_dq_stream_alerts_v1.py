@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-import yaml
+
 import pytest
+import yaml
 
 
 def _alerts_path(tick_flow_full: bool = False) -> str:

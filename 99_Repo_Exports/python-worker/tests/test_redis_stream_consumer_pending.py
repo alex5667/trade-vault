@@ -1,9 +1,8 @@
 # python-worker/tests/test_redis_stream_consumer_pending.py
 
-import pytest
 from redis.exceptions import ResponseError
 
-from core.redis_stream_consumer import _parse_xpending_summary, SyncRedisStreamHelper
+from core.redis_stream_consumer import SyncRedisStreamHelper, _parse_xpending_summary
 
 
 class DummyRedis:

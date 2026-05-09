@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+
 """P12: ExecHealth freeze-control ACL drift exporter.
 
 Reads:
@@ -28,19 +30,19 @@ ENV:
 """,
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
-from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
-from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
 from services.orderflow.exec_health_freeze_acl_contract import (
+    EXPECTED_ACL_PROFILES,
     EXPECTED_USERS,
     compare_acl,
     count_connections_by_user,
     is_default_user_disabled,
     normalise_acl_line,
     unknown_user_connections,
-    EXPECTED_ACL_PROFILES,
 )
+from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
 
 try:
     import redis  # type: ignore
@@ -48,6 +50,7 @@ except Exception:  # pragma: no cover
     redis = None
 
 from prometheus_client import Gauge, start_http_server
+import contextlib
 
 # ─── Prometheus metrics ──────────────────────────────────────────────────────
 
@@ -111,7 +114,7 @@ class DriftExporter:
         heal_service_identity_sync(self.r, "exec_health_freeze_acl_drift_exporter_v1", force=True)
         self._last_cycle_ts: float = 0.0
 
-    def _read_acl_list(self) -> List[str]:
+    def _read_acl_list(self) -> list[str]:
         result = self.r.execute_command("ACL", "LIST")
         return list(result) if result else []
 
@@ -125,7 +128,7 @@ class DriftExporter:
         if isinstance(result, (list, tuple)) and len(result) >= 2:
             return str(result[1] or "")
         if isinstance(result, dict):
-            return str(result.get("aclfile", ""))
+            return (result.get("aclfile", ""))
         return ""
 
     def _write_state(self, ts_ms: int) -> None:
@@ -135,23 +138,21 @@ class DriftExporter:
         except Exception:
             pass
 
-    def run_once(self) -> Dict[str, Any]:
+    def run_once(self) -> dict[str, Any]:
         """Single drift-check cycle. Returns summary dict.""",
-        try:
+        with contextlib.suppress(Exception):
             heal_service_identity_sync(self.r, "exec_health_freeze_acl_drift_exporter_v1")
-        except Exception:
-            pass
         now_ms = get_ny_time_millis()
 
         # ── ACL LIST → per-user contract match ──────────────────────────────
         acl_lines = self._read_acl_list()
-        actual_map: Dict[str, str] = {}
+        actual_map: dict[str, str] = {}
         for line in acl_lines:
             user, _ = normalise_acl_line(line)
             if user:
                 actual_map[user] = line
 
-        contract_matches: Dict[str, bool] = {}
+        contract_matches: dict[str, bool] = {}
         for user in EXPECTED_USERS:
             expected_rules = EXPECTED_ACL_PROFILES.get(user, [])
             if user not in actual_map:

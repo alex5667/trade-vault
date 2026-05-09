@@ -9,7 +9,7 @@ procedure deterministic and low-dependency so it can run in the timer worker.
 
 import itertools
 import math
-from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
+from collections.abc import Iterable, Mapping, Sequence
 
 
 def _clean_score(v: object) -> float:
@@ -22,8 +22,8 @@ def _clean_score(v: object) -> float:
     return f
 
 
-def _matrix(matrix: Mapping[str, Sequence[float]]) -> Dict[str, List[float]]:
-    out: Dict[str, List[float]] = {}
+def _matrix(matrix: Mapping[str, Sequence[float]]) -> dict[str, list[float]]:
+    out: dict[str, list[float]] = {}
     width = None
     for key, vals in matrix.items():
         arr = [_clean_score(v) for v in vals]
@@ -37,7 +37,7 @@ def _matrix(matrix: Mapping[str, Sequence[float]]) -> Dict[str, List[float]]:
     return out
 
 
-def contiguous_folds(n_periods: int, n_folds: int = 8) -> List[List[int]]:
+def contiguous_folds(n_periods: int, n_folds: int = 8) -> list[list[int]]:
     if n_periods < 2:
         raise ValueError('need at least 2 periods')
     if n_folds < 2:
@@ -45,7 +45,7 @@ def contiguous_folds(n_periods: int, n_folds: int = 8) -> List[List[int]]:
     n_folds = min(int(n_folds), int(n_periods))
     base = n_periods // n_folds
     rem = n_periods % n_folds
-    folds: List[List[int]] = []
+    folds: list[list[int]] = []
     cur = 0
     for i in range(n_folds):
         size = base + (1 if i < rem else 0)
@@ -67,7 +67,7 @@ def _score_variant(period_scores: Sequence[float], indices: Iterable[int]) -> fl
     return sum(xs) / float(len(xs))
 
 
-def _percentile_rank_desc(values: Sequence[Tuple[str, float]], picked: str) -> float:
+def _percentile_rank_desc(values: Sequence[tuple[str, float]], picked: str) -> float:
     ordered = sorted(values, key=lambda kv: (kv[1], kv[0]), reverse=True)
     n = len(ordered)
     if n <= 1:
@@ -79,7 +79,7 @@ def _percentile_rank_desc(values: Sequence[Tuple[str, float]], picked: str) -> f
     return 0.0
 
 
-def compute_pbo(matrix: Mapping[str, Sequence[float]], *, n_folds: int = 8) -> Dict[str, float]:
+def compute_pbo(matrix: Mapping[str, Sequence[float]], *, n_folds: int = 8) -> dict[str, float]:
     """Compute Probability of Backtest Overfitting via CSCV.
 
     Args:
@@ -95,7 +95,7 @@ def compute_pbo(matrix: Mapping[str, Sequence[float]], *, n_folds: int = 8) -> D
     folds = contiguous_folds(periods, n_folds=n_folds)
     half = len(folds) // 2
     split_choices = list(itertools.combinations(range(len(folds)), half))
-    lambdas: List[float] = []
+    lambdas: list[float] = []
     unique_train_picks = 0
 
     for train_fold_ids in split_choices:

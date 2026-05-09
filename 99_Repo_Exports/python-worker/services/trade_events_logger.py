@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 # -*- coding: utf-8 -*-
 """
 Trade Events Logger - Логирование всех торговых событий для trade_back.
@@ -20,27 +22,29 @@ Trade Events Logger - Логирование всех торговых собы�
 - Полнота данных для анализа
 """
 
+import hashlib
 import json
 import os
 import time
-import hashlib
-import redis
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, asdict
 from copy import deepcopy
+from dataclasses import asdict, dataclass
+from typing import Any
+
+import redis
 
 from common.log import setup_logger
 
 # A3: строгий контракт для POSITION_CLOSED + DLQ-хелпер (fail-open) — V2 API
 try:
+    from services.posttrade.redis_stream_dlq import publish_dlq_sync
     from services.posttrade.trade_events_contract import (
         normalize_position_closed_event,
-        validate_position_closed_event,
     )
-    from services.posttrade.redis_stream_dlq import publish_dlq_sync
 except Exception:  # pragma: no cover — fallback for direct-run
-    from posttrade.trade_events_contract import normalize_position_closed_event, validate_position_closed_event  # type: ignore
     from posttrade.redis_stream_dlq import publish_dlq_sync  # type: ignore
+    from posttrade.trade_events_contract import (  # type: ignore
+        normalize_position_closed_event,
+    )
 
 log = setup_logger("trade_events_logger")
 
@@ -69,46 +73,45 @@ class TradeEvent:
     sid: str
     symbol: str
     ts: int
-    price: Optional[float] = None
-    new_sl: Optional[float] = None
-    new_tp: Optional[float] = None
-    position_id: Optional[str] = None
-    lot: Optional[float] = None
-    pnl: Optional[float] = None
-    profile: Optional[str] = None
+    price: float | None = None
+    new_sl: float | None = None
+    new_tp: float | None = None
+    position_id: str | None = None
+    lot: float | None = None
+    pnl: float | None = None
+    profile: str | None = None
     source: str = "unknown"
     v: int = 1
-    metadata: Optional[Dict[str, Any]] = None
-    payload: Optional[Dict[str, Any]] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
+    metadata: dict[str, Any] | None = None
+    payload: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         """Конвертация в dict для Redis."""
         data = asdict(self)
         # Убираем None значения
         return {k: v for k, v in data.items() if v is not None}
 
 
-from copy import deepcopy
 
 # ------------------------------
 # Helpers (unit-testable)
 # ------------------------------
 def _merge_close_metadata(
     *,
-    close_reason: Optional[str],
-    ab_arm: Optional[str] = None,
-    ab_group: Optional[str] = None,
-    ab_key: Optional[str] = None,
-    arm_ver: Optional[int] = None,
-    regime: Optional[str] = None,
-    zone_id: Optional[str] = None,
-    base: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
+    close_reason: str | None,
+    ab_arm: str | None = None,
+    ab_group: str | None = None,
+    ab_key: str | None = None,
+    arm_ver: int | None = None,
+    regime: str | None = None,
+    zone_id: str | None = None,
+    base: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """
     Build metadata for POSITION_CLOSED in a backward-compatible way.
     Returns None if nothing to attach.
     """
-    md: Dict[str, Any] = deepcopy(base) if isinstance(base, dict) else {}
+    md: dict[str, Any] = deepcopy(base) if isinstance(base, dict) else {}
     if close_reason:
         md["close_reason"] = str(close_reason)
     if ab_arm:
@@ -138,8 +141,8 @@ class TradeEventsLogger:
     2. events:trades - stream со всеми событиями
     3. trade:timeline:{sid} - sorted set для временной последовательности
     """
-    
-    def __init__(self, redis_url: Optional[str] = None):
+
+    def __init__(self, redis_url: str | None = None):
         """
         Args:
             redis_url: URL Redis (если None, берётся из REDIS_URL env)
@@ -155,9 +158,9 @@ class TradeEventsLogger:
             health_check_interval=60,
         )
         self.r = redis.Redis(connection_pool=_pool)
-        
+
         # Конфигурация
-        self.events_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+        self.events_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
         # ВАЖНО: maxlen конфигурируется через ENV для координации с archiver
         # archiver читает из stream и ack'ает -> можно держать меньший буфер
         # если archiver отстает, события накапливаются до maxlen, затем trimming
@@ -172,7 +175,7 @@ class TradeEventsLogger:
         self.dlq_maxlen = int(os.getenv("TRADE_EVENTS_DLQ_MAXLEN", "200000"))
         # TTL for bad-event idempotency key (prevents DLQ spam for repeated bad events)
         self.bad_idempo_ttl_sec = int(os.getenv("TRADE_EVENTS_BAD_IDEMPO_TTL_SEC", "86400"))  # 1d
-        
+
         # Статистика
         self.stats = {
             "events_written": 0,
@@ -185,12 +188,12 @@ class TradeEventsLogger:
             "position_opened": 0,
             "position_closed": 0
         }
-        
+
         log.info(
             "✅ TradeEventsLogger initialized | stream=%s ttl=%ds",
             self.events_stream, self.events_ttl
         )
-    
+
     @staticmethod
     def _mk_event_id(e: TradeEvent) -> str:
         """Создает уникальный ID события для идемпотентности."""
@@ -223,7 +226,7 @@ class TradeEventsLogger:
             event_dict = event.to_dict()
             extra_payload = event_dict.pop("payload", None)
 
-            stream_payload: Dict[str, Any] = {"event_id": event_id, **event_dict}
+            stream_payload: dict[str, Any] = {"event_id": event_id, **event_dict}
             if isinstance(extra_payload, dict):
                 stream_payload.update(extra_payload)
 
@@ -268,7 +271,7 @@ class TradeEventsLogger:
                 stream_data = dict(normalized)  # already strings (V2 API)
             else:
                 # Generic event: stringify values for Redis Stream
-                stream_data: Dict[str, str] = {}
+                stream_data: dict[str, str] = {}
                 for key, value in stream_payload.items():
                     if isinstance(value, (dict, list)):
                         stream_data[key] = json.dumps(value, ensure_ascii=False)
@@ -327,24 +330,24 @@ class TradeEventsLogger:
             )
             return ""
 
-    def log_tp1_hit(self, sid: str, symbol: str, price: float, position_id: Optional[str] = None, lot: Optional[float] = None, source: str = "mt5") -> str:
+    def log_tp1_hit(self, sid: str, symbol: str, price: float, position_id: str | None = None, lot: float | None = None, source: str = "mt5") -> str:
         event = TradeEvent(event_type="TP1_HIT", sid=sid, symbol=symbol, ts=get_ny_time_millis(), price=price, position_id=position_id, lot=lot, source=source)
         return self.log_event(event)
 
-    def log_tp2_hit(self, sid: str, symbol: str, price: float, position_id: Optional[str] = None, lot: Optional[float] = None, source: str = "mt5") -> str:
+    def log_tp2_hit(self, sid: str, symbol: str, price: float, position_id: str | None = None, lot: float | None = None, source: str = "mt5") -> str:
         event = TradeEvent(event_type="TP2_HIT", sid=sid, symbol=symbol, ts=get_ny_time_millis(), price=price, position_id=position_id, lot=lot, source=source)
         return self.log_event(event)
 
-    def log_tp3_hit(self, sid: str, symbol: str, price: float, position_id: Optional[str] = None, lot: Optional[float] = None, source: str = "mt5") -> str:
+    def log_tp3_hit(self, sid: str, symbol: str, price: float, position_id: str | None = None, lot: float | None = None, source: str = "mt5") -> str:
         event = TradeEvent(event_type="TP3_HIT", sid=sid, symbol=symbol, ts=get_ny_time_millis(), price=price, position_id=position_id, lot=lot, source=source)
         return self.log_event(event)
 
-    def log_sl_hit(self, sid: str, symbol: str, price: float, position_id: Optional[str] = None, lot: Optional[float] = None, source: str = "mt5", reason: Optional[str] = None) -> str:
+    def log_sl_hit(self, sid: str, symbol: str, price: float, position_id: str | None = None, lot: float | None = None, source: str = "mt5", reason: str | None = None) -> str:
         metadata = {"reason": reason} if reason else None
         event = TradeEvent(event_type="SL_HIT", sid=sid, symbol=symbol, ts=get_ny_time_millis(), price=price, position_id=position_id, lot=lot, source=source, metadata=metadata)
         return self.log_event(event)
 
-    def log_trailing_move(self, sid: str, symbol: str, new_sl: float, current_price: Optional[float] = None, profile: str = "unknown", position_id: Optional[str] = None, source: str = "tp_hit_trailing_orchestrator", distance_from_entry: Optional[float] = None, atr: Optional[float] = None) -> str:
+    def log_trailing_move(self, sid: str, symbol: str, new_sl: float, current_price: float | None = None, profile: str = "unknown", position_id: str | None = None, source: str = "tp_hit_trailing_orchestrator", distance_from_entry: float | None = None, atr: float | None = None) -> str:
         metadata = {}
         if distance_from_entry is not None: metadata["distance_from_entry"] = distance_from_entry
         if atr is not None: metadata["atr"] = atr
@@ -352,14 +355,14 @@ class TradeEventsLogger:
         event = TradeEvent(event_type="TRAILING_MOVE", sid=sid, symbol=symbol, ts=get_ny_time_millis(), new_sl=new_sl, profile=profile, position_id=position_id, source=source, metadata=metadata if metadata else None)
         return self.log_event(event)
 
-    def log_trailing_started(self, sid: str, symbol: str, profile: str, initial_sl: Optional[float] = None, tp1_price: Optional[float] = None, position_id: Optional[str] = None, source: str = "tp_hit_trailing_orchestrator") -> str:
+    def log_trailing_started(self, sid: str, symbol: str, profile: str, initial_sl: float | None = None, tp1_price: float | None = None, position_id: str | None = None, source: str = "tp_hit_trailing_orchestrator") -> str:
         metadata = {}
         if initial_sl is not None: metadata["initial_sl"] = initial_sl
         if tp1_price is not None: metadata["tp1_price"] = tp1_price
         event = TradeEvent(event_type="TRAILING_STARTED", sid=sid, symbol=symbol, ts=get_ny_time_millis(), profile=profile, position_id=position_id, source=source, metadata=metadata if metadata else None)
         return self.log_event(event)
 
-    def log_position_opened(self, sid: str, symbol: str, price: float, lot: float, sl: float, tp_levels: List[float], position_id: Optional[str] = None, source: str = "mt5") -> str:
+    def log_position_opened(self, sid: str, symbol: str, price: float, lot: float, sl: float, tp_levels: list[float], position_id: str | None = None, source: str = "mt5") -> str:
         event = TradeEvent(event_type="POSITION_OPENED", sid=sid, symbol=symbol, ts=get_ny_time_millis(), price=price, lot=lot, position_id=position_id, source=source, metadata={"sl": sl, "tp_levels": tp_levels, "entry": price})
         return self.log_event(event)
 
@@ -369,25 +372,25 @@ class TradeEventsLogger:
         symbol: str,
         close_price: float,
         pnl: float,
-        position_id: Optional[str] = None,
-        lot: Optional[float] = None,
+        position_id: str | None = None,
+        lot: float | None = None,
         source: str = "mt5",
-        close_reason: Optional[str] = None,
+        close_reason: str | None = None,
         # A3: explicit time + fill join fields
-        ts_ms: Optional[int] = None,
-        exit_ts_ms: Optional[int] = None,
-        order_id: Optional[str] = None,
-        side: Optional[str] = None,
-        venue: Optional[str] = None,
-        qty: Optional[float] = None,
-        fee_bps: Optional[float] = None,
-        bid_at_fill: Optional[float] = None,
-        ask_at_fill: Optional[float] = None,
-        mid_at_fill: Optional[float] = None,
+        ts_ms: int | None = None,
+        exit_ts_ms: int | None = None,
+        order_id: str | None = None,
+        side: str | None = None,
+        venue: str | None = None,
+        qty: float | None = None,
+        fee_bps: float | None = None,
+        bid_at_fill: float | None = None,
+        ask_at_fill: float | None = None,
+        mid_at_fill: float | None = None,
         # Existing: structured metadata and extra payload
-        metadata: Optional[Dict[str, Any]] = None,
-        payload: Optional[Dict[str, Any]] = None,
-        extra_payload: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+        extra_payload: dict[str, Any] | None = None,
         # Backward-compatible sink for older callsites that pass ab_arm/regime/etc as kwargs
         # (previously these were explicit positional args that caused TypeError).
         **legacy_kwargs: Any,
@@ -405,7 +408,7 @@ class TradeEventsLogger:
         - Валидация контракта происходит в log_event(); при нарушениях событие уйдет в DLQ.
         """
         # --- metadata ---
-        md: Dict[str, Any] = {}
+        md: dict[str, Any] = {}
         if isinstance(metadata, dict):
             md.update(deepcopy(metadata))
 
@@ -419,7 +422,7 @@ class TradeEventsLogger:
             md["close_reason"] = str(close_reason)
 
         # --- payload (root-expanded in stream via log_event) ---
-        pl: Dict[str, Any] = {}
+        pl: dict[str, Any] = {}
         if isinstance(payload, dict):
             pl.update(deepcopy(payload))
         if isinstance(extra_payload, dict):
@@ -447,20 +450,20 @@ class TradeEventsLogger:
         if qty is not None:
             pl["qty"] = float(qty)
         if "qty" not in pl and lot is not None:
-            pl["qty"] = float(lot)
+            pl["qty"] = lot
 
         if fee_bps is not None:
             pl["fee_bps"] = float(fee_bps)
 
         if side is not None:
-            pl["side"] = str(side).upper()
+            pl["side"] = side.upper()
         if "side" not in pl and "direction" in pl:
-            pl["side"] = str(pl.get("direction")).upper()
+            pl["side"] = (pl.get("direction")).upper()
 
         if venue is not None:
             pl["venue"] = str(venue)
         if "venue" not in pl:
-            pl["venue"] = str(source or "unknown")
+            pl["venue"] = (source or "unknown")
 
         # Optional BBO-at-fill for TCA refinements
         if bid_at_fill is not None:
@@ -495,8 +498,8 @@ class TradeEventsLogger:
             payload=(pl or None),
         )
         return self.log_event(event)
-    
-    def get_signal_events(self, sid: str) -> List[Dict[str, Any]]:
+
+    def get_signal_events(self, sid: str) -> list[dict[str, Any]]:
         """
         Получить все события по сигналу.
         
@@ -509,21 +512,21 @@ class TradeEventsLogger:
         try:
             events_key = f"trade:events:{sid}"
             events_json = self.r.lrange(events_key, 0, -1)
-            
+
             events = []
             for event_json in events_json:
                 try:
                     events.append(json.loads(event_json))
                 except json.JSONDecodeError:
                     continue
-            
+
             return events
-            
+
         except Exception as e:
             log.error("Failed to get events for %s: %s", sid, str(e))
             return []
-    
-    def get_trailing_history(self, sid: str) -> List[Dict[str, Any]]:
+
+    def get_trailing_history(self, sid: str) -> list[dict[str, Any]]:
         """
         Получить историю движения trailing stop.
         
@@ -538,8 +541,8 @@ class TradeEventsLogger:
         """
         all_events = self.get_signal_events(sid)
         return [e for e in all_events if e.get("event_type") == "TRAILING_MOVE"]
-    
-    def calculate_signal_outcome(self, sid: str) -> Optional[Dict[str, Any]]:
+
+    def calculate_signal_outcome(self, sid: str) -> dict[str, Any] | None:
         """
         Рассчитать итоговый результат сигнала.
         
@@ -559,7 +562,7 @@ class TradeEventsLogger:
         events = self.get_signal_events(sid)
         if not events:
             return None
-        
+
         outcome = {
             "sid": sid,
             "position_opened": False,
@@ -575,72 +578,72 @@ class TradeEventsLogger:
             "lifetime_ms": 0,
             "close_reason": None
         }
-        
+
         first_ts = None
         last_ts = None
-        
+
         for event in events:
             event_type = event.get("event_type")
             ts = event.get("ts", 0)
-            
+
             if first_ts is None or ts < first_ts:
                 first_ts = ts
             if last_ts is None or ts > last_ts:
                 last_ts = ts
-            
+
             # Обрабатываем по типам
             if event_type == "POSITION_OPENED":
                 outcome["position_opened"] = True
-                
+
             elif event_type == "TP1_HIT":
                 outcome["tp1_hit"] = True
-                
+
             elif event_type == "TP2_HIT":
                 outcome["tp2_hit"] = True
-                
+
             elif event_type == "TP3_HIT":
                 outcome["tp3_hit"] = True
-                
+
             elif event_type == "SL_HIT":
                 outcome["sl_hit"] = True
-                
+
             elif event_type == "TRAILING_STARTED":
                 outcome["trailing_started"] = True
-                
+
             elif event_type == "TRAILING_MOVE":
                 outcome["trailing_moves"] += 1
                 new_sl = event.get("new_sl")
-                
+
                 if new_sl is not None:
                     if outcome["max_sl"] is None or new_sl > outcome["max_sl"]:
                         outcome["max_sl"] = new_sl
                     if outcome["min_sl"] is None or new_sl < outcome["min_sl"]:
                         outcome["min_sl"] = new_sl
-                
+
             elif event_type == "POSITION_CLOSED":
                 pnl = event.get("pnl")
                 if pnl is not None:
                     outcome["final_pnl"] = pnl
-                
+
                 metadata = event.get("metadata", {})
                 if isinstance(metadata, str):
                     try:
                         metadata = json.loads(metadata)
                     except (ValueError, json.JSONDecodeError):
                         metadata = {}
-                
+
                 outcome["close_reason"] = metadata.get("close_reason")
-        
+
         # Рассчитываем время жизни
         if first_ts and last_ts:
             outcome["lifetime_ms"] = last_ts - first_ts
-        
+
         return outcome
-    
-    def get_stats(self) -> Dict[str, int]:
+
+    def get_stats(self) -> dict[str, int]:
         """Получить статистику logger."""
         return self.stats.copy()
-    
+
     def log_stats(self):
         """Вывести статистику в лог."""
         log.info(
@@ -657,11 +660,11 @@ class TradeEventsLogger:
 if __name__ == "__main__":
     # Тестирование
     logger = TradeEventsLogger()
-    
+
     test_sid = f"test-signal-{int(time.time())}"
-    
+
     print(f"\n=== Testing TradeEventsLogger with {test_sid} ===\n")
-    
+
     # Симулируем торговый цикл
     logger.log_position_opened(
         sid=test_sid,
@@ -671,18 +674,18 @@ if __name__ == "__main__":
         sl=2758.7,
         tp_levels=[2769.9, 2773.1, 2776.3]
     )
-    
+
     time.sleep(0.1)
-    
+
     logger.log_tp1_hit(
         sid=test_sid,
         symbol="",
         price=2769.9,
         lot=0.015  # 50% от позиции
     )
-    
+
     time.sleep(0.1)
-    
+
     logger.log_trailing_started(
         sid=test_sid,
         symbol="",
@@ -690,9 +693,9 @@ if __name__ == "__main__":
         initial_sl=2758.7,
         tp1_price=2769.9
     )
-    
+
     time.sleep(0.1)
-    
+
     # Несколько движений трейлинга
     for i, new_sl in enumerate([2762.0, 2764.5, 2767.2, 2769.0]):
         logger.log_trailing_move(
@@ -704,16 +707,16 @@ if __name__ == "__main__":
             distance_from_entry=(new_sl - 2758.7)
         )
         time.sleep(0.05)
-    
+
     logger.log_tp2_hit(
         sid=test_sid,
         symbol="",
         price=2773.1,
         lot=0.01  # 30% от позиции
     )
-    
+
     time.sleep(0.1)
-    
+
     logger.log_position_closed(
         sid=test_sid,
         symbol="",
@@ -722,25 +725,25 @@ if __name__ == "__main__":
         lot=0.005,
         close_reason="trailing_stop"
     )
-    
+
     # Показываем результаты
     print("\n=== Signal Events ===")
     events = logger.get_signal_events(test_sid)
     for i, event in enumerate(events, 1):
         print(f"{i}. {event['event_type']:20} @ {event.get('price', 'N/A'):>8} | new_sl={event.get('new_sl', 'N/A')}")
-    
+
     print("\n=== Trailing History ===")
     trailing = logger.get_trailing_history(test_sid)
     for i, event in enumerate(trailing, 1):
         print(f"{i}. SL moved to {event['new_sl']:.2f}")
-    
+
     print("\n=== Signal Outcome ===")
     outcome = logger.calculate_signal_outcome(test_sid)
     if outcome:
         print(json.dumps(outcome, indent=2))
-    
+
     print("\n=== Logger Stats ===")
     logger.log_stats()
-    
+
     print("\n✅ Test complete")
 

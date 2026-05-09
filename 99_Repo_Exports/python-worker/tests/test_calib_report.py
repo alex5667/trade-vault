@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-from tools.calib_report import _stability_stats, _bars_to_ready
+from tools.calib_report import _bars_to_ready, _stability_stats
 
 
 def test_stability_stats_basic():

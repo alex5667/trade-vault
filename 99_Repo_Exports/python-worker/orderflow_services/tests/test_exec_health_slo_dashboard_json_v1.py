@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for grafana/exec_health_slo_v1.json (P4)."""
 import json
 import os
@@ -19,7 +20,7 @@ class TestExecHealthSloDashboardJson(unittest.TestCase):
 
     def test_dashboard_parses_and_has_panels(self):
         path = self._get_path()
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
 
         self.assertIn("panels", data, "missing panels")
@@ -29,7 +30,7 @@ class TestExecHealthSloDashboardJson(unittest.TestCase):
 
     def test_dashboard_has_required_queries(self):
         path = self._get_path()
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
 
         targets_exprs = []
@@ -48,7 +49,7 @@ class TestExecHealthSloDashboardJson(unittest.TestCase):
 
     def test_dashboard_has_template_variables(self):
         path = self._get_path()
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
 
         tmpl = data.get("templating", {})

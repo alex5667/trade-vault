@@ -1,9 +1,11 @@
 import pytest
+
 from domain.models import PositionState
 from services.horizon_contract import (
-    stamp_position_from_signal_payload,
     hydrate_position_from_signal_payload,
+    stamp_position_from_signal_payload,
 )
+
 
 @pytest.fixture
 def base_payload():
@@ -38,14 +40,14 @@ def test_stamp_position_success(base_payload):
     pos = create_test_pos("p1", "test_sid", "BTCUSDT")
     # Attach
     ok = stamp_position_from_signal_payload(pos, base_payload)
-    
+
     assert ok is True
     assert pos.hold_target_ms == 60000
     assert pos.risk_horizon_bucket == "short"
     assert pos.atr_tf_ms == 300000
     assert pos.horizon_profile_source == "test_source"
     assert pos.atr_source == "test_atr_source"
-    
+
     # Check that canonical contract is preserved in signal_payload
     assert pos.signal_payload["meta"]["contract_ver"] == 2
     assert pos.signal_payload["meta"]["horizon"]["hold_target_ms"] == 60000
@@ -59,9 +61,9 @@ def test_stamp_position_flat_legacy_back_compat():
         "atr_source": "legacy_flat",
     }
     pos = create_test_pos("p2", "test_sid_2", "ETHUSDT")
-    
+
     ok = stamp_position_from_signal_payload(pos, flat_payload)
-    
+
     assert ok is True
     assert pos.hold_target_ms == 120000
     assert pos.risk_horizon_bucket == "medium"
@@ -75,10 +77,10 @@ def test_hydrate_position_from_signal_payload(base_payload):
     # Simulate fresh PositionState recovered from Redis hash (which only has signal_payload)
     pos = create_test_pos("p3", "test_sid", "BTCUSDT")
     pos.signal_payload = base_payload # in real TM, it's already updated from hash
-    
+
     # Hydrate convenience attrs
     ok = hydrate_position_from_signal_payload(pos)
-    
+
     assert ok is True
     assert pos.hold_target_ms == 60000
     assert pos.risk_horizon_bucket == "short"
@@ -88,7 +90,7 @@ def test_fail_open_on_missing_contract():
     pos = create_test_pos("p4", "test_sid", "BTCUSDT")
     # Signal without contract
     empty_payload = {"some": "data"}
-    
+
     ok = stamp_position_from_signal_payload(pos, empty_payload)
     # Should be False or handle gracefully without crashing
     assert ok is False

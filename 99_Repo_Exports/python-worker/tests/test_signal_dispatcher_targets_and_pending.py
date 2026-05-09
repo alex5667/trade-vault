@@ -1,6 +1,6 @@
-import pytest
-from types import SimpleNamespace
 from collections import defaultdict
+from types import SimpleNamespace
+from core.redis_keys import RedisStreams as RS
 
 
 class _FakeRedis:
@@ -52,10 +52,9 @@ class _FakeHelper:
 
 
 def _mk_sd():
-    from services.signal_dispatcher import SignalDispatcher
-
     # Mock Redis connection before creating instance
     import services.signal_dispatcher
+    from services.signal_dispatcher import SignalDispatcher
     original_get_redis = services.signal_dispatcher.get_redis
     services.signal_dispatcher.get_redis = lambda: _FakeRedis()
 
@@ -67,7 +66,7 @@ def _mk_sd():
         sd._ctr = defaultdict(int)
         sd._pending_claimed = 0
         sd.dlq_maxlen = 1000
-        sd.outbox_stream = "stream:signals:outbox"
+        sd.outbox_stream = RS.SIGNAL_OUTBOX
 
         # make leases always available in unit tests
         sd._try_acquire_lease = lambda msg_id: True
@@ -89,7 +88,7 @@ def test_handle_read_messages_processes_messages_correctly():
 
     marks = []
     sd._mark_outbox_done = lambda msg_id: marks.append(str(msg_id))
-    sd.outbox_stream = "stream:signals:outbox"
+    sd.outbox_stream = RS.SIGNAL_OUTBOX
 
     # msg A => ack_now True, msg B => ack_now False
     def _handle_one(msg_id, fields):
@@ -138,9 +137,9 @@ def test_maybe_claim_pending_processes_all_batches_not_only_last():
     sd._maybe_claim_pending(helper)
 
     assert called == ["10-0", "11-0", "12-0"]
-    assert ("stream:signals:outbox", "10-0") in helper.acked
-    assert ("stream:signals:outbox", "11-0") in helper.acked
-    assert ("stream:signals:outbox", "12-0") in helper.acked
+    assert (RS.SIGNAL_OUTBOX, "10-0") in helper.acked
+    assert (RS.SIGNAL_OUTBOX, "11-0") in helper.acked
+    assert (RS.SIGNAL_OUTBOX, "12-0") in helper.acked
 
 
 def test_handle_read_messages_marks_outbox_done_only_on_ack_now_true():
@@ -149,7 +148,7 @@ def test_handle_read_messages_marks_outbox_done_only_on_ack_now_true():
 
     marks = []
     sd._mark_outbox_done = lambda msg_id: marks.append(str(msg_id))
-    sd.outbox_stream = "stream:signals:outbox"
+    sd.outbox_stream = RS.SIGNAL_OUTBOX
 
     # msg A => ack_now True, msg B => ack_now False
     def _handle_one(msg_id, fields):

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from confirmations import L2ConfirmBreakout, L2ConfirmAbsorption
+from confirmations import L2ConfirmAbsorption, L2ConfirmBreakout
 from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
 
 

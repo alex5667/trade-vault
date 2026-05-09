@@ -18,7 +18,7 @@ The gate is designed to be fail-open and should never throw.
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
 @dataclass
@@ -27,12 +27,12 @@ class BookSanityDecision:
     veto: bool
     gate: str
     reason_code: str
-    flags: List[str]
+    flags: list[str]
     notes: str = ""
 
 
 def _profile() -> str:
-    return str(os.getenv("GATE_PROFILE", os.getenv("BOOK_SANITY_PROFILE", "default")) or "default").strip().lower()
+    return os.getenv("GATE_PROFILE", os.getenv("BOOK_SANITY_PROFILE", "default") or "default").strip().lower()
 
 
 class BookSanityGate:
@@ -43,10 +43,10 @@ class BookSanityGate:
         mode: str,
     ) -> None:
         self.enabled = bool(enabled)
-        self.mode = str(mode or "auto").strip().lower()
+        self.mode = (mode or "auto").strip().lower()
 
     @staticmethod
-    def from_env() -> "BookSanityGate":
+    def from_env() -> BookSanityGate:
         enabled = bool(int(os.getenv("BOOK_SANITY_GATE_ENABLED", "1") or 1))
         mode = os.getenv("BOOK_SANITY_MODE", "auto")
         return BookSanityGate(enabled=enabled, mode=str(mode))
@@ -60,7 +60,7 @@ class BookSanityGate:
             return "veto" if p == "hard" else "monitor"
         return "monitor"
 
-    def evaluate(self, *, indicators: Dict[str, Any], symbol: str) -> BookSanityDecision:
+    def evaluate(self, *, indicators: dict[str, Any], symbol: str) -> BookSanityDecision:
         if not self.enabled:
             return BookSanityDecision(apply=False, veto=False, gate="BookSanityGate", reason_code="", flags=[])
 
@@ -109,7 +109,7 @@ class BookSanityGate:
                 apply=True,
                 veto=True,
                 gate="BookSanityGate",
-                reason_code=str(reason),
+                reason_code=reason,
                 flags=flags,
                 notes=f"symbol={symbol}",
             )

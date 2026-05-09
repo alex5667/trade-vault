@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -25,7 +25,7 @@ class ArmStats:
     lcb: float
 
 
-def compute_r_adj(payload: Dict[str, Any]) -> float:
+def compute_r_adj(payload: dict[str, Any]) -> float:
     """Cost-aware realized result in R-units.
 
     r_adj = r_mult - slip_R - fees_R
@@ -61,7 +61,7 @@ def compute_r_adj(payload: Dict[str, Any]) -> float:
     return float(r_mult - slip_R - fees_R)
 
 
-def lcb_from_samples(xs: List[float], *, z: float) -> Tuple[float, float, float, float]:
+def lcb_from_samples(xs: list[float], *, z: float) -> tuple[float, float, float, float]:
     """Returns (mean, std, stderr, lcb) for samples xs."""
     n = len(xs)
     if n <= 0:
@@ -76,8 +76,8 @@ def lcb_from_samples(xs: List[float], *, z: float) -> Tuple[float, float, float,
     return (mean, std, stderr, lcb)
 
 
-def compute_arm_stats(samples_by_arm: Dict[str, List[float]], *, z: float, min_n: int, floor: float) -> List[ArmStats]:
-    out: List[ArmStats] = []
+def compute_arm_stats(samples_by_arm: dict[str, list[float]], *, z: float, min_n: int, floor: float) -> list[ArmStats]:
+    out: list[ArmStats] = []
     for arm, xs in samples_by_arm.items():
         n = len(xs)
         if n < min_n:

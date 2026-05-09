@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # If your repo isn't a Python package, move _fsm_step into a separate module and import from there.
-from services.smt_entry_candidate_service import Setup, RetestState, _fsm_step
+from services.smt_entry_candidate_service import RetestState, Setup, _fsm_step
 
 
 def test_thin_requires_obi_or_iceberg():

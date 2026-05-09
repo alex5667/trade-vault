@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Dict
 
 import redis
 
@@ -15,7 +14,7 @@ def _redis():
     return redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
 
 
-def _target() -> Dict[str, str]:
+def _target() -> dict[str, str]:
     return {
         "source": os.getenv("ATR_POLICY_CERT_SOURCE", "CryptoOrderFlow"),
         "symbol": os.getenv("ATR_POLICY_CERT_SYMBOL", "BTCUSDT"),
@@ -25,17 +24,17 @@ def _target() -> Dict[str, str]:
     }
 
 
-def _active_key(t: Dict[str, str]) -> str:
+def _active_key(t: dict[str, str]) -> str:
     return f"cfg:atr_policy:active:{t['source']}:{t['symbol']}:{t['scenario']}:{t['regime']}:{t['risk_horizon_bucket']}"
 
 
-def _last_good_key(t: Dict[str, str]) -> str:
+def _last_good_key(t: dict[str, str]) -> str:
     return f"cfg:atr_policy:last_good:{t['source']}:{t['symbol']}:{t['scenario']}:{t['regime']}:{t['risk_horizon_bucket']}"
 
 
-def run_once() -> Dict[str, any]:
-    drill_code = str(os.getenv("ATR_POLICY_DRILL_CODE", "ACTIVE_KEY_DELETE") or "ACTIVE_KEY_DELETE")
-    mode = str(os.getenv("ATR_POLICY_DRILL_MODE", "audit_only") or "audit_only")
+def run_once() -> dict[str, any]:
+    drill_code = (os.getenv("ATR_POLICY_DRILL_CODE", "ACTIVE_KEY_DELETE") or "ACTIVE_KEY_DELETE")
+    mode = (os.getenv("ATR_POLICY_DRILL_MODE", "audit_only") or "audit_only")
     t = _target()
     r = _redis()
 
@@ -66,7 +65,7 @@ def run_once() -> Dict[str, any]:
                     break
 
     recovery = full_recovery_run_once()
-    cert = certify(drill_code=drill_code, target=t, run_id=str(recovery.get("run_id", "")), mode=mode)
+    cert = certify(drill_code=drill_code, target=t, run_id=(recovery.get("run_id", "")), mode=mode)
     return {"ok": True, "drill_code": drill_code, "mode": mode, "recovery": recovery, "cert": cert}
 
 

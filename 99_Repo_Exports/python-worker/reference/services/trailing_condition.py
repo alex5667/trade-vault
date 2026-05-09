@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Optional, List
+from typing import Any
 
 from services.ev_giveback_stats import GivebackEmaConfig, read_giveback_ema
 
@@ -27,7 +27,7 @@ def _canon_regime(v: Any) -> str:
     return s if s else "na"
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -71,7 +71,7 @@ class TrailingConditionConfig:
     giveback_min_samples: int
 
     @classmethod
-    def from_env(cls) -> "TrailingConditionConfig":
+    def from_env(cls) -> TrailingConditionConfig:
         enabled = _env_bool("TRAIL_COND_ENABLED", True)
         kinds_allow = _parse_csv_set(os.getenv("TRAIL_COND_KINDS", "breakout,extreme,obi_spike,absorption") or "")
         if not kinds_allow:
@@ -120,12 +120,12 @@ class TrailingDecision:
 
 
 class TrailingConditionEvaluator:
-    def __init__(self, redis_client: Any, *, cfg: Optional[TrailingConditionConfig] = None):
+    def __init__(self, redis_client: Any, *, cfg: TrailingConditionConfig | None = None):
         self.redis = redis_client
         self.cfg = cfg or TrailingConditionConfig.from_env()
         self.gb_cfg = GivebackEmaConfig.from_env()
 
-    def _read_z(self, ctx: Any) -> Optional[float]:
+    def _read_z(self, ctx: Any) -> float | None:
         # Multiple possible names across detectors/pipelines.
         for name in ("z_delta", "delta_z", "z", "raw_score", "zscore"):
             v = _safe_float(getattr(ctx, name, None))
@@ -140,7 +140,7 @@ class TrailingConditionEvaluator:
                     return v
         return None
 
-    def _read_obi(self, ctx: Any) -> Optional[float]:
+    def _read_obi(self, ctx: Any) -> float | None:
         for name in ("obi_avg", "obi_20", "obi", "obi_value"):
             v = _safe_float(getattr(ctx, name, None))
             if v is not None:
@@ -153,7 +153,7 @@ class TrailingConditionEvaluator:
                     return v
         return None
 
-    def _read_obi_sustained(self, ctx: Any) -> Optional[bool]:
+    def _read_obi_sustained(self, ctx: Any) -> bool | None:
         for name in ("obi_sustained", "obi_is_sustained", "obi_stable"):
             v = getattr(ctx, name, None)
             if isinstance(v, bool):
@@ -189,7 +189,7 @@ class TrailingConditionEvaluator:
 
         # ---- momentum gate ----
         momentum_ok = False
-        parts: List[str] = []
+        parts: list[str] = []
 
         if z is not None and abs(float(z)) >= float(self.cfg.z_thr) and self.cfg.z_thr > 0:
             momentum_ok = True
@@ -225,8 +225,8 @@ class TrailingConditionEvaluator:
                 self.redis,
                 cfg=self.gb_cfg,
                 kind=kd,
-                symbol=str(symbol),
-                tf=str(tf or "1m"),
+                symbol=symbol,
+                tf=(tf or "1m"),
                 regime=_canon_regime(regime),
             )
             if st:

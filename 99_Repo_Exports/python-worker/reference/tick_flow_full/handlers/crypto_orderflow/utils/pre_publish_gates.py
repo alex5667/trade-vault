@@ -1,14 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
 import math
-import time
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Set
+from typing import Any
 
-from domain.time_utils import normalize_ts_ms, session_from_ts_ms
 from domain.gate_profile import strict_enabled
+from domain.time_utils import normalize_ts_ms, session_from_ts_ms
 from handlers.crypto_orderflow.utils.drift_reader import load_drift_active_factor
 
 
@@ -21,15 +19,15 @@ def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 def _norm_symbol(sym: Any) -> str:
-    return str(sym or "").strip().upper().replace("/", "").replace("-", "")
+    return (sym or "").strip().upper().replace("/", "").replace("-", "")
 
 
-def _parse_csv_set(v: str) -> Set[str]:
-    out: Set[str] = set()
+def _parse_csv_set(v: str) -> set[str]:
+    out: set[str] = set()
     for x in (v or "").split(","):
         s = x.strip().lower()
         if s:
@@ -49,7 +47,7 @@ def _get_regime(ctx: Any) -> str:
     return "unknown"
 
 
-def _get_epoch_ms(ctx: Any) -> Optional[int]:
+def _get_epoch_ms(ctx: Any) -> int | None:
     ts = getattr(ctx, "ts_event_ms", None) or getattr(ctx, "ts", None)
     try:
         return int(ts) if ts is not None else None
@@ -93,10 +91,10 @@ class HardDataQualityGate:
     atr_stale_max_ms: int
     strict_missing_atr_ts: bool
     strict_touch_fresh: bool
-    veto_flags: Set[str]
+    veto_flags: set[str]
 
     @classmethod
-    def from_env(cls) -> "HardDataQualityGate":
+    def from_env(cls) -> HardDataQualityGate:
         return cls(
             enabled=_env_bool("DATA_HARD_GATE_ENABLED", False),
             require_epoch_ts=_env_bool("DATA_REQUIRE_EPOCH_TS", False),
@@ -182,7 +180,7 @@ class RegimeSessionGate:
     burst_flip_max_default: float
 
     @classmethod
-    def from_env(cls) -> "RegimeSessionGate":
+    def from_env(cls) -> RegimeSessionGate:
         return cls(
             enabled=_env_bool("RS_GATE_ENABLED", False),
             spread_max_bps_default=_env_float("RS_SPREAD_MAX_BPS_DEFAULT", 0.0),  # 0 => disabled by default
@@ -204,9 +202,9 @@ class RegimeSessionGate:
             if os.getenv(name) is None:
                 continue
             return _env_float(name, default)
-        return float(default)
+        return default
 
-    def _pick_bool(self, key: str, sym: str, kind: str, regime: str) -> Optional[bool]:
+    def _pick_bool(self, key: str, sym: str, kind: str, regime: str) -> bool | None:
         name = f"{key}__{sym}__{kind}__{regime}"
         if os.getenv(name) is None:
             return None
@@ -347,7 +345,7 @@ class ConsistencyGate:
     absorption_touch_refill_min_rho: float
 
     @classmethod
-    def from_env(cls) -> "ConsistencyGate":
+    def from_env(cls) -> ConsistencyGate:
         return cls(
             enabled=_env_bool("CONSISTENCY_GATE_ENABLED", False),
             absorption_require_touch_refill=_env_bool("ABSORPTION_REQUIRE_TOUCH_REFILL", False),
@@ -495,12 +493,12 @@ class SmtCoherenceGate:
         self.bundle_id = (bundle_id or "").strip()
         self.coh_min = float(coh_min)
         self.state_stale_ms = int(max(0, state_stale_ms))
-        self.diag_stream = str(diag_stream or "")
+        self.diag_stream = (diag_stream or "")
         self.diag_enabled = bool(diag_enabled)
         self.diag_maxlen = int(max(1000, diag_maxlen))
 
     @classmethod
-    def from_env(cls) -> "SmtCoherenceGate":
+    def from_env(cls) -> SmtCoherenceGate:
         def _i(name: str, d: int) -> int:
             try:
                 return int(float(os.getenv(name, str(d))))
@@ -518,12 +516,12 @@ class SmtCoherenceGate:
             bundle_id=(os.getenv("SMT_COH_BUNDLE", "") or "").strip(),
             coh_min=_f("SMT_COH_MIN", 0.65),
             state_stale_ms=_i("SMT_STATE_STALE_MS", 5_000),
-            diag_stream=str(os.getenv("SMT_DIAG_STREAM", "") or ""),
+            diag_stream=(os.getenv("SMT_DIAG_STREAM", "") or ""),
             diag_enabled=os.getenv("SMT_DIAG_ENABLED", "0").strip() in ("1", "true", "yes", "on"),
             diag_maxlen=_i("SMT_DIAG_MAXLEN", 20000),
         )
 
-    def _read_state(self, redis_client: Any) -> Optional[Dict[str, str]]:
+    def _read_state(self, redis_client: Any) -> dict[str, str] | None:
         if not self.bundle_id:
             return None
         key = f"smt:bundle:v1:{self.bundle_id}"
@@ -531,7 +529,7 @@ class SmtCoherenceGate:
             d = redis_client.hgetall(key) or {}
         except Exception:
             return None
-        dd: Dict[str, str] = {}
+        dd: dict[str, str] = {}
         try:
             for k, v in dict(d).items():
                 dd[_b2s(k)] = _b2s(v)
@@ -541,7 +539,7 @@ class SmtCoherenceGate:
             return None
         return dd
 
-    def _diag(self, redis_client: Any, *, fields: Dict[str, str]) -> None:
+    def _diag(self, redis_client: Any, *, fields: dict[str, str]) -> None:
         if not self.diag_enabled or not self.diag_stream:
             return
         try:
@@ -569,8 +567,8 @@ class SmtCoherenceGate:
         stale = True
 
         if st is not None:
-            leader = str(st.get("leader") or "")
-            leader_dir = str(st.get("leader_dir") or "")
+            leader = (st.get("leader") or "")
+            leader_dir = (st.get("leader_dir") or "")
             leader_confirm = int(_safe_float(st.get("leader_confirm") or 0.0, 0.0))
             coh = float(_safe_float(st.get("coh") or 0.0, 0.0))
             st_ts = int(_safe_float(st.get("ts_ms") or 0.0, 0.0))
@@ -579,14 +577,14 @@ class SmtCoherenceGate:
 
         # --- audit into ctx (never breaks protocol) ---
         try:
-            setattr(ctx, "smt_mode", self.mode)
-            setattr(ctx, "smt_bundle", self.bundle_id)
-            setattr(ctx, "smt_leader", leader)
-            setattr(ctx, "smt_leader_dir", leader_dir)
-            setattr(ctx, "smt_leader_confirm", int(leader_confirm))
-            setattr(ctx, "smt_coh", float(coh))
-            setattr(ctx, "smt_state_ts_ms", int(st_ts))
-            setattr(ctx, "smt_state_stale", bool(stale))
+            ctx.smt_mode = self.mode
+            ctx.smt_bundle = self.bundle_id
+            ctx.smt_leader = leader
+            ctx.smt_leader_dir = leader_dir
+            ctx.smt_leader_confirm = int(leader_confirm)
+            ctx.smt_coh = float(coh)
+            ctx.smt_state_ts_ms = int(st_ts)
+            ctx.smt_state_stale = bool(stale)
         except Exception:
             pass
 
@@ -596,9 +594,9 @@ class SmtCoherenceGate:
                 "event": "SMT_GATE",
                 "mode": self.mode,
                 "bundle": self.bundle_id,
-                "symbol": str(symbol),
+                "symbol": symbol,
                 "kind": str(kind),
-                "side": str(side),
+                "side": side,
                 "veto": "0",
                 "reason": "NO_STATE_OR_STALE",
                 "coh": f"{coh:.6f}",
@@ -610,7 +608,7 @@ class SmtCoherenceGate:
             return GateDecision(True, False, "OK", "no_state_or_stale")
 
         # Map signal side -> direction
-        sig_dir = str(side or "").upper()
+        sig_dir = (side or "").upper()
         if sig_dir not in ("LONG", "SHORT"):
             sig_dir = "NA"
         lead_dir = "LONG" if str(leader_dir).upper() == "UP" else "SHORT"
@@ -622,9 +620,9 @@ class SmtCoherenceGate:
                 "event": "SMT_GATE",
                 "mode": self.mode,
                 "bundle": self.bundle_id,
-                "symbol": str(symbol),
+                "symbol": symbol,
                 "kind": str(kind),
-                "side": str(side),
+                "side": side,
                 "veto": "0",
                 "reason": "OBSERVE_ONLY",
                 "coh": f"{coh:.6f}",
@@ -639,17 +637,17 @@ class SmtCoherenceGate:
         # veto mode: only strict condition
         if countertrend and int(leader_confirm) == 1 and float(coh) >= float(self.coh_min):
             try:
-                setattr(ctx, "smt_veto", True)
-                setattr(ctx, "smt_veto_reason", "COUNTERTREND_VS_CONFIRMED_LEADER")
+                ctx.smt_veto = True
+                ctx.smt_veto_reason = "COUNTERTREND_VS_CONFIRMED_LEADER"
             except Exception:
                 pass
             self._diag(redis_client, fields={
                 "event": "SMT_GATE",
                 "mode": self.mode,
                 "bundle": self.bundle_id,
-                "symbol": str(symbol),
+                "symbol": symbol,
                 "kind": str(kind),
-                "side": str(side),
+                "side": side,
                 "veto": "1",
                 "reason": "VETO_COUNTERTREND",
                 "coh": f"{coh:.6f}",
@@ -665,9 +663,9 @@ class SmtCoherenceGate:
             "event": "SMT_GATE",
             "mode": self.mode,
             "bundle": self.bundle_id,
-            "symbol": str(symbol),
+            "symbol": symbol,
             "kind": str(kind),
-            "side": str(side),
+            "side": side,
             "veto": "0",
             "reason": "PASS",
             "coh": f"{coh:.6f}",

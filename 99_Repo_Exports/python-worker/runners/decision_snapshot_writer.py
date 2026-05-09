@@ -5,14 +5,14 @@ import os
 import socket
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
     import redis.asyncio as aioredis  # type: ignore
 except Exception:  # pragma: no cover
     aioredis = None
 
-from prometheus_client import start_http_server, Counter, Gauge, Histogram
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 logger = logging.getLogger("decision_snapshot_writer")
 
@@ -51,13 +51,13 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(float(_env(name, str(default))))
     except Exception:
-        return int(default)
+        return default
 
 def _env_float(name: str, default: float) -> float:
     try:
         return float(_env(name, str(default)))
     except Exception:
-        return float(default)
+        return default
 
 def pick_dsn() -> str:
     return (
@@ -75,7 +75,7 @@ def _decode(v: Any) -> Any:
             return str(v)
     return v
 
-def _loads_json(v: Any) -> Optional[dict]:
+def _loads_json(v: Any) -> dict | None:
     if v is None:
         return None
     if isinstance(v, dict):
@@ -92,34 +92,34 @@ def _loads_json(v: Any) -> Optional[dict]:
     except Exception:
         return None
 
-def _parse_stream_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
+def _parse_stream_fields(fields: dict[Any, Any]) -> dict[str, Any]:
     if b"payload" in fields:
         return _loads_json(fields.get(b"payload")) or {}
     if "payload" in fields:
         return _loads_json(fields.get("payload")) or {}
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         out[str(_decode(k))] = _decode(v)
     return out
 
-def _to_float(v: Any) -> Optional[float]:
+def _to_float(v: Any) -> float | None:
     try:
         return float(v)
     except Exception:
         return None
 
-def _to_int(v: Any) -> Optional[int]:
+def _to_int(v: Any) -> int | None:
     try:
         return int(float(v))
     except Exception:
         return None
 
-def _normalize_row(evt: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
+def _normalize_row(evt: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
     sid = str(evt.get("sid") or evt.get("signal_id") or "").strip()
     signal_id = str(evt.get("signal_id") or sid).strip()
     symbol = str(evt.get("symbol") or evt.get("sym") or "").strip()
     decision_ts_ms = _to_int(evt.get("decision_ts_ms") or evt.get("ts_ms") or evt.get("ts_emit_ms"))
-    
+
     if not sid:
         return None, "missing:sid"
     if not symbol:
@@ -159,7 +159,7 @@ class PgWriter:
             import psycopg2  # type: ignore
             return psycopg2.connect(self.dsn)
 
-    def insert_rows(self, rows: List[Dict[str, Any]]) -> Tuple[int, int]:
+    def insert_rows(self, rows: list[dict[str, Any]]) -> tuple[int, int]:
         if not rows:
             return 0, 0
         conn = self._connect()
@@ -260,9 +260,9 @@ async def main() -> None:
                     pass
                 continue
 
-            ack_ids: List[str] = []
-            rows: List[Dict[str, Any]] = []
-            
+            ack_ids: list[str] = []
+            rows: list[dict[str, Any]] = []
+
             for _stream, entries in res:
                 for msg_id, fields in entries:
                     payload = _parse_stream_fields(fields)
@@ -272,7 +272,7 @@ async def main() -> None:
                         metrics.dlq_total.labels(reason=reason).inc()
                         ack_ids.append(msg_id)
                         continue
-                    
+
                     now_ms = int(time.time() * 1000)
                     lag_ms = max(0, now_ms - row["decision_ts_ms"])
                     metrics.redis_lag_ms.observe(lag_ms)
@@ -286,7 +286,7 @@ async def main() -> None:
                     metrics.written_total.labels(tca_ready="false").inc(written - tca_ready_count)
                     metrics.last_ok.set(1)
                     metrics.last_batch_rows.set(written)
-                except Exception as e:
+                except Exception:
                     metrics.db_fail_total.inc()
                     metrics.last_ok.set(0)
                     logger.exception("decision_snapshot_writer DB failure")
@@ -295,7 +295,7 @@ async def main() -> None:
 
             if ack_ids:
                 await r.xack(cfg.stream, cfg.group, *ack_ids)
-                
+
             try:
                 pend = await r.xpending(cfg.stream, cfg.group)
                 pending = int(pend["pending"] if isinstance(pend, dict) else pend[0])

@@ -1,9 +1,10 @@
-import math
-from types import SimpleNamespace
-from collections import deque
 import logging
-from handlers.data_processor import OrderFlowDataProcessor
+from collections import deque
+from types import SimpleNamespace
+
 from contexts import BucketState
+from handlers.data_processor import OrderFlowDataProcessor
+
 
 def _mk_proc():
     # Создаём объект без тяжёлого __init__ (чтобы тест был изолированным)
@@ -12,7 +13,7 @@ def _mk_proc():
     p._bucket_state = BucketState()
     p.logger = logging.getLogger("test")
     p.config = SimpleNamespace()
-    
+
     # Init internal robust tracker state
     p._bar_tf_ms = 60_000
     p._bar_id = None
@@ -55,7 +56,7 @@ def test_bar_rollover_finalizes_prev():
     # Check prev fields are populated (fields are now guaranteed to exist)
     # prev_range_bps logic: range=20, open=100 -> 2000 bps
     assert p._bucket_state.prev_bar_range_bps > 0.0
-        
+
     # new bar reset
     assert p._bucket_state.bar_open == 95.0
     assert p._bucket_state.bar_high == 95.0
@@ -79,23 +80,23 @@ def test_robust_z_score_calculation():
     # We need to fill enough history (>=10)
     for i in range(15):
         p._bar_range_hist_bps.append(10.0)
-    
+
     # Check internal helper logic (indirectly via update)
     # If current range bps is huge, Z should be high?
     # BUT: MAD of [10, 10...] is 0. Division by zero protection -> returns 0.0.
-    
+
     # Let's create some variance
     p._bar_range_hist_bps.clear()
     vals = [10.0, 12.0, 8.0, 11.0, 9.0] * 3 # 15 vals, median~10, mad~1
     for v in vals:
         p._bar_range_hist_bps.append(v)
-        
+
     t0 = 1_800_000_000_000
     # price=100. T=0.
-    p._update_bar_range(100.0, t0) 
+    p._update_bar_range(100.0, t0)
     # Move price to create large range. +200 range -> 20000 bps (huge)
     p._update_bar_range(300.0, t0 + 1000)
-    
+
     # Z should be non-zero (positive)
     assert p._bucket_state.bar_range_z > 2.0
 

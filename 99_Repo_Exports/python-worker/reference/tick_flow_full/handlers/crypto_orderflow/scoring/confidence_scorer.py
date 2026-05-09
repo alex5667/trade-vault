@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import math
-from typing import Any, Tuple
-
-from ..utils.helpers import _f
+from typing import Any
 
 
 def _crypto_conf_factor(
-    ctx: "SignalContext",
+    ctx: SignalContext,
     signal_kind: str,
 ) -> tuple[float, dict[str, float] | None]:
     """
@@ -221,7 +218,7 @@ def _crypto_conf_factor(
         regime = "trend"
     elif is_meanrev_mode or is_meanrev:
         regime = "range"
-    
+
     parts["regime"] = 1.0 if regime == "trend" else (0.5 if regime == "range" else 0.0)
 
     # Base weights
@@ -290,7 +287,7 @@ def _crypto_conf_factor(
         return False
 
     bonuses = 0.0
-    
+
     # Strong structural setups
     if _has("reclaim"): bonuses += 0.05
     if _has("obi_stable"): bonuses += 0.04
@@ -298,7 +295,7 @@ def _crypto_conf_factor(
     if _has("fp_edge_absorb"): bonuses += 0.03
     if _has("rsi_agree"): bonuses += 0.03
     if _has("div_match"): bonuses += 0.04
-    
+
     if _has("sweep"):
         bonuses += 0.02
         if _has("sweep_eq"): # High quality EQ sweep
@@ -315,16 +312,16 @@ def _crypto_conf_factor(
          # This usually comes from 'div_kind' or 'div_dir' in evidence
          div_dir = str(getattr(ctx, "div_dir", "") or getattr(ctx, "divergence_direction", "")).upper()
          # ctx.evidence["div_dir"] might be set if div logic puts it there
-         
-         # Assuming signal direction is passed as 'signal_kind' or implicitly known? 
-         # The function signature has 'signal_kind', but commonly direction is passed via side-channel or 
+
+         # Assuming signal direction is passed as 'signal_kind' or implicitly known?
+         # The function signature has 'signal_kind', but commonly direction is passed via side-channel or
          # inferred. Wait, the caller passes `side=direction`.
          # But `_crypto_conf_factor` signature is `(ctx, signal_kind)`.
-         # FIX: We need `side` (direction) here. 
+         # FIX: We need `side` (direction) here.
          # The caller `confidence_scorer.score` calls `_crypto_conf_factor(ctx, kind)`.
-         # It DOES NOT pass side! 
+         # It DOES NOT pass side!
          # We can try to fetch `side` from ctx if available (ConfCtx usually has access to everything)
-         # In tick_processor, we pass `ctx` which resolves to `runtime.config` etc. 
+         # In tick_processor, we pass `ctx` which resolves to `runtime.config` etc.
          # But direction is local var in process_tick.
          # Let's check if we can get it from ctx.ind["direction"] or similar.
          pass # penalty placeholder if we can't reliably get side
@@ -332,7 +329,7 @@ def _crypto_conf_factor(
     parts["raw_bonus"] = bonuses
     bonuses = min(bonuses, 0.12)
     parts["applied_bonus"] = bonuses
-    
+
     base += bonuses
     base = _clamp01(base)
 
@@ -354,21 +351,21 @@ def _crypto_conf_factor(
 
     # Apply penalties
     final_score = base * (1.0 - hard_penalty)
-    
+
     # Data Health Calibration
     # Multiplier = max( (health ^ power), floor )
     dh = float(getattr(ctx, "data_health", 1.0))
     dh_power = float(getattr(ctx, "data_health_power", 1.0))
     dh_floor = float(getattr(ctx, "data_health_floor", 0.0))
-    
+
     dh_mult = max(pow(dh, dh_power), dh_floor)
     dh_mult = _clamp01(dh_mult)
-    
+
     final_score *= dh_mult
-    
+
     parts["data_health"] = dh
     parts["dh_mult"] = dh_mult
-    
+
     final_score = _clamp01(final_score)
 
     parts["confidence_0_1"] = final_score
@@ -388,21 +385,21 @@ class ConfidenceScorer:
     def score(self, kind: str, side: str, ctx: Any) -> tuple[float, dict[str, float] | None]:
         # Delegate to the functional implementation
         # We assume side is available in ctx or handled via evidence injection if needed for penalties.
-        # But _crypto_conf_factor currently doesn't take 'side' explicit arg, 
+        # But _crypto_conf_factor currently doesn't take 'side' explicit arg,
         # it expects ctx to contain necessary info.
-        # We can inject side into ctx if it's a dynamic wrapper, but ctx in TickProcessor 
+        # We can inject side into ctx if it's a dynamic wrapper, but ctx in TickProcessor
         # is a ConfCtx wrapper around indicators/runtime.
-        
+
         # If we need side for penalties (e.g. counter-trend), we should make sure it's in ctx.
         # TickProcessor passes 'side' (direction) to score(), but _crypto_conf_factor doesn't accept it.
         # We can try to monkey-patch ctx or assume 'direction' is in indicators.
         # In tick_processor.py, 'ctx' wraps 'indicators' which DOES NOT necessarily have 'direction' (it has 'side'?)
         # Let's check tick_processor.py again. 'direction' is a local variable.
         # It IS passed to score(..., side=direction, ...)
-        
+
         # So we can pass it via ctx if we attach it.
         if hasattr(ctx, "evidence") and isinstance(ctx.evidence, dict):
              ctx.evidence["side"] = side
              ctx.evidence["direction"] = side
-        
+
         return _crypto_conf_factor(ctx, kind)

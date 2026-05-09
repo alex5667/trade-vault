@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """P9 dual-control thaw evaluator — pure logic, no Redis I/O.
@@ -19,11 +20,14 @@ Violation kinds:
   invalid_control_commit_signature  — control hash thaw signature failed verification
 """
 
-import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any
 
-from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_dual_control_commit_signature
+from services.orderflow.exec_health_freeze_control import (
+    parse_exec_health_freeze_control,
+    verify_dual_control_commit_signature,
+)
 
 
 def _now_ms() -> int:
@@ -32,16 +36,16 @@ def _now_ms() -> int:
 
 def _s(x: Any, d: str = "") -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 DUAL_CONTROL_VIOLATION_KINDS = [
@@ -73,16 +77,16 @@ class FreezeDualControlResult:
     approved_by: str
     commit_by: str
     same_operator_violation: bool
-    violation_kinds: List[str]
+    violation_kinds: list[str]
 
 
-def _event_payload(rec: Any) -> Tuple[str, Dict[str, Any]]:
+def _event_payload(rec: Any) -> tuple[str, dict[str, Any]]:
     if isinstance(rec, (list, tuple)) and len(rec) >= 2:
         return str(rec[0]), dict(rec[1] or {})
     return '', {}
 
 
-def _find_latest(events: Sequence[Any], *, kind: str, request_id: str) -> Tuple[str, Dict[str, Any]]:
+def _find_latest(events: Sequence[Any], *, kind: str, request_id: str) -> tuple[str, dict[str, Any]]:
     """Find the latest event of a given kind for a specific request_id."""
     for rec in events:
         eid, payload = _event_payload(rec)
@@ -91,7 +95,7 @@ def _find_latest(events: Sequence[Any], *, kind: str, request_id: str) -> Tuple[
     return '', {}
 
 
-def _commit_event_to_control_like(payload: Mapping[str, Any]) -> Dict[str, Any]:
+def _commit_event_to_control_like(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Map a manual_ack_thaw_commit event payload to the shape expected by verify_dual_control_commit_signature."""
     return {
         'manual_override_action': 'thaw',
@@ -167,7 +171,7 @@ def evaluate_freeze_dual_control(
     pending_request = bool(request_id and request_status in {'prepared', 'approved'})
     dual_control_ready = bool(request_id and prepare_present and approve_present and not same_operator)
 
-    violations: List[str] = []
+    violations: list[str] = []
     if request_id:
         if request_status in {'prepared', 'approved', 'committed'} and not prepare_present:
             violations.append('prepare_missing')
@@ -190,18 +194,18 @@ def evaluate_freeze_dual_control(
         violations = ['none']
 
     return FreezeDualControlResult(
-        request_id=str(request_id or ''),
-        request_status=str(request_status or ''),
-        request_nonce=str(request_nonce or ''),
+        request_id=(request_id or ''),
+        request_status=(request_status or ''),
+        request_nonce=(request_nonce or ''),
         pending_request=bool(pending_request),
         dual_control_ready=bool(dual_control_ready),
         prepare_event_present=bool(prepare_present),
         approve_event_present=bool(approve_present),
         commit_event_present=bool(commit_present),
         valid_commit_event_present=bool(valid_commit_event_present),
-        prepared_by=str(prepared_by or ''),
-        approved_by=str(approved_by or ''),
-        commit_by=str(commit_by or ''),
+        prepared_by=(prepared_by or ''),
+        approved_by=(approved_by or ''),
+        commit_by=(commit_by or ''),
         same_operator_violation=bool(same_operator),
         violation_kinds=violations,
     )

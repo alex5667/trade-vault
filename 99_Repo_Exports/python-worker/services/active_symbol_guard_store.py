@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """P7: Atomic/CAS wrapper for the active-symbol guard Redis key.
@@ -24,9 +25,9 @@ Callers that want pure blocking semantics should use :meth:`load_active`, not
 """
 
 import json
-import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
+import contextlib
 
 try:
     from services.active_symbol_guard_semantics import active_guard_doc, guard_view
@@ -57,7 +58,7 @@ def _i(v: Any, default: int = 0) -> int:
     try:
         return int(v)
     except Exception:
-        return int(default)
+        return default
 
 
 class ActiveSymbolGuardStore:
@@ -121,7 +122,7 @@ return {1, cjson.encode(doc)}
         tombstone_ttl_sec: int = 120,
     ) -> None:
         self.r = redis_client
-        self.key_prefix = str(key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
+        self.key_prefix = (key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
         self.active_ttl_sec = max(int(active_ttl_sec or 0), 1)
         self.tombstone_ttl_sec = max(int(tombstone_ttl_sec or 0), 1)
         self.diag_prefix = 'orders:active_symbol_guard:diag:'
@@ -130,9 +131,9 @@ return {1, cjson.encode(doc)}
 
     def key(self, symbol: str) -> str:
         """Build the full Redis key for the given symbol."""
-        return f"{self.key_prefix}{str(symbol or '').strip().upper()}"
+        return f"{self.key_prefix}{(symbol or '').strip().upper()}"
 
-    def load_raw(self, symbol: str) -> Dict[str, Any]:
+    def load_raw(self, symbol: str) -> dict[str, Any]:
         """Load the raw guard document (including tombstones) from Redis.
 
         Returns {} on missing key or JSON errors — never raises.
@@ -144,10 +145,10 @@ return {1, cjson.encode(doc)}
         except Exception:
             return {}
 
-    def load_view(self, symbol: str) -> Dict[str, Any]:
+    def load_view(self, symbol: str) -> dict[str, Any]:
         return guard_view(self.load_raw(symbol))
 
-    def load_active(self, symbol: str) -> Dict[str, Any]:
+    def load_active(self, symbol: str) -> dict[str, Any]:
         """Load the guard document only if it represents an *active* guard.
 
         A released tombstone (``guard_status == "released"``) returns ``{}``.
@@ -156,12 +157,12 @@ return {1, cjson.encode(doc)}
         """
         return active_guard_doc(self.load_raw(symbol))
 
-    def _hash_getall(self, key: str) -> Dict[str, Any]:
+    def _hash_getall(self, key: str) -> dict[str, Any]:
         try:
             if hasattr(self.r, 'hgetall'):
                 raw = self.r.hgetall(key) or {}
                 if isinstance(raw, dict):
-                    out: Dict[str, Any] = {}
+                    out: dict[str, Any] = {}
                     for k, v in raw.items():
                         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
                         out[kk] = v.decode() if isinstance(v, (bytes, bytearray)) else v
@@ -199,9 +200,9 @@ return {1, cjson.encode(doc)}
         return f'{self.diag_prefix}timeline:global'
 
     def _symbol_timeline_key(self, symbol: str) -> str:
-        return f"{self.diag_prefix}timeline:symbol:{str(symbol or '').strip().upper()}"
+        return f"{self.diag_prefix}timeline:symbol:{(symbol or '').strip().upper()}"
 
-    def _list_get(self, key: str) -> List[Dict[str, Any]]:
+    def _list_get(self, key: str) -> list[dict[str, Any]]:
         try:
             raw = self.r.get(key)
             arr = json.loads(raw) if raw else []
@@ -209,30 +210,28 @@ return {1, cjson.encode(doc)}
         except Exception:
             return []
 
-    def _list_set(self, key: str, items: List[Dict[str, Any]]) -> None:
-        try:
+    def _list_set(self, key: str, items: list[dict[str, Any]]) -> None:
+        with contextlib.suppress(Exception):
             self.r.set(key, json.dumps(items, ensure_ascii=False, default=str))
-        except Exception:
-            pass
 
-    def _append_event(self, *, symbol: str, sid: str = '', writer: str, operation: str, event_type: str, reason: str = '', doc: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        symbol = str(symbol or '').strip().upper()
+    def _append_event(self, *, symbol: str, sid: str = '', writer: str, operation: str, event_type: str, reason: str = '', doc: dict[str, Any] | None = None) -> dict[str, Any]:
+        symbol = (symbol or '').strip().upper()
         now_ms = _ms_now()
-        base: Dict[str, Any] = {
+        base: dict[str, Any] = {
             'ts_ms': now_ms,
             'symbol': symbol,
-            'sid': str(sid or ''),
-            'writer': str(writer or ''),
-            'operation': str(operation or ''),
-            'event_type': str(event_type or ''),
-            'reason': str(reason or ''),
+            'sid': (sid or ''),
+            'writer': (writer or ''),
+            'operation': (operation or ''),
+            'event_type': (event_type or ''),
+            'reason': (reason or ''),
         }
         if isinstance(doc, dict) and doc:
             base.update({
                 'guard_version': _i(doc.get('guard_version'), 0),
-                'guard_status': str(doc.get('guard_status') or ''),
+                'guard_status': (doc.get('guard_status') or ''),
                 'guard_release_pending': bool(doc.get('guard_release_pending')),
-                'guard_writer': str(doc.get('guard_writer') or ''),
+                'guard_writer': (doc.get('guard_writer') or ''),
             })
         gkey = self._timeline_key()
         skey = self._symbol_timeline_key(symbol)
@@ -248,34 +247,34 @@ return {1, cjson.encode(doc)}
         self._list_set(skey, sevents)
         return base
 
-    def get_symbol_timeline(self, symbol: str, *, limit: int = 50, since_ms: int | None = None) -> List[Dict[str, Any]]:
-        symbol = str(symbol or '').strip().upper()
+    def get_symbol_timeline(self, symbol: str, *, limit: int = 50, since_ms: int | None = None) -> list[dict[str, Any]]:
+        symbol = (symbol or '').strip().upper()
         items = self._list_get(self._symbol_timeline_key(symbol))
         if since_ms is not None:
             items = [ev for ev in items if _i(ev.get('ts_ms'), 0) >= int(since_ms)]
         return items[-max(int(limit or 50), 1):]
 
-    def get_global_timeline(self, *, limit: int = 100, since_ms: int | None = None) -> List[Dict[str, Any]]:
+    def get_global_timeline(self, *, limit: int = 100, since_ms: int | None = None) -> list[dict[str, Any]]:
         items = self._list_get(self._timeline_key())
         if since_ms is not None:
             items = [ev for ev in items if _i(ev.get('ts_ms'), 0) >= int(since_ms)]
         return items[-max(int(limit or 100), 1):]
 
-    def rolling_hot_symbols(self, *, window_ms: int, limit: int = 10) -> List[Dict[str, Any]]:
+    def rolling_hot_symbols(self, *, window_ms: int, limit: int = 10) -> list[dict[str, Any]]:
         now_ms = _ms_now()
         since_ms = max(0, int(now_ms - int(window_ms or 0)))
-        counts: Dict[str, int] = {}
-        reasons: Dict[str, Dict[str, Any]] = {}
+        counts: dict[str, int] = {}
+        reasons: dict[str, dict[str, Any]] = {}
         for ev in self.get_global_timeline(limit=int(self.timeline_limit), since_ms=since_ms):
-            et = str(ev.get('event_type') or '')
+            et = (ev.get('event_type') or '')
             if et not in {'cas_conflict', 'resurrection_attempt'}:
                 continue
-            symbol = str(ev.get('symbol') or '').strip().upper()
+            symbol = (ev.get('symbol') or '').strip().upper()
             if not symbol:
                 continue
             counts[symbol] = int(counts.get(symbol) or 0) + 1
             reasons[symbol] = ev
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for symbol, count in sorted(counts.items(), key=lambda kv: (-int(kv[1]), kv[0]))[:max(int(limit or 10), 1)]:
             out.append({
                 'symbol': symbol,
@@ -291,13 +290,13 @@ return {1, cjson.encode(doc)}
                 pass
         return out
 
-    def reset_window_hot_metric(self, *, window_label: str, symbols: Optional[List[str]] = None) -> None:
+    def reset_window_hot_metric(self, *, window_label: str, symbols: list[str] | None = None) -> None:
         try:
             metric = EXECUTION_ACTIVE_SYMBOL_GUARD_WINDOW_HOT_SYMBOLS
             if metric is None:
                 return
             for symbol in list(symbols or self.list_symbols()):
-                metric.labels(window=str(window_label or ''), symbol=str(symbol or '').strip().upper()).set(0)
+                metric.labels(window=(window_label or ''), symbol=(symbol or '').strip().upper()).set(0)
         except Exception:
             pass
 
@@ -313,31 +312,31 @@ return {1, cjson.encode(doc)}
     def _resurrection_meta_key(self) -> str:
         return f'{self.diag_prefix}resurrection_last'
 
-    def get_conflict_counts(self) -> Dict[str, int]:
+    def get_conflict_counts(self) -> dict[str, int]:
         return {str(k).strip().upper(): _i(v, 0) for k, v in self._hash_getall(self._conflict_count_key()).items()}
 
-    def get_resurrection_counts(self) -> Dict[str, int]:
+    def get_resurrection_counts(self) -> dict[str, int]:
         return {str(k).strip().upper(): _i(v, 0) for k, v in self._hash_getall(self._resurrection_count_key()).items()}
 
-    def get_latest_conflict_meta(self, symbol: str) -> Dict[str, Any]:
-        raw = self._hash_getall(self._conflict_meta_key()).get(str(symbol or '').strip().upper())
+    def get_latest_conflict_meta(self, symbol: str) -> dict[str, Any]:
+        raw = self._hash_getall(self._conflict_meta_key()).get((symbol or '').strip().upper())
         try:
             doc = json.loads(raw) if raw else {}
             return doc if isinstance(doc, dict) else {}
         except Exception:
             return {}
 
-    def get_latest_resurrection_meta(self, symbol: str) -> Dict[str, Any]:
-        raw = self._hash_getall(self._resurrection_meta_key()).get(str(symbol or '').strip().upper())
+    def get_latest_resurrection_meta(self, symbol: str) -> dict[str, Any]:
+        raw = self._hash_getall(self._resurrection_meta_key()).get((symbol or '').strip().upper())
         try:
             doc = json.loads(raw) if raw else {}
             return doc if isinstance(doc, dict) else {}
         except Exception:
             return {}
 
-    def top_conflict_symbols(self, *, limit: int = 10) -> List[Dict[str, Any]]:
+    def top_conflict_symbols(self, *, limit: int = 10) -> list[dict[str, Any]]:
         counts = self.get_conflict_counts()
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for sym, count in sorted(counts.items(), key=lambda kv: (-int(kv[1]), kv[0]))[:max(int(limit or 10), 1)]:
             out.append({
                 'symbol': sym,
@@ -346,9 +345,9 @@ return {1, cjson.encode(doc)}
             })
         return out
 
-    def top_resurrection_symbols(self, *, limit: int = 10) -> List[Dict[str, Any]]:
+    def top_resurrection_symbols(self, *, limit: int = 10) -> list[dict[str, Any]]:
         counts = self.get_resurrection_counts()
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for sym, count in sorted(counts.items(), key=lambda kv: (-int(kv[1]), kv[0]))[:max(int(limit or 10), 1)]:
             out.append({
                 'symbol': sym,
@@ -357,7 +356,7 @@ return {1, cjson.encode(doc)}
             })
         return out
 
-    def list_symbols(self) -> List[str]:
+    def list_symbols(self) -> list[str]:
         out = []
         prefix = f'{self.key_prefix}*'
         try:
@@ -371,42 +370,42 @@ return {1, cjson.encode(doc)}
         return sorted(set(out))
 
     def _record_conflict(self, *, symbol: str, writer: str, operation: str, reason: str) -> None:
-        symbol = str(symbol or '').strip().upper()
+        symbol = (symbol or '').strip().upper()
         try:
             if EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_CONFLICT_TOTAL is not None:
                 EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_CONFLICT_TOTAL.labels(
-                    writer=str(writer or ''),
-                    operation=str(operation or ''),
-                    reason=str(reason or ''),
+                    writer=(writer or ''),
+                    operation=(operation or ''),
+                    reason=(reason or ''),
                 ).inc()
         except Exception:
             pass
         self._hash_incr(self._conflict_count_key(), symbol, 1)
         meta = {
             'symbol': symbol,
-            'writer': str(writer or ''),
-            'operation': str(operation or ''),
-            'reason': str(reason or ''),
+            'writer': (writer or ''),
+            'operation': (operation or ''),
+            'reason': (reason or ''),
             'at_ms': _ms_now(),
         }
         self._hash_set(self._conflict_meta_key(), symbol, json.dumps(meta, ensure_ascii=False, default=str))
         self._append_event(symbol=symbol, writer=writer, operation=operation, event_type='cas_conflict', reason=reason, doc=meta)
 
     def _record_resurrection_attempt(self, *, symbol: str, writer: str, reason: str) -> None:
-        symbol = str(symbol or '').strip().upper()
+        symbol = (symbol or '').strip().upper()
         try:
             if EXECUTION_ACTIVE_SYMBOL_GUARD_RESURRECTION_ATTEMPT_TOTAL is not None:
                 EXECUTION_ACTIVE_SYMBOL_GUARD_RESURRECTION_ATTEMPT_TOTAL.labels(
-                    writer=str(writer or ''),
-                    reason=str(reason or ''),
+                    writer=(writer or ''),
+                    reason=(reason or ''),
                 ).inc()
         except Exception:
             pass
         self._hash_incr(self._resurrection_count_key(), symbol, 1)
         meta = {
             'symbol': symbol,
-            'writer': str(writer or ''),
-            'reason': str(reason or ''),
+            'writer': (writer or ''),
+            'reason': (reason or ''),
             'at_ms': _ms_now(),
         }
         self._hash_set(self._resurrection_meta_key(), symbol, json.dumps(meta, ensure_ascii=False, default=str))
@@ -420,12 +419,12 @@ return {1, cjson.encode(doc)}
         self,
         *,
         symbol: str,
-        payload_doc: Dict[str, Any],
+        payload_doc: dict[str, Any],
         expected_version: int,
         expected_sid: str,
         expected_lease_token: str,
         ttl_sec: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Non-atomic Python fallback for FakeRedis / test environments.
 
         In production, :meth:`_cas_set` uses the Lua script for real atomicity.
@@ -442,9 +441,9 @@ return {1, cjson.encode(doc)}
         cur_ver = _i(cur.get('guard_version'), 0)
         if cur_ver != int(expected_version):
             return {'applied': False, 'reason': 'version_mismatch', 'doc': cur}
-        if expected_sid and str(cur.get('sid') or '').strip() != str(expected_sid or '').strip():
+        if expected_sid and (cur.get('sid') or '').strip() != (expected_sid or '').strip():
             return {'applied': False, 'reason': 'sid_mismatch', 'doc': cur}
-        if expected_lease_token and str(cur.get('guard_lease_token') or '').strip() != str(expected_lease_token or '').strip():
+        if expected_lease_token and (cur.get('guard_lease_token') or '').strip() != (expected_lease_token or '').strip():
             return {'applied': False, 'reason': 'lease_mismatch', 'doc': cur}
         final_doc = dict(payload_doc)
         final_doc['guard_version'] = cur_ver + 1
@@ -455,12 +454,12 @@ return {1, cjson.encode(doc)}
         self,
         *,
         symbol: str,
-        payload_doc: Dict[str, Any],
+        payload_doc: dict[str, Any],
         expected_version: int,
         expected_sid: str,
         expected_lease_token: str,
         ttl_sec: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """CAS write: atomically update the guard key iff version/sid/lease match.
 
         Uses Lua eval on real Redis; falls back to Python for FakeRedis / tests.
@@ -474,8 +473,8 @@ return {1, cjson.encode(doc)}
                     1,
                     key,
                     int(expected_version),
-                    str(expected_sid or ''),
-                    str(expected_lease_token or ''),
+                    (expected_sid or ''),
+                    (expected_lease_token or ''),
                     int(ttl_sec),
                     json.dumps(payload_doc, ensure_ascii=False, default=str),
                 )
@@ -505,11 +504,11 @@ return {1, cjson.encode(doc)}
         *,
         symbol: str,
         sid: str,
-        payload_patch: Dict[str, Any],
+        payload_patch: dict[str, Any],
         writer: str,
-        ttl_sec: Optional[int] = None,
+        ttl_sec: int | None = None,
         retry_once: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Atomically set/update the active-symbol guard for *sid*.
 
         Rules
@@ -526,15 +525,15 @@ return {1, cjson.encode(doc)}
 
         Returns ``{'applied': bool, 'reason': str, 'doc': dict}``.
         """
-        symbol = str(symbol or '').strip().upper()
-        sid = str(sid or '').strip()
+        symbol = (symbol or '').strip().upper()
+        sid = (sid or '').strip()
         now_ms = _ms_now()
         ttl = int(ttl_sec or self.active_ttl_sec)
         current = self.load_raw(symbol)
-        current_status = str(current.get('guard_status') or 'active').strip().lower()
-        current_sid = str(current.get('sid') or '').strip()
+        current_status = (current.get('guard_status') or 'active').strip().lower()
+        current_sid = (current.get('sid') or '').strip()
         expected_version = _i(current.get('guard_version'), 0) if current else 0
-        expected_lease = str(current.get('guard_lease_token') or '').strip() if current else ''
+        expected_lease = (current.get('guard_lease_token') or '').strip() if current else ''
         expected_sid = ''
         if current:
             if current_status == 'released':
@@ -560,9 +559,9 @@ return {1, cjson.encode(doc)}
             'symbol': symbol,
             'sid': sid,
             'guard_status': 'active',
-            'guard_writer': str(writer or ''),
+            'guard_writer': (writer or ''),
             'guard_writer_ts_ms': now_ms,
-            'guard_lease_owner': str(writer or ''),
+            'guard_lease_owner': (writer or ''),
             'guard_lease_token': lease_token,
             'guard_lease_epoch_ms': now_ms,
             'updated_at_ms': int((payload_patch or {}).get('updated_at_ms') or now_ms),
@@ -576,15 +575,15 @@ return {1, cjson.encode(doc)}
             ttl_sec=ttl,
         )
         if not result.get('applied'):
-            self._record_conflict(symbol=symbol, writer=writer, operation='acquire_or_refresh', reason=str(result.get('reason') or 'cas_rejected'))
+            self._record_conflict(symbol=symbol, writer=writer, operation='acquire_or_refresh', reason=(result.get('reason') or 'cas_rejected'))
         # On version_mismatch (concurrent writer raced us) retry once with fresh read
-        if (not result.get('applied')) and retry_once and str(result.get('reason') or '').startswith('version_mismatch'):
+        if (not result.get('applied')) and retry_once and (result.get('reason') or '').startswith('version_mismatch'):
             return self.acquire_or_refresh(
                 symbol=symbol, sid=sid, payload_patch=payload_patch,
                 writer=writer, ttl_sec=ttl, retry_once=False,
             )
         if result.get('applied'):
-            self._append_event(symbol=symbol, sid=sid, writer=writer, operation='acquire_or_refresh', event_type='guard_refresh', reason=str(result.get('reason') or 'updated'), doc=result.get('doc') if isinstance(result.get('doc'), dict) else None)
+            self._append_event(symbol=symbol, sid=sid, writer=writer, operation='acquire_or_refresh', event_type='guard_refresh', reason=(result.get('reason') or 'updated'), doc=result.get('doc') if isinstance(result.get('doc'), dict) else None)
         return result
 
     def mark_released(
@@ -594,10 +593,10 @@ return {1, cjson.encode(doc)}
         expected_sid: str = '',
         release_reason: str = '',
         writer: str,
-        tombstone_ttl_sec: Optional[int] = None,
-        extra_patch: Optional[Dict[str, Any]] = None,
+        tombstone_ttl_sec: int | None = None,
+        extra_patch: dict[str, Any] | None = None,
         retry_once: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Atomically write a release tombstone for the active-symbol guard.
 
         The tombstone keeps the key alive for ``tombstone_ttl_sec`` so that
@@ -606,16 +605,16 @@ return {1, cjson.encode(doc)}
 
         Returns ``{'applied': bool, 'reason': str, 'doc': dict}``.
         """
-        symbol = str(symbol or '').strip().upper()
+        symbol = (symbol or '').strip().upper()
         current = self.load_raw(symbol)
         if not current:
             return {'applied': False, 'reason': 'absent', 'doc': {}}
-        current_sid = str(current.get('sid') or '').strip()
-        if expected_sid and current_sid != str(expected_sid or '').strip():
+        current_sid = (current.get('sid') or '').strip()
+        if expected_sid and current_sid != (expected_sid or '').strip():
             self._record_conflict(symbol=symbol, writer=writer, operation='mark_released', reason='sid_mismatch')
             return {'applied': False, 'reason': 'sid_mismatch', 'doc': current}
         expected_version = _i(current.get('guard_version'), 0)
-        expected_lease = str(current.get('guard_lease_token') or '').strip()
+        expected_lease = (current.get('guard_lease_token') or '').strip()
         now_ms = _ms_now()
         ttl = int(tombstone_ttl_sec or self.tombstone_ttl_sec)
         new_doc = dict(current)
@@ -625,10 +624,10 @@ return {1, cjson.encode(doc)}
             'sid': current_sid,
             'guard_status': 'released',
             'released_at_ms': now_ms,
-            'release_reason': str(release_reason or ''),
-            'guard_writer': str(writer or ''),
+            'release_reason': (release_reason or ''),
+            'guard_writer': (writer or ''),
             'guard_writer_ts_ms': now_ms,
-            'guard_lease_owner': str(writer or ''),
+            'guard_lease_owner': (writer or ''),
             'guard_lease_token': f"{writer}:{now_ms}:{uuid.uuid4().hex[:8]}",
             'guard_lease_epoch_ms': now_ms,
             'guard_release_pending': False,
@@ -643,9 +642,9 @@ return {1, cjson.encode(doc)}
             ttl_sec=ttl,
         )
         if not result.get('applied'):
-            self._record_conflict(symbol=symbol, writer=writer, operation='mark_released', reason=str(result.get('reason') or 'cas_rejected'))
+            self._record_conflict(symbol=symbol, writer=writer, operation='mark_released', reason=(result.get('reason') or 'cas_rejected'))
         # Retry once on concurrent version_mismatch
-        if (not result.get('applied')) and retry_once and str(result.get('reason') or '').startswith('version_mismatch'):
+        if (not result.get('applied')) and retry_once and (result.get('reason') or '').startswith('version_mismatch'):
             return self.mark_released(
                 symbol=symbol, expected_sid=expected_sid, release_reason=release_reason,
                 writer=writer, tombstone_ttl_sec=ttl, extra_patch=extra_patch, retry_once=False,

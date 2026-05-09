@@ -1,5 +1,6 @@
-import time
 import logging
+import time
+
 from services.atr_archive_and_replay_service import ATRArchiveAndReplayService
 
 logger = logging.getLogger("atr_archive_runner")
@@ -8,7 +9,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     logger.info("ATR Archive & Replay Service Daemon starting in SHADOW MODE (ENFORCE=0).")
     srv = ATRArchiveAndReplayService()
-    
+
     while True:
         try:
             # Example operation: purge expired hot data for 'signal'

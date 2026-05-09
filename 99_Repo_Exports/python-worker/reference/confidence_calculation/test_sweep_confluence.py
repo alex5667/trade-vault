@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+
 from signal_confidence import ConfidenceScorer
 
 

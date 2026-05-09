@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 LiqMap Gate Calibrator.
 
@@ -20,12 +22,10 @@ ENV:
   RECS_HMAC_SECRET             for bundle signing (default CHANGE_ME)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import collections
-import hmac
 import hashlib
+import hmac
 import json
 import logging
 import math
@@ -35,9 +35,12 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -93,10 +96,10 @@ def _safe_int(v: Any, default: int = 0) -> int:
 def query_decisions_from_stream(
     r: redis.Redis,
     hours: float,
-    symbol_filter: Optional[str] = None,
+    symbol_filter: str | None = None,
     stream: str = "decisions:final",
     batch: int = 2000,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Scan `decisions:final` stream for the last `hours` hours.
     Returns a dict: sid -> {shadow_veto, veto, rr, risk_bps, reason, mode, symbol, direction, ts_ms}
@@ -105,7 +108,7 @@ def query_decisions_from_stream(
     since_ms = get_ny_time_millis() - int(hours * 3_600_000)
     start_id = f"{since_ms}-0"
 
-    decisions: Dict[str, Dict[str, Any]] = {}
+    decisions: dict[str, dict[str, Any]] = {}
     cur = start_id
 
     logger.info(f"Reading stream '{stream}' from {start_id} (last {hours}h)...")
@@ -144,15 +147,15 @@ def query_decisions_from_stream(
             if not isinstance(gate, dict):
                 continue
 
-            mode = str(gate.get("mode") or "").lower()
+            mode = (gate.get("mode") or "").lower()
             if mode in ("", "off"):
                 continue
 
-            sid = str(rec.get("sid") or "").strip()
+            sid = (rec.get("sid") or "").strip()
             if not sid:
                 continue
 
-            symbol = str(rec.get("symbol") or "").upper()
+            symbol = (rec.get("symbol") or "").upper()
             if symbol_filter and symbol != symbol_filter.upper():
                 continue
 
@@ -162,10 +165,10 @@ def query_decisions_from_stream(
                 "rr":          _safe_float(gate.get("rr"), 0.0),
                 "risk_bps":    _safe_float(gate.get("risk_bps"), 0.0),
                 "reward_bps":  _safe_float(gate.get("reward_bps"), 0.0),
-                "reason":      str(gate.get("reason") or "ok"),
+                "reason":      (gate.get("reason") or "ok"),
                 "mode":        mode,
                 "symbol":      symbol,
-                "direction":   str(rec.get("direction") or "").upper(),
+                "direction":   (rec.get("direction") or "").upper(),
                 "ts_ms":       _safe_int(rec.get("ts_ms"), 0),
             },
 
@@ -177,7 +180,7 @@ def query_decisions_from_stream(
 # Step 2 — load closed trades (for R-multiple)
 # ---------------------------------------------------------------------------
 
-def _load_trades(hours: float) -> Dict[str, Dict[str, Any]]:
+def _load_trades(hours: float) -> dict[str, dict[str, Any]]:
     """
     Export closed trades via tools/export_trade_closed_ndjson.py and parse.
     Returns dict: sid -> {r_mult, symbol, direction}
@@ -203,29 +206,27 @@ def _load_trades(hours: float) -> Dict[str, Dict[str, Any]]:
         logger.error(f"export_trade_closed_ndjson.py failed: {exc}")
         return {}
 
-    trades: Dict[str, Dict[str, Any]] = {}
+    trades: dict[str, dict[str, Any]] = {}
     try:
-        with open(trades_path, "r", encoding="utf-8") as f:
+        with open(trades_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 try:
                     t = json.loads(line)
-                    sid = str(t.get("sid") or "").strip()
+                    sid = (t.get("sid") or "").strip()
                     if sid:
                         trades[sid] = {
                             "r_mult":    _safe_float(t.get("r_mult"), 0.0),
-                            "symbol":    str(t.get("symbol") or "").upper(),
+                            "symbol":    (t.get("symbol") or "").upper(),
                             "direction": str(t.get("direction") or t.get("side") or "").upper(),
                         },
                 except Exception:
                     pass
     finally:
-        try:
+        with contextlib.suppress(Exception):
             os.unlink(trades_path)
-        except Exception:
-            pass
 
     logger.info(f"Closed trades loaded: {len(trades)}")
     return trades
@@ -235,25 +236,25 @@ def _load_trades(hours: float) -> Dict[str, Dict[str, Any]]:
 # Step 3 — compute stats
 # ---------------------------------------------------------------------------
 
-def _mean(vals: List[float]) -> float:
+def _mean(vals: list[float]) -> float:
     return statistics.mean(vals) if vals else 0.0
 
 
-def _median(vals: List[float]) -> float:
+def _median(vals: list[float]) -> float:
     return statistics.median(vals) if vals else 0.0
 
 
 def compute_stats(
-    decisions: Dict[str, Dict[str, Any]],
-    trades: Dict[str, Dict[str, Any]],
-) -> Dict[str, Any]:
+    decisions: dict[str, dict[str, Any]],
+    trades: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
     """Join decisions + trades by sid. Compute PnL stats by shadow_veto segment."""
 
     joined = 0
-    veto_r: List[float] = []
-    pass_r: List[float] = []
-    veto_reasons: Dict[str, int] = collections.Counter()
-    by_symbol: Dict[str, Dict[str, Any]] = {}
+    veto_r: list[float] = []
+    pass_r: list[float] = []
+    veto_reasons: dict[str, int] = collections.Counter()
+    by_symbol: dict[str, dict[str, Any]] = {}
 
     for sid, dec in decisions.items():
         trade = trades.get(sid)
@@ -278,7 +279,7 @@ def compute_stats(
             s["pass_r"].append(r)
 
     # Flatten by_symbol for serialisation
-    by_sym_flat: Dict[str, Any] = {}
+    by_sym_flat: dict[str, Any] = {}
     for sym, s in sorted(by_symbol.items()):
         by_sym_flat[sym] = {
             "veto_count":  s["veto_count"],
@@ -307,13 +308,13 @@ def compute_stats(
 # Step 4 — build Telegram message and Redis bundle
 # ---------------------------------------------------------------------------
 
-def _fmt_reasons(reasons: Dict[str, int]) -> str:
+def _fmt_reasons(reasons: dict[str, int]) -> str:
     if not reasons:
         return "—"
     return " | ".join(f"<code>{k}</code>:{v}" for k, v in reasons.items())
 
 
-def _fmt_by_symbol(by_sym: Dict[str, Any]) -> str:
+def _fmt_by_symbol(by_sym: dict[str, Any]) -> str:
     if not by_sym:
         return "—"
     lines = []
@@ -328,7 +329,7 @@ def _fmt_by_symbol(by_sym: Dict[str, Any]) -> str:
 
 def create_and_send_proposal(
     r: redis.Redis,
-    stats: Dict[str, Any],
+    stats: dict[str, Any],
     hours: float,
 ) -> str:
     """Store bundle, stream Telegram message. Returns bundle_id."""
@@ -393,7 +394,7 @@ def create_and_send_proposal(
     ]
 
     r.xadd(
-        "notify:telegram",
+        RS.NOTIFY_TELEGRAM,
         {
             "type":       "report",
             "subtype":    "liqmap_calibrator",

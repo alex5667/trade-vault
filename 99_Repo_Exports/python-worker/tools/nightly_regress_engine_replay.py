@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Nightly regression test: run engine replay on baseline inputs and compare with baseline output.
 
 Orchestrates:
@@ -12,8 +14,6 @@ Usage:
   (reads BASELINE_INPUTS, BASELINE_OUTPUT from env)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
@@ -22,6 +22,8 @@ import sys
 import time
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def main() -> None:
@@ -75,7 +77,7 @@ def main() -> None:
     # Step 3: notify telegram
     try:
         r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
-        rep = json.loads(open(diff_out, "r", encoding="utf-8").read())
+        rep = json.loads(open(diff_out, encoding="utf-8").read())
         msg = (
             "<b>Gate regress (engine replay)</b>\n"
             f"mismatches=<code>{rep.get('mismatches',0)}</code> overlap_n=<code>{rep.get('n',0)}</code>\n"
@@ -83,7 +85,7 @@ def main() -> None:
             f"top_scn=<code>{rep.get('mismatch_by_scenario_v4_top',[])}</code>"
         )
         r.xadd(
-            os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"),
+            os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM),
             {"type": "report", "text": msg, "ts": str(get_ny_time_millis())},
             maxlen=200000,
             approximate=True

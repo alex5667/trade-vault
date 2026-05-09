@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -80,15 +81,15 @@ DEFAULT_EXECUTOR_MODE = os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY
 ARMS = ("deterministic", "vertex_candidate", "local_fallback_candidate")
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -148,8 +149,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -173,7 +174,7 @@ def maybe_json(value: Any, default: Any = None) -> Any:
         return default
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     incumbent_arm = str(raw.get("incumbent_arm") or DEFAULT_INCUMBENT_ARM)
     if incumbent_arm not in ARMS:
         incumbent_arm = "deterministic"
@@ -195,19 +196,19 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
 def arm_from_request_id(request_id: str, explicit_arm: str = "") -> str:
     if explicit_arm in ARMS:
         return explicit_arm
-    rid = str(request_id or "")
+    rid = (request_id or "")
     suffix = rid.rsplit(":", 1)[-1] if ":" in rid else ""
     if suffix in ARMS:
         return suffix
     return ""
 
 
-async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
+async def xr_recent(client: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await client.xrevrange(stream_key, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -215,12 +216,12 @@ async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, 
     return out
 
 
-def window_filter(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def window_filter(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     cutoff = now_ms() - WINDOW_MIN * 60 * 1000
     return [r for r in rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
 
 
-def empty_scorecard(arm: str) -> Dict[str, Any]:
+def empty_scorecard(arm: str) -> dict[str, Any]:
     return {
         "arm": arm,
         "exposure_n": 0,
@@ -240,26 +241,26 @@ def empty_scorecard(arm: str) -> Dict[str, Any]:
 
 
 def scorecards_from_rows(
-    exposures: List[Dict[str, Any]],
-    results: List[Dict[str, Any]],
-    feedback: List[Dict[str, Any]],
-    policy: Dict[str, Any],
-) -> Dict[str, Dict[str, Any]]:
+    exposures: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+    feedback: list[dict[str, Any]],
+    policy: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
     cards = {arm: empty_scorecard(arm) for arm in ARMS}
 
     for row in exposures:
-        arm = str(row.get("arm") or "")
+        arm = (row.get("arm") or "")
         if arm in cards:
             cards[arm]["exposure_n"] += 1
 
     for row in results:
-        arm = arm_from_request_id(str(row.get("request_id") or ""), str(row.get("arm") or ""))
+        arm = arm_from_request_id((row.get("request_id") or ""), (row.get("arm") or ""))
         if arm in cards:
             cards[arm]["result_n"] += 1
 
-    fb_values: Dict[str, Dict[str, List[float]]] = {arm: {"q": [], "u": [], "a": []} for arm in ARMS}
+    fb_values: dict[str, dict[str, list[float]]] = {arm: {"q": [], "u": [], "a": []} for arm in ARMS}
     for row in feedback:
-        arm = arm_from_request_id(str(row.get("request_id") or ""), str(row.get("arm") or ""))
+        arm = arm_from_request_id((row.get("request_id") or ""), (row.get("arm") or ""))
         if arm in cards:
             cards[arm]["feedback_n"] += 1
             fb_values[arm]["q"].append(parse_float(row.get("quality_score"), 0.0))
@@ -288,7 +289,7 @@ def scorecards_from_rows(
         )
         card["score"] = round(card["score_raw"] * card["coverage_multiplier"], 6)
 
-        reasons: List[str] = []
+        reasons: list[str] = []
         if exposure_n < policy["min_exposures"]:
             reasons.append("EXPOSURES_TOO_LOW")
         if feedback_n < policy["min_feedback"]:
@@ -319,7 +320,7 @@ def scorecards_from_rows(
     return cards
 
 
-def recommend(cards: Dict[str, Dict[str, Any]], policy: Dict[str, Any]) -> Dict[str, Any]:
+def recommend(cards: dict[str, dict[str, Any]], policy: dict[str, Any]) -> dict[str, Any]:
     incumbent = policy["incumbent_arm"]
     incumbent_card = cards.get(incumbent, empty_scorecard(incumbent))
 
@@ -364,7 +365,7 @@ def recommend(cards: Dict[str, Dict[str, Any]], policy: Dict[str, Any]) -> Dict[
     }
 
 
-async def persist_if_configured(db_url: str, scorecards: Dict[str, Dict[str, Any]], recommendation: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, scorecards: dict[str, dict[str, Any]], recommendation: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -436,15 +437,15 @@ async def main() -> None:  # pragma: no cover
                 exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                 if exec_kill and exec_kill.decode().strip() == '1':
                     policy['kill_switch'] = 1
-            except: pass
+            except Exception: pass
             exposures = window_filter(await xr_recent(r, EXPOSURES_STREAM, LOOKBACK_COUNT))
 
-            results: List[Dict[str, Any]] = []
+            results: list[dict[str, Any]] = []
             for s in result_streams:
                 if isinstance(s, str) and s:
                     results.extend(window_filter(await xr_recent(r, s, LOOKBACK_COUNT)))
 
-            feedback: List[Dict[str, Any]] = []
+            feedback: list[dict[str, Any]] = []
             for s in feedback_streams:
                 if isinstance(s, str) and s:
                     feedback.extend(window_filter(await xr_recent(r, s, LOOKBACK_COUNT)))

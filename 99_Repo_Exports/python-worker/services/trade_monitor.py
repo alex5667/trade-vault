@@ -1,19 +1,22 @@
 # services/trade_monitor_service.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
+import collections
+import contextlib
 import json
 import os
-import time
 import re
 import threading
-import contextlib
-import collections
-from dataclasses import dataclass, field, asdict
-from typing import Callable
-from typing import Any, Dict, Optional, List, Set, Tuple, Callable
+import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
 from prometheus_client import Counter, Gauge, Histogram
+
+from domain.evidence_keys import MetaKeys
+from utils.time_utils import get_ny_time_millis
 
 try:
     from sortedcontainers import SortedList
@@ -22,23 +25,23 @@ except ImportError:  # pragma: no cover
     _SORTED_CONTAINERS_AVAILABLE = False
     SortedList = list  # type: ignore
 
-from core.redis_client import get_redis
 from common.log import setup_logger
+from core.redis_client import get_redis
 from core.redis_keys import RedisStreams as RS
-from services.pnl_math import SymbolSpec, spec_from_symbol_info, get_symbol_info
-
-from domain.models import SignalNorm, PositionState, TradeClosed, TradeEvent
-from services.horizon_contract import (
-    stamp_position_from_signal_payload,
-    hydrate_position_from_signal_payload,
-    apply_position_horizon_scalars_from_hash,
-    stamp_closed_trade_horizon_from_position,
-    build_horizon_event_scalars,
-)
+from domain.models import PositionState, SignalNorm, TradeClosed, TradeEvent
 from services.atr_horizon_trailing_canary import should_apply_trailing_surface
 from services.atr_horizon_trailing_surface import build_trailing_surface
+from services.atr_policy_rollout_router import build_rollout_sticky_key, should_apply_rollout
 from services.atr_promotion_policy_resolver import get_active_policy
-from services.atr_policy_rollout_router import should_apply_rollout, build_rollout_sticky_key
+from services.horizon_contract import (
+    apply_position_horizon_scalars_from_hash,
+    build_horizon_event_scalars,
+    hydrate_position_from_signal_payload,
+    stamp_closed_trade_horizon_from_position,
+    stamp_position_from_signal_payload,
+)
+from services.pnl_math import SymbolSpec, get_symbol_info, spec_from_symbol_info
+
 
 # Define logging callback for futures
 def _log_future_exception(fut):
@@ -50,23 +53,23 @@ def _log_future_exception(fut):
             logger.error("Async DB task failed: %s\nTraceback:\n%s", exc, tb_str)
     except Exception:
         pass
-from domain.normalizers import canon_source, canon_symbol, canon_tf, canon_strategy
+from domain.handlers import apply_trailing_update, create_position, finalize_trade, process_tick
+from domain.normalizers import canon_source, canon_strategy, canon_symbol, canon_tf
+from domain.position_fsm import PositionFSM, PositionStatus, fsm_from_position
+from domain.tick_price import build_tick
 from infra.order_schema import (
-    normalize_side,
-    extract_tp_levels,
     extract_profile,
     extract_tp_fills,
+    extract_tp_levels,
+    normalize_side,
     parse_json_dict,
 )
-from domain.handlers import create_position, process_tick, apply_trailing_update, finalize_trade
-from domain.tick_price import build_tick
-from domain.position_fsm import PositionFSM, PositionStatus, InvalidTransitionError, fsm_from_position
 
 # ----------------- Prometheus Metrics (Module Level) -----------------
 # We define metrics at the module level to avoid "Duplicated timeseries" error
 # when TradeMonitorService is instantiated multiple times (e.g. in Actor Runtime shards).
 TM_ORPHANS_FORCE_CLOSED = Counter(
-    "orphans_force_closed_total", 
+    "orphans_force_closed_total",
     "Total number of positions force closed by orphan housekeep",
     ["symbol"],
 )
@@ -177,10 +180,12 @@ TM_JITTER_RELEASE_LATENCY_MS = Histogram(
 )
 # --------------------------------------------------------------------
 
+from datetime import UTC
+
 from infra.redis_repo import RedisTradeRepository
 from services import analytics_db
-from services.trade_events_logger import TradeEventsLogger
 from services.batch_trade_writer import get_batch_writer
+from services.trade_events_logger import TradeEventsLogger
 
 logger = setup_logger("TradeMonitorService")
 
@@ -210,22 +215,22 @@ class _TickIOBatch:
       - must be safe if position is later mutated by other threads
     """
     # append-only trade events (already contain copies of fields)
-    events: List[Any] = field(default_factory=list)
+    events: list[Any] = field(default_factory=list)
     # fast TP-hit persistence (primitives)
-    tp_hits: List[Dict[str, Any]] = field(default_factory=list)
+    tp_hits: list[dict[str, Any]] = field(default_factory=list)
     # trailing move/sync persistence (primitives)
-    trailing_moves: List[Dict[str, Any]] = field(default_factory=list)
-    trailing_syncs: List[Dict[str, Any]] = field(default_factory=list)
+    trailing_moves: list[dict[str, Any]] = field(default_factory=list)
+    trailing_syncs: list[dict[str, Any]] = field(default_factory=list)
     # closed trade persistence
-    closed: Optional[Any] = None
+    closed: Any | None = None
     # final cleanup needs these
-    close_pos_id: Optional[str] = None
-    close_sid: Optional[str] = None
-    close_source: Optional[str] = None
-    close_symbol: Optional[str] = None
+    close_pos_id: str | None = None
+    close_sid: str | None = None
+    close_source: str | None = None
+    close_symbol: str | None = None
     # stats update uses snapshots (immutable dict copies)
-    pos_snapshot: Optional[Dict[str, Any]] = None
-    closed_snapshot: Optional[Dict[str, Any]] = None
+    pos_snapshot: dict[str, Any] | None = None
+    closed_snapshot: dict[str, Any] | None = None
 
 
 
@@ -324,10 +329,10 @@ def _apply_entry_regime_to_position(pos: Any, regime: str) -> None:
     if not regime or regime == "na":
         return
     try:
-        setattr(pos, "entry_regime", regime)
+        pos.entry_regime = regime
         # alias (many parts of pipeline already look at pos.regime)
         if getattr(pos, "regime", None) in (None, "", "na"):
-            setattr(pos, "regime", regime)
+            pos.regime = regime
     except Exception:
         return
 
@@ -350,11 +355,11 @@ def _normalize_side(v: Any) -> str:
     return su if su in ("LONG", "SHORT") else "LONG"
 
 def parse_open_position_hash(
-    h: Dict[str, str],
+    h: dict[str, str],
     *,
     to_int_ms,
     logger=None,
-) -> Optional[PositionState]:
+) -> PositionState | None:
     """
     Pure parser for recovery. Extracted from TradeMonitorService._position_from_hash()
     to be unit-testable without constructing the full service.
@@ -375,12 +380,12 @@ def parse_open_position_hash(
         tp_levels = [float(x) for x in tp_levels if float(x) > 0][:3]
 
         pos = PositionState(
-            id=str(h.get("id")),
-            sid=str(h.get("sid") or ""),
-            strategy=str(h.get("strategy") or "unknown"),
-            source=str(h.get("source") or "Unknown"),
-            symbol=str(h.get("symbol") or "UNKNOWN"),
-            tf=str(h.get("tf") or "tick"),
+            id=(h.get("id")),
+            sid=(h.get("sid") or ""),
+            strategy=(h.get("strategy") or "unknown"),
+            source=(h.get("source") or "Unknown"),
+            symbol=(h.get("symbol") or "UNKNOWN"),
+            tf=(h.get("tf") or "tick"),
             # direction can come in multiple formats across components; normalize for stability.
             direction=_normalize_side(h.get("direction") or "LONG"),
             entry_price=float(h.get("entry_price") or 0.0),
@@ -390,25 +395,25 @@ def parse_open_position_hash(
             sl=float(h.get("sl") or 0.0),
             tp_levels=tp_levels,
             tp_hits=int(float(h.get("tp_hits") or 0)),
-            tp1_hit=str(h.get("tp1_hit") or "0") == "1",
-            tp2_hit=str(h.get("tp2_hit") or "0") == "1",
-            tp3_hit=str(h.get("tp3_hit") or "0") == "1",
-            trailing_started=str(h.get("trailing_started") or "0") == "1",
-            trailing_active=str(h.get("trailing_active") or "0") == "1",
+            tp1_hit=(h.get("tp1_hit") or "0") == "1",
+            tp2_hit=(h.get("tp2_hit") or "0") == "1",
+            tp3_hit=(h.get("tp3_hit") or "0") == "1",
+            trailing_started=(h.get("trailing_started") or "0") == "1",
+            trailing_active=(h.get("trailing_active") or "0") == "1",
             trailing_moves_count=int(float(h.get("trailing_moves") or 0)),
             trailing_distance=float(h.get("trailing_distance") or 0.0),
             trailing_point=float(h.get("trailing_point") or 0.0),
             max_favorable_price=float(h.get("max_favorable_price") or 0.0),
             max_favorable_ts=to_int_ms(h.get("max_favorable_ts"), 0),
             atr=float(h.get("atr") or 0.0),
-            is_virtual=str(h.get("is_virtual") or "0") == "1",
-            v_gate_status=str(h.get("v_gate_status") or "na"),
-            v_gate_reason=str(h.get("v_gate_reason") or ""),
+            is_virtual=(h.get("is_virtual") or "0") == "1",
+            v_gate_status=(h.get("v_gate_status") or "na"),
+            v_gate_reason=(h.get("v_gate_reason") or ""),
         )
 
         # Optional fields (best-effort)
         try:
-            pos.entry_tag = str(h.get("entry_tag") or "")
+            pos.entry_tag = (h.get("entry_tag") or "")
 
             # p0_ metadata from hash (if saved by new worker)
             pos.p0_signal_id = h.get("p0_signal_id") or h.get("sid")
@@ -416,16 +421,14 @@ def parse_open_position_hash(
             pos.p0_scenario = h.get("p0_scenario")
             pos.p0_session = h.get("p0_session")
             pos.p0_entry_reason = h.get("p0_entry_reason") or pos.entry_tag
-            
+
             if h.get("p0_spread_bps"):
                 pos.p0_spread_bps_at_entry = float(h["p0_spread_bps"])
             if h.get("p0_book_age_ms"):
                 pos.p0_book_age_ms = int(h["p0_book_age_ms"])
             if h.get("p0_features_json"):
-                try:
+                with contextlib.suppress(Exception):
                     pos.p0_features_snapshot = json.loads(h["p0_features_json"])
-                except Exception:
-                    pass
 
             # Back-compat for excursion timestamps/prices if missing
             if not pos.max_favorable_price:
@@ -453,20 +456,18 @@ def parse_open_position_hash(
             pos.baseline_tp3 = float(h.get("baseline_tp3") or pos.baseline_tp3 or (pos.tp_levels[2] if len(pos.tp_levels) > 2 else 0.0))
 
             # P41 compliance (native meta)
-            pos.meta_enforce_cov_bucket = str(h.get("meta_enforce_cov_bucket") or "")
-            if h.get("meta_enforce_applied"):
+            pos.meta_enforce_cov_bucket = (h.get(MetaKeys.ENFORCE_COV_BUCKET) or "")
+            if h.get(MetaKeys.ENFORCE_APPLIED):
                 try:
-                    pos.meta_enforce_applied = int(float(h["meta_enforce_applied"]))
+                    pos.meta_enforce_applied = int(float(h[MetaKeys.ENFORCE_APPLIED]))
                 except (ValueError, TypeError):
                     pos.meta_enforce_applied = -1
         except Exception:
             pass
 
         # Phase 0.3: scalar-first recovery from hash fields (independent of signal_payload JSON).
-        try:
+        with contextlib.suppress(Exception):
             apply_position_horizon_scalars_from_hash(pos, h, source="pure_hash_recovery")
-        except Exception:
-            pass
 
         # Phase 0.2/0.3: then hydrate from signal_payload if present (enriches nested contract).
         try:
@@ -489,8 +490,8 @@ class TradeMonitorService:
 
     def __init__(
         self,
-        redis_url: Optional[str] = None,
-        config: Optional[Dict[str, Any]] = None,
+        redis_url: str | None = None,
+        config: dict[str, Any] | None = None,
         regime_guard=None,
         health_metrics=None,
         *,
@@ -515,10 +516,10 @@ class TradeMonitorService:
 
         # ------------------------------------------------------------------
         # Jitter Resilience (Phase 2): Ingestion & Simulation Sync
-        # Using a Timestamp-Sorted buffer to ensure ticks are processed 
+        # Using a Timestamp-Sorted buffer to ensure ticks are processed
         # BEFORE signals with the same or later timestamps.
         # ------------------------------------------------------------------
-        self._signal_buffer: List[Dict[str, Any]] = []
+        self._signal_buffer: list[dict[str, Any]] = []
         # SIGNAL_JITTER_BUFFER_MS:
         #   - Live: 50-100ms (standard network jitter)
         #   - Simulation: 0 (deterministic playback order)
@@ -526,7 +527,7 @@ class TradeMonitorService:
         self._is_sim = os.getenv("SIMULATION_MODE") == "1"
         if self._is_sim:
             self._jitter_ms = 0
-        
+
         # Trade Events Logger for AB/Backtest
         try:
             # use redis_url from constructor OR from redis client if possible
@@ -560,7 +561,7 @@ class TradeMonitorService:
         # ------------------------------------------------------------------
         self._use_symbol_locks = os.getenv("TM_USE_SYMBOL_LOCKS", "1") == "1"
         self._symbol_locks_guard = threading.Lock()
-        self._symbol_locks: Dict[str, threading.RLock] = {}
+        self._symbol_locks: dict[str, threading.RLock] = {}
 
         # Executor for blocking DB IO (regime guard + reports) — analytics writes go through BatchTradeWriter now.
         # max_workers reduced: analytics writes are handled by BatchTradeWriter's single daemon thread.
@@ -594,8 +595,8 @@ class TradeMonitorService:
 
         # Sharded storage (Symbol -> {PosID: PositionState})
         # This allows O(1) access to positions of a specific symbol without iterating all open positions.
-        self.shards: Dict[str, Dict[str, PositionState]] = collections.defaultdict(dict)
-        self.symbol_by_pos_id: Dict[str, str] = {} # PosID -> Symbol mapping
+        self.shards: dict[str, dict[str, PositionState]] = collections.defaultdict(dict)
+        self.symbol_by_pos_id: dict[str, str] = {} # PosID -> Symbol mapping
 
         # ------------------------------------------------------------------
         # P1-9: Explicit FSM map.
@@ -603,31 +604,31 @@ class TradeMonitorService:
         # ENV: FSM_ENABLED=1 (default) — disable with FSM_ENABLED=0 for rollback.
         # ------------------------------------------------------------------
         self._fsm_enabled = os.getenv("FSM_ENABLED", "1") == "1"
-        self._fsm_map: Dict[str, Any] = {}  # pos_id -> PositionFSM
+        self._fsm_map: dict[str, Any] = {}  # pos_id -> PositionFSM
 
         # SortedList price index для O(log N) pre-filter:
         # _sl_index[symbol] = SortedList[(sl_price, pos_id)]
         # _tp_index[symbol] = SortedList[(tp_price, pos_id)]
         # Включается через TM_PRICE_INDEX_ENABLED=1 (default: 0 until tested in prod)
         self._price_index_enabled = os.getenv("TM_PRICE_INDEX_ENABLED", "0") == "1" and _SORTED_CONTAINERS_AVAILABLE
-        self._sl_index: Dict[str, Any] = {}  # symbol -> SortedList[(sl, id)]
-        self._tp_index: Dict[str, Any] = {}  # symbol -> SortedList[(tp, id)]
+        self._sl_index: dict[str, Any] = {}  # symbol -> SortedList[(sl, id)]
+        self._tp_index: dict[str, Any] = {}  # symbol -> SortedList[(tp, id)]
 
         # Основные структуры данных (self.open_positions is kept as flat index for PosID -> Object)
-        self.open_positions: Dict[str, PositionState] = {}
-        self.pos_by_sid: Dict[str, str] = {}
-        self.open_by_symbol: Dict[str, Set[str]] = {}
-        self._last_price_by_symbol: Dict[str, Tuple[int, float]] = {}
+        self.open_positions: dict[str, PositionState] = {}
+        self.pos_by_sid: dict[str, str] = {}
+        self.open_by_symbol: dict[str, set[str]] = {}
+        self._last_price_by_symbol: dict[str, tuple[int, float]] = {}
 
         # [REMEDIATION P4.1] Cache hot-path environment variables
         self._trail_tp_activate_level = max(1, int(os.getenv("BINANCE_TRAIL_ACTIVATE_TP", "2")))
         self._trailing_local_fallback = os.getenv("TRAILING_LOCAL_FALLBACK", "1") == "1"
         self._simulated_slippage_bps = float(os.getenv("SIMULATED_SLIPPAGE_BPS", "0.0"))
         self._orphan_max_last_price_age_ms = int(os.getenv("TM_ORPHAN_MAX_PRICE_AGE_MS", "300000"))
-        
+
         # Throttle metrics update (ms)
         self._metrics_update_interval_ms = int(os.getenv("TM_METRICS_UPDATE_INTERVAL_MS", "1000"))
-        self._last_metrics_update_by_sym: Dict[str, int] = {}
+        self._last_metrics_update_by_sym: dict[str, int] = {}
 
         # ✅ Dedup TTL для внешних событий (lossless-safe) - инициализируем по умолчанию
         self.external_event_dedup_ttl = 7 * 24 * 3600  # 7 дней в секундах
@@ -643,7 +644,7 @@ class TradeMonitorService:
         # Orphan housekeep
         self._orphan_housekeep_interval_ms = int(os.getenv("TM_ORPHAN_HOUSEKEEP_INTERVAL_MS", "30000"))
         self._last_housekeep_ms: int = 0
-        self._last_housekeep_by_symbol: Dict[str, int] = {}
+        self._last_housekeep_by_symbol: dict[str, int] = {}
 
         # [FIX-1] Grace period after restart — do not housekeep for N ms to allow price cache warm-up
         # Prevents ORPHAN_TIMEOUT_NO_PRICE on positions that were open before restart.
@@ -659,11 +660,11 @@ class TradeMonitorService:
 
         # Trading parameters initialization
         self._attach_health_on_close = os.getenv("ATTACH_HEALTH_SNAPSHOT_ON_CLOSE", "1") == "1"
-        
+
         # Trading parameters with fallbacks
         mon = self.config.get("monitor", {})
         self.default_lot = float(mon.get("default_lot", 1.0))
-        
+
         # TP ratios configuration
         ratios_cfg = mon.get("tp_ratio", [0.50, 0.30, 0.20])
         try:
@@ -678,7 +679,7 @@ class TradeMonitorService:
             r3_env = float(os.getenv("TP_RATIO3", "nan"))
         except Exception:
             r3_env = float("nan")
-        
+
         if r1_env == r1_env:  # Check if not NaN
             ratios = [
                 r1_env,
@@ -687,7 +688,7 @@ class TradeMonitorService:
             ]
         else:
             ratios = list(ratios_cfg) if isinstance(ratios_cfg, (list, tuple)) and len(ratios_cfg) >= 3 else [0.30, 0.35, 0.35]
-        
+
         # Normalize ratios
         s = sum(ratios)
         if s <= 1e-9:
@@ -696,7 +697,7 @@ class TradeMonitorService:
             ratios = [max(0.0, float(r)) for r in ratios]
             s = sum(ratios) or 1.0
             ratios = [r / s for r in ratios]
-        
+
         self.tp_ratios = tuple(ratios)
 
         self.tp_ratios = tuple(ratios)
@@ -706,16 +707,16 @@ class TradeMonitorService:
         self.tm_open_positions = TM_OPEN_POSITIONS
         self.tm_orphan_cleanup_duration_ms = TM_ORPHAN_CLEANUP_DURATION_MS
         self.tm_tick_latency_us = TM_TICK_LATENCY_US
-        
+
         # [NEW] Backpressure metrics
         self.tm_rg_persist_pending = TM_RG_PERSIST_PENDING
         self.tm_rg_persist_dropped = TM_RG_PERSIST_DROPPED
         self.tm_rg_persist_submitted = TM_RG_PERSIST_SUBMITTED
         self.tm_rg_persist_failed = TM_RG_PERSIST_FAILED
-        
+
         self.stop_atr_mult = float(mon.get("stop_atr_mult", 1.0))
         self.rr_levels = mon.get("rr_levels", [1.0, 2.0, 3.0])
-        self.fill_policy = str(mon.get("fill_policy", "level")).strip().lower()
+        self.fill_policy = (mon.get("fill_policy", "level")).strip().lower()
 
         # Shadow Analytics Config
         # Global confidence threshold (single source of truth)
@@ -748,7 +749,7 @@ class TradeMonitorService:
         self._last_housekeep_ms: int = 0
 
         # Последняя цена по символу (ts_ms, price) — чтобы forced-close был "по рынку"
-        self._last_price_by_symbol: Dict[str, Tuple[int, float]] = {}
+        self._last_price_by_symbol: dict[str, tuple[int, float]] = {}
 
         # --------------------
         # Trailing config
@@ -838,7 +839,7 @@ class TradeMonitorService:
         },
 
         # Health snapshot cache
-        self._health_cache: Dict[str, Tuple[int, Dict[str, str]]] = {}
+        self._health_cache: dict[str, tuple[int, dict[str, str]]] = {}
         self._health_cache_ttl_ms = int(os.getenv("HEALTH_CACHE_TTL_MS", "30000"))
 
         # Paper vs Demo comparison report
@@ -846,7 +847,7 @@ class TradeMonitorService:
         self._pvd_notify_stream: str = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
         self._pvd_demo_stream: str = os.getenv("EXEC_STREAM", RS.ORDERS_EXEC)
         self._pvd_session_closed: int = 0
-        self._pvd_recent_closed: List[Dict[str, Any]] = []  # circular buffer of last N closed trades
+        self._pvd_recent_closed: list[dict[str, Any]] = []  # circular buffer of last N closed trades
         if "ACCOUNT_LEVERAGE" not in os.environ:
             logger.warning("⚠️ ACCOUNT_LEVERAGE not explicitly set in ENV! Defaulting to 100 for Paper vs Demo reports.")
         self._pvd_paper_leverage: int = int(os.getenv("ACCOUNT_LEVERAGE", "100"))
@@ -856,7 +857,7 @@ class TradeMonitorService:
                 "📊 TM paper_vs_demo report every %d closed trades → %s (paper_lev=%dx demo_lev=%dx)",
                 self._pvd_report_every_n, self._pvd_notify_stream,
                 self._pvd_paper_leverage, self._pvd_demo_leverage,
-            ) 
+            )
 
         self._recover_open_positions()
 
@@ -893,7 +894,7 @@ class TradeMonitorService:
     # P1-9: FSM helpers — all fail-open; FSM_ENABLED=0 → no-op
     # ------------------------------------------------------------------
 
-    def _attach_fsm(self, pos: "PositionState") -> None:
+    def _attach_fsm(self, pos: PositionState) -> None:
         """Create and attach a PositionFSM for a newly-opened position."""
         if not self._fsm_enabled:
             return
@@ -910,7 +911,7 @@ class TradeMonitorService:
         except Exception as exc:
             logger.warning("[FSM] _attach_fsm failed for %s: %s", getattr(pos, "id", "?"), exc)
 
-    def _recover_fsm(self, pos: "PositionState") -> None:
+    def _recover_fsm(self, pos: PositionState) -> None:
         """Reconstruct FSM from boolean flags (used after Redis reload / recovery)."""
         if not self._fsm_enabled:
             return
@@ -925,19 +926,19 @@ class TradeMonitorService:
 
     def _fsm_transition(
         self,
-        pos: "PositionState",
+        pos: PositionState,
         to: str,
         trigger: str,
         actor: str = "trade_monitor",
         reason: str = "",
-        ts_ms: Optional[int] = None,
+        ts_ms: int | None = None,
         **meta: Any,
     ) -> None:
         """Attempt FSM transition by state name string.  Fail-open: never raises."""
         if not self._fsm_enabled:
             return
         try:
-            fsm: Optional[PositionFSM] = self._fsm_map.get(getattr(pos, "id", ""))
+            fsm: PositionFSM | None = self._fsm_map.get(getattr(pos, "id", ""))
             if fsm is None:
                 # Position recovered from Redis without FSM — create it now
                 self._recover_fsm(pos)
@@ -996,7 +997,7 @@ class TradeMonitorService:
     # --------------------
     # Metrics helpers (fail-open)
     # --------------------
-    def _m_inc(self, name: str, value: int = 1, tags: Optional[Dict[str, Any]] = None) -> None:
+    def _m_inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:
         m = getattr(self, "_metrics", None)
         if not m:
             return
@@ -1005,7 +1006,7 @@ class TradeMonitorService:
         except Exception:
             return
 
-    def _m_obs(self, name: str, value: float, tags: Optional[Dict[str, Any]] = None) -> None:
+    def _m_obs(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         m = getattr(self, "_metrics", None)
         if not m:
             return
@@ -1067,7 +1068,7 @@ class TradeMonitorService:
         ttl = int(getattr(self, "_orphan_ttl_ms", 120000))
         return (last_ms > 0) and ((now_ms - last_ms) >= ttl)
 
-    def _get_health_snapshot(self, symbol: str) -> Dict[str, Any]:
+    def _get_health_snapshot(self, symbol: str) -> dict[str, Any]:
         """
         Берем snapshot из Redis, который пишет HealthMetrics background loop:
           orderflow:{symbol}:health_snapshot (HASH)
@@ -1091,7 +1092,7 @@ class TradeMonitorService:
     # --------------------
     # Orphan housekeep helpers
     # --------------------
-    
+
     @staticmethod
     def _is_plausible_epoch_ms(ts_ms: int) -> bool:
         """
@@ -1105,7 +1106,7 @@ class TradeMonitorService:
         except Exception:
             return False
         return v >= 978307200000  # 2001-01-01 in ms
-    
+
     @staticmethod
     def _tf_to_ms(tf: str) -> int:
         """
@@ -1115,7 +1116,7 @@ class TradeMonitorService:
         """
         if not tf:
             return 60_000
-        s = str(tf).strip().lower()
+        s = tf.strip().lower()
         s = s.replace("m", "m").replace("h", "h").replace("d", "d")
         # mt5-style: M1/H1/D1
         if re.fullmatch(r"[mhd]\d+", s):
@@ -1129,7 +1130,7 @@ class TradeMonitorService:
             unit = m.group(2)
         mult = {"m": 60_000, "h": 3_600_000, "d": 86_400_000}.get(unit, 60_000)
         return max(1, n) * mult
-    
+
     def _update_last_price(self, tick) -> None:
         """
         Обновляем last price по символу. Используем mid/last/price в порядке приоритета.
@@ -1220,16 +1221,14 @@ class TradeMonitorService:
                 logger.debug("[warmup] %s: error reading tick: %s", sym, e)
                 skipped_err += 1
 
-        try:
+        with contextlib.suppress(Exception):
             r_ticks.close()
-        except Exception:
-            pass
 
         logger.info(
             "🔥 [warmup] price cache: warmed=%d skipped_old=%d skipped_err=%d / total_symbols=%d",
             warmed, skipped_old, skipped_err, len(symbols),
         )
-    
+
     def _resolve_orphan_ttl_ms(self, pos: PositionState) -> int:
         """
         Вычисляет TTL после entry для конкретной позиции.
@@ -1275,10 +1274,10 @@ class TradeMonitorService:
     def _index_add(self, pos: PositionState) -> None:
         """Добавляет позицию в индексы и шарды."""
         sym = str(pos.symbol or "UNKNOWN").strip().upper()
-        
+
         # 1. Sharded storage
         self.shards[sym][pos.id] = pos
-        
+
         # 2. Reverse lookup
         self.symbol_by_pos_id[pos.id] = sym
 
@@ -1309,13 +1308,13 @@ class TradeMonitorService:
     def _index_remove(self, pos: PositionState) -> None:
         """Удаляет позицию из индексов и шардов."""
         sym = str(pos.symbol or "UNKNOWN")
-        
+
         # 1. Sharded storage cleanup
         if sym in self.shards:
             self.shards[sym].pop(pos.id, None)
             if not self.shards[sym]:
                 self.shards.pop(sym, None)
-        
+
         # 2. Reverse lookup cleanup
         self.symbol_by_pos_id.pop(pos.id, None)
 
@@ -1342,16 +1341,14 @@ class TradeMonitorService:
 
                 tp_price = float(pos.tp_levels[0]) if pos.tp_levels else 0.0
                 if tp_price > 0 and sym in self._tp_index:
-                    try:
+                    with contextlib.suppress(AttributeError, ValueError):
                         self._tp_index[sym].discard((tp_price, pos.id))
-                    except (AttributeError, ValueError):
-                        pass
                     if not self._tp_index[sym]:
                         self._tp_index.pop(sym, None)
             except Exception:
                 pass  # fail-open
 
-    def _get_pos(self, pos_id: str, symbol: Optional[str] = None) -> Optional[PositionState]:
+    def _get_pos(self, pos_id: str, symbol: str | None = None) -> PositionState | None:
         """Возвращает позицию по ID (опционально по символу для скорости)."""
         if symbol:
             shards = getattr(self, "shards", None)
@@ -1372,10 +1369,8 @@ class TradeMonitorService:
         try:
             sl_idx = self._sl_index.get(sym)
             if sl_idx is not None and old_sl > 0:
-                try:
+                with contextlib.suppress(AttributeError, ValueError):
                     sl_idx.discard((old_sl, pos.id))
-                except (AttributeError, ValueError):
-                    pass
             if new_sl > 0:
                 if sym not in self._sl_index:
                     self._sl_index[sym] = SortedList(key=lambda x: x[0])
@@ -1383,7 +1378,7 @@ class TradeMonitorService:
         except Exception:
             pass
 
-    def _collect_candidate_pos_ids(self, symbol: str, mid: float) -> Optional[Set[str]]:
+    def _collect_candidate_pos_ids(self, symbol: str, mid: float) -> set[str] | None:
         """
         Возвращает set pos_id у которых SL или TP может быть пересечён текущей ценой mid.
         Возвращает None если индекс отключён (caller должен использовать full list).
@@ -1401,7 +1396,7 @@ class TradeMonitorService:
         if not self._price_index_enabled:
             return None
 
-        candidates: Set[str] = set()
+        candidates: set[str] = set()
         try:
             # SL кандидаты: позиции у которых SL близко к текущей цене
             # LONG: sl <= mid (цена упала до стопа)
@@ -1429,7 +1424,7 @@ class TradeMonitorService:
 
         return candidates
 
-    def _pop_pos(self, pos_id: str) -> Optional[PositionState]:
+    def _pop_pos(self, pos_id: str) -> PositionState | None:
         """Атомарно удаляет позицию из всех индексов и шардов. Вызывать под self._lock."""
         pos = self.open_positions.pop(pos_id, None)
         if pos:
@@ -1499,7 +1494,7 @@ class TradeMonitorService:
         except Exception:
             return False
 
-    def _dedup_acquire(self, kind: str, event_id: Optional[str]) -> bool:
+    def _dedup_acquire(self, kind: str, event_id: str | None) -> bool:
         """
         Атомарная проверка+установка dedup ключа (SET NX EX).
         
@@ -1571,7 +1566,7 @@ class TradeMonitorService:
         except Exception as e:
             logger.warning(f"⚠️ SID release failed (Redis error): {e}")
 
-    def _get_health_snapshot_with_timestamp(self, symbol: str, now_ms: int) -> Dict[str, Any]:
+    def _get_health_snapshot_with_timestamp(self, symbol: str, now_ms: int) -> dict[str, Any]:
         """
         Возвращает snapshot health_* для добавления в trades:closed stream.
 
@@ -1608,7 +1603,7 @@ class TradeMonitorService:
             pipe.get(f"orderflow:{symbol}:dlq_rate")
             h, signal_emit_rate, dlq_rate = pipe.execute()
 
-            out: Dict[str, Any] = {}
+            out: dict[str, Any] = {}
             if h:
                 out["health_l2_stale_ratio_tick"] = h.get("l2_stale_ratio_tick", "0.0")
                 out["health_l2_stale_ratio_now"] = h.get("l2_stale_ratio_now", "0.0")
@@ -1622,7 +1617,7 @@ class TradeMonitorService:
         except Exception:
             return {}
 
-    def _get_health_snapshot_for_trade(self, symbol: str) -> Dict[str, str]:
+    def _get_health_snapshot_for_trade(self, symbol: str) -> dict[str, str]:
         """
         Дешёвое чтение health snapshot (один HGETALL) через существующий redis client.
         Никаких новых коннектов/HealthMetrics внутри repo.
@@ -1641,17 +1636,17 @@ class TradeMonitorService:
             # Префиксуем поля, чтобы не конфликтовать с торговыми полями.
             # Используем те же имена, что у вас уже были в stream (health_*).
             out = {
-                "health_l2_stale_ratio_tick": str(h.get("l2_stale_ratio_tick", "0.0")),
-                "health_l2_stale_ratio_now": str(h.get("l2_stale_ratio_now", "0.0")),
-                "health_avg_l2_age_ms": str(h.get("avg_l2_age_ms", "0.0")),
-                "health_avg_l2_age_tick_ms": str(h.get("avg_l2_age_tick_ms", "0.0")),
-                "health_signal_emit_rate": str(h.get("signal_emit_rate", "0.0")),
-                "health_dlq_rate": str(h.get("dlq_rate", "0.0")),
-                "health_avg_book_lag_ms": str(h.get("avg_book_lag_ms", "0.0")),
-                "health_avg_ticks_lag_ms": str(h.get("avg_ticks_lag_ms", "0.0")),
-                "health_pending_len": str(h.get("pending_len", "0")),
-                "health_window_sec": str(h.get("window_sec", "0")),
-                "health_ts": str(h.get("ts", "0")),
+                "health_l2_stale_ratio_tick": (h.get("l2_stale_ratio_tick", "0.0")),
+                "health_l2_stale_ratio_now": (h.get("l2_stale_ratio_now", "0.0")),
+                "health_avg_l2_age_ms": (h.get("avg_l2_age_ms", "0.0")),
+                "health_avg_l2_age_tick_ms": (h.get("avg_l2_age_tick_ms", "0.0")),
+                "health_signal_emit_rate": (h.get("signal_emit_rate", "0.0")),
+                "health_dlq_rate": (h.get("dlq_rate", "0.0")),
+                "health_avg_book_lag_ms": (h.get("avg_book_lag_ms", "0.0")),
+                "health_avg_ticks_lag_ms": (h.get("avg_ticks_lag_ms", "0.0")),
+                "health_pending_len": (h.get("pending_len", "0")),
+                "health_window_sec": (h.get("window_sec", "0")),
+                "health_ts": (h.get("ts", "0")),
             },
             return out
         except Exception:
@@ -1703,7 +1698,7 @@ class TradeMonitorService:
         except Exception:
             return default
 
-    def _position_from_hash(self, h: Dict[str, str]) -> Optional[PositionState]:
+    def _position_from_hash(self, h: dict[str, str]) -> PositionState | None:
         try:
             if h.get("status") != "open":
                 return None
@@ -1711,12 +1706,12 @@ class TradeMonitorService:
             tp_levels = extract_tp_levels(h)
 
             pos = PositionState(
-                id=str(h.get("id")),
-                sid=str(h.get("sid") or ""),
-                strategy=str(h.get("strategy") or "unknown"),
-                source=str(h.get("source") or "Unknown"),
-                symbol=str(h.get("symbol") or "UNKNOWN"),
-                tf=str(h.get("tf") or "tick"),
+                id=(h.get("id")),
+                sid=(h.get("sid") or ""),
+                strategy=(h.get("strategy") or "unknown"),
+                source=(h.get("source") or "Unknown"),
+                symbol=(h.get("symbol") or "UNKNOWN"),
+                tf=(h.get("tf") or "tick"),
                 direction=normalize_side(h.get("direction") or "LONG"),
                 entry_price=float(h.get("entry_price") or 0.0),
                 # timestamps (ms)
@@ -1728,11 +1723,11 @@ class TradeMonitorService:
                 sl=float(h.get("sl") or 0.0),
                 tp_levels=tp_levels,
                 tp_hits=int(float(h.get("tp_hits") or 0)),
-                tp1_hit=str(h.get("tp1_hit") or "0") == "1",
-                tp2_hit=str(h.get("tp2_hit") or "0") == "1",
-                tp3_hit=str(h.get("tp3_hit") or "0") == "1",
-                trailing_started=str(h.get("trailing_started") or "0") == "1",
-                trailing_active=str(h.get("trailing_active") or "0") == "1",
+                tp1_hit=(h.get("tp1_hit") or "0") == "1",
+                tp2_hit=(h.get("tp2_hit") or "0") == "1",
+                tp3_hit=(h.get("tp3_hit") or "0") == "1",
+                trailing_started=(h.get("trailing_started") or "0") == "1",
+                trailing_active=(h.get("trailing_active") or "0") == "1",
                 trailing_moves_count=int(float(h.get("trailing_moves") or 0)),
                 trailing_distance=float(h.get("trailing_distance") or 0.0),
                 trailing_point=float(h.get("trailing_point") or 0.0),
@@ -1741,7 +1736,7 @@ class TradeMonitorService:
                 atr=float(h.get("atr") or 0.0),
             )
             try:
-                pos.entry_tag = str(h.get("entry_tag") or "")
+                pos.entry_tag = (h.get("entry_tag") or "")
                 pos.trail_profile = extract_profile(h)
                 pos.trailing_min_lock_r = float(h.get("trailing_min_lock_r") or 0.0)
                 pos.min_lock_price = float(h.get("min_lock_price") or 0.0)
@@ -1782,13 +1777,13 @@ class TradeMonitorService:
             self.logger.warning(f"Failed to recover position from hash: {e}")
             return None
 
-    def _get_health_snapshot_cached(self, symbol: str) -> Dict[str, str]:
+    def _get_health_snapshot_cached(self, symbol: str) -> dict[str, str]:
         """
         Fetch orderflow:{symbol}:health_snapshot via existing redis client.
         Small TTL cache to avoid bursts when multiple closes happen back-to-back.
         """
         now_ms = get_ny_time_millis()
-        sym = str(symbol or "UNKNOWN")
+        sym = (symbol or "UNKNOWN")
         cached = self._health_cache.get(sym)
         if cached:
             ts_ms, snap = cached
@@ -1802,15 +1797,15 @@ class TradeMonitorService:
 
         # Keep only the most useful fields on close to avoid bloating the event.
         snap = {
-            "health_l2_stale_ratio_tick": str(raw.get("l2_stale_ratio_tick", "0.0")),
-            "health_l2_stale_ratio_now": str(raw.get("l2_stale_ratio_now", "0.0")),
-            "health_avg_l2_age_ms": str(raw.get("avg_l2_age_ms", "0.0")),
-            "health_avg_l2_age_tick_ms": str(raw.get("avg_l2_age_tick_ms", "0.0")),
-            "health_signal_emit_rate": str(raw.get("signal_emit_rate", "0.0")),
-            "health_dlq_rate": str(raw.get("dlq_rate", "0.0")),
-            "health_pending_len": str(raw.get("pending_len", "0")),
-            "health_snapshot_ts": str(raw.get("ts", "0")),
-            "health_window_sec": str(raw.get("window_sec", "0")),
+            "health_l2_stale_ratio_tick": (raw.get("l2_stale_ratio_tick", "0.0")),
+            "health_l2_stale_ratio_now": (raw.get("l2_stale_ratio_now", "0.0")),
+            "health_avg_l2_age_ms": (raw.get("avg_l2_age_ms", "0.0")),
+            "health_avg_l2_age_tick_ms": (raw.get("avg_l2_age_tick_ms", "0.0")),
+            "health_signal_emit_rate": (raw.get("signal_emit_rate", "0.0")),
+            "health_dlq_rate": (raw.get("dlq_rate", "0.0")),
+            "health_pending_len": (raw.get("pending_len", "0")),
+            "health_snapshot_ts": (raw.get("ts", "0")),
+            "health_window_sec": (raw.get("window_sec", "0")),
         },
         self._health_cache[sym] = (now_ms, snap)
         return snap
@@ -1823,16 +1818,16 @@ class TradeMonitorService:
         try:
             snap = self._get_health_snapshot_cached(symbol)
             if snap:
-                setattr(closed, "_health_snapshot", snap)
+                closed._health_snapshot = snap
         except Exception:
             pass
 
-    def _get_health_snapshot_prefixed(self, symbol: str, now_ms: int) -> Dict[str, str]:
+    def _get_health_snapshot_prefixed(self, symbol: str, now_ms: int) -> dict[str, str]:
         """
         Fetches last health snapshot from Redis and returns a FLAT dict with stable 'health_*' keys.
         Cached for a short TTL to avoid bursts.
         """
-        sym = str(symbol or "UNKNOWN")
+        sym = (symbol or "UNKNOWN")
         cached = self._health_cache.get(sym)
         if cached:
             ts_ms, snap = cached
@@ -1846,15 +1841,15 @@ class TradeMonitorService:
 
         # Keep only the most useful fields on close to avoid bloating the event.
         snap = {
-            "health_l2_stale_ratio_tick": str(raw.get("l2_stale_ratio_tick", "0.0")),
-            "health_l2_stale_ratio_now": str(raw.get("l2_stale_ratio_now", "0.0")),
-            "health_avg_l2_age_ms": str(raw.get("avg_l2_age_ms", "0.0")),
-            "health_avg_l2_age_tick_ms": str(raw.get("avg_l2_age_tick_ms", "0.0")),
-            "health_signal_emit_rate": str(raw.get("signal_emit_rate", "0.0")),
-            "health_dlq_rate": str(raw.get("dlq_rate", "0.0")),
-            "health_pending_len": str(raw.get("pending_len", "0")),
-            "health_snapshot_ts": str(raw.get("ts", "0")),
-            "health_window_sec": str(raw.get("window_sec", "0")),
+            "health_l2_stale_ratio_tick": (raw.get("l2_stale_ratio_tick", "0.0")),
+            "health_l2_stale_ratio_now": (raw.get("l2_stale_ratio_now", "0.0")),
+            "health_avg_l2_age_ms": (raw.get("avg_l2_age_ms", "0.0")),
+            "health_avg_l2_age_tick_ms": (raw.get("avg_l2_age_tick_ms", "0.0")),
+            "health_signal_emit_rate": (raw.get("signal_emit_rate", "0.0")),
+            "health_dlq_rate": (raw.get("dlq_rate", "0.0")),
+            "health_pending_len": (raw.get("pending_len", "0")),
+            "health_snapshot_ts": (raw.get("ts", "0")),
+            "health_window_sec": (raw.get("window_sec", "0")),
         },
         self._health_cache[sym] = (now_ms, snap)
         return snap
@@ -1867,7 +1862,7 @@ class TradeMonitorService:
         try:
             snap = self._get_health_snapshot_cached(symbol)
             if snap:
-                setattr(closed, "_health_snapshot", snap)
+                closed._health_snapshot = snap
         except Exception:
             pass
 
@@ -1893,7 +1888,7 @@ class TradeMonitorService:
             return contextlib.nullcontext()
         return self._get_symbol_lock(symbol)
 
-    def _peek_pos_and_symbol_by_sid(self, sid: str) -> tuple[Optional[str], Optional[str]]:
+    def _peek_pos_and_symbol_by_sid(self, sid: str) -> tuple[str | None, str | None]:
         """
         Быстрый peek под self._lock:
           - возвращает (pos_id, symbol) если позиция жива
@@ -1912,7 +1907,7 @@ class TradeMonitorService:
                 return pos_id, None
             return pos_id, str(getattr(pos, "symbol", "") or "")
 
-    def _io_save_tp_hit(self, pos: "PositionState", tp_level: int, fill_price: float, closed_qty: float, pnl_part: float, ts_ms: int) -> None:
+    def _io_save_tp_hit(self, pos: PositionState, tp_level: int, fill_price: float, closed_qty: float, pnl_part: float, ts_ms: int) -> None:
         self.repo.save_tp_hit(pos, tp_level=tp_level, fill_price=fill_price, closed_qty=closed_qty, pnl_part=pnl_part, ts_ms=ts_ms)
         if getattr(self, "_protective_mirror", None) and tp_level == 1 and not getattr(pos, "tp1_mirrored", False):
             try:
@@ -1921,7 +1916,7 @@ class TradeMonitorService:
             except Exception:
                 pass
 
-    def _io_save_trailing_sync(self, pos: "PositionState", ts: int) -> None:
+    def _io_save_trailing_sync(self, pos: PositionState, ts: int) -> None:
         self.repo.save_trailing_sync(pos, ts)
         if getattr(self, "_protective_mirror", None):
             try:
@@ -1938,21 +1933,19 @@ class TradeMonitorService:
             except Exception:
                 pass
 
-    def _io_save_trailing_move(self, pos: "PositionState", previous_sl: float, new_sl: float, ts_ms: int) -> None:
+    def _io_save_trailing_move(self, pos: PositionState, previous_sl: float, new_sl: float, ts_ms: int) -> None:
         self.repo.save_trailing_move(pos, previous_sl, new_sl, ts_ms)
         if getattr(self, "_protective_mirror", None) and abs(float(previous_sl) - float(new_sl)) > 1e-9:
-            try:
+            with contextlib.suppress(Exception):
                 self._protective_mirror.on_sl_moved(
                     str(getattr(pos, "sid", "")), str(getattr(pos, "symbol", "")), str(getattr(pos, "direction", "")),
                     float(previous_sl), float(new_sl), float(getattr(pos, "max_favorable_price", 0.0) or 0.0), int(ts_ms)
                 )
-            except Exception:
-                pass
 
-    def _io_save_closed(self, closed: "TradeClosed", health_snapshot: dict) -> None:
+    def _io_save_closed(self, closed: TradeClosed, health_snapshot: dict) -> None:
         self.repo.save_closed(closed, health_snapshot=health_snapshot)
         if getattr(self, "_protective_mirror", None):
-            try:
+            with contextlib.suppress(Exception):
                 self._protective_mirror.on_position_closed(
                     signal_id=str(getattr(closed, "sid", "")),
                     symbol=str(getattr(closed, "symbol", "")),
@@ -1962,10 +1955,8 @@ class TradeMonitorService:
                     max_mae_pct=float(getattr(closed, "max_mae_pct", 0.0) or 0.0),
                     ts_ms=int(getattr(closed, "exit_ts_ms", getattr(closed, "closed_at_ms", 0)) or get_ny_time_millis())
                 )
-            except Exception:
-                pass
 
-    def _run_io_tasks(self, tasks: List["_IOTask"]) -> None:
+    def _run_io_tasks(self, tasks: list[_IOTask]) -> None:
         for t in tasks:
             try:
                 t.fn()
@@ -2003,16 +1994,16 @@ class TradeMonitorService:
             prov = meta.get("policy_provenance", {}) if isinstance(meta, dict) else {}
 
             closed.atr_policy_ver = int(prov.get("policy_ver", 0) or 0)
-            closed.atr_policy_tag = str(prov.get("policy_tag") or "")
-            closed.atr_policy_source = str(prov.get("policy_source") or "")
-            closed.atr_policy_scenario = str(prov.get("scenario") or "")
-            closed.atr_policy_regime = str(prov.get("regime") or "")
-            closed.atr_policy_bucket = str(prov.get("risk_horizon_bucket") or "")
-            closed.atr_stop_ttl_mode = str(prov.get("stop_ttl_mode") or "")
-            closed.atr_trailing_mode = str(prov.get("trailing_mode") or "")
-            closed.atr_recovery_run_id = str(prov.get("recovery_run_id") or "")
-            closed.atr_restore_cert_id = str(prov.get("restore_cert_id") or "")
-            closed.atr_restore_cert_status = str(prov.get("restore_cert_status") or "")
+            closed.atr_policy_tag = (prov.get("policy_tag") or "")
+            closed.atr_policy_source = (prov.get("policy_source") or "")
+            closed.atr_policy_scenario = (prov.get("scenario") or "")
+            closed.atr_policy_regime = (prov.get("regime") or "")
+            closed.atr_policy_bucket = (prov.get("risk_horizon_bucket") or "")
+            closed.atr_stop_ttl_mode = (prov.get("stop_ttl_mode") or "")
+            closed.atr_trailing_mode = (prov.get("trailing_mode") or "")
+            closed.atr_recovery_run_id = (prov.get("recovery_run_id") or "")
+            closed.atr_restore_cert_id = (prov.get("restore_cert_id") or "")
+            closed.atr_restore_cert_status = (prov.get("restore_cert_status") or "")
             closed.atr_policy_snapshot_json = prov
         except Exception:
             pass
@@ -2028,14 +2019,14 @@ class TradeMonitorService:
             candidate = (meta.get("risk_surface_live_candidate") or {}) if isinstance(meta, dict) else {}
 
             closed.live_surface_applied = bool(applied.get("applied", False))
-            closed.live_surface_reason_code = str(applied.get("reason_code") or "")
+            closed.live_surface_reason_code = (applied.get("reason_code") or "")
 
             closed.baseline_sl_price = float(baseline.get("sl_price") or 0.0)
             closed.baseline_tp1_price = float(baseline.get("tp1_price") or 0.0)
 
             closed.selected_sl_price = float(candidate.get("selected_sl_price") or 0.0)
             closed.selected_tp1_price = float(candidate.get("selected_tp1_price") or 0.0)
-            closed.live_surface_policy_level = str(applied.get("policy_level", ""))
+            closed.live_surface_policy_level = (applied.get("policy_level", ""))
 
             # Fallback: if live surface was INCOMPLETE (atr_profile missing → prices = 0),
             # populate from the actual position levels used by trading logic.
@@ -2061,7 +2052,7 @@ class TradeMonitorService:
             surface_diag = (meta.get("trailing_surface_diagnostic") or {}) if isinstance(meta, dict) else {}
 
             closed.trailing_surface_applied = bool(canary_decision.get("should_apply", False))
-            closed.trailing_surface_reason_code = str(canary_decision.get("reason_code") or "")
+            closed.trailing_surface_reason_code = (canary_decision.get("reason_code") or "")
 
             closed.baseline_trailing_offset_atr = float(surface_diag.get("baseline_offset_distance_px") or 0.0)
             closed.selected_trailing_offset_atr = float(surface_diag.get("selected_offset_distance_px") or 0.0)
@@ -2070,12 +2061,10 @@ class TradeMonitorService:
             pass
 
         # Phase 0.3: copy scalar horizon/ATR fields onto closed trade for analytics.
-        try:
+        with contextlib.suppress(Exception):
             stamp_closed_trade_horizon_from_position(pos, closed)
-        except Exception:
-            pass
 
-    def _update_stats_from_dicts(self, pos_dict: Dict[str, Any], closed_dict: Dict[str, Any]) -> None:
+    def _update_stats_from_dicts(self, pos_dict: dict[str, Any], closed_dict: dict[str, Any]) -> None:
         """
         Обновление stats без зависимости от живого pos объекта (который уже удалён из памяти).
         """
@@ -2104,7 +2093,7 @@ class TradeMonitorService:
                 dpos = DummyPos(); dpos.__dict__.update(pos_dict)
                 class DummyClosed: pass
                 dclosed = DummyClosed(); dclosed.__dict__.update(closed_dict)
-                
+
                 r_value = self._calculate_r_value(dpos, dclosed)
                 closed_at = self._resolve_closed_at(dclosed)
 
@@ -2117,16 +2106,16 @@ class TradeMonitorService:
                     r_value=r_value,
                     closed_at=closed_at,
                 )
-                
+
                 if callable(persist_task):
                     self._submit_regime_guard_persist_task(
-                        persist_task, 
+                        persist_task,
                         tags={"family": family, "venue": venue}
                     )
             except Exception as e:
                 self.logger.warning("regime guard update failed: %s", e)
 
-    def _persist_closed_trade_io(self, closed: TradeClosed, pos_dict: Dict[str, Any], closed_dict: Dict[str, Any]) -> None:
+    def _persist_closed_trade_io(self, closed: TradeClosed, pos_dict: dict[str, Any], closed_dict: dict[str, Any]) -> None:
         """
         Единая точка записи close (repo + analytics + stats).
         ВАЖНО: вызывать только вне self._lock.
@@ -2137,14 +2126,12 @@ class TradeMonitorService:
                 now_ms = get_ny_time_millis()
                 snap = self._get_health_snapshot_prefixed(str(getattr(closed, "symbol", "")), now_ms)
                 if snap:
-                    try:
-                        setattr(closed, "_health_snapshot", snap)
-                    except Exception:
-                        pass
+                    with contextlib.suppress(Exception):
+                        closed._health_snapshot = snap
             except Exception:
                 pass
 
-        hs: Dict[str, str] = {}
+        hs: dict[str, str] = {}
         try:
             hs = self._get_health_snapshot_for_trade(str(getattr(closed, "symbol", "")))
         except Exception:
@@ -2171,7 +2158,7 @@ class TradeMonitorService:
 
         self._update_stats_from_dicts(pos_dict, closed_dict)
 
-    def _peek_pos_and_symbol_by_sid(self, sid: str) -> tuple[Optional[str], Optional[str]]:
+    def _peek_pos_and_symbol_by_sid(self, sid: str) -> tuple[str | None, str | None]:
         """
         Быстрый peek под self._lock:
           - возвращает (pos_id, symbol) если позиция жива
@@ -2218,9 +2205,7 @@ class TradeMonitorService:
             if hasattr(spec, attr):
                 val = getattr(spec, attr)
                 # Если атрибут существует, используем его значение (даже если False)
-                if isinstance(val, bool):
-                    return bool(val)
-                elif isinstance(val, (int, float)):
+                if isinstance(val, bool) or isinstance(val, (int, float)):
                     return bool(val)
                 elif isinstance(val, str) and val.strip():
                     # Пустая строка считается как "не задано"
@@ -2312,7 +2297,7 @@ class TradeMonitorService:
     # --------------------
     # Paper vs Demo comparison report (Telegram)
     # --------------------
-    def _pvd_record_closed(self, pos: "PositionState", closed: "TradeClosed") -> None:
+    def _pvd_record_closed(self, pos: PositionState, closed: TradeClosed) -> None:
         """Record closed trade metadata for paper-vs-demo comparison.
         DISABLED per user request.
         """
@@ -2335,7 +2320,7 @@ class TradeMonitorService:
             return
 
         # Read demo closed events from orders:exec stream
-        demo_by_sid: Dict[str, Dict[str, Any]] = {}
+        demo_by_sid: dict[str, dict[str, Any]] = {}
         try:
             demo_raw = self.redis.xrevrange(
                 self._pvd_demo_stream, count=self._pvd_report_every_n * 10
@@ -2402,16 +2387,14 @@ class TradeMonitorService:
             quality = "🔴 DIVERGENT"
 
         # Read actual demo leverage from Redis (written by binance_executor)
-        demo_lev_map: Dict[str, int] = {}
+        demo_lev_map: dict[str, int] = {}
         try:
             raw_lev = self.redis.hgetall("exec:leverage:actual")
             for k, v in (raw_lev or {}).items():
                 sym = k.decode() if isinstance(k, bytes) else str(k)
                 val = v.decode() if isinstance(v, bytes) else str(v)
-                try:
+                with contextlib.suppress(Exception):
                     demo_lev_map[sym.upper()] = int(float(val))
-                except Exception:
-                    pass
         except Exception:
             pass
 
@@ -2481,7 +2464,7 @@ class TradeMonitorService:
     def _emit_trailing_audit(
         self,
         event_type: str,
-        pos: "PositionState",
+        pos: PositionState,
         new_sl: float,
         prev_sl: float,
         ts_ms: int,
@@ -2512,7 +2495,7 @@ class TradeMonitorService:
     # --------------------
     # Single-active-position guard (read-only check for trade_monitor)
     # --------------------
-    def _tm_check_single_active_guard(self, sig: "SignalNorm") -> bool:
+    def _tm_check_single_active_guard(self, sig: SignalNorm) -> bool:
         """
         Return True if the signal should be BLOCKED by the single-active-position guard.
 
@@ -2538,10 +2521,10 @@ class TradeMonitorService:
             if not isinstance(doc, dict):
                 return False
             # Skip released / tombstoned guards
-            guard_status = str(doc.get("guard_status") or "active").lower()
+            guard_status = (doc.get("guard_status") or "active").lower()
             if guard_status in ("released", "tombstone"):
                 return False
-            blocked_sid = str(doc.get("sid") or "").strip()
+            blocked_sid = (doc.get("sid") or "").strip()
             if not blocked_sid:
                 return False
             # Don't double-block the same sid (idempotent reprocessing)
@@ -2563,10 +2546,8 @@ class TradeMonitorService:
                             "⚠️ [GUARD] Stale guard for %s (age=%ds > stale=%ds) — bypassing",
                             symbol, age_ms // 1000, self._guard_stale_timeout_ms // 1000,
                         )
-                        try:
+                        with contextlib.suppress(Exception):
                             TM_SIGNAL_GUARD_STALE_BYPASS.labels(symbol=symbol).inc()
-                        except Exception:
-                            pass
                         return False  # stale → pass-through
             return True
         except Exception:
@@ -2575,7 +2556,7 @@ class TradeMonitorService:
     # --------------------
     # Signal → open position
     # --------------------
-    def on_signal(self, raw_signal: Dict[str, Any]) -> Optional[str]:
+    def on_signal(self, raw_signal: dict[str, Any]) -> str | None:
         """
         [PHASE 2: JITTER BUFFER]
         Нормализует сигнал и помещает в буфер переупорядочивания.
@@ -2589,12 +2570,10 @@ class TradeMonitorService:
         # Any signal without correct schema_version is considered legacy or malformed and must be rejected.
         if sig.schema_version != 1:
             symbol_up = str(sig.symbol or "UNKNOWN").upper()
-            logger.warning("🚫 Signal REJECTED: version mismatch (expected schema_version: 1, got %d) symbol=%s sid=%s", 
+            logger.warning("🚫 Signal REJECTED: version mismatch (expected schema_version: 1, got %d) symbol=%s sid=%s",
                            sig.schema_version, symbol_up, sig.sid)
-            try:
+            with contextlib.suppress(Exception):
                 TM_SIGNAL_VERSION_MISMATCH.labels(symbol=symbol_up).inc()
-            except Exception:
-                pass
             return None
 
         # [JITTER BUFFER] Enqueue for processing
@@ -2602,22 +2581,20 @@ class TradeMonitorService:
             # Add to buffer and keep it sorted by timestamp
             self._signal_buffer.append(sig)
             self._signal_buffer.sort(key=lambda s: s.entry_ts_ms)
-            
+
             # Simple telemetry (metrics added later)
             if len(self._signal_buffer) > 100:
                 logger.warning(f"⚠️ [JITTER_BUFFER] Backlog is high: {len(self._signal_buffer)} signals")
-            
-            try:
+
+            with contextlib.suppress(Exception):
                 TM_JITTER_BUFFER_SIZE.set(len(self._signal_buffer))
-            except Exception:
-                pass
 
         # Evaluate flush on every signal so that wall-clock fallback can release stuck signals
         self._flush_signal_buffer()
 
         return "buffered"
 
-    def _process_signal_norm(self, sig: SignalNorm) -> Optional[str]:
+    def _process_signal_norm(self, sig: SignalNorm) -> str | None:
         """
         Выполняет реальное открытие позиции на основе нормализованного сигнала.
         Вызывается из _flush_signal_buffer().
@@ -2629,25 +2606,23 @@ class TradeMonitorService:
         # [FIXED] schema_version is parsed cleanly in _normalize_signal
         if sig.schema_version != 1:
             symbol_up = str(sig.symbol or "UNKNOWN").upper()
-            logger.warning("🚫 Signal REJECTED: version mismatch (expected schema_version: 1, got %d) symbol=%s sid=%s", 
+            logger.warning("🚫 Signal REJECTED: version mismatch (expected schema_version: 1, got %d) symbol=%s sid=%s",
                            sig.schema_version, symbol_up, sig.sid)
-            try:
+            with contextlib.suppress(Exception):
                 TM_SIGNAL_VERSION_MISMATCH.labels(symbol=symbol_up).inc()
-            except Exception:
-                pass
             return None
 
         # Check if it's a real entry from policy vs a raw signal
         is_policy_entry = (str(sig.source or "").lower() == "smt_entry_policy")
         sig_conf = float(sig.payload.get("confidence") or sig.payload.get("conf") or 0.0)
-        
+
         # Use global confidence threshold (single source of truth)
         conf_threshold = self.shadow_conf_threshold
-        
+
         # Enforce confidence threshold for ALL signals (even policy entries)
         if sig_conf < (conf_threshold / 100.0):
             # Ignore signals below threshold
-            logger.warning("⏭️ Signal filtered: confidence %.1f%% < threshold %.1f%% for %s", 
+            logger.warning("⏭️ Signal filtered: confidence %.1f%% < threshold %.1f%% for %s",
                         sig_conf * 100.0, conf_threshold, sig.symbol)
             return None
 
@@ -2659,10 +2634,8 @@ class TradeMonitorService:
                 "symbol=%s sid=%s is_virtual=%s",
                 symbol_up, sig.sid, sig.payload.get("is_virtual", 0),
             )
-            try:
+            with contextlib.suppress(Exception):
                 TM_SIGNAL_BLOCKED_SINGLE_ACTIVE.labels(symbol=symbol_up).inc()
-            except Exception:
-                pass
             return None
 
         # ── Simulated slippage for paper trades (Point 6) ──
@@ -2686,13 +2659,11 @@ class TradeMonitorService:
                     if hasattr(sig, "sl") and float(getattr(sig, "sl", 0) or 0) > 0:
                         sig.sl = float(sig.sl) + delta
                     if hasattr(sig, "tp_levels") and getattr(sig, "tp_levels", None):
-                        sig.tp_levels = [float(tp) + delta for tp in sig.tp_levels]
-                    try:
+                        sig.tp_levels = [tp + delta for tp in sig.tp_levels]
+                    with contextlib.suppress(Exception):
                         TM_SIMULATED_SLIPPAGE_BPS.labels(
                             symbol=str(sig.symbol or "").upper()
                         ).observe(self._simulated_slippage_bps)
-                    except Exception:
-                        pass
             except Exception:
                 pass
 
@@ -2704,19 +2675,15 @@ class TradeMonitorService:
                 pos = self.open_positions.get(pos_id)
                 # No upgrade logic - everything stays virtual
                 logger.debug("⏭️ Duplicate signal ignored (sid=%s already open)", sig.sid)
-                try:
+                with contextlib.suppress(Exception):
                     TM_SIGNAL_DUPLICATE.labels(symbol=str(sig.symbol or "").upper(), reason="already_open").inc()
-                except Exception:
-                    pass
                 return pos_id
 
             # ✅ Глобальный sid-dedup для lossless reprocessing
             if sig.sid and not self._sid_claim(sig.sid, ttl_sec=30):
                 logger.debug("⏭️ Duplicate signal ignored (sid=%s already processed globally)", sig.sid)
-                try:
+                with contextlib.suppress(Exception):
                     TM_SIGNAL_DUPLICATE.labels(symbol=str(sig.symbol or "").upper(), reason="processed_globally").inc()
-                except Exception:
-                    pass
                 return None
 
             # ✅ Per-symbol guard: 1 symbol = 1 open position (in-memory)
@@ -2732,10 +2699,8 @@ class TradeMonitorService:
                         "(symbol=%s, sid=%s, existing_pos=%s)",
                         sym_up, sig.sid, existing_pid,
                     )
-                    try:
+                    with contextlib.suppress(Exception):
                         TM_SIGNAL_BLOCKED_SINGLE_ACTIVE.labels(symbol=sym_up).inc()
-                    except Exception:
-                        pass
                     # Release sid claim so signal can be retried when guard clears
                     self._sid_release(sig.sid)
                     return None
@@ -2750,7 +2715,7 @@ class TradeMonitorService:
             is_v = bool(int(sig.payload.get("is_virtual", 0) or 0))
             v_status = str(sig.payload.get("validation_status") or "").lower()
             g_mode = str(sig.payload.get("of_gate_mode") or sig.payload.get("gate_mode") or "").upper()
-            
+
             if g_mode == "SHADOW" and v_status == "failed":
                 is_v = True
 
@@ -2766,7 +2731,7 @@ class TradeMonitorService:
             try:
                 rg = getattr(sig, "entry_regime", None) or getattr(sig, "regime", None) or (raw_signal.get("entry_regime") if isinstance(raw_signal, dict) else None) or (raw_signal.get("regime") if isinstance(raw_signal, dict) else None)
                 if rg is not None and not getattr(pos, "entry_regime", None):
-                    setattr(pos, "entry_regime", str(rg))
+                    pos.entry_regime = str(rg)
             except Exception:
                 pass
 
@@ -2777,7 +2742,7 @@ class TradeMonitorService:
             # ---------------------------------------------------------------------
             try:
                 payload = sig.payload if isinstance(getattr(sig, "payload", None), dict) else {}
-                
+
                 # --- NEW: Persist AB/context into PositionState.signal_payload (no schema migration) ---
                 sp = getattr(pos, "signal_payload", None)
                 if not isinstance(sp, dict):
@@ -2785,16 +2750,16 @@ class TradeMonitorService:
                     pos.signal_payload = sp
 
                 # AB attribution (prefer flat payload fields)
-                sp["ab_arm"] = str(payload.get("ab_arm", sp.get("ab_arm", "A")) or "A").upper()
-                sp["ab_group"] = str(payload.get("ab_group", sp.get("ab_group", "default")) or "default")
-                sp["ab_key"] = str(payload.get("ab_key", sp.get("ab_key", "")) or "")
+                sp["ab_arm"] = (payload.get("ab_arm", sp.get("ab_arm", "A")) or "A").upper()
+                sp["ab_group"] = (payload.get("ab_group", sp.get("ab_group", "default")) or "default")
+                sp["ab_key"] = (payload.get("ab_key", sp.get("ab_key", "")) or "")
                 sp["arm_ver"] = int(payload.get("arm_ver", sp.get("arm_ver", 0)) or 0)
 
                 # Context for winner slicing
                 ctx = payload.get("ctx") if isinstance(payload.get("ctx"), dict) else {}
                 # Also try top-level regime/zone_id from payload if not in ctx
-                sp["regime"] = str(ctx.get("regime", getattr(sig, "regime", None)) or "na").lower()
-                sp["zone_id"] = str(ctx.get("zone_id", getattr(sig, "zone_id", None)) or "")
+                sp["regime"] = (ctx.get("regime", getattr(sig, "regime", None)) or "na").lower()
+                sp["zone_id"] = (ctx.get("zone_id", getattr(sig, "zone_id", None)) or "")
 
                 # --- Calibration / shadow trade fields ---
                 # These get persisted per-position so they survive POSITION_CLOSED → trades:closed join,
@@ -2829,7 +2794,7 @@ class TradeMonitorService:
             self.repo.persist_signal(sig)
             self.repo.save_open(pos)
             self._sid_finalize(sig.sid, ttl_days=7)
-            
+
             # event OPEN (also IO)
             self.repo.append_event(ev=_ev_open(pos))
             if getattr(self, "_protective_mirror", None):
@@ -2861,7 +2826,7 @@ class TradeMonitorService:
             logger.info("OPEN %s %s %s @ %.5f [#%d]%s", pos.id, pos.direction, pos.symbol, pos.entry_price, self._open_log_counter, " [VIRTUAL]" if pos.is_virtual else "")
         return pos.id
 
-    def on_audit(self, audit_data: Dict[str, Any]) -> None:
+    def on_audit(self, audit_data: dict[str, Any]) -> None:
         """
         Processes gate audit events to update v_gate_status on positions.
         """
@@ -2873,28 +2838,28 @@ class TradeMonitorService:
                     data = json.loads(audit_data["data"])
                 except Exception:
                     data = audit_data
-            
+
             if not isinstance(data, dict):
                 return
-            
+
             sid = data.get("entry_id") or data.get("sid")
             if not sid:
                 return
-            
+
             with self._lock:
                 pos_id = self.pos_by_sid.get(sid)
                 if not pos_id:
                     return
-                
+
                 pos = self.open_positions.get(pos_id)
                 if not pos:
                     return
-                
+
                 # Update gate status
                 ok = data.get("ok")
                 pos.v_gate_status = "passed" if ok else "failed"
                 pos.v_gate_reason = str(data.get("reason_code") or data.get("notes") or "")
-                
+
                 # Persist change if it's an open position
                 self.repo.save_open(pos)
         except Exception as e:
@@ -2913,12 +2878,12 @@ class TradeMonitorService:
 
             mature_signals = []
             now_ms = get_ny_time_millis()
-            
+
             jitter_ms = getattr(self, "_jitter_ms", 50)
             is_sim = getattr(self, "_is_sim", False)
             fallback_margin_ms = max(2000, jitter_ms * 4)
             max_tick_ts_ms = getattr(self, "_max_tick_ts_ms", 0)
-            
+
             # Buffer is already sorted by ts_ms in on_signal
             while signal_buffer:
                 sig = signal_buffer[0]
@@ -2928,17 +2893,15 @@ class TradeMonitorService:
                 # 3. Wall-clock fallback: если тиков нет, продвигаем по системному времени (только для Live)
                 is_mature_by_tick = sig.entry_ts_ms <= (max_tick_ts_ms - jitter_ms)
                 is_mature_by_clock = not is_sim and ((now_ms - sig.entry_ts_ms) > (jitter_ms + fallback_margin_ms))
-                
+
                 if is_mature_by_tick or is_mature_by_clock:
                     mature_signals.append(signal_buffer.pop(0))
                 else:
                     # Остальные сигналы еще "молодые"
                     break
-            
-            try:
+
+            with contextlib.suppress(Exception):
                 TM_JITTER_BUFFER_SIZE.set(len(signal_buffer))
-            except Exception:
-                pass
 
         # Обработка "зрелых" сигналов (ВНЕ LOCK если возможно, но _process_signal_norm сам управляет локом)
         for sig in mature_signals:
@@ -2949,20 +2912,20 @@ class TradeMonitorService:
                     TM_JITTER_RELEASE_LATENCY_MS.labels(symbol=str(sig.symbol or "").upper()).observe(rel_lat)
                 except Exception:
                     pass
-                
+
                 # [RELEASE]
                 self._process_signal_norm(sig)
             except Exception as e:
                 logger.error(f"❌ Error processing released signal {sig.sid}: {e}", exc_info=True)
 
-    def process_signal(self, raw: Dict[str, Any]) -> Optional[str]:
+    def process_signal(self, raw: dict[str, Any]) -> str | None:
         """
         Алиас для on_signal() для обратной совместимости.
         Обрабатывает сигнал и открывает позицию.
         """
         return self.on_signal(raw)
 
-    def _normalize_signal(self, raw: Dict[str, Any]) -> Optional[SignalNorm]:
+    def _normalize_signal(self, raw: dict[str, Any]) -> SignalNorm | None:
         try:
             data = raw
             if "data" in raw and isinstance(raw["data"], str):
@@ -2973,10 +2936,10 @@ class TradeMonitorService:
 
             sid = str(data.get("sid") or data.get("signal_id") or "")
             symbol = canon_symbol(data.get("symbol") or "")
-            
+
             # ✅ Получаем spec один раз для применения дефолтов
             spec = self._get_spec(symbol)
-            
+
             # Accept both:
             #   - "tf"        (internal canonical name)
             #   - "timeframe" (emitter/outbox payload uses this in several handlers)
@@ -3025,19 +2988,19 @@ class TradeMonitorService:
                     data["ts_ms"] = int(now_ms)
                 except Exception:
                     pass
-            
+
             # ✅ FINAL CLAMP: Never allow future timestamps to leak into trades (breaks reporting windows)
             # Time Sync: in replays, "future" is relative to the latest seen tick, not wall clock.
             # Fix: if we have tracking market time (_max_tick_ts_ms > 0) AND it is significantly
             # older than wall clock (> 24 hours), we treat it as replay mode.
             now_ms_current = get_ny_time_millis()
             is_replay = self._max_tick_ts_ms > 0 and abs(now_ms_current - self._max_tick_ts_ms) > 86400 * 1000
-            
+
             # P41 Constants for causality handling
             SIGNAL_MARKET_GRACE_MS = 100  # Signals slightly ahead of ticks are allowed (ingestion jitter)
             CLOCK_SKEW_TOLERANCE_MS = 1000  # Genuine skew limit vs wall clock
             LAG_WARNING_THRESHOLD_MS = 5000 # Warning threshold for market lag
-            
+
             if is_replay:
                 effective_now_ms = self._max_tick_ts_ms
                 if entry_ts_ms > effective_now_ms:
@@ -3054,14 +3017,14 @@ class TradeMonitorService:
                     if self.logger:
                         self.logger.warning(f"⚠️ Clock skew detected (future signal): {entry_ts_ms} > {now_ms_current} (skew={skew}ms, ctx=live). Clamping to wall-clock.")
                     entry_ts_ms = now_ms_current
-                
+
                 # 2. Market Time check (Wait for ticks)
                 elif self._max_tick_ts_ms > 0 and entry_ts_ms > self._max_tick_ts_ms:
                     # If signal is within grace period, we allow it to pass with original TS
                     # even if it's technically ahead of the last tick (avoids duration distortion).
                     market_skew = entry_ts_ms - self._max_tick_ts_ms
                     market_lag = now_ms_current - self._max_tick_ts_ms
-                    
+
                     if market_skew > SIGNAL_MARKET_GRACE_MS:
                         # Beyond grace period: we still allow it if it's within wall-clock time,
                         # but we log a market data lag warning.
@@ -3118,7 +3081,7 @@ class TradeMonitorService:
                         tp_levels = [entry_price - d for d in tp_dist]
 
             tp_levels = [float(x) for x in tp_levels][:3]
-            
+
             # ✅ Position sizing: prefer risk-based lot from signal_pipeline,
             #    fallback to margin-based sizing if signal has no pre-calculated lot.
             #
@@ -3194,7 +3157,7 @@ class TradeMonitorService:
             if max_qty_cap > 0 and lot > max_qty_cap:
                 logger.warning(f"🚨 [HARD_CAP] {symbol} lot {lot:.6f} exceeds RISK_MAX_QTY {max_qty_cap}. Clamping to {max_qty_cap}")
                 lot = max_qty_cap
-                
+
             # HARD CAP ON NOTIONAL as a universal safety measure against pipeline bugs
             max_notional_cap = deposit_env * (float(os.getenv("MAX_MARGIN_PERCENT", "5.0")) / 100.0) * leverage_env
             cs_notional = float(getattr(spec, "contract_size", 1.0) or 1.0)
@@ -3207,9 +3170,9 @@ class TradeMonitorService:
 
             # ✅ Применяем дефолты из SymbolSpec для trailing параметров
             source_norm = source  # canon_source уже применен выше
-            
+
             # 1) trailing_profile
-            trail_profile = str(data.get("trail_profile") or "")
+            trail_profile = (data.get("trail_profile") or "")
             if not trail_profile:
                 # Если в сигнале нет trail_profile, берем из spec
                 default_profile = getattr(spec, "trailing_profile_default", "") or ""
@@ -3217,7 +3180,7 @@ class TradeMonitorService:
                     trail_profile = default_profile
                     # Можно добавить проверку source_norm == "CryptoOrderFlow" если нужно
                     data["trail_profile"] = trail_profile
-            
+
             # 2) trailing_min_lock_r
             if "trailing_min_lock_r" not in data:
                 try:
@@ -3226,7 +3189,7 @@ class TradeMonitorService:
                     mlr_spec = 0.0
                 if mlr_spec > 0:
                     data["trailing_min_lock_r"] = mlr_spec
-            
+
             # 3) baseline_mode / baseline_horizon_ms (опционально)
             if "baseline_mode" not in data and hasattr(spec, "baseline_mode_default"):
                 baseline_mode_default = getattr(spec, "baseline_mode_default", None)
@@ -3236,7 +3199,7 @@ class TradeMonitorService:
                 baseline_horizon_ms_default = getattr(spec, "baseline_horizon_ms_default", None)
                 if baseline_horizon_ms_default:
                     data["baseline_horizon_ms"] = int(float(baseline_horizon_ms_default))
-            
+
             # 4) trailing_tp1_offset_atr (для использования в on_tick)
             if "trailing_tp1_offset_atr" not in data:
                 try:
@@ -3366,7 +3329,7 @@ class TradeMonitorService:
     # --------------------
     # Orphan housekeeping (вошли, но не вышли)
     # --------------------
-    
+
     def _is_grace_period_active(self, now_ms: int) -> bool:
         """[FIX-2] Returns True if service is still within the post-restart grace period."""
         grace = int(getattr(self, "_housekeep_grace_ms", 0))
@@ -3409,7 +3372,7 @@ class TradeMonitorService:
         except Exception:
             return entry_price
 
-    def _collect_orphan_closures(self, now_ms: int) -> List[Tuple[PositionState, float, int, str]]:
+    def _collect_orphan_closures(self, now_ms: int) -> list[tuple[PositionState, float, int, str]]:
         """
         Собирает orphan-позиции для закрытия.
         Важно: внутри lock сразу удаляем позиции из памяти/индексов, чтобы исключить зависание/двойную обработку.
@@ -3417,7 +3380,7 @@ class TradeMonitorService:
         Возвращает список кортежей:
           (pos, exit_price, exit_ts_ms, close_reason_raw)
         """
-        closures: List[Tuple[PositionState, float, int, str]] = []
+        closures: list[tuple[PositionState, float, int, str]] = []
 
         # [FIX-2] Grace period: skip housekeep during warm-up window after restart
         if self._is_grace_period_active(now_ms):
@@ -3463,12 +3426,12 @@ class TradeMonitorService:
                     if smart_timeout_enabled:
                         sym = str(getattr(pos, "symbol", "") or "")
                         last = self._last_price_by_symbol.get(sym)
-                        
+
                         # We need price to check PnL. If no price, we can't be "smart", so we flow to STALE_PRICE logic.
                         if last and float(last[1]) > 0:
                             last_px = float(last[1])
                             entry_px = float(getattr(pos, "entry_price", 0.0) or 0.0)
-                            
+
                             if entry_px > 0:
                                 # A. Calculate PnL (Gross BPS)
                                 direction = getattr(pos, "direction", "LONG")
@@ -3476,23 +3439,23 @@ class TradeMonitorService:
                                     pnl_raw = (last_px - entry_px) / entry_px
                                 else:
                                     pnl_raw = (entry_px - last_px) / entry_px
-                                
+
                                 pnl_bps = pnl_raw * 10000.0
-                                
+
                                 # B. Calculate MAE (ATR-based if available)
                                 # We don't track live MAE in memory efficiently here, but we can estimate "risk status".
-                                # User said: "MAE exceeds threshold (risk-off)". 
+                                # User said: "MAE exceeds threshold (risk-off)".
                                 # If we are deep in red, we might WANT to close (risk control).
                                 # But if we are around 0 or slightly negative, we HOLD.
-                                
+
                                 # Configs
                                 param_min_pnl = float(os.getenv("TM_SMART_TIMEOUT_PNL_BPS", "4.0")) # cover fees
                                 param_max_mae_atr = float(os.getenv("TM_SMART_TIMEOUT_MAE_ATR", "1.0"))
-                                
+
                                 # Check PnL Condition: "Only allow timeout if pnl_net >= X"
                                 # We use gross pnl_bps >= X (where X covers fees)
                                 is_profitable_exit = (pnl_bps >= param_min_pnl)
-                                
+
                                 # Check MAE Condition: "Only allow timeout if MAE > threshold"
                                 # Since we don't store full MAE history in RAM here easily,
                                 # we check CURRENT adverse excursion.
@@ -3564,8 +3527,8 @@ class TradeMonitorService:
                     continue
 
         return closures
-    
-    def _finalize_orphan_closures(self, closures: List[Tuple[PositionState, float, int, str]]) -> None:
+
+    def _finalize_orphan_closures(self, closures: list[tuple[PositionState, float, int, str]]) -> None:
         """
         Делает forced finalize для orphan-позиций: сохраняет как CLOSED и обновляет статистику.
         Отделено от _collect_* чтобы не держать lock на I/O.
@@ -3605,16 +3568,12 @@ class TradeMonitorService:
                 # StatsAggregator can push them into statsbuf:*:mfe_bps_t{bucket} lists.
                 # Fail-open (never breaks closing).
                 # ---------------------------------------------------------------------
-                try:
+                with contextlib.suppress(Exception):
                     attach_timebucket_snapshots_to_closed(pos, closed)
-                except Exception:
-                    pass
 
                 # Явно помечаем "почему" — чтобы фильтровать в репортах/аналитике
-                try:
+                with contextlib.suppress(Exception):
                     closed.close_reason_detail = str(close_reason_raw)
-                except Exception:
-                    pass
 
                 # FIX(#9): health snapshot добавляем здесь (в сервисе), а не внутри RedisTradeRepository.save_closed().
                 # Это позволяет:
@@ -3624,7 +3583,7 @@ class TradeMonitorService:
                 if self._attach_health_on_close:
                     try:
                         now_ms = get_ny_time_millis()
-                        setattr(closed, "_health_snapshot", self._get_health_snapshot_prefixed(closed.symbol, now_ms))
+                        closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)
                     except Exception:
                         pass
 
@@ -3660,7 +3619,7 @@ class TradeMonitorService:
             except Exception as e:
                 logger.warning("Error triggering report (orphan close): %s", e)
 
-    
+
     def _cleanup_stale_prices(self, ttl_ms: int = 3600000) -> None:
         """
         Recommendation 3: Fix memory leak in self._last_price_by_symbol.
@@ -3669,12 +3628,12 @@ class TradeMonitorService:
         now = get_ny_time_millis()
         with self._lock:
             to_delete = [
-                sym for sym, (ts, _) in self._last_price_by_symbol.items() 
+                sym for sym, (ts, _) in self._last_price_by_symbol.items()
                 if now - ts > ttl_ms
             ]
             for sym in to_delete:
                 del self._last_price_by_symbol[sym]
-            
+
             if to_delete:
                 self.logger.info(f"🧹 Cleaned up {len(to_delete)} stale prices from cache")
 
@@ -3692,11 +3651,11 @@ class TradeMonitorService:
                 duration_ms = get_ny_time_millis() - start_ms
                 if hasattr(self, 'tm_orphan_cleanup_duration_ms'):
                     self.tm_orphan_cleanup_duration_ms.set(duration_ms)
-            
+
             # Wait with small chunks to allow quick shutdown
             self._housekeep_thread_stop.wait(interval_sec)
 
-    def _housekeep_expired_positions(self, now_ms: int, current_symbol: Optional[str] = None) -> None:
+    def _housekeep_expired_positions(self, now_ms: int, current_symbol: str | None = None) -> None:
         """
         Оптимизированная версия:
         1. Если есть current_symbol -> проверяем только шард этого символа (O(1) lookup).
@@ -3706,7 +3665,7 @@ class TradeMonitorService:
         if self._is_grace_period_active(now_ms):
             return
 
-        by_sym: Dict[str, List[str]] = {}
+        by_sym: dict[str, list[str]] = {}
 
         if current_symbol:
             # 1. Sharded mode (O(1) lookup of symbol, O(N_symbol) iteration)
@@ -3715,11 +3674,11 @@ class TradeMonitorService:
                 if (now_ms - last_sh) < self._orphan_housekeep_interval_ms:
                     return
                 self._last_housekeep_by_symbol[current_symbol] = now_ms
-            
+
             shard = self.shards.get(current_symbol, {})
             if not shard:
                 return
-            
+
             # Check expiration under symbol lock (already held if called from on_tick)
             candidates = [pid for pid, pos in shard.items() if self._is_orphan_expired(pos, now_ms)]
             if candidates:
@@ -3736,21 +3695,21 @@ class TradeMonitorService:
                     for pid, pos in shard.items():
                         if self._is_orphan_expired(pos, now_ms):
                             by_sym.setdefault(sym, []).append(pid)
-            
+
             # Recommendation 3: Periodic cleanup of stale prices
             self._cleanup_stale_prices()
 
         if not by_sym:
             return
 
-        report_triggers: List[tuple[str, str]] = []
+        report_triggers: list[tuple[str, str]] = []
 
         # process each symbol independently (avoid multi-lock deadlocks)
         for sym in sorted(by_sym.keys()):
             # Logic:
             # 1. If sym == current_symbol: we already hold the lock (called from on_tick). Re-enter allowed (RLock).
             # 2. If sym != current_symbol: try to acquire lock non-blocking. If locked by another thread, SKIP.
-            
+
             lk = self._get_symbol_lock(sym)
             can_proceed = False
             ctx = contextlib.nullcontext()
@@ -3782,15 +3741,15 @@ class TradeMonitorService:
             # Use context manager to ensure proper lock handling
             with ctx:
 
-                io_tasks: List[_IOTask] = []
-                local_triggers: List[tuple[str, str]] = []
+                io_tasks: list[_IOTask] = []
+                local_triggers: list[tuple[str, str]] = []
 
                 with self._lock:
 
                     # get last price for forced exit
                     lp = self._last_price_by_symbol.get(sym)
                     raw = "ORPHAN_FORCED_CLOSE"
-                    
+
                     if lp:
                         exit_ts_ms, exit_price = int(lp[0]), float(lp[1])
                         # Проверяем на "протухание" цены (защита от forced-close по цене часовой давности)
@@ -3840,7 +3799,7 @@ class TradeMonitorService:
                             price=float(pos_exit_price),
                             ts_ms=int(exit_ts_ms or now_ms),
                         )
-                        
+
                         # Recommendation 4: Prometheus metric
                         self.tm_orphans_force_closed.labels(symbol=sym).inc()
 
@@ -3936,7 +3895,7 @@ class TradeMonitorService:
     # --------------------
     # Tick → updates / close
     # --------------------
-    def on_tick(self, raw_tick: Dict[str, Any]) -> None:
+    def on_tick(self, raw_tick: dict[str, Any]) -> None:
         """
         Обрабатывает тик для всех открытых позиций данного символа (thread-safe, optimized).
         """
@@ -3952,8 +3911,8 @@ class TradeMonitorService:
         # Update Simulation Time (Time Sync)
         if ts_ms > self._max_tick_ts_ms:
             self._max_tick_ts_ms = ts_ms
-            
-        # [PHASE 2: Jitter Sync] 
+
+        # [PHASE 2: Jitter Sync]
         # Whenever market time advances, try to release buffered signals.
         self._flush_signal_buffer()
 
@@ -3974,7 +3933,7 @@ class TradeMonitorService:
         with sym_ctx:
             # 1) update last price (used by orphan forced-close)
             self._update_last_price(tick)
-            
+
             # Note: _housekeep_expired_positions is now handled in the background TMHousekeep thread
 
             # 2) snapshot positions for this symbol from shards
@@ -3982,7 +3941,7 @@ class TradeMonitorService:
             # We can now avoid holding the global self._lock for the iteration entirely.
             shard = self.shards.get(symbol, {})
             v_count = sum(1 for p in shard.values() if getattr(p, "is_virtual", False))
-            
+
             # Recommendation 4: Prometheus Gauge for open positions count (Throttled)
             last_upd = self._last_metrics_update_by_sym.get(symbol, 0)
             if (now_ms - last_upd) >= self._metrics_update_interval_ms:
@@ -4074,7 +4033,7 @@ class TradeMonitorService:
                                         cached_atr, _ = self.atr_cache.get_with_meta(symbol=pos.symbol, timeframe=entry_tf)
                                         if cached_atr:
                                             pos_atr = float(cached_atr)
-                                
+
                                 if pos_atr <= 0:
                                     pos_atr = float((getattr(pos, "signal_payload", {}) or {}).get("atr", 0.0) or 0.0)
                                 offset_mult = self._resolve_trailing_tp1_offset_atr(pos, spec)
@@ -4082,23 +4041,23 @@ class TradeMonitorService:
                                 try:
                                     s_norm = str(getattr(pos, "source", "unknown")).lower()
                                     s_up = str(getattr(pos, "symbol", "")).upper()
-                                    
+
                                     sp = getattr(pos, "signal_payload", {}) or {}
                                     r_g = str(sp.get("regime") or sp.get("meta", {}).get("regime") or "")
                                     s_c = str(sp.get("scenario") or sp.get("kind") or "")
                                     bucket = str((sp.get("meta", {}) or {}).get("horizon", {}).get("risk_horizon_bucket") or "na")
 
                                     ac_pol = get_active_policy(s_norm, s_up, s_c, r_g, bucket)
-                                    
+
                                     can_dec = should_apply_trailing_surface(symbol=pos.symbol, sid=pos.sid, regime=r_g, scenario=s_c)
-                                    
+
                                     if ac_pol and ac_pol.get("trailing_mode") == "live":
                                         trailing_decision = {"should_apply": True, "reason_code": "TRAILING_POLICY_APPLY"}
                                     else:
                                         trailing_decision = can_dec
 
                                     if ac_pol and "rollout_stage_trailing" in ac_pol:
-                                        rollout_stage = str(ac_pol.get("rollout_stage_trailing", "shadow"))
+                                        rollout_stage = (ac_pol.get("rollout_stage_trailing", "shadow"))
                                         if rollout_stage == "shadow":
                                             trailing_decision = {"should_apply": False, "reason_code": "ATR_POLICY_ROLLOUT_SHADOW"}
                                         elif rollout_stage in {"frozen", "rolled_back"}:
@@ -4114,13 +4073,13 @@ class TradeMonitorService:
                                                 trailing_decision = {"should_apply": False, "reason_code": f"ATR_POLICY_ROLLOUT_{rollout_stage.upper()}_MISS"}
                                 except Exception:
                                     trailing_decision = {"should_apply": False, "reason_code": "ERROR_FAIL_OPEN"}
-                                
+
                                 trailing_surface = build_trailing_surface(
                                     signal_payload=getattr(pos, "signal_payload", {}) or {},
                                     pos_atr=pos_atr,
                                     offset_mult=offset_mult,
                                 )
-                                
+
                                 # Unconditionally store diagnostics for telemetry/A-B service
                                 if getattr(pos, "signal_payload", None) is not None:
                                     pos.signal_payload.setdefault("meta", {})
@@ -4215,7 +4174,7 @@ class TradeMonitorService:
                     if self._attach_health_on_close:
                         try:
                             now_ms = get_ny_time_millis()
-                            setattr(closed, "_health_snapshot", self._get_health_snapshot_prefixed(closed.symbol, now_ms))
+                            closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)
                         except Exception:
                             pass
 
@@ -4334,9 +4293,9 @@ class TradeMonitorService:
         self,
         signal_id: str,
         new_sl: float,
-        source: Optional[str] = None,
-        profile: Optional[str] = None,
-        event_id: Optional[str] = None,
+        source: str | None = None,
+        profile: str | None = None,
+        event_id: str | None = None,
         clear_tp_levels: bool = False,
     ) -> bool:
         """
@@ -4369,7 +4328,7 @@ class TradeMonitorService:
             sym = str(getattr(pos, "symbol", "") or "")
 
         with self._symbol_ctx(sym):
-            io_tasks: List[_IOTask] = []
+            io_tasks: list[_IOTask] = []
             with self._lock:
                 # re-check (position may be closed between locks)
                 pos_id = self.pos_by_sid.get(signal_id)
@@ -4404,7 +4363,7 @@ class TradeMonitorService:
         self,
         sid: str,
         new_sl: float,
-        ts_ms: Optional[int] = None,
+        ts_ms: int | None = None,
         trailing_distance: float = 0.0,
         point_size: float = 0.0,
         clear_future_tp_levels: bool = False,
@@ -4419,7 +4378,7 @@ class TradeMonitorService:
             return False
 
         with self._symbol_lock_ctx(sym):
-            io_tasks: List[_IOTask] = []
+            io_tasks: list[_IOTask] = []
             with self._lock:
                 pos_id2 = self.pos_by_sid.get(sid)
                 if not pos_id2:
@@ -4457,8 +4416,8 @@ class TradeMonitorService:
         self,
         sid: str,
         new_sl: float,
-        ts_ms: Optional[int] = None,
-        event_id: Optional[str] = None
+        ts_ms: int | None = None,
+        event_id: str | None = None
     ) -> bool:
         """
         Обрабатывает внешнее событие TRAILING_MOVE (идемпотентно).
@@ -4474,7 +4433,7 @@ class TradeMonitorService:
             return False
 
         with self._symbol_lock_ctx(sym):
-            io_tasks: List[_IOTask] = []
+            io_tasks: list[_IOTask] = []
             with self._lock:
                 pos_id2 = self.pos_by_sid.get(sid)
                 if not pos_id2:
@@ -4512,9 +4471,9 @@ class TradeMonitorService:
         self,
         signal_id: str,
         price: float,
-        timestamp: Optional[int] = None,
-        source: Optional[str] = None,
-        event_id: Optional[str] = None
+        timestamp: int | None = None,
+        source: str | None = None,
+        event_id: str | None = None
     ) -> bool:
         """
         Обрабатывает внешнее событие SL_HIT (thread-safe, idempotent).
@@ -4539,7 +4498,7 @@ class TradeMonitorService:
         from domain.time_utils import normalize_ts_ms
         ts = normalize_ts_ms(int(timestamp or 0))
 
-        report_trigger: Optional[tuple[str, str]] = None
+        report_trigger: tuple[str, str] | None = None
 
         # Peek symbol without holding _lock while waiting for symbol-lock
         pos_id, sym = self._peek_pos_and_symbol_by_sid(signal_id)
@@ -4661,7 +4620,7 @@ class TradeMonitorService:
             if self._attach_health_on_close:
                 try:
                     now_ms = get_ny_time_millis()
-                    setattr(closed, "_health_snapshot", self._get_health_snapshot_prefixed(closed.symbol, now_ms))
+                    closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)
                 except Exception:
                     pass
             try:
@@ -4679,16 +4638,12 @@ class TradeMonitorService:
             self._io_save_closed(closed, health_snapshot=hs)
             # Async DB persist (non-blocking)
             self._db_executor.submit(self._safe_save_trade_to_db, closed)
-            try:
+            with contextlib.suppress(Exception):
                 self._update_stats(pos, closed)
-            except Exception:
-                pass
 
             # Mark sid closed for idempotency across restarts/cleanup
-            try:
+            with contextlib.suppress(Exception):
                 self._mark_sid_closed(str(pos.sid or signal_id), ttl_days=7)
-            except Exception:
-                pass
 
             report_trigger = (pos.source, pos.symbol, pos.id, getattr(pos, "is_virtual", False))
 
@@ -4765,7 +4720,7 @@ class TradeMonitorService:
             return False
 
         # -------- Dedup --------
-        if not self._dedup_acquire("tp_hit", str(event_id or "")):
+        if not self._dedup_acquire("tp_hit", (event_id or "")):
             logger.debug("⏭️ TP_HIT duplicate event_id=%s already applied", event_id)
             return True
 
@@ -4785,7 +4740,7 @@ class TradeMonitorService:
             tp_level=tp_level_i,
             price=float(price),
             ts_ms=int(ts),
-            event_id=str(event_id or ""),
+            event_id=(event_id or ""),
         )
 
     def _apply_external_tp_hit_impl(
@@ -4817,7 +4772,7 @@ class TradeMonitorService:
         if not sym:
             return True
 
-        report_trigger: Optional[tuple[str, str]] = None
+        report_trigger: tuple[str, str] | None = None
 
         with self._symbol_lock_ctx(sym):
             # Re-check under _lock
@@ -4940,7 +4895,7 @@ class TradeMonitorService:
             if self._attach_health_on_close:
                 try:
                     now_ms = get_ny_time_millis()
-                    setattr(closed, "_health_snapshot", self._get_health_snapshot_prefixed(closed.symbol, now_ms))
+                    closed._health_snapshot = self._get_health_snapshot_prefixed(closed.symbol, now_ms)
                 except Exception:
                     pass
             try:
@@ -4958,15 +4913,11 @@ class TradeMonitorService:
             self._io_save_closed(closed, health_snapshot=hs)
             # Async DB persist (non-blocking)
             self._db_executor.submit(self._safe_save_trade_to_db, closed)
-            try:
+            with contextlib.suppress(Exception):
                 self._update_stats(pos, closed)
-            except Exception:
-                pass
 
-            try:
+            with contextlib.suppress(Exception):
                 self._mark_sid_closed(str(pos.sid or signal_id), ttl_days=7)
-            except Exception:
-                pass
 
             report_trigger = (pos.source, pos.symbol, pos.id, getattr(pos, "is_virtual", False))
 
@@ -5006,7 +4957,7 @@ class TradeMonitorService:
         with self._lock:
             return len(self.open_positions)
 
-    def peek_symbol_by_sid(self, sid: str) -> Optional[str]:
+    def peek_symbol_by_sid(self, sid: str) -> str | None:
         """
         Fast thread-safe lookup for routing:
           sid -> pos_id -> pos.symbol
@@ -5038,7 +4989,7 @@ class TradeMonitorService:
         except Exception:
             pass
 
-    def _submit_regime_guard_persist_task(self, task: Callable[[], None], tags: Optional[Dict[str, Any]] = None) -> None:
+    def _submit_regime_guard_persist_task(self, task: Callable[[], None], tags: dict[str, Any] | None = None) -> None:
         """
         Отправляет задачу на сохранение в DB Executor с учетом Backpressure.
         Если очередь полна — сбрасывает задачу и пишет метрику (Drop).
@@ -5096,10 +5047,8 @@ class TradeMonitorService:
                 pass
             finally:
                 self._rg_pending_add(-1)
-                try:
+                with contextlib.suppress(RuntimeError):
                     sem.release()
-                except RuntimeError:
-                    pass
 
         fut.add_done_callback(_done_cb)
 
@@ -5111,17 +5060,17 @@ class TradeMonitorService:
 
     def _resolve_closed_at(self, closed) -> datetime:
         """Разрешение времени закрытия в datetime с tz=utc."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         closed_at = getattr(closed, 'exit_ts_ms', None) or getattr(closed, 'closed_at', None)
         if closed_at is None:
-            return datetime.now(timezone.utc)
+            return datetime.now(UTC)
         if isinstance(closed_at, (int, float)):
             ts_sec = float(closed_at)
             if ts_sec > 946684800000: # ms to sec
                 ts_sec = ts_sec / 1000.0
-            return datetime.fromtimestamp(ts_sec, tz=timezone.utc)
+            return datetime.fromtimestamp(ts_sec, tz=UTC)
         if not hasattr(closed_at, 'tzinfo'):
-            return datetime.now(timezone.utc)
+            return datetime.now(UTC)
         return closed_at
 
     def _update_stats(self, pos: PositionState, closed) -> None:
@@ -5141,7 +5090,7 @@ class TradeMonitorService:
                     # Получаем данные для regime guard
                     family = getattr(pos, 'family', 'unknown') or getattr(closed, 'family', 'unknown')
                     venue = getattr(pos, 'venue', 'unknown') or getattr(closed, 'venue', 'unknown')
-                    
+
                     # [CHANGED] Сабмитим через наш безопасный метод
                     persist_task = self.regime_guard.on_signal_closed(
                         signal_id=getattr(pos, 'sid', '') or getattr(closed, 'sid', ''),
@@ -5155,7 +5104,7 @@ class TradeMonitorService:
 
                     if callable(persist_task):
                         self._submit_regime_guard_persist_task(
-                            persist_task, 
+                            persist_task,
                             tags={"family": family, "venue": venue}
                         )
                 except Exception as e:
@@ -5174,7 +5123,7 @@ class TradeMonitorService:
         """
         if not getattr(self, "events_logger", None):
             return
-        
+
         try:
             md = {}
             sp = getattr(pos, "signal_payload", None)
@@ -5183,26 +5132,26 @@ class TradeMonitorService:
                 for k in ("ab_arm", "ab_group", "ab_key", "ab_ver", "arm_ver", "regime", "zone_id", "zone_type", "bundle", "decision", "leader"):
                     if k in sp:
                         md[k] = sp.get(k)
-            
+
             # Risk/PnL R calculation
             try:
                 entry = float(getattr(pos, "entry_price", 0.0) or 0.0)
                 # Use 'sl' (standard) or 'sl_price' fallback
                 sl = float(getattr(pos, "sl", 0.0) or getattr(pos, "sl_price", 0.0) or 0.0)
                 lot = float(getattr(pos, "lot", 0.0) or 0.0)
-                
+
                 # Simple risk calculation |entry - sl| * lot
                 risk_usd = abs(entry - sl) * lot if (entry > 0 and sl > 0 and lot > 0) else 0.0
-                
-                # If explicit risk_usd was stored in signal_payload, prefer it? 
-                # (User request says "if PositionState does not have risk_usd, better add it at creation". 
+
+                # If explicit risk_usd was stored in signal_payload, prefer it?
+                # (User request says "if PositionState does not have risk_usd, better add it at creation".
                 # But here we compute it if missing).
                 # Actually user patch says:
                 # try:
                 #     ru = getattr(pos, "risk_usd", None)
                 #     if ru is not None...
                 # except...
-                
+
                 # We check pos.risk_usd first
                 # --- Enrich POSITION_CLOSED with AB + risk for evaluator/rollback ---
                 risk_usd = 0.0
@@ -5232,10 +5181,8 @@ class TradeMonitorService:
 
                 # 3. Fallback: abs(open - sl) * lot
                 if risk_usd <= 1e-9:
-                     try:
+                     with contextlib.suppress(Exception):
                         risk_usd = float(abs(float(pos.entry_price or 0.0) - float(pos.sl or 0.0)) * float(pos.lot or 0.0))
-                     except Exception:
-                        pass
 
                 ab_arm = ""
                 ab_group = ""
@@ -5243,17 +5190,17 @@ class TradeMonitorService:
                 try:
                     sp = getattr(pos, "signal_payload", None) or {}
                     if isinstance(sp, dict):
-                        ab_arm = str(sp.get("ab_arm") or "")
-                        ab_group = str(sp.get("ab_group") or "")
-                        rg = str(sp.get("regime") or "")
+                        ab_arm = (sp.get("ab_arm") or "")
+                        ab_group = (sp.get("ab_group") or "")
+                        rg = (sp.get("regime") or "")
                 except Exception:
                     pass
 
                 extra = {
                     "risk_usd": float(risk_usd),
-                    "ab_arm": str(ab_arm or ""),
-                    "ab_group": str(ab_group or ""),
-                    "regime": str(rg or "na"),
+                    "ab_arm": (ab_arm or ""),
+                    "ab_group": (ab_group or ""),
+                    "regime": (rg or "na"),
                 },
 
                 # === AB attribution + entry context (flattened into event payload) ===
@@ -5262,18 +5209,18 @@ class TradeMonitorService:
                     ab = sp.get("ab", {}) if isinstance(sp, dict) else {}
                     ctx = sp.get("ctx", {}) if isinstance(sp, dict) else {}
                     dec = sp.get("decision", sp.get("decision", "na")) if isinstance(sp, dict) else "na"
-                    
+
                     pnl_usd = float(getattr(closed, "pnl_net", 0.0) or 0.0)
                     r_usd = float(risk_usd or getattr(pos, "risk_usd", 0.0) or 0.0)
-                    
+
                     extra.update({
-                        "ab_arm": str(ab.get("arm", getattr(pos, "ab_arm", "A"))).upper(),
-                        "ab_group": str(ab.get("group", getattr(pos, "ab_group", "default"))).lower(),
-                        "ab_key": str(ab.get("key", getattr(pos, "ab_key", ""))),
+                        "ab_arm": (ab.get("arm", getattr(pos, "ab_arm", "A"))).upper(),
+                        "ab_group": (ab.get("group", getattr(pos, "ab_group", "default"))).lower(),
+                        "ab_key": (ab.get("key", getattr(pos, "ab_key", ""))),
                         "arm_ver": int(ab.get("arm_ver", getattr(pos, "arm_ver", 0))),
-                        "ab_split_reason": str(ab.get("split_reason","")),
+                        "ab_split_reason": (ab.get("split_reason","")),
                         "scenario": str(dec).lower(),  # continuation|reversal
-                        "regime": str(ctx.get("regime", getattr(pos, "regime", "na"))).lower(),
+                        "regime": (ctx.get("regime", getattr(pos, "regime", "na"))).lower(),
                         "entry_adx_q": float(ctx.get("adx_q", 0.5) or 0.5),
                         "entry_spread_z": float(ctx.get("spread_z", 0.0) or 0.0),
                         "entry_pressure_sps": float(ctx.get("pressure_sps", 0.0) or 0.0),
@@ -5337,9 +5284,9 @@ class TradeMonitorService:
             try:
                 sp = getattr(pos, "signal_payload", None)
                 if isinstance(sp, dict):
-                    ab_arm = str(sp.get("ab_arm", "") or "")
-                    ab_group = str(sp.get("ab_group", "") or "")
-                    ab_key = str(sp.get("ab_key", "") or "")
+                    ab_arm = (sp.get("ab_arm", "") or "")
+                    ab_group = (sp.get("ab_group", "") or "")
+                    ab_key = (sp.get("ab_key", "") or "")
                     arm_ver = int(sp.get("arm_ver", 0) or 0)
                     regime = str(sp.get("regime", (sp.get("ctx") or {}).get("regime", "na")) or "na")
                     # Extract regime_group for stratified analysis (prefer explicit, fallback to regime)
@@ -5351,7 +5298,7 @@ class TradeMonitorService:
                         or regime
                         or "na"
                     )
-                    
+
                     # scenario taxonomy is strict: continuation|reversal
                     scenario = str(
                         sp.get("scenario")
@@ -5364,7 +5311,7 @@ class TradeMonitorService:
                         # Attempt normalization if not strict
                         from core.autopilot_fields import normalize_scenario
                         scenario = normalize_scenario(scenario)
-                    
+
                     # Extract scenario_v4 for additional stratification (from of_confirm evidence)
                     scenario_v4 = ""
                     try:
@@ -5372,10 +5319,10 @@ class TradeMonitorService:
                         if isinstance(of_dict, dict):
                             evidence = of_dict.get("evidence") or {}
                             if isinstance(evidence, dict):
-                                scenario_v4 = str(evidence.get("scenario_v4", "") or "")
+                                scenario_v4 = (evidence.get("scenario_v4", "") or "")
                     except Exception:
                         scenario_v4 = ""
-                    
+
                     risk_usd = float(sp.get("risk_usd", 0.0) or 0.0)
 
                     # Pull indicators if present (best-effort)
@@ -5392,7 +5339,7 @@ class TradeMonitorService:
                         atr_unified_th_bps = float(ind.get("atr_unified_th_bps", -1.0) or -1.0)
                         atr_floor_th_bps = float(ind.get("atr_floor_th_bps", -1.0) or -1.0)
                         atr_fees_th_bps = float(ind.get("atr_fees_th_bps", -1.0) or -1.0)
-                    
+
                     # Extract meta_enforce fields from of_confirm evidence (for ramp evaluation and Stage2 optimization)
                     # CRITICAL: meta_veto must be written ALWAYS (even when meta_enforce_applied=0) for correct counterfactual simulation
                     meta_enforce_applied = None
@@ -5404,21 +5351,21 @@ class TradeMonitorService:
                         if isinstance(of_dict, dict):
                             evidence = of_dict.get("evidence") or {}
                             if isinstance(evidence, dict):
-                                meta_enforce_applied = int(evidence.get("meta_enforce_applied", 0) or 0)
+                                meta_enforce_applied = int(evidence.get(MetaKeys.ENFORCE_APPLIED, 0) or 0)
                                 # meta_veto is computed always (even in SHADOW/bypass mode) - required for Stage2 optimization
-                                meta_veto = int(evidence.get("meta_veto", 0) or 0)
-                                meta_enforce_key = str(evidence.get("meta_enforce_key", "") or "")
-                                meta_enforce_salt = str(evidence.get("meta_enforce_salt", "enf_v1") or "enf_v1")
+                                meta_veto = int(evidence.get(MetaKeys.VETO, 0) or 0)
+                                meta_enforce_key = (evidence.get(MetaKeys.ENFORCE_KEY, "") or "")
+                                meta_enforce_salt = (evidence.get(MetaKeys.ENFORCE_SALT, "enf_v1") or "enf_v1")
                         # Fallback: try indicators directly
                         if meta_enforce_applied is None:
                             if isinstance(ind, dict):
-                                meta_enforce_applied = int(ind.get("meta_enforce_applied", 0) or 0)
+                                meta_enforce_applied = int(ind.get(MetaKeys.ENFORCE_APPLIED, 0) or 0)
                                 if meta_veto == 0:
-                                    meta_veto = int(ind.get("meta_veto", 0) or 0)
+                                    meta_veto = int(ind.get(MetaKeys.VETO, 0) or 0)
                                 if not meta_enforce_key:
-                                    meta_enforce_key = str(ind.get("meta_enforce_key", "") or "")
+                                    meta_enforce_key = (ind.get(MetaKeys.ENFORCE_KEY, "") or "")
                                 if meta_enforce_salt == "enf_v1":
-                                    meta_enforce_salt = str(ind.get("meta_enforce_salt", "enf_v1") or "enf_v1")
+                                    meta_enforce_salt = (ind.get(MetaKeys.ENFORCE_SALT, "enf_v1") or "enf_v1")
                     except Exception:
                         meta_enforce_applied = None
                         # Keep defaults for meta_veto, meta_enforce_key, meta_enforce_salt
@@ -5427,7 +5374,7 @@ class TradeMonitorService:
                     risk_usd = float(getattr(pos, "risk_usd", 0.0) or 0.0)
             except Exception:
                 pass
-            
+
             r_mult = 0.0
             try:
                 if risk_usd > 0:
@@ -5560,7 +5507,7 @@ class TradeMonitorService:
             pass
 
 
-def _parse_tp_levels(data: dict) -> List[float]:
+def _parse_tp_levels(data: dict) -> list[float]:
     """
     Parse explicit TP levels from signal data.
     Looking for 'tp_levels' list or 'tp1'...'tp9' keys.
@@ -5571,22 +5518,18 @@ def _parse_tp_levels(data: dict) -> List[float]:
         raw_list = data.get("tp_levels")
         if raw_list and isinstance(raw_list, list):
             for x in raw_list:
-                try:
+                with contextlib.suppress(Exception):
                     tps.append(float(x))
-                except Exception:
-                    pass
             if tps:
                 return tps
-        
+
         # 2. Try tp1..tpN keys
         for i in range(1, 10):
             k = f"tp{i}"
             val = data.get(k)
             if val is not None:
-                try:
+                with contextlib.suppress(Exception):
                     tps.append(float(val))
-                except Exception:
-                    pass
     except Exception:
         pass
     return tps

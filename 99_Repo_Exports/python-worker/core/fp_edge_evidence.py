@@ -34,8 +34,8 @@ Outputs
 
 """
 
-from typing import Any, Dict, Tuple
 import math
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -73,9 +73,9 @@ def compute_fp_edge_absorb(
     direction: str,
     now_ts_ms: int,
     last_edge: Any,
-    cfg: Dict[str, Any],
-    indicators: Dict[str, Any],
-) -> Tuple[bool, float, int, str]:
+    cfg: dict[str, Any],
+    indicators: dict[str, Any],
+) -> tuple[bool, float, int, str]:
     """Compute FP edge absorption evidence.
 
     Strength normalization

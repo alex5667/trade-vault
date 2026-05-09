@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Time normalization utilities for the scanner infrastructure.
 
@@ -6,11 +7,10 @@ Provides functions to normalize and convert timestamps.
 """
 
 import time
-from typing import Union, Optional
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
-def normalize_epoch_ms(timestamp: Union[int, float, str, datetime]) -> int:
+def normalize_epoch_ms(timestamp: int | float | str | datetime) -> int:
     """
     Normalize a timestamp to milliseconds since epoch.
 
@@ -39,7 +39,7 @@ def normalize_epoch_ms(timestamp: Union[int, float, str, datetime]) -> int:
             # Try ISO format first
             dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             return int(dt.timestamp() * 1000)
         except ValueError:
             # Try as float string
@@ -51,13 +51,13 @@ def normalize_epoch_ms(timestamp: Union[int, float, str, datetime]) -> int:
     if isinstance(timestamp, datetime):
         # Convert datetime to milliseconds
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
+            timestamp = timestamp.replace(tzinfo=UTC)
         return int(timestamp.timestamp() * 1000)
 
     raise TypeError(f"Unsupported timestamp type: {type(timestamp)}")
 
 
-def normalize_epoch_seconds(timestamp: Union[int, float, str, datetime]) -> int:
+def normalize_epoch_seconds(timestamp: int | float | str | datetime) -> int:
     """
     Normalize a timestamp to seconds since epoch.
 
@@ -103,7 +103,7 @@ def format_timestamp_ms(timestamp_ms: int, format_str: str = "%Y-%m-%d %H:%M:%S"
         Formatted timestamp string
     """
     seconds = timestamp_ms / 1000
-    dt = datetime.fromtimestamp(seconds, tz=timezone.utc)
+    dt = datetime.fromtimestamp(seconds, tz=UTC)
     return dt.strftime(format_str)
 
 
@@ -118,7 +118,7 @@ def format_timestamp_seconds(timestamp_s: int, format_str: str = "%Y-%m-%d %H:%M
     Returns:
         Formatted timestamp string
     """
-    dt = datetime.fromtimestamp(timestamp_s, tz=timezone.utc)
+    dt = datetime.fromtimestamp(timestamp_s, tz=UTC)
     return dt.strftime(format_str)
 
 

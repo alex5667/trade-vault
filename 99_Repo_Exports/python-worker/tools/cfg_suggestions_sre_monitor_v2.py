@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 #!/usr/bin/env python3
 """
 cfg_suggestions_sre_monitor_v2.py
@@ -13,14 +15,14 @@ Lifecycle monitoring for cfg:suggestions:*
 - [P6.5] ACK mechanism for alert suppression.
 - [P6.5] Delivery Receipt (retry) for PAGE alerts.
 """
+import argparse
+import hashlib
+import json
+import logging
 import os
 import sys
-import json
-import time
-import argparse
-import logging
-import hashlib
-from typing import Dict, List, Optional, Any
+from typing import Any
+
 from redis import Redis
 
 # Default Settings
@@ -37,13 +39,13 @@ ESCALATE_PENDING_MS = int(os.getenv("CFG_SUGGESTIONS_ESCALATE_PENDING_MS", 72000
 ESCALATION_COOLDOWN_SEC = int(os.getenv("CFG_SUGGESTIONS_ESCALATION_COOLDOWN_SEC", 900)) # 15m
 
 # Keys & Streams
-NOTIFY_STREAM = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+NOTIFY_STREAM = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
 METRICS_STREAM = "metrics:cfg_suggestions"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("cfg_suggestions_monitor")
 
-def _loads_ops_json(s: str) -> List[Dict[str, Any]]:
+def _loads_ops_json(s: str) -> list[dict[str, Any]]:
     if not s:
         return []
     try:
@@ -61,7 +63,7 @@ def _emergency_sid(emergency_kind: str, scope: str, ref_sid: str, now_ts_ms: int
     return f"emg:{emergency_kind}:{scope}:{now_ts_ms}:{h}"
 
 class SugSREMonitor:
-    def __init__(self, redis_url: str, dry_run: bool = False, 
+    def __init__(self, redis_url: str, dry_run: bool = False,
                  emergency_enable: bool = False,
                  emergency_kind: str = "emergency_apply_stuck",
                  emergency_min_ms: int = 1800000,
@@ -80,7 +82,7 @@ class SugSREMonitor:
         self.redis = Redis.from_url(redis_url, decode_responses=True)
         self.dry_run = dry_run
         self.now_ms = get_ny_time_millis()
-        
+
         # Emergency settings
         self.emergency_enable = emergency_enable
         self.emergency_kind = emergency_kind
@@ -96,17 +98,17 @@ class SugSREMonitor:
         self.trade_pause_ops_json = trade_pause_ops_json
         self.trade_unpause_ops_json = trade_unpause_ops_json
         self.trade_pause_ttl_sec = trade_pause_ttl_sec
-        
+
         # Receipt settings [P6.5]
         self.notify_require_receipt_page = notify_require_receipt_page
         self.notify_receipt_resend_sec = notify_receipt_resend_sec
         self.notify_receipt_key_prefix = notify_receipt_key_prefix
 
-    def get_latest_sid(self, kind: str, scope: str) -> Optional[str]:
+    def get_latest_sid(self, kind: str, scope: str) -> str | None:
         key = f"latest:{kind}:{scope}"
         return self.redis.get(key)
 
-    def get_suggestion(self, kind: str, scope: str, sid: str) -> Optional[Dict]:
+    def get_suggestion(self, kind: str, scope: str, sid: str) -> dict | None:
         key = f"cfg:suggestions:{kind}:{scope}:{sid}"
         data = self.redis.get(key)
         if not data:
@@ -123,7 +125,7 @@ class SugSREMonitor:
         cnt = self.redis.get(flap_key)
         return int(cnt) if cnt else 0
 
-    def emit_metric(self, data: Dict):
+    def emit_metric(self, data: dict):
         if self.dry_run:
             logger.info(f"[DRY-RUN] Metric: {data}")
             return
@@ -140,8 +142,8 @@ class SugSREMonitor:
         if self.dry_run:
             logger.info(f"[DRY-RUN] [Notify {severity}] {message} (rcpt={receipt_id})")
             return
-        
-        base = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+
+        base = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
         warn_stream = os.getenv("NOTIFY_TELEGRAM_STREAM_WARN", base)
         crit_stream = os.getenv("NOTIFY_TELEGRAM_STREAM_CRIT", base)
         page_stream = os.getenv("NOTIFY_TELEGRAM_STREAM_PAGE", base)
@@ -156,7 +158,7 @@ class SugSREMonitor:
             "severity": sev,
             "source": "cfg_suggestions_sre",
         }
-        
+
         if receipt_id:
             payload["receipt_id"] = receipt_id
             payload["require_receipt"] = "1"
@@ -169,12 +171,12 @@ class SugSREMonitor:
         try:
             # Main stream
             self.redis.xadd(stream, payload, maxlen=50000)
-            
+
             # Mirror to base if different
             mirror_base = int(os.getenv("NOTIFY_TELEGRAM_MIRROR_BASE", "1"))
             if mirror_base and stream != base:
                 self.redis.xadd(base, payload, maxlen=50000)
-                
+
             logger.info(f"Notification sent: [{severity}] {message[:100]}... (rcpt={receipt_id})")
         except Exception as e:
             logger.error(f"Failed to send notification: {e}")
@@ -190,11 +192,11 @@ class SugSREMonitor:
              return False
 
         # Generate SID
-        h = hashlib.sha256(f"{self.trade_pause_kind}|{scope}|{cause_sid}".encode("utf-8")).hexdigest()[:8]
+        h = hashlib.sha256(f"{self.trade_pause_kind}|{scope}|{cause_sid}".encode()).hexdigest()[:8]
         pause_sid = f"autopause:{scope}:{self.now_ms}:{h}"
-        
+
         ops = _loads_ops_json(self.trade_pause_ops_json)
-        
+
         meta = {
             "kind": self.trade_pause_kind,
             "scope": self.trade_pause_kind_scope(scope), # Use specific scope logic if needed
@@ -204,26 +206,26 @@ class SugSREMonitor:
             "ops": ops,
             "hint": "Auto Trade Pause triggered by SRE Monitor (PAGE severity)"
         }
-        
+
         if self.dry_run:
             logger.info(f"[DRY-RUN] Auto Trade Pause: {meta}")
             return True
-            
+
         try:
              # Standard suggestion write
              self.redis.setex(f"{prefix}:meta:{pause_sid}", self.trade_pause_ttl_sec, json.dumps(meta))
              self.redis.setex(f"latest:{self.trade_pause_kind}:{meta['scope']}", self.trade_pause_ttl_sec, pause_sid)
-             
-             # Mark 'requested' so we don't spam it. 
+
+             # Mark 'requested' so we don't spam it.
              # Also used by unpause logic to know we paused it.
              self.redis.setex(req_key, self.trade_pause_ttl_sec, pause_sid)
-             
+
              logger.warning(f"AUTO TRADE PAUSE emitted: {pause_sid}")
              return True
         except Exception as e:
             logger.error(f"Failed to emit trade pause: {e}")
             return False
-            
+
     def trade_pause_kind_scope(self, issue_scope: str) -> str:
         # If env var CFG_SUGGESTIONS_TRADE_PAUSE_SCOPE is set, use it (e.g. ALL)
         # Otherwise use issue_scope
@@ -240,22 +242,22 @@ class SugSREMonitor:
         pause_sid = self.redis.get(req_key)
         if not pause_sid:
             return # We didn't pause it (or TTL expired), so we don't unpause automatically
-        
+
         # Determine effective scope for Unpause
         unpause_scope = self.trade_pause_kind_scope(scope)
-        
+
         # Check if pause was applied
         if not self.redis.exists(f"{prefix}:applied:{pause_sid}"):
             # Not applied yet, so no need to unpause (cancel?) - Keep simple, just wait.
             return
 
-        # Safety: Ensure Unpause isn't spammed. 
+        # Safety: Ensure Unpause isn't spammed.
         # But here we only call this if NO PAGE incidents remain for this scope.
-        
-        h = hashlib.sha256(f"{self.trade_unpause_kind}|{scope}|{pause_sid}".encode("utf-8")).hexdigest()[:8]
+
+        h = hashlib.sha256(f"{self.trade_unpause_kind}|{scope}|{pause_sid}".encode()).hexdigest()[:8]
         unpause_sid = f"autoclear:{scope}:{self.now_ms}:{h}"
         ops = _loads_ops_json(self.trade_unpause_ops_json)
-        
+
         meta = {
             "kind": self.trade_unpause_kind,
             "scope": unpause_scope,
@@ -265,7 +267,7 @@ class SugSREMonitor:
             "ops": ops,
             "hint": "Auto Trade Unpause - issues cleared"
         }
-        
+
         if self.dry_run:
             logger.info(f"[DRY-RUN] Auto Trade Unpause: {meta}")
             return
@@ -273,18 +275,18 @@ class SugSREMonitor:
         try:
              self.redis.setex(f"{prefix}:meta:{unpause_sid}", self.trade_pause_ttl_sec, json.dumps(meta))
              self.redis.setex(f"latest:{self.trade_unpause_kind}:{unpause_scope}", self.trade_pause_ttl_sec, unpause_sid)
-             
+
              # Clear the request key so we don't try to unpause again
              self.redis.delete(req_key)
              logger.info(f"AUTO TRADE UNPAUSE emitted: {unpause_sid}")
         except Exception as e:
             logger.error(f"Failed to emit trade unpause: {e}")
 
-    def maybe_emit_emergency(self, prefix: str, kind: str, scope: str, sid: str, age_ms: int, severity: str, alerts: List[str]) -> bool:
+    def maybe_emit_emergency(self, prefix: str, kind: str, scope: str, sid: str, age_ms: int, severity: str, alerts: list[str]) -> bool:
         """Emit emergency suggestion if configured."""
         if not self.emergency_enable:
             return False
-            
+
         # Check cooldown
         st_key = f"sre:cfg_sugg:emergency:last_ms:{kind}:{scope}"
         last_ms = int(float(self.redis.get(st_key) or 0))
@@ -305,7 +307,7 @@ class SugSREMonitor:
         )
 
         em_sid = _emergency_sid(self.emergency_kind, scope, sid, self.now_ms)
-        
+
         meta = {
             "kind": self.emergency_kind,
             "scope": scope,
@@ -325,24 +327,24 @@ class SugSREMonitor:
         # Write meta and approvals
         try:
             self.redis.setex(f"{prefix}:meta:{em_sid}", self.emergency_ttl_sec, json.dumps(meta))
-            
+
             # Optional approvals hash
             self.redis.hset(f"{prefix}:approvals:{em_sid}", mapping={"ts_ms": str(self.now_ms), "status": "pending"})
             self.redis.expire(f"{prefix}:approvals:{em_sid}", self.emergency_ttl_sec)
-            
+
             # Update latest pointer
             self.redis.setex(em_latest_key, self.emergency_ttl_sec, em_sid)
-            
+
             # Update cooldown
             self.redis.setex(st_key, max(self.emergency_ttl_sec, self.emergency_cooldown_sec * 2), str(self.now_ms))
-            
+
             logger.warning(f"EMERGENCY suggestion created: {em_sid}")
             return True
         except Exception as e:
             logger.error(f"Failed to emit emergency suggestion: {e}")
             return False
 
-    def run(self, kinds: List[str], scopes: List[str], emit_metrics: bool = True, do_notify: bool = True):
+    def run(self, kinds: list[str], scopes: list[str], emit_metrics: bool = True, do_notify: bool = True):
         summary = {
             "pending_n": 0,
             "approved_n": 0,
@@ -354,14 +356,14 @@ class SugSREMonitor:
         }
 
         prefix = DEFAULT_PREFIX # Use default prefix for emergency construction
-        page_incident_in_scope = {s: False for s in scopes} # Track PAGE incidents per scope
+        page_incident_in_scope = dict.fromkeys(scopes, False) # Track PAGE incidents per scope
 
         for kind in kinds:
             for scope in scopes:
                 sid = self.get_latest_sid(kind, scope)
                 if not sid:
                     continue
-                
+
                 sug = self.get_suggestion(kind, scope, sid)
                 if not sug:
                     continue
@@ -369,9 +371,9 @@ class SugSREMonitor:
                 state = sug.get("state", "pending")
                 created_at = sug.get("created_at", self.now_ms)
                 approved_at = sug.get("approved_at")
-                
+
                 age_pending = self.now_ms - created_at
-                
+
                 # Logic
                 alert_msg = None
                 sev = "OK"
@@ -385,18 +387,18 @@ class SugSREMonitor:
                         if age_pending > ESCALATE_PENDING_MS:
                             sev = "CRIT"
                         alert_msg = f"Suggestion {kind}:{scope}:{sid} PENDING for {age_pending//1000}s"
-                
+
                 elif state == "approved":
                     summary["approved_n"] += 1
                     age_approved = self.now_ms - approved_at if approved_at else 0
                     if age_approved > APPROVED_MAX_MS:
                         summary["stuck_approved_n"] += 1
                         sev = "CRIT"
-                        
+
                         # Escalation to PAGE
                         if age_approved >= self.emergency_min_ms: # Using emergency threshold for PAGE too
                              sev = "PAGE"
-                        
+
                         # Emergency Proposal Logic
                         if self.emergency_enable and age_approved >= self.emergency_min_ms:
                             if self.maybe_emit_emergency(prefix, kind, scope, sid, age_approved, sev, ["stuck_approved"]):
@@ -425,7 +427,7 @@ class SugSREMonitor:
                     "flap_cnt_24h": flap_cnt,
                     "emergency_emitted": emergency_emitted
                 }
-                
+
                 # Handle Alert
                 if alert_msg:
                     summary["alerts_n"] += 1
@@ -439,30 +441,30 @@ class SugSREMonitor:
                     current_sev_rank = {"OK":0, "WARN":1, "CRIT":2, "PAGE":3}
                     if current_sev_rank.get(sev, 0) > current_sev_rank.get(summary["max_sev"], 0):
                         summary["max_sev"] = sev
-                        
+
                     if do_notify:
                         # [P6.5] Check ACK
                         # We check distinct ACK keys: by Kind+Scope or Generic
                         # 1. Specific Kind+Scope
                         ack_key = f"sre:ack:cfg_sugg:{kind}:{scope}"
                         is_acked = self.redis.exists(ack_key)
-                        
+
                         if not is_acked:
                             # 2. Check Cooldown / Lock
                             # Logic changed for Receipts:
                             # If PAGE and Require Receipt, logic handled below
-                            
+
                             lock_key = f"sre:alert:lock:{kind}:{scope}:{sid}:{sev}"
                             cooldown = ESCALATION_COOLDOWN_SEC
-                            
+
                             receipt_id = None
-                            
+
                             # [P6.5] Receipt Handling
                             if sev == "PAGE" and self.notify_require_receipt_page:
                                 # Generate deterministic receipt ID for this incident
                                 r_hash = hashlib.md5(f"{kind}:{scope}:{sid}".encode()).hexdigest()
                                 receipt_id = f"rcpt:{r_hash}"
-                                
+
                                 # Check if receipt exists
                                 r_key = f"{self.notify_receipt_key_prefix}{receipt_id}"
                                 if self.redis.exists(r_key):
@@ -472,7 +474,7 @@ class SugSREMonitor:
                                 else:
                                     # Receipt missing -> Resend faster
                                     cooldown = self.notify_receipt_resend_sec
-                            
+
                             if not is_acked:
                                 # Try to take lock
                                 # Note: For receipts, lock expires faster (cooldown) so we retry
@@ -483,7 +485,7 @@ class SugSREMonitor:
 
                 if emit_metrics:
                     self.emit_metric(metric_node)
-        
+
         # [P6.5] Trade Unpause Check
         for scope in scopes:
             if not page_incident_in_scope[scope]:
@@ -493,7 +495,7 @@ class SugSREMonitor:
         # Emit aggregate summary
         if emit_metrics:
             self.emit_metric(summary)
-            
+
         return 2 if summary["alerts_n"] > 0 else 0
 
 def main():
@@ -504,7 +506,7 @@ def main():
     parser.add_argument("--scopes", default=",".join(DEFAULT_SCOPES))
     parser.add_argument("--emit-metrics", action="store_true")
     parser.add_argument("--notify", action="store_true")
-    
+
     # Emergency args
     parser.add_argument("--emergency_enable", type=int, default=int(os.getenv("CFG_SUGGESTIONS_EMERGENCY_ENABLE", "1")))
     parser.add_argument("--emergency_kind", default=os.getenv("CFG_SUGGESTIONS_EMERGENCY_KIND", "emergency_apply_stuck"))
@@ -512,14 +514,14 @@ def main():
     parser.add_argument("--emergency_cooldown_sec", type=int, default=int(os.getenv("CFG_SUGGESTIONS_EMERGENCY_COOLDOWN_SEC", "3600")))
     parser.add_argument("--emergency_ttl_sec", type=int, default=int(os.getenv("CFG_SUGGESTIONS_EMERGENCY_TTL_SEC", "86400")))
     parser.add_argument("--emergency_ops_json", default=os.getenv("CFG_SUGGESTIONS_EMERGENCY_OPS_JSON", ""))
-    
+
     # [P6.5] Trade Pause Params
     parser.add_argument("--trade_pause_enable", type=int, default=int(os.getenv("CFG_SUGGESTIONS_TRADE_PAUSE_ENABLE", "0")))
     parser.add_argument("--trade_pause_kind", default=os.getenv("CFG_SUGGESTIONS_TRADE_PAUSE_KIND", "trade_pause"))
     parser.add_argument("--trade_unpause_kind", default=os.getenv("CFG_SUGGESTIONS_TRADE_UNPAUSE_KIND", "trade_unpause"))
     parser.add_argument("--trade_pause_ops_json", default=os.getenv("CFG_SUGGESTIONS_TRADE_PAUSE_OPS_JSON", ""))
     parser.add_argument("--trade_unpause_ops_json", default=os.getenv("CFG_SUGGESTIONS_TRADE_UNPAUSE_OPS_JSON", ""))
-    
+
     # [P6.5] Receipt Params
     parser.add_argument("--notify_require_receipt_page", type=int, default=int(os.getenv("NOTIFY_REQUIRE_RECEIPT_PAGE", "0")))
     parser.add_argument("--notify_receipt_resend_sec", type=int, default=int(os.getenv("NOTIFY_RECEIPT_RESEND_SEC", "300")))
@@ -530,7 +532,7 @@ def main():
     scopes = args.scopes.split(",")
 
     monitor = SugSREMonitor(
-        args.redis_url, 
+        args.redis_url,
         dry_run=args.dry_run,
         emergency_enable=bool(args.emergency_enable),
         emergency_kind=args.emergency_kind,
@@ -547,12 +549,12 @@ def main():
         notify_receipt_resend_sec=args.notify_receipt_resend_sec
     )
     rc = monitor.run(kinds, scopes, emit_metrics=args.emit_metrics, do_notify=args.notify)
-    
+
     if rc != 0:
         logger.warning(f"Monitor finished with alerts (rc={rc})")
     else:
         logger.info("Monitor finished: OK")
-        
+
     sys.exit(rc)
 
 if __name__ == "__main__":

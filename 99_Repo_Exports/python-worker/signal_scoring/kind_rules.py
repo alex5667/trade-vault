@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
-def _f(x: Any, default: Optional[float] = None) -> Optional[float]:
+def _f(x: Any, default: float | None = None) -> float | None:
     try:
         v = float(x)
     except Exception:
@@ -33,9 +33,9 @@ def _clamp01(x: float) -> float:
 class KindRuleResult:
     veto: bool
     conf_mult01: float
-    flags: Dict[str, Any]
-    reasons: List[str]
-    labels: Dict[str, Any]
+    flags: dict[str, Any]
+    reasons: list[str]
+    labels: dict[str, Any]
 
 
 # -----------------------------
@@ -86,7 +86,7 @@ def _spread_scale(ctx: Any) -> float:
     return float(mult)
 
 
-def apply_kind_rules(kind: str, ctx: Any, quality_flags: Optional[Dict[str, Any]] = None) -> KindRuleResult:
+def apply_kind_rules(kind: str, ctx: Any, quality_flags: dict[str, Any] | None = None) -> KindRuleResult:
     """
     Kind-specific real-world improvements (3.3):
       - Breakout: fake breakout, taker continuation, cancel-to-trade veto, post-acceptance probe label
@@ -99,9 +99,9 @@ def apply_kind_rules(kind: str, ctx: Any, quality_flags: Optional[Dict[str, Any]
       - flags/reasons explain decisions for audit + downstream calibration
       - labels are non-online training probes (e.g., post-breakout acceptance)
     """
-    qf: Dict[str, Any] = dict(quality_flags or {})
-    reasons: List[str] = []
-    labels: Dict[str, Any] = {}
+    qf: dict[str, Any] = dict(quality_flags or {})
+    reasons: list[str] = []
+    labels: dict[str, Any] = {}
     veto = False
     conf_mult = 1.0
 
@@ -193,7 +193,7 @@ def apply_kind_rules(kind: str, ctx: Any, quality_flags: Optional[Dict[str, Any]
 
     # ---------------- OBI spike ----------------
     elif k in ("obi", "obi_spike", "obi_spike_up", "obi_spike_down"):
-        obi_sustained = _b(getattr(ctx, "obi_sustained", None), False) or _b(qf.get("obi_sustained", None), False)
+        obi_sustained = _b(getattr(ctx, "obi_sustained", None), False) or _b(qf.get("obi_sustained"), False)
         l3_c2t = _f(getattr(ctx, "l3_cancel_to_trade", None), None)
         if l3_c2t is None:
             l3_c2t = _f(getattr(ctx, "cancel_to_trade", None), None)  # fallback

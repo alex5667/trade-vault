@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Reporting Service - Генерация отчётов и уведомлений по торговым сигналам.
 
@@ -15,17 +16,16 @@ Reporting Service - Генерация отчётов и уведомлений 
 - Отправляет сообщения через Telegram Bot API
 """
 
-import time
+import html
 import json
 import os
-import html
-from typing import Dict, Any, List, Optional
 from datetime import datetime
+from typing import Any
 
-
-from core.redis_client import get_redis
-from core.redis_keys import RedisStreams as RS
 from common.log import setup_logger
+from core.redis_client import get_redis
+from core.redis_keys import STREAM_RETENTION
+from core.redis_keys import RedisStreams as RS
 
 
 class ReportingService:
@@ -35,11 +35,11 @@ class ReportingService:
     Предоставляет API для получения статистики и отправки
     уведомлений в различные каналы (Telegram, и т.д.).
     """
-    
+
     def __init__(
-        self, 
-        redis_url: Optional[str] = None,
-        telegram_config: Optional[Dict] = None
+        self,
+        redis_url: str | None = None,
+        telegram_config: dict | None = None
     ):
         """
         Инициализация Reporting Service.
@@ -50,14 +50,14 @@ class ReportingService:
         """
         # Настройка логирования
         self.logger = setup_logger("ReportingService")
-        
+
         # Redis клиент
         if redis_url:
             import redis as redis_lib
             self.redis = redis_lib.from_url(redis_url, decode_responses=True)
         else:
             self.redis = get_redis()
-        
+
         # Проверка подключения
         try:
             self.redis.ping()
@@ -65,11 +65,11 @@ class ReportingService:
         except Exception as e:
             self.logger.error(f"❌ Ошибка подключения к Redis: {e}")
             raise
-        
+
         # Теперь отправка через Redis stream, telegram_config не требуется
         self.telegram_enabled = True  # Всегда включено, отправка через Redis
         self.logger.info("📊 Reporting Service инициализирован (отправка через notify:telegram stream)")
-    
+
     # ============================================================
     # Helpers (format / safe parsing / aggregation)
     # ============================================================
@@ -140,18 +140,18 @@ class ReportingService:
         else:
             reward = entry - exit_price
         return reward / risk
-    
+
     # ============================================================
     # API для получения отчётов
     # ============================================================
-    
+
     def get_strategy_report(
-        self, 
-        strategy: str, 
-        symbol: Optional[str] = None, 
-        tf: Optional[str] = None,
+        self,
+        strategy: str,
+        symbol: str | None = None,
+        tf: str | None = None,
         include_sources: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Получение отчёта по стратегии.
         
@@ -165,24 +165,24 @@ class ReportingService:
             Словарь с агрегированной статистикой
         """
         from services.stats_aggregator import StatsAggregator
-        
+
         try:
             if symbol and tf:
                 # Детальная статистика по конкретной комбинации
                 stats = StatsAggregator.get_stats(self.redis, strategy, symbol, tf)
-                
+
                 # Добавляем разбивку по источникам
                 if include_sources and stats:
                     sources = StatsAggregator.get_strategy_sources(self.redis, strategy, symbol, tf)
                     stats["sources"] = {}
-                    
+
                     for source in sources:
                         source_stats = StatsAggregator.get_stats_by_source(
                             self.redis, strategy, symbol, tf, source
                         )
                         if source_stats:
                             stats["sources"][source] = source_stats
-                
+
                 return stats or {}
             elif symbol:
                 # Агрегация по всем TF для данного символа (С ПОЛНЫМИ метриками)
@@ -285,12 +285,12 @@ class ReportingService:
             else:
                 # Общая сводка по стратегии
                 return StatsAggregator.get_strategy_summary(self.redis, strategy)
-                
+
         except Exception as e:
             self.logger.error(f"❌ Ошибка получения отчёта: {e}", exc_info=True)
             return {}
-    
-    def get_all_strategies_report(self) -> Dict[str, Any]:
+
+    def get_all_strategies_report(self) -> dict[str, Any]:
         """
         Получение отчёта по всем стратегиям.
         
@@ -298,10 +298,10 @@ class ReportingService:
             Словарь с данными по каждой стратегии
         """
         from services.stats_aggregator import StatsAggregator
-        
+
         try:
             strategies = StatsAggregator.get_all_strategies(self.redis)
-            
+
             result = {
                 "timestamp": get_ny_time_millis(),
                 "strategies": {},
@@ -310,7 +310,7 @@ class ReportingService:
                 "total_losses": 0,
                 "total_pnl": 0.0
             }
-            
+
             for strategy in strategies:
                 summary = StatsAggregator.get_strategy_summary(self.redis, strategy)
                 if summary:
@@ -319,7 +319,7 @@ class ReportingService:
                     result["total_wins"] += int(summary.get("wins", 0))
                     result["total_losses"] += int(summary.get("losses", 0))
                     result["total_pnl"] += float(summary.get("total_pnl", 0.0))
-            
+
             # Общий winrate
             if result["total_trades"] > 0:
                 result["overall_winrate"] = round(
@@ -328,21 +328,21 @@ class ReportingService:
                 result["avg_pnl"] = round(
                     result["total_pnl"] / result["total_trades"], 2
                 )
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"❌ Ошибка получения общего отчёта: {e}", exc_info=True)
             return {}
-    
+
     def get_recent_trades(
-        self, 
-        strategy: str, 
-        symbol: str, 
-        tf: str, 
-        limit: int = 50, 
+        self,
+        strategy: str,
+        symbol: str,
+        tf: str,
+        limit: int = 50,
         offset: int = 0
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Получение списка недавних сделок с пагинацией.
         
@@ -358,32 +358,32 @@ class ReportingService:
         """
         try:
             list_key = f"closed:{strategy}:{symbol}:{tf}"
-            
+
             # Получаем список ID сделок (от конца, т.е. новые первыми)
             # Redis LRANGE: 0 = начало, -1 = конец
             # Для получения последних N элементов используем отрицательные индексы
             start = -(offset + limit)
             end = -(offset + 1) if offset > 0 else -1
-            
+
             trade_ids = self.redis.lrange(list_key, start, end)
-            
+
             # Переворачиваем, чтобы новые были первыми
             trade_ids.reverse()
-            
+
             # Получаем детали каждой сделки
             trades = []
             for trade_id in trade_ids:
                 order_data = self.redis.hgetall(f"order:{trade_id}")
                 if order_data:
                     trades.append(order_data)
-            
+
             return trades
-            
+
         except Exception as e:
             self.logger.error(f"❌ Ошибка получения списка сделок: {e}", exc_info=True)
             return []
-    
-    def get_trade_details(self, order_id: str) -> Optional[Dict[str, Any]]:
+
+    def get_trade_details(self, order_id: str) -> dict[str, Any] | None:
         """
         Получение детальной информации о сделке.
         
@@ -424,11 +424,11 @@ class ReportingService:
         except Exception as e:
             self.logger.error(f"❌ Ошибка получения деталей сделки: {e}", exc_info=True)
             return None
-    
-    def _get_trade_events(self, order_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
+
+    def _get_trade_events(self, order_id: str, limit: int = 1000) -> list[dict[str, Any]]:
         """Получение событий по сделке из потока events:trades"""
         try:
-            events = self.redis.xrevrange("events:trades", count=int(limit))
+            events = self.redis.xrevrange(RS.EVENTS_TRADES, count=int(limit))
 
             trade_events = []
             for event_id, event_data in events:
@@ -441,19 +441,19 @@ class ReportingService:
         except Exception as e:
             self.logger.error(f"❌ Ошибка получения событий: {e}", exc_info=True)
             return []
-    
+
     # ============================================================
     # Уведомления в Telegram
     # ============================================================
-    
+
     def send_telegram_message(
         self,
         text: str,
         parse_mode: str = "HTML",
-        tags: Optional[List[str]] = None,
+        tags: list[str] | None = None,
         severity: str = "info",              # info|warn|error
-        dedup_key: Optional[str] = None,     # ключ дедупликации
-        meta: Optional[Dict[str, Any]] = None
+        dedup_key: str | None = None,     # ключ дедупликации
+        meta: dict[str, Any] | None = None
     ) -> bool:
         """
         Отправка сообщения в Telegram через Redis stream notify:telegram (расширенная).
@@ -477,7 +477,7 @@ class ReportingService:
                 self.logger.warning(f"⚠️ Circuit breaker check failed: {e}")
                 # continue if redis check fails but ping was okay previously
 
-            message_data: Dict[str, str] = {
+            message_data: dict[str, str] = {
                 "type": "report",
                 "text": text,
                 "parse_mode": parse_mode,
@@ -505,28 +505,28 @@ class ReportingService:
                 except Exception:
                     message_data["meta"] = "{}"
 
-            msg_id = self.redis.xadd(notify_stream, message_data, maxlen=500000)
+            msg_id = self.redis.xadd(notify_stream, message_data, maxlen=STREAM_RETENTION.get(notify_stream, STREAM_RETENTION[RS.NOTIFY_TELEGRAM]))
             self.logger.info(f"✅ Отчет опубликован в {notify_stream}: msg_id={msg_id}, type={message_data.get('type')}, text_len={len(text)}")
-            
+
             # Дополнительная проверка: убеждаемся, что сообщение попало в stream
             try:
                 stream_len = self.redis.xlen(notify_stream)
                 self.logger.debug(f"📊 Длина stream {notify_stream}: {stream_len} сообщений (после публикации)")
             except Exception as check_e:
                 self.logger.warning(f"⚠️ Не удалось проверить длину stream после публикации: {check_e}")
-            
+
             return True
 
         except Exception as e:
             self.logger.error(f"❌ Ошибка отправки отчета в Redis stream {notify_stream}: {e}", exc_info=True)
             return False
-    
-    def notify_trade_closed(self, trade_summary: Dict[str, Any]):
+
+    def notify_trade_closed(self, trade_summary: dict[str, Any]):
         try:
             strategy = trade_summary.get("strategy", "Unknown")
             symbol = trade_summary.get("symbol", "UNKNOWN")
             tf = trade_summary.get("tf", "tick")
-            direction = str(trade_summary.get("direction", "LONG")).upper()
+            direction = (trade_summary.get("direction", "LONG")).upper()
             source = trade_summary.get("source") or "unknown"
             close_reason = trade_summary.get("close_reason", "Unknown")
             tp_count = self._to_int(trade_summary.get("tp_count") or trade_summary.get("tp_hits") or 0)
@@ -572,9 +572,9 @@ class ReportingService:
             lines = [
                 f"{result_emoji} <b>Сделка закрыта</b>",
                 "",
-                f"<b>Стратегия:</b> {html.escape(str(strategy))}",
+                f"<b>Стратегия:</b> {html.escape(strategy)}",
                 f"<b>Источник:</b> {html.escape(str(source))}",
-                f"<b>Инструмент:</b> {html.escape(str(symbol))} ({html.escape(str(tf))})",
+                f"<b>Инструмент:</b> {html.escape(symbol)} ({html.escape(tf)})",
                 f"<b>Направление:</b> {direction_emoji} {direction}",
                 f"<b>Причина:</b> {html.escape(str(close_reason))}",
                 f"<b>TP достигнуто:</b> {tp_count}/3",
@@ -598,7 +598,7 @@ class ReportingService:
             if missed_profit > 1e-12:
                 extra.append(f"Missed {missed_profit:+.2f}")
             if extra:
-                lines.append(f"<b>Экстремумы:</b> " + " | ".join(extra))
+                lines.append("<b>Экстремумы:</b> " + " | ".join(extra))
 
             if trailing_started > 0 or trailing_stop_hit > 0:
                 lines.append(f"<b>Trailing:</b> started {trailing_started}, moves {trailing_moves:.2f}, hit {trailing_stop_hit}")
@@ -626,7 +626,7 @@ class ReportingService:
 
         except Exception as e:
             self.logger.error(f"❌ Ошибка отправки уведомления о сделке: {e}", exc_info=True)
-    
+
     def send_daily_summary(self, include_sources: bool = True):
         """
         Ежедневная сводка: использует StatsAggregator.get_all_stats() и агрегирует по стратегиям.
@@ -640,8 +640,8 @@ class ReportingService:
                 return
 
             # aggregate by strategy from keys "strategy:symbol:tf"
-            by_strategy: Dict[str, Dict[str, Any]] = {}
-            overall: Dict[str, Any] = {}
+            by_strategy: dict[str, dict[str, Any]] = {}
+            overall: dict[str, Any] = {}
 
             for key, st in all_stats.items():
                 # key format: "{strategy}:{symbol}:{tf}"
@@ -662,10 +662,10 @@ class ReportingService:
             today = datetime.now().strftime("%Y-%m-%d")
 
             lines = [
-                f"📅 <b>Ежедневная сводка (расширенная)</b>",
+                "📅 <b>Ежедневная сводка (расширенная)</b>",
                 f"🗓️ {today}",
                 f"{'='*40}\n",
-                f"<b>📈 ОБЩИЕ</b>",
+                "<b>📈 ОБЩИЕ</b>",
                 f"Сделок: <b>{overall.get('total_trades', 0)}</b>",
                 f"W/L/BE: <b>{overall.get('wins', 0)}/{overall.get('losses', 0)}/{overall.get('breakeven', 0)}</b>",
                 f"WinRate: <b>{self._to_float(overall.get('winrate'), 0.0):.1f}%</b>",
@@ -729,7 +729,7 @@ class ReportingService:
 
         except Exception as e:
             self.logger.error(f"❌ Ошибка отправки ежедневной сводки: {e}", exc_info=True)
-    
+
     def send_strategy_report(self, strategy: str, symbol: str, tf: str = "tick"):
         from services.stats_aggregator import StatsAggregator
 
@@ -780,9 +780,9 @@ class ReportingService:
             return (x / total * 100.0) if total > 0 else 0.0
 
         msg = [
-            f"📊 <b>Отчёт: {html.escape(str(strategy))}:{html.escape(str(symbol))}:{html.escape(str(tf))}</b>",
+            f"📊 <b>Отчёт: {html.escape(strategy)}:{html.escape(symbol)}:{html.escape(tf)}</b>",
             f"{'='*40}\n",
-            f"<b>📈 ОСНОВНЫЕ</b>",
+            "<b>📈 ОСНОВНЫЕ</b>",
             f"Сделок: <b>{total}</b>",
             f"W/L/BE: <b>{wins}/{losses}/{be}</b>",
             f"WinRate: <b>{winrate:.2f}%</b>",
@@ -790,14 +790,14 @@ class ReportingService:
             f"Gross / Fees: <b>{total_gross:+.2f}</b> / <b>{total_fees:+.2f}</b>",
             f"PF: <b>{profit_factor:.2f}</b> | Avg R: <b>{avg_r:+.4f}</b> | Avg Dur: <b>{self._ms_to_hhmm(avg_duration_ms)}</b>",
             "",
-            f"<b>🎯 TP</b>",
+            "<b>🎯 TP</b>",
             f"TP1: <b>{tp1}</b> ({rate(tp1):.1f}%) | TP2: <b>{tp2}</b> ({rate(tp2):.1f}%) | TP3: <b>{tp3}</b> ({rate(tp3):.1f}%)",
             f"TP→SL: TP1 <b>{tp1_then_sl}</b> ({rate(tp1_then_sl):.1f}%) | TP2 <b>{tp2_then_sl}</b> ({rate(tp2_then_sl):.1f}%) | TP3 <b>{tp3_then_sl}</b> ({rate(tp3_then_sl):.1f}%)",
             "",
-            f"<b>🧷 TRAILING</b>",
+            "<b>🧷 TRAILING</b>",
             f"Started: <b>{trailing_started}</b> | Hits: <b>{trailing_hits}</b> | Eff: <b>{trailing_eff:.1f}%</b> | Moves avg: <b>{trailing_moves_avg:.2f}</b>",
             "",
-            f"<b>⭐ MISSED / GIVEBACK</b>",
+            "<b>⭐ MISSED / GIVEBACK</b>",
             f"Missed total: <b>{missed_total:+.2f}</b> | trades: <b>{missed_n}</b> | avg: <b>{missed_avg:+.2f}</b>",
             f"Giveback total: <b>{giveback_total:+.2f}</b> | avg/trade: <b>{giveback_avg:+.2f}</b>",
         ]
@@ -825,8 +825,8 @@ class ReportingService:
             dedup_key=f"strategy_report:{strategy}:{symbol}:{tf}",
             meta={"strategy": strategy, "symbol": symbol, "tf": tf},
         )
-    
-    def notify_periodic_summary(self, stats: Dict[str, Any], period: str = "day"):
+
+    def notify_periodic_summary(self, stats: dict[str, Any], period: str = "day"):
         """
         Отправляет сводку результатов за период (гибкий формат).
         
@@ -837,12 +837,12 @@ class ReportingService:
             stats: Статистика (одна стратегия или словарь стратегий)
             period: Период (day, week, month и т.д.)
         """
-        
+
         try:
             if not stats:
                 self.logger.warning("⚠️ Пустая статистика для периодической сводки")
                 return
-            
+
             # Проверяем формат статистики
             if "strategy" in stats:
                 # Статистика одной стратегии
@@ -851,7 +851,7 @@ class ReportingService:
                 winrate = stats.get("winrate", 0)
                 total_pnl = stats.get("total_pnl", 0.0)
                 avg_pnl = stats.get("avg_pnl", 0.0)
-                
+
                 message = (
                     f"🗓 <b>Итоги за {period}</b>\n\n"
                     f"<b>Стратегия:</b> {html.escape(str(strat))}\n"
@@ -863,27 +863,27 @@ class ReportingService:
             else:
                 # Сводка по нескольким стратегиям
                 message_lines = [f"🗓 <b>Итоги за {period}</b>\n"]
-                
+
                 total_overall = 0
                 wins_overall = 0
                 pnl_overall = 0.0
-                
+
                 for strat, data in stats.items():
                     if isinstance(data, dict):
                         total = data.get("total_trades", 0)
                         wins = data.get("wins", 0)
                         winrate = data.get("winrate", 0)
                         total_pnl = data.get("total_pnl", 0.0)
-                        
+
                         message_lines.append(
                             f"• <b>{html.escape(str(strat))}:</b> {total} сделок, "
                             f"WR {winrate:.1f}%, P/L {total_pnl:+.2f}"
                         )
-                        
+
                         total_overall += total
                         wins_overall += wins
                         pnl_overall += total_pnl
-                
+
                 # Добавляем общую сводку
                 if total_overall > 0:
                     wr_overall = (wins_overall / total_overall * 100.0)
@@ -892,11 +892,11 @@ class ReportingService:
                         f"<b>Итого:</b> {total_overall} сделок, "
                         f"WR {wr_overall:.1f}%, P/L {pnl_overall:+.2f}"
                     )
-                
+
                 # Добавляем разбивку по источникам
                 message_lines.append("\n<b>📊 По источникам:</b>")
                 sources_summary = self.get_sources_summary()
-                
+
                 for source, source_stats in sources_summary.items():
                     message_lines.append(
                         f"  • <b>{html.escape(str(source))}:</b> "
@@ -904,23 +904,23 @@ class ReportingService:
                         f"WR {source_stats.get('winrate', 0):.1f}%, "
                         f"P/L {source_stats.get('total_pnl', 0):+.2f}"
                     )
-                
+
                 message = "\n".join(message_lines)
-            
+
             self.send_telegram_message(
                 message,
                 tags=["summary", period],
                 severity="info"
             )
             self.logger.info(f"📊 Периодическая сводка за {period} отправлена")
-            
+
         except Exception as e:
             self.logger.error(f"❌ Ошибка отправки периодической сводки: {e}")
-    
+
     # ============================================================
     # Экспорт данных
     # ============================================================
-    
+
     def export_trades_to_json(
         self,
         strategy: str,
@@ -943,14 +943,14 @@ class ReportingService:
             list_key = f"closed:{strategy}:{symbol}:{tf}"
             trade_ids = self.redis.lrange(list_key, 0, -1)
 
-            trades_out: List[Dict[str, Any]] = []
+            trades_out: list[dict[str, Any]] = []
 
             for order_id in trade_ids:
                 order = self.redis.hgetall(f"order:{order_id}")
                 if not order:
                     continue
 
-                out: Dict[str, Any] = {"order_id": order_id, "order": order}
+                out: dict[str, Any] = {"order_id": order_id, "order": order}
 
                 # signal (пытаемся по двум ключам)
                 if include_signal:
@@ -981,8 +981,8 @@ class ReportingService:
         except Exception as e:
             self.logger.error(f"❌ Ошибка экспорта в JSON: {e}", exc_info=True)
             return False
-    
-    def _accumulate_stats(self, acc: Dict[str, Any], s: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _accumulate_stats(self, acc: dict[str, Any], s: dict[str, Any]) -> dict[str, Any]:
         """
         Складывает статистику (счётчики + суммы). Работает даже если часть полей отсутствует.
         """
@@ -1029,7 +1029,7 @@ class ReportingService:
 
         return acc
 
-    def _finalize_accumulated(self, acc: Dict[str, Any]) -> Dict[str, Any]:
+    def _finalize_accumulated(self, acc: dict[str, Any]) -> dict[str, Any]:
         total = self._to_int(acc.get("total_trades"), 0)
         wins = self._to_int(acc.get("wins"), 0)
         losses = self._to_int(acc.get("losses"), 0)
@@ -1042,11 +1042,11 @@ class ReportingService:
         # avg pnl
         total_pnl = self._to_float(acc.get("total_pnl"), 0.0)
         acc["avg_pnl"] = round(self._safe_div(total_pnl, total, 0.0), 4)
-        
+
         # avg pnl_pct
         total_pnl_pct = self._to_float(acc.get("total_pnl_pct"), 0.0)
         acc["avg_pnl_pct"] = round(self._safe_div(total_pnl_pct, total, 0.0), 4)
-        
+
         acc["avg_r"] = round(self._safe_div(self._to_float(acc.get("sum_r"), 0.0), total, 0.0), 4)
         acc["avg_duration_ms"] = round(self._safe_div(self._to_float(acc.get("sum_duration_ms"), 0.0), total, 0.0), 2)
 
@@ -1054,7 +1054,7 @@ class ReportingService:
         gp = self._to_float(acc.get("gross_profit"), 0.0)
         gl = self._to_float(acc.get("gross_loss"), 0.0)
         acc["profit_factor"] = round(self._safe_div(gp, gl, 0.0), 4)
-        
+
         # missed_profit_avg
         missed_n = self._to_int(acc.get("missed_profit_trades"), 0)
         missed_total = self._to_float(acc.get("missed_profit_total"), 0.0)
@@ -1068,13 +1068,13 @@ class ReportingService:
 
         return acc
 
-    def _build_trade_summary_from_order(self, order: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_trade_summary_from_order(self, order: dict[str, Any]) -> dict[str, Any]:
         """
         Собирает нормализованную сводку сделки из order:* (или trade_summary-like dict).
         Ожидаемые новые поля (если есть): pnl_gross, pnl_net, fees, r, duration_ms, mae, mfe,
         giveback, missed_profit, trailing_started, trailing_moves, trailing_stop_hit.
         """
-        direction = str(order.get("direction", order.get("side", "LONG"))).upper()
+        direction = (order.get("direction", order.get("side", "LONG"))).upper()
 
         entry = order.get("entry") or order.get("entry_price")
         sl = order.get("sl")
@@ -1144,12 +1144,12 @@ class ReportingService:
             "trailing_stop_hit": trailing_stop_hit,
             "result": result,
         }
-    
-    def get_sources_summary(self) -> Dict[str, Dict[str, Any]]:
+
+    def get_sources_summary(self) -> dict[str, dict[str, Any]]:
         from services.stats_aggregator import StatsAggregator
 
         try:
-            sources_summary: Dict[str, Dict[str, Any]] = {}
+            sources_summary: dict[str, dict[str, Any]] = {}
             strategies = StatsAggregator.get_all_strategies(self.redis)
 
             for strategy in strategies:
@@ -1201,8 +1201,8 @@ class ReportingService:
         except Exception as e:
             self.logger.error(f"❌ Ошибка получения сводки по источникам: {e}", exc_info=True)
             return {}
-    
-    def get_performance_summary(self) -> Dict[str, Any]:
+
+    def get_performance_summary(self) -> dict[str, Any]:
         """
         Получение краткой сводки производительности системы.
         

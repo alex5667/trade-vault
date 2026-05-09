@@ -1,6 +1,6 @@
 import unittest
 
-from services.orderflow.metric_labels import symbol_label, should_emit
+from services.orderflow.metric_labels import should_emit, symbol_label
 
 
 class TestMetricLabels(unittest.TestCase):

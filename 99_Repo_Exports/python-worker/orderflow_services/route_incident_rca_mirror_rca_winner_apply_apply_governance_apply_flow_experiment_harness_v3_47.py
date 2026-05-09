@@ -1,13 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import hashlib
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -96,15 +97,15 @@ ALLOWED_MODES = {"SHADOW", "DISABLED"}
 ARMS = ("vertex_primary", "vertex_compact_candidate", "local_candidate")
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -152,8 +153,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -181,7 +182,7 @@ def _default_allow_severities() -> set[str]:
     return {x.strip().lower() for x in DEFAULT_ALLOW_SEVERITIES.split(",") if x.strip()}
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     mode = str(raw.get("mode") or DEFAULT_MODE).upper()
     if mode not in ALLOWED_MODES:
         mode = DEFAULT_MODE
@@ -206,12 +207,12 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def deterministic_bucket(bundle_id: str, salt: str = "apply-flow-exp-v3-47") -> int:
-    key = f"{salt}:{bundle_id}".encode("utf-8")
+    key = f"{salt}:{bundle_id}".encode()
     digest = hashlib.sha256(key).hexdigest()
     return int(digest[:8], 16) % 100
 
 
-def choose_arm(bundle_id: str, policy: Dict[str, Any]) -> str:
+def choose_arm(bundle_id: str, policy: dict[str, Any]) -> str:
     bucket = deterministic_bucket(bundle_id)
     v1 = policy["vertex_primary_weight"]
     v2 = v1 + policy["vertex_compact_weight"]
@@ -222,7 +223,7 @@ def choose_arm(bundle_id: str, policy: Dict[str, Any]) -> str:
     return "local_candidate"
 
 
-def build_prompt(bundle: Dict[str, Any], arm: str) -> str:
+def build_prompt(bundle: dict[str, Any], arm: str) -> str:
     if arm == "vertex_primary":
         return (
             "Analyze this route_incident_rca mirror RCA winner-apply apply governance apply-flow incident bundle. "
@@ -241,8 +242,8 @@ def build_prompt(bundle: Dict[str, Any], arm: str) -> str:
     )
 
 
-def build_request(bundle: Dict[str, Any], arm: str) -> Tuple[str, Dict[str, Any]]:
-    bundle_id = str(bundle.get("bundle_id") or "")
+def build_request(bundle: dict[str, Any], arm: str) -> tuple[str, dict[str, Any]]:
+    bundle_id = (bundle.get("bundle_id") or "")
     request_id = f"{bundle_id}:{arm}"
     base = {
         "schema_version": 1,
@@ -250,7 +251,7 @@ def build_request(bundle: Dict[str, Any], arm: str) -> Tuple[str, Dict[str, Any]
         "bundle_id": bundle_id,
         "experiment_arm": arm,
         "task_family": "route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_experiment_rca",
-        "severity": str(bundle.get("trigger_severity") or "warning"),
+        "severity": (bundle.get("trigger_severity") or "warning"),
         "source": APP_NAME,
         "prompt": build_prompt(bundle, arm),
         "ts_ms": str(now_ms()),
@@ -265,8 +266,8 @@ def build_request(bundle: Dict[str, Any], arm: str) -> Tuple[str, Dict[str, Any]
     return LOCAL_EXPERIMENT_STREAM, base
 
 
-def evaluate_bundle(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
-    severity = str(bundle.get("trigger_severity") or "").lower()
+def evaluate_bundle(bundle: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    severity = (bundle.get("trigger_severity") or "").lower()
     out = {
         "decision": "REJECT",
         "reason_code": "REJECTED",
@@ -288,7 +289,7 @@ def evaluate_bundle(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str,
     if len(stable_json(bundle).encode("utf-8")) > policy["max_bundle_bytes"]:
         out["reason_code"] = "BUNDLE_TOO_LARGE"
         return out
-    arm = choose_arm(str(bundle.get("bundle_id") or ""), policy)
+    arm = choose_arm((bundle.get("bundle_id") or ""), policy)
     out["decision"] = "EXPOSE_AND_ROUTE"
     out["reason_code"] = "OK"
     out["arm"] = arm
@@ -302,11 +303,11 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_hash(r: Any, key: str) -> Dict[str, Any]:
+async def read_hash(r: Any, key: str) -> dict[str, Any]:
     return as_dict(await r.hgetall(key))
 
 
-async def persist_if_configured(db_url: str, bundle: Dict[str, Any], decision: Dict[str, Any], destination_stream: str) -> None:
+async def persist_if_configured(db_url: str, bundle: dict[str, Any], decision: dict[str, Any], destination_stream: str) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -387,7 +388,7 @@ async def main() -> None:  # pragma: no cover
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     decision = evaluate_bundle(bundle, policy)
                     decision_label = decision["decision"]
                     destination_stream = ""
@@ -399,8 +400,8 @@ async def main() -> None:  # pragma: no cover
                             EXPOSURES_STREAM,
                             {
                                 "schema_version": 1,
-                                "bundle_id": str(bundle.get("bundle_id") or ""),
-                                "request_id": str(request_row.get("request_id") or ""),
+                                "bundle_id": (bundle.get("bundle_id") or ""),
+                                "request_id": (request_row.get("request_id") or ""),
                                 "arm": decision["arm"],
                                 "severity": decision["severity"],
                                 "destination_stream": destination_stream,
@@ -416,7 +417,7 @@ async def main() -> None:  # pragma: no cover
                         DECISIONS_STREAM,
                         {
                             "schema_version": 1,
-                            "bundle_id": str(bundle.get("bundle_id") or ""),
+                            "bundle_id": (bundle.get("bundle_id") or ""),
                             "severity": decision["severity"],
                             "decision": decision["decision"],
                             "reason_code": decision["reason_code"],
@@ -440,7 +441,7 @@ async def main() -> None:  # pragma: no cover
                     await r.hset(
                         LAST_HASH,
                         mapping={
-                            "bundle_id": str(bundle.get("bundle_id") or ""),
+                            "bundle_id": (bundle.get("bundle_id") or ""),
                             "decision": decision["decision"],
                             "reason_code": decision["reason_code"],
                             "arm": decision["arm"],

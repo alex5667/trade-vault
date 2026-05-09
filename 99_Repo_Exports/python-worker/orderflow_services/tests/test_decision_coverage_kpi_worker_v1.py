@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for P66 Decision Coverage KPI worker (decision_coverage_kpi_worker_v1).
 
@@ -9,12 +10,8 @@ Covers:
   - _process_one: pipeline writes correct state fields
   - bootstrap_state: aggregates per-minute buckets via pipeline
 """
-from utils.time_utils import get_ny_time_millis
-
 import time
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 # Import helpers without triggering redis connection
 from orderflow_services.decision_coverage_kpi_worker_v1 import (
@@ -28,7 +25,7 @@ from orderflow_services.decision_coverage_kpi_worker_v1 import (
     _state_norm,
     load_cfg,
 )
-
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # Helpers / Fixtures

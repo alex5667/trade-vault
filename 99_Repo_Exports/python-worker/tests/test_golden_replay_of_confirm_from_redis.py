@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Тесты для tools/golden_replay_of_confirm_from_redis.py.
 
@@ -7,8 +9,6 @@ from __future__ import annotations
 
 
 import json
-import os
-import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -116,14 +116,14 @@ class TestNotify:
         mock_redis = MagicMock()
         mock_redis_class.from_url.return_value = mock_redis
 
-        _notify("redis://localhost:6379/0", "notify:telegram", "test message")
+        _notify("redis://localhost:6379/0", RS.NOTIFY_TELEGRAM, "test message")
 
         mock_redis_class.from_url.assert_called_once_with(
             "redis://localhost:6379/0", decode_responses=True
         )
         mock_redis.xadd.assert_called_once()
         call_args = mock_redis.xadd.call_args
-        assert call_args[0][0] == "notify:telegram"
+        assert call_args[0][0] == RS.NOTIFY_TELEGRAM
         assert "type" in call_args[0][1]
         assert call_args[0][1]["type"] == "alert"
         assert call_args[0][1]["subtype"] == "of_confirm_replay"
@@ -138,7 +138,7 @@ class TestNotify:
         mock_redis_class.from_url.side_effect = Exception("Redis connection error")
 
         # Не должно падать
-        _notify("redis://localhost:6379/0", "notify:telegram", "test message")
+        _notify("redis://localhost:6379/0", RS.NOTIFY_TELEGRAM, "test message")
 
     @patch("tools.golden_replay_of_confirm_from_redis.redis.Redis")
     def test_notify_xadd_error(self, mock_redis_class):
@@ -148,7 +148,7 @@ class TestNotify:
         mock_redis.xadd.side_effect = Exception("XADD error")
 
         # Не должно падать
-        _notify("redis://localhost:6379/0", "notify:telegram", "test message")
+        _notify("redis://localhost:6379/0", RS.NOTIFY_TELEGRAM, "test message")
 
 
 class TestMainIntegration:
@@ -159,8 +159,9 @@ class TestMainIntegration:
     @patch("tools.golden_replay_of_confirm_from_redis._notify")
     def test_main_no_baseline(self, mock_notify, mock_load_json, mock_run):
         """Тест main() без baseline (не должно быть diff и уведомлений)."""
-        from tools.golden_replay_of_confirm_from_redis import main
         import sys
+
+        from tools.golden_replay_of_confirm_from_redis import main
 
         # Мокаем успешные вызовы run
         mock_run.return_value = 0
@@ -188,8 +189,9 @@ class TestMainIntegration:
     @patch("tools.golden_replay_of_confirm_from_redis._notify")
     def test_main_with_baseline_no_mismatch(self, mock_notify, mock_load_json, mock_run):
         """Тест main() с baseline, но без mismatches."""
-        from tools.golden_replay_of_confirm_from_redis import main
         import sys
+
+        from tools.golden_replay_of_confirm_from_redis import main
 
         # Мокаем успешные вызовы run
         mock_run.return_value = 0
@@ -226,8 +228,9 @@ class TestMainIntegration:
     @patch("tools.golden_replay_of_confirm_from_redis._notify")
     def test_main_with_mismatch_and_notify(self, mock_notify, mock_load_json, mock_run):
         """Тест main() с mismatch и уведомлением."""
-        from tools.golden_replay_of_confirm_from_redis import main
         import sys
+
+        from tools.golden_replay_of_confirm_from_redis import main
 
         # Мокаем успешные вызовы run
         mock_run.return_value = 0
@@ -257,7 +260,7 @@ class TestMainIntegration:
             "--notify",
             "1",
             "--notify-stream",
-            "notify:telegram",
+            RS.NOTIFY_TELEGRAM,
             "--redis-url",
             "redis://localhost:6379/0",
         ]
@@ -284,8 +287,9 @@ class TestMainIntegration:
     @patch("tools.golden_replay_of_confirm_from_redis._notify")
     def test_main_with_mismatch_no_fail(self, mock_notify, mock_load_json, mock_run):
         """Тест main() с mismatch, но fail_on_mismatch=0 (не падает)."""
-        from tools.golden_replay_of_confirm_from_redis import main
         import sys
+
+        from tools.golden_replay_of_confirm_from_redis import main
 
         # Мокаем успешные вызовы run
         mock_run.return_value = 0
@@ -319,8 +323,9 @@ class TestMainIntegration:
     @patch("tools.golden_replay_of_confirm_from_redis.run")
     def test_main_export_failure(self, mock_run):
         """Тест main() при ошибке экспорта (должно падать)."""
-        from tools.golden_replay_of_confirm_from_redis import main
         import sys
+
+        from tools.golden_replay_of_confirm_from_redis import main
 
         # Первый вызов (export) возвращает ошибку
         mock_run.side_effect = [1, 0, 0]
@@ -339,8 +344,9 @@ class TestMainIntegration:
     @patch("tools.golden_replay_of_confirm_from_redis.run")
     def test_main_replay_failure(self, mock_run):
         """Тест main() при ошибке replay (должно падать)."""
-        from tools.golden_replay_of_confirm_from_redis import main
         import sys
+
+        from tools.golden_replay_of_confirm_from_redis import main
 
         # Второй вызов (replay) возвращает ошибку
         mock_run.side_effect = [0, 1, 0]
@@ -359,8 +365,9 @@ class TestMainIntegration:
     @patch("tools.golden_replay_of_confirm_from_redis.run")
     def test_main_diff_failure(self, mock_run):
         """Тест main() при ошибке diff tool (должно падать)."""
-        from tools.golden_replay_of_confirm_from_redis import main
         import sys
+
+        from tools.golden_replay_of_confirm_from_redis import main
 
         # Третий вызов (diff) возвращает ошибку
         mock_run.side_effect = [0, 0, 2]

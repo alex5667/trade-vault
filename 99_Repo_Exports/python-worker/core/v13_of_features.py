@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 core/v13_of_features.py
 =======================
@@ -13,8 +14,7 @@ Design principles:
 
 
 import math
-from typing import Any, Dict
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Group NA — Advanced Volatility Estimation (OHLC-based)
@@ -27,7 +27,7 @@ from typing import Any, Dict
 _LN2 = math.log(2.0)
 
 
-def compute_group_na(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_na(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group NA: OHLC-based volatility estimators from rolling kline stats.
 
@@ -37,7 +37,7 @@ def compute_group_na(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
       - yang_zhang_vol      : float — Yang-Zhang comprehensive OHLC estimator
       - vol_of_vol          : float — StdDev(realized_vol_bps) over rolling window
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     for key in (
         "garman_klass_vol",
@@ -59,7 +59,7 @@ def compute_group_na(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
 #       depth_resilience_half_life
 # ---------------------------------------------------------------------------
 
-def compute_group_nb(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_nb(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group NB: academic liquidity metrics from rolling trade/book statistics.
 
@@ -69,7 +69,7 @@ def compute_group_nb(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
       - hasbrouck_info_share       : float — permanent price impact share [0,1]
       - depth_resilience_half_life : float — t½ of depth recovery after aggressive trade (ms)
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     for key in (
         "amihud_illiquidity",
@@ -90,7 +90,7 @@ def compute_group_nb(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
 # Keys: pin_estimate, lambda_asym, toxicity_regime_score, aggressive_sweep_ratio
 # ---------------------------------------------------------------------------
 
-def compute_group_nc(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_nc(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group NC: flow toxicity metrics.
 
@@ -99,7 +99,7 @@ def compute_group_nc(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
     toxicity_regime_score  — composite from existing indicators + PIN
     aggressive_sweep_ratio — from runtime sweep tracker (trades crossing 3+ levels)
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     # pin_estimate (from EM cache in runtime)
     try:
@@ -153,11 +153,11 @@ def compute_group_nc(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
 # Fail-open to 0.0 until go-worker REST polling deployed.
 # ---------------------------------------------------------------------------
 
-def compute_group_nd(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_nd(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group ND: extended cross-asset macro features from go-worker → Redis hash.
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     for key in (
         "btc_dominance_momentum",
@@ -179,7 +179,7 @@ def compute_group_nd(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
 # Keys: price_entropy_50, order_size_gini, mutual_info_price_volume
 # ---------------------------------------------------------------------------
 
-def compute_group_ne(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_ne(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group NE: entropy and information-theory features from rolling tick buffers.
 
@@ -188,7 +188,7 @@ def compute_group_ne(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
       - order_size_gini          : float — Gini coefficient of trade sizes [0,1]
       - mutual_info_price_volume : float — MI(returns, volume) rolling 100 ticks
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     for key in (
         "price_entropy_50",
@@ -208,7 +208,7 @@ def compute_group_ne(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
 # Keys: half_life_mean_reversion, adf_pvalue_50, zscore_mid_to_vwap
 # ---------------------------------------------------------------------------
 
-def compute_group_nf(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_nf(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group NF: mean reversion and stationarity features.
 
@@ -216,7 +216,7 @@ def compute_group_nf(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
     adf_pvalue_50            — from runtime ADF test cache (cached 5s)
     zscore_mid_to_vwap       — computed from indicators (mid, VWAP, rolling σ)
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     # half_life_mean_reversion (from runtime cache)
     try:
@@ -256,14 +256,14 @@ def compute_group_nf(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
 # All domain-logic cross-products, not data-mined.
 # ---------------------------------------------------------------------------
 
-def compute_group_nx(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> Dict[str, float]:
+def compute_group_nx(runtime: Any, now_ms: int, indicators: dict[str, Any]) -> dict[str, float]:
     """
     Group NX: advanced domain-logic interaction features.
 
     All computed from existing v12 indicators + new v13 groups.
     Low pipeline cost; always available if source keys present.
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
 
     # vpin_x_funding: VPIN × sign(funding_rate)
     try:
@@ -316,7 +316,7 @@ def compute_group_nx(runtime: Any, now_ms: int, indicators: Dict[str, Any]) -> D
 # ---------------------------------------------------------------------------
 
 # All 28 new keys with their 0.0 defaults for fail-open guarantee
-_DEFAULTS: Dict[str, float] = {
+_DEFAULTS: dict[str, float] = {
     # NA — Advanced Volatility
     "garman_klass_vol": 0.0,
     "parkinson_vol": 0.0,
@@ -361,7 +361,7 @@ def inject_v13_of_features(
     *,
     runtime: Any,
     now_ms: int,
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
 ) -> None:
     """
     Compute and inject all 28 v13_of new indicator keys into `indicators`.

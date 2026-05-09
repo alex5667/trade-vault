@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 def test_drift_alerts_yaml_contains_expected_rules() -> None:

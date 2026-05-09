@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import os
-
-from services.trailing_condition import TrailingConditionEvaluator
 from services.ev_giveback_stats import GivebackEmaConfig
+from services.trailing_condition import TrailingConditionEvaluator
 
 
 class FakeRedis:

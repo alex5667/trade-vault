@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 FreezePromotionService — shadow→hard auto-promotion for EntryPolicyFreezeV1.
 
@@ -35,17 +35,15 @@ ENV:
   OPS_EVENT_STREAM          ops:eventlog
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import asyncio
 import json
 import os
-import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import redis.asyncio as aioredis  # type: ignore
 
 from core.entry_policy_freeze import EntryPolicyFreezeV1
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -81,7 +79,7 @@ def _s(x: Any, d: str = "") -> str:
 def _promotion_decision(
     *,
     fz: EntryPolicyFreezeV1,
-    stats: Dict[str, str],
+    stats: dict[str, str],
     now_ms: int,
     observe_ms: int,
     min_blocked: int,
@@ -90,7 +88,7 @@ def _promotion_decision(
     thr_spread_z: float,
     thr_obi_age_ms: float,
     thr_pressure: float,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Pure-function promotion decision (testable without Redis).
 
     Returns:
@@ -231,7 +229,7 @@ class FreezePromotionService:
             f"{fz.symbol.upper()}:{fz.group.lower()}:{fz.scenario.lower()}"
         )
         try:
-            stats: Dict[str, str] = await self.r.hgetall(stats_key) or {}
+            stats: dict[str, str] = await self.r.hgetall(stats_key) or {}
         except Exception:
             return  # fail-open
 

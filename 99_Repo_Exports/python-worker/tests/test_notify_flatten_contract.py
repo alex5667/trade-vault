@@ -5,7 +5,6 @@ from hypothesis import strategies as st
 
 from services.outbox.notify_flatten import flatten_notify_fields
 
-
 _json_scalars = st.one_of(
     st.none(),
     st.booleans(),

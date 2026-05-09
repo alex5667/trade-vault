@@ -1,7 +1,9 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+
 import math
+from dataclasses import dataclass
+from typing import Any
+
 
 def _f(x: Any, d: float = 0.0) -> float:
     try: return float(x)
@@ -29,7 +31,7 @@ class PenaltyCfg:
     cooldown_hi_sps: float = 0.06
     obi_ttl_ms: int = 5000
 
-def compute_r_and_adj(ev: Dict[str, Any], cfg: PenaltyCfg) -> Tuple[float, float, Dict[str, float]]:
+def compute_r_and_adj(ev: dict[str, Any], cfg: PenaltyCfg) -> tuple[float, float, dict[str, float]]:
     """
     R = pnl / risk_usd
     R_adj = R - penalties (clipped)

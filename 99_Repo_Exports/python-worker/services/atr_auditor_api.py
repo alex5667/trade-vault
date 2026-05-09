@@ -5,13 +5,12 @@ Read-only governance surface for Phase 6.7.
 Provides unified state without allowing state mutations.
 """
 
+import json
 import os
 from contextlib import asynccontextmanager
-from typing import List, Optional, Any, Dict
-from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel
+
 import asyncpg
-import json
+from fastapi import FastAPI, HTTPException
 
 DEFAULT_PORT = int(os.getenv("ATR_AUDITOR_API_PORT", "8093"))
 DEFAULT_HOST = os.getenv("ATR_AUDITOR_API_HOST", "0.0.0.0")
@@ -83,15 +82,15 @@ async def get_change_details(change_id: str):
 
 @app.get("/auditor/incidents")
 async def get_incident_board(
-    severity: Optional[str] = None,
-    symbol: Optional[str] = None,
-    venue: Optional[str] = None
+    severity: str | None = None,
+    symbol: str | None = None,
+    venue: str | None = None
 ):
     """Returns the current open incidents from the incident board."""
     pool = await get_db_pool()
     query = "SELECT * FROM v_governance_incident_board WHERE 1=1"
     args = []
-    
+
     if severity:
         args.append(severity)
         query += f" AND severity = ${len(args)}"
@@ -101,9 +100,9 @@ async def get_incident_board(
     if venue:
         args.append(venue)
         query += f" AND venue = ${len(args)}"
-        
+
     query += " LIMIT 200"
-    
+
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, *args)
         return [dict(row) for row in rows]
@@ -132,16 +131,16 @@ async def get_postmortem_details(postmortem_id: str):
         pm_row = await conn.fetchrow("SELECT * FROM atr_postmortems WHERE postmortem_id = $1", postmortem_id)
         if not pm_row:
             raise HTTPException(status_code=404, detail="Postmortem not found")
-            
+
         actions = await conn.fetch("SELECT * FROM atr_corrective_actions WHERE postmortem_id = $1 ORDER BY due_at_ms ASC", postmortem_id)
-        
+
         result = dict(pm_row)
         result["actions"] = [dict(a) for a in actions]
         return result
 
 @app.get("/auditor/runtime-health")
 async def get_runtime_health(
-    scope_kind: Optional[str] = None
+    scope_kind: str | None = None
 ):
     """Returns the current runtime governance health board."""
     pool = await get_db_pool()
@@ -150,16 +149,16 @@ async def get_runtime_health(
     if scope_kind:
         args.append(scope_kind)
         query += f" AND scope_kind = ${len(args)}"
-        
+
     query += " ORDER BY updated_at_ms DESC LIMIT 300"
-    
+
     async with pool.acquire() as conn:
         try:
             rows = await conn.fetch(query, *args)
         except asyncpg.exceptions.UndefinedTableError:
             # For backward compat or if migration wasn't perfectly applied
             return []
-            
+
         return [dict(row) for row in rows]
 
 @app.get("/auditor/evidence/{artifact_kind}/{id}")

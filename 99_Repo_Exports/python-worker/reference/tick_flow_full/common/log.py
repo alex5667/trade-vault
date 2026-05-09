@@ -6,10 +6,9 @@ Provides standardized logger setup and configuration.
 
 import logging
 import sys
-from typing import Optional
 
 
-def setup_logger(name: str = "app", level: Optional[str] = "INFO") -> logging.Logger:
+def setup_logger(name: str = "app", level: str | None = "INFO") -> logging.Logger:
     """
     Setup and return a configured logger.
 

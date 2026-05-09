@@ -1,7 +1,9 @@
-import pytest
 from types import SimpleNamespace
 
+import pytest
+
 from services.time_be_exit_policy import TimeBeExitConfig, should_time_be_exit
+
 
 @pytest.fixture
 def base_cfg():

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ATR Policy Chaos Drill Runner — Phase 3.8 (Disaster Layer).
 
 DRY_RUN-first chaos simulator for the ATR policy control-plane.
@@ -26,9 +27,10 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
+
 try:
     from core.redis_client import get_atr_redis
 except Exception:
@@ -73,28 +75,28 @@ def _dsn() -> str:
     )
 
 
-def _publish(r: redis.Redis, payload: Dict[str, Any]) -> None:
+def _publish(r: redis.Redis, payload: dict[str, Any]) -> None:
     try:
         r.xadd(STREAM_ESC, {k: str(v) for k, v in payload.items()}, maxlen=2000)
     except Exception as exc:
         logger.warning("chaos_drill: stream publish failed: %s", exc)
 
 
-def _active_key(t: Dict[str, Any]) -> str:
+def _active_key(t: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:active:"
         f"{t['source']}:{t['symbol']}:{t['scenario']}:{t['regime']}:{t['risk_horizon_bucket']}"
     )
 
 
-def _last_good_key(t: Dict[str, Any]) -> str:
+def _last_good_key(t: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:last_good:"
         f"{t['source']}:{t['symbol']}:{t['scenario']}:{t['regime']}:{t['risk_horizon_bucket']}"
     )
 
 
-def _target_complete(target: Dict[str, Any]) -> bool:
+def _target_complete(target: dict[str, Any]) -> bool:
     return all(
         target.get(k)
         for k in ("source", "symbol", "scenario", "regime", "risk_horizon_bucket")
@@ -104,8 +106,8 @@ def _target_complete(target: Dict[str, Any]) -> bool:
 # ── Scenario handlers ──────────────────────────────────────────────────────────
 
 def _drill_telegram_callback_blackhole(
-    target: Dict[str, Any], mode: str, r: redis.Redis
-) -> Dict[str, Any]:
+    target: dict[str, Any], mode: str, r: redis.Redis
+) -> dict[str, Any]:
     """Simulate callback stream death by setting last_callback_ts very far back."""
     old_ts = int((time.time() - 86_400 * 2) * 1000)  # 2 days ago
     if mode == "DRY_RUN":
@@ -128,8 +130,8 @@ def _drill_telegram_callback_blackhole(
 
 
 def _drill_reconcile_stuck(
-    target: Dict[str, Any], mode: str, r: redis.Redis
-) -> Dict[str, Any]:
+    target: dict[str, Any], mode: str, r: redis.Redis
+) -> dict[str, Any]:
     """Simulate reconcile stuck by setting last_success_ts very old."""
     old_ts = int((time.time() - 86_400) * 1000)  # 1 day ago
     if mode == "DRY_RUN":
@@ -152,8 +154,8 @@ def _drill_reconcile_stuck(
 
 
 def _drill_active_key_corrupt(
-    target: Dict[str, Any], mode: str, r: redis.Redis
-) -> Dict[str, Any]:
+    target: dict[str, Any], mode: str, r: redis.Redis
+) -> dict[str, Any]:
     """Corrupt exactly one active key with invalid JSON (one cohort only)."""
     akey = _active_key(target)
     if mode == "DRY_RUN":
@@ -176,8 +178,8 @@ def _drill_active_key_corrupt(
 
 
 def _drill_active_key_delete(
-    target: Dict[str, Any], mode: str, r: redis.Redis
-) -> Dict[str, Any]:
+    target: dict[str, Any], mode: str, r: redis.Redis
+) -> dict[str, Any]:
     """Delete exactly one active key (simulate partial loss)."""
     akey = _active_key(target)
     if mode == "DRY_RUN":
@@ -202,8 +204,8 @@ def _drill_active_key_delete(
 
 
 def _drill_flip_storm_sim(
-    target: Dict[str, Any], mode: str, r: redis.Redis
-) -> Dict[str, Any]:
+    target: dict[str, Any], mode: str, r: redis.Redis
+) -> dict[str, Any]:
     """Inject 4 APPROVE/REVOKE rows into audit table for the cohort (SQL INSERT)."""
     if mode == "DRY_RUN":
         return {
@@ -273,8 +275,8 @@ def _drill_flip_storm_sim(
 
 
 def _drill_redis_partial_loss_sim(
-    target: Dict[str, Any], mode: str, r: redis.Redis
-) -> Dict[str, Any]:
+    target: dict[str, Any], mode: str, r: redis.Redis
+) -> dict[str, Any]:
     """Delete both active key AND last_good for one cohort (worst case)."""
     akey = _active_key(target)
     lgkey = _last_good_key(target)
@@ -313,7 +315,7 @@ _HANDLERS = {
 }
 
 
-def run_once(r: Optional[redis.Redis] = None) -> Dict[str, Any]:
+def run_once(r: redis.Redis | None = None) -> dict[str, Any]:
     """
     Read ENV and execute / dry-run the specified chaos scenario.
     Always bounded to ONE cohort; never touches hot path.
@@ -321,11 +323,11 @@ def run_once(r: Optional[redis.Redis] = None) -> Dict[str, Any]:
     if os.getenv("ATR_POLICY_CHAOS_ENABLE", "0") != "1":
         return {"ok": False, "reason": "CHAOS_DISABLED"}
 
-    mode = str(os.getenv("ATR_POLICY_CHAOS_MODE", "DRY_RUN") or "DRY_RUN").upper()
+    mode = (os.getenv("ATR_POLICY_CHAOS_MODE", "DRY_RUN") or "DRY_RUN").upper()
     if mode not in ("DRY_RUN", "EXECUTE"):
         return {"ok": False, "reason": f"INVALID_MODE_{mode}"}
 
-    scenario = str(os.getenv("ATR_POLICY_CHAOS_SCENARIO", "") or "").upper()
+    scenario = (os.getenv("ATR_POLICY_CHAOS_SCENARIO", "") or "").upper()
     if scenario not in VALID_SCENARIOS:
         return {"ok": False, "reason": f"UNKNOWN_SCENARIO_{scenario}"}
 

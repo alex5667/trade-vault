@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-import math
+
 import pytest
 
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate

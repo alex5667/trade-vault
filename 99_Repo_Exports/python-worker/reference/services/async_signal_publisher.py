@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
 from prometheus_client import Counter
@@ -51,9 +51,10 @@ class AsyncPublishResult:
 
 
 import asyncio
+import logging
+
 from utils.task_manager import safe_create_task
 
-import logging
 
 class AsyncSignalPublisher:
     """
@@ -76,8 +77,8 @@ class AsyncSignalPublisher:
         retry_queue_maxsize: int = 1000,
     ) -> None:
         self.r = redis_client
-        self.source = str(source or "na")
-        self.metrics_prefix = str(metrics_prefix or "signals_publish_async")
+        self.source = (source or "na")
+        self.metrics_prefix = (metrics_prefix or "signals_publish_async")
         self.logger = logger or logging.getLogger(__name__)
         self.max_retries = max_retries
 
@@ -86,7 +87,7 @@ class AsyncSignalPublisher:
         # Background worker task — created lazily via start() to avoid
         # RuntimeError: no running event loop when __init__ is called
         # outside an asyncio context (e.g. from a plain Thread).
-        self._worker_task: Optional[asyncio.Task] = None
+        self._worker_task: asyncio.Task | None = None
 
     def start(self) -> None:
         """
@@ -145,7 +146,7 @@ class AsyncSignalPublisher:
         self,
         *,
         sink: StreamSink,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         symbol: str,
         approximate: bool = True,
     ) -> AsyncPublishResult:
@@ -181,7 +182,7 @@ class AsyncSignalPublisher:
         self,
         *,
         sink: StreamSink,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         symbol: str,
         approximate: bool = True,
     ) -> AsyncPublishResult:
@@ -194,7 +195,7 @@ class AsyncSignalPublisher:
 
         # 1) normalize contract (never blocks publish)
         try:
-            preprocess_signal_for_publish(payload, symbol=str(symbol), source=self.source, logger=self.logger)
+            preprocess_signal_for_publish(payload, symbol=symbol, source=self.source, logger=self.logger)
         except Exception:
             pass
 

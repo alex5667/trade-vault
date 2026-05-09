@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import sys
 import time
-from typing import Iterable
 
 import redis
 import requests
@@ -66,9 +65,11 @@ def _send_telegram(text: str) -> None:
 
     for chat_id in chat_ids:
         for i, chunk in enumerate(chunks, 1):
+            # Escape underscores for Telegram Markdown V1 parser
+            safe_chunk = chunk.replace("_", "\\_")
             payload = {
                 "chat_id": chat_id,
-                "text": chunk,
+                "text": safe_chunk,
                 "parse_mode": "Markdown",
                 "disable_web_page_preview": True,
             }

@@ -1,17 +1,23 @@
 import logging
-from typing import Any, Dict
 
-from services.orderflow.runtime import SymbolRuntime, BookSnapshot
 from core.lob_pressure import compute_lob_pressure
 from services.orderflow.metrics import (
-    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
-    of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
-    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
-    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge,
-    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge,
-    of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge,
+    log_silent_error,
+    of_lob_depth_convexity_gauge,
+    of_lob_depth_slope_gauge,
+    of_lob_dw_obi_gauge,
+    of_lob_dw_obi_stability_score_gauge,
+    of_lob_dw_obi_stable_gauge,
+    of_lob_dw_obi_stable_secs_gauge,
+    of_lob_dw_obi_z_gauge,
+    of_lob_micro_mid_div_bps_gauge,
+    of_lob_micro_shift_bps_gauge,
+    of_lob_queue_imbalance_gauge,
+    of_lob_queue_imbalance_max_abs_gauge,
+    of_lob_queue_imbalance_mean_gauge,
+    of_lob_queue_imbalance_slope_gauge,
 )
-from services.orderflow.metrics import log_silent_error
+from services.orderflow.runtime import BookSnapshot, SymbolRuntime
 
 logger = logging.getLogger("orderflow_lob_pressure_tracker")
 

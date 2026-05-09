@@ -1,23 +1,30 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
+import asyncio
+import hashlib
 import json
+import math
 import os
 import time
-import math
-import hashlib
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
-import asyncio
 
-from services.ml_calibration import PlattLogitCalibrator
-from core.feature_engineering import RobustScalerPack, apply_transform, bucketize, derive_regime_label, derive_session_label
 from core.bucket2_v1 import derive_bucket2_label
-from core.meta_model_lr import MetaModelLR
 from core.champion_cfg_validator import validate_champion_cfg
 from core.edge_stack_mh_v1 import EdgeStackMHModelV1
+from core.feature_engineering import (
+    RobustScalerPack,
+    apply_transform,
+    bucketize,
+    derive_regime_label,
+    derive_session_label,
+)
+from core.meta_model_lr import MetaModelLR
+from services.ml_calibration import PlattLogitCalibrator
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 # Prometheus metrics (optional, fail-open if not available)
 try:
@@ -40,14 +47,14 @@ except Exception:
 # Import centralized metrics from registry (fail-open if not available)
 try:
     from services.observability.metrics_registry import (
-        ml_confirm_events_total,
-        ml_confirm_errors_total,
         ml_confirm_cfg_present,
         ml_confirm_cfg_valid,
         ml_confirm_enforce_share,
-        ml_confirm_model_loaded,
-        ml_confirm_model_load_seconds,
+        ml_confirm_errors_total,
+        ml_confirm_events_total,
         ml_confirm_latency_seconds,
+        ml_confirm_model_load_seconds,
+        ml_confirm_model_loaded,
         ml_missing_critical_total,
     )
     METRICS_REGISTRY_AVAILABLE = True
@@ -91,13 +98,13 @@ def _make_sid(symbol: str, ts_ms: int) -> str:
 
 # Process-level shared caches to prevent redundant I/O and thundering herd.
 # Keys: model_path or config_key. Values: loaded objects or dicts.
-_SHARED_MODELS: Dict[str, Any] = {}
-_SHARED_CONFIGS: Dict[str, Any] = {}
-_SHARED_CONFIG_PAYLOADS: Dict[str, bytes] = {}  # key -> last raw payload
-_SHARED_MODEL_STATS: Dict[str, Tuple[float, int]] = {} # path -> (mtime, size)
+_SHARED_MODELS: dict[str, Any] = {}
+_SHARED_CONFIGS: dict[str, Any] = {}
+_SHARED_CONFIG_PAYLOADS: dict[str, bytes] = {}  # key -> last raw payload
+_SHARED_MODEL_STATS: dict[str, tuple[float, int]] = {} # path -> (mtime, size)
 
 
-def _load_model_cached(model_path: str, kind: str, logger: Any = None) -> Optional[Any]:
+def _load_model_cached(model_path: str, kind: str, logger: Any = None) -> Any | None:
     """Load model from disk or return from process-level cache if unchanged."""
     if not model_path or not os.path.exists(model_path):
         print(f"DEBUG: Model path does not exist: {model_path}", flush=True)
@@ -143,7 +150,7 @@ def _load_model_cached(model_path: str, kind: str, logger: Any = None) -> Option
 
         if model:
             # Validation
-            kind_low = str(kind or "").lower()
+            kind_low = (kind or "").lower()
             if kind_low.startswith("util_mh"):
                 if not hasattr(model, "predict_util") or not hasattr(model, "predict_unc"):
                     if logger:
@@ -184,7 +191,7 @@ def _normalize_sid(raw_sid: Any, *, symbol: str, ts_ms: int) -> str:
       - loose: {symbol}|{ts_ms}|{direction} (direction ignored)
     Falls back to _make_sid(symbol, ts_ms).
     """
-    s = str(raw_sid or '').strip()
+    s = (raw_sid or '').strip()
     if s.startswith('crypto-of:'):
         # keep only first 3 tokens: crypto-of:SYMBOL:ts
         parts = s.split(':')
@@ -216,18 +223,18 @@ class _DictPackModelView:
     to keep train==serve feature engineering consistent.
     """
 
-    def __init__(self, pack: Dict[str, Any]):
+    def __init__(self, pack: dict[str, Any]):
         self.feature_cols = list(pack.get("feature_cols", []) or [])
         tf = pack.get("feature_transforms")
         self.feature_transforms = tf if isinstance(tf, dict) else {}
 
         # RobustScalerPack accepts either RobustScalerPack or dict params.
-        self.robust_scaler = pack.get("robust_scaler", None)
+        self.robust_scaler = pack.get("robust_scaler")
 
         sc = pack.get("session_cfg")
         self.session_cfg = sc if isinstance(sc, dict) else {}
 
-        self.spread_bucket_edges = pack.get("spread_bucket_edges", None)
+        self.spread_bucket_edges = pack.get("spread_bucket_edges")
 
         lc = pack.get("liq_cfg")
         self.liq_cfg = lc if isinstance(lc, dict) else {}
@@ -258,7 +265,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _safe_loads(s: Any) -> Dict[str, Any]:
+def _safe_loads(s: Any) -> dict[str, Any]:
     """
     Robust JSON loader for Redis-stored cfg.
     Supports both:
@@ -289,7 +296,7 @@ def _safe_loads(s: Any) -> Dict[str, Any]:
     return obj if isinstance(obj, dict) else {}
 
 
-def _safe_loads_ex(s: Any) -> Tuple[Dict[str, Any], str, int]:
+def _safe_loads_ex(s: Any) -> tuple[dict[str, Any], str, int]:
     """
     Returns: (cfg_dict, err, raw_len)
       err == "" when cfg is a non-empty dict
@@ -391,12 +398,12 @@ def _bucket_from_scenario(s: str) -> str:
 
 def _canon_sid(symbol: str, ts_ms: int, raw_sid: str = "") -> str:
     """Canonical sid for cross-stream joins: crypto-of:{SYMBOL}:{TS_MS} (no direction)."""
-    sym = str(symbol or "").upper() or "NA"
+    sym = (symbol or "").upper() or "NA"
     try:
         ts = int(ts_ms)
     except Exception:
         ts = 0
-    s = str(raw_sid or "")
+    s = (raw_sid or "")
     if s.startswith("crypto-of:"):
         head = s.split("|", 1)[0]
         parts = head.split(":", 2)
@@ -430,7 +437,7 @@ def _stable_sample(key: str, sample_rate: float, *, salt: str) -> bool:
         return True
     if r <= 0.0:
         return False
-    u = int.from_bytes(hashlib.blake2b(f"{salt}|{key}".encode("utf-8"), digest_size=8).digest(), "big")
+    u = int.from_bytes(hashlib.blake2b(f"{salt}|{key}".encode(), digest_size=8).digest(), "big")
     thr = int(r * 1_000_000)
     return int(u % 1_000_000) < thr
 
@@ -450,7 +457,7 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
       - {symbol}:{ts} (legacy without prefix)
       - empty -> generate from symbol+ts_ms
     """
-    s = str(raw or "").strip()
+    s = (raw or "").strip()
     if s.startswith("crypto-of:"):
         return s
     if "|" in s:
@@ -476,13 +483,13 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
     return s
 
 
-def _canonical_sid(indicators: Dict[str, Any], symbol: str, ts_ms: int) -> str:
+def _canonical_sid(indicators: dict[str, Any], symbol: str, ts_ms: int) -> str:
     """Generate canonical SID: crypto-of:{symbol}:{ts_ms}
     
     This is critical for join: metrics:ml_confirm ↔ trades:closed.
     """
     raw_sid = indicators.get("sid", "") or indicators.get("signal_id", "") or indicators.get("signalId", "") or ""
-    return _normalize_crypto_sid(raw_sid, symbol=str(symbol).upper(), ts_ms=int(ts_ms))
+    return _normalize_crypto_sid(raw_sid, symbol=symbol.upper(), ts_ms=int(ts_ms))
 
 
 def cache_ml_decision(
@@ -519,7 +526,7 @@ def cache_ml_decision(
     key = f"ml:dec:{sid}"
     payload = {
         "sid": sid,
-        "symbol": str(symbol).upper(),
+        "symbol": symbol.upper(),
         "bucket": str(bucket).lower(),
         "p_edge": float(p_edge),
         "enforce": int(enforce),
@@ -531,7 +538,6 @@ def cache_ml_decision(
     payload_str = json.dumps(payload, separators=(",", ":"))
     try:
         import asyncio
-        import inspect
         is_async = "aioredis" in type(r).__module__ or "asyncio" in type(r).__module__ or (hasattr(r.set, "__call__") and asyncio.iscoroutinefunction(r.set))
         if is_async:
             try:
@@ -557,7 +563,7 @@ def _stable_u01(s: str) -> float:
     return _stable_hash_u64(s) / float(2**64 - 1)
 
 
-def _get_floor(util_floors: Dict[str, Any], bucket: str) -> float:
+def _get_floor(util_floors: dict[str, Any], bucket: str) -> float:
     """
     champion JSON (v10.4) -> util_floors:
       {
@@ -593,9 +599,9 @@ class MLConfirmDecision:
     score: float = 0.0
     floor: float = 0.0
     bucket: str = "other"
-    util_pred: Optional[Dict[str, float]] = None
-    unc: Optional[Dict[str, float]] = None
-    missing: Optional[List[str]] = None
+    util_pred: dict[str, float] | None = None
+    unc: dict[str, float] | None = None
+    missing: list[str] | None = None
 
     model_run_id: str = ""
     model_path: str = ""
@@ -622,7 +628,7 @@ class MLConfirmDecision:
     cfg_raw_len: int = 0
     cfg_parse_err: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "mode": self.mode,
             "kind": self.kind,
@@ -709,7 +715,7 @@ class MLConfirmGate:
 
         self._cache_loaded_ms: int = 0
         self._cache_ttl_ms: int = int(os.getenv("ML_MODEL_CACHE_TTL_MS", "60000"))
-        self._cfg: Dict[str, Any] = {}
+        self._cfg: dict[str, Any] = {}
         self._model: Any = None
         self._model_load_error: str = ""  # Detailed error reason when model fails to load
         self._last_error_log_ms: int = 0  # Throttle error logging
@@ -756,7 +762,7 @@ class MLConfirmGate:
         self._replay_maxlen = int(os.getenv("ML_REPLAY_INPUTS_MAXLEN", "200000") or 200000)
 
         # calibration layer (optional)
-        self._calibrator: Optional[PlattLogitCalibrator] = None
+        self._calibrator: PlattLogitCalibrator | None = None
         self._calibrate_enabled = int(os.getenv("ML_CALIBRATION_ENABLE", "1") or 1) == 1
         self._calib_type = "none"
 
@@ -824,7 +830,7 @@ class MLConfirmGate:
             self._metrics_cfg_defaulted_total = _MockMetric()
 
     @staticmethod
-    def from_env(redis_client: Optional[Any] = None) -> "MLConfirmGate":
+    def from_env(redis_client: Any | None = None) -> MLConfirmGate:
         if redis_client is not None:
             r = redis_client
         else:
@@ -849,11 +855,11 @@ class MLConfirmGate:
         # FAIL_OPEN => allow, FAIL_CLOSED => block
         return self.fail_policy != "CLOSED"
 
-    def _coerce_hash_cfg(self, h: Dict[str, str]) -> Dict[str, Any]:
+    def _coerce_hash_cfg(self, h: dict[str, str]) -> dict[str, Any]:
         """
         HGETALL returns strings. Keep as strings, parsing happens downstream (float/int) in existing code.
         """
-        cfg: Dict[str, Any] = {}
+        cfg: dict[str, Any] = {}
         for k, v in h.items():
             cfg[str(k)] = v
         cfg.setdefault("mode", "SHADOW")
@@ -861,7 +867,7 @@ class MLConfirmGate:
         cfg.setdefault("enforce_share", 0.05)
         return cfg
 
-    def _load_cfg_and_model(self) -> Tuple[Dict[str, Any], Any]:
+    def _load_cfg_and_model(self) -> tuple[dict[str, Any], Any]:
         """
         Load configuration and model from Redis with shared process-level caching.
         """
@@ -930,7 +936,7 @@ class MLConfirmGate:
 
         return self._parse_and_load_from_payload(raw_payload, id(self.r), logger)
 
-    def _parse_and_load_from_payload(self, raw_payload: Any, cache_key_id: int, logger: Any) -> Tuple[Dict[str, Any], Any]:
+    def _parse_and_load_from_payload(self, raw_payload: Any, cache_key_id: int, logger: Any) -> tuple[dict[str, Any], Any]:
         self._cfg_raw_len = len(raw_payload)
 
         # Step 2: Check process-level cache for JSON payloads (Isolated by Redis instance ID)
@@ -939,7 +945,7 @@ class MLConfirmGate:
             cached_cfg = _SHARED_CONFIGS.get(cache_key)
             if cached_cfg:
                 model_path = cached_cfg.get("model_path")
-                kind = str(cached_cfg.get("kind", "")).lower()
+                kind = (cached_cfg.get("kind", "")).lower()
                 model = _load_model_cached(model_path, kind, logger=logger)
                 return cached_cfg.copy(), model
 
@@ -990,8 +996,8 @@ class MLConfirmGate:
         """
         Async version of _refresh_cache_if_needed to eliminate blocking calls in main loop.
         """
-        import logging
         import json
+        import logging
         logger = logging.getLogger("ml_confirm_gate")
 
         if self.mode == "OFF":
@@ -1111,7 +1117,7 @@ class MLConfirmGate:
 
         # Priority 1: cfg.calibrator
         cal = self._cfg.get("calibrator", None)
-        if isinstance(cal, dict) and str(cal.get("type", "") or "") == "platt_logit":
+        if isinstance(cal, dict) and (cal.get("type", "") or "") == "platt_logit":
             try:
                 self._calibrator = PlattLogitCalibrator.from_dict(cal)
                 self._calib_type = "cfg_calibrator"
@@ -1128,15 +1134,15 @@ class MLConfirmGate:
                 try:
                     if os.path.exists(cal_path):
                         if cal_path.endswith(".json"):
-                            with open(cal_path, "r", encoding="utf-8") as f:
+                            with open(cal_path, encoding="utf-8") as f:
                                 cal_dict = json.load(f)
-                            if isinstance(cal_dict, dict) and str(cal_dict.get("type", "") or "") == "platt_logit":
+                            if isinstance(cal_dict, dict) and (cal_dict.get("type", "") or "") == "platt_logit":
                                 self._calibrator = PlattLogitCalibrator.from_dict(cal_dict)
                                 self._calib_type = "cfg_calibrator_path"
                                 logger.info(f"ML gate: Calibrator loaded from cfg.calibrator_path={cal_path}")
                         elif cal_path.endswith(".joblib") and joblib is not None:
                             cal_obj = joblib.load(cal_path)
-                            if isinstance(cal_obj, dict) and str(cal_obj.get("type", "") or "") == "platt_logit":
+                            if isinstance(cal_obj, dict) and (cal_obj.get("type", "") or "") == "platt_logit":
                                 self._calibrator = PlattLogitCalibrator.from_dict(cal_obj)
                                 self._calib_type = "cfg_calibrator_path"
                                 logger.info(f"ML gate: Calibrator loaded from cfg.calibrator_path={cal_path}")
@@ -1148,13 +1154,13 @@ class MLConfirmGate:
             try:
                 if isinstance(self._model, dict):
                     cal_dict = self._model.get("calibrator", None)
-                    if isinstance(cal_dict, dict) and str(cal_dict.get("type", "") or "") == "platt_logit":
+                    if isinstance(cal_dict, dict) and (cal_dict.get("type", "") or "") == "platt_logit":
                         self._calibrator = PlattLogitCalibrator.from_dict(cal_dict)
                         self._calib_type = "model_pack_calibrator"
                         logger.info("ML gate: Calibrator loaded from model pack")
                 elif hasattr(self._model, "calibrator"):
                      cal_obj = getattr(self._model, "calibrator", None)
-                     if isinstance(cal_obj, dict) and str(cal_obj.get("type", "") or "") == "platt_logit":
+                     if isinstance(cal_obj, dict) and (cal_obj.get("type", "") or "") == "platt_logit":
                         self._calibrator = PlattLogitCalibrator.from_dict(cal_obj)
                         self._calib_type = "model_pack_calibrator"
                         logger.info("ML gate: Calibrator loaded from model.calibrator attribute")
@@ -1204,12 +1210,12 @@ class MLConfirmGate:
         self._refresh_selective_knobs_from_cfg()
         self._load_calibrator_sync(logger)
 
-    def _ensure_exec_risk_norm(self, indicators: Dict[str, Any]) -> None:
+    def _ensure_exec_risk_norm(self, indicators: dict[str, Any]) -> None:
         # If exec_risk_norm missing, derive it to avoid fail-closed noise.
         if "exec_risk_norm" in indicators:
             return
-        spread = _f(indicators.get("spread_bps", None), 0.0)
-        slip = _f(indicators.get("expected_slippage_bps", None), 0.0)
+        spread = _f(indicators.get("spread_bps"), 0.0)
+        slip = _f(indicators.get("expected_slippage_bps"), 0.0)
         exec_bps = max(0.0, spread + slip)
         ref = _f(indicators.get("exec_risk_ref_bps", os.getenv("EXEC_RISK_REF_BPS", "10")), 10.0)
         if ref <= 1e-9:
@@ -1221,13 +1227,13 @@ class MLConfirmGate:
         self,
         *,
         model: Any,
-        indicators: Dict[str, Any],
+        indicators: dict[str, Any],
         direction: str,
         scenario: str,
         ts_ms: int,
-    ) -> Tuple[List[float], List[str]]:
-        feature_cols: List[str] = list(getattr(model, "feature_cols", []) or [])
-        missing: List[str] = []
+    ) -> tuple[list[float], list[str]]:
+        feature_cols: list[str] = list(getattr(model, "feature_cols", []) or [])
+        missing: list[str] = []
 
         # critical inputs (accuracy/safety)
         critical = ["spread_bps", "expected_slippage_bps"]
@@ -1287,8 +1293,8 @@ class MLConfirmGate:
         liq_cfg = getattr(model, "liq_cfg", None)
         if not isinstance(liq_cfg, dict):
             liq_cfg = {}
-        liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score", None), None), cfg=liq_cfg)
-        vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score", None), None), cfg=liq_cfg)
+        liq_label = derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score"), None), cfg=liq_cfg)
+        vol_label = derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score"), None), cfg=liq_cfg)
 
         # UTC hour/day-of-week and scenario bucket (legacy bucket:)
         tm = time.gmtime(float(int(ts_ms or 0)) / 1000.0)
@@ -1300,7 +1306,7 @@ class MLConfirmGate:
         # Producer (tick_processor) should set indicators['bucket2'].
         # Fail-open fallback: conservative derivation from scenario/id + indicators.
         try:
-            bucket2 = str(indicators.get("bucket2") or "").strip().lower()
+            bucket2 = (indicators.get("bucket2") or "").strip().lower()
         except Exception:
             bucket2 = ""
         if not bucket2:
@@ -1309,7 +1315,7 @@ class MLConfirmGate:
             except Exception:
                 bucket2 = ""
 
-        cache: Dict[str, float] = {}
+        cache: dict[str, float] = {}
 
         def num(name: str) -> float:
             if name in cache:
@@ -1324,7 +1330,7 @@ class MLConfirmGate:
             cache[name] = float(x)
             return cache[name]
 
-        row: List[float] = []
+        row: list[float] = []
         for col in feature_cols:
             if col.startswith("f_"):
                 key = col[2:]
@@ -1460,7 +1466,7 @@ class MLConfirmGate:
 
     def _emit_metrics(self, dec: MLConfirmDecision, *, symbol: str, ts_ms: int, direction: str, scenario: str,
                      rule_score: float, rule_have: int, rule_need: int, cancel_spike_veto: int, ok_rule: int,
-                     sid: Optional[str] = None, indicators: Optional[Dict[str, Any]] = None) -> None:
+                     sid: str | None = None, indicators: dict[str, Any] | None = None) -> None:
         if not self._metrics_enable:
             return
         redis = self.r
@@ -1468,7 +1474,7 @@ class MLConfirmGate:
             return
         try:
             # Compute canonical sid for cross-stream joins
-            raw_sid = str(sid or "") if sid else str(indicators.get("sid") or indicators.get("signal_id") or "") if indicators else ""
+            raw_sid = (sid or "") if sid else str(indicators.get("sid") or indicators.get("signal_id") or "") if indicators else ""
             sid = _canon_sid(symbol, ts_ms, raw_sid=raw_sid)
             # Deterministic sampling by sid (stable across restarts)
             sample_rate = float(self._metrics_sample)
@@ -1488,7 +1494,7 @@ class MLConfirmGate:
                 exec_risk_bps = float(indicators.get("exec_risk_bps", 0.0) or 0.0)
                 sb = indicators.get("score_breakdown") or {}
 
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "ts_ms": ts_ms,
                 "sid": sid,
                 "symbol": symbol,
@@ -1507,7 +1513,7 @@ class MLConfirmGate:
                 "rule_exec_pen": f"{float(sb.get('exec_pen', 0.0)):.6f}",
                 "score_raw_sum": f"{float(sb.get('raw_sum', 0.0)):.6f}",
                 "score_w_sum": f"{float(sb.get('w_sum', 0.0)):.6f}",
-                "score_agg": str(sb.get('agg', 'unknown')),
+                "score_agg": (sb.get('agg', 'unknown')),
 
                 "rule_have": str(int(rule_have)),
                 "rule_need": str(int(rule_need)),
@@ -1537,24 +1543,20 @@ class MLConfirmGate:
                     payload["rule_score_01"] = float(sb.get("final_score_01", sb.get("final_score", 0.0)) or 0.0)
                     payload["score_raw_sum"] = float(sb.get("raw_sum", 0.0) or 0.0)
                     payload["score_w_sum"] = float(sb.get("w_sum", 0.0) or 0.0)
-                    payload["score_agg"] = str(sb.get("agg", "") or "")
+                    payload["score_agg"] = (sb.get("agg", "") or "")
                 except Exception:
                     pass
             # Also attach exec risk reference if present
             if indicators and "exec_risk_ref_bps" in indicators:
-                try:
+                with contextlib.suppress(Exception):
                     payload["exec_risk_ref_bps"] = float(indicators.get("exec_risk_ref_bps") or 0.0)
-                except Exception:
-                    pass
 
             # Full score breakdown as JSON (P0 requirement)
             if indicators:
                 sb = indicators.get("score_breakdown")
                 if sb and isinstance(sb, dict):
-                    try:
+                    with contextlib.suppress(Exception):
                         payload["score_breakdown_json"] = json.dumps(sb, separators=(",", ":"))
-                    except Exception:
-                        pass
 
                 # Ensure exec_pen is available at top level if needed (aliasing rule_exec_pen)
                 # rule_exec_pen is already in payload, but we add exec_pen explicitly if requested
@@ -1582,10 +1584,8 @@ class MLConfirmGate:
             # Add exec_risk reference if exported by rule-engine
             if indicators:
                 if "exec_risk_ref_bps" in indicators:
-                    try:
+                    with contextlib.suppress(Exception):
                         payload["exec_risk_ref_bps"] = float(indicators.get("exec_risk_ref_bps") or 0.0)
-                    except Exception:
-                        pass
 
             # Rule-gate score breakdown (if provided by OFConfirmEngine enrichment)
             if indicators:
@@ -1598,7 +1598,7 @@ class MLConfirmGate:
                         payload['rule_score_01'] = f"{float(sb.get('final_score_01', payload.get('rule_score', 0.0)) or 0.0):.6f}"
                         payload['score_raw_sum'] = f"{float(sb.get('raw_sum', 0.0) or 0.0):.6f}"
                         payload['score_w_sum'] = f"{float(sb.get('w_sum', 0.0) or 0.0):.6f}"
-                        payload['score_agg'] = str(sb.get('agg', '') or '')
+                        payload['score_agg'] = (sb.get('agg', '') or '')
                     except Exception:
                         pass
 
@@ -1609,9 +1609,8 @@ class MLConfirmGate:
                     if u is not None:
                         # store as string with correct key
                         payload[h] = f"{float(u):.6f}"
-            
+
             import asyncio
-            import inspect
             is_async = "aioredis" in type(redis).__module__ or "asyncio" in type(redis).__module__ or (hasattr(redis.xadd, "__call__") and asyncio.iscoroutinefunction(redis.xadd))
             if is_async:
                 try:
@@ -1636,7 +1635,7 @@ class MLConfirmGate:
                 self._last_emit_metrics_error_log_ts = now_ms
 
     def _capture_replay_input(self, dec: MLConfirmDecision, *, symbol: str, ts_ms: int, direction: str, scenario: str,
-                              indicators: Dict[str, Any], rule_score: float, rule_have: int, rule_need: int,
+                              indicators: dict[str, Any], rule_score: float, rule_have: int, rule_need: int,
                               cancel_spike_veto: int, ok_rule: int) -> None:
         if not self._replay_capture:
             return
@@ -1663,7 +1662,7 @@ class MLConfirmGate:
             }
             payload = {
                 "ts_ms": int(ts_ms),
-                "symbol": str(symbol).upper(),
+                "symbol": symbol.upper(),
                 "direction": str(direction),
                 "scenario_v4": str(scenario),
                 "sid": str(sid),  # Added for deterministic replay
@@ -1692,7 +1691,7 @@ class MLConfirmGate:
             })
             self.r.xadd(self._replay_stream, {
                 "ts_ms": str(int(ts_ms)),
-                "symbol": str(symbol).upper(),
+                "symbol": symbol.upper(),
                 "scenario_v4": str(scenario),
                 "sid": str(sid),  # Added for deterministic replay
                 "model_run_id": str(dec.model_run_id or ""),
@@ -1719,16 +1718,16 @@ class MLConfirmGate:
         ts_ms: int,
         direction: str,
         scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
+        indicators: dict[str, Any],
+        effective_mode: str | None = None,
     ) -> MLConfirmDecision:
         cfg = self._cfg
         model = self._model
 
         mode = effective_mode if effective_mode else self.mode
         dec = MLConfirmDecision(mode=mode, kind="util_mh_v1", allow=True)
-        dec.model_run_id = str(cfg.get("run_id", "") or "")
-        dec.model_path = str(cfg.get("model_path", "") or "")
+        dec.model_run_id = (cfg.get("run_id", "") or "")
+        dec.model_path = (cfg.get("model_path", "") or "")
 
         if model is None:
             dec.mode = "ERR"
@@ -1802,7 +1801,7 @@ class MLConfirmGate:
 
         util_pred = model.predict_util(X)  # dict[int]->ndarray
         unc = model.predict_unc(X)         # dict[int]->ndarray
-        horizons: List[int] = list(getattr(model, "horizons", []) or list(util_pred.keys()))
+        horizons: list[int] = list(getattr(model, "horizons", []) or list(util_pred.keys()))
 
         # Validate model outputs before processing
         if not horizons:
@@ -1838,8 +1837,8 @@ class MLConfirmGate:
 
         best_h = 0
         best_score = -1e18
-        util_pred_out: Dict[str, float] = {}
-        unc_out: Dict[str, float] = {}
+        util_pred_out: dict[str, float] = {}
+        unc_out: dict[str, float] = {}
         scores_computed = False
 
         for h in horizons:
@@ -1992,8 +1991,8 @@ class MLConfirmGate:
         ts_ms: int,
         direction: str,
         scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
+        indicators: dict[str, Any],
+        effective_mode: str | None = None,
     ) -> MLConfirmDecision:
         """
         Решение для edge_stack_v1: OOF stacking (LR + GBDT -> meta LR).
@@ -2016,8 +2015,8 @@ class MLConfirmGate:
 
         mode = effective_mode if effective_mode else self.mode
         dec = MLConfirmDecision(mode=mode, kind="edge_stack_v1", allow=True)
-        dec.model_run_id = str(cfg.get("run_id", "") or "")
-        dec.model_path = str(cfg.get("model_path", "") or "")
+        dec.model_run_id = (cfg.get("run_id", "") or "")
+        dec.model_path = (cfg.get("model_path", "") or "")
 
         if model is None:
             dec.mode = "ERR"
@@ -2210,10 +2209,8 @@ class MLConfirmGate:
 
         # hard_p_min_floor как guardrail
         hard_p_min_floor = float(cfg.get("hard_p_min_floor", 0.0))
-        try:
+        with contextlib.suppress(Exception):
             hard_p_min_floor = max(float(hard_p_min_floor), float(self._p_min_hard_floor))
-        except Exception:
-            pass
 
         p_min = max(p_min_cfg, hard_p_min_floor)
         p_min = max(0.0, min(1.0, p_min))  # clamp to [0, 1]
@@ -2237,8 +2234,8 @@ class MLConfirmGate:
         ts_ms: int,
         direction: str,
         scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
+        indicators: dict[str, Any],
+        effective_mode: str | None = None,
     ) -> MLConfirmDecision:
         """
         Решение для edge_stack_mh_v1: multi-horizon stacking с uncertainty.
@@ -2255,8 +2252,8 @@ class MLConfirmGate:
 
         mode = effective_mode if effective_mode else self.mode
         dec = MLConfirmDecision(mode=mode, kind="edge_stack_mh_v1", allow=True)
-        dec.model_run_id = str(cfg.get("run_id", "") or "")
-        dec.model_path = str(cfg.get("model_path", "") or "")
+        dec.model_run_id = (cfg.get("run_id", "") or "")
+        dec.model_path = (cfg.get("model_path", "") or "")
 
         if model is None:
             dec.mode = "ERR"
@@ -2437,8 +2434,8 @@ class MLConfirmGate:
         ts_ms: int,
         direction: str,
         scenario: str,
-        indicators: Dict[str, Any],
-        effective_mode: Optional[str] = None,
+        indicators: dict[str, Any],
+        effective_mode: str | None = None,
     ) -> MLConfirmDecision:
         """Decision logic for simple MetaModelLR (logistic regression)."""
         cfg = self._cfg
@@ -2446,8 +2443,8 @@ class MLConfirmGate:
 
         mode = effective_mode if effective_mode else self.mode
         dec = MLConfirmDecision(mode=mode, kind="meta_lr", allow=True)
-        dec.model_run_id = str(cfg.get("run_id", "") or "")
-        dec.model_path = str(cfg.get("model_path", "") or "")
+        dec.model_run_id = (cfg.get("run_id", "") or "")
+        dec.model_path = (cfg.get("model_path", "") or "")
 
         if model is None:
             dec.mode = "ERR"
@@ -2591,10 +2588,8 @@ class MLConfirmGate:
             pass
 
         # guardrail
-        try:
+        with contextlib.suppress(Exception):
             floor = max(float(floor), float(self._p_min_hard_floor))
-        except Exception:
-            pass
 
         dec.p_min = float(floor)
         dec.floor = float(floor)
@@ -2614,7 +2609,7 @@ class MLConfirmGate:
         ts_ms: int,
         direction: str,
         scenario: str,
-        indicators: Dict[str, Any],
+        indicators: dict[str, Any],
         rule_score: float,
         rule_have: int,
         rule_need: int,

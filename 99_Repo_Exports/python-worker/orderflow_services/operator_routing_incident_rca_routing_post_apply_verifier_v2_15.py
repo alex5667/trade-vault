@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -46,7 +47,7 @@ VERIFICATION_RESULTS = _counter("ml_operator_routing_incident_rca_routing_verify
 
 def now_ms() -> int: return get_ny_time_millis()
 
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 async def ensure_group(r: Any, stream: str, group: str) -> None:
@@ -69,23 +70,23 @@ async def verify_loop(r: Any) -> None:
                 try:
                     row = as_dict(payload)
                     exp_id = row.get("experiment_id", "unknown")
-                    
+
                     feedback = await r.hgetall("metrics:ml:operator_routing_incident_rca_feedback:last")
                     fb = as_dict(feedback) if feedback else {}
-                    
+
                     exposure = int(fb.get("exposures_n", "0"))
                     usefulness = float(fb.get("usefulness_avg", "1.0"))
-                    
+
                     conclusion = "OK"
                     reason = "metrics_within_bounds"
-                    
+
                     if exposure < MIN_EXPOSURE:
                         conclusion = "INCONCLUSIVE"
                         reason = "LOW_EXPOSURE"
                     elif usefulness < MIN_USEFULNESS:
                         conclusion = "ROLLBACK_REQUIRED"
                         reason = "USEFULNESS_DROP"
-                        
+
                     result = {
                         "experiment_id": exp_id,
                         "conclusion": conclusion,
@@ -94,10 +95,10 @@ async def verify_loop(r: Any) -> None:
                         "observed_usefulness": usefulness,
                         "ts_ms": now_ms()
                     }
-                    
+
                     await r.xadd(OUT_STREAM, result, maxlen=MAXLEN, approximate=True)
                     await r.xadd(AUDIT_STREAM, result, maxlen=MAXLEN, approximate=True)
-                    
+
                     if conclusion == "ROLLBACK_REQUIRED":
                         rollback_req = {
                             "route_change_id": f"rollback_{exp_id}_{now_ms()}",
@@ -106,15 +107,15 @@ async def verify_loop(r: Any) -> None:
                             "ts_ms": now_ms()
                         }
                         await r.xadd(ROLLBACK_STREAM, rollback_req, maxlen=MAXLEN, approximate=True)
-                    
+
                     if VERIFICATION_RESULTS:
                         VERIFICATION_RESULTS.labels(conclusion=conclusion).inc()
-                    
+
                     await r.xack(IN_STREAM, GROUP, msg_id)
                 except Exception:
                     status = "error"
                     await r.xack(IN_STREAM, GROUP, msg_id)
-                    
+
         if LAST_RUN_TS: LAST_RUN_TS.set(time.time())
     except Exception:
         status = "error"

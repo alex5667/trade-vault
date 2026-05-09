@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 test_edge_cost_gate_slippage_ts_integration.py
 
@@ -10,7 +11,6 @@ Key invariants:
   3. EMA key includes symbol×venue×session×tf×kind dimensions
 """
 
-import pytest
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
 
 
@@ -143,4 +143,4 @@ def test_seconds_ts_normalizes_and_uses_extended_tf_kind_key(monkeypatch):
     # EMA=20 > base=1.0 → slippage must be 20 (or at least > base)
     assert d.slippage_bps >= 10.0, f"Expected EMA slippage ~20, got {d.slippage_bps}"
     # Redis must have been called with the expected slipema key
-    assert len(r.slipema_calls) > 0, f"Expected Redis call with slipema key, got no calls"
+    assert len(r.slipema_calls) > 0, "Expected Redis call with slipema key, got no calls"

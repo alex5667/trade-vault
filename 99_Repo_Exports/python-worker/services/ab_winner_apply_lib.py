@@ -1,10 +1,10 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
-import time
 from dataclasses import dataclass
 from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -158,10 +158,10 @@ async def apply_sid_if_ready(
     except Exception:
         return ApplyResult(False, True, "bad_meta_json", sid, "", "", "", "")
 
-    sym = norm_sym(str(meta.get("symbol") or ""))
-    rg = norm_rg(str(meta.get("regime") or "na"))
-    grp = norm_grp(str(meta.get("group") or "default"))
-    winner = norm_arm(str(meta.get("winner_arm") or ""))
+    sym = norm_sym((meta.get("symbol") or ""))
+    rg = norm_rg((meta.get("regime") or "na"))
+    grp = norm_grp((meta.get("group") or "default"))
+    winner = norm_arm((meta.get("winner_arm") or ""))
     if not sym or not winner:
         return ApplyResult(False, True, "meta_missing_fields", sid, sym, rg, grp, winner)
 

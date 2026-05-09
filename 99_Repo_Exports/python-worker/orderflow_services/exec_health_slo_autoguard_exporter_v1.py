@@ -1,13 +1,13 @@
+from __future__ import annotations
+
 #!/usr/bin/env python3
 # exec_health_slo_autoguard_exporter_v1.py
 # P5 AutoGuard Prometheus exporter.
 # Reads metrics:exec_health:slo:autoguard:state (written by exec_health_slo_autoguard_v1.py)
 # and exposes Prometheus metrics on EXEC_HEALTH_SLO_AUTOGUARD_EXPORTER_PORT (default 9825).
-from __future__ import annotations
-
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -24,7 +24,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 # Exporter liveness — 1 if last Redis read succeeded, 0 on error
@@ -74,7 +74,7 @@ def main() -> None:
     start_http_server(port)
     while True:
         try:
-            d: Dict[str, Any] = r.hgetall(key) or {}
+            d: dict[str, Any] = r.hgetall(key) or {}
             now_s = _now_s()
             UP.set(1.0)
             updated_ms = _i(d.get("updated_ts_ms"), 0)

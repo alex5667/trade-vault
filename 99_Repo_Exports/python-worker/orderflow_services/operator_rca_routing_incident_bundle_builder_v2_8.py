@@ -1,12 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover - optional dependency in unit tests
     import redis.asyncio as redis
@@ -88,15 +90,15 @@ LOOKBACK = int(os.getenv("ML_OPERATOR_RCA_ROUTING_INCIDENT_BUNDLE_LOOKBACK", "20
 PORT = int(os.getenv("ML_OPERATOR_RCA_ROUTING_INCIDENT_BUNDLE_PORT", "9883"))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -137,8 +139,8 @@ def safe_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -170,7 +172,7 @@ def hash_bundle(obj: Any) -> str:
     return hashlib.sha256(stable_json(obj).encode("utf-8")).hexdigest()[:16]
 
 
-def route_change_id_from_row(row: Dict[str, Any]) -> Optional[str]:
+def route_change_id_from_row(row: dict[str, Any]) -> str | None:
     for key in (
         "route_change_id",
         "routing_change_id",
@@ -185,7 +187,7 @@ def route_change_id_from_row(row: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def summarize_route_diff(baseline: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
+def summarize_route_diff(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
     interesting_keys = (
         "provider",
         "model_name",
@@ -194,7 +196,7 @@ def summarize_route_diff(baseline: Dict[str, Any], current: Dict[str, Any]) -> D
         "advisory_only",
         "routing_mode",
     )
-    diff: Dict[str, Dict[str, Any]] = {}
+    diff: dict[str, dict[str, Any]] = {}
     for key in interesting_keys:
         if baseline.get(key) != current.get(key):
             diff[key] = {"before": baseline.get(key), "after": current.get(key)}
@@ -226,8 +228,8 @@ def severity_from_reason_codes(reason_codes: Iterable[str]) -> str:
     return "info"
 
 
-def primary_reason_codes(sections: Dict[str, List[Dict[str, Any]]]) -> List[str]:
-    out: List[str] = []
+def primary_reason_codes(sections: dict[str, list[dict[str, Any]]]) -> list[str]:
+    out: list[str] = []
     seen = set()
     for rows in sections.values():
         for row in rows:
@@ -248,8 +250,8 @@ def primary_reason_codes(sections: Dict[str, List[Dict[str, Any]]]) -> List[str]
     return out[:12]
 
 
-def build_timeline(sections: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    timeline: List[Dict[str, Any]] = []
+def build_timeline(sections: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    timeline: list[dict[str, Any]] = []
     for section_name, rows in sections.items():
         for row in rows:
             ts = safe_int(
@@ -268,11 +270,11 @@ def build_timeline(sections: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, 
                     "source": row.get("source") or row.get("provider") or section_name,
                 }
             )
-    timeline.sort(key=lambda x: (safe_int(x.get("ts_ms"), 0), str(x.get("section", ""))))
+    timeline.sort(key=lambda x: (safe_int(x.get("ts_ms"), 0), (x.get("section", ""))))
     return timeline
 
 
-def compact_row(row: Dict[str, Any]) -> Dict[str, Any]:
+def compact_row(row: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "route_change_id",
         "recommendation_id",
@@ -299,12 +301,12 @@ def compact_row(row: Dict[str, Any]) -> Dict[str, Any]:
     return {k: row.get(k) for k in keys if k in row and row.get(k) not in (None, "", [])}
 
 
-async def xr_recent(client: Any, stream_key: str, limit: int) -> List[Dict[str, Any]]:
+async def xr_recent(client: Any, stream_key: str, limit: int) -> list[dict[str, Any]]:
     try:
         rows = await client.xrevrange(stream_key, count=limit)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -312,7 +314,7 @@ async def xr_recent(client: Any, stream_key: str, limit: int) -> List[Dict[str, 
     return out
 
 
-def filter_rows_by_route_change_id(rows: List[Dict[str, Any]], route_change_id: str) -> List[Dict[str, Any]]:
+def filter_rows_by_route_change_id(rows: list[dict[str, Any]], route_change_id: str) -> list[dict[str, Any]]:
     out = []
     for row in rows:
         if route_change_id_from_row(row) == route_change_id:
@@ -320,7 +322,7 @@ def filter_rows_by_route_change_id(rows: List[Dict[str, Any]], route_change_id: 
     return out
 
 
-async def fetch_sections(client: Any, route_change_id: str) -> Dict[str, List[Dict[str, Any]]]:
+async def fetch_sections(client: Any, route_change_id: str) -> dict[str, list[dict[str, Any]]]:
     source_map = {
         "apply_results": APPLY_RESULTS_STREAM,
         "verify_results": VERIFY_RESULTS_STREAM,
@@ -332,7 +334,7 @@ async def fetch_sections(client: Any, route_change_id: str) -> Dict[str, List[Di
         "slo_rollups": SLO_STREAM,
         "audit": AUDIT_STREAM,
     }
-    sections: Dict[str, List[Dict[str, Any]]] = {}
+    sections: dict[str, list[dict[str, Any]]] = {}
     for name, stream_key in source_map.items():
         rows = await xr_recent(client, stream_key, LOOKBACK)
         filtered = [
@@ -343,7 +345,7 @@ async def fetch_sections(client: Any, route_change_id: str) -> Dict[str, List[Di
     return sections
 
 
-def latest_snapshot_from_section(rows: List[Dict[str, Any]], field: str) -> Dict[str, Any]:
+def latest_snapshot_from_section(rows: list[dict[str, Any]], field: str) -> dict[str, Any]:
     for row in rows:
         value = row.get(field)
         parsed = maybe_json(value, {})
@@ -352,7 +354,7 @@ def latest_snapshot_from_section(rows: List[Dict[str, Any]], field: str) -> Dict
     return {}
 
 
-def build_bundle(route_change_id: str, request_row: Dict[str, Any], sections: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
+def build_bundle(route_change_id: str, request_row: dict[str, Any], sections: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     baseline = latest_snapshot_from_section(sections.get("apply_results", []), "baseline_route_json")
     current = latest_snapshot_from_section(sections.get("verify_results", []), "current_route_json")
     if not current:
@@ -394,17 +396,16 @@ def build_bundle(route_change_id: str, request_row: Dict[str, Any], sections: Di
 @dataclass
 class BundlePersistResult:
     persisted: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
-async def persist_bundle_if_configured(db_url: str, bundle: Dict[str, Any]) -> BundlePersistResult:
+async def persist_bundle_if_configured(db_url: str, bundle: dict[str, Any]) -> BundlePersistResult:
     if not db_url or psycopg is None:
         return BundlePersistResult(False)
     try:
-        with psycopg.connect(db_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
+        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
 
                     INSERT INTO llm_operator_rca_routing_incident_bundles (
                         bundle_id,
@@ -433,24 +434,24 @@ async def persist_bundle_if_configured(db_url: str, bundle: Dict[str, Any]) -> B
                         summary_json = EXCLUDED.summary_json,
                         bundle_json = EXCLUDED.bundle_json,
                     """,
-                    {
-                        "bundle_id": bundle["bundle_hash"],
-                        "route_change_id": bundle["route_change_id"],
-                        "built_ts_ms": bundle["built_ts_ms"],
-                        "severity": bundle["severity"],
-                        "bundle_hash": bundle["bundle_hash"],
-                        "primary_reason_codes_json": json.dumps(bundle["primary_reason_codes"]),
-                        "summary_json": json.dumps(bundle["summary"]),
-                        "bundle_json": json.dumps(bundle),
-                    }
-                )
-                conn.commit()
+                {
+                    "bundle_id": bundle["bundle_hash"],
+                    "route_change_id": bundle["route_change_id"],
+                    "built_ts_ms": bundle["built_ts_ms"],
+                    "severity": bundle["severity"],
+                    "bundle_hash": bundle["bundle_hash"],
+                    "primary_reason_codes_json": json.dumps(bundle["primary_reason_codes"]),
+                    "summary_json": json.dumps(bundle["summary"]),
+                    "bundle_json": json.dumps(bundle),
+                }
+            )
+            conn.commit()
         return BundlePersistResult(True)
     except Exception as exc:  # pragma: no cover
         return BundlePersistResult(False, str(exc))
 
 
-async def process_one(client: Any, request_fields: Dict[str, Any], db_url: str) -> Dict[str, Any]:
+async def process_one(client: Any, request_fields: dict[str, Any], db_url: str) -> dict[str, Any]:
     route_change_id = route_change_id_from_row(request_fields)
     if not route_change_id:
         raise ValueError("missing route_change_id")

@@ -7,12 +7,12 @@ Runs periodically.
 
 import os
 import time
-import json
 import traceback
+
 import psycopg2
-from psycopg2.extras import DictCursor
 import redis
-from prometheus_client import start_http_server, Counter, Gauge
+from prometheus_client import Counter, Gauge, start_http_server
+from psycopg2.extras import DictCursor
 
 from common.log import setup_logger
 
@@ -48,13 +48,13 @@ def build_redis_key(prefix: str, row: dict) -> str:
 
 def sync_budgets_and_kill_switches():
     r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-    
+
     with psycopg2.connect(PG_DSN) as conn:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             # 1) Kill-switches
             cur.execute("SELECT * FROM atr_policy_kill_switches WHERE is_current = true")
             ks_rows = cur.fetchall()
-            
+
             pipeline = r.pipeline()
             # We don't wipe all kill switches, just update the valid ones to avoid resetting manually set ones.
             # However ideally we prefix wipe. We'll just set them.
@@ -63,11 +63,11 @@ def sync_budgets_and_kill_switches():
                 if key:
                     val = "1" if row["state"] == "active" else "0"
                     pipeline.set(key, val)
-                    
+
             # 2) Budgets
             cur.execute("SELECT * FROM atr_policy_execution_budgets WHERE is_enabled = true")
             bg_rows = cur.fetchall()
-            
+
             for row in bg_rows:
                 base_key = build_redis_key("cfg:atr_budget", row)
                 if base_key:
@@ -78,9 +78,9 @@ def sync_budgets_and_kill_switches():
                     pipeline.set(base_key.replace("cfg:atr_budget:", "cfg:atr_budget:max_daily_loss_bps:"), str(row["max_daily_loss_bps"]))
                     pipeline.set(base_key.replace("cfg:atr_budget:", "cfg:atr_budget:max_slippage_ema_bps:"), str(row["max_slippage_ema_bps"]))
                     pipeline.set(base_key.replace("cfg:atr_budget:", "cfg:atr_budget:max_stop_streak:"), str(row["max_stop_streak"]))
-            
+
             pipeline.execute()
-            
+
             ACTIVE_BUDGETS.set(len(bg_rows))
             logger.info("Synced %d kill switches and %d budgets to Redis", len(ks_rows), len(bg_rows))
             SYNC_COUNT.inc()

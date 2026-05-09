@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
-import math
+from typing import Any
 
 
 @dataclass
@@ -42,10 +41,10 @@ class ReclaimDetector:
     def __init__(self, hold_bars: int = 2, valid_ms: int = 120_000) -> None:
         self.hold_bars = int(hold_bars)
         self.valid_ms = int(valid_ms)
-        self._pending: Optional[_Pending] = None
-        self._last: Optional[ReclaimEvent] = None
+        self._pending: _Pending | None = None
+        self._last: ReclaimEvent | None = None
 
-    def apply_config(self, cfg: Dict[str, Any]) -> None:
+    def apply_config(self, cfg: dict[str, Any]) -> None:
         try:
             self.hold_bars = int(cfg.get("reclaim_hold_bars", self.hold_bars))
             if self.hold_bars < 1:
@@ -65,17 +64,17 @@ class ReclaimDetector:
           pool_id, pool_kind(EQH/EQL), level, tol_px, ts_ms, direction_bias
         """
         try:
-            ts = int(getattr(sweep_event, "ts_ms"))
-            pid = str(getattr(sweep_event, "pool_id"))
+            ts = int(sweep_event.ts_ms)
+            pid = str(sweep_event.pool_id)
             # handle both naming conventions if present, bias towards obj attribute
             if hasattr(sweep_event, "pool_kind"):
-                kind = str(getattr(sweep_event, "pool_kind"))
+                kind = str(sweep_event.pool_kind)
             else:
-                kind = str(getattr(sweep_event, "kind")) # fallback
-            
-            lvl = float(getattr(sweep_event, "level"))
-            tol = float(getattr(sweep_event, "tol_px"))
-            db = str(getattr(sweep_event, "direction_bias")).upper()
+                kind = str(sweep_event.kind) # fallback
+
+            lvl = float(sweep_event.level)
+            tol = float(sweep_event.tol_px)
+            db = str(sweep_event.direction_bias).upper()
         except Exception:
             return
 
@@ -90,7 +89,7 @@ class ReclaimDetector:
             expire_ts_ms=ts + self.valid_ms,
         )
 
-    def on_bar_close(self, bar: Any) -> Optional[ReclaimEvent]:
+    def on_bar_close(self, bar: Any) -> ReclaimEvent | None:
         if self._pending is None:
             return None
 
@@ -114,7 +113,7 @@ class ReclaimDetector:
             # after EQL sweep, inside is ABOVE level
             inside = (c > lvl)
             re_raid = (l < (lvl - tol))
-        
+
         if re_raid:
             # fail fast: new raid cancels reclaim
             self._pending = None
@@ -142,5 +141,5 @@ class ReclaimDetector:
 
         return None
 
-    def last(self) -> Optional[ReclaimEvent]:
+    def last(self) -> ReclaimEvent | None:
         return self._last

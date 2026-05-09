@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 @dataclass
 class XAddEntry:
     stream: str
-    fields: Dict[str, str]
-    maxlen: Optional[int] = None
+    fields: dict[str, str]
+    maxlen: int | None = None
     approximate: bool = True
 
 
@@ -26,9 +26,9 @@ class FakeRedis:
     """
 
     def __init__(self) -> None:
-        self.kv: Dict[str, str] = {}
-        self.streams: Dict[str, List[Tuple[str, Dict[str, str]]]] = {}
-        self.xadd_log: List[XAddEntry] = []
+        self.kv: dict[str, str] = {}
+        self.streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
+        self.xadd_log: list[XAddEntry] = []
         self._seq: int = 0
 
     def _next_id(self) -> str:
@@ -36,16 +36,16 @@ class FakeRedis:
         self._seq += 1
         return f"0-{self._seq}"
 
-    async def get(self, key: str) -> Optional[str]:
+    async def get(self, key: str) -> str | None:
         return self.kv.get(key)
 
-    async def hgetall(self, key: str) -> Dict[str, str]:
+    async def hgetall(self, key: str) -> dict[str, str]:
         return {}
 
-    async def hset(self, name: str, key: Optional[str] = None, value: Optional[str] = None, mapping: Optional[Dict[str, Any]] = None) -> None:
+    async def hset(self, name: str, key: str | None = None, value: str | None = None, mapping: dict[str, Any] | None = None) -> None:
         pass
 
-    async def set(self, key: str, value: Any, ex: Optional[int] = None) -> bool:  # noqa: ARG002
+    async def set(self, key: str, value: Any, ex: int | None = None) -> bool:  # noqa: ARG002
         self.kv[str(key)] = str(value)
         return True
 
@@ -58,8 +58,8 @@ class FakeRedis:
     async def xadd(
         self,
         stream: str,
-        fields: Dict[str, Any],
-        maxlen: Optional[int] = None,
+        fields: dict[str, Any],
+        maxlen: int | None = None,
         approximate: bool = True,
     ) -> str:
         sid = self._next_id()
@@ -84,8 +84,8 @@ class FakePublisher:
     """Minimal stub for publisher objects used by tick_processor."""
 
     def __init__(self) -> None:
-        self.published: List[Tuple[str, Dict[str, Any]]] = []
+        self.published: list[tuple[str, dict[str, Any]]] = []
 
-    async def publish(self, topic: str, payload: Dict[str, Any]) -> None:
+    async def publish(self, topic: str, payload: dict[str, Any]) -> None:
         self.published.append((str(topic), dict(payload)))
 

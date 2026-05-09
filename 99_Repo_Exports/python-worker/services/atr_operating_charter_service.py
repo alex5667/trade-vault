@@ -4,16 +4,16 @@ ATR Operating Charter Service (Phase 10)
 Serves as the "System Constitution" governing runtime, execution, protective, and release logic.
 """
 
-import os
 import json
+import os
 import uuid
-import logging
-from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from datetime import datetime
+from typing import Any
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
 import redis
+from psycopg2.extras import RealDictCursor
+
 try:
     from core.redis_client import get_atr_redis
 except Exception:
@@ -122,7 +122,7 @@ class ATROperatingCharterService:
     def generate_id(self, prefix: str) -> str:
         return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
-    def load_active_charter(self, conn) -> Optional[Dict[str, Any]]:
+    def load_active_charter(self, conn) -> dict[str, Any] | None:
         """Load the currently active charter from DB."""
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
@@ -135,7 +135,7 @@ class ATROperatingCharterService:
                 PROM_CHARTER_VERSIONS.labels(status="active").set(1)
             return charter
 
-    def propose_charter_amendment(self, conn, charter_id: str, amendment_class: str, proposer: str, amendment_json: Dict[str, Any]) -> str:
+    def propose_charter_amendment(self, conn, charter_id: str, amendment_class: str, proposer: str, amendment_json: dict[str, Any]) -> str:
         """Propose a change to the charter."""
         amendment_id = self.generate_id("amend")
         with conn.cursor() as cur:
@@ -158,14 +158,14 @@ class ATROperatingCharterService:
                 SET status = 'superseded', superseded_at = NOW() 
                 WHERE status = 'active'
             """)
-            
+
             # 2. Activate new one
             cur.execute("""
                 UPDATE atr_operating_charters 
                 SET status = 'active', activated_at = NOW(), approved_by = %s 
                 WHERE charter_id = %s
             """, (approved_by, charter_id))
-            
+
             conn.commit()
         logger.info(f"Charter {charter_id} activated successfully (superseded previous active)")
 
@@ -182,7 +182,7 @@ class ATROperatingCharterService:
                 """, (charter_id, json.dumps(CHARTER_V1), created_by))
                 conn.commit()
                 logger.info(f"Default Charter V1 initialized: {charter_id}")
-            
+
             # --- Phase 10.1: Ensure Machine-Readable Policies are seeded ---
             cur.execute("SELECT count(*) FROM atr_charter_policy_registry")
             if cur.fetchone()[0] == 0:
@@ -258,7 +258,7 @@ class ATROperatingCharterService:
                         enforcement_mode, scope_kind, policy_json, owner, status, activated_at
                     ) VALUES (%s, '1.0.0', %s, %s, %s, %s, %s, %s, %s, 'active', NOW())
                     ON CONFLICT (policy_id) DO NOTHING
-                """, (policy_id, r["rule_id"], r["category"], r["severity"], 
+                """, (policy_id, r["rule_id"], r["category"], r["severity"],
                       r["enforcement_mode"], r["scope_kind"], json.dumps(r["policy_json"]), r["owner"]))
 
                 mapping_id = self.generate_id("map")
@@ -268,28 +268,28 @@ class ATROperatingCharterService:
                         mapping_id, rule_id, source_type, source_ref, evaluator_type, evaluator_json
                     ) VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (mapping_id) DO NOTHING
-                """, (mapping_id, r["rule_id"], m["source_type"], m["source_ref"], 
+                """, (mapping_id, r["rule_id"], m["source_type"], m["source_ref"],
                       m["evaluator_type"], json.dumps(m["evaluator_json"])))
             conn.commit()
 
-    def run_charter_compliance_checks(self, conn) -> Dict[str, Any]:
+    def run_charter_compliance_checks(self, conn) -> dict[str, Any]:
         """
         Run automated audits using the compliance engine.
         Default context for scheduled audits is 'weekly_review'.
         """
         context_kind = "weekly_review"
         context_ref = f"audit_{datetime.now().strftime('%Y_%m_%d')}"
-        
+
         bundle = self.compliance_engine.evaluate_context(context_kind, context_ref)
-        
-        # Backward compatibility for results list if needed, 
+
+        # Backward compatibility for results list if needed,
         # but the engine handles its own persistence and metrics now.
         return bundle
 
-    def _check_release_quarantine(self, conn, version: str) -> Dict[str, Any]:
+    def _check_release_quarantine(self, conn, version: str) -> dict[str, Any]:
         status = "passed"
         details = {"message": "No quarantine-violating releases detected."}
-        
+
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Check for releases on symbols currently under quarantine
@@ -324,18 +324,18 @@ class ATROperatingCharterService:
 
         return {"domain": "release", "status": status, "details": details}
 
-    def _check_execution_dispatch(self, conn, version: str) -> Dict[str, Any]:
+    def _check_execution_dispatch(self, conn, version: str) -> dict[str, Any]:
         # Implementation skeleton: Check if orders appeared in MT5 queue without a corresponding canonical signal.
         status = "passed"
         details = {"message": "All execution dispatch followed canonical path."}
         # In a real system, we'd check logs or a dispatch_audit table
         return {"domain": "execution", "status": status, "details": details}
 
-    def _check_protective_invariants(self, conn, version: str) -> Dict[str, Any]:
+    def _check_protective_invariants(self, conn, version: str) -> dict[str, Any]:
         # Implementation: Check trades_closed for ratchet-only SL violations.
         status = "passed"
         details = {"message": "Protective invariants (SL ratchet) held."}
-        
+
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Check if exit_price is worse than baseline_sl_price for SL-related exits
@@ -367,11 +367,11 @@ class ATROperatingCharterService:
 
         return {"domain": "protective", "status": status, "details": details}
 
-    def _check_control_plane_integrity(self, conn, version: str) -> Dict[str, Any]:
+    def _check_control_plane_integrity(self, conn, version: str) -> dict[str, Any]:
         # Implementation: Check for drift between graph state and legacy config tables.
         status = "passed"
         details = {"message": "Control-plane integrity verified."}
-        
+
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Check for critical drifts in control plane
@@ -400,9 +400,9 @@ class ATROperatingCharterService:
         return {"domain": "control_plane", "status": status, "details": details}
 
 def main():
-    enable = str(os.getenv("ATR_OPERATING_CHART_ENABLE", "1")).lower() in ("1", "true", "yes")
+    enable = os.getenv("ATR_OPERATING_CHART_ENABLE", "1").lower() in ("1", "true", "yes")
     # Enforce means failing critical paths if charter compliance fails (not fully implemented here, as it requires upstream hooks)
-    enforce = str(os.getenv("ATR_OPERATING_CHART_ENFORCE", "0")).lower() in ("1", "true", "yes")
+    enforce = os.getenv("ATR_OPERATING_CHART_ENFORCE", "0").lower() in ("1", "true", "yes")
     check_interval = int(os.getenv("ATR_OPERATING_CHART_AUDIT_INTERVAL_SEC", "3600"))
     prom_port = int(os.getenv("ATR_OPERATING_CHART_PROM_PORT", "9845"))
 
@@ -420,17 +420,17 @@ def main():
                 service.initialize_default_charter(conn)
                 logger.info("Running scheduled charter compliance audit...")
                 bundle = service.run_charter_compliance_checks(conn)
-                
+
                 # Summary for logs
                 failed = bundle["summary_json"]["failed_ids"]
                 if failed:
                     logger.warning(f"Charter compliance FAILED for rules: {failed}")
                 else:
                     logger.info("Charter compliance PASSED for all checked rules.")
-                    
+
         except Exception as e:
             logger.error(f"Error in Charter Service cycle: {e}")
-            
+
         time.sleep(check_interval)
 
 if __name__ == "__main__":

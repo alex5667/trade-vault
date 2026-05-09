@@ -1,5 +1,6 @@
 import os
 import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.fake_redis import FakeRedis
@@ -10,7 +11,7 @@ def test_reliability_curve_writes_global_and_smt_context_keys():
     os.environ["RELIABILITY_BUCKET_STEP"] = "5"
     os.environ["RELIABILITY_SMT_COH_THR"] = "0.65"
 
-    from services.reliability_curves import update_reliability_curve, make_reliability_key, make_reliability_key_v3
+    from services.reliability_curves import make_reliability_key, make_reliability_key_v3, update_reliability_curve
 
     r = FakeRedis()
 

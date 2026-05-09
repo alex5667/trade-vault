@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import os
-
-from domain.handlers import _should_start_trailing_after_tp1, _rocket_trailing_only_mode
+from domain.handlers import _rocket_trailing_only_mode, _should_start_trailing_after_tp1
 
 
 class P:

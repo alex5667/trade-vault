@@ -5,7 +5,6 @@ import unittest
 from unittest import mock
 
 from services.orderflow.exec_health_rollups import (
-    ExecHealthThresholds,
     aread_exec_health_rollups,
     build_rollup_keys,
     decide_exec_health_from_env,

@@ -1,8 +1,9 @@
 import json
-import time
+
 import fakeredis
 
 from utils.atr_cache import ATRCache
+
 
 def _mk_cache(fr):
     c = ATRCache()
@@ -25,7 +26,7 @@ def test_selects_fresh_tf_match_over_stale():
     fr.set(f"ta:last:atr:{sym}", json.dumps({"atr": 80.0, "tf": "H1", "ts": now - 5_000}))
 
     atr, meta = c.get_with_meta(sym, tf, now_ms=now)
-    assert abs(float(atr) - 41.0) < 1e-9
+    assert abs(atr - 41.0) < 1e-9
     assert meta["src"] == "atr_json"
     assert meta["tf"] == "M1"
     assert meta["age_ms"] == 10_000

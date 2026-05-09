@@ -19,8 +19,8 @@ def test_hardest_skips_when_smt_context_absent_ctx_key_na():
     os.environ["RELIABILITY_ADJ_ALPHA"] = "0.5"
     os.environ["RELIABILITY_ADJ_MIN_BUCKET_SAMPLES"] = "50"
 
-    from services.reliability_curves import make_reliability_key_v4
     from services.reliability_adjuster import maybe_adjust_confidence
+    from services.reliability_curves import make_reliability_key_v4
 
     r = FakeRedis()
     strategy, symbol, tf = "CryptoOrderFlow", "BTCUSDT", "1m"
@@ -58,8 +58,8 @@ def test_hardest_applies_only_with_large_samples_and_strong_signal():
     os.environ["RELIABILITY_ADJ_PRIOR_N"] = "150"
     os.environ["RELIABILITY_ADJ_MAX_ABS"] = "0.10"
 
-    from services.reliability_curves import make_reliability_key_v4
     from services.reliability_adjuster import maybe_adjust_confidence
+    from services.reliability_curves import make_reliability_key_v4
 
     r = FakeRedis()
     strategy, symbol, tf = "CryptoOrderFlow", "BTCUSDT", "1m"

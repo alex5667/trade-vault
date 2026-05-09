@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
 import math
 import os
+from dataclasses import dataclass, field
+from typing import Any
 
 from common.qf_codes import QF
 
@@ -12,10 +12,10 @@ def _f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
 def _clamp01(x: float) -> float:
@@ -114,7 +114,7 @@ class MicroQualityValidator:
         parts["cancel_to_trade"] = float(cancel_to_trade)
         parts["microprice_shift_bps_20"] = float(microshift)
 
-        k = str(kind or "")
+        k = (kind or "")
 
         if k == "breakout":
             if cancel_to_trade >= self._bo_cancel_veto and taker <= self._bo_taker_veto_min:

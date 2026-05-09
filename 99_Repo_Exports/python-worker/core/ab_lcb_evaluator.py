@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 AB Winner Evaluator (LCB, per-regime)
 ====================================
@@ -24,7 +25,6 @@ Design rules
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -64,9 +64,9 @@ class WinnerDecision:
     winner: str
     ok: bool
     reason: str
-    lcb_r: Dict[str, float]
-    lcb_wr: Dict[str, float]
-    n: Dict[str, int]
+    lcb_r: dict[str, float]
+    lcb_wr: dict[str, float]
+    n: dict[str, int]
     baseline_a_lcb_r: float
     delta_lcb_vs_a: float
 
@@ -92,13 +92,13 @@ def _z_for_conf(conf: float) -> float:
     return 1.282
 
 
-def _safe_mean(xs: List[float]) -> float:
+def _safe_mean(xs: list[float]) -> float:
     if not xs:
         return 0.0
     return float(sum(xs) / float(len(xs)))
 
 
-def _safe_stdev(xs: List[float]) -> float:
+def _safe_stdev(xs: list[float]) -> float:
     n = len(xs)
     if n < 2:
         return 0.0
@@ -107,7 +107,7 @@ def _safe_stdev(xs: List[float]) -> float:
     return float(math.sqrt(max(0.0, v / (n - 1))))
 
 
-def lcb_mean(xs: List[float], *, conf: Optional[float] = None, z: Optional[float] = None) -> Tuple[float, float, float, float]:
+def lcb_mean(xs: list[float], *, conf: float | None = None, z: float | None = None) -> tuple[float, float, float, float]:
     """
     Returns (mean, stdev, stderr, lcb) for list xs.
     """
@@ -124,13 +124,13 @@ def lcb_mean(xs: List[float], *, conf: Optional[float] = None, z: Optional[float
 
 def eval_winner_lcb(
     *,
-    samples_by_arm: Dict[str, List[float]],
+    samples_by_arm: dict[str, list[float]],
     regime: str,
     group: str = "default",
     scenario: str = "default",
-    thr_by_regime: Dict[str, RegimeThresholds],
+    thr_by_regime: dict[str, RegimeThresholds],
     default_z: float = 1.96,
-    allow_abc: Tuple[str, ...] = ("A", "B", "C"),
+    allow_abc: tuple[str, ...] = ("A", "B", "C"),
 ) -> WinnerDecision:
     """
     v2 API for selecting the winner arm.
@@ -143,14 +143,14 @@ def eval_winner_lcb(
     lcb_r = {}
     lcb_wr = {}
     n_map = {}
-    
+
     for arm in allow_abc:
         xs = samples_by_arm.get(arm, []) or []
         n = len(xs)
         n_map[arm] = n
         mu, sd, se, lcb = lcb_mean(xs, z=thr.z)
         lcb_r[arm] = lcb
-        
+
         # Win rate LCB (simplified Bernoulli LCB)
         wins = [1.0 if x > 0 else 0.0 for x in xs]
         wr_mu, wr_sd, wr_se, wr_lcb = lcb_mean(wins, z=thr.z)
@@ -159,7 +159,7 @@ def eval_winner_lcb(
     base_lcb_r = lcb_r.get("A", -1e9)
     best_arm = "A"
     best_lcb_r = base_lcb_r
-    
+
     eligible_arms = []
     for arm in allow_abc:
         if n_map[arm] >= thr.min_n:
@@ -168,8 +168,8 @@ def eval_winner_lcb(
 
     reason = "eligible: " + ",".join(eligible_arms)
     if not eligible_arms:
-        return WinnerDecision(winner="A", ok=False, reason="no_eligible_arms", 
-                             lcb_r=lcb_r, lcb_wr=lcb_wr, n=n_map, 
+        return WinnerDecision(winner="A", ok=False, reason="no_eligible_arms",
+                             lcb_r=lcb_r, lcb_wr=lcb_wr, n=n_map,
                              baseline_a_lcb_r=base_lcb_r, delta_lcb_vs_a=0.0)
 
     # Choose best among eligible
@@ -180,17 +180,17 @@ def eval_winner_lcb(
 
     delta = best_lcb_r - base_lcb_r
     if best_arm != "A" and delta < thr.min_delta_lcb_vs_a:
-        return WinnerDecision(winner="A", ok=False, reason=f"delta_below_thr: {delta:.4f} < {thr.min_delta_lcb_vs_a}", 
-                             lcb_r=lcb_r, lcb_wr=lcb_wr, n=n_map, 
+        return WinnerDecision(winner="A", ok=False, reason=f"delta_below_thr: {delta:.4f} < {thr.min_delta_lcb_vs_a}",
+                             lcb_r=lcb_r, lcb_wr=lcb_wr, n=n_map,
                              baseline_a_lcb_r=base_lcb_r, delta_lcb_vs_a=delta)
 
-    return WinnerDecision(winner=best_arm, ok=True, reason="winner_selected", 
-                         lcb_r=lcb_r, lcb_wr=lcb_wr, n=n_map, 
+    return WinnerDecision(winner=best_arm, ok=True, reason="winner_selected",
+                         lcb_r=lcb_r, lcb_wr=lcb_wr, n=n_map,
                          baseline_a_lcb_r=base_lcb_r, delta_lcb_vs_a=delta)
 
 
 def default_regime_policy(regime: str) -> RegimePolicy:
-    from contexts import normalize_regime_label, MARKET_REGIME_NA
+    from contexts import normalize_regime_label
     rg = normalize_regime_label(regime)
     if rg in ("trend", "trending_bull", "trending_bear"):
         return RegimePolicy(conf=0.90, min_n=60, min_edge_lcb=0.07)
@@ -203,18 +203,18 @@ def default_regime_policy(regime: str) -> RegimePolicy:
 
 def choose_winner_lcb(
     *,
-    samples_by_arm: Dict[str, List[float]],
+    samples_by_arm: dict[str, list[float]],
     regime: str,
-    policy: Optional[RegimePolicy] = None,
+    policy: RegimePolicy | None = None,
     baseline_arm: str = "A",
-    allow_abc: Tuple[str, ...] = ("A", "B", "C"),
-) -> Tuple[str, Dict[str, ArmScore], str]:
+    allow_abc: tuple[str, ...] = ("A", "B", "C"),
+) -> tuple[str, dict[str, ArmScore], str]:
     pol = policy or default_regime_policy(regime)
     conf = float(pol.conf)
     min_n = int(pol.min_n)
     min_edge = float(pol.min_edge_lcb)
 
-    scores: Dict[str, ArmScore] = {}
+    scores: dict[str, ArmScore] = {}
     for arm in allow_abc:
         xs = samples_by_arm.get(arm, []) or []
         mu, sd, se, lcb = lcb_mean(xs, conf=conf)

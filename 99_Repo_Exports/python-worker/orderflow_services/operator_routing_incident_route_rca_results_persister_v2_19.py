@@ -1,12 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import hashlib
-import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -40,7 +40,7 @@ LAT = _hist("ml_operator_routing_incident_route_rca_results_latency_seconds", "L
 LAST_RUN = _gauge("ml_operator_routing_incident_route_rca_results_last_run_ts_seconds", "Last timestamp")
 
 def now_ms() -> int: return get_ny_time_millis()
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 async def ensure_group(r: Any, stream: str, group: str) -> None:
@@ -64,16 +64,16 @@ async def run_loop(r: Any) -> None:
                     inc_id = row.get("incident_id", "unknown")
                     analysis = row.get("analysis", "")
                     output_hash = hashlib.sha256(analysis.encode()).hexdigest()
-                    
+
                     row["output_hash"] = output_hash
-                    
+
                     # Log event forwarding
                     await r.xadd(OUT_STREAM, row, maxlen=MAXLEN, approximate=True)
                     await r.xack(IN_STREAM, GROUP, msg_id)
                 except Exception:
                     status = "error"
                     await r.xack(IN_STREAM, GROUP, msg_id)
-                    
+
         if LAST_RUN: LAST_RUN.set(time.time())
     except Exception:
         status = "error"

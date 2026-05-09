@@ -17,7 +17,6 @@ from types import SimpleNamespace
 
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -55,9 +54,9 @@ def _mk_ctx(*, entry=100.0, tp1=100.6, sl=99.7, p=0.60, n=100):
     EV(p=0.60) = 0.60*60 - 0.40*30 = 36 - 12 = 24 bps.
     """
     ctx = SimpleNamespace()
-    ctx.entry_price = float(entry)
-    ctx.tp1_price = float(tp1)
-    ctx.sl_price = float(sl)
+    ctx.entry_price = entry
+    ctx.tp1_price = tp1
+    ctx.sl_price = sl
     ctx.tp1_hit_prob = float(p)
     ctx.tp1_hit_n = int(n)
     ctx.tp1_hit_src = "ema"
@@ -183,7 +182,7 @@ def test_ev_p_min_default_boundary_at(monkeypatch):
     dec = gate.evaluate(ctx=ctx, kind="breakout", symbol="BTCUSDT")
 
     assert dec.reason_code != EdgeCostGate.REASON_EV_PROB, (
-        f"p=0.55 should meet p_min=0.55 but got REASON_EV_PROB"
+        "p=0.55 should meet p_min=0.55 but got REASON_EV_PROB"
     )
 
 

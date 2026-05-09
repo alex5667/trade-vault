@@ -2,10 +2,7 @@
 
 import json
 import sys
-from io import StringIO
 from pathlib import Path
-
-import pytest
 
 
 def _build_ndjson(tmp_path: Path, n: int = 300) -> Path:

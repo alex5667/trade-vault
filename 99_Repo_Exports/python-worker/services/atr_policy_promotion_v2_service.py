@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ATR Policy Promotion V2 Service — Phase 5.1
 
 Evaluates provenanced closed trades and decides (PROMOTE, HOLD, ROLLBACK).
@@ -11,7 +12,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -86,9 +87,9 @@ def _hard_min_n() -> int:
 def _rollback_min_n() -> int:
     return int(os.getenv("ATR_POLICY_ROLLBACK_MIN_N", "30"))
 
-def _score(row: Dict[str, Any]) -> float:
+def _score(row: dict[str, Any]) -> float:
     """Calculate the score for a specific layer cohort based on delta vs baseline."""
-    cert = str(row.get("restore_cert_status") or "")
+    cert = (row.get("restore_cert_status") or "")
     cert_bonus = 0.40 if cert == "passed" else (-0.50 if cert in {"failed", "stale"} else 0.0)
 
     n = float(row.get("n_trades") or 0)
@@ -116,7 +117,7 @@ def _determine_action(score: float, n_trades: int) -> tuple[str, str]:
 
 def _run_loop() -> None:
     r = _redis()
-    
+
     try:
         conn = psycopg2.connect(_dsn(), connect_timeout=5, application_name="atr_policy_promotion_v2_service")
     except Exception as e:
@@ -202,7 +203,7 @@ def _run_loop() -> None:
                 SELECT * FROM trail_pairs
             """)
             rows = cur.fetchall()
-            
+
         if not rows:
             logger.info("No paired data found for promotion v2 inputs.")
             return
@@ -216,10 +217,10 @@ def _run_loop() -> None:
             cert = row.get("restore_cert_status", "")
             n = int(row.get("n_trades", 0) or 0)
             layer = row.get("layer", "")
-            
+
             score = _score(row)
             action, reason_code = _determine_action(score, n)
-            
+
             # Expose metrics
             action_val = 1 if action == "PROMOTE" else (-1 if action == "ROLLBACK" else 0)
             g_score.labels(
@@ -249,17 +250,17 @@ def _run_loop() -> None:
                 cert_status=cert,
                 policy_ver=str(ver),
             ).set(action_val)
-            
+
             c_action_total.labels(action=action, layer=layer).inc()
-            
+
             if n < _hard_min_n():
                 c_low_sample_total.labels(layer=layer).inc()
-                
+
             if action == "ROLLBACK":
                 c_rollback_total.labels(layer=layer).inc()
             elif action == "PROMOTE":
                 c_promote_total.labels(layer=layer).inc()
-            
+
             # Write to Redis (Suggestion Payload v2)
             suggestion_key = f"cfg:suggestions:atr_policy_v2:{symbol}:{scenario}:{regime}:{bucket}:{layer}"
             payload = {

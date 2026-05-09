@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
 def normalize_side(v: Any) -> str:
@@ -38,7 +38,7 @@ def parse_bool01(v: Any, default: bool = False) -> bool:
     return default
 
 
-def parse_json_list(v: Any) -> List[Any]:
+def parse_json_list(v: Any) -> list[Any]:
     if v is None:
         return []
     try:
@@ -53,7 +53,7 @@ def parse_json_list(v: Any) -> List[Any]:
         return []
 
 
-def parse_json_dict(v: Any) -> Dict[str, Any]:
+def parse_json_dict(v: Any) -> dict[str, Any]:
     if v is None:
         return {}
     try:
@@ -68,7 +68,7 @@ def parse_json_dict(v: Any) -> Dict[str, Any]:
         return {}
 
 
-def extract_tp_levels(h: Dict[str, str]) -> List[float]:
+def extract_tp_levels(h: dict[str, str]) -> list[float]:
     """
     Extract tp_levels with backward compatibility:
       - prefer tp_levels JSON
@@ -79,7 +79,7 @@ def extract_tp_levels(h: Dict[str, str]) -> List[float]:
         tps = parse_json_list(h.get("tp_levels"))
     if not tps:
         tps = [h.get("tp1") or 0, h.get("tp2") or 0, h.get("tp3") or 0]
-    out: List[float] = []
+    out: list[float] = []
     for x in tps:
         try:
             fx = float(x)
@@ -90,20 +90,20 @@ def extract_tp_levels(h: Dict[str, str]) -> List[float]:
     return out[:3]
 
 
-def extract_profile(h: Dict[str, str]) -> str:
+def extract_profile(h: dict[str, str]) -> str:
     """
     Read both keys for compatibility.
     """
     return str(h.get("trail_profile") or h.get("trailing_profile") or "")
 
 
-def extract_tp_fills(h: Dict[str, str]) -> Tuple[Dict[int, float], Dict[int, int]]:
+def extract_tp_fills(h: dict[str, str]) -> tuple[dict[int, float], dict[int, int]]:
     """
     Reconstruct tp_fill_prices/tp_fill_times from persisted per-level scalars:
       tp1_fill_price, tp1_fill_ts, ...
     """
-    prices: Dict[int, float] = {}
-    times: Dict[int, int] = {}
+    prices: dict[int, float] = {}
+    times: dict[int, int] = {}
     for lvl in (1, 2, 3):
         p = h.get(f"tp{lvl}_fill_price")
         t = h.get(f"tp{lvl}_fill_ts")

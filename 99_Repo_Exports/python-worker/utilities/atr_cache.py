@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 ATR cache / reader for multiple legacy keys.
@@ -16,9 +17,10 @@ This module provides:
 """
 import json
 import os
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 import redis
+
 from core.redis_client import get_redis
 
 
@@ -45,7 +47,7 @@ class ATRCache:
     Класс для работы с кэшем ATR в Redis.
     Поддерживает чтение из множества легаси-ключей.
     """
-    
+
     def __init__(self, ttl: int = 3600):
         url = os.getenv("ATR_REDIS_URL")
         if url:
@@ -53,8 +55,8 @@ class ATRCache:
         else:
             self.redis_client = get_redis()
         self.ttl = ttl
-    
-    def get(self, symbol: str, timeframe: str) -> Optional[float]:
+
+    def get(self, symbol: str, timeframe: str) -> float | None:
         atr, _meta = self.get_with_meta(symbol=symbol, timeframe=timeframe)
         return atr
 
@@ -65,15 +67,15 @@ class ATRCache:
         except Exception:
             return -1
 
-    def get_candidates(self, *, symbol: str, timeframe: str, now_ms: Optional[int] = None) -> List[Dict[str, Any]]:
+    def get_candidates(self, *, symbol: str, timeframe: str, now_ms: int | None = None) -> list[dict[str, Any]]:
         """
         Return ALL candidates with meta for sanity selection.
         Candidates are dictionaries:
           {atr, src, key, tf, ts_ms, age_ms, has_ts}
         """
-        out: List[Dict[str, Any]] = []
-        sym = str(symbol or "").upper()
-        tf_raw = str(timeframe or "1m")
+        out: list[dict[str, Any]] = []
+        sym = (symbol or "").upper()
+        tf_raw = (timeframe or "1m")
         tf_norm = self._normalize_tracker_tf(tf_raw)
         nm = int(now_ms) if (now_ms is not None) else get_ny_time_millis()
 
@@ -138,7 +140,7 @@ class ATRCache:
                 d = json.loads(raw)
                 atr = float(d.get("atr", 0.0) or 0.0)
                 ts_ms = int(d.get("ts", 0) or 0)
-                tf0 = str(d.get("tf", "") or "").upper()
+                tf0 = (d.get("tf", "") or "").upper()
                 if atr > 0:
                     age = int(max(0, nm - ts_ms)) if ts_ms > 0 else 0
                     out.append({"atr": atr, "src": "ta_last", "key": last_key, "tf": tf0 if tf0 else tf_norm, "ts_ms": ts_ms, "age_ms": age, "has_ts": 1 if ts_ms > 0 else 0})
@@ -147,13 +149,13 @@ class ATRCache:
 
         return out
 
-    def get_with_meta(self, symbol: str, timeframe: Optional[str] = None, now_ms: Optional[int] = None, prefer_src: str = "") -> Tuple[Optional[float], dict]:
+    def get_with_meta(self, symbol: str, timeframe: str | None = None, now_ms: int | None = None, prefer_src: str = "") -> tuple[float | None, dict]:
         """
         Returns (atr_value, meta) where meta contains:
           {src, tf, ts_ms, age_ms}
         Uses cfg:atr_tf:{sym} when tf is None.
         """
-        sym = str(symbol)
+        sym = symbol
         if timeframe is None:
             tf = str(self.redis_client.get(f"cfg:atr_tf:{sym}") or "").strip() or None
         else:
@@ -190,8 +192,8 @@ class ATRCache:
                 cand_atr = float(cand.get("atr", 0.0) or 0.0)
                 if cand_atr > 0:
                     return cand_atr, {
-                        "src": str(cand.get("src", "atr_string")),
-                        "tf": str(cand.get("tf", tf)),
+                        "src": (cand.get("src", "atr_string")),
+                        "tf": (cand.get("tf", tf)),
                         "ts_ms": int(cand.get("ts_ms", 0) or 0),
                         "age_ms": int(cand.get("age_ms", 0) or 0),
                     }
@@ -205,12 +207,12 @@ class ATRCache:
         try:
             if atr_value <= 0:
                 return False
-            
+
             primary_key = f"atr:{symbol}:{timeframe}"
             self.redis_client.set(primary_key, str(atr_value), ex=self.ttl)
             # Legacy compatibility
             self.redis_client.set(f"atr:val:{symbol}:{timeframe}", str(atr_value), ex=self.ttl)
-            
+
             return True
         except Exception:
             return False
@@ -222,7 +224,7 @@ class ATRCache:
             return True
         except Exception:
             return False
-    
+
     def clear_all(self) -> int:
         try:
             pattern = "atr:*"

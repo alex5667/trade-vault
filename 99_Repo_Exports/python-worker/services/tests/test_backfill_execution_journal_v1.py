@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
 import json
 import sys
+from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent.parent / 'scripts' / 'backfill_execution_journal_from_orders_exec.py'
 SPEC = importlib.util.spec_from_file_location('backfill_execution_journal_from_orders_exec', SCRIPT)

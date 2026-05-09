@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import math
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Deque, Dict, Optional, Tuple
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -96,7 +95,7 @@ def signed_qty_from_tick(tick: Any) -> float:
 @dataclass
 class VolumeDeltaZState:
     window: int = 200
-    buf: Deque[float] = None  # type: ignore
+    buf: deque[float] = None  # type: ignore
 
     def __post_init__(self):
         if self.buf is None:
@@ -107,7 +106,7 @@ class VolumeDeltaZState:
         return float(robust_z(float(d), self.buf))
 
 
-def volume_delta_z_from_tick(runtime: Any, tick: Any, *, window: int = 200) -> Tuple[Optional[float], float]:
+def volume_delta_z_from_tick(runtime: Any, tick: Any, *, window: int = 200) -> tuple[float | None, float]:
     """Return (z, raw_signed_qty) using per-runtime state.
 
     Designed for quarantine mode: robust and deterministic, OK to be a bit heavier.
@@ -119,7 +118,7 @@ def volume_delta_z_from_tick(runtime: Any, tick: Any, *, window: int = 200) -> T
     st = getattr(runtime, "_vol_delta_z_state", None)
     if st is None:
         st = VolumeDeltaZState(window=int(window))
-        setattr(runtime, "_vol_delta_z_state", st)
+        runtime._vol_delta_z_state = st
 
     z = st.update(d)
     # clamp extreme z to avoid destabilizing downstream

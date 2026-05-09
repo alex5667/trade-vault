@@ -1,20 +1,22 @@
-from utils.time_utils import get_ny_time_millis
-import redis
 import os
-import time
+
+import redis
+
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 r = redis.from_url(redis_url, decode_responses=True)
-stream = "events:trades"
+stream = RS.EVENTS_TRADES
 
 try:
     first_entries = r.xrange(stream, count=1)
     last_entries = r.xrevrange(stream, count=1)
-    
+
     first_ts = int(first_entries[0][1].get("ts_ms", 0)) if first_entries else 0
     last_ts = int(last_entries[0][1].get("ts_ms", 0)) if last_entries else 0
     now_ts = get_ny_time_millis()
-    
+
     print(f"First: {first_ts}")
     print(f"Last: {last_ts}")
     print(f"Now: {now_ts}")

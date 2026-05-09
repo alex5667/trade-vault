@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Micro-benchmark: overhead of tick-quality EMA computations.
 
 This does NOT require Redis. It benchmarks pure Python update path:
@@ -9,15 +10,14 @@ Usage:
   python -m tools.bench_tick_quality_overhead --n 200000 --symbols 50
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import os
 import random
 import time
 
-from services.orderflow.tick_quality_ema import TickQualityEMA
 from services.orderflow.metric_labels import TickMetricLimiter, _parse_allowlist, should_emit
+from services.orderflow.tick_quality_ema import TickQualityEMA
+from utils.time_utils import get_ny_time_millis
 
 
 def main() -> int:

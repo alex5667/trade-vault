@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from abc import ABC
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any
 
 import pytest
+import contextlib
+
 
 # Минимальная версия для тестирования dependency policies
 class BaseOrderflowHandler(ABC):
@@ -18,17 +20,13 @@ class BaseOrderflowHandler(ABC):
         flags = getattr(ctx, "data_quality_flags", None)
         if flags is None:
             flags = []
-            try:
-                setattr(ctx, "data_quality_flags", flags)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                ctx.data_quality_flags = flags
         # если кто-то положил tuple/str — нормализуем мягко
         if not isinstance(flags, list):
             flags = list(flags) if flags else []
-            try:
-                setattr(ctx, "data_quality_flags", flags)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                ctx.data_quality_flags = flags
         return flags
 
     def _mark_hlc_fallback_flag(self, ctx: Any) -> None:
@@ -74,10 +72,8 @@ class BaseOrderflowHandler(ABC):
                 pass
         else:
             # 4.1: HTF levels недоступны -> geometry_score = 0.1 (нейтраль), без veto
-            try:
+            with contextlib.suppress(Exception):
                 ctx.geometry_score = float(getattr(ctx, "geometry_score", 0.1) or 0.1)
-            except Exception:
-                pass
             flags = self._dq_flags(ctx)
             if "htf_missing" not in flags:
                 flags.append("htf_missing")

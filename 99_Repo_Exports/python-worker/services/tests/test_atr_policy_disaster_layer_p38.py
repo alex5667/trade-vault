@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for ATR Policy Phase 3.8 — Disaster Layer.
 
 Tests:
@@ -14,7 +15,7 @@ Tests:
 import json
 import time
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -377,6 +378,7 @@ class TestChaosDrillRunnerDryRun(unittest.TestCase):
         import os
         os.environ["ATR_POLICY_CHAOS_SCENARIO"] = scenario
         from importlib import reload
+
         import services.atr_policy_chaos_drill_runner as m
         reload(m)
         r = _mock_redis({})

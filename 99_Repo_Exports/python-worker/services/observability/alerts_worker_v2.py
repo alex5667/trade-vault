@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Dict, List, Tuple
 
 import redis
 
 from core.telegram_notify import send_telegram
+import contextlib
 
 
 def _decode(x) -> str:
@@ -18,8 +18,8 @@ def _decode(x) -> str:
     return str(x)
 
 
-def _sscan_all(r: redis.Redis, key: str, limit: int = 2000) -> List[str]:
-    out: List[str] = []
+def _sscan_all(r: redis.Redis, key: str, limit: int = 2000) -> list[str]:
+    out: list[str] = []
     cur = 0
     while True:
         cur, batch = r.sscan(key, cursor=cur, count=10000)
@@ -93,7 +93,7 @@ def main():
     symbols_set = os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols")
     tpl = os.getenv("MICROBAR_PER_SYMBOL_STREAM_TEMPLATE", "events:microbar_closed:{sym}")
     legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
-    
+
     # Check if split streams are enabled
     split_streams = os.getenv("MICROBAR_SPLIT_STREAMS_ENABLE", "0").strip().lower() in {"1", "true", "yes"}
     dual_write = os.getenv("MICROBAR_SPLIT_DUAL_WRITE", "0").strip().lower() in {"1", "true", "yes"}
@@ -120,17 +120,15 @@ def main():
                     stale_syms.append(_s)
             # Clean stale members from set (best-effort, non-blocking)
             if stale_syms:
-                try:
+                with contextlib.suppress(Exception):
                     r.srem("cfg:atr_bad:symbols", *stale_syms)
-                except Exception:
-                    pass
             bad_pct = 100.0 * (len(set(bad_syms) & syms_set) / float(n))
             if bad_pct >= thr_atr_bad and _cooldown_ok(r, "alerts:cooldown:atr_bad", cooldown):
                 # Collect detailed info: symbols with reasons and reason distribution
                 bad_active = list(set(bad_syms) & syms_set)[:20]  # Top 20
-                reason_stats: Dict[str, int] = {}
-                symbol_details: List[Tuple[str, str, int]] = []  # (symbol, reason, count)
-                
+                reason_stats: dict[str, int] = {}
+                symbol_details: list[tuple[str, str, int]] = []  # (symbol, reason, count)
+
                 for s in bad_active:
                     try:
                         # Get current reason from cfg:atr_bad:{symbol}
@@ -139,10 +137,10 @@ def main():
                         if bad_info_raw:
                             try:
                                 bad_info = json.loads(bad_info_raw) if bad_info_raw.startswith("{") else {}
-                                current_reason = str(bad_info.get("reason", "1" if bad_info_raw == "1" else "unknown"))
+                                current_reason = (bad_info.get("reason", "1" if bad_info_raw == "1" else "unknown"))
                             except Exception:
                                 current_reason = "unknown" if bad_info_raw != "1" else "unknown"
-                        
+
                         # Get reason distribution from metrics:atr_bad_total:{symbol}
                         reason_counts = {}
                         try:
@@ -156,7 +154,7 @@ def main():
                                         reason_stats[rk] = reason_stats.get(rk, 0) + cv
                         except Exception:
                             pass
-                        
+
                         # Use current reason or most common from metrics
                         if reason_counts:
                             top_reason = max(reason_counts.items(), key=lambda x: x[1])[0]
@@ -164,17 +162,17 @@ def main():
                         else:
                             top_reason = current_reason
                             total_count = 1
-                        
+
                         symbol_details.append((s, top_reason, total_count))
                     except Exception:
                         symbol_details.append((s, "unknown", 0))
-                
+
                 # Sort by count desc
                 symbol_details.sort(key=lambda x: x[2], reverse=True)
-                
+
                 # Build alert message
                 msg_parts = [f"[ALERT] ATR bad pct={bad_pct:.1f}% (thr={thr_atr_bad}%)"]
-                
+
                 # Reason distribution
                 if reason_stats:
                     reason_items = sorted(reason_stats.items(), key=lambda x: x[1], reverse=True)
@@ -191,32 +189,32 @@ def main():
                             match = re.search(r'tf=([a-z0-9]+)', reason.lower())
                             if match:
                                 tf_counts[match.group(1)] += count
-                        
+
                         if tf_counts:
                             tf_str = ", ".join([f"{tf}:{cnt}" for tf, cnt in sorted(tf_counts.items(), key=lambda x: -x[1])[:5]])
                             msg_parts.append(f"📈 Timeframes: {tf_str}")
                     except Exception:
                         pass
-                    
+
                     # Highlight stale issues if significant
                     stale_total = sum(c for r, c in reason_items if "stale" in r.lower())
                     if stale_total > 0:
                         stale_pct = 100.0 * stale_total / sum(reason_stats.values())
                         if stale_pct >= 20.0:  # If stale > 20% of issues
                             msg_parts.append(f"⚠️ STALE: {stale_total} events ({stale_pct:.1f}%) - check data pipeline delays")
-                    
+
                     # Highlight jump issues if significant
                     jump_total = sum(c for r, c in reason_items if "jump" in r.lower())
                     if jump_total > 0:
                         jump_pct = 100.0 * jump_total / sum(reason_stats.values())
                         if jump_pct >= 30.0:  # If jumps > 30% of issues
                             msg_parts.append(f"⚠️ JUMPS: {jump_total} events ({jump_pct:.1f}%) - possible market volatility spike")
-                
+
                 # Top symbols
                 if symbol_details:
                     top_symbols = [f"{s}:{r}({c})" for s, r, c in symbol_details[:10]]
                     msg_parts.append(f"Top: {', '.join(top_symbols)}")
-                
+
                 send_telegram("\n".join(msg_parts))
 
             # CVD quarantine %

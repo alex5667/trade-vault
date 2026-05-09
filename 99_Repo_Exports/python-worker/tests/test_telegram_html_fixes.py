@@ -1,25 +1,23 @@
-import unittest
-from unittest.mock import MagicMock, patch
 import html
 import json
-import sys
 import os
+import sys
+import unittest
+from unittest.mock import MagicMock, patch
 
 # Setup paths
 sys.path.append(os.path.join(os.getcwd(), "python-worker"))
 sys.path.append(os.path.join(os.getcwd(), "python-worker", "tools"))
 
 try:
-    import propose_meta_freeze_suggestion_v1 as pmf
+    import meta_cov_outcome_guard_v1 as mcog
     import meta_drift_guard_v1 as mdg
     import ml_sre_monitor as msm
-    import meta_cov_outcome_guard_v1 as mcog
+    import propose_meta_freeze_suggestion_v1 as pmf
 except ImportError:
     # Fallback for different environments if needed
-    from tools import propose_meta_freeze_suggestion_v1 as pmf
-    from tools import meta_drift_guard_v1 as mdg
-    from tools import ml_sre_monitor as msm
     from tools import meta_cov_outcome_guard_v1 as mcog
+    from tools import propose_meta_freeze_suggestion_v1 as pmf
 
 class TestTelegramHTMLFixes(unittest.TestCase):
     def test_pmf_escaping(self):

@@ -1,10 +1,10 @@
 from __future__ import annotations
+
 """P5.6 tests for check_execution_audit_chain.analyze_chain_rows and render_textfile_metrics."""
 
 import importlib.util
 import sys
 from pathlib import Path
-
 
 # Load the script module directly without executing its __main__ block
 p = Path(__file__).resolve().parent / 'check_execution_audit_chain.py'

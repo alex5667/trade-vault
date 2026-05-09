@@ -1,13 +1,14 @@
-
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import os
 import time
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List
+from typing import Any
+
+from core.redis_stream_consumer import AsyncRedisStreamHelper
+from utils.time_utils import get_ny_time_millis
 
 try:
     from prometheus_client import Counter, Gauge, Histogram, start_http_server
@@ -98,7 +99,7 @@ def _to_bool(x: Any, default: bool = False) -> bool:
     return default
 
 
-def _split_csv(s: Any) -> List[str]:
+def _split_csv(s: Any) -> list[str]:
     if s is None:
         return []
     if isinstance(s, (list, tuple)):
@@ -125,35 +126,35 @@ class ApplyDecision:
     actor: str
     ts_ms: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def parse_apply_request(payload: Dict[str, Any]) -> Dict[str, Any]:
+def parse_apply_request(payload: dict[str, Any]) -> dict[str, Any]:
     out = dict(payload)
-    out["recommendation_id"] = str(payload.get("recommendation_id", "") or "")
-    out["action_type"] = str(payload.get("action_type", "") or "")
-    out["target_kind"] = str(payload.get("target_kind", "") or "")
-    out["target_ref"] = str(payload.get("target_ref", "") or "")
-    out["risk_level"] = str(payload.get("risk_level", "unknown") or "unknown").lower()
+    out["recommendation_id"] = (payload.get("recommendation_id", "") or "")
+    out["action_type"] = (payload.get("action_type", "") or "")
+    out["target_kind"] = (payload.get("target_kind", "") or "")
+    out["target_ref"] = (payload.get("target_ref", "") or "")
+    out["risk_level"] = (payload.get("risk_level", "unknown") or "unknown").lower()
     out["approved_count"] = _to_int(payload.get("approved_count", 0), 0)
     out["rejected_count"] = _to_int(payload.get("rejected_count", 0), 0)
     out["replay_required"] = 1 if _to_bool(payload.get("replay_required", False), False) else 0
-    out["replay_status"] = str(payload.get("replay_status", "UNKNOWN") or "UNKNOWN").upper()
-    out["review_status"] = str(payload.get("review_status", "PENDING") or "PENDING").upper()
+    out["replay_status"] = (payload.get("replay_status", "UNKNOWN") or "UNKNOWN").upper()
+    out["review_status"] = (payload.get("review_status", "PENDING") or "PENDING").upper()
     out["reason_codes"] = _split_csv(payload.get("reason_codes_json") or payload.get("reason_codes"))
     return out
 
 
-def evaluate_apply_request(payload: Dict[str, Any]) -> ApplyDecision:
+def evaluate_apply_request(payload: dict[str, Any]) -> ApplyDecision:
     req = parse_apply_request(payload)
     action_type = req["action_type"]
-    apply_mode = str(os.getenv("ML_RECOMMENDATION_APPLY_MODE", "REVIEW_ONLY") or "REVIEW_ONLY").upper()
+    apply_mode = (os.getenv("ML_RECOMMENDATION_APPLY_MODE", "REVIEW_ONLY") or "REVIEW_ONLY").upper()
     dry_run = 1 if _to_bool(os.getenv("ML_RECOMMENDATION_APPLY_DRY_RUN", "1"), True) else 0
     min_approvals = _to_int(os.getenv("ML_RECOMMENDATION_MIN_APPROVALS", "1"), 1)
     allow_high_risk = _to_bool(os.getenv("ML_RECOMMENDATION_ALLOW_HIGH_RISK", "0"), False)
 
-    reason_codes: List[str] = []
+    reason_codes: list[str] = []
     allow = 0
     status = "BLOCKED"
     decision = "BLOCK"
@@ -213,8 +214,8 @@ def evaluate_apply_request(payload: Dict[str, Any]) -> ApplyDecision:
     )
 
 
-def build_audit_event(decision: ApplyDecision) -> Dict[str, Any]:
-    audit_id = hashlib.sha1(f"{decision.recommendation_id}|{decision.ts_ms}|{decision.decision}".encode("utf-8")).hexdigest()
+def build_audit_event(decision: ApplyDecision) -> dict[str, Any]:
+    audit_id = hashlib.sha1(f"{decision.recommendation_id}|{decision.ts_ms}|{decision.decision}".encode()).hexdigest()
     return {
         "schema_version": 1,
         "audit_id": audit_id,
@@ -238,21 +239,30 @@ async def _run() -> None:
     APPLY_UP.set(1)
 
     client = redis.from_url(redis_url, decode_responses=True)
-    try:
-        await client.xgroup_create(APPLY_REQUESTS_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
+
+    helper = AsyncRedisStreamHelper(client=client, group=GROUP, consumer=CONSUMER)
+    await helper.ensure_groups([APPLY_REQUESTS_STREAM])
+
+    pel_start_id = "0-0"
 
     while True:
         t0 = time.perf_counter()
         APPLY_LAST_RUN_TS.set(time.time())
-        rows = await client.xreadgroup(
-            GROUP,
-            CONSUMER,
-            {APPLY_REQUESTS_STREAM: ">"},
-            count=_to_int(os.getenv("ML_RECOMMENDATION_APPLY_BATCH", "64"), 64),
-            block=_to_int(os.getenv("ML_RECOMMENDATION_APPLY_BLOCK_MS", "5000"), 5000),
+
+        pel_start_id, pending_msgs = await helper.claim_pending(
+            APPLY_REQUESTS_STREAM, min_idle_ms=5000, count=_to_int(os.getenv("ML_RECOMMENDATION_APPLY_BATCH", "64"), 64), start_id=pel_start_id
         )
+        pending_formatted = [(m.msg_id, m.fields) for m in pending_msgs]
+
+        if pending_formatted:
+            rows = [[APPLY_REQUESTS_STREAM, pending_formatted]]
+        else:
+            rows = await helper.read(
+                {APPLY_REQUESTS_STREAM: ">"},
+                count=_to_int(os.getenv("ML_RECOMMENDATION_APPLY_BATCH", "64"), 64),
+                block=_to_int(os.getenv("ML_RECOMMENDATION_APPLY_BLOCK_MS", "5000"), 5000),
+            ) or []
+
         if not rows:
             APPLY_LOOP_SECONDS.observe(time.perf_counter() - t0)
             continue
@@ -264,7 +274,7 @@ async def _run() -> None:
                 APPLY_DECISION_TOTAL.labels(dec.action_type or "unknown", dec.decision).inc()
                 await client.xadd(APPLY_RESULTS_STREAM, dec.to_dict(), maxlen=100_000, approximate=True)
                 await client.xadd(AUDIT_STREAM, build_audit_event(dec), maxlen=200_000, approximate=True)
-                await client.xack(APPLY_REQUESTS_STREAM, GROUP, msg_id)
+                await helper.ack(APPLY_REQUESTS_STREAM, msg_id)
         APPLY_LOOP_SECONDS.observe(time.perf_counter() - t0)
 
 

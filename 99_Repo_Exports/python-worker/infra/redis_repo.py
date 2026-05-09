@@ -1,16 +1,18 @@
-# infra/redis_repo.py
 from __future__ import annotations
 
+# infra/redis_repo.py
 import json
 import logging
 import os
-import uuid
+from collections.abc import Mapping
 from dataclasses import asdict
-from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol
+from typing import Any, Protocol
 
-from domain.models import PositionState, SignalNorm, TradeClosed, TradeEvent
-from domain.normalizers import canon_source, canon_strategy, canon_symbol, canon_tf, tf_variants
+from core.redis_keys import STREAM_RETENTION
 from core.redis_keys import RedisStreams as RS
+from domain.models import PositionState, SignalNorm, TradeEvent
+from domain.normalizers import canon_source, canon_strategy, canon_symbol, canon_tf, tf_variants
+import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +48,7 @@ def _normalize_side(v: Any) -> str:
 
 def _canon_regime(v: Any) -> str:
     try:
-        s = str(v or "").strip().lower()
+        s = (v or "").strip().lower()
     except Exception:
         return "na"
     return s or "na"
@@ -82,7 +84,7 @@ def _normalize_crypto_sid(raw: object, *, symbol: str, ts_ms: int) -> str:
       - {symbol}:{ts} (legacy without prefix)
       - empty -> generate from symbol+ts_ms
     """
-    s = str(raw or "").strip()
+    s = (raw or "").strip()
     if s.startswith("crypto-of:"):
         return s
     if "|" in s:
@@ -119,10 +121,10 @@ def _b01(v: Any) -> str:
 def _to_int(v: Any, default: int = 0) -> int:
     try:
         if v is None:
-            return int(default)
+            return default
         return int(float(str(v).strip()))
     except Exception:
-        return int(default)
+        return default
 
 # NOTE:
 #  - Этот репозиторий обязан быть устойчивым к тому, что redis-py может возвращать bytes,
@@ -186,7 +188,7 @@ def _env_bool(name: str, default: bool) -> bool:
     return default
 
 
-def _mirror_profile_keys(mapping: Dict[str, Any]) -> None:
+def _mirror_profile_keys(mapping: dict[str, Any]) -> None:
     """
     Ensure both profile keys exist if at least one is present.
     This prevents partial updates from breaking downstream consumers.
@@ -199,7 +201,7 @@ def _mirror_profile_keys(mapping: Dict[str, Any]) -> None:
         mapping[PROFILE_CANON_KEY] = mapping[PROFILE_ALIAS_KEY]
 
 
-def _set_profile_fields(mapping: Dict[str, Any], *, profile_value: str) -> None:
+def _set_profile_fields(mapping: dict[str, Any], *, profile_value: str) -> None:
     """
     Пишем оба поля:
       - trailing_profile (канон)
@@ -210,12 +212,12 @@ def _set_profile_fields(mapping: Dict[str, Any], *, profile_value: str) -> None:
     mapping[PROFILE_ALIAS_KEY] = v
 
 
-def _normalize_health_snapshot(d: Mapping[str, Any]) -> Dict[str, Any]:
+def _normalize_health_snapshot(d: Mapping[str, Any]) -> dict[str, Any]:
     """
     Нормализует health snapshot к ключам с префиксом "health_".
     Если ключ уже начинается с "health_" — не дублируем.
     """
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in (d or {}).items():
         if v is None:
             continue
@@ -266,7 +268,7 @@ class HealthSnapshotProvider(Protocol):
     ВАЖНО: репозиторий НЕ должен сам создавать HealthMetrics/redis-подключения на каждый close.
     Это делается выше (tick loop / monitor), либо через singleton provider.
     """
-    def get_snapshot(self, symbol: str) -> Dict[str, Any]:
+    def get_snapshot(self, symbol: str) -> dict[str, Any]:
         ...
 
 
@@ -280,12 +282,12 @@ def _to_str(x: Any) -> str:
     return str(x)
 
 
-def _decode_map(m: Dict[Any, Any]) -> Dict[str, str]:
+def _decode_map(m: dict[Any, Any]) -> dict[str, str]:
     """
     Redis может вернуть dict[bytes, bytes] если decode_responses=False.
     Мы приводим к dict[str, str] без артефактов вида "b'open'".
     """
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for k, v in (m or {}).items():
         out[_to_str(k)] = _to_str(v)
     return out
@@ -342,7 +344,7 @@ def _canon_side(v: Any) -> str:
     return "LONG" if su not in ("LONG", "SHORT") else su
 
 
-def _closed_zset_key(strategy: str, symbol: str, tf: str, source: Optional[str] = None) -> str:
+def _closed_zset_key(strategy: str, symbol: str, tf: str, source: str | None = None) -> str:
     st = canon_strategy(strategy)
     sy = canon_symbol(symbol)
     t = canon_tf(tf)
@@ -352,14 +354,14 @@ def _closed_zset_key(strategy: str, symbol: str, tf: str, source: Optional[str] 
     return f"closed_z:{st}:{sy}:{t}:{so}"
 
 
-def _stringify(d: Dict[str, Any]) -> Dict[str, str]:
+def _stringify(d: dict[str, Any]) -> dict[str, str]:
     """
     Конвертирует Dict[str, Any] в Dict[str, str] для Redis stream.
     - None → skip
     - dict/list → json.dumps()
     - всё остальное → str()
     """
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for k, v in (d or {}).items():
         if v is None:
             continue
@@ -370,7 +372,7 @@ def _stringify(d: Dict[str, Any]) -> Dict[str, str]:
             out[kk] = _to_str(v)
     return out
 
-def _health_prefix_snapshot(hs: Dict[str, Any]) -> Dict[str, str]:
+def _health_prefix_snapshot(hs: dict[str, Any]) -> dict[str, str]:
     """
     Health snapshot в python-worker сейчас отдаётся как mapping вида:
       { "l2_stale_ratio_tick": "...", "avg_l2_age_ms": "...", ... }
@@ -379,7 +381,7 @@ def _health_prefix_snapshot(hs: Dict[str, Any]) -> Dict[str, str]:
       - одинаково хранить в order hash и (опционально) в stream,
     мы префиксуем health_.
     """
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for k, v in (hs or {}).items():
         if v is None:
             continue
@@ -389,7 +391,7 @@ def _health_prefix_snapshot(hs: Dict[str, Any]) -> Dict[str, str]:
         out[kk] = str(v)
     return out
 
-def _compact_trade_payload(closed, *, prof: str) -> Dict[str, Any]:
+def _compact_trade_payload(closed, *, prof: str) -> dict[str, Any]:
     """
     Минимальный payload для trades:closed stream в compact режиме.
 
@@ -439,7 +441,7 @@ def _compact_trade_payload(closed, *, prof: str) -> Dict[str, Any]:
     }
 
 
-def _compact_closed_stream_payload(full: Dict[str, Any]) -> Dict[str, Any]:
+def _compact_closed_stream_payload(full: dict[str, Any]) -> dict[str, Any]:
     """
     Compact stream payload to reduce Redis memory/IO.
     IMPORTANT: this is behind TRADES_CLOSED_STREAM_COMPACT=1 because
@@ -479,7 +481,7 @@ def _compact_closed_stream_payload(full: Dict[str, Any]) -> Dict[str, Any]:
         "vol_ratio_fast_slow", "vol_ratio_z",
     }
     # keep health fields if present
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in (full or {}).items():
         if k in keep or str(k).startswith("health_"):
             out[k] = v
@@ -685,12 +687,12 @@ class RedisTradeRepository:
         from types import SimpleNamespace
         return SimpleNamespace(
             id=str(order_id),
-            sid=str(sid or ""),
-            strategy=str(strategy or "unknown"),
-            source=str(source or "Unknown"),
-            symbol=str(symbol or "UNKNOWN"),
-            tf=str(tf or "tick"),
-            direction=str(direction or "LONG"),
+            sid=(sid or ""),
+            strategy=(strategy or "unknown"),
+            source=(source or "Unknown"),
+            symbol=(symbol or "UNKNOWN"),
+            tf=(tf or "tick"),
+            direction=(direction or "LONG"),
         )
 
     def save_tp_hit_fast(
@@ -788,7 +790,7 @@ class RedisTradeRepository:
         except Exception:
             pass
 
-    def persist_volume_data(self, volume_data: List[Dict[str, Any]], ttl_sec: int = 3600) -> None:
+    def persist_volume_data(self, volume_data: list[dict[str, Any]], ttl_sec: int = 3600) -> None:
         """
         Сохраняет данные volume в Redis с TTL.
 
@@ -823,13 +825,13 @@ class RedisTradeRepository:
         # ВАЖНО: TF в open тоже лучше писать в каноне (и/или сохранять оба варианта в ключах закрытий).
         # В hash мы храним одно значение: каноническое.
         tf_canon = canon_tf(getattr(pos, "tf", None))
-        
+
         # Persist regime-at-entry to Redis so that:
         #   - later loaders reconstruct pos.entry_regime correctly
         #   - close pipeline can attach entry_regime to TradeClosed deterministically
         entry_regime = _extract_entry_regime_from_obj(pos)
 
-        mapping: Dict[str, Any] = {
+        mapping: dict[str, Any] = {
             "schema_version": "1",
             "id": pos.id,
             "sid": pos.sid,
@@ -981,7 +983,7 @@ class RedisTradeRepository:
         except Exception as e:
             logger.debug(f"ZSET index failed for closed trade: {e}")
 
-    def _apply_health_snapshot_to_hash(self, order_key: str, health_snapshot: Dict[str, Any]) -> None:
+    def _apply_health_snapshot_to_hash(self, order_key: str, health_snapshot: dict[str, Any]) -> None:
         """
         Сохраняем health-* поля в order:{id} hash.
         Это важно при compact-stream: consumer hydrate'ит детали из hash.
@@ -993,7 +995,7 @@ class RedisTradeRepository:
         except Exception as e:
             logger.debug(f"Could not store health snapshot in {order_key}: {e}")
 
-    def update_fields(self, order_id: str, mapping: Dict[str, Any]) -> None:
+    def update_fields(self, order_id: str, mapping: dict[str, Any]) -> None:
         """
         Обновление произвольных полей Hash.
         ВАЖНО:
@@ -1002,7 +1004,7 @@ class RedisTradeRepository:
           - bytes -> декодим
         """
         key = f"order:{order_id}"
-        m2: Dict[str, str] = {}
+        m2: dict[str, str] = {}
         for k, v in (mapping or {}).items():
             if v is None:
                 continue
@@ -1110,7 +1112,7 @@ class RedisTradeRepository:
         #    В order hash пишем оба ключа одинаковым значением.
         #
         prof = str(getattr(closed, "trailing_profile", "") or getattr(closed, "trail_profile", "") or "").strip()
-        
+
         # Persist entry-regime on close as well (best-effort).
         # This ensures StatsAggregator (EV EMA) can segment by regime even if
         # position object wasn't available to that consumer.
@@ -1165,7 +1167,7 @@ class RedisTradeRepository:
             "mae_ts_before_tp1": f"{getattr(closed, 'mae_ts_before_tp1', 0) or 0}",
             # Entry regime is the correct segmentation key for calibration.
             "entry_regime": str(getattr(closed, "entry_regime", "") or ""),
-            
+
             # P41 compliance (native meta)
             "meta_enforce_cov_bucket": str(getattr(closed, "meta_enforce_cov_bucket", "") or ""),
             "meta_enforce_applied": _to_str(int(getattr(closed, "meta_enforce_applied", -1))),
@@ -1195,11 +1197,11 @@ class RedisTradeRepository:
             "tf": canon_tf(getattr(closed, "tf", None)),
             "direction": _normalize_side(getattr(closed, "direction", None)),
             "signal_payload": json.dumps(getattr(closed, "signal_payload", {}) or {}, ensure_ascii=False, separators=(",", ":")),
-            
+
             # regime metadata (EV / analytics)
             "entry_regime": entry_regime if entry_regime != "na" else "",
             "regime": entry_regime if entry_regime != "na" else "",  # alias
-            
+
             "entry_ts_ms": str(getattr(closed, "entry_ts_ms", 0) or 0),  # canonical field
             "entry_time": str(getattr(closed, "entry_ts_ms", 0) or 0),   # legacy alias
             "exit_ts_ms": str(getattr(closed, "exit_ts_ms", 0) or 0),
@@ -1215,17 +1217,17 @@ class RedisTradeRepository:
         # -----------------------------------------------------------------
         try:
             if getattr(closed, "trail_after_tp1", None) is not None:
-                mapping["trail_after_tp1"] = "1" if bool(getattr(closed, "trail_after_tp1")) else "0"
+                mapping["trail_after_tp1"] = "1" if bool(closed.trail_after_tp1) else "0"
             if getattr(closed, "trail_after_tp1_reason", ""):
-                mapping["trail_after_tp1_reason"] = str(getattr(closed, "trail_after_tp1_reason"))[:256]
+                mapping["trail_after_tp1_reason"] = str(closed.trail_after_tp1_reason)[:256]
             if getattr(closed, "trailing_skipped_after_tp1", None) is not None:
-                mapping["trailing_skipped_after_tp1"] = "1" if bool(getattr(closed, "trailing_skipped_after_tp1")) else "0"
+                mapping["trailing_skipped_after_tp1"] = "1" if bool(closed.trailing_skipped_after_tp1) else "0"
             if getattr(closed, "trailing_skipped_reason", ""):
-                mapping["trailing_skipped_reason"] = str(getattr(closed, "trailing_skipped_reason"))[:256]
+                mapping["trailing_skipped_reason"] = str(closed.trailing_skipped_reason)[:256]
             if getattr(closed, "trailing_armed_ts_ms", 0):
-                mapping["trailing_armed_ts_ms"] = str(int(getattr(closed, "trailing_armed_ts_ms") or 0))
+                mapping["trailing_armed_ts_ms"] = str(int(closed.trailing_armed_ts_ms or 0))
             if getattr(closed, "trailing_start_reason", ""):
-                mapping["trailing_start_reason"] = str(getattr(closed, "trailing_start_reason"))[:256]
+                mapping["trailing_start_reason"] = str(closed.trailing_start_reason)[:256]
         except Exception:
             pass
 
@@ -1238,17 +1240,17 @@ class RedisTradeRepository:
                 mapping[_k] = _to_str(_v)
         except Exception:
             pass
-        
+
         # -----------------------------------------------------------------
         # FIX: Save TP touched flags (calculated from MFE)
         # -----------------------------------------------------------------
         try:
             if getattr(closed, "tp1_touched", None) is not None:
-                mapping["tp1_touched"] = "1" if bool(getattr(closed, "tp1_touched")) else "0"
+                mapping["tp1_touched"] = "1" if bool(closed.tp1_touched) else "0"
             if getattr(closed, "tp2_touched", None) is not None:
-                mapping["tp2_touched"] = "1" if bool(getattr(closed, "tp2_touched")) else "0"
+                mapping["tp2_touched"] = "1" if bool(closed.tp2_touched) else "0"
             if getattr(closed, "tp3_touched", None) is not None:
-                mapping["tp3_touched"] = "1" if bool(getattr(closed, "tp3_touched")) else "0"
+                mapping["tp3_touched"] = "1" if bool(closed.tp3_touched) else "0"
         except Exception:
             pass
 
@@ -1392,10 +1394,8 @@ class RedisTradeRepository:
         pipe.execute()
 
         # lock cleanup (best-effort)
-        try:
+        with contextlib.suppress(Exception):
             self.r.delete(lock_key)
-        except Exception:
-            pass
 
     def append_event(self, ev: TradeEvent) -> None:
         """Добавление события с нормализацией direction через _side_to_str."""
@@ -1412,7 +1412,7 @@ class RedisTradeRepository:
             "ts": ev.ts_ms,
             **(ev.payload or {}),
         })
-        self.r.xadd(RS.EVENTS_TRADES, payload, maxlen=200000)
+        self.r.xadd(RS.EVENTS_TRADES, payload, maxlen=STREAM_RETENTION[RS.EVENTS_TRADES], approximate=True)
 
     def _index_closed_zset(self, closed) -> None:
         """
@@ -1439,7 +1439,7 @@ class RedisTradeRepository:
             self.r.zadd(self._zkey_closed(strategy=strategy, symbol=symbol, tf=tf, source=source), {oid: ts})
             self.r.zadd(self._zkey_closed(strategy=strategy, symbol=symbol, tf=tf, source=None), {oid: ts})
 
-    def _zkey_closed(self, *, strategy: str, symbol: str, tf: str, source: Optional[str]) -> str:
+    def _zkey_closed(self, *, strategy: str, symbol: str, tf: str, source: str | None) -> str:
         if source:
             return f"closed_z:{strategy}:{symbol}:{tf}:{source}"
         return f"closed_z:{strategy}:{symbol}:{tf}"
@@ -1451,12 +1451,12 @@ class RedisTradeRepository:
         strategy: str,
         symbol: str,
         tf: str,
-        source: Optional[str] = None,
+        source: str | None = None,
         from_ts_ms: int,
         to_ts_ms: int,
         limit: int = 5000,
         desc: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Быстрая выборка order_id по времени (ZSET).
         Используйте для reporter/trade_back, чтобы не сканировать stream.
@@ -1478,9 +1478,9 @@ class RedisTradeRepository:
         strategy: str,
         symbol: str,
         tf: str,
-        source: Optional[str] = None,
+        source: str | None = None,
         n: int = 500,
-    ) -> List[str]:
+    ) -> list[str]:
         """Последние N закрытых order_id (ZSET)."""
         st = canon_strategy(strategy)
         sy = canon_symbol(symbol)
@@ -1499,11 +1499,11 @@ class RedisTradeRepository:
         tf: str,
         from_ts_ms: int,
         to_ts_ms: int,
-        source: Optional[str] = None,
-        limit: Optional[int] = None,
+        source: str | None = None,
+        limit: int | None = None,
         with_hash: bool = True,
         reverse: bool = False,
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """
         Быстро выбирает закрытые сделки за диапазон времени по ZSET.
 
@@ -1532,7 +1532,7 @@ class RedisTradeRepository:
         else:
             ids = self.r.zrangebyscore(zkey, from_ts_ms, to_ts_ms, start=start, num=num) or []
 
-        out: List[Dict[str, str]] = []
+        out: list[dict[str, str]] = []
         if not ids:
             return out
 
@@ -1565,9 +1565,9 @@ class RedisTradeRepository:
         symbol: str,
         tf: str,
         n: int = 200,
-        source: Optional[str] = None,
+        source: str | None = None,
         with_hash: bool = True,
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """
         Быстро берет последние N закрытых сделок по ZSET.
         """
@@ -1587,7 +1587,7 @@ class RedisTradeRepository:
             return [{"order_id": str(x)} for x in ids]
 
         pipe = getattr(self.r, "pipeline", None)
-        out: List[Dict[str, str]] = []
+        out: list[dict[str, str]] = []
         if callable(pipe):
             p = self.r.pipeline(transaction=False)
             for oid in ids:
@@ -1613,12 +1613,12 @@ class RedisTradeRepository:
         strategy: str,
         symbol: str,
         tf: str,
-        source: Optional[str],
+        source: str | None,
         from_ts_ms: int,
         to_ts_ms: int,
         limit: int = 2000,
         desc: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Быстрая выборка order_id закрытых сделок по времени через ZSET.
         Требует TRADES_CLOSED_ZSET_INDEX=1.
@@ -1650,10 +1650,10 @@ class RedisTradeRepository:
         strategy: str,
         symbol: str,
         tf: str,
-        source: Optional[str],
+        source: str | None,
         limit: int = 200,
         desc: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Выборка последних N order_id по времени закрытия через ZSET.
         Удобно для trailing_edge_analyzer и небольших тулов.
@@ -1675,7 +1675,7 @@ class RedisTradeRepository:
     # --------------------
     # Recovery
     # --------------------
-    def load_open_positions(self, limit: int = 5000) -> List[Dict[str, str]]:
+    def load_open_positions(self, limit: int = 5000) -> list[dict[str, str]]:
         """
         Recovery при старте.
 
@@ -1684,7 +1684,7 @@ class RedisTradeRepository:
           - корректно обрабатываем bytes (decode_responses=False).
           - гарантируем, что out содержит dict[str, str] без артефактов b'...'.
         """
-        out: List[Dict[str, str]] = []
+        out: list[dict[str, str]] = []
         cursor = 0
         fetched = 0
 

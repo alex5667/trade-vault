@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """atr_horizon_canary.py — Phase 2.3A: canary-enforce router for horizon DQ gate.
 
 Modes (ATR_HORIZON_GATE_MODE):
@@ -18,7 +19,7 @@ Rollback: ATR_HORIZON_GATE_MODE=shadow  →  instant, no code deploy.
 import hashlib
 import os
 from dataclasses import asdict, dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 def _env_float(name: str, default: float) -> float:
@@ -29,7 +30,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _env_set(name: str) -> set[str]:
-    raw = str(os.getenv(name, "") or "").strip()
+    raw = (os.getenv(name, "") or "").strip()
     if not raw:
         return set()
     return {x.strip().upper() for x in raw.split(",") if x.strip()}
@@ -56,7 +57,7 @@ def should_enforce_horizon_gate(
     sid: str,
     regime: str = "",
     scenario: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return enforcement decision for horizon DQ gate.
 
     Always fail-open: any exception → shadow/no-enforce dict.
@@ -64,14 +65,14 @@ def should_enforce_horizon_gate(
     Returns dict (not dataclass) so callers can safely use .get() without import.
     """
     try:
-        mode = str(os.getenv("ATR_HORIZON_GATE_MODE", "shadow") or "shadow").strip().lower()
+        mode = (os.getenv("ATR_HORIZON_GATE_MODE", "shadow") or "shadow").strip().lower()
         allow_symbols = _env_set("ATR_HORIZON_GATE_SYMBOLS")
         share = max(0.0, min(1.0, _env_float("ATR_HORIZON_GATE_CANARY_SHARE", 0.0)))
 
-        symbol_u = str(symbol or "").upper()
-        regime_l = str(regime or "na").lower()
-        scenario_l = str(scenario or "na").lower()
-        sid_s = str(sid or "")
+        symbol_u = (symbol or "").upper()
+        regime_l = (regime or "na").lower()
+        scenario_l = (scenario or "na").lower()
+        sid_s = (sid or "")
         sticky_key = f"{symbol_u}|{regime_l}|{scenario_l}|{sid_s}"
 
         if mode == "off":

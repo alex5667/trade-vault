@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Tests for Strong Gate Calibrator — core evaluation logic.
 
@@ -7,17 +7,14 @@ Run:
     cd python-worker && python -m pytest tests/test_strong_gate_calibrator.py -v
 """
 
-import pytest
 
 from core.strong_gate_calibrator import (
     TradeOutcome,
-    StrongGateCalibResult,
     evaluate_strong_gate,
-    mode_to_int,
     is_promotion,
     is_rollback,
+    mode_to_int,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test helpers

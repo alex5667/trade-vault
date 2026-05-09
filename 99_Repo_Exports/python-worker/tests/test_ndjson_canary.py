@@ -1,7 +1,6 @@
-import json
 from pathlib import Path
 
-from tools.ndjson_canary import filter_inputs, iter_ndjson, pick_baseline_for_symbol, _pass_share
+from tools.ndjson_canary import _pass_share, filter_inputs, pick_baseline_for_symbol
 
 
 def test_pass_share_deterministic():
@@ -28,12 +27,12 @@ def test_filter_inputs_share():
     # 10% share
     filtered = list(filter_inputs(rows, canary_share=0.1))
     # Statistical but deterministic; for 100 random symbols it should be around 10
-    assert 0 < len(filtered) < 30 
+    assert 0 < len(filtered) < 30
 
 
 def test_pick_baseline_for_symbol(tmp_path: Path):
     (tmp_path / "baseline.ndjson").write_text("{}\n", encoding="utf-8")
     assert pick_baseline_for_symbol(str(tmp_path), "BTCUSDT").endswith("baseline.ndjson")
-    
+
     (tmp_path / "baseline_BTCUSDT.ndjson").write_text("{}\n", encoding="utf-8")
     assert pick_baseline_for_symbol(str(tmp_path), "BTCUSDT").endswith("baseline_BTCUSDT.ndjson")

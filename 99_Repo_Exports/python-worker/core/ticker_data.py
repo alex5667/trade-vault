@@ -9,20 +9,20 @@
 
 import json
 import time
-from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from typing import Any
+
 from core.redis_client import get_redis
 
 
 class TickerDataManager:
     """Менеджер для работы с данными тикеров"""
-    
+
     def __init__(self):
         self.redis_client = get_redis()
         self.cache = {}
         self.cache_ttl = 60  # TTL кэша в секундах
-    
-    def get_ticker_data(self, symbol: str) -> Optional[Dict[str, Any]]:
+
+    def get_ticker_data(self, symbol: str) -> dict[str, Any] | None:
         """
         Получает данные тикера по символу из Redis ключей
         
@@ -42,13 +42,13 @@ class TickerDataManager:
                     return data
                 else:
                     print(f"📋 TickerDataManager: Кэш для {symbol} устарел, обновляем")
-            
+
             # Получаем данные из Redis ключа (где тикеры сохраняются индивидуально)
             key = f"binance:ticker24h:{symbol}"
             print(f"🔍 TickerDataManager: Ищем данные в Redis ключе {key}")
-            
+
             data = self.redis_client.get(key)
-            
+
             if data:
                 print(f"✅ TickerDataManager: Найдены данные для {symbol} в Redis")
                 try:
@@ -74,14 +74,14 @@ class TickerDataManager:
                     print(f"🔍 Сырые данные: {data[:200]}...")
             else:
                 print(f"❌ TickerDataManager: Данные для {symbol} не найдены в Redis")
-            
+
             return None
-            
+
         except Exception as e:
             print(f"❌ Ошибка при получении данных тикера для {symbol}: {e}")
             return None
-    
-    def get_ticker_24h_metrics(self, symbol: str) -> Optional[Dict[str, float]]:
+
+    def get_ticker_24h_metrics(self, symbol: str) -> dict[str, float] | None:
         """
         Получает 24h метрики тикера по символу
         
@@ -94,11 +94,11 @@ class TickerDataManager:
         ticker_data = self.get_ticker_data(symbol)
         if not ticker_data:
             return None
-        
+
         if not isinstance(ticker_data, dict):
             print(f"⚠️ Данные тикера для {symbol} не являются словарем: {type(ticker_data)}")
             return None
-        
+
         try:
             # Извлекаем числовые значения
             metrics = {
@@ -111,9 +111,9 @@ class TickerDataManager:
                 'volume': float(ticker_data.get('volume', 0)),
                 'quote_volume': float(ticker_data.get('quoteVolume', 0))
             }
-            
+
             return metrics
-            
+
         except (ValueError, TypeError) as e:
             print(f"❌ Ошибка при парсинге метрик для {symbol}: {e}")
             return None
@@ -129,12 +129,12 @@ class TickerDataManager:
             # Проверяем Redis ключ
             key = f"binance:ticker24h:{symbol}"
             data = self.redis_client.get(key)
-            
+
             if data:
                 print(f"🔍 Debug: Найден ключ {key}")
                 print(f"🔍 Debug: Тип данных: {type(data)}")
                 print(f"🔍 Debug: Размер данных: {len(data)} байт")
-                
+
                 try:
                     parsed = json.loads(data)
                     print(f"🔍 Debug: Тип после парсинга: {type(parsed)}")
@@ -148,7 +148,7 @@ class TickerDataManager:
                     print(f"🔍 Debug: Ошибка парсинга JSON: {e}")
             else:
                 print(f"🔍 Debug: Ключ {key} не найден в Redis")
-                
+
         except Exception as e:
             print(f"🔍 Debug: Ошибка при отладке данных тикера для {symbol}: {e}")
 
@@ -164,7 +164,7 @@ def _get_ticker_manager():
     return _ticker_manager
 
 
-def get_ticker_24h_metrics(symbol: str) -> Optional[Dict[str, float]]:
+def get_ticker_24h_metrics(symbol: str) -> dict[str, float] | None:
     """
     Удобная функция для получения 24h метрик тикера
     
@@ -177,7 +177,7 @@ def get_ticker_24h_metrics(symbol: str) -> Optional[Dict[str, float]]:
     return _get_ticker_manager().get_ticker_24h_metrics(symbol)
 
 
-def get_ticker_data(symbol: str) -> Optional[Dict[str, Any]]:
+def get_ticker_data(symbol: str) -> dict[str, Any] | None:
     """
     Удобная функция для получения полных данных тикера
     
@@ -187,7 +187,7 @@ def get_ticker_data(symbol: str) -> Optional[Dict[str, Any]]:
     Returns:
         Словарь с данными тикера или None, если данные не найдены
     """
-    return _get_ticker_manager().get_ticker_data(symbol) 
+    return _get_ticker_manager().get_ticker_data(symbol)
 
 
 def debug_ticker_data(symbol: str) -> None:
@@ -197,4 +197,4 @@ def debug_ticker_data(symbol: str) -> None:
     Args:
         symbol: Символ торговой пары
     """
-    return _get_ticker_manager().debug_ticker_data(symbol) 
+    return _get_ticker_manager().debug_ticker_data(symbol)

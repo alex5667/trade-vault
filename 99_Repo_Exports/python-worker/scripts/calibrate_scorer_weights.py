@@ -8,14 +8,15 @@ Inputs: signal_facts, trade_performance
 Outputs: suggested_weights.json
 """
 
-import os
+import argparse
 import json
 import logging
-import argparse
-import psycopg2
-import pandas as pd
-import numpy as np
+import os
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import psycopg2
 from sklearn.linear_model import LogisticRegression
 
 # Setup logging
@@ -28,7 +29,7 @@ def get_dsn():
 def fetch_calibration_data(lookback_days: int):
     dsn = get_dsn()
     logger.info(f"Connecting to {dsn.split('@')[-1]} ...")
-    
+
     query = f"""
     SELECT 
         s.signal_id,
@@ -45,11 +46,11 @@ def fetch_calibration_data(lookback_days: int):
     WHERE s.ts > NOW() - INTERVAL '{lookback_days} days'
     AND t.r IS NOT NULL
     """
-    
+
     conn = psycopg2.connect(dsn)
     df = pd.read_sql(query, conn)
     conn.close()
-    
+
     logger.info(f"Fetched {len(df)} signal-outcome pairs.")
     return df
 
@@ -64,22 +65,22 @@ def optimize_weights(df: pd.DataFrame):
     features = ['delta_spike_z', 'obi_avg_20', 'weak_progress_ratio']
     X = df[features].fillna(0).values
     y = df['is_win'].astype(int).values
-    
+
     if len(np.unique(y)) < 2:
         logger.warning("Single class in outcome. Cannot optimize.")
         return {f"w_{feat}": 1.0 for feat in features}
 
     model = LogisticRegression()
     model.fit(X, y)
-    
+
     importances = model.coef_[0]
     # Normalize importances to suggest new weights
     norm_importances = importances / np.sum(np.abs(importances))
-    
+
     suggested = {}
     for feat, imp in zip(features, norm_importances):
         suggested[f"w_{feat}"] = round(float(imp), 4)
-    
+
     return suggested
 
 def main():
@@ -91,10 +92,10 @@ def main():
     try:
         df = fetch_calibration_data(args.lookback)
         weights = optimize_weights(df)
-        
+
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(output_path, "w") as f:
             json.dump({
                 "phase": 2,
@@ -102,10 +103,10 @@ def main():
                 "suggested_weights": weights,
                 "sample_size": len(df)
             }, f, indent=4)
-            
+
         logger.info(f"Successfully saved calibrated weights to {args.output}")
         print(json.dumps(weights, indent=2))
-        
+
     except Exception as e:
         logger.error(f"Calibration failed: {e}")
         exit(1)

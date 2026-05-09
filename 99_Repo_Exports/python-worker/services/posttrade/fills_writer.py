@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """fills_writer — events:trades → fills table (Phase B).
 
@@ -33,22 +35,20 @@ FILLS_WRITER_BLOCK_MS=5000
 """
 
 import asyncio
-import json
 import logging
 import os
 import socket
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
     import redis.asyncio as aioredis  # type: ignore
 except Exception:  # pragma: no cover
     aioredis = None
 
+from common.redis_errors import is_redis_busy_loading_error, is_transient_error
 from services.posttrade.fill_event_contract import normalize_fill_event, validate_fill_event
 from services.posttrade.redis_stream_dlq import publish_dlq
-from common.redis_errors import is_transient_error, is_redis_busy_loading_error
 
 logger = logging.getLogger("fills_writer")
 
@@ -82,8 +82,8 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _decode_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _decode_fields(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -93,11 +93,11 @@ def _decode_fields(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def _event_type(ev: Dict[str, Any]) -> str:
+def _event_type(ev: dict[str, Any]) -> str:
     return str(ev.get("event_type") or ev.get("type") or ev.get("event") or "").upper().strip()
 
 
-def _fill_role(et: str) -> Optional[str]:
+def _fill_role(et: str) -> str | None:
     if et == "POSITION_OPENED":
         return "entry"
     if et == "POSITION_CLOSED":
@@ -105,7 +105,7 @@ def _fill_role(et: str) -> Optional[str]:
     return None
 
 
-def _best_effort_fee_bps(ev: Dict[str, Any]) -> Optional[float]:
+def _best_effort_fee_bps(ev: dict[str, Any]) -> float | None:
     # Prefer explicit fee_bps
     for k in ("fee_bps", "fees_bps"):
         if k in ev and ev.get(k) not in (None, ""):
@@ -139,7 +139,7 @@ class PgWriter:
             import psycopg2  # type: ignore
             return psycopg2.connect(self.dsn)
 
-    def upsert_fills(self, rows: List[Dict[str, Any]]) -> int:
+    def upsert_fills(self, rows: list[dict[str, Any]]) -> int:
         if not rows:
             return 0
         conn = self._connect()
@@ -175,11 +175,11 @@ class Cfg:
     batch_size: int
 
     @staticmethod
-    def from_env() -> "Cfg":
+    def from_env() -> Cfg:
         host = socket.gethostname()
         return Cfg(
             redis_url=_env("REDIS_URL", "redis://redis-worker-1:6379/0"),
-            stream=_env("TRADE_EVENTS_STREAM", "events:trades"),
+            stream=_env("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES),
             group=_env("TRADE_EVENTS_GROUP", "fills_writer_v1"),
             consumer=_env("TRADE_EVENTS_CONSUMER", f"{host}:{os.getpid()}"),
             block_ms=_env_int("FILLS_WRITER_BLOCK_MS", "5000"),
@@ -241,14 +241,14 @@ async def _ensure_group(
             raise
 
 
-def _to_fill_row(ev: Dict[str, Any], *, stream_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
+def _to_fill_row(ev: dict[str, Any], *, stream_id: str) -> tuple[dict[str, Any] | None, str]:
     et = _event_type(ev)
     role = _fill_role(et)
     if role is None:
         return None, "skip:not_fill"
 
     # Map trade events to canonical fill event keys
-    evt: Dict[str, Any] = {
+    evt: dict[str, Any] = {
         "sid": ev.get("sid") or ev.get("signal_id"),
         "order_id": ev.get("order_id") or ev.get("exit_order_id") or ev.get("position_id") or ev.get("event_id") or "",
         "ts_fill_ms": ev.get("ts_fill_ms") or ev.get("exit_ts_ms") or ev.get("ts") or ev.get("ts_ms"),
@@ -287,7 +287,7 @@ def _to_fill_row(ev: Dict[str, Any], *, stream_id: str) -> Tuple[Optional[Dict[s
         "ask_at_fill": norm.get("ask_at_fill"),
         "mid_at_fill": norm.get("mid_at_fill"),
         "event_type": et,
-        "event_id": str(ev.get("event_id") or ""),
+        "event_id": (ev.get("event_id") or ""),
         "stream_id": stream_id,
         "ts_insert_ms": _now_ms(),
     }
@@ -321,8 +321,8 @@ async def main() -> None:
             if not res:
                 continue
 
-            rows: List[Dict[str, Any]] = []
-            ack_ids: List[Any] = []
+            rows: list[dict[str, Any]] = []
+            ack_ids: list[Any] = []
             for _stream, msgs in res:
                 for mid, fields in msgs:
                     mid_s = mid.decode() if isinstance(mid, (bytes, bytearray)) else str(mid)

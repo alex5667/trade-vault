@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Optional
+
+from prometheus_client import Counter, Histogram
 
 from core.outbox_envelope import OutboxEnvelope
 from core.redis_keys import RedisStreams as RS
 from core.retention import MAXLEN_OUTBOX
-from prometheus_client import Counter, Histogram
+import contextlib
 
 # ── Prometheus metrics ────────────────────────────────────────────────────────
 OUTBOX_WRITE_LATENCY_SECONDS = Histogram(
@@ -39,7 +40,7 @@ class EmitResult:
     ok: bool
     written: bool
     duplicate: bool
-    entry_id: Optional[str] = None
+    entry_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,7 @@ class OutboxWriter:
         logger,
         metrics=None,
         stream_name: str = RS.SIGNAL_OUTBOX,
-        dedup_ttl_s: Optional[int] = None,
+        dedup_ttl_s: int | None = None,
         placeholder_ttl_s: int = 60,
         max_retries: int = 3,
         retry_backoff_ms: int = 30,
@@ -120,24 +121,20 @@ class OutboxWriter:
         if not ok:
             # уже было
             self._m_inc("outbox.duplicate")
-            try:
+            with contextlib.suppress(Exception):
                 OUTBOX_DEDUP_HIT_TOTAL.inc()
-            except Exception:
-                pass
             return EmitResult(ok=True, written=False, duplicate=True, entry_id=None)
 
         # 2) XADD с ретраями
-        entry_id: Optional[str] = None
-        last_err: Optional[Exception] = None
+        entry_id: str | None = None
+        last_err: Exception | None = None
         for i in range(max(1, self.cfg.max_retries)):
             _t_xadd = time.monotonic()
             try:
                 fields = env.to_stream_fields()
                 entry_id = self.redis.xadd(self.cfg.stream_name, fields, maxlen=MAXLEN_OUTBOX, approximate=True)
-                try:
+                with contextlib.suppress(Exception):
                     OUTBOX_WRITE_LATENCY_SECONDS.observe(time.monotonic() - _t_xadd)
-                except Exception:
-                    pass
                 break
             except Exception as e:
                 last_err = e
@@ -151,14 +148,10 @@ class OutboxWriter:
             # Удаление dedup-ключа привело бы к дубликату при повторном emit.
             # Поэтому замораживаем ключ на dedup_ttl_s (fail-closed).
             # Максимальное окно потери: dedup_ttl_s (≤1800s по умолчанию).
-            try:
+            with contextlib.suppress(Exception):
                 self._redis_set(dedup_key, "XADD_FAILED_FALLBACK", xx=True, ex=self.cfg.dedup_ttl_s)
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 OUTBOX_XADD_FAILED_FROZEN_TOTAL.inc()
-            except Exception:
-                pass
             self.logger.warning(f"Outbox XADD failed after retries: {last_err}")
             return EmitResult(ok=False, written=False, duplicate=False, entry_id=None)
 
@@ -176,7 +169,7 @@ class OutboxWriter:
         self._m_inc("outbox.written")
         return EmitResult(ok=True, written=True, duplicate=False, entry_id=str(entry_id))
 
-    def _redis_set(self, key: str, value: str, *, nx: bool = False, xx: bool = False, ex: Optional[int] = None) -> bool:
+    def _redis_set(self, key: str, value: str, *, nx: bool = False, xx: bool = False, ex: int | None = None) -> bool:
         """
         Совместимость с redis-py:
           redis.set(name, value, nx=True, xx=True, ex=seconds) -> True/False

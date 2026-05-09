@@ -4,14 +4,14 @@ Verifies the full normalization chain that every signal must pass through,
 including enum inputs (P0 regression), safe wrappers, and payload field contracts.
 """
 import pytest
+
 from common.enums.trading import Direction, Side
 from common.normalization import (
+    NormalizedSide,
+    generate_signal_id,
     normalize_side_3,
     normalize_side_3_safe,
-    generate_signal_id,
-    NormalizedSide,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

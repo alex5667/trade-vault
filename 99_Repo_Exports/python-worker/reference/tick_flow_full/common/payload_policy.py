@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
 import math
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+import os
+from typing import Any
 
 from common.json_fast import dumps1
 from common.json_safe import to_json_safe
@@ -21,7 +20,7 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(float(os.getenv(name, str(default)) or default))
     except Exception:
-        return int(default)
+        return default
 
 
 def _is_finite_float(x: float) -> bool:
@@ -75,7 +74,7 @@ def _truncate_str(s: Any, n: int) -> str:
     return ss[: max(0, n - 3)] + "..."
 
 
-def validate_tradeable_signal_payload(payload: Dict[str, Any]) -> None:
+def validate_tradeable_signal_payload(payload: dict[str, Any]) -> None:
     """
     Minimal strict schema for tradeable signal payload.
     Intentionally small and stable to avoid churn.
@@ -150,9 +149,9 @@ def validate_tradeable_signal_payload(payload: Dict[str, Any]) -> None:
 
 def enforce_payload_budget(
     *,
-    payload: Dict[str, Any],
-    payload_meta: Optional[Dict[str, Any]] = None,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    payload: dict[str, Any],
+    payload_meta: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """
     Enforces:
       - string caps
@@ -160,8 +159,8 @@ def enforce_payload_budget(
       - total JSON bytes cap
     If overflow: moves large blobs to payload_meta and degrades payload to a safe minimal core.
     """
-    pm: Dict[str, Any] = dict(payload_meta or {})
-    p: Dict[str, Any] = dict(payload or {})
+    pm: dict[str, Any] = dict(payload_meta or {})
+    p: dict[str, Any] = dict(payload or {})
 
     # 1) cap strings in the top-level known noisy fields
     maxs = payload_max_strlen()
@@ -233,11 +232,11 @@ def enforce_payload_budget(
 
 def enforce_and_validate_payload(
     *,
-    payload: Dict[str, Any],
-    payload_meta: Optional[Dict[str, Any]] = None,
-    logger: Optional[Any] = None,
+    payload: dict[str, Any],
+    payload_meta: dict[str, Any] | None = None,
+    logger: Any | None = None,
     where: str = "",
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """
     Single entry point:
       - enforce budget
@@ -259,7 +258,7 @@ def enforce_and_validate_payload(
         # warn
         try:
             if logger is not None:
-                logger.error(dumps1({"event": "payload_policy_violation", "where": where, "reason": e.reason, "path": e.path, "sid": str(p2.get("sid") or "")}))
+                logger.error(dumps1({"event": "payload_policy_violation", "where": where, "reason": e.reason, "path": e.path, "sid": (p2.get("sid") or "")}))
         except Exception:
             pass
         return p2, m2

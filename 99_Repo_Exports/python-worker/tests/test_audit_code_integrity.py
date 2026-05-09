@@ -1,8 +1,9 @@
 """Test code integrity audit: detect duplicate def/class."""
 
-import tempfile
 import os
-from tools.audit_code_integrity import scan_file, DefInfo
+import tempfile
+
+from tools.audit_code_integrity import scan_file
 
 
 def test_scan_file_no_duplicates():

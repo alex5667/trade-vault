@@ -1,6 +1,6 @@
 """P4.9 test: Grafana dashboard JSON has required policy panels."""
-from pathlib import Path
 import json
+from pathlib import Path
 
 
 def test_p49_dashboard_has_policy_panels() -> None:

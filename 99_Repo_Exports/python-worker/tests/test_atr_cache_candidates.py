@@ -1,13 +1,11 @@
-from utils.time_utils import get_ny_time_millis
-# -*- coding: utf-8 -*-
 import json
-import time
-import pytest
 
+from utils.time_utils import get_ny_time_millis
 
 
 def test_atr_cache_candidates_and_prefer_src(monkeypatch):
     import fakeredis
+
     from utils.atr_cache import ATRCache
 
     r = fakeredis.FakeRedis(decode_responses=True)

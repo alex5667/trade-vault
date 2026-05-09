@@ -1,9 +1,7 @@
-from utils.time_utils import get_ny_time_millis
-# -*- coding: utf-8 -*-
 import json
-import time
 import unittest
-from unittest.mock import MagicMock
+
+from utils.time_utils import get_ny_time_millis
 
 # Since fakeredis might not be installed, we use a MockRedis simple implementation
 # that mimics enough of redis for our tests.
@@ -32,7 +30,7 @@ class MockRedis:
 
     def get(self, key):
         return self.data.get(key)
-        
+
     def delete(self, *keys):
         count = 0
         for k in keys:
@@ -40,7 +38,7 @@ class MockRedis:
                 del self.data[k]
                 count += 1
         return count
-        
+
     def scan_iter(self, match="*", count=10):
         # Very simple glob match
         import fnmatch
@@ -156,7 +154,7 @@ class TestAtrCacheSourceSelection(unittest.TestCase):
         # We can use unittest.mock.patch.dict
         import os
         from unittest.mock import patch
-        
+
         with patch.dict(os.environ, {"ATR_SRC_CONSIST_TOL": "0.10"}):
              atr, meta = c.get_with_meta(sym, tf, now_ms=now_ms)
              self.assertIsNotNone(atr)

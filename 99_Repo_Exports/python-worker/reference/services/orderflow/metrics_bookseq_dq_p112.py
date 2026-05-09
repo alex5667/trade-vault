@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Prometheus metrics for Book missing-seq + DQ policy (P112).
 
 Why a separate module?
@@ -19,11 +20,12 @@ DoD constraints:
 
 
 import logging
-from typing import Optional, Sequence, Type, TypeVar
+from collections.abc import Sequence
+from typing import TypeVar
 
 try:
     # prometheus_client is an optional runtime dependency in some dev setups.
-    from prometheus_client import Counter, Gauge, REGISTRY  # type: ignore
+    from prometheus_client import REGISTRY, Counter, Gauge  # type: ignore
     from prometheus_client.registry import Collector  # type: ignore
 except Exception:  # pragma: no cover
     Counter = Gauge = object  # type: ignore
@@ -38,7 +40,7 @@ TCollector = TypeVar("TCollector", bound="Collector")
 
 def _get_or_create(
     name: str,
-    ctor: Type[TCollector],
+    ctor: type[TCollector],
     documentation: str,
     labelnames: Sequence[str] = (),
 ):
@@ -122,7 +124,7 @@ _DQ_BUCKET_ALLOWED = {
 }
 
 
-def sanitize_dq_bucket(bucket: Optional[str]) -> str:
+def sanitize_dq_bucket(bucket: str | None) -> str:
     """Sanitize dq bucket to a finite set to avoid high cardinality labels."""
     if not bucket:
         return "other"
@@ -149,13 +151,13 @@ dq_veto_total = _get_or_create(
 )
 
 
-def emit_dq_metrics(symbol: str, dq_level: int, dq_veto: int, bucket: Optional[str]) -> None:
+def emit_dq_metrics(symbol: str, dq_level: int, dq_veto: int, bucket: str | None) -> None:
     """Best-effort emission of dq gate metrics.
 
     Intended to be called from tick_processor/of_confirm_engine after
     dq_level/dq_veto/bucket are computed.
     """
-    sym = str(symbol)
+    sym = symbol
     try:
         if dq_level_gauge is not None:
             dq_level_gauge.labels(symbol=sym).set(int(dq_level))

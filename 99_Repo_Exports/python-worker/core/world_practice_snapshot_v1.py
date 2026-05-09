@@ -15,34 +15,34 @@ Different hot-path components attach tracker outputs in slightly different ways:
 This module is intentionally tiny and dependency-free (no Redis/DB).
 """
 
-from typing import Any, Dict
 import math
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         v = float(x)
-        return v if math.isfinite(v) else float(d)
+        return v if math.isfinite(v) else d
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(d)
+        return d
 
 
 def _s(x: Any, d: str = "na") -> str:
     try:
-        s = str(x or "").strip()
+        s = (x or "").strip()
         return s if s else d
     except Exception:
         return d
 
 
-def extract_world_practice_indicators(dynamic_cfg: Dict[str, Any]) -> Dict[str, Any]:
+def extract_world_practice_indicators(dynamic_cfg: dict[str, Any]) -> dict[str, Any]:
     """Extract stable indicator keys from runtime.dynamic_cfg (fail-open).
 
     Output keys (subset):
@@ -53,7 +53,7 @@ def extract_world_practice_indicators(dynamic_cfg: Dict[str, Any]) -> Dict[str, 
     """
     dc = dynamic_cfg or {}
 
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
 
     # Vol regime
     out["vol_fast_bps"] = _f(dc.get("vol_fast_bps", 0.0), 0.0)

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
-from core.meta_features_v3 import META_FEAT_V3_COLS, build_meta_features_v3
 from core.book_microstructure_v4 import compute_microstructure_v4
+from core.meta_features_v3 import META_FEAT_V3_COLS, build_meta_features_v3
 
 META_FEAT_V4_NAME = "meta_feat_v4"
 META_FEAT_V4_VERSION = 4
@@ -31,7 +31,7 @@ META_FEAT_V4_HASH = hashlib.sha256(
 ).hexdigest()[:16]
 
 # Default transforms
-META_FEAT_V4_TRANSFORMS: Dict[str, Dict[str, Any]] = {
+META_FEAT_V4_TRANSFORMS: dict[str, dict[str, Any]] = {
     # Depths are strictly positive, log1p
     "depth_bid_5": {"name": "log1p"},
     "depth_ask_5": {"name": "log1p"},
@@ -41,12 +41,12 @@ META_FEAT_V4_TRANSFORMS: Dict[str, Dict[str, Any]] = {
 }
 
 def build_meta_features_v4(
-    evidence: Dict[str, Any],
-    indicators: Dict[str, Any],
-    runtime_snap: Optional[Any] = None, # book_state.snap
-    runtime_prev_snap: Optional[Any] = None, # book_state.prev_snap
-    indicators_with_v4: Optional[Dict[str, Any]] = None,
-    legs: Optional[Dict[str, Any]] = None,
+    evidence: dict[str, Any],
+    indicators: dict[str, Any],
+    runtime_snap: Any | None = None, # book_state.snap
+    runtime_prev_snap: Any | None = None, # book_state.prev_snap
+    indicators_with_v4: dict[str, Any] | None = None,
+    legs: dict[str, Any] | None = None,
     have: int = 0,
     need: int = 0,
     ok_soft: int = 0,
@@ -54,12 +54,12 @@ def build_meta_features_v4(
     exec_risk_norm: float = 0.0,
     exec_risk_bps: float = 0.0,
     ml_scenario: str = "",
-) -> Tuple[Dict[str, float], List[str]]:
+) -> tuple[dict[str, float], list[str]]:
     """
     Builds meta_feat_v4 features.
     Delegates to v3 for base features, then adds microprice/slope v4 features.
     """
-    
+
     # 1. Base V3 (which calls V2->V1)
     feat, missing = build_meta_features_v3(
         evidence=evidence,
@@ -76,20 +76,20 @@ def build_meta_features_v4(
         exec_risk_bps=exec_risk_bps,
         ml_scenario=ml_scenario,
     )
-    
+
     # 2. Add V4 Microstructure Features
     # We compute these on-the-fly from snaps if available
-    
+
     micro_v4 = {}
     if runtime_snap is not None:
          # Compute V4 features
          micro_v4 = compute_microstructure_v4(runtime_snap, runtime_prev_snap, levels=5)
-    
+
     # 3. Merge into feat
     for k in META_FEAT_V4_NEW_COLS:
         if k in micro_v4:
              feat[k] = float(micro_v4[k])
-        
+
         # Fallback 1: Direct availability in evidence
         elif k in evidence:
              try:
@@ -118,5 +118,5 @@ def build_meta_features_v4(
              # Missing
              feat[k] = 0.0
              missing.append(k)
-             
+
     return feat, missing

@@ -10,10 +10,11 @@ policy decisions and later be exported to Prometheus.
 import json
 import math
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 
-def _loads_payload(obj: Mapping[str, Any]) -> Dict[str, Any]:
+def _loads_payload(obj: Mapping[str, Any]) -> dict[str, Any]:
     payload = obj.get('payload')
     if isinstance(payload, dict):
         return dict(payload)
@@ -27,10 +28,10 @@ def _loads_payload(obj: Mapping[str, Any]) -> Dict[str, Any]:
     return dict(obj)
 
 
-def load_jsonl(path: str) -> List[Dict[str, Any]]:
+def load_jsonl(path: str) -> list[dict[str, Any]]:
     """Load a JSONL file, handling optional payload-envelope wrapping."""
-    rows: List[Dict[str, Any]] = []
-    with open(path, 'r', encoding='utf-8') as f:
+    rows: list[dict[str, Any]] = []
+    with open(path, encoding='utf-8') as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -55,9 +56,9 @@ def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         f = float(v)
     except Exception:
-        return float(default)
+        return default
     if not math.isfinite(f):
-        return float(default)
+        return default
     return float(f)
 
 
@@ -65,10 +66,10 @@ def _to_int(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
-def normalize_row(row: Mapping[str, Any]) -> Dict[str, Any]:
+def normalize_row(row: Mapping[str, Any]) -> dict[str, Any]:
     """Normalize a raw dataset row to a canonical schema.
 
     Accepts a wide variety of field aliases so the bundle can work with
@@ -129,7 +130,7 @@ def evaluate_rows(
     *,
     top_frac: float = 0.05,
     primary_metric: str = 'net_expectancy',
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Evaluate a sequence of dataset rows and return a metrics dict.
 
     Returns universal metrics plus per-period/variant structures needed for PSR/PBO.
@@ -174,15 +175,15 @@ def evaluate_rows(
     metrics['primary_metric_name'] = str(primary_metric)
     metrics['primary_metric_value'] = float(metrics.get(str(primary_metric), metrics['net_expectancy']))
 
-    by_period: Dict[str, List[float]] = defaultdict(list)
-    by_variant_period: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
+    by_period: dict[str, list[float]] = defaultdict(list)
+    by_variant_period: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     for r in norm:
         if r['period']:
             by_period[str(r['period'])].append(float(r['net_r']))
             by_variant_period[str(r['variant'])][str(r['period'])].append(float(r['net_r']))
 
     per_period_net = [mean(by_period[k]) for k in sorted(by_period)]
-    variant_period_matrix: Dict[str, List[float]] = {}
+    variant_period_matrix: dict[str, list[float]] = {}
     if by_period and by_variant_period:
         ordered_periods = sorted(by_period)
         for variant, per_map in sorted(by_variant_period.items()):

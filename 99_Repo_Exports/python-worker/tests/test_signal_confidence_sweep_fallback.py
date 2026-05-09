@@ -1,6 +1,6 @@
 
-import pytest
 from services.signal_confidence import ConfidenceScorer
+
 
 class MockContext:
     def __init__(self, **kwargs):
@@ -9,11 +9,11 @@ class MockContext:
 
 def test_sweep_fallback_score():
     scorer = ConfidenceScorer()
-    
+
     # 1. Baseline (no sweep)
     ctx = MockContext(confirmations=[])
     score_base, parts_base = scorer.score(ctx=ctx)
-    
+
     # 2. Specific EQH sweep (strong)
     # sweep_eqh should trigger high confidence boost
     ctx_eqh = MockContext(confirmations=["sweep_eqh=1"])
@@ -21,7 +21,7 @@ def test_sweep_fallback_score():
     assert score_eqh >= score_base
     # bonus_generic comes from 0.03 * clamp(s_sweep). s_sweep for eqh is 0.8.
     # 0.03 * 0.8 = 0.024.
-    assert parts_eqh.get("bonus_generic", 0) > 0.02 
+    assert parts_eqh.get("bonus_generic", 0) > 0.02
 
     # 3. Generic sweep (fallback default 0.5)
     ctx_fallback = MockContext(confirmations=["sweep=1"])
@@ -37,7 +37,7 @@ def test_sweep_fallback_score():
     score_weak, parts_weak = scorer.score(ctx=ctx_weak)
     # s_sweep = 0.1 -> 0.03 * 0.1 = 0.003
     assert parts_weak.get("bonus_generic", 0) < parts_fallback.get("bonus_generic", 0)
-    
+
     # 5. Configured fallback (strong)
     # 0.9 -> 0.027
     ctx_strong = MockContext(confirmations=["sweep=1"], sweep_simple_strength=0.9)

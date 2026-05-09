@@ -3,36 +3,36 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 
 @dataclass
 class Requirements:
-    top: Set[str]
-    nested: Dict[str, Set[str]]
-    files: List[str]
+    top: set[str]
+    nested: dict[str, set[str]]
+    files: list[str]
 
 
 def _is_name(n: ast.AST, name: str) -> bool:
     return isinstance(n, ast.Name) and n.id == name
 
 
-def _str_const(n: ast.AST) -> Optional[str]:
+def _str_const(n: ast.AST) -> str | None:
     if isinstance(n, ast.Constant) and isinstance(n.value, str):
         return n.value
     return None
 
 
-def _find_function(tree: ast.AST, name: str) -> Optional[ast.FunctionDef]:
+def _find_function(tree: ast.AST, name: str) -> ast.FunctionDef | None:
     for n in ast.walk(tree):
         if isinstance(n, ast.FunctionDef) and n.name == name:
             return n
     return None
 
 
-def _collect_param_fields(node: ast.AST, param: str) -> Set[str]:
+def _collect_param_fields(node: ast.AST, param: str) -> set[str]:
     """Collect attribute / dict-key reads on a parameter name."""
-    out: Set[str] = set()
+    out: set[str] = set()
     ignore_attrs = {"get", "items", "keys", "values"}
 
     class V(ast.NodeVisitor):
@@ -70,12 +70,12 @@ def _collect_param_fields(node: ast.AST, param: str) -> Set[str]:
     return out
 
 
-def _collect_engine_runtime_deps(engine_py: Path) -> Tuple[Set[str], Dict[str, Set[str]]]:
+def _collect_engine_runtime_deps(engine_py: Path) -> tuple[set[str], dict[str, set[str]]]:
     src = engine_py.read_text(encoding="utf-8")
     tree = ast.parse(src, filename=str(engine_py))
-    top: Set[str] = set()
-    nested: Dict[str, Set[str]] = {}
-    alias: Dict[str, str] = {}
+    top: set[str] = set()
+    nested: dict[str, set[str]] = {}
+    alias: dict[str, str] = {}
 
     def add_nested(key: str, field: str) -> None:
         if not key.startswith("last_"):
@@ -131,13 +131,13 @@ def _collect_engine_runtime_deps(engine_py: Path) -> Tuple[Set[str], Dict[str, S
 
 def collect_requirements(repo_root: str | Path) -> Requirements:
     root = Path(repo_root)
-    files_scanned: List[str] = []
+    files_scanned: list[str] = []
 
     engine_py = root / "core" / "of_confirm_engine.py"
     top, nested = _collect_engine_runtime_deps(engine_py)
     files_scanned.append(str(engine_py.relative_to(root)))
 
-    evidence_map: Dict[str, Tuple[Path, str, str]] = {
+    evidence_map: dict[str, tuple[Path, str, str]] = {
         "last_sweep": (root / "core" / "of_evidence.py", "compute_sweep_recent", "last_sweep"),
         "last_reclaim": (root / "core" / "of_evidence.py", "compute_reclaim_recent", "last_reclaim"),
         "last_fp_edge": (root / "core" / "fp_edge_evidence.py", "compute_fp_edge_absorb", "last_edge"),
@@ -162,7 +162,7 @@ def collect_requirements(repo_root: str | Path) -> Requirements:
     return Requirements(top=top, nested=nested, files=sorted(set(files_scanned)))
 
 
-def to_json(req: Requirements) -> Dict[str, Any]:
+def to_json(req: Requirements) -> dict[str, Any]:
     return {
         "top": sorted(req.top),
         "nested": {k: sorted(v) for k, v in sorted(req.nested.items())},
@@ -170,7 +170,7 @@ def to_json(req: Requirements) -> Dict[str, Any]:
     }
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     import argparse
     import json
     ap = argparse.ArgumentParser(description="Extract runtime_snapshot field requirements from code (AST scan)")

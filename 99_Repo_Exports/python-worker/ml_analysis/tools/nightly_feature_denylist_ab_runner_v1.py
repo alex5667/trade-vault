@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Nightly runner for feature-denylist proposals (AB gate).
 
 Scans proposals dir for manifests with status=pending_ab and runs
@@ -29,16 +30,16 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
     import redis  # type: ignore
 except Exception:  # pragma: no cover
     redis = None
 
-UTC = timezone.utc
+UTC = UTC
 
 
 def _utc_now() -> datetime:
@@ -59,16 +60,16 @@ def _get_redis():
         return None
 
 
-def _read_json(path: Path) -> Dict[str, Any]:
+def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _write_metrics(payload: Dict[str, Any]) -> None:
+def _write_metrics(payload: dict[str, Any]) -> None:
     key = os.getenv("FEATURE_DENYLIST_AB_METRICS_KEY", "metrics:feature_denylist_ab:last")
     r = _get_redis()
     if r is None:
         return
-    flat: Dict[str, str] = {}
+    flat: dict[str, str] = {}
     for k, v in payload.items():
         if v is None:
             continue
@@ -83,14 +84,14 @@ def _write_metrics(payload: Dict[str, Any]) -> None:
         return
 
 
-def _list_pending(proposals_dir: Path) -> List[Path]:
-    out: List[Path] = []
+def _list_pending(proposals_dir: Path) -> list[Path]:
+    out: list[Path] = []
     if not proposals_dir.exists():
         return out
     for p in proposals_dir.glob("denylist_proposal_*.manifest.json"):
         try:
             m = _read_json(p)
-            if str(m.get("status") or "") == "pending_ab":
+            if (m.get("status") or "") == "pending_ab":
                 out.append(p)
         except Exception:
             continue
@@ -99,7 +100,7 @@ def _list_pending(proposals_dir: Path) -> List[Path]:
     return out
 
 
-def _run_replay_ab(manifest: Path, out_dir: Optional[Path] = None) -> Tuple[int, str, str]:
+def _run_replay_ab(manifest: Path, out_dir: Path | None = None) -> tuple[int, str, str]:
     cmd = [sys.executable, "-m", "ml_analysis.tools.feature_denylist_replay_ab_v1", "--manifest", str(manifest)]
     if out_dir is not None:
         cmd += ["--out_dir", str(out_dir)]
@@ -150,7 +151,7 @@ def main() -> int:
         print(json.dumps({"pending_n": len(pending), "oldest_pending_age_s": oldest_age_s}, ensure_ascii=False))
         return 0
 
-    processed: List[Dict[str, Any]] = []
+    processed: list[dict[str, Any]] = []
     ok_n = 0
     fail_n = 0
 

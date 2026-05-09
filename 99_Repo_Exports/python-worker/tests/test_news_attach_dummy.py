@@ -3,7 +3,7 @@ class DummyEnricher:
         self.calls = 0
     def attach(self, ctx, asset_class=""):
         self.calls += 1
-        ctx.news = getattr(ctx, "news") or None
+        ctx.news = ctx.news or None
 
 
 def test_dummy_enricher_attach_is_called():

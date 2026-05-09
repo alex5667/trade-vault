@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 from core.ab_lcb_evaluator import choose_winner_lcb, default_regime_policy
 

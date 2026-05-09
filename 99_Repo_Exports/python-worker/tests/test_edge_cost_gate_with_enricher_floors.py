@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
 from signals.level_enricher import attach_trade_levels_to_ctx

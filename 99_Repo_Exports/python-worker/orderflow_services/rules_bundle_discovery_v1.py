@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Rules bundle discovery helper.
 
 This module centralizes *one* include-list (manifest) for all tools that need
@@ -17,18 +18,17 @@ The manifest itself uses glob patterns (relative to repo root).
 """,
 import glob
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional
 
 import yaml
-
 
 DEFAULT_MANIFEST_V2 = "orderflow_services/prometheus_rules_bundle_manifest_v2.yml"
 DEFAULT_MANIFEST_V1 = "orderflow_services/prometheus_rules_bundle_manifest_v1.yml"
 
 # Safe fallback if manifests are missing.
-FALLBACK_PATTERNS: List[str] = [
+FALLBACK_PATTERNS: list[str] = [
     "orderflow_services/prometheus_alerts_*.yml",
     "orderflow_services/prometheus_rules_*.yml",
     "tick_flow_full/orderflow_services/prometheus_alerts_*.yml",
@@ -56,7 +56,7 @@ def _looks_like_include_stub(*, path: Path) -> bool:
     be excluded from discovery to keep validation and probes deterministic.
     """,
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             doc = yaml.safe_load(fh)
     except Exception:
         return False
@@ -66,9 +66,9 @@ def _looks_like_include_stub(*, path: Path) -> bool:
 
 @dataclass(frozen=True)
 class BundleDiscoveryResult:
-    manifest_path: Optional[Path]
-    patterns: List[str]
-    files: List[Path]
+    manifest_path: Path | None
+    patterns: list[str]
+    files: list[Path]
 
 
 def _repo_root_from_file() -> Path:
@@ -76,7 +76,7 @@ def _repo_root_from_file() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _resolve_manifest_path(repo_root: Path, manifest_ref: Optional[str]) -> Optional[Path]:
+def _resolve_manifest_path(repo_root: Path, manifest_ref: str | None) -> Path | None:
     if manifest_ref:
         ref = str(manifest_ref).strip()
         if ref:
@@ -103,9 +103,9 @@ def _resolve_manifest_path(repo_root: Path, manifest_ref: Optional[str]) -> Opti
     return None
 
 
-def _load_patterns_from_manifest(path: Path) -> List[str]:
+def _load_patterns_from_manifest(path: Path) -> list[str]:
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             doc = yaml.safe_load(fh)
     except Exception:
         return []
@@ -115,7 +115,7 @@ def _load_patterns_from_manifest(path: Path) -> List[str]:
 
     # v2 key
     if "rule_files" in doc and isinstance(doc.get("rule_files"), list):
-        out: List[str] = []
+        out: list[str] = []
         for x in doc.get("rule_files"):
             if isinstance(x, str) and x.strip():
                 out.append(x.strip())
@@ -132,8 +132,8 @@ def _load_patterns_from_manifest(path: Path) -> List[str]:
     return []
 
 
-def _iter_glob_paths(repo_root: Path, patterns: Iterable[str]) -> List[Path]:
-    files: List[Path] = []
+def _iter_glob_paths(repo_root: Path, patterns: Iterable[str]) -> list[Path]:
+    files: list[Path] = []
     for pat in patterns:
         pat = (pat or "").strip()
         if not pat:
@@ -161,13 +161,13 @@ def _iter_glob_paths(repo_root: Path, patterns: Iterable[str]) -> List[Path]:
 
 def discover_rules_bundle(
     *,
-    repo_root: Optional[Path] = None,
-    manifest_ref: Optional[str] = None,
+    repo_root: Path | None = None,
+    manifest_ref: str | None = None,
 ) -> BundleDiscoveryResult:
     root = repo_root or _repo_root_from_file()
     manifest_path = _resolve_manifest_path(root, manifest_ref)
 
-    patterns: List[str] = []
+    patterns: list[str] = []
     if manifest_path and manifest_path.exists():
         patterns = _load_patterns_from_manifest(manifest_path)
 
@@ -178,5 +178,5 @@ def discover_rules_bundle(
     return BundleDiscoveryResult(manifest_path=manifest_path, patterns=patterns, files=files)
 
 
-def discover_rule_files(*, repo_root: Optional[Path] = None, manifest_ref: Optional[str] = None) -> List[Path]:
+def discover_rule_files(*, repo_root: Path | None = None, manifest_ref: str | None = None) -> list[Path]:
     return discover_rules_bundle(repo_root=repo_root, manifest_ref=manifest_ref).files

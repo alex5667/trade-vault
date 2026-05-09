@@ -1,10 +1,12 @@
 import json
 import logging
 import time
-from typing import Any, Dict
+from typing import Any
+
 import redis
 
 from .dto import MLConfirmDecision
+import contextlib
 
 logger = logging.getLogger("ml_confirm_gate.metrics")
 
@@ -59,7 +61,7 @@ def emit_metrics(
     cancel_spike_veto: int,
     ok_rule: int,
     sid: str,
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     metrics_stream: str,
     metrics_enable: bool,
     metrics_sample: float,
@@ -74,7 +76,7 @@ def emit_metrics(
 
     payload = {
         "event_time": int(time.time() * 1000),
-        "symbol": str(symbol).upper(),
+        "symbol": symbol.upper(),
         "ts_ms": int(ts_ms),
         "direction": str(direction).upper(),
         "scenario": str(scenario),
@@ -105,11 +107,11 @@ def emit_metrics(
 
         "cfg_key_used": str(dec.cfg_key_used),
         "cfg_source": str(dec.cfg_source),
-        
+
         "ml_p_edge_raw": float(dec.p_edge_raw),
         "ml_p_edge_cal": float(dec.p_edge_cal),
         "ml_calib_type": str(dec.calib_type),
-        
+
         "ml_exec_risk_ref_bps": float(dec.exec_risk_ref_bps),
         "ml_exec_risk_bps": float(dec.exec_risk_bps),
         "ml_exec_risk_norm": float(dec.exec_risk_norm),
@@ -132,7 +134,7 @@ def capture_replay_input(
     ts_ms: int,
     direction: str,
     scenario: str,
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     rule_score: float,
     rule_have: int,
     rule_need: int,
@@ -155,7 +157,7 @@ def capture_replay_input(
 
     payload = {
         "event_time": int(time.time() * 1000),
-        "symbol": str(symbol).upper(),
+        "symbol": symbol.upper(),
         "ts_ms": int(ts_ms),
         "direction": str(direction).upper(),
         "scenario": str(scenario),
@@ -170,8 +172,6 @@ def capture_replay_input(
         "ml_allow": int(dec.allow),
         "ml_status": dec.status,
     }
-    
-    try:
+
+    with contextlib.suppress(Exception):
         r.xadd(replay_stream, payload, maxlen=replay_maxlen, approximate=True)
-    except Exception:
-        pass

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Compile + YAML-syntax tests for P77/P90 enforce bucket scripts.
 
 Tests:
@@ -7,8 +6,9 @@ Tests:
 """
 
 import py_compile
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 def test_scripts_compile():

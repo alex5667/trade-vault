@@ -1,13 +1,12 @@
 
-import sys
 import os
-from datetime import datetime, timezone
-from pprint import pprint
+import sys
 
 # Ensure python-worker root is in path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from regime.signal_snapshot import SignalSnapshot, SignalL3Snapshot
+from regime.signal_snapshot import SignalSnapshot
+
 
 def verify_signal_snapshot_extra():
     print("🚀 Verifying SignalSnapshot extra field preservation...")
@@ -36,7 +35,7 @@ def verify_signal_snapshot_extra():
 
     # Verify extra field population
     print(f"\nSnapshot extra field: {snapshot.extra}")
-    
+
     assert "indicators" in snapshot.extra, "❌ 'indicators' missing from snapshot.extra"
     assert snapshot.extra["indicators"]["confidence_v1"] == 85.5, "❌ confidence_v1 mismatch"
     assert snapshot.extra["indicators"]["confidence_v2"] == 82.3, "❌ confidence_v2 mismatch"
@@ -47,10 +46,10 @@ def verify_signal_snapshot_extra():
     # Verify to_dict output
     output = snapshot.to_dict()
     print(f"\nSnapshot to_dict output keys: {list(output.keys())}")
-    
+
     assert "extra" in output, "❌ 'extra' missing from to_dict output"
     assert output["extra"]["indicators"]["confidence_v2"] == 82.3, "❌ confidence_v2 missing in output"
-    
+
     print("✅ SignalSnapshot.to_dict() correctly includes 'extra'.")
     print("\n🎉 Verification SUCCESS!")
 

@@ -1,5 +1,7 @@
 import asyncio
+
 from services.ml_confirm_gate import MLConfirmGate
+
 
 async def main():
     gate = MLConfirmGate.from_env()
@@ -9,9 +11,9 @@ async def main():
             import redis
             r = redis.Redis.from_url("redis://redis-worker-1:6379/0", decode_responses=True)
             return r.get(key)
-    
+
     await gate.refresh_async(MockRedisAsync())
-    
+
     dec = await gate.check_async(
         symbol="SOLUSDT",
         ts_ms=1777109030000,

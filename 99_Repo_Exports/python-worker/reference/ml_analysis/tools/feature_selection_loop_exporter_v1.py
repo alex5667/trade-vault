@@ -1,13 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
-import time
-from typing import Dict
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
-import uvicorn
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _env(name: str, default: str = "") -> str:
@@ -21,7 +20,7 @@ PORT = int(_env("FEATURE_SELECTION_LOOP_EXPORTER_PORT", "9821"))
 app = FastAPI()
 
 
-def _read_redis() -> Dict[str, str]:
+def _read_redis() -> dict[str, str]:
     if not REDIS_URL:
         return {}
     try:
@@ -29,7 +28,7 @@ def _read_redis() -> Dict[str, str]:
 
         r = redis.Redis.from_url(REDIS_URL)
         d = r.hgetall(METRICS_KEY)
-        out: Dict[str, str] = {}
+        out: dict[str, str] = {}
         for k, v in d.items():
             try:
                 out[k.decode("utf-8")] = v.decode("utf-8")
@@ -133,7 +132,7 @@ def metrics() -> PlainTextResponse:
 
 
 @app.get("/healthz")
-def healthz() -> Dict[str, str]:
+def healthz() -> dict[str, str]:
     return {"ok": "1"}
 
 

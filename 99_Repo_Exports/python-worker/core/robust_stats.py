@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from collections import deque
-from typing import Deque, Optional, List, Any
 import math
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Any
 
 
-def _median(xs: List[float]) -> float:
+def _median(xs: list[float]) -> float:
     if not xs:
         return 0.0
     ys = sorted(xs)
@@ -32,14 +32,14 @@ class RollingRobustZ:
     """
     window: int = 300
     eps: float = 1e-12
-    buf: Deque[float] = field(default_factory=lambda: deque(maxlen=300))
+    buf: deque[float] = field(default_factory=lambda: deque(maxlen=300))
 
     # GPU state — legacy pageable path (used only when ring_buf unavailable)
-    _gpu_buf: Optional[Any] = field(default=None, repr=False)
+    _gpu_buf: Any | None = field(default=None, repr=False)
     _gpu_dirty: bool = field(default=True, repr=False)
 
     # GPU state — pinned ring-buffer path (primary GPU acceleration)
-    _ring_buf: Optional[Any] = field(default=None, repr=False)
+    _ring_buf: Any | None = field(default=None, repr=False)
     _ring_buf_init: bool = field(default=False, repr=False)
 
     def __post_init__(self) -> None:

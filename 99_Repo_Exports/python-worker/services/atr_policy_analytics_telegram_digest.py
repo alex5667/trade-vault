@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+
 import psycopg2
 import psycopg2.extras
+from core.redis_keys import RedisStreams as RS
 
 try:
     import redis
@@ -78,11 +80,11 @@ def publish_digest() -> bool:
         if chat_id:
             payload["chat_id"] = chat_id
         try:
-            _redis().xadd("notify:telegram", payload, maxlen=5000, approximate=True)
+            _redis().xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=5000, approximate=True)
         except Exception as e:
             print(f"Failed to publish digest: {e}")
             return False
-            
+
         return True
     finally:
         conn.close()

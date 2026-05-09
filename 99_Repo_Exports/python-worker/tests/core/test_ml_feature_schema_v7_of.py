@@ -1,16 +1,18 @@
 from __future__ import annotations
+
 """Tests for core.ml_feature_schema_v7_of.MLFeatureSchemaV7OF."""
 
 import pytest
-from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
+
 from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF
+from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
 
 SCHEMA_HASH = "3cb5b9874cd7"
 
 
 try:
-    from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
     from core.ml_feature_schema_v6_of import MLFeatureSchemaV6OF
+    from core.ml_feature_schema_v7_of import MLFeatureSchemaV7OF
 except ImportError as e:
     pytest.skip(f"MLFeatureSchemaV7OF/V6OF недоступен: {e}", allow_module_level=True)
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Execution Bootstrap Supervisor (P1.2.3).
@@ -32,8 +33,9 @@ import argparse
 import json
 import os
 import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 try:  # pragma: no cover
     import redis  # type: ignore
@@ -41,7 +43,7 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 try:  # pragma: no cover
-    from prometheus_client import Gauge, REGISTRY
+    from prometheus_client import REGISTRY, Gauge
 except Exception:  # pragma: no cover
     Gauge = None  # type: ignore
     REGISTRY = None  # type: ignore
@@ -140,9 +142,9 @@ class BootstrapDependencyStatus:
     """Health snapshot for a single bootstrap dependency (projection or user-stream)."""
     ready: bool
     reason: str
-    detail: Dict[str, Any]
+    detail: dict[str, Any]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -152,11 +154,11 @@ class BootstrapHealthSnapshot:
     ok: bool
     ready: bool
     reason: str
-    projection: Dict[str, Any]
-    user_stream: Dict[str, Any]
+    projection: dict[str, Any]
+    user_stream: dict[str, Any]
     checked_at_ms: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -170,13 +172,13 @@ class BootstrapBlockIncident:
     ready: bool
     reason: str
     checked_at_ms: int
-    projection: Dict[str, Any]
-    user_stream: Dict[str, Any]
-    runbook_actions: List[str]
+    projection: dict[str, Any]
+    user_stream: dict[str, Any]
+    runbook_actions: list[str]
     status_key: str
     last_block_key: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -196,7 +198,7 @@ class ExecutionBootstrapSupervisor:
         self,
         redis_client: Any,
         *,
-        projection_worker: Optional[ExecutionProjectionWorker] = None,
+        projection_worker: ExecutionProjectionWorker | None = None,
         user_stream_status_key: str = 'orders:user_stream:status',
         user_stream_max_stale_ms: int = 45000,
         user_stream_bootstrap_grace_ms: int = 45000,
@@ -210,7 +212,7 @@ class ExecutionBootstrapSupervisor:
         self.r = redis_client
         # Allow injection for tests; fall back to ENV-wired worker
         self.projection_worker = projection_worker or _worker_from_env(redis_client)
-        self.user_stream_status_key = str(user_stream_status_key or 'orders:user_stream:status')
+        self.user_stream_status_key = (user_stream_status_key or 'orders:user_stream:status')
         # Clamp to at least 1 second to avoid accidental zero
         self.user_stream_max_stale_ms = max(int(user_stream_max_stale_ms or 45000), 1000)
         self.user_stream_bootstrap_grace_ms = max(int(user_stream_bootstrap_grace_ms or 45000), 1000)
@@ -219,8 +221,8 @@ class ExecutionBootstrapSupervisor:
         # Lag threshold forwarded to health_snapshot() — wired from EXEC_PROJECTION_HEALTH_MAX_LAG_MS
         self.projection_lag_readyz_max_ms = max(int(projection_lag_readyz_max_ms or 30000), 1000)
         # P1.2.4: persisted bootstrap block state
-        self.status_key = str(status_key or 'orders:execution:bootstrap:status')
-        self.last_block_key = str(last_block_key or 'orders:execution:bootstrap:last_block')
+        self.status_key = (status_key or 'orders:execution:bootstrap:status')
+        self.last_block_key = (last_block_key or 'orders:execution:bootstrap:last_block')
         self.block_ttl_sec = max(int(block_ttl_sec or 86400), 60)
 
     # ------------------------------------------------------------------
@@ -350,10 +352,10 @@ class ExecutionBootstrapSupervisor:
     # ------------------------------------------------------------------
 
     def _runbook_actions_for_reason(
-        self, reason: str, projection: Dict[str, Any], user_stream: Dict[str, Any]
-    ) -> List[str]:
+        self, reason: str, projection: dict[str, Any], user_stream: dict[str, Any]
+    ) -> list[str]:
         """Build human-readable runbook action list based on the block reason."""
-        actions: List[str] = []
+        actions: list[str] = []
         if reason.startswith('projection:'):
             detail = projection.get('detail') or {}
             if 'no_leader' in reason or detail.get('reason') == 'no_leader':
@@ -386,7 +388,7 @@ class ExecutionBootstrapSupervisor:
             )
         return actions
 
-    def _persist_json(self, key: str, payload: Dict[str, Any], *, ttl_sec: int = 0) -> None:
+    def _persist_json(self, key: str, payload: dict[str, Any], *, ttl_sec: int = 0) -> None:
         """Write JSON payload to Redis key, with optional TTL."""
         try:
             body = json.dumps(payload, ensure_ascii=False, sort_keys=True)
@@ -397,7 +399,7 @@ class ExecutionBootstrapSupervisor:
         except Exception:
             pass
 
-    def _load_json(self, key: str) -> Dict[str, Any]:
+    def _load_json(self, key: str) -> dict[str, Any]:
         """Load JSON from Redis key; return empty dict on any error."""
         try:
             raw = self.r.get(key)
@@ -441,15 +443,15 @@ class ExecutionBootstrapSupervisor:
             except Exception:
                 pass
 
-    def latest_block(self) -> Dict[str, Any]:
+    def latest_block(self) -> dict[str, Any]:
         """Return latest persisted bootstrap block incident from Redis."""
         return self._load_json(self.last_block_key)
 
-    def latest_status(self) -> Dict[str, Any]:
+    def latest_status(self) -> dict[str, Any]:
         """Return latest persisted bootstrap status snapshot from Redis."""
         return self._load_json(self.status_key)
 
-    def runbook_snapshot(self) -> Dict[str, Any]:
+    def runbook_snapshot(self) -> dict[str, Any]:
         """Return combined runbook payload: current snapshot, latest block, and actions."""
         current = self.health_snapshot().to_dict()
         latest_block = self.latest_block()
@@ -581,7 +583,7 @@ def wait_until_env_ready(*, timeout_ms: int = 0, poll_ms: int = 500) -> Bootstra
 # CLI
 # ---------------------------------------------------------------------------
 
-def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:  # pragma: no cover
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:  # pragma: no cover
     p = argparse.ArgumentParser(description='Execution bootstrap supervisor')
     p.add_argument('--print-health', action='store_true',
                    help='print one combined bootstrap health snapshot and exit')
@@ -601,7 +603,7 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:  # 
     return p.parse_args(argv)
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover
+def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover
     args = _parse_args(argv)
     r = _redis_from_env()
     sup = _supervisor_from_env(r)

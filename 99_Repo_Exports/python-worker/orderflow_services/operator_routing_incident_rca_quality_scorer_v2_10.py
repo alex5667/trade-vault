@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import psycopg
@@ -39,15 +40,15 @@ PORT = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_PORT", "9887"))
 MAXLEN = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_QUALITY_MAXLEN", "20000"))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -74,8 +75,8 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -92,7 +93,7 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def evaluate_quality(payload: Dict[str, Any]) -> Dict[str, Any]:
+def evaluate_quality(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         result = json.loads(payload.get("result_json", "{}"))
     except Exception:
@@ -137,14 +138,13 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def persist_quality(db_url: str, output_hash: str, assessment: Dict[str, Any]) -> None:
+async def persist_quality(db_url: str, output_hash: str, assessment: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     try:  # pragma: no cover
-        with psycopg.connect(db_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
+        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
 
                     INSERT INTO llm_operator_routing_incident_rca_quality (
                         output_hash,
@@ -159,25 +159,25 @@ async def persist_quality(db_url: str, output_hash: str, assessment: Dict[str, A
                     )
                     ON CONFLICT(output_hash) DO NOTHING,
                     """,
-                    {
-                        "output_hash": output_hash,
-                        "quality_score": assessment["quality_score"],
-                        "quality_reasons_json": stable_json(assessment["quality_reasons"]),
-                        "ts_ms": assessment["ts_ms"],
-                    }
-                )
-                cur.execute(
-                    """,
+                {
+                    "output_hash": output_hash,
+                    "quality_score": assessment["quality_score"],
+                    "quality_reasons_json": stable_json(assessment["quality_reasons"]),
+                    "ts_ms": assessment["ts_ms"],
+                }
+            )
+            cur.execute(
+                """,
                     UPDATE llm_operator_routing_incident_rca_results
                     SET quality_score = %(quality_score)s
                     WHERE output_hash = %(output_hash)s,
                     """,
-                    {
-                        "quality_score": assessment["quality_score"],
-                        "output_hash": output_hash,
-                    }
-                )
-                conn.commit()
+                {
+                    "quality_score": assessment["quality_score"],
+                    "output_hash": output_hash,
+                }
+            )
+            conn.commit()
     except Exception:
         return
 
@@ -204,17 +204,17 @@ async def main() -> None:  # pragma: no cover
                     output_hash = row.get("output_hash", "")
                     assessment = evaluate_quality(row)
                     await persist_quality(db_url, output_hash, assessment)
-                    
+
                     out = dict(row)
                     out.update(assessment)
                     out["quality_reasons_json"] = stable_json(assessment["quality_reasons"])
                     out.pop("quality_reasons", None)
-                    
+
                     await r.xadd(QUALITY_RESULTS_STREAM, out, maxlen=MAXLEN, approximate=True)
                     await r.xack(QUALITY_STREAM, GROUP, msg_id)
                     if LAST_RUN_TS:
                         LAST_RUN_TS.set(time.time())
-                except Exception as e:
+                except Exception:
                     import traceback
                     traceback.print_exc()
                     status = "error"

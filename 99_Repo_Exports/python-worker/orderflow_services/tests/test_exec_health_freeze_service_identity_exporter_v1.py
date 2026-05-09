@@ -1,10 +1,9 @@
 from types import SimpleNamespace
 
-import orderflow_services.exec_health_freeze_service_identity_exporter_v1 as exp_mod
 import orderflow_services.exec_health_freeze_service_identity_blocker_v1 as block_mod
-
-from orderflow_services.exec_health_freeze_service_identity_exporter_v1 import Exporter
+import orderflow_services.exec_health_freeze_service_identity_exporter_v1 as exp_mod
 from orderflow_services.exec_health_freeze_service_identity_blocker_v1 import main as blocker_main
+from orderflow_services.exec_health_freeze_service_identity_exporter_v1 import Exporter
 
 
 class FakeRedis:

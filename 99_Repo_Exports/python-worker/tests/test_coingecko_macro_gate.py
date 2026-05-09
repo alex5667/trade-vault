@@ -1,5 +1,5 @@
-import pytest
 from core.coingecko_macro_gate import CoinGeckoMacroGate
+
 
 def test_coingecko_macro_gate_no_data():
     gate = CoinGeckoMacroGate()

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
+
 from services.orderflow.metrics import _get_or_create_prom_counter
 
 
@@ -11,10 +12,10 @@ class _NoopMetrics:
     Minimal metrics facade.
     Replace with your Prometheus/StatsD impl later without changing call sites.
     """
-    def inc(self, name: str, value: int = 1, labels: Optional[dict[str, str]] = None) -> None:
+    def inc(self, name: str, value: int = 1, labels: dict[str, str] | None = None) -> None:
         return None
 
-    def observe(self, name: str, value: float, labels: Optional[dict[str, str]] = None) -> None:
+    def observe(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
         return None
 
 

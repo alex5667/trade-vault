@@ -1,11 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
-import time
 from collections import Counter
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:  # pragma: no cover
     from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
@@ -39,14 +41,14 @@ def _i(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _f(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _truthy(v: Any) -> bool:
@@ -80,13 +82,13 @@ class ActiveSymbolGuardRunbookExecutor:
     def __init__(
         self,
         redis_client: Any,
-        diagnostics: Optional[ActiveSymbolGuardDiagnostics] = None,
-        policy: Optional[ActiveSymbolGuardIncidentPolicyEngine] = None,
-        store: Optional[ActiveSymbolGuardStore] = None,
-        client: Optional[BinanceFuturesClient] = None,
+        diagnostics: ActiveSymbolGuardDiagnostics | None = None,
+        policy: ActiveSymbolGuardIncidentPolicyEngine | None = None,
+        store: ActiveSymbolGuardStore | None = None,
+        client: BinanceFuturesClient | None = None,
         *,
-        hold_ttl_sec: Optional[int] = None,
-        escalation_ack_ttl_sec: Optional[int] = None,
+        hold_ttl_sec: int | None = None,
+        escalation_ack_ttl_sec: int | None = None,
         audit_stream: str = 'orders:active_symbol_guard:audit',
         hold_key_prefix: str = 'orders:active_symbol_guard:hold:symbol:',
         escalation_key_prefix: str = 'orders:active_symbol_guard:incident:ack:',
@@ -103,17 +105,17 @@ class ActiveSymbolGuardRunbookExecutor:
         self.client = client
         self.hold_ttl_sec = max(int(hold_ttl_sec or os.getenv('ACTIVE_SYMBOL_GUARD_RUNBOOK_HOLD_TTL_SEC', '1800')), 1)
         self.escalation_ack_ttl_sec = max(int(escalation_ack_ttl_sec or os.getenv('ACTIVE_SYMBOL_GUARD_ESCALATION_ACK_TTL_SEC', '1800')), 1)
-        self.audit_stream = str(audit_stream or 'orders:active_symbol_guard:audit')
-        self.hold_key_prefix = str(hold_key_prefix or 'orders:active_symbol_guard:hold:symbol:').rstrip(':') + ':'
-        self.escalation_key_prefix = str(escalation_key_prefix or 'orders:active_symbol_guard:incident:ack:').rstrip(':') + ':'
+        self.audit_stream = (audit_stream or 'orders:active_symbol_guard:audit')
+        self.hold_key_prefix = (hold_key_prefix or 'orders:active_symbol_guard:hold:symbol:').rstrip(':') + ':'
+        self.escalation_key_prefix = (escalation_key_prefix or 'orders:active_symbol_guard:incident:ack:').rstrip(':') + ':'
 
     def _hold_key(self, symbol: str) -> str:
-        return f"{self.hold_key_prefix}{str(symbol or '').strip().upper()}"
+        return f"{self.hold_key_prefix}{(symbol or '').strip().upper()}"
 
     def _escalation_key(self, fingerprint: str) -> str:
-        return f"{self.escalation_key_prefix}{str(fingerprint or '').strip()}"
+        return f"{self.escalation_key_prefix}{(fingerprint or '').strip()}"
 
-    def _json_get(self, key: str) -> Dict[str, Any]:
+    def _json_get(self, key: str) -> dict[str, Any]:
         try:
             raw = self.r.get(key)
             doc = json.loads(raw) if raw else {}
@@ -121,7 +123,7 @@ class ActiveSymbolGuardRunbookExecutor:
         except Exception:
             return {}
 
-    def _json_set(self, key: str, doc: Dict[str, Any], ttl_sec: int) -> None:
+    def _json_set(self, key: str, doc: dict[str, Any], ttl_sec: int) -> None:
         self.r.set(key, json.dumps(doc, ensure_ascii=False, default=str), ex=max(int(ttl_sec), 1))
 
     def _audit(self, **kwargs: Any) -> None:
@@ -137,15 +139,13 @@ class ActiveSymbolGuardRunbookExecutor:
         try:
             self.r.xadd(self.audit_stream, fields, maxlen=100000, approximate=True)
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 self.r.xadd(self.audit_stream, fields, maxlen=50000)
-            except Exception:
-                pass
         try:
             if EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL is not None:
                 EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_AUDIT_TOTAL.labels(
-                    action=str(kwargs.get('action') or ''),
-                    result=str(kwargs.get('result') or ''),
+                    action=(kwargs.get('action') or ''),
+                    result=(kwargs.get('result') or ''),
                 ).inc()
         except Exception:
             pass
@@ -153,13 +153,13 @@ class ActiveSymbolGuardRunbookExecutor:
     def _metric(self, *, action: str, result: str) -> None:
         try:
             if EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL is not None:
-                EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL.labels(action=str(action or ''), result=str(result or '')).inc()
+                EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_ACTION_TOTAL.labels(action=(action or ''), result=(result or '')).inc()
         except Exception:
             pass
 
-    def _iter_prefix_keys(self, prefix: str) -> List[str]:
+    def _iter_prefix_keys(self, prefix: str) -> list[str]:
         """Scan Redis for keys matching prefix*, return sorted unique list."""
-        out: List[str] = []
+        out: list[str] = []
         pattern = f"{prefix}*"
         try:
             if hasattr(self.r, 'scan_iter'):
@@ -170,7 +170,7 @@ class ActiveSymbolGuardRunbookExecutor:
             pass
         return sorted(set([k for k in out if k.startswith(prefix)]))
 
-    def _stream_entries(self, *, limit: int = 50) -> List[Dict[str, Any]]:
+    def _stream_entries(self, *, limit: int = 50) -> list[dict[str, Any]]:
         """Return the most recent audit stream entries as normalized dicts."""
         items: Iterable[Any] = []
         try:
@@ -181,7 +181,7 @@ class ActiveSymbolGuardRunbookExecutor:
                 items = list(reversed(raw))
         except Exception:
             items = []
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for item in items:
             try:
                 entry_id, fields = item
@@ -191,7 +191,7 @@ class ActiveSymbolGuardRunbookExecutor:
                 doc['stream_id'] = str(_normalize(entry_id))
                 if 'payload' in doc and isinstance(doc.get('payload'), str):
                     try:
-                        doc['payload_json'] = json.loads(str(doc.get('payload') or '{}'))
+                        doc['payload_json'] = json.loads((doc.get('payload') or '{}'))
                     except Exception:
                         doc['payload_json'] = {}
                 out.append(doc)
@@ -199,20 +199,20 @@ class ActiveSymbolGuardRunbookExecutor:
                 continue
         return out
 
-    def hold_state(self, symbol: str) -> Dict[str, Any]:
+    def hold_state(self, symbol: str) -> dict[str, Any]:
         """Return the current hold document for a symbol, with is_active flag."""
-        symbol = str(symbol or '').strip().upper()
+        symbol = (symbol or '').strip().upper()
         doc = self._json_get(self._hold_key(symbol))
         if not doc:
             return {}
         now_ms = _ms_now()
         expires_at_ms = _i(doc.get('expires_at_ms'), 0)
-        doc['is_active'] = bool(str(doc.get('hold_status') or 'active') == 'active' and (expires_at_ms <= 0 or expires_at_ms > now_ms))
+        doc['is_active'] = bool((doc.get('hold_status') or 'active') == 'active' and (expires_at_ms <= 0 or expires_at_ms > now_ms))
         return doc
 
-    def active_holds(self, *, limit: int = 100) -> List[Dict[str, Any]]:
+    def active_holds(self, *, limit: int = 100) -> list[dict[str, Any]]:
         """Return all currently active symbol holds, sorted by most recently updated."""
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for key in self._iter_prefix_keys(self.hold_key_prefix):
             doc = self._json_get(key)
             if not doc:
@@ -220,10 +220,10 @@ class ActiveSymbolGuardRunbookExecutor:
             symbol = str(doc.get('symbol') or key[len(self.hold_key_prefix):] or '').strip().upper()
             doc['symbol'] = symbol
             exp = _i(doc.get('expires_at_ms'), 0)
-            doc['is_active'] = bool(str(doc.get('hold_status') or 'active') == 'active' and (exp <= 0 or exp > _ms_now()))
+            doc['is_active'] = bool((doc.get('hold_status') or 'active') == 'active' and (exp <= 0 or exp > _ms_now()))
             out.append(doc)
         out = [d for d in out if bool(d.get('is_active'))]
-        out.sort(key=lambda d: (-_i(d.get('updated_at_ms') or d.get('applied_at_ms'), 0), str(d.get('symbol') or '')))
+        out.sort(key=lambda d: (-_i(d.get('updated_at_ms') or d.get('applied_at_ms'), 0), (d.get('symbol') or '')))
         try:
             if EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_STATE_TOTAL is not None:
                 EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_STATE_TOTAL.labels(kind='hold', status='active').set(len(out))
@@ -231,7 +231,7 @@ class ActiveSymbolGuardRunbookExecutor:
             pass
         return out[:max(int(limit or 100), 1)]
 
-    def apply_hold_symbol(self, *, symbol: str, operator: str, ticket: str, reason: str = '', ttl_sec: Optional[int] = None) -> Dict[str, Any]:
+    def apply_hold_symbol(self, *, symbol: str, operator: str, ticket: str, reason: str = '', ttl_sec: int | None = None) -> dict[str, Any]:
         """Apply a manual hold on a symbol. All new open orders will be blocked while hold is active.
 
         The hold is TTL-bound (default: ACTIVE_SYMBOL_GUARD_RUNBOOK_HOLD_TTL_SEC env var).
@@ -241,16 +241,16 @@ class ActiveSymbolGuardRunbookExecutor:
             raise ValueError('symbol/operator/ticket required')
         now_ms = _ms_now()
         ttl = max(int(ttl_sec or self.hold_ttl_sec), 1)
-        symbol = str(symbol or '').strip().upper()
+        symbol = (symbol or '').strip().upper()
         # Load current guard sid so it's captured in the hold doc for traceability
         guard = self.store.load_view(symbol) if hasattr(self.store, 'load_view') else guard_view(self.store.load_raw(symbol))
         doc = {
             'symbol': symbol,
-            'sid': str(guard.get('sid') or ''),
+            'sid': (guard.get('sid') or ''),
             'hold_status': 'active',
-            'reason': str(reason or ''),
-            'ticket': str(ticket or ''),
-            'operator': str(operator or ''),
+            'reason': (reason or ''),
+            'ticket': (ticket or ''),
+            'operator': (operator or ''),
             'applied_at_ms': now_ms,
             'expires_at_ms': now_ms + ttl * 1000,
             'updated_at_ms': now_ms,
@@ -258,10 +258,10 @@ class ActiveSymbolGuardRunbookExecutor:
         self._json_set(self._hold_key(symbol), doc, ttl)
         self._metric(action='apply_hold_symbol', result='applied')
         self._audit(action='apply_hold_symbol', operator=operator, ticket=ticket, symbol=symbol,
-                    sid=str(doc.get('sid') or ''), result='applied', reason=reason, payload=doc)
+                    sid=(doc.get('sid') or ''), result='applied', reason=reason, payload=doc)
         return {'ok': True, 'action': 'apply_hold_symbol', 'symbol': symbol, 'hold': doc}
 
-    def revoke_hold_symbol(self, *, symbol: str, operator: str, ticket: str, reason: str = '') -> Dict[str, Any]:
+    def revoke_hold_symbol(self, *, symbol: str, operator: str, ticket: str, reason: str = '') -> dict[str, Any]:
         """Revoke an existing manual hold on a symbol.
 
         Deletes the hold key from Redis and records the action in the audit stream.
@@ -269,18 +269,18 @@ class ActiveSymbolGuardRunbookExecutor:
         """
         if not symbol or not operator or not ticket:
             raise ValueError('symbol/operator/ticket required')
-        symbol = str(symbol or '').strip().upper()
+        symbol = (symbol or '').strip().upper()
         prev = self.hold_state(symbol)
         deleted = int(self.r.delete(self._hold_key(symbol)) or 0)
         result = 'revoked' if deleted else 'noop'
         self._metric(action='revoke_hold_symbol', result=result)
         self._audit(action='revoke_hold_symbol', operator=operator, ticket=ticket, symbol=symbol,
-                    sid=str(prev.get('sid') or ''), result=result, reason=reason, payload={'previous': prev})
+                    sid=(prev.get('sid') or ''), result=result, reason=reason, payload={'previous': prev})
         return {'ok': True, 'action': 'revoke_hold_symbol', 'symbol': symbol, 'result': result, 'previous_hold': prev}
 
-    def _exchange_truth(self, symbol: str) -> Dict[str, Any]:
+    def _exchange_truth(self, symbol: str) -> dict[str, Any]:
         """Get exchange truth for a symbol, preferring diagnostics over direct client calls."""
-        symbol = str(symbol or '').strip().upper()
+        symbol = (symbol or '').strip().upper()
         if self.diagnostics is not None:
             try:
                 payload = self.diagnostics.debug_symbol(symbol, include_exchange=True)
@@ -311,7 +311,7 @@ class ActiveSymbolGuardRunbookExecutor:
                 return {'symbol': symbol, 'is_reliable': False, 'error': str(exc)}
         return {'symbol': symbol, 'is_reliable': False, 'error': 'exchange_truth_unavailable'}
 
-    def guarded_force_release(self, *, symbol: str, operator: str, ticket: str, expected_sid: str = '', reason: str = '', dry_run: bool = False) -> Dict[str, Any]:
+    def guarded_force_release(self, *, symbol: str, operator: str, ticket: str, expected_sid: str = '', reason: str = '', dry_run: bool = False) -> dict[str, Any]:
         """Guarded force-release of the active-symbol guard.
 
         Safety contract:
@@ -322,9 +322,9 @@ class ActiveSymbolGuardRunbookExecutor:
 
         force_release is designed as a guarded operator action, NOT an auto-policy action.
         """
-        symbol = str(symbol or '').strip().upper()
-        operator = str(operator or '').strip()
-        ticket = str(ticket or '').strip()
+        symbol = (symbol or '').strip().upper()
+        operator = (operator or '').strip()
+        ticket = (ticket or '').strip()
         if not symbol or not operator or not ticket:
             raise ValueError('symbol/operator/ticket required')
 
@@ -337,14 +337,14 @@ class ActiveSymbolGuardRunbookExecutor:
         open_plain_orders = _i(exchange_truth.get('open_plain_orders'), 0)
         open_algo_orders = _i(exchange_truth.get('open_algo_orders'), 0)
         # Check sid match first — reject if caller expects a specific sid but it differs
-        if expected_sid and guard_sid and guard_sid != str(expected_sid or '').strip():
+        if expected_sid and guard_sid and guard_sid != (expected_sid or '').strip():
             result = {
                 'ok': False,
                 'action': 'guarded_force_release',
                 'symbol': symbol,
                 'reason': 'sid_mismatch',
                 'guard_sid': guard_sid,
-                'expected_sid': str(expected_sid or '').strip(),
+                'expected_sid': (expected_sid or '').strip(),
                 'exchange_truth': exchange_truth,
             }
             self._metric(action='guarded_force_release', result='blocked')
@@ -385,13 +385,13 @@ class ActiveSymbolGuardRunbookExecutor:
             extra_patch={
                 'runbook_operator': operator,
                 'runbook_ticket': ticket,
-                'runbook_reason': str(reason or ''),
+                'runbook_reason': (reason or ''),
                 'guard_release_policy': 'runbook_force_release',
                 'guard_release_pending': False,
                 'updated_at_ms': _ms_now(),
             },
         )
-        result_name = 'released' if bool(released.get('applied')) else str(released.get('reason') or 'rejected')
+        result_name = 'released' if bool(released.get('applied')) else (released.get('reason') or 'rejected')
         payload = {
             'ok': bool(released.get('applied')),
             'action': 'guarded_force_release',
@@ -405,25 +405,25 @@ class ActiveSymbolGuardRunbookExecutor:
         self._audit(operator=operator, action='guarded_force_release', ticket=ticket, symbol=symbol, sid=guard_sid, result=result_name, reason=reason, payload=payload)
         return payload
 
-    def _resolve_triage(self, *, symbol: str = '', sid: str = '', fingerprint: str = '', include_exchange: bool = True) -> Dict[str, Any]:
+    def _resolve_triage(self, *, symbol: str = '', sid: str = '', fingerprint: str = '', include_exchange: bool = True) -> dict[str, Any]:
         """Resolve triage payload for given symbol/sid/fingerprint."""
-        fp = str(fingerprint or '').strip()
+        fp = (fingerprint or '').strip()
         if self.policy is None and self.diagnostics is not None:
             self.policy = ActiveSymbolGuardIncidentPolicyEngine(self.r, self.diagnostics)
         if self.policy is None:
-            return {'summary': {'symbol': str(symbol or '').upper(), 'sid': str(sid or ''), 'severity': 'info'}, 'policy': {'fingerprint': fp}}
+            return {'summary': {'symbol': (symbol or '').upper(), 'sid': (sid or ''), 'severity': 'info'}, 'policy': {'fingerprint': fp}}
         if fp:
-            summary = {'symbol': str(symbol or '').upper(), 'sid': str(sid or ''), 'severity': 'info'}
+            summary = {'symbol': (symbol or '').upper(), 'sid': (sid or ''), 'severity': 'info'}
             return {'summary': summary, 'policy': {'fingerprint': fp}}
         if symbol:
-            return self.policy.triage_symbol(str(symbol or '').upper(), include_exchange=bool(include_exchange))
+            return self.policy.triage_symbol((symbol or '').upper(), include_exchange=bool(include_exchange))
         if sid:
-            return self.policy.triage_sid(str(sid or ''), include_exchange=bool(include_exchange))
+            return self.policy.triage_sid((sid or ''), include_exchange=bool(include_exchange))
         return {'summary': {'severity': 'info'}, 'policy': {'fingerprint': ''}}
 
-    def escalation_state(self, fingerprint: str) -> Dict[str, Any]:
+    def escalation_state(self, fingerprint: str) -> dict[str, Any]:
         """Return the current escalation ack document for a fingerprint, with is_active flag."""
-        fp = str(fingerprint or '').strip()
+        fp = (fingerprint or '').strip()
         if not fp:
             return {}
         doc = self._json_get(self._escalation_key(fp))
@@ -434,9 +434,9 @@ class ActiveSymbolGuardRunbookExecutor:
         doc['is_active'] = bool(expires_at_ms <= 0 or expires_at_ms > now_ms)
         return doc
 
-    def active_acks(self, *, limit: int = 100) -> List[Dict[str, Any]]:
+    def active_acks(self, *, limit: int = 100) -> list[dict[str, Any]]:
         """Return all currently active escalation acks, sorted by most recently updated."""
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for key in self._iter_prefix_keys(self.escalation_key_prefix):
             doc = self._json_get(key)
             if not doc:
@@ -446,7 +446,7 @@ class ActiveSymbolGuardRunbookExecutor:
             doc['fingerprint'] = str(doc.get('fingerprint') or key[len(self.escalation_key_prefix):] or '')
             if doc['is_active']:
                 out.append(doc)
-        out.sort(key=lambda d: (-_i(d.get('updated_at_ms') or d.get('acked_at_ms'), 0), str(d.get('symbol') or '')))
+        out.sort(key=lambda d: (-_i(d.get('updated_at_ms') or d.get('acked_at_ms'), 0), (d.get('symbol') or '')))
         try:
             if EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_STATE_TOTAL is not None:
                 EXECUTION_ACTIVE_SYMBOL_GUARD_RUNBOOK_STATE_TOTAL.labels(kind='ack', status='active').set(len(out))
@@ -454,14 +454,14 @@ class ActiveSymbolGuardRunbookExecutor:
             pass
         return out[:max(int(limit or 100), 1)]
 
-    def escalation_ack(self, *, symbol: str = '', sid: str = '', fingerprint: str = '', operator: str, ticket: str, reason: str = '', ttl_sec: Optional[int] = None) -> Dict[str, Any]:
+    def escalation_ack(self, *, symbol: str = '', sid: str = '', fingerprint: str = '', operator: str, ticket: str, reason: str = '', ttl_sec: int | None = None) -> dict[str, Any]:
         """Acknowledge an escalation by fingerprint (or resolved via symbol/sid).
 
         The ack is TTL-bound and stored in Redis. Ack/renew is NOT "magic flag auth" —
         it is a TTL-bound document with a full audit trail.
         """
-        operator = str(operator or '').strip()
-        ticket = str(ticket or '').strip()
+        operator = (operator or '').strip()
+        ticket = (ticket or '').strip()
         if not operator or not ticket:
             raise ValueError('operator/ticket required')
         triaged = self._resolve_triage(symbol=symbol, sid=sid, fingerprint=fingerprint, include_exchange=True)
@@ -481,7 +481,7 @@ class ActiveSymbolGuardRunbookExecutor:
             'ack_status': 'acked',
             'acked_by': operator,
             'ticket': ticket,
-            'ack_reason': str(reason or ''),
+            'ack_reason': (reason or ''),
             'acked_at_ms': _i(doc.get('acked_at_ms'), now_ms) or now_ms,
             'renew_count': _i(doc.get('renew_count'), 0),
             'expires_at_ms': now_ms + ttl * 1000,
@@ -490,17 +490,17 @@ class ActiveSymbolGuardRunbookExecutor:
         self._json_set(self._escalation_key(fp), doc, ttl)
         result = {'ok': True, 'action': 'escalation_ack', 'fingerprint': fp, 'state': doc, 'triage': triaged}
         self._metric(action='escalation_ack', result='acked')
-        self._audit(operator=operator, action='escalation_ack', ticket=ticket, symbol=str(doc.get('symbol') or ''), sid=str(doc.get('sid') or ''), fingerprint=fp, result='acked', reason=reason, payload=result)
+        self._audit(operator=operator, action='escalation_ack', ticket=ticket, symbol=(doc.get('symbol') or ''), sid=(doc.get('sid') or ''), fingerprint=fp, result='acked', reason=reason, payload=result)
         return result
 
-    def escalation_renew(self, *, symbol: str = '', sid: str = '', fingerprint: str = '', operator: str, ticket: str, reason: str = '', ttl_sec: Optional[int] = None) -> Dict[str, Any]:
+    def escalation_renew(self, *, symbol: str = '', sid: str = '', fingerprint: str = '', operator: str, ticket: str, reason: str = '', ttl_sec: int | None = None) -> dict[str, Any]:
         """Renew an existing escalation ack, extending its TTL.
 
         Requires an existing ack to be present (ack_missing returned otherwise).
         Increments renew_count on each renewal for audit tracking.
         """
-        operator = str(operator or '').strip()
-        ticket = str(ticket or '').strip()
+        operator = (operator or '').strip()
+        ticket = (ticket or '').strip()
         if not operator or not ticket:
             raise ValueError('operator/ticket required')
         triaged = self._resolve_triage(symbol=symbol, sid=sid, fingerprint=fingerprint, include_exchange=True)
@@ -513,7 +513,7 @@ class ActiveSymbolGuardRunbookExecutor:
         if not current:
             result = {'ok': False, 'action': 'escalation_renew', 'fingerprint': fp, 'reason': 'ack_missing'}
             self._metric(action='escalation_renew', result='ack_missing')
-            self._audit(operator=operator, action='escalation_renew', ticket=ticket, symbol=str(summary.get('symbol') or ''), sid=str(summary.get('sid') or ''), fingerprint=fp, result='ack_missing', reason=reason, payload=result)
+            self._audit(operator=operator, action='escalation_renew', ticket=ticket, symbol=(summary.get('symbol') or ''), sid=(summary.get('sid') or ''), fingerprint=fp, result='ack_missing', reason=reason, payload=result)
             return result
         now_ms = _ms_now()
         ttl = max(int(ttl_sec or self.escalation_ack_ttl_sec), 1)
@@ -525,7 +525,7 @@ class ActiveSymbolGuardRunbookExecutor:
             'ack_status': 'acked',
             'renewed_by': operator,
             'renew_ticket': ticket,
-            'renew_reason': str(reason or ''),
+            'renew_reason': (reason or ''),
             'renew_count': _i(doc.get('renew_count'), 0) + 1,
             'renewed_at_ms': now_ms,
             'expires_at_ms': now_ms + ttl * 1000,
@@ -534,7 +534,7 @@ class ActiveSymbolGuardRunbookExecutor:
         self._json_set(self._escalation_key(fp), doc, ttl)
         result = {'ok': True, 'action': 'escalation_renew', 'fingerprint': fp, 'state': doc, 'triage': triaged}
         self._metric(action='escalation_renew', result='renewed')
-        self._audit(operator=operator, action='escalation_renew', ticket=ticket, symbol=str(doc.get('symbol') or ''), sid=str(doc.get('sid') or ''), fingerprint=fp, result='renewed', reason=reason, payload=result)
+        self._audit(operator=operator, action='escalation_renew', ticket=ticket, symbol=(doc.get('symbol') or ''), sid=(doc.get('sid') or ''), fingerprint=fp, result='renewed', reason=reason, payload=result)
         return result
 
     def audit_history(
@@ -546,21 +546,21 @@ class ActiveSymbolGuardRunbookExecutor:
         operator: str = '',
         action: str = '',
         limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return filtered audit stream entries for symbol/sid/ticket/operator/action."""
-        symbol = str(symbol or '').strip().upper()
-        sid = str(sid or '').strip()
-        ticket = str(ticket or '').strip()
-        operator = str(operator or '').strip()
-        action = str(action or '').strip()
-        out: List[Dict[str, Any]] = []
+        symbol = (symbol or '').strip().upper()
+        sid = (sid or '').strip()
+        ticket = (ticket or '').strip()
+        operator = (operator or '').strip()
+        action = (action or '').strip()
+        out: list[dict[str, Any]] = []
         for doc in self._stream_entries(limit=max(int(limit or 50) * 5, 50)):
             payload_json = dict(doc.get('payload_json') or {})
             doc_symbol = str(doc.get('symbol') or payload_json.get('symbol') or '').strip().upper()
             doc_sid = str(doc.get('sid') or payload_json.get('sid') or payload_json.get('state', {}).get('sid') or '').strip()
             doc_ticket = str(doc.get('ticket') or payload_json.get('ticket') or payload_json.get('renew_ticket') or '').strip()
             doc_operator = str(doc.get('operator') or payload_json.get('operator') or payload_json.get('acked_by') or payload_json.get('renewed_by') or '').strip()
-            doc_action = str(doc.get('action') or '').strip()
+            doc_action = (doc.get('action') or '').strip()
             if symbol and doc_symbol != symbol:
                 continue
             if sid and doc_sid != sid:
@@ -583,19 +583,19 @@ class ActiveSymbolGuardRunbookExecutor:
                 break
         return out
 
-    def linked_tickets(self, *, symbol: str = '', sid: str = '', limit: int = 20) -> List[Dict[str, Any]]:
+    def linked_tickets(self, *, symbol: str = '', sid: str = '', limit: int = 20) -> list[dict[str, Any]]:
         """Return tickets referenced in the audit stream for a symbol/sid, with counts."""
         counts: Counter[str] = Counter()
-        latest: Dict[str, Dict[str, Any]] = {}
+        latest: dict[str, dict[str, Any]] = {}
         for doc in self.audit_history(symbol=symbol, sid=sid, limit=max(int(limit or 20) * 5, 50)):
-            ticket = str(doc.get('ticket') or '').strip()
+            ticket = (doc.get('ticket') or '').strip()
             if not ticket:
                 continue
             counts[ticket] += 1
             latest[ticket] = {
                 'ticket': ticket,
-                'last_action': str(doc.get('action') or ''),
-                'last_operator': str(doc.get('operator') or ''),
+                'last_action': (doc.get('action') or ''),
+                'last_operator': (doc.get('operator') or ''),
                 'last_ts_ms': _i(doc.get('ts_ms'), 0),
             }
         out = []
@@ -605,7 +605,7 @@ class ActiveSymbolGuardRunbookExecutor:
             out.append(item)
         return out
 
-    def runbook_dashboard(self, *, limit: int = 50) -> Dict[str, Any]:
+    def runbook_dashboard(self, *, limit: int = 50) -> dict[str, Any]:
         """Return operator audit dashboard: active holds, active acks, recent audit, top operators/tickets."""
         holds = self.active_holds(limit=limit)
         acks = self.active_acks(limit=limit)
@@ -613,8 +613,8 @@ class ActiveSymbolGuardRunbookExecutor:
         op_counts: Counter[str] = Counter()
         ticket_counts: Counter[str] = Counter()
         for doc in recent:
-            operator = str(doc.get('operator') or '').strip()
-            ticket = str(doc.get('ticket') or '').strip()
+            operator = (doc.get('operator') or '').strip()
+            ticket = (doc.get('ticket') or '').strip()
             if operator:
                 op_counts[operator] += 1
             if ticket:
@@ -629,13 +629,13 @@ class ActiveSymbolGuardRunbookExecutor:
             'counts': {'active_holds': len(holds), 'active_acks': len(acks), 'recent_audit': len(recent)},
         }
 
-    def runbook_state_symbol(self, symbol: str) -> Dict[str, Any]:
+    def runbook_state_symbol(self, symbol: str) -> dict[str, Any]:
         """Return a unified runbook state for a symbol.
 
         Includes: guard state, hold state, triage result, escalation ack state,
         ticket-linked history, runbook audit history.
         """
-        symbol = str(symbol or '').strip().upper()
+        symbol = (symbol or '').strip().upper()
         triaged = self._resolve_triage(symbol=symbol, include_exchange=True)
         fingerprint = str(dict((triaged or {}).get('policy') or {}).get('fingerprint') or '').strip()
         return {
@@ -648,19 +648,19 @@ class ActiveSymbolGuardRunbookExecutor:
             'runbook_history': self.audit_history(symbol=symbol, limit=50),
         }
 
-    def runbook_state_sid(self, sid: str) -> Dict[str, Any]:
+    def runbook_state_sid(self, sid: str) -> dict[str, Any]:
         """Return a unified runbook state for a sid.
 
         Resolves symbol from triage result, then delegates to runbook_state_symbol.
         """
         triaged = self._resolve_triage(sid=sid, include_exchange=True)
         summary = dict((triaged or {}).get('summary') or {})
-        symbol = str(summary.get('symbol') or '').strip().upper()
+        symbol = (summary.get('symbol') or '').strip().upper()
         payload = self.runbook_state_symbol(symbol) if symbol else {
             'symbol': '', 'guard': {}, 'hold': {}, 'triage': triaged, 'escalation': {},
             'ticket_history': [], 'runbook_history': [],
         }
-        payload['sid'] = str(sid or '')
+        payload['sid'] = (sid or '')
         payload['runbook_history'] = self.audit_history(sid=sid, limit=50)
         payload['ticket_history'] = self.linked_tickets(sid=sid)
         return payload

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from services.ab_winner_evaluator_core import (
-    choose_winner_lcb,
     aggregate_scenario_winners,
+    choose_winner_lcb,
     hysteresis_should_publish,
 )
 

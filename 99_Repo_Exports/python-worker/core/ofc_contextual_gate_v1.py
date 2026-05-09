@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -19,14 +19,14 @@ class ContextualGateDecision:
 
 
 class ContextualGateV1:
-    def __init__(self, gate_cfg: Dict[str, Any]) -> None:
+    def __init__(self, gate_cfg: dict[str, Any]) -> None:
         self.gate_cfg = dict(gate_cfg or {})
 
     def evaluate(
         self,
         *,
         raw_score: float,
-        ctx_features: Dict[str, float],
+        ctx_features: dict[str, float],
         exec_cost_pred: Any,
         rule_pred: Any,
         tp_bps: float,
@@ -48,7 +48,7 @@ class ContextualGateV1:
         reason = "allow" if allow else "ctx_edge_or_prob_veto"
         return ContextualGateDecision(
             allow=allow,
-            reason=str(reason),
+            reason=reason,
             edge_net_p50_bps=float(edge_p50),
             edge_net_p90_bps=float(edge_p90),
             p_rule_cal=float(p_rule_cal),
@@ -56,5 +56,5 @@ class ContextualGateV1:
             cost_p90_bps=float(cost_p90),
             score_min_ctx=float(score_min_ctx),
             fallback_level=str(getattr(rule_pred, "fallback_level", getattr(exec_cost_pred, "fallback_level", ""))),
-            mode=str(mode or "off"),
+            mode=(mode or "off"),
         )

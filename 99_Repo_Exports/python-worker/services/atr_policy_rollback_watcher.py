@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ATR Policy Rollback Watcher — Phase 3.8 (Disaster Layer).
 
 When verifier signals a bad active policy this watcher performs bounded rollback:
@@ -18,7 +19,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
 from prometheus_client import Counter
@@ -63,28 +64,28 @@ def _advisory_only() -> bool:
     return os.getenv("ATR_POLICY_ROLLBACK_ADVISORY_ONLY", "0") == "1"
 
 
-def _active_key(p: Dict[str, Any]) -> str:
+def _active_key(p: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:active:"
         f"{p['source']}:{p['symbol']}:{p['scenario']}:{p['regime']}:{p['risk_horizon_bucket']}"
     )
 
 
-def _last_good_key(p: Dict[str, Any]) -> str:
+def _last_good_key(p: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:last_good:"
         f"{p['source']}:{p['symbol']}:{p['scenario']}:{p['regime']}:{p['risk_horizon_bucket']}"
     )
 
 
-def _kill_switch_key(p: Dict[str, Any]) -> str:
+def _kill_switch_key(p: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:kill_switch:"
         f"{p['source']}:{p['symbol']}:{p['scenario']}:{p['regime']}:{p['risk_horizon_bucket']}"
     )
 
 
-def _publish(r: redis.Redis, stream: str, payload: Dict[str, Any]) -> None:
+def _publish(r: redis.Redis, stream: str, payload: dict[str, Any]) -> None:
     try:
         r.xadd(stream, {k: str(v) for k, v in payload.items()}, maxlen=2000)
     except Exception as exc:
@@ -94,11 +95,11 @@ def _publish(r: redis.Redis, stream: str, payload: Dict[str, Any]) -> None:
 # ── Core ──────────────────────────────────────────────────────────────────────
 
 def rollback_to_last_good(
-    policy_ref: Dict[str, Any],
-    r: Optional[redis.Redis] = None,
+    policy_ref: dict[str, Any],
+    r: redis.Redis | None = None,
     *,
     trigger_reason: str = "VERIFIER_FAIL",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Restore active policy from last_good mirror.
 
@@ -234,7 +235,7 @@ def rollback_to_last_good(
 def _arm_kill_switch(
     r: redis.Redis,
     ks_key: str,
-    policy_ref: Dict[str, Any],
+    policy_ref: dict[str, Any],
     reason_code: str,
     now_ms: int,
 ) -> None:
@@ -253,10 +254,10 @@ def _arm_kill_switch(
 
 
 def clear_kill_switch(
-    policy_ref: Dict[str, Any],
+    policy_ref: dict[str, Any],
     *,
     actor: str = "manual",
-    r: Optional[redis.Redis] = None,
+    r: redis.Redis | None = None,
 ) -> bool:
     """
     Manual administrative clear of a kill_switch for a cohort.

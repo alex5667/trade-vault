@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Phase 8.2 — Graph-backed release gate (atr_graph_backed_release_gate.py)
 
@@ -19,7 +20,7 @@ import logging
 import os
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from services.analytics_db import get_conn
@@ -53,7 +54,7 @@ _DRIFT_SEVERITY: dict[str, str] = {
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _gen_id(prefix: str) -> str:
-    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
     return f"{prefix}_{ts}_{uuid.uuid4().hex[:6]}"
 
 
@@ -142,7 +143,7 @@ def build_graph_release_state(change_id: str) -> dict[str, Any] | None:
                 WHERE scope_value IN (%s, %s, %s)
                   AND budget_status IN ('exhausted', 'warning')
                 """
-                (symbol, layer, str(change.get("policy_ver", ""))),
+                (symbol, layer, (change.get("policy_ver", ""))),
             )
             budget_rows     = cur.fetchall()
             budget_exhausted = any(r["budget_status"] == "exhausted" for r in budget_rows)
@@ -541,7 +542,7 @@ def mark_cutover_readiness(component: str = "release_gate") -> dict[str, Any]:
     Conditions for ready_for_enforce:
         - ready_for_read + 100% match last 14d
     """
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     try:
         with get_conn() as conn, conn.cursor(
             cursor_factory=__import__("psycopg2").extras.RealDictCursor
@@ -694,7 +695,7 @@ def render_cutover_ready(status: str, summary: dict[str, Any]) -> str:
     lines = [
         f"{icon} <b>ATR Graph Release Gate Cutover</b>",
         "",
-        f"Component: <code>release_gate</code>",
+        "Component: <code>release_gate</code>",
         f"Status: <code>{status.upper()}</code>",
         "Evidence:",
         f"  • 7d critical drifts: <code>{summary.get('critical_drifts_7d', '?')}</code>",

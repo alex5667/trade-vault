@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
 
-import math
 
 from core.atr_tf_sanity_calibrator import AtrTfSanityCalibrator
 

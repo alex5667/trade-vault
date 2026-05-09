@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Book geometry features (Phase C / P2).
 
 Adds bounded microstructure liquidity geometry on top of spread/depth:
@@ -14,12 +15,13 @@ Hot-path constraints:
 
 
 import math
-from typing import Any, Iterable, List, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
+from typing import Any
 
-Level = Tuple[float, float]  # (price, qty)
+Level = tuple[float, float]  # (price, qty)
 
 
-def _safe_f(v: Any) -> Optional[float]:
+def _safe_f(v: Any) -> float | None:
     try:
         x = float(v)
     except Exception:
@@ -65,7 +67,7 @@ def calc_cost_to_cross(levels: Sequence[Level], mid: float, *, xbps: float) -> f
     return float(out)
 
 
-def calc_book_slope(bids: Sequence[Level], asks: Sequence[Level], mid: float, *, eps_bps: float = 0.10) -> Tuple[float, float]:
+def calc_book_slope(bids: Sequence[Level], asks: Sequence[Level], mid: float, *, eps_bps: float = 0.10) -> tuple[float, float]:
     """Liquidity gradient (USD per bps) for each side."""
     mid = float(mid or 0.0)
     if mid <= 0:
@@ -90,7 +92,7 @@ def calc_depth_weighted_spread(bids: Sequence[Level], asks: Sequence[Level], mid
     if mid <= 0 or xbps <= 0:
         return 0.0
 
-    def _vwap(levels: Sequence[Level]) -> Optional[float]:
+    def _vwap(levels: Sequence[Level]) -> float | None:
         num = 0.0
         den = 0.0
         for px, qty in _iter_levels(levels):
@@ -116,10 +118,10 @@ def calc_depth_weighted_spread(bids: Sequence[Level], asks: Sequence[Level], mid
     return float(max(0.0, min(float(dws), 50_000.0)))
 
 
-def extract_levels_from_runtime(runtime: Any) -> Tuple[List[Level], List[Level], float]:
+def extract_levels_from_runtime(runtime: Any) -> tuple[list[Level], list[Level], float]:
     """Best-effort extraction of (bids, asks, mid) from SymbolRuntime."""
-    bids: List[Level] = []
-    asks: List[Level] = []
+    bids: list[Level] = []
+    asks: list[Level] = []
     mid = 0.0
 
     try:

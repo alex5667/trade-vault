@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """Tests for prom_rules_bundle_health_check_v1.py (V12)
 
@@ -9,13 +10,9 @@ Coverage:
 - enforce_bucket_state_exporter_v1: V12 Gauges declared, _export_prom_rules_bundle_health (mocked redis)
 """
 
-import os
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -25,7 +22,6 @@ import pytest
 # ---------------------------------------------------------------------------
 
 def _import_module():
-    import importlib
     import orderflow_services.prom_rules_bundle_health_check_v1 as mod
     return mod
 
@@ -188,7 +184,6 @@ def test_exporter_export_prom_rules_bundle_health_with_redis(monkeypatch):
     from orderflow_services.enforce_bucket_state_exporter_v1 import Exporter
 
     mock_redis = MagicMock()
-    import time
     now_ms = get_ny_time_millis()
     ok_ts_ms = now_ms - 10_000  # 10 seconds ago
 

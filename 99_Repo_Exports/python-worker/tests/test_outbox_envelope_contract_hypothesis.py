@@ -1,4 +1,5 @@
 import copy
+
 import pytest
 
 from services.outbox.envelope_builder import build_outbox_envelope

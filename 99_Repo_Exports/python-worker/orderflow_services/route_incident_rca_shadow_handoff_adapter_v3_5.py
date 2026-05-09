@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -69,15 +70,15 @@ ALLOWED_MODES = {"DISABLED", "AUDIT_ONLY", "MIRROR", "HANDOFF_ONLY", "LEGACY_ONL
 DB_URL = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -120,8 +121,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -145,7 +146,7 @@ def maybe_json(value: Any, default: Any = None) -> Any:
         return default
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     mode = str(raw.get("mode") or DEFAULT_MODE).upper()
     if mode not in ALLOWED_MODES:
         mode = DEFAULT_MODE
@@ -157,12 +158,12 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_payload_json(row: Dict[str, Any]) -> str:
+def build_payload_json(row: dict[str, Any]) -> str:
     payload_json = row.get("payload_json")
     if payload_json:
         return str(payload_json)
-    prompt = str(row.get("prompt") or "")
-    summary = str(row.get("summary") or "")
+    prompt = (row.get("prompt") or "")
+    summary = (row.get("summary") or "")
     primary_reason_codes = maybe_json(row.get("primary_reason_codes_json"), [])
     context = maybe_json(row.get("context_json"), {})
     if prompt or summary or primary_reason_codes or context:
@@ -175,10 +176,10 @@ def build_payload_json(row: Dict[str, Any]) -> str:
     return stable_json(row)
 
 
-def evaluate_row(row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
-    request_id = str(row.get("request_id") or "")
-    incident_id = str(row.get("incident_id") or "")
-    prompt = str(row.get("prompt") or "")
+def evaluate_row(row: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    request_id = (row.get("request_id") or "")
+    incident_id = (row.get("incident_id") or "")
+    prompt = (row.get("prompt") or "")
     payload_json = build_payload_json(row)
 
     out = {
@@ -208,17 +209,17 @@ def evaluate_row(row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def build_handoff_shadow_row(row: Dict[str, Any]) -> Dict[str, Any]:
+def build_handoff_shadow_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "request_id": str(row.get("request_id") or row.get("incident_id") or ""),
         "task_family": "route_incident_rca",
-        "incident_id": str(row.get("incident_id") or ""),
-        "task_type": str(row.get("task_type") or "route_incident_rca"),
-        "severity": str(row.get("severity") or "warning"),
+        "incident_id": (row.get("incident_id") or ""),
+        "task_type": (row.get("task_type") or "route_incident_rca"),
+        "severity": (row.get("severity") or "warning"),
         "source": "route_incident_rca_shadow_handoff_v3_5",
         "payload_json": build_payload_json(row),
-        "compact_hash": str(row.get("compact_hash") or ""),
+        "compact_hash": (row.get("compact_hash") or ""),
         "vertex_unavailable": str(parse_int(row.get("vertex_unavailable"), 0)),
         "force_local": str(parse_int(row.get("force_local"), 0)),
         "shadow_mode": "1",
@@ -226,14 +227,14 @@ def build_handoff_shadow_row(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_legacy_shadow_row(row: Dict[str, Any]) -> Dict[str, Any]:
+def build_legacy_shadow_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": 1,
-        "incident_id": str(row.get("incident_id") or ""),
-        "task_type": str(row.get("task_type") or "route_incident_rca"),
-        "compact_hash": str(row.get("compact_hash") or ""),
+        "incident_id": (row.get("incident_id") or ""),
+        "task_type": (row.get("task_type") or "route_incident_rca"),
+        "compact_hash": (row.get("compact_hash") or ""),
         "payload_json": build_payload_json(row),
-        "severity": str(row.get("severity") or "warning"),
+        "severity": (row.get("severity") or "warning"),
         "source": "route_incident_rca_shadow_handoff_v3_5",
         "shadow_mode": "1",
         "ts_ms": str(now_ms()),
@@ -247,17 +248,17 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_policy(r: Any) -> Dict[str, Any]:
+async def read_policy(r: Any) -> dict[str, Any]:
     raw = await r.hgetall(GLOBAL_POLICY_KEY)
     return policy_from_hash(as_dict(raw))
 
 
 async def persist_if_configured(
     db_url: str,
-    row: Dict[str, Any],
-    decision: Dict[str, Any],
-    handoff_shadow_row: Dict[str, Any] | None,
-    legacy_shadow_row: Dict[str, Any] | None,
+    row: dict[str, Any],
+    decision: dict[str, Any],
+    handoff_shadow_row: dict[str, Any] | None,
+    legacy_shadow_row: dict[str, Any] | None,
 ) -> None:
     if not db_url or psycopg is None:
         return
@@ -351,8 +352,8 @@ async def main() -> None:  # pragma: no cover
 
                     decision_payload = {
                         "schema_version": 1,
-                        "request_id": str(row.get("request_id") or ""),
-                        "incident_id": str(row.get("incident_id") or ""),
+                        "request_id": (row.get("request_id") or ""),
+                        "incident_id": (row.get("incident_id") or ""),
                         "decision": decision["decision"],
                         "reason_code": decision["reason_code"],
                         "mode": decision["mode"],
@@ -373,8 +374,8 @@ async def main() -> None:  # pragma: no cover
                     await r.hset(
                         LAST_HASH,
                         mapping={
-                            "request_id": str(row.get("request_id") or ""),
-                            "incident_id": str(row.get("incident_id") or ""),
+                            "request_id": (row.get("request_id") or ""),
+                            "incident_id": (row.get("incident_id") or ""),
                             "decision": decision["decision"],
                             "reason_code": decision["reason_code"],
                             "mode": decision["mode"],

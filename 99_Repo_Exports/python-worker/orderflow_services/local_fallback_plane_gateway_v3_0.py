@@ -1,15 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from orderflow_services.providers.ollama_gpu_lock import (
     OllamaGpuLock,
-    OllamaGpuLockTimeout,
 )
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -31,7 +30,6 @@ except Exception:  # pragma: no cover
 from orderflow_services.providers.ollama_local_fallback_provider_v3_0 import (
     OllamaLocalFallbackProviderV30,
 )
-
 
 APP_NAME = "local_fallback_plane_gateway_v3_0"
 INPUT_STREAM = os.getenv(
@@ -77,15 +75,15 @@ ALLOWED_TASKS = {
 },
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -126,8 +124,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -158,7 +156,7 @@ def maybe_json(value: Any, default: Any = None) -> Any:
         return default
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     allowlist = maybe_json(raw.get("task_allowlist_json"), sorted(ALLOWED_TASKS))
     if not isinstance(allowlist, list):
         allowlist = sorted(ALLOWED_TASKS)
@@ -174,9 +172,9 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_prompt(row: Dict[str, Any]) -> str:
-    task_type = str(row.get("task_type") or "")
-    prompt = str(row.get("prompt") or "")
+def build_prompt(row: dict[str, Any]) -> str:
+    task_type = (row.get("task_type") or "")
+    prompt = (row.get("prompt") or "")
     input_json = maybe_json(row.get("input_json"), {})
     if not prompt and input_json:
         prompt = stable_json(input_json)
@@ -189,14 +187,14 @@ def build_prompt(row: Dict[str, Any]) -> str:
     return f"Produce a compact emergency summary.\n\nInput:\n{prompt}"
 
 
-def evaluate_request(row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
-    task_type = str(row.get("task_type") or "")
-    prompt = str(row.get("prompt") or "")
+def evaluate_request(row: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    task_type = (row.get("task_type") or "")
+    prompt = (row.get("prompt") or "")
     input_json_raw = row.get("input_json") or "{}"
     schema_json_raw = row.get("schema_json") or "{}"
     vertex_unavailable = parse_int(row.get("vertex_unavailable"), 0)
     force_local = parse_int(row.get("force_local"), 0)
-    severity = str(row.get("severity") or "info")
+    severity = (row.get("severity") or "info")
 
     out = {
         "accepted": 0,
@@ -269,12 +267,12 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_policy(r: Any) -> Dict[str, Any]:
+async def read_policy(r: Any) -> dict[str, Any]:
     raw = await r.hgetall(GLOBAL_POLICY_KEY)
     return policy_from_hash(as_dict(raw))
 
 
-async def persist_result_if_configured(db_url: str, row: Dict[str, Any], result: Dict[str, Any], meta: Dict[str, Any]) -> None:
+async def persist_result_if_configured(db_url: str, row: dict[str, Any], result: dict[str, Any], meta: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -313,7 +311,7 @@ async def persist_result_if_configured(db_url: str, row: Dict[str, Any], result:
             conn.commit()
 
 
-async def persist_rejection_if_configured(db_url: str, row: Dict[str, Any], eval_row: Dict[str, Any]) -> None:
+async def persist_rejection_if_configured(db_url: str, row: dict[str, Any], eval_row: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -371,7 +369,7 @@ async def main() -> None:  # pragma: no cover
                 task_type = "unknown"
                 try:
                     row = as_dict(payload)
-                    task_type = str(row.get("task_type") or "unknown")
+                    task_type = (row.get("task_type") or "unknown")
                     policy = await read_policy(r)
                     eval_row = evaluate_request(row, policy)
 

@@ -9,9 +9,10 @@ Record & Replay runner:
 
 import json
 import os
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any
 
 from tools.replay.replay_factory import build_unified_pipeline_for_replay
 
@@ -25,7 +26,7 @@ def _to_ctx(obj: dict[str, Any]) -> Any:
 
 
 def iter_ctx_jsonl(path: str) -> Iterable[Any]:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -55,7 +56,7 @@ def iter_ctx_redis_streams(
     start_id: str = "0-0",
     count: int = 500,
     max_batches: int = 100000,
-    symbols: Optional[Sequence[str]] = None,
+    symbols: Sequence[str] | None = None,
 ) -> Iterable[Any]:
     """
     Reads ctx snapshots from Redis Streams.
@@ -112,18 +113,18 @@ class ReplayResult:
 
 def run_replay(
     *,
-    input_jsonl: Optional[str],
+    input_jsonl: str | None,
     logger: Any,
-    output_signals_jsonl: Optional[str] = None,
+    output_signals_jsonl: str | None = None,
     # deps override:
-    scoring_engine: Optional[Any] = None,
-    regime_service: Optional[Any] = None,
-    golden_logic: Optional[Any] = None,
-    exec_filters: Optional[Any] = None,
-    calibrator: Optional[Any] = None,
+    scoring_engine: Any | None = None,
+    regime_service: Any | None = None,
+    golden_logic: Any | None = None,
+    exec_filters: Any | None = None,
+    calibrator: Any | None = None,
     # optional redis-stream source:
-    redis_url: Optional[str] = None,
-    redis_stream: Optional[str] = None,
+    redis_url: str | None = None,
+    redis_stream: str | None = None,
     redis_symbols_set: str = os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols"),
     redis_start_id: str = "0-0",
 ) -> ReplayResult:

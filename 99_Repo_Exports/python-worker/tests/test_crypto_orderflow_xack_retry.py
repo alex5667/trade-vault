@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Retry behaviour for CryptoOrderflowService._xack_pipeline.
 
 Regression guard for the "XACK FAILURE ... Connection lost" storms on
@@ -7,7 +8,6 @@ backoff before the batch is DLQ'd.
 """
 
 
-import asyncio
 import types
 from unittest.mock import AsyncMock, patch
 

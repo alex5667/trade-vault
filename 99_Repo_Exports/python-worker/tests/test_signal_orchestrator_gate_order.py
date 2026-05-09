@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Gate sequence contract test for SignalOrchestrator.
 
@@ -11,8 +12,7 @@ Gate sequence contract test for SignalOrchestrator.
 """
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call
-import pytest
+from unittest.mock import MagicMock
 
 from handlers.crypto_orderflow.pipeline.orchestrator import SignalOrchestrator
 

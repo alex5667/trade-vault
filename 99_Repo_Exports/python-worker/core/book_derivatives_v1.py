@@ -14,12 +14,11 @@ Time determinism:
 """
 
 import math
-from typing import Optional
 
 
 def compute_book_imbalance_rate_10(
-    prev_imb10: Optional[float],
-    prev_ts_ms: Optional[int],
+    prev_imb10: float | None,
+    prev_ts_ms: int | None,
     cur_imb10: float,
     cur_ts_ms: int,
     *,

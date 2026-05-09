@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Nightly confidence calibrator bundle (ROI step).
 
 What it does (daily):
@@ -20,24 +21,23 @@ Outputs:
 Designed to be called from of_timers_worker (single command, deterministic).
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
-import os
-import sys
-import time
-import subprocess
-from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
 import math
+import os
+import subprocess
+import sys
+from datetime import datetime
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _run(module: str, args: list[str], *, timeout: int = 3600) -> Tuple[bool, str, str]:
+def _run(module: str, args: list[str], *, timeout: int = 3600) -> tuple[bool, str, str]:
     cmd = [sys.executable, "-m", module] + list(args or [])
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     ok = p.returncode == 0
@@ -55,9 +55,9 @@ def _atomic_replace(src: str, dst: str) -> None:
     os.replace(tmp, dst)
 
 
-def _read_train_report(cal_json_path: str) -> Optional[Dict[str, Any]]:
+def _read_train_report(cal_json_path: str) -> dict[str, Any] | None:
     try:
-        with open(cal_json_path, "r", encoding="utf-8") as f:
+        with open(cal_json_path, encoding="utf-8") as f:
             obj = json.load(f)
         rep = obj.get("train_report") or {}
         if not isinstance(rep, dict):
@@ -68,14 +68,14 @@ def _read_train_report(cal_json_path: str) -> Optional[Dict[str, Any]]:
 
 
 def _guard_ok(
-    rep: Dict[str, Any],
+    rep: dict[str, Any],
     *,
     min_ece_abs: float,
     min_brier_abs: float,
     max_cal_mce: float = float("inf"),
     min_cal_sharpness_mean: float = -1.0,
     max_cal_prob_mass_near_half: float = float("inf"),
-) -> Tuple[bool, Dict[str, Any]]:
+) -> tuple[bool, dict[str, Any]]:
     raw = rep.get("raw") or {}
     cal = rep.get("cal") or {}
     try:
@@ -118,7 +118,7 @@ def _guard_ok(
         return False, {"passed": False}
 
 
-def main(argv: Optional[list[str]] = None) -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", default=os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
     ap.add_argument("--out_dir", default=os.environ.get("CONF_CAL_OUT_DIR", "/var/lib/trade/of_calibrators"))
@@ -137,9 +137,9 @@ def main(argv: Optional[list[str]] = None) -> None:
     ap.add_argument("--closes_count", type=int, default=int(os.environ.get("CLOSES_COUNT", "200000")))
     args = ap.parse_args(list(argv) if argv is not None else None)
 
-    os.makedirs(str(args.out_dir), exist_ok=True)
-    os.makedirs(str(args.reports_dir), exist_ok=True)
-    versions_dir = os.path.join(str(args.out_dir), "versions")
+    os.makedirs(args.out_dir, exist_ok=True)
+    os.makedirs(args.reports_dir, exist_ok=True)
+    versions_dir = os.path.join(args.out_dir, "versions")
     os.makedirs(versions_dir, exist_ok=True)
 
     now_ms = _now_ms()
@@ -147,17 +147,17 @@ def main(argv: Optional[list[str]] = None) -> None:
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
     # Paths
-    dataset_jsonl = os.path.join(str(args.reports_dir), f"edge_train_confcal_{stamp}.jsonl")
-    quarantine_jsonl = os.path.join(str(args.reports_dir), f"edge_quarantine_confcal_{stamp}.jsonl")
-    dataset_report = os.path.join(str(args.reports_dir), f"edge_dataset_report_confcal_{stamp}.json")
-    cal_tmp = os.path.join(str(args.reports_dir), f"conf_cal_{stamp}.json")
+    dataset_jsonl = os.path.join(args.reports_dir, f"edge_train_confcal_{stamp}.jsonl")
+    quarantine_jsonl = os.path.join(args.reports_dir, f"edge_quarantine_confcal_{stamp}.jsonl")
+    dataset_report = os.path.join(args.reports_dir, f"edge_dataset_report_confcal_{stamp}.json")
+    cal_tmp = os.path.join(args.reports_dir, f"conf_cal_{stamp}.json")
     cal_ver = os.path.join(versions_dir, f"conf_cal_{stamp}.json")
-    cal_latest = os.path.join(str(args.out_dir), "conf_cal_latest.json")
+    cal_latest = os.path.join(args.out_dir, "conf_cal_latest.json")
 
-    calib_report_json = os.path.join(str(args.reports_dir), "confidence_calibration_report.json")
-    status_json = os.path.join(str(args.reports_dir), "confidence_calibration_status.json")
+    calib_report_json = os.path.join(args.reports_dir, "confidence_calibration_report.json")
+    status_json = os.path.join(args.reports_dir, "confidence_calibration_status.json")
 
-    status: Dict[str, Any] = {
+    status: dict[str, Any] = {
         "ts_ms": int(now_ms),
         "stamp": stamp,
         "ok": False,
@@ -175,7 +175,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     ok, out, err = _run(
         "ml_analysis.tools.build_edge_stack_dataset_from_redis",
         [
-            "--redis_url", str(args.redis_url),
+            "--redis_url", args.redis_url,
             "--out_jsonl", dataset_jsonl,
             "--out_quarantine_jsonl", quarantine_jsonl,
             "--out_report_json", dataset_report,
@@ -197,7 +197,7 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     # 2) Train calibrator (V2)
     # Uses --method auto by default or from env
-    method_arg = str(args.method)
+    method_arg = args.method
     if method_arg not in ("auto", "platt", "isotonic", "beta", "identity"):
         method_arg = "auto"
 
@@ -206,7 +206,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         [
             "--in_jsonl", dataset_jsonl,
             "--out_bundle", cal_tmp,
-            "--key", str(args.key),
+            "--key", args.key,
             "--method", method_arg,
             "--min_rows", str(int(args.min_rows)),
             "--hierarchical", "1"

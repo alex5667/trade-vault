@@ -1,6 +1,5 @@
-import types
 import threading
-import pytest
+import types
 
 
 class TrackingLock:

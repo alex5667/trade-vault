@@ -1,8 +1,9 @@
-from utils.time_utils import get_ny_time_millis
+import logging
 import os
 import sys
-import logging
 import time
+
+from utils.time_utils import get_ny_time_millis
 
 # Add python-worker to sys.path if running from project root
 sys.path.append(os.getcwd())
@@ -11,10 +12,11 @@ sys.path.append("/app")
 
 from services.posttrade.decision_snapshot_db import PostgresDecisionSnapshotDB
 
+
 def test_db_resilience():
     logging.basicConfig(level=logging.INFO)
     log = logging.getLogger("test_resilience")
-    
+
     # Try to find DSN from environment
     dsn = os.environ.get("DATABASE_URL") or os.environ.get("TRADES_DB_DSN") or os.environ.get("TIMESCALE_DSN")
     if not dsn:
@@ -23,7 +25,7 @@ def test_db_resilience():
 
     log.info("Initializing PostgresDecisionSnapshotDB...")
     db = PostgresDecisionSnapshotDB(dsn=dsn)
-    
+
     # Define a test row
     rows = [
         {
@@ -67,7 +69,7 @@ def test_db_resilience():
 
     log.info("Step 2: Manually close the connection in the pool to simulate server disconnect")
     # This simulates a situation where the pool thinks the connection is fine, but it's actually closed.
-    conn.close() 
+    conn.close()
     log.info("Connection closed manually.")
 
     log.info("Step 3: Call upsert_decision_snapshots. Expecting automatic recovery...")

@@ -1,15 +1,16 @@
 
+import os
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
-import sys
-import os
 
 # Add parent dir to path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from l2_microstructure_engine import L2MicrostructureEngine, WallObs
+from contexts import BucketState, L2Level, SimpleL2Snapshot
 from gpu.l2_processor import L2GPUProcessor
-from contexts import SimpleL2Snapshot, L2Level, BucketState
+from l2_microstructure_engine import L2MicrostructureEngine
+
 
 class MockConfig:
     def __init__(self):
@@ -38,15 +39,15 @@ class TestL2GPUIntegration(unittest.TestCase):
         bids = [L2Level(price=99.0, size=1.0), L2Level(price=98.0, size=2.0)]
         asks = [L2Level(price=101.0, size=1.0), L2Level(price=102.0, size=2.0)]
         snap = SimpleL2Snapshot(bids=bids, asks=asks)
-        
+
         st = BucketState.empty()
-        
+
         # Run update
         self.engine.update(snap, 123456789, st)
-        
+
         # Verify GPU processor was called
         self.gpu_processor.process_l2_snapshot.assert_called_once()
-        
+
         # Verify we passed correct data structure (list of tuples)
         args, _ = self.gpu_processor.process_l2_snapshot.call_args
         self.assertEqual(len(args[0]), 2) # 2 bids
@@ -56,18 +57,18 @@ class TestL2GPUIntegration(unittest.TestCase):
     def test_gpu_processor_fallback(self):
         # Use real L2GPUProcessor (which falls back to CPU if no CuPy)
         # We can't easily force it to use GPU if no GPU, but we can check it returns valid dict
-        
+
         bids = [L2Level(price=100.0, size=1.0)]
         asks = [L2Level(price=101.0, size=1.0)]
         snap = SimpleL2Snapshot(bids=bids, asks=asks)
         st = BucketState.empty()
-        
+
         # Spy on the method
         with patch.object(self.gpu_processor, 'process_l2_snapshot', wraps=self.gpu_processor.process_l2_snapshot) as mock_method:
             self.engine.update(snap, 123456789, st)
             mock_method.assert_called_once()
-            
-            # Check result of the real method call (indirectly via what it returns, 
+
+            # Check result of the real method call (indirectly via what it returns,
             # but since engine doesn't use it yet, we just ensure no exception)
 
 if __name__ == '__main__':

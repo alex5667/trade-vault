@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 test_pack_roundtrip.py
 
@@ -10,26 +10,24 @@ test_pack_roundtrip.py
   - модели можно использовать для предсказаний
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import tempfile
-import time
 
 import joblib
 import numpy as np
 import pytest
-
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+
+from utils.time_utils import get_ny_time_millis
 
 
 def test_pack_roundtrip_basic():
     """Базовый тест roundtrip: сохранение и загрузка pack."""
     # Создаём тестовый pack
     feature_cols = ["f_delta_z", "f_ofi_z", "direction_LONG", "direction_SHORT"]
-    
+
     lr = LogisticRegression(random_state=42, max_iter=100)
     gbdt = HistGradientBoostingClassifier(random_state=42, max_iter=10)
     meta = LogisticRegression(random_state=42, max_iter=100)
@@ -37,10 +35,10 @@ def test_pack_roundtrip_basic():
     # Обучаем на синтетических данных
     X = np.random.randn(100, len(feature_cols)).astype(np.float32)
     y = (np.random.rand(100) > 0.5).astype(np.int64)
-    
+
     lr.fit(X, y)
     gbdt.fit(X, y)
-    
+
     # Meta обучается на предсказаниях base моделей
     p_lr = lr.predict_proba(X)[:, 1]
     p_gbdt = gbdt.predict_proba(X)[:, 1]
@@ -77,7 +75,7 @@ def test_pack_roundtrip_basic():
 
             # Проверка, что модели работают
             X_test = np.random.randn(10, len(feature_cols)).astype(np.float32)
-            
+
             p_lr_test = loaded["lr"].predict_proba(X_test)[:, 1]
             p_gbdt_test = loaded["gbdt"].predict_proba(X_test)[:, 1]
             Z_test = np.vstack([p_lr_test, p_gbdt_test]).T
@@ -93,14 +91,14 @@ def test_pack_roundtrip_basic():
 def test_pack_optional_fields():
     """Проверка, что опциональные поля (transforms/scaler) сохраняются и загружаются."""
     feature_cols = ["f_delta_z", "f_ofi_z"]
-    
+
     lr = LogisticRegression(random_state=42, max_iter=100)
     gbdt = HistGradientBoostingClassifier(random_state=42, max_iter=10)
     meta = LogisticRegression(random_state=42, max_iter=100)
 
     X = np.random.randn(50, len(feature_cols)).astype(np.float32)
     y = (np.random.rand(50) > 0.5).astype(np.int64)
-    
+
     lr.fit(X, y)
     gbdt.fit(X, y)
     p_lr = lr.predict_proba(X)[:, 1]
@@ -156,7 +154,7 @@ def test_calibrator_json_roundtrip():
             f.flush()
 
             # Загрузка
-            with open(path, "r", encoding="utf-8") as f2:
+            with open(path, encoding="utf-8") as f2:
                 loaded = json.load(f2)
 
             assert abs(loaded["a"] - calib_data["a"]) < 1e-9

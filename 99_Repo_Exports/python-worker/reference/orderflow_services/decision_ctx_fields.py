@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Decision Context Enrichment (A1): freeze execution-relevant snapshot at EMIT time.
 
 Purpose
@@ -30,10 +31,10 @@ Design principles
 
 
 import math
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any
 
 
-def _safe_f(v: Any) -> Optional[float]:
+def _safe_f(v: Any) -> float | None:
     try:
         f = float(v)
     except Exception:
@@ -43,7 +44,7 @@ def _safe_f(v: Any) -> Optional[float]:
     return float(f)
 
 
-def _safe_i(v: Any) -> Optional[int]:
+def _safe_i(v: Any) -> int | None:
     try:
         i = int(v)
     except Exception:
@@ -51,7 +52,7 @@ def _safe_i(v: Any) -> Optional[int]:
     return int(i)
 
 
-def _first_num(d: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[float]:
+def _first_num(d: dict[str, Any], keys: tuple[str, ...]) -> float | None:
     for k in keys:
         if k in d:
             f = _safe_f(d.get(k))
@@ -60,7 +61,7 @@ def _first_num(d: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[float]:
     return None
 
 
-def _first_int(d: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[int]:
+def _first_int(d: dict[str, Any], keys: tuple[str, ...]) -> int | None:
     for k in keys:
         if k in d:
             i = _safe_i(d.get(k))
@@ -69,7 +70,7 @@ def _first_int(d: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[int]:
     return None
 
 
-def _vwap(levels: Any) -> Optional[float]:
+def _vwap(levels: Any) -> float | None:
     """VWAP(px, qty) for list[(px,qty)]"""
     if not levels or not isinstance(levels, (list, tuple)):
         return None
@@ -89,7 +90,7 @@ def _vwap(levels: Any) -> Optional[float]:
     return num / den
 
 
-def _extract_top5_book(ctx: Dict[str, Any], runtime: Any = None) -> Tuple[Optional[list], Optional[list]]:
+def _extract_top5_book(ctx: dict[str, Any], runtime: Any = None) -> tuple[list | None, list | None]:
     """Return (bids, asks) top5 lists if available."""
     # ctx may carry `bids/asks` or `book` structures in some versions.
     bids = None
@@ -134,11 +135,11 @@ def _extract_top5_book(ctx: Dict[str, Any], runtime: Any = None) -> Tuple[Option
 
 
 def ensure_decision_ctx_fields(
-    ctx: Dict[str, Any],
+    ctx: dict[str, Any],
     *,
-    indicators: Optional[Dict[str, Any]] = None,
+    indicators: dict[str, Any] | None = None,
     runtime: Any = None,
-    now_ms: Optional[int] = None,
+    now_ms: int | None = None,
 ) -> None:
     """Enrich ctx in-place with decision_* fields (best-effort, fail-open)."""
     try:
@@ -293,7 +294,7 @@ def ensure_decision_ctx_fields(
         # ------------------------------------------------------------------
         # 6) Annotation-only sanity flags
         # ------------------------------------------------------------------
-        flags: List[str] = []
+        flags: list[str] = []
         b = _safe_f(ctx.get("decision_bid"))
         a = _safe_f(ctx.get("decision_ask"))
         m = _safe_f(ctx.get("decision_mid"))

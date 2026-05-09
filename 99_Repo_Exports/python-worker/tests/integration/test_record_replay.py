@@ -14,17 +14,12 @@ from __future__ import annotations
 """
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
-import pytest
-
-from replay.jsonl import iter_jsonl
 from replay.outbox_capture import OutboxCapture
 from replay.replay_runner import replay_jsonl
 from replay.report import build_report, normalize_signal_payload
-
 
 FIX_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "replay"
 
@@ -44,9 +39,9 @@ class DemoReplaySystem:
     def __init__(self) -> None:
         self.outbox = OutboxCapture()
 
-    def process_ctx(self, ctx_payload: Dict[str, Any]) -> None:
-        sym = str(ctx_payload.get("symbol", "TEST"))
-        side = str(ctx_payload.get("side", "buy"))
+    def process_ctx(self, ctx_payload: dict[str, Any]) -> None:
+        sym = (ctx_payload.get("symbol", "TEST"))
+        side = (ctx_payload.get("side", "buy"))
         ts = int(ctx_payload.get("ts", 0) or 0)
         price = float(ctx_payload.get("price", 100.0) or 100.0)
         raw = float(ctx_payload.get("raw_score", 1.0) or 1.0)
@@ -72,13 +67,13 @@ class DemoReplaySystem:
                 "raw_score": raw,
                 "final_score": final,
                 "confidence": min(100.0, max(0.0, abs(final) * 50.0)),
-                "level_price": ctx_payload.get("level_price", None),
+                "level_price": ctx_payload.get("level_price"),
                 "reason_code": "OK",
             }
         )
 
     # ticks replay в demo не используем
-    def process_tick(self, payload: Dict[str, Any]) -> None:
+    def process_tick(self, payload: dict[str, Any]) -> None:
         return
 
 

@@ -34,7 +34,7 @@ This module is intentionally dependency-free.
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Optional, Protocol
+from typing import Protocol
 
 
 class WeakProgressSnapshotLike(Protocol):
@@ -93,7 +93,7 @@ class WeakProgressDetector:
         self.body_max_atr = float(body_max_atr)
         self.eff_max = float(eff_max)
 
-        self._buf: Deque[WeakTrendSample] = deque(maxlen=self.maxlen)
+        self._buf: deque[WeakTrendSample] = deque(maxlen=self.maxlen)
 
     def reset(self) -> None:
         self._buf.clear()
@@ -150,5 +150,5 @@ class WeakProgressDetector:
                 break
         return streak
 
-    def last(self) -> Optional[WeakTrendSample]:
+    def last(self) -> WeakTrendSample | None:
         return self._buf[-1] if self._buf else None

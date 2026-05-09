@@ -1,5 +1,4 @@
 # tick_flow_full/tests/services/test_tick_processor_liqmap_injection_v1.py
-# -*- coding: utf-8 -*-
 """Unit tests: LiqMap injection in TickProcessor.
 
 Goal
@@ -14,11 +13,11 @@ They do NOT require a running Redis, WS, or the full TickProcessor runtime.
 
 import asyncio
 import json
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class _FakeAsyncRedis:
-    def __init__(self, kv: Dict[str, Optional[bytes]]):
+    def __init__(self, kv: dict[str, bytes | None]):
         self._kv = dict(kv)
         self.get_calls = []
 
@@ -31,7 +30,7 @@ def _make_snapshot_json(*, ts_ms: int, symbol: str, window: str) -> bytes:
     snap = {
         "v": 1,
         "ts_ms": int(ts_ms),
-        "symbol": str(symbol),
+        "symbol": symbol,
         "window": str(window),
         "levels": [
             # Above
@@ -78,7 +77,7 @@ def test_tick_processor_injects_liqmap_features_from_redis_cache_and_failopen():
     class _Runtime:
         symbol = "BTCUSDT"
 
-    indicators: Dict[str, Any] = {}
+    indicators: dict[str, Any] = {}
 
     # 1) First call => hits Redis, parses snapshot, writes liqmap_* keys.
     asyncio.run(
@@ -96,7 +95,7 @@ def test_tick_processor_injects_liqmap_features_from_redis_cache_and_failopen():
     assert indicators["liqmap_1h_total_usd"] > 0.0
 
     # 2) Second call (within fetch interval) => MUST NOT hit Redis again.
-    indicators2: Dict[str, Any] = {}
+    indicators2: dict[str, Any] = {}
     asyncio.run(
         tp._inject_liqmap_features(
             runtime=_Runtime(),
@@ -110,7 +109,7 @@ def test_tick_processor_injects_liqmap_features_from_redis_cache_and_failopen():
 
     # 3) Parse error => fail-open with zero defaults, no exception.
     tp.redis._kv["liqmap:snapshot:BTCUSDT:1h"] = b"{not-json"
-    indicators3: Dict[str, Any] = {}
+    indicators3: dict[str, Any] = {}
     asyncio.run(
         tp._inject_liqmap_features(
             runtime=_Runtime(),

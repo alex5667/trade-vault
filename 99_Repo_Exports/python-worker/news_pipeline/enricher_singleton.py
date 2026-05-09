@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Optional
 
 # NOTE:
 # This module provides a *single* NewsEnricherShadow instance for the whole process.

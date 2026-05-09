@@ -1,15 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
 
-from core.telegram_notify import send_telegram
 from common.redis_errors import retry_redis_operation
+from core.telegram_notify import send_telegram
+from utils.time_utils import get_ny_time_millis
 
 
 def _now() -> int:
@@ -46,13 +46,13 @@ def _decode(x: Any) -> str:
     return str(x)
 
 
-def _topn_pairs(pairs: List[Tuple[str, float]], n: int) -> List[Tuple[str, float]]:
+def _topn_pairs(pairs: list[tuple[str, float]], n: int) -> list[tuple[str, float]]:
     pairs.sort(key=lambda x: x[1], reverse=True)
     return pairs[:n]
 
 
-def _sscan_all(r: redis.Redis, key: str, limit: int = 2000) -> List[str]:
-    out: List[str] = []
+def _sscan_all(r: redis.Redis, key: str, limit: int = 2000) -> list[str]:
+    out: list[str] = []
     cursor = 0
     while True:
         cursor, batch = retry_redis_operation(
@@ -77,7 +77,7 @@ def _redis() -> redis.Redis:
     return redis.Redis.from_url(url, decode_responses=False)
 
 
-def _read_json(r: redis.Redis, key: str) -> Dict[str, Any]:
+def _read_json(r: redis.Redis, key: str) -> dict[str, Any]:
     raw = r.get(key)
     if not raw:
         return {}
@@ -87,12 +87,12 @@ def _read_json(r: redis.Redis, key: str) -> Dict[str, Any]:
         return {"raw": _decode(raw)}
 
 
-def _report_atr(r: redis.Redis, top_n: int) -> Tuple[str, int]:
+def _report_atr(r: redis.Redis, top_n: int) -> tuple[str, int]:
     top_n = int(os.getenv("ATR_REPORT_TOP_N", "15"))
-    
+
     # ATR: stale (top by age_ms) from selector meta if available
     active_syms = _sscan_all(r, os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols"), limit=int(os.getenv("REPORT_MAX_SYMBOLS", "200")))
-    stale_pairs: List[Tuple[str, float]] = []
+    stale_pairs: list[tuple[str, float]] = []
     if active_syms:
         pipe = r.pipeline()
         for s in active_syms:
@@ -118,7 +118,7 @@ def _report_atr(r: redis.Redis, top_n: int) -> Tuple[str, int]:
 
     # ATR jumpers (rolling window counter)
     jump_syms = _sscan_all(r, "cfg:atr_jump:symbols", limit=500)
-    jump_pairs: List[Tuple[str, float]] = []
+    jump_pairs: list[tuple[str, float]] = []
     if jump_syms:
         pipe = r.pipeline()
         for s in jump_syms:
@@ -136,7 +136,7 @@ def _report_atr(r: redis.Redis, top_n: int) -> Tuple[str, int]:
 
     # ATR switchers (source/tf switches in rolling window)
     sw_syms = _sscan_all(r, "cfg:atr_switch:symbols", limit=500)
-    sw_pairs: List[Tuple[str, float]] = []
+    sw_pairs: list[tuple[str, float]] = []
     if sw_syms:
         pipe = r.pipeline()
         for s in sw_syms:
@@ -155,7 +155,7 @@ def _report_atr(r: redis.Redis, top_n: int) -> Tuple[str, int]:
     # build message
     lines = []
     lines.append("ATR report")
-    
+
     if stale_pairs:
         lines.append("ATR stale (age_ms top):")
         for s, age in stale_pairs:
@@ -177,14 +177,14 @@ def _report_atr(r: redis.Redis, top_n: int) -> Tuple[str, int]:
 
     if not (stale_pairs or atr_bad_syms or jump_pairs or sw_pairs):
         return "ATR: ok (no issues)", 0
-    
+
     return "\n".join(lines), len(atr_bad_syms) + len(jump_pairs) + len(sw_pairs)
 
 
-def _report_cvd(r: redis.Redis, top_n: int) -> Tuple[str, int]:
+def _report_cvd(r: redis.Redis, top_n: int) -> tuple[str, int]:
     cvd_top_n = int(os.getenv("CVD_REPORT_TOP_N", "15"))
     cvd_syms = _sscan_all(r, "cfg:cvd_quarantine:symbols", limit=500)
-    cvd_items: List[Tuple[str, int, str, str]] = []  # (sym, ttl_sec, reason, mode)
+    cvd_items: list[tuple[str, int, str, str]] = []  # (sym, ttl_sec, reason, mode)
     if cvd_syms:
         pipe = r.pipeline()
         for s in cvd_syms:
@@ -203,8 +203,8 @@ def _report_cvd(r: redis.Redis, top_n: int) -> Tuple[str, int]:
                 ttl_sec = 0
                 if until_ms > now_ms:
                     ttl_sec = int((until_ms - now_ms) / 1000)
-                reason = str(d.get("reason", "") or "")
-                mode = str(d.get("mode", "") or "")
+                reason = (d.get("reason", "") or "")
+                mode = (d.get("mode", "") or "")
                 cvd_items.append((s, ttl_sec, reason, mode))
             except Exception:
                 continue
@@ -221,7 +221,7 @@ def _report_cvd(r: redis.Redis, top_n: int) -> Tuple[str, int]:
     return "\n".join(lines), len(cvd_items)
 
 
-def _report_streams(r: redis.Redis, top_n: int) -> Tuple[str, int]:
+def _report_streams(r: redis.Redis, top_n: int) -> tuple[str, int]:
     streams_top_n = int(os.getenv("STREAMS_REPORT_TOP_N", "15"))
     legacy_key = os.getenv("MICROBAR_LEGACY_STREAM", "events:microbar_closed")
     majors_key = os.getenv("MICROBAR_MAJORS_STREAM", "events:microbar_closed:majors")
@@ -251,7 +251,7 @@ def _report_streams(r: redis.Redis, top_n: int) -> Tuple[str, int]:
 
     # sample per-symbol xlen
     active_syms = _sscan_all(r, os.getenv("MICROBAR_SYMBOLS_SET", "events:microbar_closed:symbols"), limit=int(os.getenv("REPORT_MAX_SYMBOLS", "200")))
-    per_pairs: List[Tuple[str, int]] = []
+    per_pairs: list[tuple[str, int]] = []
     if active_syms and "{sym}" in tpl:
         pipe = r.pipeline()
         keys = []
@@ -309,7 +309,7 @@ def main() -> None:
     last_spike_ts = 0
 
     while True:
-        parts: List[str] = []
+        parts: list[str] = []
         atr_txt, atr_n = ("", 0)
         cvd_txt, cvd_n = ("", 0)
 

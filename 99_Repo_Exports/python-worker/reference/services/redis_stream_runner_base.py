@@ -1,22 +1,21 @@
-# -*- coding: utf-8 -*-
 # python-worker/services/redis_stream_runner_base.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
-import time
 import socket
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional, Iterable
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 @dataclass(frozen=True)
 class StreamMsg:
     stream: str
     msg_id: str
-    fields: Dict[str, str]
+    fields: dict[str, str]
 
 
 class RedisStreamRunner:
@@ -33,7 +32,7 @@ class RedisStreamRunner:
         self,
         r: redis.Redis,
         group: str,
-        consumer: Optional[str] = None,
+        consumer: str | None = None,
         block_ms: int = 2000,
         read_count: int = 50,
         autoclaim_min_idle_ms: int = 45000,
@@ -62,7 +61,7 @@ class RedisStreamRunner:
         for s in streams:
             self.ensure_group(s)
 
-    def _xautoclaim(self, stream: str, start_id: str = "0-0") -> Tuple[str, List[StreamMsg]]:
+    def _xautoclaim(self, stream: str, start_id: str = "0-0") -> tuple[str, list[StreamMsg]]:
         """
         redis-py: xautoclaim(stream, group, consumer, min_idle_time, start_id, count=?)
         return: (next_start_id, [(msg_id, {field:val}),...], deleted_ids?)
@@ -91,16 +90,16 @@ class RedisStreamRunner:
 
         next_id = res[0]
         raw_msgs = res[1] or []
-        msgs: List[StreamMsg] = []
+        msgs: list[StreamMsg] = []
         for msg_id, fields in raw_msgs:
             msgs.append(StreamMsg(stream=stream, msg_id=msg_id, fields={k: v for k, v in fields.items()}))
         return next_id, msgs
 
-    def claim_cycle(self, streams: List[str]) -> List[StreamMsg]:
+    def claim_cycle(self, streams: list[str]) -> list[StreamMsg]:
         """
         Один проход autoclaim по всем streams: возвращает пачку полученных сообщений.
         """
-        out: List[StreamMsg] = []
+        out: list[StreamMsg] = []
         for s in streams:
             start = "0-0"
             # один проход (можно сделать while, но лучше дозировать)
@@ -108,14 +107,14 @@ class RedisStreamRunner:
             out.extend(msgs)
         return out
 
-    def read_new(self, streams: List[str]) -> List[StreamMsg]:
+    def read_new(self, streams: list[str]) -> list[StreamMsg]:
         """
         Читает новые (>) из нескольких стримов сразу.
         """
         if not streams:
             return []
 
-        streams_map = {s: ">" for s in streams}
+        streams_map = dict.fromkeys(streams, ">")
         res = self.r.xreadgroup(
             groupname=self.group,
             consumername=self.consumer,
@@ -123,7 +122,7 @@ class RedisStreamRunner:
             count=self.read_count,
             block=self.block_ms,
         )
-        out: List[StreamMsg] = []
+        out: list[StreamMsg] = []
         for stream_name, items in res:
             for msg_id, fields in items:
                 out.append(StreamMsg(stream=stream_name, msg_id=msg_id, fields={k: v for k, v in fields.items()}))

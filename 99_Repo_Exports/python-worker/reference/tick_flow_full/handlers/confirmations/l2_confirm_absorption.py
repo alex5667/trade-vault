@@ -1,13 +1,16 @@
 from __future__ import annotations
+
 import math
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
-from .result import ConfirmResult
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot, L2Level
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
+
 from .reason_utils import normalize_and_u16
+from .result import ConfirmResult
 
-def _f(x: Any, default: Optional[float] = None) -> Optional[float]:
+
+def _f(x: Any, default: float | None = None) -> float | None:
     try:
         v = float(x)
     except Exception:
@@ -23,7 +26,7 @@ class AbsorptionConfirmCfg:
     level_band_bps: float = 1.5
 
 class L2ConfirmAbsorption:
-    def __init__(self, cfg: Optional[AbsorptionConfirmCfg] = None, **kwargs: Any) -> None:
+    def __init__(self, cfg: AbsorptionConfirmCfg | None = None, **kwargs: Any) -> None:
         if cfg is None and kwargs:
             cfg = AbsorptionConfirmCfg(
                 min_wall_notional=kwargs.get("min_wall_notional", 30_000.0),
@@ -31,7 +34,7 @@ class L2ConfirmAbsorption:
             )
         self.cfg = cfg or AbsorptionConfirmCfg()
 
-    def _get_l2(self, ctx: Any) -> Optional[L2Snapshot]:
+    def _get_l2(self, ctx: Any) -> L2Snapshot | None:
         return getattr(ctx, "l2", None) or getattr(ctx, "l2_snapshot", None) or getattr(ctx, "book", None)
 
     def _is_stale(self, ctx: Any) -> bool:
@@ -50,13 +53,13 @@ class L2ConfirmAbsorption:
         ctx: Any,
         side: int | str,
         level_price: float,
-        l2: Optional[L2Snapshot] = None,
+        l2: L2Snapshot | None = None,
         require_2ofn: bool = True,
         **_: Any,
     ) -> ConfirmResult:
         if isinstance(side, int):
             side = "buy" if side > 0 else "sell"
-        side = str(side).lower()
+        side = side.lower()
         """
         Ручка раскатки (Rollout knob):
           - require_2ofn=True  -> строго (strict): (wall/refill) И (mp_contra/micro_proxy) + taker_rate min

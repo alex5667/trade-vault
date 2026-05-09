@@ -1,7 +1,7 @@
 import unittest
+
 import numpy as np
-import math
-from typing import List, Optional
+
 
 class TestMetaModelQualityReportV3DQ(unittest.TestCase):
     def test_parse_thresholds_sorted_desc(self) -> None:
@@ -9,7 +9,7 @@ class TestMetaModelQualityReportV3DQ(unittest.TestCase):
 
         xs = _parse_thresholds("0.7, 0.9,0.8")
         self.assertEqual(xs, [0.9, 0.8, 0.7])
-        
+
         # Test defaults
         self.assertEqual(_parse_thresholds(""), [0.9, 0.8, 0.7, 0.6, 0.5])
         self.assertEqual(_parse_thresholds("invalid"), [0.9, 0.8, 0.7, 0.6, 0.5])

@@ -1,7 +1,10 @@
-import fakeredis
 import time
 from unittest.mock import patch
+
+import fakeredis
+
 from news_pipeline.feature_store_worker import NewsFeatureStoreWorker
+
 
 def test_feature_store_decay_no_backward_jump():
     r = fakeredis.FakeRedis(decode_responses=True)

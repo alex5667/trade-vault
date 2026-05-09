@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from common.safe_numbers import safe_float
 
 
-def decision_to_legacy_tuple(dec: Any) -> Tuple[bool, Dict[str, float]]:
+def decision_to_legacy_tuple(dec: Any) -> tuple[bool, dict[str, float]]:
     """
     Convert EdgeCostGateDecision-like object to legacy (ok_edge, edge_details) tuple.
 
@@ -32,7 +32,7 @@ def decision_to_legacy_tuple(dec: Any) -> Tuple[bool, Dict[str, float]]:
     ok_edge = (not apply) or (not veto)
 
     # keep keys stable for dashboards/log parsing
-    details: Dict[str, float] = {
+    details: dict[str, float] = {
         "expected_move_bps": safe_float(getattr(dec, "expected_move_bps", None)),
         "threshold_bps": safe_float(getattr(dec, "threshold_bps", None)),
         "fees_bps": safe_float(getattr(dec, "fees_bps", None)),
@@ -52,14 +52,14 @@ def attach_cost_edge_veto_fields(ctx: Any, dec: Any) -> None:
       We only attach those fields if the decision actually provides them.
     """
     try:
-        setattr(ctx, "veto_reason_code", str(getattr(dec, "reason_code", "") or ""))
-        setattr(ctx, "veto_expected_move_bps", safe_float(getattr(dec, "expected_move_bps", None)))
-        setattr(ctx, "veto_threshold_bps", safe_float(getattr(dec, "threshold_bps", None)))
-        setattr(ctx, "veto_fees_bps", safe_float(getattr(dec, "fees_bps", None)))
-        setattr(ctx, "veto_slippage_bps", safe_float(getattr(dec, "slippage_bps", None)))
-        setattr(ctx, "veto_k", safe_float(getattr(dec, "k", None)))
-        setattr(ctx, "veto_mode", str(getattr(dec, "mode", "") or ""))
-        setattr(ctx, "veto_notes", str(getattr(dec, "notes", "") or ""))
+        ctx.veto_reason_code = str(getattr(dec, "reason_code", "") or "")
+        ctx.veto_expected_move_bps = safe_float(getattr(dec, "expected_move_bps", None))
+        ctx.veto_threshold_bps = safe_float(getattr(dec, "threshold_bps", None))
+        ctx.veto_fees_bps = safe_float(getattr(dec, "fees_bps", None))
+        ctx.veto_slippage_bps = safe_float(getattr(dec, "slippage_bps", None))
+        ctx.veto_k = safe_float(getattr(dec, "k", None))
+        ctx.veto_mode = str(getattr(dec, "mode", "") or "")
+        ctx.veto_notes = str(getattr(dec, "notes", "") or "")
 
         # Optional fields (only if present on decision object)
         for name in (

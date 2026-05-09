@@ -1,7 +1,6 @@
 import json
-from typing import Any, Dict
+from typing import Any
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -62,7 +61,7 @@ def test_build_outbox_envelope_trace_contract_no_full_trace_in_env():
         max_size=30,
     )
 )
-def test_build_outbox_envelope_targets_are_json_safe(notify: Dict[str, Any]):
+def test_build_outbox_envelope_targets_are_json_safe(notify: dict[str, Any]):
     sid = "sid_contract_2"
     env = build_outbox_envelope(sid=sid, notify_payload=notify)
     targets = env.get("targets") or {}

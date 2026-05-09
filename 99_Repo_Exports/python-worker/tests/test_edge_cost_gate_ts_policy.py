@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 EdgeCostGate timestamp policy tests.
 
@@ -7,14 +8,13 @@ Tests that verify:
   - skewed ts => EMA skipped in default profile
   - skewed ts + hard profile => veto slippage returned
 """
-from utils.time_utils import get_ny_time_millis
-
-import os
 import time
 from types import SimpleNamespace
 
-from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
 from fake_redis import FakeRedis
+
+from handlers.crypto_orderflow.utils.edge_cost_gate import estimate_slippage_bps
+from utils.time_utils import get_ny_time_millis
 
 
 def _hset(r: FakeRedis, key: str, mapping: dict) -> None:

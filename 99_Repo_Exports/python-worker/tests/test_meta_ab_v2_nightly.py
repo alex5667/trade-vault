@@ -1,5 +1,7 @@
 import pytest
-from tools.meta_ab_winner_evaluator_v2 import recommend_next_share, V2Config
+
+from tools.meta_ab_winner_evaluator_v2 import V2Config, recommend_next_share
+
 
 def test_recommend_next_share():
     cfg = V2Config(

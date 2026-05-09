@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Prometheus metrics for P5 stream integrity.
 
 We keep metrics definitions in a dedicated module to avoid duplicate
@@ -11,10 +12,11 @@ Cardinality policy:
 
 
 import logging
-from typing import Sequence, Type, TypeVar
+from collections.abc import Sequence
+from typing import TypeVar
 
 try:
-    from prometheus_client import Counter, Gauge, Histogram, REGISTRY  # type: ignore
+    from prometheus_client import REGISTRY, Counter, Gauge, Histogram  # type: ignore
     from prometheus_client.registry import Collector  # type: ignore
 except Exception:  # pragma: no cover
     Counter = Gauge = Histogram = object  # type: ignore
@@ -26,9 +28,9 @@ logger = logging.getLogger("orderflow_metrics_stream_integrity")
 TCollector = TypeVar("TCollector", bound="Collector")
 
 
-def _get_or_create(
+def _get_or_create[TCollector: "Collector"](
     name: str,
-    ctor: Type[TCollector],
+    ctor: type[TCollector],
     documentation: str,
     labelnames: Sequence[str] = (),
     **kwargs,
@@ -135,14 +137,14 @@ stream_book_staleness_hist_ms = _get_or_create(
 
 def _hash_to_int(h: str) -> float:
     try:
-        return float(int(str(h or "0"), 16))
+        return float(int((h or "0"), 16))
     except Exception:
         return 0.0
 
 
 def emit_integrity_metrics(*, symbol: str, stream: str, snap) -> None:
     """Best-effort emission."""
-    sym = str(symbol)
+    sym = symbol
     st = str(stream)
     try:
         if stream_seq_gap_rate_ema is not None:
@@ -165,7 +167,7 @@ def emit_integrity_metrics(*, symbol: str, stream: str, snap) -> None:
 
 def emit_event_time_metrics(*, symbol: str, stream: str, event_lag_ms: float, late: bool = False, future: bool = False, out_of_order: bool = False) -> None:
     """Emit hot-path event-time lag and flag counters. Best-effort, never raises."""
-    sym = str(symbol)
+    sym = symbol
     st = str(stream)
     try:
         lag = float(max(0.0, float(event_lag_ms or 0.0)))
@@ -183,7 +185,7 @@ def emit_event_time_metrics(*, symbol: str, stream: str, event_lag_ms: float, la
 
 def emit_book_staleness_metrics(*, symbol: str, staleness_ms: float) -> None:
     """Emit book staleness gauge and histogram. Best-effort, never raises."""
-    sym = str(symbol)
+    sym = symbol
     try:
         val = float(max(0.0, float(staleness_ms or 0.0)))
         if stream_book_staleness_ms is not None:
@@ -245,7 +247,7 @@ def emit_trade_to_book_metrics(
 
     Called from BookTradeConsistencyGate.evaluate() on every hot-path tick.
     """
-    sym = str(symbol)
+    sym = symbol
     st = str(stream)
     try:
         if stale_book and stream_trade_to_book_stale_total is not None:

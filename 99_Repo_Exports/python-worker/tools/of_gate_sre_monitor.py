@@ -1,20 +1,23 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from common.of_gate_metrics_contract import validate_of_gate_row
 
 # redis is imported lazily inside main() to avoid breaking unit tests
 # that do not have a Redis server available (test isolation).
 from common.redis_errors import retry_redis_operation
-
-from core.ok_fields import parse_ok_fields, get_scenario, get_ts_ms
+from core.ok_fields import get_scenario, get_ts_ms
+from domain.evidence_keys import MetaKeys
 from tools.of_gate_metrics_contract import derive_ok_fields, is_gate_row, scenario_key
-from common.of_gate_metrics_contract import validate_of_gate_row
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
+
 
 def _now_ms() -> int:
     return get_ny_time_millis()
@@ -38,7 +41,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     xs = sorted(xs)
@@ -47,9 +50,9 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 600000) -> List[Dict[str, Any]]:
+def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 600000) -> list[dict[str, Any]]:
     end_ms = start_ms + window_ms
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -87,11 +90,11 @@ def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: i
     return rows
 
 
-def _scenario_key(r: Dict[str, Any]) -> str:
+def _scenario_key(r: dict[str, Any]) -> str:
     return get_scenario(r) or "na"
 
 
-def _parse_missing_legs(r: Dict[str, Any]) -> List[str]:
+def _parse_missing_legs(r: dict[str, Any]) -> list[str]:
     x = r.get("missing_legs", "")
     if not x:
         return []
@@ -106,17 +109,17 @@ def _parse_missing_legs(r: Dict[str, Any]) -> List[str]:
     return []
 
 
-def _dist_l1(p: Dict[str, float], q: Dict[str, float]) -> float:
+def _dist_l1(p: dict[str, float], q: dict[str, float]) -> float:
     keys = set(p.keys()) | set(q.keys())
     return float(sum(abs(p.get(k, 0.0) - q.get(k, 0.0)) for k in keys))
 
 
-def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *, dh_bad_th: float) -> Dict[str, Any]:
+def compute_stats(rows: list[dict[str, Any]], prev: dict[str, Any] | None, *, dh_bad_th: float) -> dict[str, Any]:
     raw_n = len(rows)
     gate_rows = [r for r in rows if is_gate_row(r)]
-    
+
     n_total_raw = len(gate_rows)
-    valid_infra: List[Dict[str, Any]] = []
+    valid_infra: list[dict[str, Any]] = []
     dq = Counter()
     legacy_payload = 0
 
@@ -147,11 +150,11 @@ def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *,
 
     ok = 0
     soft = 0
-    lat: List[float] = []
-    ml_lat: List[float] = []
-    execn: List[float] = []
-    dn_usd: List[float] = []
-    dn_thresh: List[float] = []
+    lat: list[float] = []
+    ml_lat: list[float] = []
+    execn: list[float] = []
+    dn_usd: list[float] = []
+    dn_thresh: list[float] = []
     meta_veto = 0
     book_bad = 0
     src_bad = 0
@@ -174,7 +177,7 @@ def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *,
         en = _f(r.get("exec_risk_norm", 0.0), 0.0)
         if en > 0:
             execn.append(en)
-        
+
         du = _f(r.get("dn_usd", 0.0), 0.0)
         if du > 0:
             dn_usd.append(du)
@@ -191,10 +194,10 @@ def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *,
             miss[m] += 1
 
         # Sampling diagnostics (safe: bounded cardinality)
-        sr = str(r.get("sample_rate", "") or "")
+        sr = (r.get("sample_rate", "") or "")
         if sr:
             sample_rate[sr] += 1
-        sm = str(r.get("sample_key_mode", "") or "")
+        sm = (r.get("sample_key_mode", "") or "")
         if sm:
             sample_key_mode[sm] += 1
 
@@ -205,14 +208,14 @@ def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *,
         soft += soft1
         ok_src_c[ok_src] += 1
         ok_soft_src_c[ok_soft_src] += 1
-        
-        meta_veto += 1 if _i(r.get("meta_veto", 0), 0) == 1 else 0
+
+        meta_veto += 1 if _i(r.get(MetaKeys.VETO, 0), 0) == 1 else 0
         scen[scenario_key(r)] += 1
 
     ok_rate = (ok / n) if n > 0 else None
     soft_rate = (soft / n) if n > 0 else None
 
-    scen_dist: Dict[str, float] = {}
+    scen_dist: dict[str, float] = {}
     if n > 0:
         for k, c in scen.items():
             scen_dist[k] = float(c) / float(n)
@@ -270,8 +273,8 @@ def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *,
     return out
 
 
-def build_alerts(stats: Dict[str, Any], *, cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
-    alerts: List[Dict[str, Any]] = []
+def build_alerts(stats: dict[str, Any], *, cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    alerts: list[dict[str, Any]] = []
     n = _i(stats.get("n", 0), 0)
     n_total = _i(stats.get("n_total", 0), 0)
     n_total_raw = _i(stats.get("n_total_raw", n_total), n_total)
@@ -332,15 +335,15 @@ def build_alerts(stats: Dict[str, Any], *, cfg: Dict[str, Any]) -> List[Dict[str
     return alerts
 
 
-def _fmt(stats: Dict[str, Any], alerts: List[Dict[str, Any]], *, window_min: int) -> str:
-    import socket
+def _fmt(stats: dict[str, Any], alerts: list[dict[str, Any]], *, window_min: int) -> str:
     import os
+    import socket
     hostname = socket.gethostname()
     pid = os.getpid()
 
     def ms(us: float) -> float:
         return float(us) / 1000.0
-        
+
     def fmt_rate(x: Any) -> str:
         if x is None:
             return "NA"
@@ -354,8 +357,8 @@ def _fmt(stats: Dict[str, Any], alerts: List[Dict[str, Any]], *, window_min: int
     n_total = _i(stats.get('n_total',0),0)
     n_total_raw = _i(stats.get("n_total_raw", n_total), n_total)
     n_invalid = _i(stats.get("n_invalid", 0), 0)
-    lines.append(f"OF_GATE_SRE window={window_min}m n={n} (total_valid={n_total} raw={n_total_raw} invalid={n_invalid} dn_veto={fmt_rate(stats.get('dn_veto_rate',None))}) ({hostname}:{pid})")
-    lines.append(f"ok_rate={fmt_rate(stats.get('ok_rate',None))} soft_rate={fmt_rate(stats.get('soft_rate',None))} meta_veto={fmt_rate(stats.get('meta_veto_rate',None))}")
+    lines.append(f"OF_GATE_SRE window={window_min}m n={n} (total_valid={n_total} raw={n_total_raw} invalid={n_invalid} dn_veto={fmt_rate(stats.get('dn_veto_rate'))}) ({hostname}:{pid})")
+    lines.append(f"ok_rate={fmt_rate(stats.get('ok_rate'))} soft_rate={fmt_rate(stats.get('soft_rate'))} meta_veto={fmt_rate(stats.get('meta_veto_rate'))}")
     dq_top = stats.get("dq_top", [])
     if isinstance(dq_top, list) and dq_top:
         try:
@@ -397,7 +400,7 @@ def _fmt(stats: Dict[str, Any], alerts: List[Dict[str, Any]], *, window_min: int
     return "\n".join(lines)
 
 
-def _notify(r: Any, stream: str, text: str, sid: Optional[str] = None) -> None:
+def _notify(r: Any, stream: str, text: str, sid: str | None = None) -> None:
     import html
     safe_text = html.escape(text)
     payload = {
@@ -433,15 +436,15 @@ class AlertManager:
         self.key = key
         self.cooldown_ms = cooldown_sec * 1000
 
-    def filter(self, current_alerts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def filter(self, current_alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Returns only alerts that should be fired (new or cooldown expired).
         Updates state for fired alerts.
         Clears state for alerts that are no longer active.
         """
         now = _now_ms()
-        out: List[Dict[str, Any]] = []
-        
+        out: list[dict[str, Any]] = []
+
         # Load current state
         try:
             raw_state = self.r.hgetall(self.key)
@@ -456,30 +459,26 @@ class AlertManager:
         for code, alert in active_map.items():
             current_codes.add(code)
             last_ts = state.get(code, 0)
-            
+
             # Fire if never fired or cooldown expired
             if last_ts == 0 or (now - last_ts > self.cooldown_ms):
                 out.append(alert)
                 # Update state immediately (optimistic)
                 state[code] = now
-                try:
+                with contextlib.suppress(Exception):
                     self.r.hset(self.key, code, str(now))
-                except Exception:
-                    pass
-        
+
         # 2. Clear state for resolved alerts
         # (If a code is in state but not in current_codes, it's resolved)
         resolved = []
         for code in list(state.keys()):
             if code not in current_codes:
                 resolved.append(code)
-        
+
         if resolved:
-            try:
+            with contextlib.suppress(Exception):
                 self.r.hdel(self.key, *resolved)
-            except Exception:
-                pass
-                
+
         return out
 
 
@@ -489,7 +488,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--metrics-stream", default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"))
-    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"))
+    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM))
     ap.add_argument("--state-key", default=os.getenv("SRE_OF_GATE_STATE_KEY", "sre:of_gate:last_stats"))
     ap.add_argument("--alert-state-key", default=os.getenv("SRE_OF_GATE_ALERT_STATE_KEY", "sre:of_gate:alert_state"))
     ap.add_argument("--cooldown-sec", type=int, default=int(os.getenv("SRE_OF_GATE_ALERT_COOLDOWN_SEC", "1800")))
@@ -517,7 +516,7 @@ def main() -> None:
     start_ms = _now_ms() - window_ms
     rows = _read_stream_window(r, args.metrics_stream, start_ms, window_ms)
 
-    prev: Optional[Dict[str, Any]] = None
+    prev: dict[str, Any] | None = None
     try:
         blob = retry_redis_operation(
             operation=lambda: r.get(args.state_key),
@@ -577,13 +576,13 @@ def main() -> None:
         # We send the full report with ALL alerts (raw_alerts) for context,
         # but the trigger was the actionable_alerts.
         text = _fmt(stats, raw_alerts, window_min=int(args.window_min))
-        
+
         # Deterministic SID to prevent duplicates from multiple notify workers
         # Floor timestamp to 1 minute to be stable within the same reporting cycle
         ts_now = _now_ms()
         floored_min = (ts_now // 60_000) * 60_000
         sid = f"of_gate_sre:{floored_min}"
-        
+
         _notify(r, args.notify_stream, text, sid=sid)
 
     print(json.dumps({"stats": stats, "alerts": raw_alerts, "actionable": actionable_alerts}, ensure_ascii=False))

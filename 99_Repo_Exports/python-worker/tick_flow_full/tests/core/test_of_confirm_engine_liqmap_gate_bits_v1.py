@@ -1,5 +1,4 @@
 # tick_flow_full/tests/core/test_of_confirm_engine_liqmap_gate_wiring_v1.py
-# -*- coding: utf-8 -*-
 """Unit tests: OFConfirmEngine wiring for LiqMap gate.
 
 Contract enforced here:

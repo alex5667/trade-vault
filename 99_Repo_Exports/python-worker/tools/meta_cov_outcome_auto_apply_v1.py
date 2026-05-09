@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 """
 meta_cov_outcome_auto_apply_v1.py
 
@@ -52,16 +55,15 @@ ENV
   META_COV_MIN_HOLD_SEC (default 1800)               # fast skip if changed recently
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import hashlib
 import json
 import os
 import subprocess
 import sys
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -108,9 +110,9 @@ def _loads_maybe_json(v: Any) -> Any:
     return v
 
 
-def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
-    payload_obj: Optional[Dict[str, Any]] = None
+def _parse_entry(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    payload_obj: dict[str, Any] | None = None
     for k, v in fields.items():
         ks = k.decode("utf-8", "replace") if isinstance(k, (bytes, bytearray)) else str(k)
         out[ks] = _loads_maybe_json(v)
@@ -125,7 +127,7 @@ def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def _is_position_closed(fields: Dict[str, Any]) -> bool:
+def _is_position_closed(fields: dict[str, Any]) -> bool:
     et = str(fields.get("event_type") or fields.get("event") or "").upper()
     if et in ("POSITION_CLOSED", "CLOSE"):
         return True
@@ -136,7 +138,7 @@ def _is_position_closed(fields: Dict[str, Any]) -> bool:
     return False
 
 
-def _event_ts_ms(fields: Dict[str, Any]) -> int:
+def _event_ts_ms(fields: dict[str, Any]) -> int:
     return _i(fields.get("ts_ms") or fields.get("ts") or fields.get("exit_ts_ms") or fields.get("close_ts_ms") or fields.get("timestamp") or 0, 0)
 
 
@@ -153,8 +155,8 @@ def read_closed_trades(
     stream: str,
     since_ms: int,
     max_scan: int = 500_000,
-) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -182,19 +184,19 @@ def read_closed_trades(
     return out
 
 
-def tail_rate(rs: List[float]) -> float:
+def tail_rate(rs: list[float]) -> float:
     if not rs:
         return 0.0
     return sum(1 for x in rs if x <= -1.0) / float(len(rs))
 
 
-def mean(rs: List[float]) -> float:
+def mean(rs: list[float]) -> float:
     if not rs:
         return 0.0
     return sum(rs) / float(len(rs))
 
 
-def summarize(rs: List[float]) -> Dict[str, Any]:
+def summarize(rs: list[float]) -> dict[str, Any]:
     return {
         "n": int(len(rs)),
         "meanR": float(mean(rs)),
@@ -214,7 +216,7 @@ def main() -> int:
 
     prefix = os.environ.get("META_ENFORCE_COV_PREFIX", "cfg:suggestions:meta_enforce_cov")
     dyn_key = os.environ.get("DYN_CFG_KEY", "settings:dynamic_cfg")
-    stream = os.environ.get("TRADE_EVENTS_STREAM", "events:trades")
+    stream = os.environ.get("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
 
     auto_approve = bool(int(os.environ.get("META_ENFORCE_COV_AUTO_APPROVE", "1") or 0))
     auto_approvers = [x.strip() for x in (os.environ.get("META_ENFORCE_COV_AUTO_APPROVERS", "auto_guard_1,auto_guard_2") or "").split(",") if x.strip()]
@@ -245,14 +247,14 @@ def main() -> int:
 
     # Group returns by cov bucket and enforce/control
     buckets = ["a", "b", "c", "d"]
-    enf: Dict[str, List[float]] = {b: [] for b in buckets}
-    ctl: Dict[str, List[float]] = {b: [] for b in buckets}
+    enf: dict[str, list[float]] = {b: [] for b in buckets}
+    ctl: dict[str, list[float]] = {b: [] for b in buckets}
 
     for f in rows:
-        b = str(f.get("meta_enforce_cov_bucket") or "").strip().lower()
+        b = (f.get(MetaKeys.ENFORCE_COV_BUCKET) or "").strip().lower()
         if b not in enf:
             continue
-        applied = _i(f.get("meta_enforce_applied"), 0)
+        applied = _i(f.get(MetaKeys.ENFORCE_APPLIED), 0)
         r_mult = _f(f.get("r_mult") or f.get("r_multiple") or 0.0, 0.0)
         if r_mult == 0.0:
             # fallback: pnl/risk (if present)
@@ -265,9 +267,9 @@ def main() -> int:
         else:
             ctl[b].append(float(r_mult))
 
-    decisions: List[Dict[str, Any]] = []
-    patch: Dict[str, Any] = {}
-    summary: Dict[str, Any] = {}
+    decisions: list[dict[str, Any]] = []
+    patch: dict[str, Any] = {}
+    summary: dict[str, Any] = {}
 
     for b in buckets:
         s_enf = summarize(enf[b])
@@ -283,7 +285,7 @@ def main() -> int:
         if not bad:
             continue
 
-        cur_share = _f(cfg2.get(f"meta_enforce_share_cov_{b}") or cfg2.get("meta_enforce_share") or 1.0, 1.0)
+        cur_share = _f(cfg2.get(f"meta_enforce_share_cov_{b}") or cfg2.get(MetaKeys.ENFORCE_SHARE) or 1.0, 1.0)
         cur_share = max(0.0, min(1.0, float(cur_share)))
         severe = float(s_enf["tail_rate"]) >= panic_tail
         new_share = 0.0 if severe else max(0.0, cur_share - down_step)

@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import unittest
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
+from typing import Any
 
 
-def _ns(d: Optional[Dict[str, Any]]) -> Any:
+def _ns(d: dict[str, Any] | None) -> Any:
     if d is None:
         return None
     return SimpleNamespace(**d)

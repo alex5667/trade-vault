@@ -1,24 +1,23 @@
 # tools/recommend_trailing_from_redis.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
+import logging
 import os
 import sys
-import time
-from typing import Dict, List, Optional
 
-import logging
 import redis  # pip install redis
+
+from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger(__name__)
 
 from analysis.trailing_recommender import (
+    EPS,
     ClosedTradeSnapshot,
     TrailingSizeRecommendation,
     recommend_trailing_size,
-    EPS,
 )
 
 # (опционально) если хочешь тянуть stop_atr_mult из symbol spec
@@ -58,18 +57,18 @@ def _to_bool(v) -> bool:
     return s in ("1", "true", "yes", "y", "on")
 
 
-def _parse_trade(fields: Dict[str, str], debug: bool = False) -> ClosedTradeSnapshot:
+def _parse_trade(fields: dict[str, str], debug: bool = False) -> ClosedTradeSnapshot:
     def f(name: str, default: float = 0.0) -> float:
         v = fields.get(name)
         if v is None or v == "":
-            return float(default)
+            return default
         try:
             return float(v)
         except Exception:
             try:
                 return float(str(v).replace(",", "."))
             except Exception:
-                return float(default)
+                return default
 
     def b(name: str) -> bool:
         v = fields.get(name)
@@ -79,7 +78,7 @@ def _parse_trade(fields: Dict[str, str], debug: bool = False) -> ClosedTradeSnap
         return s in ("1", "true", "yes", "y", "on")
 
     exit_ts_ms = int(f("exit_ts_ms", 0.0))
-    entry_tag = str(
+    entry_tag = (
         fields.get("entry_tag")
         or fields.get("signal_flavor")
         or fields.get("detector")
@@ -100,7 +99,7 @@ def _parse_trade(fields: Dict[str, str], debug: bool = False) -> ClosedTradeSnap
         # 0. Из PnL_R (pnl_net / pnl_r = 1R_money)
         if abs(pnl_r) > 1e-6:
              one_r = pnl_net / pnl_r
-        
+
         # 1. Проверяем signal_payload
         if one_r <= 1e-9:
             payload_raw = fields.get("signal_payload")
@@ -114,11 +113,11 @@ def _parse_trade(fields: Dict[str, str], debug: bool = False) -> ClosedTradeSnap
                         one_r = abs(p_entry - p_sl) * p_lot
                 except Exception:
                     pass
-        
+
         # 2. Если все еще 0, пробуем через корневые поля sl/entry
         if one_r <= 1e-9 and sl_px > 0 and lot > 0:
              one_r = abs(entry_px - sl_px) * lot
-        
+
         # 3. Крайний случай: ATR
         if one_r <= 1e-9:
             atr = 0.0
@@ -133,13 +132,13 @@ def _parse_trade(fields: Dict[str, str], debug: bool = False) -> ClosedTradeSnap
                     feats = json.loads(fields.get("features", "{}"))
                     atr = float(feats.get("atr") or 0.0)
                 except Exception: pass
-            
+
             if atr > 0 and lot > 0:
                 one_r = atr * 1.0 * lot
 
     return ClosedTradeSnapshot(
-        source=str(fields.get("source") or fields.get("strategy_source") or "Unknown"),
-        symbol=str(fields.get("symbol") or "UNKNOWN").upper(),
+        source=(fields.get("source") or fields.get("strategy_source") or "Unknown"),
+        symbol=(fields.get("symbol") or "UNKNOWN").upper(),
         pnl_net=pnl_net,
         one_r_money=one_r,
         mfe_pnl=mfe_pnl,
@@ -155,34 +154,34 @@ def load_trades_from_stream(
     r: redis.Redis,
     stream: str,
     limit: int,
-    sources: List[str],
-    symbols: List[str],
-    from_ts_ms: Optional[int] = None,
-    to_ts_ms: Optional[int] = None,
-) -> List[ClosedTradeSnapshot]:
+    sources: list[str],
+    symbols: list[str],
+    from_ts_ms: int | None = None,
+    to_ts_ms: int | None = None,
+) -> list[ClosedTradeSnapshot]:
     sources_u = {canon_source(s) for s in (sources or [])}
     symbols_u = {canon_symbol(s) for s in (symbols or [])}
-    
+
     # Per-symbol accumulation buckets
-    trades_by_symbol: Dict[str, List[ClosedTradeSnapshot]] = {s: [] for s in symbols_u}
+    trades_by_symbol: dict[str, list[ClosedTradeSnapshot]] = {s: [] for s in symbols_u}
     # Also keep a general list if no symbols specified (fallback)
-    all_trades: List[ClosedTradeSnapshot] = []
-    
+    all_trades: list[ClosedTradeSnapshot] = []
+
     # We want to find at least `limit` trades for EACH symbol.
     # We will page backwards until we satisfy this or hit a hard safety limit.
-    
+
     CHUNK_SIZE = 1000
     MAX_SCAN_DEPTH = 2_000_000  # Increased from 100k to 2M to cover 24h on high-volume days
-    
+
     last_id = "+"
     min_id = "-"
     if from_ts_ms is not None:
         min_id = f"{from_ts_ms}-0"
 
     total_scanned = 0
-    
+
     logger.info(f"Smart loading from {stream}: target={limit} trades/symbol, max_depth={MAX_SCAN_DEPTH}, min_id={min_id}")
-    
+
     while total_scanned < MAX_SCAN_DEPTH:
         # Check if all requested symbols are satisfied
         if symbols_u:
@@ -193,7 +192,7 @@ def load_trades_from_stream(
         elif len(all_trades) >= limit:
             # If no symbols specified, just use global limit
             break
-            
+
         try:
             entries = r.xrevrange(stream, max=last_id, min=min_id, count=CHUNK_SIZE)
         except redis.exceptions.BusyLoadingError:
@@ -202,33 +201,33 @@ def load_trades_from_stream(
         except Exception as e:
             logger.error(f"Redis error reading {stream}: {e}")
             return []
-            
+
         if not entries:
             break
-            
+
         # Prepare next cursor (exclusive)
         # Edge case: if we got fewer than CHUNK_SIZE, we reached end
         if len(entries) < CHUNK_SIZE:
              is_last_chunk = True
         else:
              is_last_chunk = False
-             
+
         # Process entries
         count_in_chunk = 0
         ids_in_chunk = []
-        
+
         for _id, fields in entries:
             ids_in_chunk.append(_id)
             if _id == last_id:
                 # Skip the overlap if we are paging overlapping
                 # On first iter last_id='+', so no overlap
                 continue
-                
+
             if not isinstance(fields, dict):
                 continue
-            
+
             count_in_chunk += 1
-            
+
             # Hydrate trade if hydrator is available (for compact stream support)
             hydrated_fields = fields
             if _HAS_HYDRATOR and hydrate_trade_closed:
@@ -243,23 +242,23 @@ def load_trades_from_stream(
                     # If hydration fails, use original fields
                     logger.debug(f"Failed to hydrate trade {_id}: {e}")
                     hydrated_fields = fields
-            
+
             trade = _parse_trade(hydrated_fields)
-            
+
             # NORMALIZATION APPLIED HERE
             t_source = canon_source(trade.source)
             t_symbol = canon_symbol(trade.symbol)
-            
+
             # Global Filters
             # Check canonical source against set
             if sources_u and t_source not in sources_u:
                 continue
-            
+
             if from_ts_ms is not None and trade.exit_ts_ms and trade.exit_ts_ms < from_ts_ms:
                 continue
             if to_ts_ms is not None and trade.exit_ts_ms and trade.exit_ts_ms > to_ts_ms:
                 continue
-            
+
             # Bucket distribution
             if symbols_u:
                 if t_symbol in symbols_u:
@@ -271,13 +270,13 @@ def load_trades_from_stream(
                      all_trades.append(trade)
 
         total_scanned += len(entries)
-        
+
         if is_last_chunk:
             break
-            
-        # Update last_id for next page. 
-        # We need specific syntax for exclusive. 
-        # If we use the raw ID, we get it again. 
+
+        # Update last_id for next page.
+        # We need specific syntax for exclusive.
+        # If we use the raw ID, we get it again.
         # To go 'backwards' from 1000-0, we need 1000-0 limit or 999...
         # A simpler way is to use '(' prefix which xrevrange supports since Redis 6.2
         # If not supported, we decrement sequence.
@@ -285,10 +284,10 @@ def load_trades_from_stream(
         # But wait, if we manually skip `last_id`, and `last_id` was the *only* item, we might break.
         # Best reliable way: use `(` prefix for ID passed to max.
         oldest_id = ids_in_chunk[-1]
-        last_id = f"({oldest_id}" 
+        last_id = f"({oldest_id}"
 
     # Compile result
-    res: List[ClosedTradeSnapshot] = []
+    res: list[ClosedTradeSnapshot] = []
     if symbols_u:
         for s in symbols_u:
             res.extend(trades_by_symbol[s])
@@ -302,7 +301,7 @@ def load_trades_from_stream(
 
 
 def _count_filtered_wins(
-    trades: List[ClosedTradeSnapshot],
+    trades: list[ClosedTradeSnapshot],
     source: str,
     symbol: str,
     winners_only: bool = True,
@@ -314,40 +313,40 @@ def _count_filtered_wins(
     """
     count_total = 0
     filtered_wins = 0
-    
+
     for t in trades:
         if t.symbol != symbol or t.source != source:
             continue
-        
+
         # фильтр по трейлингу
         if trailing_only and not (t.trailing_started or t.trailing_active):
             continue
-        
+
         count_total += 1
-        
+
         one_r = float(t.one_r_money or 0.0)
         if one_r <= EPS:
             continue
-        
+
         pnl_net = float(t.pnl_net or 0.0)
         mfe = float(t.mfe_pnl or 0.0)
-        
+
         # calculate normalized values
         current_mfe_r = mfe / one_r
-        
+
         if winners_only and pnl_net <= 0.0:
             continue
-        
+
         if current_mfe_r <= 0.0:
             continue
-        
+
         # Suspicious data filter: MFE > 100R is likely a data error or extreme outlier
         if current_mfe_r > 100.0:
             continue
-        
+
         filtered_wins += 1
         print("WIN TRADE:", t)
-    
+
     return filtered_wins, count_total
 
 
@@ -362,14 +361,14 @@ def _get_stop_atr_mult(r: redis.Redis, symbol: str, default: float) -> float:
             info = get_symbol_info(symbol_up, r) or {}
             spec = spec_from_symbol_info(info)
             val = float(getattr(spec, "stop_atr_mult", default) or default)
-            return val
+            return max(val, 1.2)  # HARD FLOOR 1.2 ATR
         except redis.exceptions.BusyLoadingError:
             logger.warning(f"Redis is loading dataset, using default stop_atr_mult for {symbol}")
         except redis.exceptions.ConnectionError as e:
             logger.error(f"Redis connection error getting stop_atr_mult: {e}")
         except Exception as e:
             logger.debug(f"Error getting stop_atr_mult for {symbol}: {e}")
-    return default
+    return max(default, 1.2)  # HARD FLOOR 1.2 ATR
 
 
 def _format_rec_md(rec: TrailingSizeRecommendation, title_suffix: str) -> str:
@@ -382,10 +381,10 @@ def _format_rec_md(rec: TrailingSizeRecommendation, title_suffix: str) -> str:
 
     return (
         f"- {title_suffix}: n_total={rec.sample_size}, n_wins={rec.wins_count}, "
-        f"lock_r={rec.lock_r:.2f}R, TP1_OFFSET_ATR={rec.lock_offset_atr:.2f}\n"
-        f"  MFE_R avg/median={rec.avg_mfe_r:.2f}/{rec.median_mfe_r:.2f}, "
-        f"giveback_R={rec.avg_giveback_r:.2f}, ratio={rec.avg_giveback_ratio:.2f}\n"
-        f"  std(MFE_R)={rec.std_mfe_r:.2f}, std(giveback_ratio)={rec.std_giveback_ratio:.2f}, "
+        f"lock R={rec.lock_r:.2f}R, TP1 OFFSET ATR={rec.lock_offset_atr:.2f}\n"
+        f"  MFE R avg/median={rec.avg_mfe_r:.2f}/{rec.median_mfe_r:.2f}, "
+        f"giveback R={rec.avg_giveback_r:.2f}, ratio={rec.avg_giveback_ratio:.2f}\n"
+        f"  std(MFE R)={rec.std_mfe_r:.2f}, std(giveback ratio)={rec.std_giveback_ratio:.2f}, "
         f"confidence={rec.confidence:.2f}{warn}\n"
     )
 
@@ -398,7 +397,7 @@ def _get_symbol_class(symbol: str) -> str:
     symbol_upper = symbol.upper()
     majors = {"BTCUSDT", "ETHUSDT"}
     large_alts = {"SOLUSDT", "XRPUSDT", "BNBUSDT", "SUIUSDT", "DOGEUSDT", "APTUSDT", "XAUUSDT"}
-    
+
     if symbol_upper in majors:
         return "major"
     elif symbol_upper in large_alts:
@@ -423,9 +422,9 @@ def _get_confidence_thresholds(
     """
     if not use_symbol_class:
         return propose_threshold, auto_apply_threshold
-    
+
     symbol_class = _get_symbol_class(symbol)
-    
+
     if symbol_class == "major":
         # BTC/ETH: более низкий порог для авто-апплая
         auto_apply = max(0.68, auto_apply_threshold)
@@ -438,7 +437,7 @@ def _get_confidence_thresholds(
         # Мемы/тонкие: более высокий порог
         auto_apply = max(0.75, auto_apply_threshold)
         propose = min(propose_threshold, auto_apply - 0.05)
-    
+
     return propose, auto_apply
 
 
@@ -453,17 +452,17 @@ def _check_hold_down(
     """
     if hold_down_hours <= 0:
         return True  # hold-down отключен
-    
+
     key = f"symbol:trailing_cfg:{symbol.upper()}"
     try:
         last_apply_ms = r.hget(key, "last_auto_apply_ms")
         if not last_apply_ms:
             return True  # никогда не применяли - можно применять
-        
+
         last_apply_ms = int(last_apply_ms)
         now_ms = get_ny_time_millis()
         elapsed_hours = (now_ms - last_apply_ms) / (1000 * 3600)
-        
+
         return elapsed_hours >= hold_down_hours
     except Exception as e:
         logger.debug(f"Error checking hold-down for {symbol}: {e}")
@@ -482,17 +481,17 @@ def _check_min_delta_change(
     """
     if min_delta_change_pct <= 0:
         return True  # проверка отключена
-    
+
     key = f"symbol:trailing_cfg:{symbol.upper()}"
     try:
         current_tp1_offset_atr_str = r.hget(key, "tp1_offset_atr")
         if not current_tp1_offset_atr_str:
             return True  # нет текущего значения - можно применять
-        
+
         current_tp1_offset_atr = float(current_tp1_offset_atr_str)
         if current_tp1_offset_atr <= 0:
             return True  # некорректное значение - можно применять
-        
+
         delta_pct = abs((new_tp1_offset_atr - current_tp1_offset_atr) / current_tp1_offset_atr) * 100.0
         return delta_pct >= min_delta_change_pct
     except Exception as e:
@@ -537,13 +536,13 @@ def _choose_final_for_autowrite(
         propose_threshold = conf_threshold * 0.85  # fallback: 85% от основного порога
     if auto_apply_threshold is None:
         auto_apply_threshold = conf_threshold
-    
+
     # Применяем пороги по классам инструментов, если задан symbol
     if symbol:
         propose_threshold, auto_apply_threshold = _get_confidence_thresholds(
             symbol, propose_threshold, auto_apply_threshold, use_symbol_class=True
         )
-    
+
     # Выбираем лучшую рекомендацию
     best_rec: TrailingSizeRecommendation | None = None
     if rec_trailing and rec_trailing.confidence >= auto_apply_threshold:
@@ -554,13 +553,13 @@ def _choose_final_for_autowrite(
         best_rec = rec_trailing
     elif rec_all and rec_all.confidence >= propose_threshold:
         best_rec = rec_all
-    
+
     if not best_rec:
         return None, "none"
-    
+
     # Определяем действие: auto_apply или proposal
     confidence_high_enough = best_rec.confidence >= auto_apply_threshold
-    
+
     if confidence_high_enough:
         # Проверяем защиты для auto_apply
         # 1. min_trades_for_apply
@@ -574,7 +573,7 @@ def _choose_final_for_autowrite(
                 if best_rec.confidence >= propose_threshold:
                     return best_rec, "proposal"
                 return None, "none"
-        
+
         # 2. hold_down
         if r and hold_down_hours > 0 and symbol:
             if not _check_hold_down(r, symbol, hold_down_hours):
@@ -585,7 +584,7 @@ def _choose_final_for_autowrite(
                 if best_rec.confidence >= propose_threshold:
                     return best_rec, "proposal"
                 return None, "none"
-        
+
         # 3. min_delta_change
         if r and min_delta_change_pct > 0 and symbol:
             tp1_offset_atr = best_rec.lock_offset_atr if hasattr(best_rec, 'lock_offset_atr') else getattr(best_rec, 'trailing_tp1_offset_atr', 0.0)
@@ -597,7 +596,7 @@ def _choose_final_for_autowrite(
                 if best_rec.confidence >= propose_threshold:
                     return best_rec, "proposal"
                 return None, "none"
-        
+
         # Все проверки пройдены - можно auto_apply
         return best_rec, "auto_apply"
     else:
@@ -624,11 +623,11 @@ def _autowrite_symbol_trailing_cfg(
     """
     key = f"symbol:trailing_cfg:{symbol.upper()}"
     now_ms = get_ny_time_millis()
-    
+
     # Получаем текущее значение для отслеживания изменений
     tp1_offset_atr = final_rec.lock_offset_atr if hasattr(final_rec, 'lock_offset_atr') else getattr(final_rec, 'trailing_tp1_offset_atr', 0.0)
 
-    mapping: Dict[str, str] = {
+    mapping: dict[str, str] = {
         "tp1_offset_atr": f"{tp1_offset_atr:.6f}",
         "lock_r": f"{final_rec.lock_r:.6f}",
         "confidence": f"{final_rec.confidence:.4f}",
@@ -636,11 +635,11 @@ def _autowrite_symbol_trailing_cfg(
         "updated_at_ms": str(now_ms),
         "action": action,  # 'auto_apply' или 'proposal'
     }
-    
+
     # Если auto_apply - записываем timestamp последнего применения
     if action == "auto_apply":
         mapping["last_auto_apply_ms"] = str(now_ms)
-        
+
         # --- Интеграция в основной symbol_specs ---
         # Патчим основной spec, чтобы tick_processor и executor тут же подхватили новое значение.
         try:
@@ -782,9 +781,15 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    symbols = [canon_symbol(s) for s in args.symbols.split(",") if s.strip()]
+    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     if not symbols:
-        print("Нет символов для анализа", file=sys.stderr)
+        try:
+            from core.symbol_manager import SymbolManager
+            symbols = SymbolManager().get_active_symbols()
+        except Exception as e:
+            logger.error(f"Failed to load symbols from SymbolManager: {e}")
+    if not symbols:
+        print("Нет символов для анализа. Задайте --symbols или заполните SymbolManager.")
         return 1
 
     r = redis.from_url(args.redis_url, decode_responses=True)
@@ -808,7 +813,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     # Markdown-отчёт
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"### 🔧 Trailing calibration: {args.source}")
     lines.append(
         f"_stream=`{args.stream}`, limit={args.limit}, min_trades={args.min_trades}, "
@@ -836,10 +841,10 @@ def main(argv: list[str] | None = None) -> int:
         # Plan:
         # 1. Update `analysis/trailing_recommender.py` to support `min_wins` explicitly if it doesn't already (it seems it does from the call signature in `recommend_trailing_from_redis.py`).
         # 2. Implement "Escape Hatch" logic.
-        
+
         # Checking file content of `recommend_trailing_from_redis.py` (Step 49)...
         # It imports `recommend_trailing_size` from `analysis.trailing_recommender`.
-        
+
         # I will READ `analysis/trailing_recommender.py` first before writing.
 
 
@@ -910,18 +915,18 @@ def main(argv: list[str] | None = None) -> int:
 
                 if all_sources_for_symbol:
                     msg += f"\n  💡 Найдены сделки с другими source: {dict(all_sources_for_symbol)}"
-                    msg += f"\n  💡 Попробуйте запустить с --source <другой_source>"
+                    msg += "\n  💡 Попробуйте запустить с --source <другой_source>"
                 elif symbol in all_symbols_in_stream:
                     msg += f"\n  💡 Найдены {all_symbols_in_stream[symbol]} сделок для {symbol}, но с другими source"
-                    msg += f"\n  💡 Проверьте правильность source фильтра"
+                    msg += "\n  💡 Проверьте правильность source фильтра"
                 else:
                     msg += f"\n  💡 В stream нет сделок для {symbol} вообще"
                     if all_symbols_in_stream:
                         msg += f"\n  💡 Найдены сделки для других символов: {dict(sorted(all_symbols_in_stream.items(), key=lambda x: x[1], reverse=True)[:5])}"
-                    msg += f"\n  💡 Проверьте:"
+                    msg += "\n  💡 Проверьте:"
                     msg += f"\n     - Генерируются ли сигналы для {symbol}?"
-                    msg += f"\n     - Открываются ли позиции (orders:open)?"
-                    msg += f"\n     - Закрываются ли позиции (trades:closed)?"
+                    msg += "\n     - Открываются ли позиции (orders:open)?"
+                    msg += "\n     - Закрываются ли позиции (trades:closed)?"
                     msg += f"\n     - Проверьте stream: redis-cli XLEN {args.stream}"
                     msg += f"\n     - Проверьте последние записи: redis-cli XREVRANGE {args.stream} + - COUNT 10"
             elif len(sym_trades) < args.min_trades:
@@ -971,7 +976,7 @@ def main(argv: list[str] | None = None) -> int:
         # группировка по entry_tag (топ-10 по числу сделок)
         if args.group_by_entry_tag:
             # выбираем только сделки этого символа/сорса с непустым тегом
-            tag_map: Dict[str, List[ClosedTradeSnapshot]] = {}
+            tag_map: dict[str, list[ClosedTradeSnapshot]] = {}
             for t in trades:
                 if t.symbol != symbol or t.source != args.source:
                     continue
@@ -1006,7 +1011,7 @@ def main(argv: list[str] | None = None) -> int:
                         trailing_only=True,
                     )
 
-                    lines.append(f"- entry_tag = {entry_tag}")
+                    lines.append(f"- entry tag = {entry_tag}")
                     if not rec_tag_all and not rec_tag_trailing:
                         lines.append("  - недостаточно данных.\n")
                         continue
@@ -1047,7 +1052,7 @@ def build_trailing_report_markdown_from_env(r: redis.Redis | None = None) -> str
     stream = os.getenv("TRAILING_AUTOTUNE_STREAM", "trades:closed")
     limit = int(os.getenv("TRAILING_AUTOTUNE_LIMIT", "2000"))
     source = os.getenv("TRAILING_AUTOTUNE_SOURCE", "CryptoOrderFlow")
-    symbols_env = os.getenv("TRAILING_AUTOTUNE_SYMBOLS", "ETHUSDT,BTCUSDT")
+    symbols_env = os.getenv("TRAILING_AUTOTUNE_SYMBOLS", "")
     min_trades = int(os.getenv("TRAILING_AUTOTUNE_MIN_TRADES", "50"))
     min_wins = int(os.getenv("TRAILING_AUTOTUNE_MIN_WINS", "0"))
     mfe_quantile = float(os.getenv("TRAILING_AUTOTUNE_MFE_QUANTILE", "0.25"))
@@ -1085,6 +1090,12 @@ def build_trailing_report_markdown_from_env(r: redis.Redis | None = None) -> str
         to_ts_ms = int(to_ts)
 
     symbols = [s.strip().upper() for s in symbols_env.split(",") if s.strip()]
+    if not symbols:
+        try:
+            from core.symbol_manager import SymbolManager
+            symbols = SymbolManager().get_active_symbols()
+        except Exception as e:
+            logger.error(f"Failed to load symbols from SymbolManager: {e}")
     if not symbols:
         return "Нет символов для анализа."
 
@@ -1167,9 +1178,9 @@ def build_trailing_report_markdown_from_env(r: redis.Redis | None = None) -> str
             # Основное сообщение
             msg = (
                 f"- недостаточно данных для рекомендаций "
-                f"(found_trades={len(sym_trades)}, "
-                f"filtered_wins_all={filtered_wins_all}, filtered_wins_trailing={filtered_wins_trailing}, "
-                f"need_trades={min_trades}, need_wins~={eff_wins})"
+                f"(found trades={len(sym_trades)}, "
+                f"filtered wins all={filtered_wins_all}, filtered wins trailing={filtered_wins_trailing}, "
+                f"need trades={min_trades}, need wins~={eff_wins})"
             )
 
             # Дополнительная диагностика
@@ -1184,18 +1195,18 @@ def build_trailing_report_markdown_from_env(r: redis.Redis | None = None) -> str
 
                 if all_sources_for_symbol:
                     msg += f"\n  💡 Найдены сделки с другими source: {dict(all_sources_for_symbol)}"
-                    msg += f"\n  💡 Попробуйте запустить с другим source"
+                    msg += "\n  💡 Попробуйте запустить с другим source"
                 elif symbol in all_symbols_in_stream:
                     msg += f"\n  💡 Найдены {all_symbols_in_stream[symbol]} сделок для {symbol}, но с другими source"
-                    msg += f"\n  💡 Проверьте правильность source фильтра"
+                    msg += "\n  💡 Проверьте правильность source фильтра"
                 else:
                     msg += f"\n  💡 В stream нет сделок для {symbol} вообще"
                     if all_symbols_in_stream:
                         msg += f"\n  💡 Найдены сделки для других символов: {dict(sorted(all_symbols_in_stream.items(), key=lambda x: x[1], reverse=True)[:5])}"
-                    msg += f"\n  💡 Проверьте:"
+                    msg += "\n  💡 Проверьте:"
                     msg += f"\n     - Генерируются ли сигналы для {symbol}?"
-                    msg += f"\n     - Открываются ли позиции (orders:open)?"
-                    msg += f"\n     - Закрываются ли позиции (trades:closed)?"
+                    msg += "\n     - Открываются ли позиции (orders:open)?"
+                    msg += "\n     - Закрываются ли позиции (trades:closed)?"
                     msg += f"\n     - Проверьте stream: redis-cli XLEN {stream}"
                     msg += f"\n     - Проверьте последние записи: redis-cli XREVRANGE {stream} + - COUNT 10"
             elif len(sym_trades) < min_trades:

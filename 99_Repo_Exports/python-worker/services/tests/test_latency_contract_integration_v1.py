@@ -1,25 +1,25 @@
 from __future__ import annotations
+
 """Integration tests for latency contract wiring (stamp, observe, Redis state write)."""
 
-import asyncio
-import sys, os
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+
 from services.observability.latency_contract import (
-    stamp_feature_ready,
+    LatencyStateWriter,
     observe_feature_ready_async,
     stamp_emit_and_observe_async,
-    LatencyStateWriter,
+    stamp_feature_ready,
 )
 from services.observability.latency_semconv import (
     FIELD_TS_EMIT_MS,
+    FIELD_TS_EVENT_MS,
     FIELD_TS_FEATURE_MS,
     FIELD_TS_REDIS_READ_MS,
-    FIELD_TS_EVENT_MS,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

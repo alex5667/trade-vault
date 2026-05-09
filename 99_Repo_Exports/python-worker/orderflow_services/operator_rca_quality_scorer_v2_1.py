@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -18,6 +19,7 @@ except Exception:  # pragma: no cover
     asyncpg = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+import contextlib
 
 QUALITY_STREAM = os.getenv("ML_OPERATOR_RCA_QUALITY_STREAM", "stream:ml:operator_rca_quality")
 QUALITY_RESULTS_STREAM = os.getenv("ML_OPERATOR_RCA_QUALITY_RESULTS_STREAM", "stream:ml:operator_rca_quality_results")
@@ -64,10 +66,10 @@ class RCAQualityInput:
     policy_version: str
     findings_n: int
     recommendations_n: int
-    output_json: Dict[str, Any]
+    output_json: dict[str, Any]
 
 
-def parse_input(fields: Dict[Any, Any]) -> RCAQualityInput:
+def parse_input(fields: dict[Any, Any]) -> RCAQualityInput:
     return RCAQualityInput(
         recommendation_id=_b2s(fields.get(b"recommendation_id", b"")),
         ts_ms=int(_b2s(fields.get(b"ts_ms", b"0")) or "0"),
@@ -83,9 +85,9 @@ def parse_input(fields: Dict[Any, Any]) -> RCAQualityInput:
     )
 
 
-def score_output(payload: Dict[str, Any]) -> Tuple[float, List[str], Dict[str, float]]:
-    reasons: List[str] = []
-    parts: Dict[str, float] = {}
+def score_output(payload: dict[str, Any]) -> tuple[float, list[str], dict[str, float]]:
+    reasons: list[str] = []
+    parts: dict[str, float] = {}
     total = 0.0
     if isinstance(payload, dict):
         total += 20.0
@@ -93,7 +95,7 @@ def score_output(payload: Dict[str, Any]) -> Tuple[float, List[str], Dict[str, f
     else:
         return 0.0, ["NOT_OBJECT"], {"object": 0.0}
 
-    summary = str(payload.get("summary", "")).strip()
+    summary = (payload.get("summary", "")).strip()
     if summary:
         total += 15.0
         parts["summary"] = 15.0
@@ -140,7 +142,7 @@ def score_output(payload: Dict[str, Any]) -> Tuple[float, List[str], Dict[str, f
     }
     allowed_n = 0
     for rec in recs[:10]:
-        if isinstance(rec, dict) and str(rec.get("action", "")) in allowed_actions:
+        if isinstance(rec, dict) and (rec.get("action", "")) in allowed_actions:
             allowed_n += 1
     allowed_add = min(15.0, 5.0 * allowed_n)
     total += allowed_add
@@ -155,13 +157,11 @@ def score_output(payload: Dict[str, Any]) -> Tuple[float, List[str], Dict[str, f
 
 
 async def _ensure_group(r: Any) -> None:
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(QUALITY_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
 
 
-async def _persist(conn: Any, item: RCAQualityInput, score: float, reasons: List[str], parts: Dict[str, float]) -> None:
+async def _persist(conn: Any, item: RCAQualityInput, score: float, reasons: list[str], parts: dict[str, float]) -> None:
     if conn is None:
         return
     await conn.execute(

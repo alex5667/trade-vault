@@ -1,16 +1,16 @@
-from utils.time_utils import get_ny_time_millis
 import os
+
+from core.redis_keys import RedisStreams as RS
+from utils.time_utils import get_ny_time_millis
+
 print("DEBUG: Top level start")
-import json
-import time
 import html
-from typing import Any, Dict, List
+import json
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
-
 import redis  # pip install redis
-
 
 ANALYTICS_DB_DSN = os.getenv("ANALYTICS_DB_DSN", "")
 REPORT_SQL_FILE = os.getenv(
@@ -37,7 +37,7 @@ REPORT_MAX_CHARS = int(os.getenv("REPORT_MAX_CHARS", "3800"))
 # Telegram publish via redis stream to notify_worker
 REPORT_SEND_TELEGRAM = os.getenv("REPORT_SEND_TELEGRAM", "0") == "1"
 REPORT_REDIS_URL = os.getenv("REPORT_REDIS_URL", "redis://localhost:6379/0")
-REPORT_STREAM_KEY = os.getenv("REPORT_STREAM_KEY", "stream:notify")
+REPORT_STREAM_KEY = os.getenv("REPORT_STREAM_KEY", RS.NOTIFY_TELEGRAM)
 
 # IMPORTANT:
 # - fields: XADD key type=report text=<html> ts_ms=...
@@ -50,7 +50,7 @@ def now_ms() -> int:
 
 
 def load_sql(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return f.read()
 
 
@@ -72,7 +72,7 @@ def safe_int(x: Any, default: int = 0) -> int:
         return default
 
 
-def quantile(xs: List[float], q: float) -> float:
+def quantile(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     xs2 = sorted(xs)
@@ -81,7 +81,7 @@ def quantile(xs: List[float], q: float) -> float:
     return float(xs2[idx])
 
 
-def parse_features_json(v: Any) -> Dict[str, Any]:
+def parse_features_json(v: Any) -> dict[str, Any]:
     if v is None:
         return {}
     if isinstance(v, dict):
@@ -94,7 +94,7 @@ def parse_features_json(v: Any) -> Dict[str, Any]:
     return {}
 
 
-def get_adverse_200_bps(features: Dict[str, Any]) -> float:
+def get_adverse_200_bps(features: dict[str, Any]) -> float:
     try:
         d = features.get("adverse_bps_t") or {}
         return safe_float(d.get("200", 0.0), 0.0)
@@ -151,7 +151,7 @@ def classify_loss(
     return "OTHER"
 
 
-def fetch_rows(sql: str, from_ms: int, to_ms: int) -> List[Dict[str, Any]]:
+def fetch_rows(sql: str, from_ms: int, to_ms: int) -> list[dict[str, Any]]:
     with psycopg2.connect(ANALYTICS_DB_DSN) as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(sql, {"from_ms": from_ms, "to_ms": to_ms})
@@ -207,7 +207,7 @@ def build_report(from_ms: int, to_ms: int) -> str:
             mae_bps_val = safe_float(mae_bps_val, 0.0)
 
         time_to_mfe = safe_int(r.get("time_to_mfe_ms"), 0)
-        close_reason = str(r.get("close_reason") or "")
+        close_reason = (r.get("close_reason") or "")
         l2_age = safe_float(r.get("health_avg_l2_age_ms"), 0.0)
         l2_stale = safe_float(r.get("health_l2_stale_ratio_now"), 0.0)
 
@@ -240,9 +240,9 @@ def build_report(from_ms: int, to_ms: int) -> str:
             a["adv200"].append(adverse_200)
             a["l2age"].append(l2_age)
 
-        sym = str(r.get("symbol") or "")
-        scn = str(r.get("scenario") or "")
-        ses = str(r.get("session") or "")
+        sym = (r.get("symbol") or "")
+        scn = (r.get("scenario") or "")
+        ses = (r.get("session") or "")
         key = (sym, scn, ses)
         s = slice_agg.setdefault(key, {"trades": 0, "wins": 0, "pnl_sum": 0.0, "cost": []})
         s["trades"] += 1
@@ -273,7 +273,7 @@ def build_report(from_ms: int, to_ms: int) -> str:
     winrate = (wins / n) if n else 0.0
     missing_pct = (missing_p0 / n) * 100.0 if n else 0.0
 
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("Trade Quality Report v2")
     lines.append(f"window_ms: {from_ms}..{to_ms}")
     lines.append(f"trades: {n} | winrate: {winrate*100:.1f}% | pnl_sum: {total_pnl:.2f}")

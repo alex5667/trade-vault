@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -40,13 +41,13 @@ MIN_AVG_USEFULNESS = float(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_AP
 MIN_ACCEPTED_RATE = float(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_VERTEX_RCA_GOVERNANCE_MIN_ACCEPTED_RATE", "0.60"))
 MAX_LOW_QUALITY_RATE = float(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_VERTEX_RCA_GOVERNANCE_MAX_LOW_QUALITY_RATE", "0.35"))
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_apply_vertex_governance_runs_total", "Runs", ("status", "decision"))
@@ -61,69 +62,69 @@ ACC_RATE = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_apply_vertex_go
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
     }
 
-async def fetch_recent_feedback(r: Any, limit: int = 100) -> List[Dict[str, Any]]:
+async def fetch_recent_feedback(r: Any, limit: int = 100) -> list[dict[str, Any]]:
     try:
         data = await r.xrevrange(IN_FEEDBACK, max="+", min="-", count=limit)
         return [{"msg_id": mid.decode() if isinstance(mid, bytes) else mid, **decode_dict(f)} for mid, f in data] if data else []
     except Exception:
         return []
 
-def calculate_rollups(feedbacks: List[Dict[str, Any]]) -> Tuple[float, float, float, float]:
+def calculate_rollups(feedbacks: list[dict[str, Any]]) -> tuple[float, float, float, float]:
     if not feedbacks:
         return 0.0, 0.0, 0.0, 0.0
-        
+
     q_sum = 0.0
     u_sum = 0.0
     acc_count = 0
     low_q_count = 0
-    
+
     total = len(feedbacks)
     for f in feedbacks:
         q = float(f.get("quality_score", 0.0))
         u = float(f.get("usefulness_score", 0.0))
         acc = int(f.get("accepted", 0))
-        
+
         q_sum += q
         u_sum += u
         if acc > 0:
             acc_count += 1
         if q < 0.4:
             low_q_count += 1
-            
+
     return q_sum/total, u_sum/total, acc_count/total, low_q_count/total
 
 def evaluate_governance(samples: int, avg_q: float, avg_u: float, acc_r: float, low_q_r: float) -> str:
     if samples < MIN_SAMPLES:
         return "HOLD"
-        
+
     if avg_q < MIN_AVG_QUALITY or avg_u < MIN_AVG_USEFULNESS or acc_r < MIN_ACCEPTED_RATE or low_q_r > MAX_LOW_QUALITY_RATE:
         return "PREFER_LOCAL_ONLY"
-        
+
     return "KEEP_AUTO"
 
 async def process_batch(r: Any) -> None:
     started = time.perf_counter()
     status = "ok"
     decision = "HOLD"
-    
+
     try:
         fbs = await fetch_recent_feedback(r, 100)
         samples = len(fbs)
-        
+
         avg_q, avg_u, acc_r, low_q_r = calculate_rollups(fbs)
-        
+
         decision = evaluate_governance(samples, avg_q, avg_u, acc_r, low_q_r)
-        
+
         if AVG_Q: AVG_Q.set(avg_q)
         if AVG_U: AVG_U.set(avg_u)
         if ACC_RATE: ACC_RATE.set(acc_r)
-        
+
         await r.xadd(OUT_ROLLUPS, {
             "samples": str(samples),
             "avg_quality": str(avg_q),
@@ -132,21 +133,21 @@ async def process_batch(r: Any) -> None:
             "low_quality_rate": str(low_q_r),
             "ts_ms": str(now_ms()),
         }, maxlen=MAXLEN, approximate=True)
-            
+
         await r.xadd(OUT_DECISIONS, {
             "decision": decision,
             "samples": str(samples),
             "avg_usefulness": str(avg_u),
             "ts_ms": str(now_ms()),
         }, maxlen=MAXLEN, approximate=True)
-        
+
         await r.hset(LAST_METRIC, "decision", decision)
         await r.hset(LAST_METRIC, "avg_quality", str(avg_q))
         await r.hset(LAST_METRIC, "avg_usefulness", str(avg_u))
         await r.hset(LAST_METRIC, "accepted_rate", str(acc_r))
         await r.hset(LAST_METRIC, "ts_ms", str(now_ms()))
-        
-    except Exception as exc:
+
+    except Exception:
         status = "error"
     finally:
         if RUNS:

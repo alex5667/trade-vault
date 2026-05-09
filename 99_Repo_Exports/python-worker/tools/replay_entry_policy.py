@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections import Counter, defaultdict
-from typing import Any, Dict
+from collections import Counter
 
 from services.entry_policy_core import EntryPolicyCfg, evaluate_entry_policy
 
@@ -24,13 +23,13 @@ def main() -> None:
         allow_zone_id_change_if_near=bool(int(os.getenv("ENTRY_POLICY_ALLOW_ZONE_CHANGE_IF_NEAR", "0"))),
     )
 
-    dedup_state: Dict[str, int] = {}
+    dedup_state: dict[str, int] = {}
     stats = Counter()
     by_reason = Counter()
     by_regime = Counter()
     by_symbol = Counter()
 
-    with open(path, "r", encoding="utf-8") as f_in, open(out_path, "w", encoding="utf-8") as f_out:
+    with open(path, encoding="utf-8") as f_in, open(out_path, "w", encoding="utf-8") as f_out:
         for line in f_in:
             line = line.strip()
             if not line:
@@ -42,8 +41,8 @@ def main() -> None:
             now_ms = int(cand.get("ts_ms") or 0) if use_event_ts else int(rec.get("captured_ts_ms") or 0)
             dec = evaluate_entry_policy(now_ms=now_ms, cand=cand, snap=snap, bundle=bundle, cfg=cfg, dedup_state=dedup_state)
 
-            sym = str(cand.get("symbol", "") or "")
-            reg = str(snap.get("regime", "na") or "na")
+            sym = (cand.get("symbol", "") or "")
+            reg = (snap.get("regime", "na") or "na")
             stats["total"] += 1
             by_symbol[sym] += 1
             by_regime[reg] += 1

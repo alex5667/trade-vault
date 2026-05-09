@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """of_gate_timescale_policy_probe_v1.py
 
 Probe TimescaleDB policy/job health for OF-gate rollups.
@@ -30,16 +31,14 @@ Exit:
   2: missing/disabled policies (when expect_timescale=1) OR db error
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import datetime as dt
 import json
 import os
 import sys
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import psycopg2  # type: ignore
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -81,7 +80,7 @@ def _i(v: Any, default: int = 0) -> int:
         return default
 
 
-def _bool(v: Any) -> Optional[bool]:
+def _bool(v: Any) -> bool | None:
     if v is None:
         return None
     if isinstance(v, bool):
@@ -94,7 +93,7 @@ def _bool(v: Any) -> Optional[bool]:
     return None
 
 
-def _cols(conn, schema: str, table: str) -> List[str]:
+def _cols(conn, schema: str, table: str) -> list[str]:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -114,9 +113,9 @@ def _timescale_present(conn) -> bool:
         return cur.fetchone() is not None
 
 
-def _fetch_cagg_mat_names(conn) -> Dict[str, str]:
+def _fetch_cagg_mat_names(conn) -> dict[str, str]:
     """Return mapping: view_name -> materialization_hypertable_name (best-effort)."""
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     try:
         cols = _cols(conn, "timescaledb_information", "continuous_aggregates")
         # common columns across TS versions:
@@ -150,7 +149,7 @@ def _fetch_cagg_mat_names(conn) -> Dict[str, str]:
     return out
 
 
-def _jobs(conn) -> Tuple[List[str], List[Dict[str, Any]]]:
+def _jobs(conn) -> tuple[list[str], list[dict[str, Any]]]:
     cols = _cols(conn, "timescaledb_information", "jobs")
     # fetch subset of columns if possible
     wanted = [c for c in ("job_id", "proc_name", "proc_schema", "scheduled", "config", "hypertable_schema", "hypertable_name") if c in cols]
@@ -160,7 +159,7 @@ def _jobs(conn) -> Tuple[List[str], List[Dict[str, Any]]]:
         cur.execute(f"SELECT {', '.join(wanted)} FROM timescaledb_information.jobs")
         rows = []
         for r in cur.fetchall():
-            d: Dict[str, Any] = {}
+            d: dict[str, Any] = {}
             for i, c in enumerate(wanted):
                 d[c] = r[i]
             rows.append(d)
@@ -168,15 +167,15 @@ def _jobs(conn) -> Tuple[List[str], List[Dict[str, Any]]]:
 
 
 def _match_jobs(
-    jobs: List[Dict[str, Any]],
+    jobs: list[dict[str, Any]],
     proc_contains: str,
-    hypertable_names: List[str] = None,
-    config_contains: List[str] = None,
-) -> List[Dict[str, Any]]:
+    hypertable_names: list[str] = None,
+    config_contains: list[str] = None,
+) -> list[dict[str, Any]]:
     hypertable_names = hypertable_names or []
     config_contains = config_contains or []
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for j in jobs:
         pn = _b(j.get("proc_name")).lower()
         if proc_contains.lower() not in pn:
@@ -199,7 +198,7 @@ def _match_jobs(
     return out
 
 
-def _hset_redis(redis_url: str, key: str, mapping: Dict[str, Any]) -> None:
+def _hset_redis(redis_url: str, key: str, mapping: dict[str, Any]) -> None:
     if not redis or not redis_url:
         return
     try:
@@ -222,7 +221,7 @@ def main() -> None:
     expect_ts = env("OF_GATE_TIMESCALE_POLICY_EXPECT", default="1")
     expect_timescale = 1 if str(expect_ts).strip() == "1" else 0
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "last_run_ts_ms": now_ms(),
         "expect_timescale": expect_timescale,
         "ok": 0,
@@ -238,11 +237,11 @@ def main() -> None:
         "refresh_of_gate_ok_rate_1h",
     ]
 
-    present: Dict[str, int] = {p: 0 for p in required_policies}
-    disabled: Dict[str, int] = {p: 0 for p in required_policies}
+    present: dict[str, int] = dict.fromkeys(required_policies, 0)
+    disabled: dict[str, int] = dict.fromkeys(required_policies, 0)
 
-    missing_list: List[str] = []
-    disabled_list: List[str] = []
+    missing_list: list[str] = []
+    disabled_list: list[str] = []
 
     try:
         conn = psycopg2.connect(dsn)
@@ -309,7 +308,7 @@ def main() -> None:
                         config_contains=["of_gate_ok_rate_1h"],
                     )
 
-                def _scheduled(job: Dict[str, Any]) -> Optional[bool]:
+                def _scheduled(job: dict[str, Any]) -> bool | None:
                     if "scheduled" not in job:
                         return None
                     return _bool(job.get("scheduled"))

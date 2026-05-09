@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ATR Policy Callback Ingress Watchdog — Phase 3.8 (Disaster Layer).
 
 Watches for callback silence while Telegram proposals are pending.
@@ -25,7 +26,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
 from prometheus_client import Counter, Gauge
@@ -81,21 +82,21 @@ def _critical_sec() -> int:
         return 7200
 
 
-def _publish(r: redis.Redis, payload: Dict[str, Any]) -> None:
+def _publish(r: redis.Redis, payload: dict[str, Any]) -> None:
     try:
         r.xadd(STREAM_ESC, {k: str(v) for k, v in payload.items()}, maxlen=2000)
     except Exception as exc:
         logger.warning("callback_watchdog: stream publish failed: %s", exc)
 
 
-def _pending_ids(r: redis.Redis) -> List[str]:
+def _pending_ids(r: redis.Redis) -> list[str]:
     try:
         return list(r.smembers("queue:atr_policy:pending") or [])
     except Exception:
         return []
 
 
-def _pending_submitted_count(r: redis.Redis, ids: List[str]) -> int:
+def _pending_submitted_count(r: redis.Redis, ids: list[str]) -> int:
     count = 0
     for pid in ids:
         raw = r.get(f"cfg:proposals:atr_policy:{pid}")
@@ -103,7 +104,7 @@ def _pending_submitted_count(r: redis.Redis, ids: List[str]) -> int:
             continue
         try:
             obj = json.loads(raw)
-            if str(obj.get("status", "")) == "SUBMITTED":
+            if (obj.get("status", "")) == "SUBMITTED":
                 count += 1
         except Exception:
             continue
@@ -112,7 +113,7 @@ def _pending_submitted_count(r: redis.Redis, ids: List[str]) -> int:
 
 # ── Core ──────────────────────────────────────────────────────────────────────
 
-def check_once(r: Optional[redis.Redis] = None) -> Dict[str, Any]:
+def check_once(r: redis.Redis | None = None) -> dict[str, Any]:
     """
     Run one watchdog check. Returns severity + metrics.
 
@@ -161,7 +162,7 @@ def check_once(r: Optional[redis.Redis] = None) -> Dict[str, Any]:
 
     c_watchdog_total.labels(severity=severity).inc()
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "severity": severity,
         "reason": reason,
         "pending_submitted": pending_submitted,
@@ -190,13 +191,13 @@ def check_once(r: Optional[redis.Redis] = None) -> Dict[str, Any]:
     return result
 
 
-def stamp_last_notify(r: Optional[redis.Redis] = None) -> None:
+def stamp_last_notify(r: redis.Redis | None = None) -> None:
     """Call from Telegram publisher after successful push."""
     r = r or _rconn()
     r.set(KEY_LAST_NOTIFY, int(time.time() * 1000))
 
 
-def stamp_last_callback(r: Optional[redis.Redis] = None) -> None:
+def stamp_last_callback(r: redis.Redis | None = None) -> None:
     """Call from Telegram callback_worker after any valid callback."""
     r = r or _rconn()
     r.set(KEY_LAST_CALLBACK, int(time.time() * 1000))

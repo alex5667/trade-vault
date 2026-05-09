@@ -10,7 +10,7 @@ def test_wrapper_script_exists_and_references_preflight():
             'run_with_latency_contract_rollout_preflight_v1.sh',
         )
     )
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         text = f.read()
     assert 'latency_contract_rollout_preflight_v1' in text
     assert 'exec "$@"' in text

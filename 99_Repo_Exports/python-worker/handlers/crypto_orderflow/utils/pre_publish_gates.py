@@ -1,22 +1,23 @@
 from __future__ import annotations
+
+import functools
+import os
+
 from utils.time_utils import get_ny_time_millis
 
-import os
-import functools
 
 @functools.lru_cache(maxsize=1024)
 def _cached_getenv(k, d=None): return os.getenv(k, d)
 import math
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Set
+from typing import Any
 
-from domain.time_utils import normalize_ts_ms, session_from_ts_ms
-from domain.gate_profile import strict_enabled
-from handlers.crypto_orderflow.utils.drift_reader import load_drift_active_factor
-from services.atr_horizon_shadow_gate import compute_horizon_dq_shadow
-from services.atr_horizon_canary import should_enforce_horizon_gate
 from core.atr_floor_policy import compute_atr_bps_threshold
+from domain.gate_profile import strict_enabled
+from domain.time_utils import normalize_ts_ms, session_from_ts_ms
+from handlers.crypto_orderflow.utils.drift_reader import load_drift_active_factor
+from services.atr_horizon_canary import should_enforce_horizon_gate
+from services.atr_horizon_shadow_gate import compute_horizon_dq_shadow
 
 
 @functools.lru_cache(maxsize=1024)
@@ -30,15 +31,15 @@ def _env_float(name: str, default: float) -> float:
     try:
         return float(_cached_getenv(name, str(default)) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 def _norm_symbol(sym: Any) -> str:
-    return str(sym or "").strip().upper().replace("/", "").replace("-", "")
+    return (sym or "").strip().upper().replace("/", "").replace("-", "")
 
 
-def _parse_csv_set(v: str) -> Set[str]:
-    out: Set[str] = set()
+def _parse_csv_set(v: str) -> set[str]:
+    out: set[str] = set()
     for x in (v or "").split(","):
         s = x.strip().lower()
         if s:
@@ -48,12 +49,12 @@ def _parse_csv_set(v: str) -> Set[str]:
 
 
 def _get_regime(ctx: Any) -> str:
-    from contexts import normalize_regime_label, MARKET_REGIME_NA
+    from contexts import MARKET_REGIME_NA, normalize_regime_label
     reg = str(getattr(ctx, "regime", None) or getattr(getattr(ctx, "of", None), "regime", MARKET_REGIME_NA))
     return normalize_regime_label(reg)
 
 
-def _get_epoch_ms(ctx: Any) -> Optional[int]:
+def _get_epoch_ms(ctx: Any) -> int | None:
     ts = getattr(ctx, "ts_event_ms", None) or getattr(ctx, "ts", None)
     try:
         return int(ts) if ts is not None else None
@@ -99,10 +100,10 @@ class HardDataQualityGate:
     atr_stale_max_ms: int
     strict_missing_atr_ts: bool
     strict_touch_fresh: bool
-    veto_flags: Set[str]
+    veto_flags: set[str]
 
     @classmethod
-    def from_env(cls) -> "HardDataQualityGate":
+    def from_env(cls) -> HardDataQualityGate:
         return cls(
             enabled=_env_bool("DATA_HARD_GATE_ENABLED", False),
             require_epoch_ts=_env_bool("DATA_REQUIRE_EPOCH_TS", False),
@@ -174,15 +175,15 @@ class HardDataQualityGate:
         if _emit_shadow:
             try:
                 shadow = compute_horizon_dq_shadow(ctx)
-                setattr(ctx, "dq_horizon_shadow", shadow)
+                ctx.dq_horizon_shadow = shadow
                 # Append horizon shadow reason to dq_flags for diagnostics
                 shadow_flags = list(getattr(ctx, "dq_flags", []) or [])
                 shadow_flags.append(f"dq_hz_reason:{shadow['shadow_reason_code']}")
-                setattr(ctx, "dq_flags", shadow_flags)
+                ctx.dq_flags = shadow_flags
                 # Convenience scalar attrs for downstream diagnostics
-                setattr(ctx, "atr_selected_tf_ms", int(shadow.get("atr_selected_tf_ms", 0) or 0))
-                setattr(ctx, "atr_selected_age_ms", int(shadow.get("atr_selected_age_ms", 0) or 0))
-                setattr(ctx, "dq_hz_allow_shadow", int(bool(shadow.get("allow_shadow", True))))
+                ctx.atr_selected_tf_ms = int(shadow.get("atr_selected_tf_ms", 0) or 0)
+                ctx.atr_selected_age_ms = int(shadow.get("atr_selected_age_ms", 0) or 0)
+                ctx.dq_hz_allow_shadow = int(bool(shadow.get("allow_shadow", True)))
                 # Phase 2.3A: canary router (sticky, deterministic)
                 canary = should_enforce_horizon_gate(
                     symbol=str(getattr(ctx, "symbol", "") or ""),
@@ -194,15 +195,15 @@ class HardDataQualityGate:
                     regime=str(getattr(ctx, "regime", "") or ""),
                     scenario=str(getattr(ctx, "scenario", "") or ""),
                 )
-                setattr(ctx, "dq_hz_canary", canary)
-                setattr(ctx, "dq_hz_should_enforce", int(bool(canary.get("should_enforce", False))))
-                setattr(ctx, "dq_hz_gate_mode", str(canary.get("mode", "shadow")))
+                ctx.dq_hz_canary = canary
+                ctx.dq_hz_should_enforce = int(bool(canary.get("should_enforce", False)))
+                ctx.dq_hz_gate_mode = (canary.get("mode", "shadow"))
                 # Enforce only when canary selected AND shadow says deny
                 if bool(canary.get("should_enforce", False)) and not bool(shadow.get("allow_shadow", True)):
                     return GateDecision(
                         apply=True,
                         veto=True,
-                        reason_code=str(shadow.get("shadow_reason_code") or "DQ_HZ_DENY"),
+                        reason_code=(shadow.get("shadow_reason_code") or "DQ_HZ_DENY"),
                         gate="HardDataQualityGate",
                         notes=f"horizon_dq_canary|mode={canary.get('mode')}|{canary.get('reason_code')}",
                     )
@@ -242,7 +243,7 @@ class RegimeSessionGate:
     burst_flip_max_default: float
 
     @classmethod
-    def from_env(cls) -> "RegimeSessionGate":
+    def from_env(cls) -> RegimeSessionGate:
         return cls(
             enabled=_env_bool("RS_GATE_ENABLED", False),
             spread_max_bps_default=_env_float("RS_SPREAD_MAX_BPS_DEFAULT", 0.0),  # 0 => disabled by default
@@ -264,9 +265,9 @@ class RegimeSessionGate:
             if _cached_getenv(name) is None:
                 continue
             return _env_float(name, default)
-        return float(default)
+        return default
 
-    def _pick_bool(self, key: str, sym: str, kind: str, regime: str) -> Optional[bool]:
+    def _pick_bool(self, key: str, sym: str, kind: str, regime: str) -> bool | None:
         # FIX #4: support both sym-specific and global (no-sym) deny rules.
         # Lookup order: SYM+KIND+REGIME first, then KIND+REGIME (global).
         for name in (
@@ -286,7 +287,7 @@ class RegimeSessionGate:
         regime = _get_regime(ctx)
 
         # ------------------------------------------------------------------
-        # STRICT BLOCK: prevent "unknown" or "na" regimes 
+        # STRICT BLOCK: prevent "unknown" or "na" regimes
         # from ever entering the pipeline if RS_STRICT_REGIME=1 (default true).
         # ------------------------------------------------------------------
         from contexts import MARKET_REGIME_NA
@@ -426,7 +427,7 @@ class ConsistencyGate:
     absorption_touch_refill_min_rho: float
 
     @classmethod
-    def from_env(cls) -> "ConsistencyGate":
+    def from_env(cls) -> ConsistencyGate:
         return cls(
             enabled=_env_bool("CONSISTENCY_GATE_ENABLED", False),
             absorption_require_touch_refill=_env_bool("ABSORPTION_REQUIRE_TOUCH_REFILL", False),
@@ -485,7 +486,7 @@ class ConsistencyGate:
             ex_thr = _env_float("EXTREME_Z_THRESHOLD", max(3.0, z_thr * 1.5))
             if z < ex_thr:
                 return GateDecision(True, True, "VETO_EXTREME_Z_LOW", "ConsistencyGate", f"z={z:.3f} < {ex_thr:.3f}")
-            
+
             ex_c2t_max = _env_float("EXTREME_L3_MAX_CANCEL_TO_TRADE", 1e9)
             if ex_c2t_max < 1e9:
                 s = (side or "").strip().upper()
@@ -494,7 +495,7 @@ class ConsistencyGate:
                     c2t = _safe_float(getattr(of, c2t_field, None), 0.0) if of is not None else _safe_float(getattr(ctx, c2t_field, None), 0.0)
                     if c2t > ex_c2t_max:
                         return GateDecision(True, True, "VETO_EXTREME_CANCEL_TO_TRADE_HIGH", "ConsistencyGate", f"c2t={c2t:.3f} > {ex_c2t_max:.3f}")
-                        
+
             return GateDecision(True, False, "OK", "ConsistencyGate", "")
 
         # OBI spike: require sustained skew to avoid single-bucket blips
@@ -503,7 +504,7 @@ class ConsistencyGate:
             obi_avg = _safe_float(getattr(of, "obi_avg", None), 0.0) if of is not None else _safe_float(getattr(ctx, "obi_avg", None), 0.0)
             if abs(obi_avg) < thr:
                 return GateDecision(True, True, "VETO_OBI_SPIKE_WEAK", "ConsistencyGate", f"obi_avg={obi_avg:.3f} < thr={thr:.3f}")
-            
+
             req_sustained = _env_bool("CONS_OBI_SPIKE_REQUIRE_SUSTAINED", _env_bool("OBI_SPIKE_REQUIRE_SUSTAINED", True))
             if req_sustained:
                 sustained = bool(getattr(of, "obi_sustained", False)) if of is not None else bool(getattr(ctx, "obi_sustained", False))
@@ -586,12 +587,12 @@ class SmtCoherenceGate:
         self.bundle_id = (bundle_id or "").strip()
         self.coh_min = float(coh_min)
         self.state_stale_ms = int(max(0, state_stale_ms))
-        self.diag_stream = str(diag_stream or "")
+        self.diag_stream = (diag_stream or "")
         self.diag_enabled = bool(diag_enabled)
         self.diag_maxlen = int(max(1000, diag_maxlen))
 
     @classmethod
-    def from_env(cls) -> "SmtCoherenceGate":
+    def from_env(cls) -> SmtCoherenceGate:
         def _i(name: str, d: int) -> int:
             try:
                 return int(float(_cached_getenv(name, str(d))))
@@ -614,7 +615,7 @@ class SmtCoherenceGate:
             diag_maxlen=_i("SMT_DIAG_MAXLEN", 20000),
         )
 
-    def _read_state(self, redis_client: Any) -> Optional[Dict[str, str]]:
+    def _read_state(self, redis_client: Any) -> dict[str, str] | None:
         if not self.bundle_id:
             return None
         key = f"smt:bundle:v1:{self.bundle_id}"
@@ -622,7 +623,7 @@ class SmtCoherenceGate:
             d = redis_client.hgetall(key) or {}
         except Exception:
             return None
-        dd: Dict[str, str] = {}
+        dd: dict[str, str] = {}
         try:
             for k, v in dict(d).items():
                 dd[_b2s(k)] = _b2s(v)
@@ -632,7 +633,7 @@ class SmtCoherenceGate:
             return None
         return dd
 
-    def _diag(self, redis_client: Any, *, fields: Dict[str, str]) -> None:
+    def _diag(self, redis_client: Any, *, fields: dict[str, str]) -> None:
         if not self.diag_enabled or not self.diag_stream:
             return
         try:
@@ -660,8 +661,8 @@ class SmtCoherenceGate:
         stale = True
 
         if st is not None:
-            leader = str(st.get("leader") or "")
-            leader_dir = str(st.get("leader_dir") or "")
+            leader = (st.get("leader") or "")
+            leader_dir = (st.get("leader_dir") or "")
             leader_confirm = int(_safe_float(st.get("leader_confirm") or 0.0, 0.0))
             coh = float(_safe_float(st.get("coh") or 0.0, 0.0))
             st_ts = int(_safe_float(st.get("ts_ms") or 0.0, 0.0))
@@ -670,24 +671,24 @@ class SmtCoherenceGate:
 
         # --- audit into ctx (never breaks protocol) ---
         coh_hi = 1 if (math.isfinite(float(coh)) and float(coh) >= float(self.coh_min)) else 0
-        sig_ud = str(side or "").upper()
+        sig_ud = (side or "").upper()
         if sig_ud not in ("LONG", "SHORT"):
             sig_ud = "NA"
         lead_ud = "LONG" if str(leader_dir).upper() == "UP" else "SHORT" if str(leader_dir).upper() == "DOWN" else "NA"
         align = 1 if (lead_ud in ("LONG", "SHORT") and sig_ud in ("LONG", "SHORT") and sig_ud == lead_ud) else 0
         try:
-            setattr(ctx, "smt_mode", self.mode)
-            setattr(ctx, "smt_bundle", self.bundle_id)
-            setattr(ctx, "smt_leader", leader)
-            setattr(ctx, "smt_leader_dir", leader_dir)
-            setattr(ctx, "smt_leader_confirm", int(leader_confirm))
-            setattr(ctx, "smt_coh", float(coh))
-            setattr(ctx, "smt_coh_hi", int(coh_hi))
-            setattr(ctx, "smt_align", int(align))
-            setattr(ctx, "smt_state_ts_ms", int(st_ts))
-            setattr(ctx, "smt_state_stale", bool(stale))
-            setattr(ctx, "smt_blocked", 0)
-            setattr(ctx, "smt_block_reason", "")
+            ctx.smt_mode = self.mode
+            ctx.smt_bundle = self.bundle_id
+            ctx.smt_leader = leader
+            ctx.smt_leader_dir = leader_dir
+            ctx.smt_leader_confirm = int(leader_confirm)
+            ctx.smt_coh = float(coh)
+            ctx.smt_coh_hi = int(coh_hi)
+            ctx.smt_align = int(align)
+            ctx.smt_state_ts_ms = int(st_ts)
+            ctx.smt_state_stale = bool(stale)
+            ctx.smt_blocked = 0
+            ctx.smt_block_reason = ""
         except Exception:
             pass
 
@@ -697,9 +698,9 @@ class SmtCoherenceGate:
                 "event": "SMT_GATE",
                 "mode": self.mode,
                 "bundle": self.bundle_id,
-                "symbol": str(symbol),
+                "symbol": symbol,
                 "kind": str(kind),
-                "side": str(side),
+                "side": side,
                 "veto": "0",
                 "reason": "NO_STATE_OR_STALE",
                 "coh": f"{coh:.6f}",
@@ -717,9 +718,9 @@ class SmtCoherenceGate:
                 "event": "SMT_GATE",
                 "mode": self.mode,
                 "bundle": self.bundle_id,
-                "symbol": str(symbol),
+                "symbol": symbol,
                 "kind": str(kind),
-                "side": str(side),
+                "side": side,
                 "veto": "0",
                 "reason": "OBSERVE_ONLY",
                 "coh": f"{coh:.6f}",
@@ -734,19 +735,19 @@ class SmtCoherenceGate:
         # veto mode: only strict condition
         if countertrend and int(leader_confirm) == 1 and float(coh) >= float(self.coh_min):
             try:
-                setattr(ctx, "smt_blocked", 1)
-                setattr(ctx, "smt_block_reason", "COUNTERTREND_VS_CONFIRMED_LEADER")
-                setattr(ctx, "smt_veto", True)
-                setattr(ctx, "smt_veto_reason", "COUNTERTREND_VS_CONFIRMED_LEADER")
+                ctx.smt_blocked = 1
+                ctx.smt_block_reason = "COUNTERTREND_VS_CONFIRMED_LEADER"
+                ctx.smt_veto = True
+                ctx.smt_veto_reason = "COUNTERTREND_VS_CONFIRMED_LEADER"
             except Exception:
                 pass
             self._diag(redis_client, fields={
                 "event": "SMT_GATE",
                 "mode": self.mode,
                 "bundle": self.bundle_id,
-                "symbol": str(symbol),
+                "symbol": symbol,
                 "kind": str(kind),
-                "side": str(side),
+                "side": side,
                 "veto": "1",
                 "reason": "VETO_COUNTERTREND",
                 "coh": f"{coh:.6f}",
@@ -762,9 +763,9 @@ class SmtCoherenceGate:
             "event": "SMT_GATE",
             "mode": self.mode,
             "bundle": self.bundle_id,
-            "symbol": str(symbol),
+            "symbol": symbol,
             "kind": str(kind),
-            "side": str(side),
+            "side": side,
             "veto": "0",
             "reason": "PASS",
             "coh": f"{coh:.6f}",
@@ -796,7 +797,7 @@ class AtrFloorGate:
     fail_open: bool
 
     @classmethod
-    def from_env(cls) -> "AtrFloorGate":
+    def from_env(cls) -> AtrFloorGate:
         return cls(
             enabled=_env_bool("ATR_FLOOR_GATE_ENABLED", False),
             t0_bps=_env_float("ATR_FLOOR_BPS_T0", 5.0),
@@ -819,11 +820,11 @@ class AtrFloorGate:
 
         # 2. Resolve Threshold using deterministic policy
         regime = _get_regime(ctx)
-        
+
         # We need original config for tier selection overrides
         # SignalPipeline._build_gate_ctx puts config/env context into ctx or passed alongside
         cfg = getattr(ctx, "config", {})
-        
+
         tier, rg, threshold = compute_atr_bps_threshold(
             regime=regime,
             cfg=cfg,
@@ -862,7 +863,7 @@ class BreadthGate:
     require_leader_confirm: bool
 
     @classmethod
-    def from_env(cls) -> "BreadthGate":
+    def from_env(cls) -> BreadthGate:
         import os
         mode_env = os.getenv("BREADTH_GATE_MODE", "").strip().lower()
         if not mode_env:
@@ -882,7 +883,7 @@ class BreadthGate:
     def evaluate(self, *, ctx: Any, symbol: str, kind: str, side: str) -> GateDecision:
         if self.mode == "off":
             return GateDecision(apply=False, veto=False, reason_code="OK", gate="BreadthGate")
-            
+
         def _get_val(k: str) -> float:
             if hasattr(ctx, "indicators"):
                 # It's a SignalPayload
@@ -896,8 +897,8 @@ class BreadthGate:
         leader_confirm = _get_val("leader_btc_eth_confirm")
         veto_reason = None
         notes = ""
-        
-        sig_side = str(side or "").upper()
+
+        sig_side = (side or "").upper()
         if sig_side == "LONG":
             if ret_24h < self.min_ret_24h:
                 veto_reason = "VETO_BREADTH_RET_LOW"

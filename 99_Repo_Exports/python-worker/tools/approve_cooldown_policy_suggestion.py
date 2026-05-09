@@ -1,4 +1,7 @@
-import os, sys, asyncio
+import asyncio
+import os
+import sys
+
 import redis.asyncio as aioredis
 
 APPROVALS_PREFIX = "cfg:suggestions:entry_policy:approvals"

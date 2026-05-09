@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Feature denylist loader (v1).
 
 Purpose
@@ -37,8 +38,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
-
+from typing import Any
 
 _DEFAULT_FILENAME = "feature_denylist_v1.json"
 _ENV_PATH = "ML_FEATURE_DENYLIST_PATH"
@@ -46,16 +46,16 @@ _ENV_PATH = "ML_FEATURE_DENYLIST_PATH"
 
 @dataclass(frozen=True)
 class FeatureDenylist:
-    deny_num: Set[str]
-    deny_bool: Set[str]
-    deny_all: Set[str]
+    deny_num: set[str]
+    deny_bool: set[str]
+    deny_all: set[str]
 
-    def flat(self) -> Set[str]:
+    def flat(self) -> set[str]:
         return set(self.deny_all) | set(self.deny_num) | set(self.deny_bool)
 
 
 # Cache by absolute path string → parsed denylist
-_CACHE: Dict[str, FeatureDenylist] = {}
+_CACHE: dict[str, FeatureDenylist] = {}
 
 
 def denylist_path() -> Path:
@@ -66,7 +66,7 @@ def denylist_path() -> Path:
 
 
 def _parse_txt(text: str) -> FeatureDenylist:
-    keys: List[str] = []
+    keys: list[str] = []
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line:
@@ -84,11 +84,11 @@ def _parse_txt(text: str) -> FeatureDenylist:
     return FeatureDenylist(deny_num=set(), deny_bool=set(), deny_all=s)
 
 
-def _as_str_list(v: Any) -> List[str]:
+def _as_str_list(v: Any) -> list[str]:
     if v is None:
         return []
     if isinstance(v, (list, tuple)):
-        out: List[str] = []
+        out: list[str] = []
         for x in v:
             if x is None:
                 continue
@@ -127,7 +127,7 @@ def _parse_json(obj: Any) -> FeatureDenylist:
     return FeatureDenylist(deny_num=deny_num, deny_bool=deny_bool, deny_all=deny_all)
 
 
-def load_feature_denylist(path: Optional[Path] = None) -> FeatureDenylist:
+def load_feature_denylist(path: Path | None = None) -> FeatureDenylist:
     """Load denylist from path (or env/default). Fail-open."""
     p = Path(path) if path is not None else denylist_path()
     key = str(p.resolve())
@@ -151,7 +151,7 @@ def load_feature_denylist(path: Optional[Path] = None) -> FeatureDenylist:
     return dl
 
 
-def denylist_flat(path: Optional[Path] = None) -> Set[str]:
+def denylist_flat(path: Path | None = None) -> set[str]:
     return load_feature_denylist(path).flat()
 
 

@@ -6,7 +6,6 @@ Contract (orchestrator._normalize_ts_ms, fallback=0):
   - zero / None / stale / future-skew / invalid → returns 0
     (NOT now_ms — "fail visible" rather than "quiet substitute")
 """
-import pytest
 from handlers.crypto_orderflow.pipeline.orchestrator import _normalize_ts_ms
 
 NOW_MS = 1_744_444_800_000  # 2026-04-12 (fixed anchor for tests)
@@ -79,5 +78,4 @@ def test_invalid_string_returns_0():
 
 
 def test_float_nan_returns_0():
-    import math
     assert _normalize_ts_ms(float("nan"), NOW_MS) == 0

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Nightly trainer wrapper for MetaModelLR (meta-labeling).
 
 Goal:
@@ -12,8 +13,6 @@ This script is intended to be called by cron/systemd timer / CI runner.
 It does NOT touch Redis streams to avoid traffic duplication.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import hashlib
 import json
@@ -21,10 +20,10 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+
+from utils.time_utils import get_ny_time_millis
 
 
 @dataclass
@@ -75,7 +74,7 @@ def _run_trainer(
     self_check: bool,
     self_check_n: int,
     schema: str,
-) -> Tuple[int, str]:
+) -> tuple[int, str]:
     cmd = [
         sys.executable,
         "-u",

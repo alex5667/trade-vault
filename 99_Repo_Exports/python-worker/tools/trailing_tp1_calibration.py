@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import argparse
-import math
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -67,7 +66,7 @@ def fetch_trades(
     source: str,
     symbol: str,
     limit: int,
-) -> List[TradeRow]:
+) -> list[TradeRow]:
     """
     Берём только сделки, где реально был TP1 из таблицы trades_closed.
     Используем one_r_money и lot для восстановления риска (ATR).
@@ -100,25 +99,25 @@ def fetch_trades(
         rows = cur.fetchall()
         print(f"DEBUG: Fetched {len(rows)} rows")
 
-    trades: List[TradeRow] = []
+    trades: list[TradeRow] = []
     for r in rows:
         # Восстанавливаем данные
         # ATR (risk per unit) = one_r_money / lot
         # Initial SL = entry - sign * risk_per_unit
-        
+
         entry_price = float(r["entry_price"])
         lot = float(r["lot"] or 0.0)
         one_r_money = float(r["one_r_money"] or 0.0)
-        
+
         if lot <= 1e-9:
              continue
-             
+
         risk_per_unit = one_r_money / lot
         atr_entry = risk_per_unit
-        
+
         side = r["side"]
         sign = _sign(side)
-        
+
         # SL = entry - sign * 1.0 * risk (предполагаем исходный стоп = 1R)
         initial_sl_price = entry_price - sign * risk_per_unit
 
@@ -150,7 +149,7 @@ def fetch_candles(
     symbol: str,
     start_ts,
     end_ts,
-) -> List[Candle]:
+) -> list[Candle]:
     """
     Загружаем минутные свечи по символу между start_ts и end_ts.
     Агрегируем из таблицы ticks, если нет готовых минутных данных.
@@ -170,11 +169,11 @@ def fetch_candles(
             cur.execute(sql_minute, {"symbol": symbol, "start_ts": start_ts, "end_ts": end_ts})
             rows = cur.fetchall()
             if rows:
-                candles: List[Candle] = []
+                candles: list[Candle] = []
                 for r in rows:
                     candles.append(Candle(ts=r["ts"], high=float(r["high"]), low=float(r["low"])))
                 return candles
-    except:
+    except Exception:
         conn.rollback()
         # Таблица ohlcv_1m может не существовать, пробуем ticks
         pass
@@ -198,7 +197,7 @@ def fetch_candles(
         cur.execute(sql_ticks, {"symbol": symbol, "start_ts": start_ts, "end_ts": end_ts})
         rows = cur.fetchall()
 
-    candles: List[Candle] = []
+    candles: list[Candle] = []
     for r in rows:
         candles.append(Candle(ts=r["minute_ts"], high=float(r["high"]), low=float(r["low"])))
     return candles
@@ -219,7 +218,7 @@ def compute_r(
 def simulate_trade_for_offset(
     trade: TradeRow,
     offset_mult: float,
-    candles: List[Candle],
+    candles: list[Candle],
     use_mfe_exit: bool = False,
     eps: float = 1e-8,
 ) -> SimResult:
@@ -325,7 +324,7 @@ def simulate_trade_for_offset(
     )
 
 
-def aggregate_stats(results: List[SimResult]) -> OffsetStats:
+def aggregate_stats(results: list[SimResult]) -> OffsetStats:
     offset_mult = results[0].offset_mult if results else 0.0
     n = len(results)
     if n == 0:
@@ -378,10 +377,10 @@ def calibrate_trailing_offset(
     conn,
     source: str,
     symbol: str,
-    offset_mult_list: List[float],
+    offset_mult_list: list[float],
     limit: int = 200,
     use_mfe_exit: bool = False,
-) -> Tuple[Optional[OffsetStats], List[OffsetStats]]:
+) -> tuple[OffsetStats | None, list[OffsetStats]]:
     """
     Главная точка: калибровка offset_mult по историческим сделкам.
     Возвращает:
@@ -392,7 +391,7 @@ def calibrate_trailing_offset(
     if not trades:
         return None, []
 
-    trade_paths: Dict[int, List[Candle]] = {}
+    trade_paths: dict[int, list[Candle]] = {}
     for t in trades:
         # небольшой хвост после реального выхода, чтобы увидеть продолжение
         # Используем tp1_hit_ts, если доступен, иначе entry_ts + приблизительное время достижения TP1
@@ -401,10 +400,10 @@ def calibrate_trailing_offset(
         candles = fetch_candles(conn, t.symbol, start_ts, end_ts)
         trade_paths[t.id] = candles
 
-    stats_per_offset: List[OffsetStats] = []
+    stats_per_offset: list[OffsetStats] = []
 
     for offset_mult in offset_mult_list:
-        results_for_offset: List[SimResult] = []
+        results_for_offset: list[SimResult] = []
         for t in trades:
             path = trade_paths.get(t.id, [])
             if not path:
@@ -420,7 +419,7 @@ def calibrate_trailing_offset(
         stats = aggregate_stats(results_for_offset)
         stats_per_offset.append(stats)
 
-    best_stats: Optional[OffsetStats] = None
+    best_stats: OffsetStats | None = None
     best_score = -1e9
     for s in stats_per_offset:
         sc = score_offset(s)
@@ -438,7 +437,7 @@ def calibrate_trailing_offset_wf(
     conn,
     source: str,
     symbol: str,
-    offset_mult_list: List[float],
+    offset_mult_list: list[float],
     limit: int = 300,
     use_mfe_exit: bool = False,
     min_train_trades: int = 100,
@@ -458,8 +457,8 @@ def calibrate_trailing_offset_wf(
         WalkForwardResult from calibrate.walk_forward_calibrator
     """
     from calibrate.walk_forward_calibrator import (
-        WalkForwardCalibrator,
         OOSMetrics,
+        WalkForwardCalibrator,
         WalkForwardResult,
     )
 
@@ -474,7 +473,7 @@ def calibrate_trailing_offset_wf(
     trades = list(reversed(trades))
 
     # Pre-fetch candle paths for all trades (expensive I/O, do once)
-    trade_paths: Dict[int, List[Candle]] = {}
+    trade_paths: dict[int, list[Candle]] = {}
     for t in trades:
         start_ts = t.tp1_hit_ts if t.tp1_hit_ts else t.entry_ts
         end_ts = t.exit_ts + timedelta(minutes=5)
@@ -483,7 +482,7 @@ def calibrate_trailing_offset_wf(
 
     def _objective(trade_slice, param: float) -> float:
         """Score an offset_mult on a subset of trades (in-sample)."""
-        results: List[SimResult] = []
+        results: list[SimResult] = []
         for t in trade_slice:
             path = trade_paths.get(t.id, [])
             if not path:
@@ -500,7 +499,7 @@ def calibrate_trailing_offset_wf(
 
     def _evaluate(trade_slice, param: float) -> OOSMetrics:
         """Evaluate an offset_mult on OOS trades."""
-        results: List[SimResult] = []
+        results: list[SimResult] = []
         for t in trade_slice:
             path = trade_paths.get(t.id, [])
             if not path:
@@ -563,7 +562,7 @@ def calibrate_trailing_offset_wf(
 # ----- CLI-обёртка для ручного запуска -----
 
 
-def parse_offset_list(s: str) -> List[float]:
+def parse_offset_list(s: str) -> list[float]:
     return [float(x) for x in s.split(",") if x.strip()]
 
 

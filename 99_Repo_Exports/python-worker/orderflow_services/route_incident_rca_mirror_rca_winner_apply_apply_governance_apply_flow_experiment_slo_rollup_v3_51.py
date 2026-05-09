@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import math
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -66,15 +67,15 @@ LOOKBACK_COUNT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_AP
 WINDOW_MIN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_APPLY_FLOW_EXPERIMENT_SLO_WINDOW_MIN", "10080"))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -139,8 +140,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -153,7 +154,7 @@ def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def percentile(values: List[float], q: float) -> float:
+def percentile(values: list[float], q: float) -> float:
     if not values:
         return 0.0
     vals = sorted(values)
@@ -161,7 +162,7 @@ def percentile(values: List[float], q: float) -> float:
     return round(vals[idx], 6)
 
 
-def recent(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def recent(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     cutoff = now_ms() - WINDOW_MIN * 60 * 1000
     return [r for r in rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
 
@@ -173,12 +174,12 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def xr_recent(r: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
+async def xr_recent(r: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await r.xrevrange(stream_key, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -187,19 +188,19 @@ async def xr_recent(r: Any, stream_key: str, count: int) -> List[Dict[str, Any]]
 
 
 def build_rollup(
-    verification_rows: List[Dict[str, Any]],
-    rollback_rows: List[Dict[str, Any]],
-    retry_rows: List[Dict[str, Any]],
-    escalation_rows: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    verification_rows: list[dict[str, Any]],
+    rollback_rows: list[dict[str, Any]],
+    retry_rows: list[dict[str, Any]],
+    escalation_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
     vr = recent(verification_rows)
     rr = recent(rollback_rows)
     tr = recent(retry_rows)
     er = recent(escalation_rows)
 
     verification_n = len(vr)
-    verified_n = sum(1 for r in vr if str(r.get("decision") or "") == "VERIFIED")
-    rollback_planned_n = sum(1 for r in vr if str(r.get("decision") or "") == "ROLLBACK_PREVIOUS_PROFILE")
+    verified_n = sum(1 for r in vr if (r.get("decision") or "") == "VERIFIED")
+    rollback_planned_n = sum(1 for r in vr if (r.get("decision") or "") == "ROLLBACK_PREVIOUS_PROFILE")
     rollback_applied_n = sum(1 for r in rr if parse_int(r.get("applied"), 0) == 1)
     escalation_n = len(er)
     retry_n = len(tr)
@@ -209,7 +210,7 @@ def build_rollup(
     rollback_applied_rate = round((rollback_applied_n / verification_n), 6) if verification_n else 0.0
     escalation_rate = round((escalation_n / verification_n), 6) if verification_n else 0.0
 
-    mttr_vals: List[float] = []
+    mttr_vals: list[float] = []
     by_source_verification_ts = {
         parse_int(r.get("source_verification_ts_ms"), 0): r for r in rr if parse_int(r.get("applied"), 0) == 1
     }
@@ -234,7 +235,7 @@ def build_rollup(
     }
 
 
-async def persist_if_configured(db_url: str, rollup: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, rollup: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover

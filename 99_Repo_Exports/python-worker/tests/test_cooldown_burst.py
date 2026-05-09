@@ -1,23 +1,22 @@
-import collections
 import dataclasses
-from typing import Dict, Any, Optional
-import pytest
+from typing import Any
+
 
 # Simulate dependencies
 @dataclasses.dataclass
 class SymbolRuntime:
     symbol: str = "BTCUSDT"
-    config: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    config: dict[str, Any] = dataclasses.field(default_factory=dict)
     last_signal_ts: int = 0
-    pending_payload: Optional[Dict[str, Any]] = None
+    pending_payload: dict[str, Any] | None = None
     pending_score: float = 0.0
     pending_ts_ms: int = 0
     pending_replaced: int = 0
     # pressure stuff (mocked)
-    pressure: Any = None 
+    pressure: Any = None
 
 # The logic under test (copied from crypto_orderflow_service.py for verification)
-def _score_candidate(ind: Dict[str, Any]) -> float:
+def _score_candidate(ind: dict[str, Any]) -> float:
     try:
         of_score = float(ind.get("of_confirm_score", 0.0) or 0.0)
     except Exception:
@@ -36,11 +35,11 @@ def _score_candidate(ind: Dict[str, Any]) -> float:
         ice = 0.0
     return 2.0 * of_score + 0.3 * dz + 0.2 * min(3.0, obi) + 0.5 * ice
 
-def simulate_signal_emission(runtime: SymbolRuntime, tick_ts: int, indicators: Dict[str, Any], payload: Dict[str, Any]):
+def simulate_signal_emission(runtime: SymbolRuntime, tick_ts: int, indicators: dict[str, Any], payload: dict[str, Any]):
     # --- Cooldown (deterministic) + burst best-of ---
     cooldown_ms = int(runtime.config.get("signal_cooldown_sec", 30) or 30) * 1000
     last_ts = int(getattr(runtime, "last_signal_ts", 0) or 0)
-    
+
     age = int(tick_ts) - last_ts if last_ts > 0 else 10**9
 
     if age < cooldown_ms:
@@ -75,7 +74,7 @@ def simulate_signal_emission(runtime: SymbolRuntime, tick_ts: int, indicators: D
 def test_burst_selector_logic():
     rt = SymbolRuntime()
     rt.config = {"signal_cooldown_sec": 10} # 10s cooldown
-    
+
     # 1. First signal (valid)
     # t=1000
     p1 = {"id": "sig1"}
@@ -83,7 +82,7 @@ def test_burst_selector_logic():
     res1 = simulate_signal_emission(rt, 1000, ind1, p1)
     assert res1 == p1
     assert rt.last_signal_ts == 1000
-    
+
     # 2. Second signal (in cooldown) - kept as pending
     # t=2000 (age=1s < 10s)
     p2 = {"id": "sig2"}
@@ -92,7 +91,7 @@ def test_burst_selector_logic():
     assert res2 is None
     assert rt.pending_payload == p2
     assert rt.pending_score == 1.0
-    
+
     # 3. Third signal (in cooldown) - BETTER score -> replace pending
     # t=3000
     p3 = {"id": "sig3"}
@@ -101,7 +100,7 @@ def test_burst_selector_logic():
     assert res3 is None
     assert rt.pending_payload == p3
     assert rt.pending_score == 4.0
-    
+
     # 4. Fourth signal (in cooldown) - WORSE score -> ignore (keep p3)
     # t=4000
     p4 = {"id": "sig4"}
@@ -110,35 +109,35 @@ def test_burst_selector_logic():
     assert res4 is None
     assert rt.pending_payload == p3 # Still p3
     assert rt.pending_score == 4.0
-    
+
     # 5. Fifth signal (cooldown expired) -> emit PENDING (p3) because it's better than current
     # t=12000 (age=11s > 10s)
     p5 = {"id": "sig5"}
     ind5 = {"of_confirm_score": 1.5} # score = 3.0 (which is < 4.0)
     res5 = simulate_signal_emission(rt, 12000, ind5, p5)
-    
+
     # Should return p3 (pending) because p3 score(4.0) > p5 score(3.0)
     assert res5 == p3
     assert rt.last_signal_ts == 12000
     assert rt.pending_payload is None
-    
+
 def test_burst_selector_current_is_better():
     rt = SymbolRuntime()
     rt.config = {"signal_cooldown_sec": 10}
-    
+
     # 1. Emit initial
     simulate_signal_emission(rt, 1000, {"of_confirm_score": 1.0}, {"id": "sig1"})
-    
+
     # 2. Pending (weak)
     simulate_signal_emission(rt, 2000, {"of_confirm_score": 0.5}, {"id": "weak_pending"})
-    
+
     # 3. Cooldown expired, New signal is STRONG
     # t=12000
     p_strong = {"id": "strong_new"}
     ind_strong = {"of_confirm_score": 5.0} # score=10
-    
+
     res = simulate_signal_emission(rt, 12000, ind_strong, p_strong)
-    
+
     # Pending (score ~1.0) vs Strong (score ~10.0) -> should pick Strong
     assert res == p_strong
     assert rt.pending_payload is None

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict
 
 
 @dataclass
@@ -46,9 +45,9 @@ class TickQualityEMA:
     #   - age_abs_ema_ms: EMA of abs(now_ms - event_ts_ms)
     def __init__(self, tau_ms: int = 300_000) -> None:
         self.tau_ms = int(tau_ms)
-        self._by_symbol: Dict[str, Dict[str, _EMA]] = {}
+        self._by_symbol: dict[str, dict[str, _EMA]] = {}
 
-    def _s(self, symbol: str) -> Dict[str, _EMA]:
+    def _s(self, symbol: str) -> dict[str, _EMA]:
         s = self._by_symbol.get(symbol)
         if s is None:
             s = {
@@ -70,10 +69,10 @@ class TickQualityEMA:
         ts_source: str,
         abs_skew_ms: float,
         abs_age_ms: float,
-    ) -> Dict[str, float]:
-        s = self._s(str(symbol))
+    ) -> dict[str, float]:
+        s = self._s(symbol)
         ts_ms = int(ts_ms)
-        ts_source = str(ts_source or "")
+        ts_source = (ts_source or "")
         now_flag = 1.0 if ts_source in ("now", "wall") else 0.0
         stream_id_flag = 1.0 if ts_source == "stream_id" else 0.0
 

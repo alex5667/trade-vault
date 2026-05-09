@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Iterable, Optional, Tuple
+from collections.abc import Iterable
 
 # =============================================================================
 # Structured reason codes -> stable uint16 ids (wire-format)
@@ -174,7 +174,7 @@ def legacy_reason_to_code(reason: str) -> str:
     return "UNKNOWN_VETO"
 
 
-def reason_code_to_u16(reason_code: str, *, strict: Optional[bool] = None) -> int:
+def reason_code_to_u16(reason_code: str, *, strict: bool | None = None) -> int:
     """
     Structured reason_code -> stable uint16.
 
@@ -221,7 +221,7 @@ def u16_to_reason_code(u16: int) -> str:
     return _U16_TO_CANONICAL.get(int(u16), "VETO_UNKNOWN")
 
 
-def normalize_reason(reason: str, reason_code: Optional[str] = None) -> Tuple[str, str, int]:
+def normalize_reason(reason: str, reason_code: str | None = None) -> tuple[str, str, int]:
     """
     Returns (original_reason, structured_code, u16_id)
     """
@@ -231,7 +231,7 @@ def normalize_reason(reason: str, reason_code: Optional[str] = None) -> Tuple[st
     else:
         rc = legacy_reason_to_code(reason)
     u = reason_code_to_u16(rc)
-    return str(reason), rc, u
+    return reason, rc, u
 
 
 # Compatibility aliases
@@ -257,7 +257,6 @@ def check_all_reason_codes_registered() -> None:
     Validate that all VETO_/SOFT_ string literals in codebase are registered in _REASON_CODE_U16.
     This prevents silent 0-u16 mappings in production.
     """
-    import json
     import re
     import subprocess
     import sys

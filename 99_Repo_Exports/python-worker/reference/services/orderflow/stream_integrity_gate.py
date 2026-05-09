@@ -19,25 +19,25 @@ Thresholds are opt-in; if env is 0, gate is effectively monitor-only.
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(d)
+        return d
 
 
 def _profile() -> str:
-    return str(os.getenv("GATE_PROFILE", os.getenv("STREAM_INTEGRITY_PROFILE", "default")) or "default").strip().lower()
+    return os.getenv("GATE_PROFILE", os.getenv("STREAM_INTEGRITY_PROFILE", "default") or "default").strip().lower()
 
 
 @dataclass
@@ -46,7 +46,7 @@ class StreamIntegrityDecision:
     veto: bool
     gate: str
     reason_code: str
-    flags: List[str]
+    flags: list[str]
     notes: str = ""
 
 
@@ -61,13 +61,13 @@ class StreamIntegrityGate:
         veto_on_schema_change: bool,
     ) -> None:
         self.enabled = bool(enabled)
-        self.mode = str(mode or "auto").strip().lower()
+        self.mode = (mode or "auto").strip().lower()
         self.max_gap_rate_ema = float(max_gap_rate_ema)
         self.max_gap_window = int(max_gap_window)
         self.veto_on_schema_change = bool(veto_on_schema_change)
 
     @staticmethod
-    def from_env() -> "StreamIntegrityGate":
+    def from_env() -> StreamIntegrityGate:
         enabled = bool(int(os.getenv("STREAM_INTEGRITY_GATE_ENABLED", "1") or 1))
         mode = os.getenv("STREAM_INTEGRITY_MODE", "auto")
         return StreamIntegrityGate(
@@ -88,12 +88,12 @@ class StreamIntegrityGate:
             return "tighten"
         return "monitor"
 
-    def evaluate(self, *, indicators: Dict[str, Any], symbol: str) -> StreamIntegrityDecision:
+    def evaluate(self, *, indicators: dict[str, Any], symbol: str) -> StreamIntegrityDecision:
         if not self.enabled:
             return StreamIntegrityDecision(apply=False, veto=False, gate="StreamIntegrityGate", reason_code="", flags=[])
 
         mode = self._effective_mode()
-        flags: List[str] = []
+        flags: list[str] = []
 
         # Inputs
         tg = _f(indicators.get("tick_seq_gap_rate_ema", 0.0), 0.0)

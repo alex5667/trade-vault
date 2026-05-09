@@ -1,14 +1,15 @@
-import unittest
-from unittest.mock import MagicMock
 import os
 import sys
+import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 # Add python-worker to sys.path
 worker_path = Path(__file__).parent.parent
 sys.path.insert(0, str(worker_path))
 
 from confidence_calculation.confidence_scorer import _crypto_conf_factor
+
 
 class TestEnhancedScorer(unittest.TestCase):
     def setUp(self):
@@ -31,11 +32,11 @@ class TestEnhancedScorer(unittest.TestCase):
         self.ctx.market_mode = "momentum_trend"
         self.ctx.confirmations = []
         score_trend, parts_trend = _crypto_conf_factor(self.ctx, "breakout")
-        
+
         self.ctx.market_mode = "range_neutral"
         self.ctx.confirmations = []
         score_range, parts_range = _crypto_conf_factor(self.ctx, "meanrev")
-        
+
         print(f"Trend score: {score_trend}, Range score: {score_range}")
         print(f"Trend parts: {parts_trend}")
         print(f"Range parts: {parts_range}")
@@ -45,11 +46,11 @@ class TestEnhancedScorer(unittest.TestCase):
         self.ctx.confirmations = ["reclaim", "sweep"]
         self.ctx.evidence = {}
         score_with_bonus, parts = _crypto_conf_factor(self.ctx, "breakout")
-        
+
         self.ctx.confirmations = []
         self.ctx.evidence = {}
         score_no_bonus, _ = _crypto_conf_factor(self.ctx, "breakout")
-        
+
         self.assertGreater(score_with_bonus, score_no_bonus)
         # reclaim (0.05) + sweep (0.03) + synergy (0.02) = 0.10
         self.assertAlmostEqual(parts["bonus"], 0.10, places=2)
@@ -60,7 +61,7 @@ class TestEnhancedScorer(unittest.TestCase):
         self.ctx.main_z = 4.0
         self.ctx.confirmations = ["rsi_agree"]
         self.ctx.evidence = {}
-        
+
         score, parts = _crypto_conf_factor(self.ctx, "breakout")
         # bonus for rsi is 0.02, but dampened by 0.5 -> 0.01 (if regime is trend and main_z > 3.0)
         print(f"Anti-corr parts: {parts}")

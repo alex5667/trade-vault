@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 import math
+from types import SimpleNamespace
+
 import pytest
 
-from signals.level_enricher import attach_trade_levels_to_ctx
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
+from signals.level_enricher import attach_trade_levels_to_ctx
 
 
 def test_tp1_expected_move_is_finite_after_enricher(monkeypatch: pytest.MonkeyPatch):

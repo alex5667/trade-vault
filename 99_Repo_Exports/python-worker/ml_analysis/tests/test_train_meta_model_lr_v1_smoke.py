@@ -18,8 +18,8 @@ def _ensure_repo_root_first() -> None:
 def test_train_meta_model_lr_from_df_smoke(tmp_path: Path):
     _ensure_repo_root_first()
 
-    from ml_analysis.tools.train_meta_model_lr_v1 import train_meta_model_lr_from_df
     from core.meta_model_lr import MetaModelLR
+    from ml_analysis.tools.train_meta_model_lr_v1 import train_meta_model_lr_from_df
 
     n = 240
     ts0 = 1_700_000_000_000
@@ -64,7 +64,7 @@ def test_train_meta_model_lr_from_df_smoke(tmp_path: Path):
     assert m2.signature_ok()
 
     # Deterministic prediction parity after load
-    feat = {k: 0.0 for k in m2.features}
+    feat = dict.fromkeys(m2.features, 0.0)
     p1 = float(m2.predict_proba(feat))
     p2 = float(MetaModelLR.load(str(out)).predict_proba(feat))
     assert abs(p1 - p2) < 1e-12

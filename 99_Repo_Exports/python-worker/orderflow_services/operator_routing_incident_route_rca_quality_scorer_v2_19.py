@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -38,7 +39,7 @@ LAT = _hist("ml_operator_routing_incident_route_rca_quality_latency_seconds", "L
 LAST_RUN = _gauge("ml_operator_routing_incident_route_rca_quality_last_run_ts_seconds", "Last timestamp")
 
 def now_ms() -> int: return get_ny_time_millis()
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 async def ensure_group(r: Any, stream: str, group: str) -> None:
@@ -61,7 +62,7 @@ async def run_loop(r: Any) -> None:
                     row = as_dict(payload)
                     inc_id = row.get("incident_id", "unknown")
                     output_hash = row.get("output_hash", "")
-                    
+
                     scores = {
                         "incident_id": inc_id,
                         "output_hash": output_hash,
@@ -72,13 +73,13 @@ async def run_loop(r: Any) -> None:
                         "overall_quality_score": 0.95,
                         "ts_ms": now_ms()
                     }
-                    
+
                     await r.xadd(OUT_STREAM, scores, maxlen=MAXLEN, approximate=True)
                     await r.xack(IN_STREAM, GROUP, msg_id)
                 except Exception:
                     status = "error"
                     await r.xack(IN_STREAM, GROUP, msg_id)
-                    
+
         if LAST_RUN: LAST_RUN.set(time.time())
     except Exception:
         status = "error"

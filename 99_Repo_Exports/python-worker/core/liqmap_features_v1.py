@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Liquidation Map (liqmap) -> compact feature layer.
 
 This module converts a liqmap snapshot (stored in Redis under keys:
@@ -29,11 +30,11 @@ Snapshot schema (produced by services/liquidation_map_service.py):
 """
 
 
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
-
 import json
 import math
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 try:
     import orjson
@@ -57,17 +58,17 @@ class LiqMapSnapshot:
     ts_ms: int
     symbol: str
     window: str
-    levels: Tuple[LiqMapLevel, ...]
+    levels: tuple[LiqMapLevel, ...]
 
 
 def _f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if math.isnan(v) or math.isinf(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
 def _i(x: Any, default: int = 0) -> int:
@@ -77,14 +78,14 @@ def _i(x: Any, default: int = 0) -> int:
         try:
             return int(float(x))
         except Exception:
-            return int(default)
+            return default
 
 
-def _parse_levels(levels_raw: Any) -> Tuple[LiqMapLevel, ...]:
+def _parse_levels(levels_raw: Any) -> tuple[LiqMapLevel, ...]:
     if not isinstance(levels_raw, list):
         return tuple()
 
-    levels: List[LiqMapLevel] = []
+    levels: list[LiqMapLevel] = []
     for it in levels_raw:
         if not isinstance(it, dict):
             continue
@@ -148,8 +149,8 @@ def parse_liqmap_snapshot(raw_json: str) -> LiqMapSnapshot:
         raise ValueError("liqmap: snapshot root is not dict")
 
     ts_ms = _i(obj.get("ts_ms"), -1)
-    symbol = str(obj.get("symbol", "") or "").strip().upper()
-    window = str(obj.get("window", "") or "").strip()
+    symbol = (obj.get("symbol", "") or "").strip().upper()
+    window = (obj.get("window", "") or "").strip()
     if ts_ms <= 0:
         raise ValueError("liqmap: missing/invalid ts_ms")
     if not symbol:
@@ -190,11 +191,11 @@ def parse_liqmap_snapshot_v1(
     if ts_ms <= 0:
         raise ValueError("liqmap: missing/invalid ts_ms")
 
-    sym = str(obj.get("symbol", "") or "").strip().upper()
-    wnd = str(obj.get("window", "") or "").strip()
+    sym = (obj.get("symbol", "") or "").strip().upper()
+    wnd = (obj.get("window", "") or "").strip()
 
-    exp_sym = str(expected_symbol or "").strip().upper()
-    exp_wnd = str(expected_window or "").strip()
+    exp_sym = (expected_symbol or "").strip().upper()
+    exp_wnd = (expected_window or "").strip()
 
     if not sym and exp_sym:
         sym = exp_sym
@@ -214,7 +215,7 @@ def parse_liqmap_snapshot_v1(
     return LiqMapSnapshot(ts_ms=ts_ms, symbol=sym, window=wnd, levels=levels)
 
 
-def liqmap_feature_keys(window: str) -> List[str]:
+def liqmap_feature_keys(window: str) -> list[str]:
     w = str(window)
     p = f"liqmap_{w}_"
     return [
@@ -236,8 +237,8 @@ def liqmap_feature_keys(window: str) -> List[str]:
     ]
 
 
-def make_liqmap_default_features(windows: Iterable[str]) -> Dict[str, float]:
-    out: Dict[str, float] = {}
+def make_liqmap_default_features(windows: Iterable[str]) -> dict[str, float]:
+    out: dict[str, float] = {}
     for w in windows:
         for k in liqmap_feature_keys(w):
             out.setdefault(k, 0.0)
@@ -252,13 +253,13 @@ def _compute_liqmap_features_one(
     near_band_bps: float = 20.0,
     peak_min_share: float = 0.05,
     require_peak_usd_min: float = 0.0,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Compute compact features for one window."""
 
     w = snapshot.window
     pref = f"liqmap_{w}_"
 
-    out: Dict[str, float] = {k: 0.0 for k in liqmap_feature_keys(w)}
+    out: dict[str, float] = dict.fromkeys(liqmap_feature_keys(w), 0.0)
 
     age_ms = max(0, int(now_ms) - int(snapshot.ts_ms))
     out[f"{pref}age_ms"] = float(age_ms)
@@ -292,8 +293,8 @@ def _compute_liqmap_features_one(
     share_thr = float(peak_min_share) * float(total_usd)
     peak_thr = max(float(require_peak_usd_min), float(share_thr))
 
-    up_best: Optional[LiqMapLevel] = None
-    dn_best: Optional[LiqMapLevel] = None
+    up_best: LiqMapLevel | None = None
+    dn_best: LiqMapLevel | None = None
     peaks_up = 0
     peaks_dn = 0
 
@@ -336,7 +337,7 @@ def compute_liqmap_features(
     peak_min_share: float = 0.05,
     now_ms: int,
     require_peak_usd_min: float = 0.0,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Compute liqmap features with a stable multi-window contract.
 
     Runtime usually calls this once per window, but we return defaults for *all*

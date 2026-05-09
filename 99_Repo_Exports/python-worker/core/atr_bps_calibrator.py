@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 ATR(bps) Sanity Calibrator (per-symbol, per-regime)
 ---------------------------------------------------
@@ -26,7 +27,7 @@ Semantics:
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from core.quantile_p2 import P2Quantile
 
@@ -48,12 +49,12 @@ class ATRBpsCalibrator:
 
     def __init__(self, *, min_samples: int = 500) -> None:
         self.min_samples = int(min_samples)
-        self._q10: Dict[str, P2Quantile] = {}
-        self._q20: Dict[str, P2Quantile] = {}
-        self._q30: Dict[str, P2Quantile] = {}
-        self._n: Dict[str, int] = {}
+        self._q10: dict[str, P2Quantile] = {}
+        self._q20: dict[str, P2Quantile] = {}
+        self._q30: dict[str, P2Quantile] = {}
+        self._n: dict[str, int] = {}
 
-    def _get(self, m: Dict[str, P2Quantile], rg: str, p: float) -> P2Quantile:
+    def _get(self, m: dict[str, P2Quantile], rg: str, p: float) -> P2Quantile:
         q = m.get(rg)
         if q is None:
             q = P2Quantile(p=float(p))
@@ -61,7 +62,7 @@ class ATRBpsCalibrator:
         return q
 
     def update(self, *, regime: str, atr_bps: float) -> None:
-        rg = str(regime or "na").lower()
+        rg = (regime or "na").lower()
         x = float(atr_bps or 0.0)
         if not math.isfinite(x) or x <= 0:
             return
@@ -81,9 +82,9 @@ class ATRBpsCalibrator:
         default_floor_t0: float,
         default_floor_t1: float,
         default_floor_t2: float,
-        clamp: Tuple[float, float] = (0.1, 5_000.0),
+        clamp: tuple[float, float] = (0.1, 5_000.0),
     ) -> ATRBpsThresholds:
-        rg = str(regime or "na").lower()
+        rg = (regime or "na").lower()
         n = int(self._n.get(rg, 0))
         lo, hi = float(clamp[0]), float(clamp[1])
 
@@ -121,11 +122,11 @@ class ATRBpsCalibrator:
 
     # ---------------- Persistence (same pattern as EffQuoteCalibrator) ----------------
 
-    def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> Dict[str, Any]:
-        rg = str(regime or "na").lower()
+    def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> dict[str, Any]:
+        rg = (regime or "na").lower()
         return {
             "v": 1,
-            "symbol": str(symbol or "").upper(),
+            "symbol": (symbol or "").upper(),
             "regime": rg,
             "updated_ts_ms": int(updated_ts_ms or 0),
             "min_samples": int(self.min_samples),
@@ -135,9 +136,9 @@ class ATRBpsCalibrator:
             "q30": (self._q30.get(rg).to_state() if self._q30.get(rg) else None),
         }
 
-    def load_regime_state(self, state: Dict[str, Any]) -> None:
+    def load_regime_state(self, state: dict[str, Any]) -> None:
         try:
-            rg = str(state.get("regime") or "na").lower()
+            rg = (state.get("regime") or "na").lower()
             self._n[rg] = int(state.get("n", 0) or 0)
             q10 = state.get("q10")
             q20 = state.get("q20")

@@ -1,5 +1,5 @@
-from orderflow_services.route_incident_rca_mirror_slo_analytics_v3_10 import compute_rollup
 from orderflow_services.route_incident_rca_mirror_auto_escalation_summarizer_v3_10 import decide_severity
+from orderflow_services.route_incident_rca_mirror_slo_analytics_v3_10 import compute_rollup
 
 
 def test_compute_rollup_detects_low_apply_rate():

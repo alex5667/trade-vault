@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
-import time
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Iterator, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:
@@ -21,8 +22,8 @@ def fingerprint(obj: Any) -> str:
     return hashlib.sha1(stable_json(obj).encode("utf-8")).hexdigest()
 
 
-def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+def iter_ndjson(path: str) -> Iterator[dict[str, Any]]:
+    with open(path, encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -30,7 +31,7 @@ def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
             yield json.loads(line)
 
 
-def write_ndjson(path: str, rows: Iterable[Dict[str, Any]]) -> None:
+def write_ndjson(path: str, rows: Iterable[dict[str, Any]]) -> None:
     with open(path, "w", encoding="utf-8") as f:
         for r in rows:
             f.write(stable_json(r) + "\n")
@@ -44,10 +45,10 @@ class DiffItem:
     b: Any
 
 
-def topdiff(baseline: List[Dict[str, Any]], current: List[Dict[str, Any]], keys: List[str], top_k: int = 20) -> Tuple[int, List[DiffItem]]:
+def topdiff(baseline: list[dict[str, Any]], current: list[dict[str, Any]], keys: list[str], top_k: int = 20) -> tuple[int, list[DiffItem]]:
     """Return (n_changed, first top_k diffs) comparing by keys."""
     n = min(len(baseline), len(current))
-    out: List[DiffItem] = []
+    out: list[DiffItem] = []
     changed = 0
     for i in range(n):
         a = baseline[i]

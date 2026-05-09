@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -13,7 +14,7 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
-
+import contextlib
 
 STREAM_ROLLBACK_REQUESTS = os.getenv("ML_OPERATOR_RCA_ROUTING_ROLLBACK_REQUESTS_STREAM", "stream:ml:operator_rca_routing_rollback_requests")
 STREAM_ROLLBACK_RESULTS = os.getenv("ML_OPERATOR_RCA_ROUTING_ROLLBACK_RESULTS_STREAM", "stream:ml:operator_rca_routing_rollback_results")
@@ -41,8 +42,8 @@ LOOP_SECONDS = Histogram(
 )
 
 
-def _decode(fields: Dict[Any, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _decode(fields: dict[Any, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         vv = v.decode() if isinstance(v, (bytes, bytearray)) else str(v)
@@ -60,7 +61,7 @@ class RollbackRequest:
     reason_codes_json: str
 
 
-def _parse(fields: Dict[Any, Any]) -> RollbackRequest:
+def _parse(fields: dict[Any, Any]) -> RollbackRequest:
     d = _decode(fields)
     return RollbackRequest(
         recommendation_id=d.get("recommendation_id", ""),
@@ -77,10 +78,8 @@ async def main() -> None:
         raise RuntimeError("redis.asyncio is required")
     start_http_server(PROM_PORT)
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(STREAM_ROLLBACK_REQUESTS, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
 
     while True:
         t0 = time.perf_counter()

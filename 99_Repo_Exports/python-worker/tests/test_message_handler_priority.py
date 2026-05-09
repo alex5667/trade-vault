@@ -1,11 +1,9 @@
-from utils.time_utils import get_ny_time_millis
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import pytest
-
 # поправьте импорт под ваш проект
 from handlers.message_handler import MessageHandler
+from utils.time_utils import get_ny_time_millis
 
 
 class DummyBackoff:
@@ -14,7 +12,6 @@ class DummyBackoff:
 
 
 def test_process_message_batch_prioritizes_book_then_l3_then_ticks():
-    import time
 
     h = MessageHandler.__new__(MessageHandler)
 

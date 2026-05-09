@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
 import math
+from typing import Any
 
 
 def f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
 def nz(x: Any) -> bool:

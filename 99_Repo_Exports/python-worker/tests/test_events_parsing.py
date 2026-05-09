@@ -8,12 +8,13 @@
 4. timestamp coalescing работает корректно
 """
 import json
+
 from services.archivers.stream_archiver import (
-    StreamArchiver,
-    PgWriter,
     PgCfg,
-    parse_meta_json,
+    PgWriter,
+    StreamArchiver,
     coalesce_ts_ms,
+    parse_meta_json,
     ts_ms_from_stream_id,
 )
 
@@ -45,7 +46,7 @@ def test_event_row_position_id_and_meta_json():
     assert row[3] == "12345678", "position_id должен быть извлечен"
     assert row[6] == "POSITION_CLOSED", "event_type должен быть в корне"
     assert row[7] is not None, "meta_json не должен быть None"
-    
+
     # meta_json должен быть JSON string (для PostgreSQL JSONB)
     meta_dict = json.loads(row[7])
     assert meta_dict["close_reason"] == "trailing_stop", "meta должен быть распарсен из JSON string"
@@ -123,7 +124,7 @@ def test_coalesce_ts_ms_from_payload():
     """timestamp должен извлекаться из payload.ts (события используют 'ts' в ms)"""
     payload = {"ts": 1706380000000, "other": "data"}
     stream_id = "1706370000000-0"  # другой timestamp в stream_id
-    
+
     result = coalesce_ts_ms(payload, stream_id)
     assert result == 1706380000000, "должен использовать payload.ts"
 
@@ -132,7 +133,7 @@ def test_coalesce_ts_ms_from_stream_id():
     """timestamp fallback на stream_id если нет в payload"""
     payload = {"other": "data"}
     stream_id = "1706380000000-0"
-    
+
     result = coalesce_ts_ms(payload, stream_id)
     assert result == 1706380000000, "должен извлечь из stream_id"
 
@@ -145,7 +146,7 @@ def test_coalesce_ts_ms_priority():
         "timestamp_ms": 3000,
     }
     stream_id = "4000-0"
-    
+
     # Должен использовать ts_ms (highest priority)
     result = coalesce_ts_ms(payload, stream_id)
     assert result == 1000
@@ -250,7 +251,8 @@ def test_entry_row_ab_group_normalization():
 if __name__ == "__main__":
     # Run tests
     import sys
+
     import pytest
-    
+
     sys.exit(pytest.main([__file__, "-v"]))
 

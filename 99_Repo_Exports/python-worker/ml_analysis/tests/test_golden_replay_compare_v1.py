@@ -1,4 +1,4 @@
-from ml_analysis.golden_replay.compare import float_close, diff_objects, stable_hash
+from ml_analysis.golden_replay.compare import diff_objects, float_close, stable_hash
 
 
 def test_float_close_abs_rel_v1():

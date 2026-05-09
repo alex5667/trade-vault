@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Tests for world-practice LOB pressure metrics (v22) in tick_processor:
 - trade_micro_mid_div_bps, trade_micro_shift_bps
@@ -17,10 +17,10 @@ Tests validate:
 """
 
 
-import math
 import importlib
-import pytest
+import math
 
+import pytest
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 1. Import smoke: all 17 new metrics must be importable
@@ -145,10 +145,7 @@ class TestEmissionFromIndicators:
 
     def test_none_values_default_to_zero(self) -> None:
         """None values in indicators must default to 0.0 (or 0 for flags)."""
-        ind = {k: None for k in [
-            "lob_qi_mean", "lob_dw_obi", "lob_dw_obi_z",
-            "lob_micro_mid_div_bps", "lob_dw_obi_stable",
-        ]}
+        ind = dict.fromkeys(["lob_qi_mean", "lob_dw_obi", "lob_dw_obi_z", "lob_micro_mid_div_bps", "lob_dw_obi_stable"])
         res = _emit_lob_pressure(ind)
         assert res["lob_qi_mean"] == 0.0
         assert res["lob_dw_obi"] == 0.0
@@ -239,6 +236,7 @@ class TestAlertFilePresence:
 
     def test_all_expected_alert_names_present(self) -> None:
         import os
+
         import yaml
         path = "orderflow_services/prometheus_alerts_world_practice_lob_pressure_v1.yml"
         if not os.path.exists(path):
@@ -265,6 +263,7 @@ class TestAlertFilePresence:
 
     def test_alert_severities_valid(self) -> None:
         import os
+
         import yaml
         path = "orderflow_services/prometheus_alerts_world_practice_lob_pressure_v1.yml"
         if not os.path.exists(path):

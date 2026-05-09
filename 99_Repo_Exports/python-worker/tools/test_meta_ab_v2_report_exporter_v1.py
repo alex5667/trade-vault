@@ -1,11 +1,10 @@
-from utils.time_utils import get_ny_time_millis
 import json
 import os
 import sys
 import tempfile
-import time
 import unittest
 
+from utils.time_utils import get_ny_time_millis
 
 # Make tests runnable from repo root without requiring external PYTHONPATH.
 _THIS_DIR = os.path.dirname(__file__)

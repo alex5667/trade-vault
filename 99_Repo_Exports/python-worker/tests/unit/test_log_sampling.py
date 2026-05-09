@@ -1,5 +1,6 @@
 from common.log_sampling import TimeSampler
 
+
 def test_time_sampler_basic():
     s = TimeSampler(every_ms=1000)
     assert s.maybe(0) is True      # first call -> True

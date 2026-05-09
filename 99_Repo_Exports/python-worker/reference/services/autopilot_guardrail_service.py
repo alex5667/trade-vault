@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 Autopilot Guardrail:
@@ -17,8 +18,8 @@ import asyncio
 import json
 import math
 import os
-import time
-from typing import Dict, Any, List, Tuple
+from typing import Any
+
 import redis.asyncio as aioredis
 
 
@@ -26,7 +27,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _median(xs: List[float]) -> float:
+def _median(xs: list[float]) -> float:
     if not xs:
         return 0.0
     ys = sorted(xs)
@@ -37,7 +38,7 @@ def _median(xs: List[float]) -> float:
     return 0.5 * (float(ys[m - 1]) + float(ys[m]))
 
 
-def _mad_sigma(xs: List[float]) -> float:
+def _mad_sigma(xs: list[float]) -> float:
     if len(xs) < 2:
         return 0.0
     med = _median(xs)
@@ -45,7 +46,7 @@ def _mad_sigma(xs: List[float]) -> float:
     return 1.4826 * _median(dev)
 
 
-def _lcb(xs: List[float], z: float) -> float:
+def _lcb(xs: list[float], z: float) -> float:
     n = len(xs)
     if n <= 0:
         return float("-inf")
@@ -84,8 +85,8 @@ class Guardrail:
         except Exception:
             pass
 
-    async def _read_closed_since(self, since_ms: int) -> List[Dict[str, Any]]:
-        out: List[Dict[str, Any]] = []
+    async def _read_closed_since(self, since_ms: int) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
         # reverse range from latest until older than since_ms
         last_id = "+"
         scanned = 0
@@ -107,8 +108,8 @@ class Guardrail:
                     return out
                 try:
                     out.append({
-                        "symbol": str(f.get("symbol") or "").upper(),
-                        "regime": str(f.get("regime") or "na").lower(),
+                        "symbol": (f.get("symbol") or "").upper(),
+                        "regime": (f.get("regime") or "na").lower(),
                         "scenario": str(f.get("scenario") or f.get("decision") or "").lower(),
                         "r_mult": float(f.get("r_mult") or f.get("r_multiple") or 0.0),
                     })
@@ -130,7 +131,7 @@ class Guardrail:
             since = max(applied_ts, int(_now_ms() - self.lookback_hours * 3600 * 1000))
             rows = await self._read_closed_since(since)
             # aggregate per (symbol,regime,scenario)
-            buckets: Dict[Tuple[str,str,str], List[float]] = {}
+            buckets: dict[tuple[str,str,str], list[float]] = {}
             for d in rows:
                 scn = d["scenario"]
                 if scn not in ("continuation","reversal"):

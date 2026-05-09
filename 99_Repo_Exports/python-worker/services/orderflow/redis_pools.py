@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 RedisPoolSet — создаёт и держит все Redis-клиенты CryptoOrderflowService.
 
@@ -14,6 +15,7 @@ from dataclasses import dataclass
 import redis.asyncio as aioredis
 
 from services.orderflow.service_config import RedisPoolCfg
+import contextlib
 
 logger = logging.getLogger("redis_pools")
 
@@ -60,7 +62,7 @@ class RedisPoolSet:
     state: aioredis.Redis
 
     @classmethod
-    def build(cls, cfg: RedisPoolCfg, redis_dsn: str, ticks_dsn: str) -> "RedisPoolSet":
+    def build(cls, cfg: RedisPoolCfg, redis_dsn: str, ticks_dsn: str) -> RedisPoolSet:
         """Создаёт все пулы из конфига. Единственная точка входа."""
 
         def pool(url: str, max_conn: int, hc: int = 0) -> aioredis.Redis:
@@ -98,7 +100,16 @@ class RedisPoolSet:
         ml_gate = pool(ml_gate_url, cfg.ml_gate_max, hc=cfg.hc_interval)
 
         publish_url = os.getenv("PUBLISH_REDIS_URL", redis_dsn)
-        publish = pool(publish_url, cfg.publish_max, hc=cfg.hc_interval)
+        # Hot-path pool: use dedicated publish_sock_to (default 2s) instead of global
+        # sock_to (which may be 15s in prod). This caps XADD P99 at ~2s worst-case
+        # instead of allowing 15s waits during pool contention.
+        publish = _make_pool(
+            url=publish_url,
+            max_connections=cfg.publish_max,
+            sock_to=cfg.publish_sock_to,
+            conn_to=cfg.conn_to,
+            hc_interval=cfg.hc_interval,
+        )
 
         state_url = os.getenv("REDIS_STATE_URL", redis_dsn)
         state = pool(state_url, cfg.state_max, hc=cfg.hc_interval)
@@ -123,7 +134,7 @@ class RedisPoolSet:
         redis_dsn: str,
         cfg: RedisPoolCfg,
     ) -> aioredis.Redis:
-        from core.redis_client import normalize_redis_url, get_async_redis_client
+        from core.redis_client import get_async_redis_client, normalize_redis_url
         notify_url_raw = os.getenv("CRYPTO_NOTIFY_REDIS_URL", os.getenv("REDIS_URL"))
         if notify_url_raw and normalize_redis_url(notify_url_raw) != normalize_redis_url(redis_dsn):
             logger.info("🔗 Separate notify Redis: max_conn=%d url=%s", cfg.notify_max, notify_url_raw)
@@ -149,9 +160,11 @@ class RedisPoolSet:
     ) -> None:
         logger.info(
             "🔗 Redis pools: main_max=%d ticks_max=%d config_max=%d ml_gate_max=%d "
-            "health_contract_max=%d publish_max=%d state_max=%d sock_to=%.1fs conn_to=%.1fs hc=%ds",
+            "health_contract_max=%d publish_max=%d state_max=%d sock_to=%.1fs "
+            "publish_sock_to=%.1fs conn_to=%.1fs hc=%ds",
             cfg.main_max, cfg.ticks_max, cfg.config_max, cfg.ml_gate_max,
-            cfg.health_contract_max, cfg.publish_max, cfg.state_max, cfg.sock_to, cfg.conn_to, cfg.hc_interval,
+            cfg.health_contract_max, cfg.publish_max, cfg.state_max,
+            cfg.sock_to, cfg.publish_sock_to, cfg.conn_to, cfg.hc_interval,
         )
         logger.info("   main=%s  ticks=%s  config=%s  ml_gate=%s  state=%s",
                     redis_dsn, ticks_dsn, config_url, ml_gate_url, state_url)
@@ -187,7 +200,5 @@ class RedisPoolSet:
 
         # notify отдельно: может быть == main (уже закрыт) или отдельный клиент
         if id(self.notify) not in seen:
-            try:
+            with contextlib.suppress(Exception):
                 await self.notify.aclose()
-            except Exception:
-                pass

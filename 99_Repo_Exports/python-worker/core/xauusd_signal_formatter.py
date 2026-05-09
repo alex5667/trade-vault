@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
  Signal Formatter - Единый формат сообщений по  для всех генерирующих сервисов.
@@ -7,11 +8,10 @@ Senior Go/Python Developer + Senior Trading Systems Analyst
 40 лет совместного опыта
 """
 
-from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone
-import time
 import html
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
 
 
 @dataclass
@@ -22,17 +22,17 @@ class XAUUSDSignal:
     side: str                   # Направление (LONG/SHORT)
     entry: float                # Цена входа
     sl: float                   # Stop Loss
-    tp_levels: List[float]      # Take Profits
+    tp_levels: list[float]      # Take Profits
     lot: float                  # Объем
     source: str                 # Источник сигнала (OrderFlow/TechnicalAnalysis/AggregatedHub)
     reason: str                 # Причина сигнала
     confidence: float           # Уверенность (0-100)
     atr: float                  # ATR
     ts: int                     # Timestamp в миллисекундах
-    indicators: Optional[Dict[str, Any]] = None  # Дополнительные индикаторы
+    indicators: dict[str, Any] | None = None  # Дополнительные индикаторы
     trail_after_tp1: bool = False  # Включить трейлинг после TP1
     trail_profile: str = "rocket_v1"  # Профиль трейлинга (rocket_v1, lock_and_trail, wide_swing, etc)
-    expires_at: Optional[int] = None  # Timestamp expiration if applicable
+    expires_at: int | None = None  # Timestamp expiration if applicable
 
 
 class XAUUSDSignalFormatter:
@@ -46,7 +46,7 @@ class XAUUSDSignalFormatter:
     - hub/aggregated_signal_hub.py
     - python-worker/aggregated_signal_hub.py
     """
-    
+
     # Эмодзи для разных источников
     SOURCE_EMOJI = {
         "OrderFlow": "💥",
@@ -55,13 +55,13 @@ class XAUUSDSignalFormatter:
         "AggregatedHub-Pro": "🚀",
         "Hub": "🎯",
     }
-    
+
     # Эмодзи для направления
     DIRECTION_EMOJI = {
         "LONG": "🟢",
         "SHORT": "🔴"
     }
-    
+
     @classmethod
     def format_telegram_message(cls, signal: XAUUSDSignal, include_indicators: bool = True) -> str:
         """
@@ -77,11 +77,11 @@ class XAUUSDSignalFormatter:
         # Эмодзи для сигнала
         source_emoji = cls.SOURCE_EMOJI.get(signal.source, "🚨")
         direction_emoji = cls.DIRECTION_EMOJI.get(signal.side, "⚪")
-        
+
         # Время сигнала в UTC
-        dt = datetime.fromtimestamp(signal.ts / 1000, tz=timezone.utc)
+        dt = datetime.fromtimestamp(signal.ts / 1000, tz=UTC)
         time_str = dt.strftime('%H:%M:%S %d.%m.%Y UTC')
-        
+
         # Рассчитываем Risk/Reward ratios
         stop_dist = abs(signal.entry - signal.sl)
         rr_parts = []
@@ -89,54 +89,54 @@ class XAUUSDSignalFormatter:
             tp_dist = abs(tp - signal.entry)
             rr = tp_dist / max(stop_dist, 0.01)
             rr_parts.append(f"TP{i} {tp:.2f} (RR {rr:.1f})")
-        
+
         tp_str = "; ".join(rr_parts)
-        
+
         # Формируем основное сообщение
         message_parts = [
             f"{source_emoji} {direction_emoji}  {signal.side} @ {signal.entry:.2f}, Volume {signal.lot:.2f} lot",
         ]
-        
+
         # Добавляем причину/контекст если есть
         if signal.reason:
             # Извлекаем ключевые метрики из reason для краткости
             reason_short = html.escape(str(signal.reason)).replace("; ", " | ")
             message_parts.append(f"📝 {reason_short}")
-        
+
         # Уровни риска
         message_parts.append(f"🛑 SL {signal.sl:.2f} | {tp_str}")
-        
+
         # Время сигнала (ОБЯЗАТЕЛЬНО!)
         message_parts.append(f"🕐 {time_str}")
-        
+
         # Источник и ID
         message_parts.append(f"🔧 Source: {html.escape(str(signal.source))} | ID: {html.escape(str(signal.sid))}")
-        
+
         # Дополнительные индикаторы (если требуется)
         if include_indicators and signal.indicators:
             ind_parts = []
-            
+
             # Z-score delta
             if "z" in signal.indicators or "z_delta" in signal.indicators:
                 z_val = signal.indicators.get("z") or signal.indicators.get("z_delta")
                 if z_val and abs(z_val) > 1.0:
                     ind_parts.append(f"Z={z_val:.1f}")
-            
+
             # ATR
             if signal.atr > 0:
                 ind_parts.append(f"ATR={signal.atr:.2f}")
-            
+
             # Confidence
             if signal.confidence > 0:
                 ind_parts.append(f"Conf={signal.confidence:.0f}%")
-            
+
             if ind_parts:
                 message_parts.append(f"📊 {' | '.join(ind_parts)}")
-        
+
         return "\n".join(message_parts)
-    
+
     @classmethod
-    def format_redis_payload(cls, signal: XAUUSDSignal) -> Dict[str, Any]:
+    def format_redis_payload(cls, signal: XAUUSDSignal) -> dict[str, Any]:
         """
         Форматирует сигнал для Redis stream (notify:telegram).
         
@@ -168,9 +168,9 @@ class XAUUSDSignalFormatter:
         if signal.expires_at is not None:
             payload["expires_at"] = str(signal.expires_at)
         return payload
-    
+
     @classmethod
-    def format_audit_payload(cls, signal: XAUUSDSignal, extra_context: Optional[Dict] = None) -> Dict[str, Any]:
+    def format_audit_payload(cls, signal: XAUUSDSignal, extra_context: dict | None = None) -> dict[str, Any]:
         """
         Форматирует сигнал для audit stream (полный контекст для аналитики).
         
@@ -201,14 +201,14 @@ class XAUUSDSignalFormatter:
         if signal.expires_at is not None:
             payload["expires_at"] = signal.expires_at
 
-        
+
         if extra_context:
             payload["context"] = extra_context
-        
+
         return payload
-    
+
     @classmethod
-    def format_order_payload(cls, signal: XAUUSDSignal) -> Dict[str, Any]:
+    def format_order_payload(cls, signal: XAUUSDSignal) -> dict[str, Any]:
         """
         Форматирует сигнал для /orders/push endpoint.
         
@@ -228,9 +228,9 @@ class XAUUSDSignalFormatter:
             "sl": round(signal.sl, 2),
             "tp_levels": [round(tp, 2) for tp in signal.tp_levels]
         }
-    
+
     @classmethod
-    def create_signal_id(cls, side: str, price: float, ts: Optional[int] = None) -> str:
+    def create_signal_id(cls, side: str, price: float, ts: int | None = None) -> str:
         """
         Создаёт уникальный ID сигнала.
         
@@ -244,7 +244,7 @@ class XAUUSDSignalFormatter:
         """
         if ts is None:
             ts = get_ny_time_millis()
-        
+
         price_normalized = int(price * 100)
         return f"{ts}:{side}:{price_normalized}"
 
@@ -267,13 +267,13 @@ if __name__ == "__main__":
         ts=1730000000000,
         indicators={"z": -6.5, "atr": 0.60}
     )
-    
+
     # Форматируем для Telegram
     telegram_msg = XAUUSDSignalFormatter.format_telegram_message(test_signal)
     print("=== TELEGRAM MESSAGE ===")
     print(telegram_msg)
     print()
-    
+
     # Форматируем для Redis
     redis_payload = XAUUSDSignalFormatter.format_redis_payload(test_signal)
     print("=== REDIS PAYLOAD ===")

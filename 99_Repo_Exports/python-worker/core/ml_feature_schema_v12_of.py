@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 v12_of — Feature schema v12 (OrderFlow), pinned snapshot + anti-overfit signal extensions.
 
@@ -29,7 +30,6 @@ Design notes
 """
 
 
-from typing import List
 
 SCHEMA_HASH = "b5d7e17579f6"
 
@@ -47,7 +47,7 @@ except ImportError:
 # Orthogonal to v11_of: pressure=volume-based; these are frequency/size-structure
 # ---------------------------------------------------------------------------
 
-_GROUP_MA_MICROSTRUCTURE: List[str] = [
+_GROUP_MA_MICROSTRUCTURE: list[str] = [
     "trade_arrival_rate_hz",   # count(trades) / window_sec — arrival intensity (Hawkes λ proxy)
                                # distinct from taker_lambda (hawkes on aggressive orders only)
     "large_trade_ratio",       # count(notional > 3σ_notional) / count_all — whale trade share
@@ -63,7 +63,7 @@ _GROUP_MA_MICROSTRUCTURE: List[str] = [
 # Orthogonal to v11_of: book_refresh_rate_hz already in v11 Group D; these are new
 # ---------------------------------------------------------------------------
 
-_GROUP_MB_BOOK_DYNAMICS: List[str] = [
+_GROUP_MB_BOOK_DYNAMICS: list[str] = [
     "quote_stuffing_score",    # cancels_50ms / quotes_50ms — spoofing / MM pressure proxy
                                # distinct from cancel_to_fill_ratio (v11) which is trade-level
     "depth_migration_bps",     # speed of best bid/ask level shift over N ticks in bps/tick
@@ -79,7 +79,7 @@ _GROUP_MB_BOOK_DYNAMICS: List[str] = [
 # Orthogonal to hour_of_week (continuous); these are event-distance / categorical
 # ---------------------------------------------------------------------------
 
-_GROUP_MC_TEMPORAL: List[str] = [
+_GROUP_MC_TEMPORAL: list[str] = [
     "minutes_to_funding",       # (next_8h_funding_ts_ms - now_ts_ms) / 60000
                                 # funding_rate_bps (v10) = level; this = time-to-event (decay)
     "session_overlap_flag",     # 1.0 if in NY∩London or Asia∩London overlap window (binary)
@@ -93,7 +93,7 @@ _GROUP_MC_TEMPORAL: List[str] = [
 # Extending btc_corr_5m (v10): ETH divergence + carry + OI momentum
 # ---------------------------------------------------------------------------
 
-_GROUP_MD_CROSS_ASSET: List[str] = [
+_GROUP_MD_CROSS_ASSET: list[str] = [
     "eth_btc_corr_5m",          # Rolling 5-min correlation of symbol returns with ETH/BTC ratio
                                 # btc_corr_5m (v10) = vs BTC; ETH/BTC correlation = alt-season
     "perp_spot_basis_bps",      # (perp_price - spot_price) / spot * 10_000
@@ -107,7 +107,7 @@ _GROUP_MD_CROSS_ASSET: List[str] = [
 # Orthogonal to v11 Group E: conf_ma_ratio/gate_hardness_score already there
 # ---------------------------------------------------------------------------
 
-_GROUP_ME_META: List[str] = [
+_GROUP_ME_META: list[str] = [
     "signal_frequency_1h",      # count(signals emitted for symbol) in last 60 min
                                 # distinct from signal_cluster_flag (v11, 60s window)
     "last_trade_outcome_raw",   # realized P&L bps of last closed trade on this symbol
@@ -121,7 +121,7 @@ _GROUP_ME_META: List[str] = [
 # All computable from existing v11_of keys; low data-pipeline cost
 # ---------------------------------------------------------------------------
 
-_GROUP_MX_DERIVED: List[str] = [
+_GROUP_MX_DERIVED: list[str] = [
     "spread_percentile_rank_1d", # rank of spread_bps within rolling 1-day window [0,1]
                                  # spread_bps (v10) = raw; rank = regime-relative cost signal
     "cvd_divergence_from_price", # sign(cvd_slope) ≠ sign(momentum_10s): float 0/1 flag
@@ -137,7 +137,7 @@ _GROUP_MX_DERIVED: List[str] = [
 # Final composite key list — V12_OF_NUMERIC_KEYS (sorted for determinism)
 # ---------------------------------------------------------------------------
 
-V12_OF_NUMERIC_KEYS: List[str] = sorted(set(
+V12_OF_NUMERIC_KEYS: list[str] = sorted(set(
     _V11_OF_BASE
     + _GROUP_MA_MICROSTRUCTURE
     + _GROUP_MB_BOOK_DYNAMICS
@@ -157,7 +157,7 @@ if _V11_OF_BASE:
     )
 
 
-def get_v12_of_numeric_keys() -> List[str]:
+def get_v12_of_numeric_keys() -> list[str]:
     """Return sorted list of numeric indicator keys for v12_of."""
     return list(V12_OF_NUMERIC_KEYS)
 

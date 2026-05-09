@@ -1,11 +1,11 @@
 """Tests for build_dataset_from_inputs_tb_labels_v2."""
 
 import json
-import tempfile
 import os
-import pandas as pd
 import subprocess
 import sys
+
+import pandas as pd
 
 
 def _w(path, rows):
@@ -44,7 +44,7 @@ def test_join_build(tmp_path):
         "--primary-h-ms", "180000",
         "--drop-no-ticks", "1",
     ], env={**os.environ, "PYTHONPATH": ".:.."})
-    
+
     df = pd.read_parquet(out)
     assert len(df) == 1
     assert int(df["y_edge"].iloc[0]) == 1
@@ -74,7 +74,7 @@ def test_missing_tb_label(tmp_path):
         "--primary-h-ms", "180000",
         "--drop-no-ticks", "1",
     ], env={**os.environ, "PYTHONPATH": ".:.."})
-    
+
     df = pd.read_parquet(out)
     assert len(df) == 1
     assert df["sid"].iloc[0] == "s1"
@@ -103,7 +103,7 @@ def test_drop_no_ticks(tmp_path):
         "--primary-h-ms", "180000",
         "--drop-no-ticks", "1",
     ], env={**os.environ, "PYTHONPATH": ".:.."})
-    
+
     df = pd.read_parquet(out)
     assert len(df) == 1
     assert df["sid"].iloc[0] == "s1"

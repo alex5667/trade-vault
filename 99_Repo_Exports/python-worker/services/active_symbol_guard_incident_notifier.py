@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
-import time
-from typing import Any, Dict, Iterable, List, Set
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 try:  # pragma: no cover
     from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
@@ -31,23 +32,23 @@ class ActiveSymbolGuardIncidentNotifier:
         diagnostics: ActiveSymbolGuardDiagnostics,
         policy: ActiveSymbolGuardIncidentPolicyEngine,
         *,
-        notify_stream: str = 'notify:telegram',
+        notify_stream: str = RS.NOTIFY_TELEGRAM,
         stream_maxlen: int = 200000,
         direct_telegram: Any | None = None,
     ) -> None:
         self.r = redis_client
         self.diagnostics = diagnostics
         self.policy = policy
-        self.notify_stream = str(notify_stream or 'notify:telegram')
+        self.notify_stream = str(notify_stream or RS.NOTIFY_TELEGRAM)
         self.stream_maxlen = max(int(stream_maxlen or 0), 1)
         self.direct_telegram = direct_telegram
 
-    def _candidate_symbols(self) -> List[str]:
+    def _candidate_symbols(self) -> list[str]:
         snap = self.diagnostics.snapshot()
         # P13: also fetch operator dashboard to include active holds/acks as candidates
         dashboard = self.diagnostics.operator_dashboard(limit=100)
         heatmap = (((snap or {}).get('heatmap') or {}).get('top_hot_symbols') or {})
-        candidates: Set[str] = set()
+        candidates: set[str] = set()
         for item in list((snap or {}).get('guards') or []):
             cls = str((item or {}).get('classification') or '')
             if cls in {'pending_release', 'stale_tombstone', 'released_tombstone'}:
@@ -66,7 +67,7 @@ class ActiveSymbolGuardIncidentNotifier:
             candidates.add(str((item or {}).get('symbol') or '').strip().upper())
         return sorted(sym for sym in candidates if sym)
 
-    def _send_stream(self, triaged: Dict[str, Any]) -> bool:
+    def _send_stream(self, triaged: dict[str, Any]) -> bool:
         try:
             fields = self.policy.telegram_stream_fields(triaged)
             # self.r.xadd(self.notify_stream, fields, maxlen=self.stream_maxlen, approximate=True)
@@ -76,7 +77,7 @@ class ActiveSymbolGuardIncidentNotifier:
             self.policy.mark_notified(triaged, channel='telegram_stream', result='failed')
             return False
 
-    def _send_direct(self, triaged: Dict[str, Any]) -> bool:
+    def _send_direct(self, triaged: dict[str, Any]) -> bool:
         tg = self.direct_telegram
         if tg is None:
             return False
@@ -89,14 +90,14 @@ class ActiveSymbolGuardIncidentNotifier:
             self.policy.mark_notified(triaged, channel='telegram_direct', result='failed')
             return False
 
-    def run_once(self) -> Dict[str, Any]:
+    def run_once(self) -> dict[str, Any]:
         symbols = self._candidate_symbols()
-        sent: List[Dict[str, Any]] = []
-        skipped: List[Dict[str, Any]] = []
+        sent: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
         for symbol in symbols:
             triaged = self.policy.triage_symbol(symbol, include_exchange=True)
             policy = dict((triaged or {}).get('policy') or {})
-            decision = str(policy.get('decision') or 'skip')
+            decision = (policy.get('decision') or 'skip')
             if not bool(policy.get('should_notify')):
                 skipped.append({'symbol': symbol, 'decision': decision})
                 continue
@@ -108,7 +109,7 @@ class ActiveSymbolGuardIncidentNotifier:
                 'severity': str(((triaged or {}).get('summary') or {}).get('severity') or ''),
                 'decision': decision,
                 'stream_sent': bool(stream_ok),
-                'fingerprint': str(policy.get('fingerprint') or ''),
+                'fingerprint': (policy.get('fingerprint') or ''),
             })
         return {
             'candidate_symbols': symbols,
@@ -141,7 +142,7 @@ def main() -> int:  # pragma: no cover
         r,
         diag,
         policy,
-        notify_stream=os.getenv('NOTIFY_TELEGRAM_STREAM', 'notify:telegram'),
+        notify_stream=os.getenv('NOTIFY_TELEGRAM_STREAM', RS.NOTIFY_TELEGRAM),
         stream_maxlen=int(os.getenv('ACTIVE_SYMBOL_GUARD_NOTIFY_STREAM_MAXLEN', '200000')),
         direct_telegram=TelegramClient.from_env(),
     )

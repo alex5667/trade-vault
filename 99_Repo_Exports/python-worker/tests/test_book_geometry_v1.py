@@ -1,6 +1,6 @@
 import sys
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 # Make imports work regardless of how tests are executed.
 # Repo layout: <repo>/python-worker/services/orderflow/...
@@ -9,8 +9,8 @@ sys.path.insert(0, str(PYWORKER))
 
 from services.orderflow.book_geometry import (
     calc_book_slope,
-    calc_depth_weighted_spread,
     calc_cost_to_cross,
+    calc_depth_weighted_spread,
 )
 
 

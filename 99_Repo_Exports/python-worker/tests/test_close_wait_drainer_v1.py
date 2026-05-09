@@ -1,18 +1,26 @@
 import json
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
+
+from domain.evidence_keys import MetaKeys
+
 try:
     from tools.close_wait_drainer_v1 import (
-        Cfg, process_one, parse_close_wait_payload, build_trades_closed_payload,
-        extract_close_fields
+        Cfg,
+        build_trades_closed_payload,
+        extract_close_fields,
+        parse_close_wait_payload,
+        process_one,
     )
 except ImportError:
-    import sys
-    import os
 # [AUTOGRAVITY CLEANUP]     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
     from tools.close_wait_drainer_v1 import (
-        Cfg, process_one, parse_close_wait_payload, build_trades_closed_payload,
-        extract_close_fields
+        Cfg,
+        build_trades_closed_payload,
+        extract_close_fields,
+        parse_close_wait_payload,
+        process_one,
     )
 
 @pytest.fixture
@@ -61,7 +69,7 @@ def test_extract_close_fields():
     extracted = extract_close_fields(ev)
     assert extracted["symbol"] == "BTCUSDT"
     assert extracted["r_mult"] == 1.5
-    assert extracted["meta_enforce_applied"] == "1"
+    assert extracted[MetaKeys.ENFORCE_APPLIED] == "1"
 
 def test_build_trades_closed_payload(cfg):
     sid = "sid123"
@@ -87,11 +95,11 @@ def test_process_one_success(mock_redis, cfg):
         }).encode()
     }
     decision = {"ml_p_cal": 0.8, "decision_ts_ms": 1700000000000, "dq_state": "ok"}
-    
+
     mock_redis.set.return_value = True # lock
     mock_redis.exists.return_value = False # dedup
     mock_redis.get.return_value = json.dumps(decision).encode()
-    
+
     pipeline = mock_redis.pipeline.return_value
     pipeline.execute.return_value = [True, b"new_id"]
 
@@ -106,12 +114,12 @@ def test_process_one_missing_decision(mock_redis, cfg):
     fields = {
         b"payload": json.dumps({"sid": "sid123", "close_event": {}}).encode()
     }
-    
+
     mock_redis.set.return_value = True # lock
     mock_redis.exists.return_value = False # dedup
     mock_redis.get.return_value = None # missing decision
     mock_redis.incr.return_value = 1 # attempt
-    
+
     process_one(mock_redis, cfg, msg_id, fields)
 
     mock_redis.xack.assert_not_called()

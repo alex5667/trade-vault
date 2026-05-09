@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for prom_rules_bundle_smoke_runner_v1 (P104).
 
 Covers:
@@ -12,20 +13,14 @@ Covers:
 """
 
 import json
-import os
-from unittest.mock import MagicMock, patch, call
-
-import pytest
 
 import services.prom_rules_bundle_smoke_runner_v1 as runner_mod
 from services.prom_rules_bundle_smoke_runner_v1 import (
     _block_keys,
     _clear_block_if_owned,
-    _now_ms,
     _set_block,
     main,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -321,7 +316,9 @@ def test_main_no_root_when_env_empty(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_manifest_is_valid_yaml():
-    import yaml, pathlib
+    import pathlib
+
+    import yaml
     p = pathlib.Path(__file__).resolve().parents[2] / "orderflow_services" / "prometheus_rules_bundle_manifest_v1.yml"
     doc = yaml.safe_load(p.read_text())
     assert isinstance(doc, dict), "Manifest must be a YAML dict"

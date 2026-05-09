@@ -1,9 +1,10 @@
 import json
-from typing import Any, Optional
+from typing import Any
 
 from .decision_record import DecisionRecord
 from .redis_client import get_redis
 from .redis_keys import RedisStreams as RS
+
 
 class DecisionStore:
     """
@@ -39,7 +40,7 @@ class DecisionStore:
             approximate=True,
         )
 
-    def load_decision(self, sid: str) -> Optional[DecisionRecord]:
+    def load_decision(self, sid: str) -> DecisionRecord | None:
         """
         Loads decision from Redis Hash decision:{sid}.
         Returns None if not found.

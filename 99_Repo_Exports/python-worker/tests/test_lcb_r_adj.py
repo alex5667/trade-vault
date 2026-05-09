@@ -1,9 +1,9 @@
 import sys
-import os
+
 # Add python-worker to sys.path to allow importing from core
 # [AUTOGRAVITY CLEANUP] sys.path.append("/home/alex/front/trade/scanner_infra/python-worker")
+from core.lcb_r_adj import PenaltyCfg, compute_r_and_adj, lcb, thresholds_for
 
-from core.lcb_r_adj import PenaltyCfg, compute_r_and_adj, thresholds_for, lcb
 
 def test_r_adj_penalizes_microstructure():
     ev = {

@@ -1,6 +1,7 @@
-import pytest
 import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import pytest
 
 # Attempt to import the exporter and archiver safely.
 # If they fail due to syntax/system issues, the test should fail gracefully.
@@ -28,7 +29,7 @@ def test_p85_exporter_config():
         ex = Exporter()
         assert ex.port == 9999
         assert ex.redis_url.startswith("redis")
-        
+
     with patch.dict(os.environ, {}, clear=True):
         ex_default = Exporter()
         assert ex_default.port == 9152

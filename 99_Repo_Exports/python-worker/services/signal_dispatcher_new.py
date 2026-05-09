@@ -1,17 +1,17 @@
-from utils.time_utils import get_ny_time_millis
 # services/signal_dispatcher.py
 import json
 import os
 import time
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any
 
 import redis
 
-from core.redis_stream_consumer import SyncRedisStreamHelper
-from core.redis_safe_connect import apply_redis_connection_patches
 from common.log import setup_logger
 from common.transient import is_transient_error
 from core.redis_keys import RedisStreams as RS
+from core.redis_safe_connect import apply_redis_connection_patches
+from core.redis_stream_consumer import SyncRedisStreamHelper
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("SignalDispatcher")
 apply_redis_connection_patches()
@@ -124,7 +124,7 @@ class SignalDispatcher:
         logger.info("✅ Redis connections established successfully (main=%s)", self.redis_url)
 
         self.outbox_stream = os.getenv("SIGNAL_OUTBOX_STREAM", RS.SIGNAL_OUTBOX)
-        self.dlq_stream = os.getenv("SIGNAL_DLQ_STREAM", "stream:signals:dlq")
+        self.dlq_stream = os.getenv("SIGNAL_DLQ_STREAM", RS.SIGNAL_DLQ)
         self.group = os.getenv("SIGNAL_OUTBOX_GROUP", "signals-outbox-group")
         self.consumer = os.getenv("SIGNAL_OUTBOX_CONSUMER", f"dispatcher-{os.getpid()}")
         self.read_count = int(os.getenv("SIGNAL_OUTBOX_READ_COUNT", "200"))
@@ -155,13 +155,13 @@ class SignalDispatcher:
         self._janitor_scan_count = int(os.getenv("SIGNAL_DISPATCHER_JANITOR_SCAN_COUNT", "200"))
 
         self.notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
-        self.notify_signal_counter_key = os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", "notify:telegram:signal_counter")
+        self.notify_signal_counter_key = os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", RS.NOTIFY_SIGNAL_COUNTER)
         try:
             self.notify_signal_every_n = max(1, int(os.getenv("CRYPTO_NOTIFY_SIGNAL_EVERY_N", "1")))
         except ValueError:
             self.notify_signal_every_n = 1
 
-        self._sha_cache: Dict[Tuple[int, str], str] = {}
+        self._sha_cache: dict[tuple[int, str], str] = {}
 
     def _attempt_key(self, msg_id: str) -> str:
         return f"{self._attempt_prefix}:{msg_id}"
@@ -238,12 +238,12 @@ class SignalDispatcher:
         except Exception:
             pass
 
-    def _xadd_idempotent(self, client: Any, *, target: str, sid: str, stream: str, fields: Dict[str, Any], maxlen: int) -> bool:
+    def _xadd_idempotent(self, client: Any, *, target: str, sid: str, stream: str, fields: dict[str, Any], maxlen: int) -> bool:
         """
         B) фикс: marker ставится ПОСЛЕ XADD в одном Lua, с rollback на marker-fail.
         Возвращает True если доставили (или уже было доставлено).
         """
-        fv: List[str] = []
+        fv: list[str] = []
         for k, v in (fields or {}).items():
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
@@ -274,8 +274,8 @@ class SignalDispatcher:
         )
         return bool(res and int(res[0]) in (0, 1))
 
-    def _notify_idempotent(self, client: Any, *, sid: str, payload: Dict[str, Any]) -> bool:
-        fv: List[str] = []
+    def _notify_idempotent(self, client: Any, *, sid: str, payload: dict[str, Any]) -> bool:
+        fv: list[str] = []
         for k, v in (payload or {}).items():
             fv.append(str(k))
             fv.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
@@ -294,7 +294,7 @@ class SignalDispatcher:
         )
         return bool(res and int(res[0]) in (0, 1))
 
-    def _parse_envelope(self, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_envelope(self, fields: dict[str, Any]) -> dict[str, Any] | None:
         raw = fields.get("data")
         if not raw:
             return None
@@ -306,7 +306,7 @@ class SignalDispatcher:
             return raw
         return None
 
-    def _handle_one(self, msg_id: str, fields: Dict[str, Any]) -> bool:
+    def _handle_one(self, msg_id: str, fields: dict[str, Any]) -> bool:
         env = self._parse_envelope(fields)
         if not env:
             logger.warning("Bad envelope (no data) msg=%s fields=%s", msg_id, fields)
@@ -314,7 +314,7 @@ class SignalDispatcher:
             self.redis.xack(self.outbox_stream, self.group, msg_id)
             return True
         attempt = int(env.get("attempt", 0))
-        sid = str(env.get("sid") or "")
+        sid = (env.get("sid") or "")
         if not sid:
             self._send_dlq(msg_id, fields, reason="missing_sid")
             self.redis.xack(self.outbox_stream, self.group, msg_id)
@@ -438,7 +438,7 @@ class SignalDispatcher:
                 logger.error("Dispatcher loop error: %s", exc, exc_info=True)
                 time.sleep(1)
 
-    def _deliver_all(self, env: Dict[str, Any]) -> None:
+    def _deliver_all(self, env: dict[str, Any]) -> None:
         targets = env.get("targets") or {}
         meta = env.get("meta") or {}
         sid = str(env["sid"])
@@ -455,7 +455,7 @@ class SignalDispatcher:
             logger.warning("notify payload skipped: no available Redis client")
 
         # 2) strategy stream (signals:{strategy}:{symbol})
-        signal_stream = str(meta.get("signal_stream") or "")
+        signal_stream = (meta.get("signal_stream") or "")
         signal_payload = targets.get("signal_stream_payload")
         if signal_stream and signal_payload and simple_client:
             ok = self._xadd_idempotent(
@@ -472,7 +472,7 @@ class SignalDispatcher:
             logger.warning("signal stream payload skipped: no available Redis client")
 
         # 3) audit stream
-        audit_stream = str(meta.get("audit_stream") or "")
+        audit_stream = (meta.get("audit_stream") or "")
         audit_payload = targets.get("audit_payload")
         if audit_stream and audit_payload and self.redis:
             ok = self._xadd_idempotent(
@@ -489,7 +489,7 @@ class SignalDispatcher:
             logger.warning("audit stream payload skipped: no available Redis client")
 
         # 4) manual stream
-        manual_stream = str(meta.get("manual_stream") or "")
+        manual_stream = (meta.get("manual_stream") or "")
         manual_payload = targets.get("manual_payload")
         if manual_stream and manual_payload and dual_client:
             ok = self._xadd_idempotent(
@@ -506,7 +506,7 @@ class SignalDispatcher:
             logger.warning("manual stream payload skipped: no available Redis client")
 
         # 5) snapshot
-        snap_key = str(meta.get("snap_key") or "")
+        snap_key = (meta.get("snap_key") or "")
         snap_ttl = int(meta.get("snap_ttl") or 21600)
         snap_payload = targets.get("snapshot")
         if snap_key and snap_payload and self.redis:

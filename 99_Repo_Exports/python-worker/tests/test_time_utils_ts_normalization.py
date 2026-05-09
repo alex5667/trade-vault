@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from domain.time_utils import normalize_ts_ms, ctx_epoch_ms
+from domain.time_utils import ctx_epoch_ms, normalize_ts_ms
 
 
 class Ctx:

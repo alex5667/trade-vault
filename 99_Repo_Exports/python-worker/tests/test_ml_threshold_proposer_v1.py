@@ -1,29 +1,27 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Tests for ML threshold proposer v1."""
 
 import json
 import os
 import time
 from unittest.mock import MagicMock, patch
-from typing import Any, Dict, List
 
 import pytest
-import redis
 
 from tools.ml_threshold_proposer_v1 import (
-    now_ms,
-    sign,
-    notify,
-    make_bundle_hset,
-    write_bundle,
     _f,
     _i,
     filter_rows,
     impact,
     main,
+    make_bundle_hset,
+    notify,
+    now_ms,
+    sign,
+    write_bundle,
 )
-from tools.ml_metrics_agg_v3 import agg_health_ml_confirm, pick_threshold
-from core.share_map import parse_map, dump_map, merge_updates
 
 
 def test_now_ms():
@@ -53,11 +51,11 @@ def test_notify(mocker):
     mock_redis = MagicMock()
     mock_xadd = MagicMock()
     mock_redis.xadd = mock_xadd
-    
+
     notify(mock_redis, "Test message")
     assert mock_xadd.called
     call_args = mock_xadd.call_args
-    assert call_args[0][0] == os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    assert call_args[0][0] == os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     assert "text" in call_args[0][1]
     assert call_args[0][1]["text"] == "Test message"
 
@@ -67,7 +65,7 @@ def test_notify_with_buttons(mocker):
     mock_redis = MagicMock()
     mock_xadd = MagicMock()
     mock_redis.xadd = mock_xadd
-    
+
     buttons = [[{"text": "Test", "callback": "test:callback"}]]
     notify(mock_redis, "Test", buttons)
     call_args = mock_xadd.call_args
@@ -99,7 +97,7 @@ def test_write_bundle():
     mock_redis = MagicMock()
     mock_set = MagicMock()
     mock_redis.set = mock_set
-    
+
     bundle = {"id": "test_bid", "ops": []}
     write_bundle(mock_redis, "test_bid", bundle, 3600)
     assert mock_set.call_count == 2
@@ -175,11 +173,11 @@ def test_main_health_gate_fail(mocker):
     mock_redis = MagicMock()
     mock_redis.hgetall.return_value = {}
     mock_redis.get.return_value = None  # no pending
-    
+
     # Mock read_recent_stream to return empty health metrics
     def mock_read(stream, since_ms, max_scan):
         return []
-    
+
     with patch("tools.ml_threshold_proposer_v1.redis.Redis.from_url", return_value=mock_redis):
         with patch("tools.ml_threshold_proposer_v1.read_recent_stream", side_effect=mock_read):
             # Should return early due to health check failure
@@ -193,7 +191,7 @@ def test_main_pending_skip(mocker):
     mock_redis = MagicMock()
     mock_redis.hgetall.return_value = {}
     mock_redis.get.return_value = '{"bundle_id":"test","kind":"pmin_proposal"}'  # pending exists
-    
+
     with patch("tools.ml_threshold_proposer_v1.redis.Redis.from_url", return_value=mock_redis):
         main()
         # Should return early, no further processing

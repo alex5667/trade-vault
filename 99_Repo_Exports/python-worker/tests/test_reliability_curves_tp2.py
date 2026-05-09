@@ -1,19 +1,17 @@
 from __future__ import annotations
 
-import os
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
+from services.reliability_curves import (
+    make_reliability_key_v4,
+    update_reliability_curve,
+)
 from tests.fake_redis import FakeRedis
 
-from services.reliability_curves import (
-    update_reliability_curve,
-    make_reliability_key_v4,
-)
 
-
-def _pos_with_envelope(*, envelope: Dict[str, Any]) -> Dict[str, Any]:
+def _pos_with_envelope(*, envelope: dict[str, Any]) -> dict[str, Any]:
     # PositionState.__dict__ shape used by StatsAggregator.update_stats
     return {
         "strategy": envelope.get("strategy", "TestStrategy"),

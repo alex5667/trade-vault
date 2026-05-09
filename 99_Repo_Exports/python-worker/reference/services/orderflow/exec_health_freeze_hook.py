@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Hard consumer hook for ExecHealth auto-freeze.
@@ -20,11 +21,13 @@ Design constraints
 
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
-from services.orderflow.exec_health_freeze_control import parse_exec_health_freeze_control, verify_thaw_release_signature
+from services.orderflow.exec_health_freeze_control import (
+    parse_exec_health_freeze_control,
+    verify_thaw_release_signature,
+)
 from services.orderflow.exec_health_freeze_sealed_state import verify_sealed_hash
 from services.orderflow.metrics_exec_health_p6 import (
     exec_health_freeze_hook_active,
@@ -42,7 +45,7 @@ class ExecHealthFreezeState:
     freeze_until_ts_ms: int
     source_ts_ms: int
     schema_version: int
-    raw_payload: Dict[str, Any]
+    raw_payload: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -55,7 +58,7 @@ class ExecHealthFreezeDecision:
 
 
 # In-process TTL cache: maps (scope, freeze_key) -> (valid_until_ms, state)
-_ASYNC_CACHE: Dict[Tuple[str, str], Tuple[int, ExecHealthFreezeState]] = {}
+_ASYNC_CACHE: dict[tuple[str, str], tuple[int, ExecHealthFreezeState]] = {}
 
 
 def _state_from_control(scope: str, ctl: Any) -> ExecHealthFreezeState:
@@ -90,14 +93,14 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _s(x: Any, d: str = "") -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
 def _b(x: Any) -> bool:
@@ -125,7 +128,7 @@ def _safe_inc(metric: Any, *, labels: dict, value: float = 1.0) -> None:
         pass
 
 
-def parse_exec_health_auto_freeze(raw: Any, *, now_ms: Optional[int] = None) -> ExecHealthFreezeState:
+def parse_exec_health_auto_freeze(raw: Any, *, now_ms: int | None = None) -> ExecHealthFreezeState:
     """Parse the P5 autoguard freeze key payload into a typed state object.
 
     Returns an inactive ExecHealthFreezeState for any parse/missing error (fail-open).
@@ -158,13 +161,13 @@ def record_exec_health_freeze_reader_error(*, scope: str, where: str) -> None:
     """Increment the reader error counter (fail-silently itself)."""
     _safe_inc(
         exec_health_freeze_hook_reader_errors_total,
-        labels={"scope": str(scope or "unknown"), "where": str(where or "unknown")},
+        labels={"scope": (scope or "unknown"), "where": (where or "unknown")},
     )
 
 
-def record_exec_health_freeze_state(*, scope: str, state: ExecHealthFreezeState, blocked: bool, now_ms: Optional[int] = None) -> None:
+def record_exec_health_freeze_state(*, scope: str, state: ExecHealthFreezeState, blocked: bool, now_ms: int | None = None) -> None:
     """Update Prometheus gauges and increment block counter if a block occurred."""
-    sc = str(scope or "unknown")
+    sc = (scope or "unknown")
     now = int(now_ms or _now_ms())
     _safe_set(exec_health_freeze_hook_active, labels={"scope": sc}, value=1.0 if state.active else 0.0)
     _safe_set(exec_health_freeze_hook_freeze_until_ts_ms, labels={"scope": sc}, value=float(state.freeze_until_ts_ms or 0))
@@ -183,10 +186,10 @@ async def aread_exec_health_auto_freeze(
     *,
     redis: Any,
     scope: str,
-    now_ms: Optional[int] = None,
+    now_ms: int | None = None,
     force: bool = False,
-    cache_ttl_ms: Optional[int] = None,
-    key: Optional[str] = None,
+    cache_ttl_ms: int | None = None,
+    key: str | None = None,
 ) -> ExecHealthFreezeState:
     """Async read with in-process TTL cache to avoid one Redis GET per signal.
 
@@ -205,9 +208,9 @@ async def aread_exec_health_auto_freeze(
     cache_ms = int(cache_ttl_ms or _i(os.getenv("EXEC_HEALTH_AUTO_FREEZE_CACHE_TTL_MS", "1000"), 1000))
     freeze_key = str(key or os.getenv("EXEC_HEALTH_AUTO_FREEZE_KEY", "cfg:orderflow:exec_health:auto_freeze:v1"))
     # P7: latched control hash and autoguard state fallback
-    control_key = str(os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1"))
-    autoguard_state_key = str(os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state"))
-    cache_key = (str(scope or "unknown"), freeze_key)
+    control_key = os.getenv("EXEC_HEALTH_FREEZE_CONTROL_KEY", "cfg:orderflow:exec_health:freeze_control:v1")
+    autoguard_state_key = os.getenv("EXEC_HEALTH_SLO_AUTOGUARD_STATE_KEY", "metrics:exec_health:slo:autoguard:state")
+    cache_key = ((scope or "unknown"), freeze_key)
 
     # Check in-process cache (skip if force=True for final-safety checks like _emit_entry)
     if not force:
@@ -309,7 +312,7 @@ def build_exec_health_auto_freeze_decision(
     Entry path callers should pass reason_code="DENY_EXEC_HEALTH_AUTO_FREEZE".
     """
     notes = (
-        f"scope={str(scope or 'unknown')} freeze_reason={state.freeze_reason or ''} "
+        f"scope={(scope or 'unknown')} freeze_reason={state.freeze_reason or ''} "
         f"freeze_until_ts_ms={int(state.freeze_until_ts_ms or 0)} source_ts_ms={int(state.source_ts_ms or 0)}"
     )
     return ExecHealthFreezeDecision(

@@ -10,7 +10,6 @@ class Detector:
       - наружу отдаёт только Candidate’ы (event-only)
     """
     def __init__(self) -> None:
-        from handlers.detector.ruleset import RuleSet
         self._rules = RuleSet.default()
 
     def detect(self, ctx):

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
-import json
 from functools import lru_cache
-from typing import Any, Dict
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
-def _env_cfg() -> Dict[str, Any]:
+def _env_cfg() -> dict[str, Any]:
     """Cache all env reads once per process (hot path: called per bar × symbol)."""
     return {
         "split": os.getenv("MICROBAR_SPLIT_STREAMS_ENABLE", "0").strip().lower() in {"1", "true", "yes"},
@@ -30,7 +30,7 @@ def _env_cfg() -> Dict[str, Any]:
     }
 
 
-async def publish_microbar_closed(redis_client, *, symbol: str, payload_obj: Dict[str, Any]) -> None:
+async def publish_microbar_closed(redis_client, *, symbol: str, payload_obj: dict[str, Any]) -> None:
     """Publish microbar_closed with optional per-symbol retention split.
 
     Why:
@@ -43,7 +43,7 @@ async def publish_microbar_closed(redis_client, *, symbol: str, payload_obj: Dic
       - All Redis I/O is wrapped; transient TimeoutError / ConnectionError are
         logged at WARNING and swallowed so the calling task never raises.
     """
-    sym = str(symbol or "").upper()
+    sym = (symbol or "").upper()
     if not sym:
         return
 
@@ -73,12 +73,13 @@ async def publish_microbar_closed(redis_client, *, symbol: str, payload_obj: Dic
             # dual-write legacy for migration
             if cfg["dual"]:
                 await redis_client.xadd(cfg["legacy_stream"], payload, maxlen=cfg["legacy_maxlen"], approximate=True)
-            
+
             return  # Success
-            
+
         except Exception as exc:
-            import redis.exceptions as redis_exceptions
             import asyncio
+
+            import redis.exceptions as redis_exceptions
             if isinstance(exc, (redis_exceptions.ConnectionError, redis_exceptions.TimeoutError)) and attempt < 3:
                 logger.debug(
                     "microbar_publish: transient Redis error for %s (attempt %d/3): %s – retrying...",

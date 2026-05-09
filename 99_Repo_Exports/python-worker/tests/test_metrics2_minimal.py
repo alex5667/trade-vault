@@ -1,7 +1,6 @@
-from utils.time_utils import get_ny_time_millis
-import time
 
-from common.metrics2 import InMemoryMetrics, LagTracker, MissingRateTracker, EventRateTracker
+from common.metrics2 import EventRateTracker, InMemoryMetrics, LagTracker, MissingRateTracker
+from utils.time_utils import get_ny_time_millis
 
 
 def test_lag_tracker_exports_p50_p95():

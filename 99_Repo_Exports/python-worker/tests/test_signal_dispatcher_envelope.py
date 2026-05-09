@@ -1,6 +1,6 @@
 from __future__ import annotations
+
 import json
-from services.signal_dispatcher import SignalDispatcher
 
 
 def _parse_envelope_fields(fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:

@@ -1,6 +1,5 @@
-import pytest
-import json
-from common.of_gate_metrics_contract import validate_of_gate_row, enrich_schema_fields
+from common.of_gate_metrics_contract import enrich_schema_fields, validate_of_gate_row
+
 
 def test_validate_of_gate_row_ok():
     row = {

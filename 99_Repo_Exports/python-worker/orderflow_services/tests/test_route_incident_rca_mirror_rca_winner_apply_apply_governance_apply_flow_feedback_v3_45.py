@@ -1,9 +1,9 @@
+from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_feedback_governor_v3_45 import (
+    evaluate_governance,
+)
 from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_rca_consumer_v3_45 import (
     build_result_payload,
     evaluate_request,
-)
-from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_governance_apply_flow_feedback_governor_v3_45 import (
-    evaluate_governance,
 )
 
 

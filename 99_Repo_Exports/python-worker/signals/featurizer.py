@@ -6,7 +6,6 @@
 
 from collections import deque
 from statistics import mean, pstdev
-from typing import Dict, List, Optional, Tuple
 
 
 class Rolling:
@@ -39,14 +38,14 @@ class Rolling:
         self.sum += x
         self.sumsq += x * x
 
-    def mean(self) -> Optional[float]:
+    def mean(self) -> float | None:
         """Вычислить среднее значение текущего окна."""
         n = len(self.buf)
         if n == 0:
             return None
         return self.sum / n
 
-    def std(self) -> Optional[float]:
+    def std(self) -> float | None:
         """Вычислить стандартное отклонение текущего окна."""
         n = len(self.buf)
         if n < 2:
@@ -60,7 +59,7 @@ class Rolling:
         return len(self.buf)
 
 
-def classify_delta(tick: Dict) -> float:
+def classify_delta(tick: dict) -> float:
     """
     Классифицировать дельту тика (знаковый объем) используя tick rule.
 
@@ -89,7 +88,7 @@ def classify_delta(tick: Dict) -> float:
     return +vol if (ask or 0) > (bid or 0) else -vol
 
 
-def obi_from_book(book: Dict, depth: int = 5) -> Optional[float]:
+def obi_from_book(book: dict, depth: int = 5) -> float | None:
     """
     Вычислить Order Book Imbalance из снимка DOM.
 
@@ -124,10 +123,10 @@ def obi_from_book(book: Dict, depth: int = 5) -> Optional[float]:
 
 
 def make_features(
-    tick: Dict,
-    book: Optional[Dict],
+    tick: dict,
+    book: dict | None,
     rdelta: Rolling
-) -> Dict:
+) -> dict:
     """
     Извлечь фичи (features) из данных тика и стакана.
 
@@ -182,9 +181,9 @@ def make_features(
 
 
 def compute_rolling_metrics(
-    deltas: List[float],
+    deltas: list[float],
     window: int = 120
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Вычислить скользящее среднее и std для списка дельт.
 

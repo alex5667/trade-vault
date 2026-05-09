@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 P0-2 regression: terminal deny (invariant / runtime-policy) must NOT be retried.
 
@@ -9,10 +10,8 @@ Coverage:
   - transient Redis failures (retryable=True) ARE enqueued
 """
 
-import asyncio
 import unittest
-from dataclasses import replace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from services.async_signal_publisher import AsyncPublishResult, StreamSink
 

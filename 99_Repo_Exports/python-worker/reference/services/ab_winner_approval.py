@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
+
 
 def norm_sym(sym: str) -> str:
     return (sym or "").strip().upper()
@@ -34,7 +35,7 @@ class ApproveDecision:
     edge: float
     n: int
 
-def _get_arm_row(d: Dict[str, Any], arm: str) -> Optional[Dict[str, Any]]:
+def _get_arm_row(d: dict[str, Any], arm: str) -> dict[str, Any] | None:
     arms = d.get("arms")
     if not isinstance(arms, dict):
         return None
@@ -42,7 +43,7 @@ def _get_arm_row(d: Dict[str, Any], arm: str) -> Optional[Dict[str, Any]]:
     return row if isinstance(row, dict) else None
 
 def decide_approve(
-    sugg: Dict[str, Any],
+    sugg: dict[str, Any],
     *,
     min_samples: int,
     min_edge_r: float,
@@ -55,7 +56,7 @@ def decide_approve(
     Fail-closed (ok=False) on malformed payload.
     """
     try:
-        w = norm_arm(str(sugg.get("winner_arm","") or ""))
+        w = norm_arm((sugg.get("winner_arm","") or ""))
         if w not in ("A","B","C"):
             return ApproveDecision(False, "A", "bad_winner_arm", False, 0.0, 0)
         row_w = _get_arm_row(sugg, w)

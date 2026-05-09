@@ -1,8 +1,8 @@
-import pytest
 
 from redis.exceptions import ResponseError
 
 from core.redis_stream_consumer import SyncRedisStreamHelper
+from core.redis_keys import RedisStreams as RS
 
 
 class FakeRedis:
@@ -60,12 +60,12 @@ def test_read_new_outbox_uses_recovery_start_id_zero():
     # Outbox consumers should use recovery_start_id="0"
     consumer = SyncRedisStreamHelper(client=client, group="outbox-group", consumer="c", recovery_start_id="0")
 
-    msgs = consumer.read_new(["stream:signals:outbox"], count=10, block_ms=0)
+    msgs = consumer.read_new([RS.SIGNAL_OUTBOX], count=10, block_ms=0)
 
     assert len(msgs) == 2  # from FakeRedis
 
     # Should have created group with start_id="0" for outbox
     assert len(client.created) == 1
     stream, group, start_id, mkstream = client.created[0]
-    assert stream == "stream:signals:outbox"
+    assert stream == RS.SIGNAL_OUTBOX
     assert start_id == "0"  # outbox should start from beginning

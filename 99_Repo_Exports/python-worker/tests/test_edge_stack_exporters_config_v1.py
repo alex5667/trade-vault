@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for P59 + P60 Edge Stack exporter configuration and module contracts.
 
 Tests validate:
@@ -11,11 +12,9 @@ Tests validate:
 
 import os
 import sys
-import types
 
 import pytest
 import yaml
-
 
 # ── Helper paths ─────────────────────────────────────────────────────────────
 INFRA_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -129,7 +128,7 @@ class TestDockerComposeTimers:
     @pytest.fixture(scope="class")
     def compose(self):
         path = os.path.join(INFRA_ROOT, "docker-compose-timers.yml")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     def test_p59_service_present(self, compose):
@@ -183,7 +182,7 @@ class TestPrometheusYml:
     @pytest.fixture(scope="class")
     def prom(self):
         path = os.path.join(INFRA_ROOT, "prometheus.yml")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     def test_p59_alert_rule_referenced(self, prom):
@@ -220,7 +219,7 @@ class TestAlertRuleYamlFiles:
 
     def _load(self, relpath: str):
         path = os.path.join(INFRA_ROOT, relpath)
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     def test_p59_alerts_parse(self):

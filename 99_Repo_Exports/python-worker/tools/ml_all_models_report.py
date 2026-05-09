@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 ML All Models Report — Generates comprehensive Telegram reports for every ML model.
 
@@ -20,17 +22,16 @@ Usage:
   python3 -m tools.ml_all_models_report [--redis-url ...] [--send-telegram 1]
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import logging
 import math
 import os
-import time
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 logging.basicConfig(
     level=logging.INFO,
@@ -92,7 +93,7 @@ def _ts_str(ms: int) -> str:
     if ms <= 0:
         return "N/A"
     try:
-        return datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        return datetime.fromtimestamp(ms / 1000.0, tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
     except Exception:
         return "N/A"
 
@@ -122,14 +123,14 @@ def _connect(url: str):
     return r
 
 
-def _hgetall_safe(r, key: str) -> Dict[str, str]:
+def _hgetall_safe(r, key: str) -> dict[str, str]:
     try:
         return r.hgetall(key) or {}
     except Exception:
         return {}
 
 
-def _get_safe(r, key: str) -> Optional[str]:
+def _get_safe(r, key: str) -> str | None:
     try:
         return r.get(key)
     except Exception:
@@ -141,7 +142,7 @@ def _get_safe(r, key: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def _report_scorer_v2(r, model_dir: str) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("🎯 <b>Model 1: ML Scorer V2 (Regression)</b>")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -157,18 +158,16 @@ def _report_scorer_v2(r, model_dir: str) -> str:
     # Load production model metrics
     pack = None
     if prod_exists and joblib is not None:
-        try:
+        with contextlib.suppress(Exception):
             pack = joblib.load(prod_path)
-        except Exception:
-            pass
 
     if pack and isinstance(pack, dict):
         m = pack.get("metrics", {})
         n = pack.get("n_samples", 0)
         trained_ms = pack.get("trained_at_ms", 0)
 
-        lines.append(f"  <b>Algorithm:</b> LightGBM Regression")
-        lines.append(f"  <b>Target:</b> R-multiple (winsorized ±3σ MAD)")
+        lines.append("  <b>Algorithm:</b> LightGBM Regression")
+        lines.append("  <b>Target:</b> R-multiple (winsorized ±3σ MAD)")
         lines.append(f"  <b>Features:</b> {len(pack.get('feature_names', []))} features")
         lines.append(f"  <b>Samples:</b> <code>{n}</code>")
         lines.append(f"  <b>Trained:</b> {_ts_str(trained_ms)} ({_age_str(trained_ms)} ago)")
@@ -193,7 +192,7 @@ def _report_scorer_v2(r, model_dir: str) -> str:
 
         # Guard rails assessment
         lines.append("")
-        lines.append(f"  🛡️ <b>Guard Rails</b>")
+        lines.append("  🛡️ <b>Guard Rails</b>")
         lines.append(f"  • MAE < 50:     {_status_emoji(0 < mae < 50)}")
         lines.append(f"  • Spearman > 0: {_status_emoji(spearman > 0)}")
         lines.append(f"  • min_samples:  {_status_emoji(n >= 2000)} ({n}/2000)")
@@ -211,7 +210,7 @@ def _report_scorer_v2(r, model_dir: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _report_scorer_v3(r, model_dir: str) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("🏷️ <b>Model 2: ML Scorer V3 (Binary Classification)</b>")
@@ -229,20 +228,18 @@ def _report_scorer_v3(r, model_dir: str) -> str:
 
     pack = None
     if exists and joblib is not None:
-        try:
+        with contextlib.suppress(Exception):
             pack = joblib.load(load_path)
-        except Exception:
-            pass
 
     if pack and isinstance(pack, dict):
         m = pack.get("metrics", {})
         n = pack.get("n_samples", 0)
         trained_ms = pack.get("trained_at_ms", 0)
 
-        lines.append(f"  <b>Algorithm:</b> LightGBM Binary Classification")
-        lines.append(f"  <b>Target:</b> P(R ≥ 0.3) — Hit TP label")
-        lines.append(f"  <b>Balancing:</b> RandomUnderSampler (50/50)")
-        lines.append(f"  <b>num_leaves:</b> 15 (conservative)")
+        lines.append("  <b>Algorithm:</b> LightGBM Binary Classification")
+        lines.append("  <b>Target:</b> P(R ≥ 0.3) — Hit TP label")
+        lines.append("  <b>Balancing:</b> RandomUnderSampler (50/50)")
+        lines.append("  <b>num_leaves:</b> 15 (conservative)")
         lines.append(f"  <b>Samples:</b> <code>{n}</code>")
         lines.append(f"  <b>Trained:</b> {_ts_str(trained_ms)} ({_age_str(trained_ms)} ago)")
         lines.append("")
@@ -260,7 +257,7 @@ def _report_scorer_v3(r, model_dir: str) -> str:
         lines.append(f"  • Prior P(1): <code>{_fmt_pct(y_mean)}</code>")
 
         lines.append("")
-        lines.append(f"  🛡️ <b>Guard Rails</b>")
+        lines.append("  🛡️ <b>Guard Rails</b>")
         lines.append(f"  • ROC-AUC ≥ 0.50: {_status_emoji(roc >= 0.50)}")
         lines.append(f"  • min_samples:    {_status_emoji(n >= 2000)} ({n}/2000)")
     else:
@@ -274,7 +271,7 @@ def _report_scorer_v3(r, model_dir: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _report_edge_stack(r, base_dir: str, metrics_key: str, cfg_key: str) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("🏗️ <b>Model 3: Edge Stack V1 (Stacking Ensemble)</b>")
@@ -291,8 +288,8 @@ def _report_edge_stack(r, base_dir: str, metrics_key: str, cfg_key: str) -> str:
 
     status_label = "🟢 Champion deployed" if has_champion else ("🟡 Candidate only" if has_candidate else "🔴 No model")
     lines.append(f"  <b>Status:</b> {status_label}")
-    lines.append(f"  <b>Algorithm:</b> LR(C=0.01) + GBDT(d=3,lr=0.05,i=400) → Meta-LR (2-level stack)")
-    lines.append(f"  <b>Target:</b> P(R ≥ y_min_r) binary")
+    lines.append("  <b>Algorithm:</b> LR(C=0.01) + GBDT(d=3,lr=0.05,i=400) → Meta-LR (2-level stack)")
+    lines.append("  <b>Target:</b> P(R ≥ y_min_r) binary")
 
     if m:
         run_id = m.get("run_id") or "?"
@@ -310,14 +307,14 @@ def _report_edge_stack(r, base_dir: str, metrics_key: str, cfg_key: str) -> str:
         lines.append(f"  <b>Run ID:</b> <code>{run_id}</code>")
         lines.append(f"  <b>Updated:</b> {_ts_str(updated)} ({_age_str(updated)} ago)")
         lines.append("")
-        lines.append(f"  📊 <b>Training Metrics</b>")
+        lines.append("  📊 <b>Training Metrics</b>")
         lines.append(f"  • Joined:    <code>{int(joined)}</code>  {_status_emoji(joined >= 2000)}")
         lines.append(f"  • Pos rate:  <code>{_fmt(pos_rate)}</code>  {_status_emoji(0.05 <= pos_rate <= 0.60)}")
         lines.append(f"  • Brier:     <code>{_fmt(brier)}</code>  {_status_emoji(0 < brier <= 0.30)}")
         lines.append(f"  • ECE:       <code>{_fmt(ece)}</code>  {_status_emoji(0 <= ece <= 0.08)}")
 
         lines.append("")
-        lines.append(f"  🛡️ <b>Guard Rails</b>")
+        lines.append("  🛡️ <b>Guard Rails</b>")
         lines.append(f"  • Joined ≥ 2000:     {_status_emoji(joined >= 2000)}")
         lines.append(f"  • Pos rate ∈ [5-60%]: {_status_emoji(0.05 <= pos_rate <= 0.60)}")
         lines.append(f"  • Brier ≤ 0.30:      {_status_emoji(0 < brier <= 0.30)}")
@@ -344,7 +341,7 @@ def _report_edge_stack(r, base_dir: str, metrics_key: str, cfg_key: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _report_meta_lr(r, model_dir: str) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("📐 <b>Model 4: Meta-Model LR (Logistic Regression)</b>")
@@ -358,7 +355,7 @@ def _report_meta_lr(r, model_dir: str) -> str:
             continue
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
         except Exception:
             lines.append(f"\n  <b>{schema_label}:</b> ⚠️ Load error")
@@ -386,7 +383,7 @@ def _report_meta_lr(r, model_dir: str) -> str:
         lines.append(f"  • Pos rate:  <code>{_fmt_pct(pos_rate)}</code>")
         lines.append(f"  • Trained:   {_ts_str(created_ms)} ({_age_str(created_ms)} ago)")
         lines.append("")
-        lines.append(f"  <b>CV Mean (Purged+Embargo)</b>")
+        lines.append("  <b>CV Mean (Purged+Embargo)</b>")
         lines.append(f"  • AUC:       <code>{_fmt(auc_cv)}</code>  {_status_emoji(auc_cv > 0.52)}")
         lines.append(f"  • LogLoss:   <code>{_fmt(ll_cv)}</code>  {_status_emoji(0 < ll_cv < 0.69)}")
         lines.append(f"  • Brier:     <code>{_fmt(brier_cv)}</code>  {_status_emoji(0 < brier_cv < 0.25)}")
@@ -400,7 +397,7 @@ def _report_meta_lr(r, model_dir: str) -> str:
     challenger_path_r = _get_safe(r, "meta_model:challenger_path")
     if champion_path_r or challenger_path_r:
         lines.append("")
-        lines.append(f"  📋 <b>A/B Status</b>")
+        lines.append("  📋 <b>A/B Status</b>")
         if champion_path_r:
             lines.append(f"  • Champion:   <code>{champion_path_r}</code>")
         if challenger_path_r:
@@ -414,7 +411,7 @@ def _report_meta_lr(r, model_dir: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _report_ml_confirm_gate(r) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("🚦 <b>Model 5: ML Confirm Gate (Runtime)</b>")
@@ -445,11 +442,11 @@ def _report_ml_confirm_gate(r) -> str:
 
     # Supported model kinds
     lines.append("")
-    lines.append(f"  📋 <b>Supported Kinds</b>")
-    lines.append(f"  • edge_stack_v1 — 2-level stack (LR+GBDT→Meta)")
-    lines.append(f"  • util_mh_v1 — Fast Linear Utility MH")
-    lines.append(f"  • meta_lr — MetaModel Logistic Regression")
-    lines.append(f"  • edge_stack_mh_v1 — Multi-horizon Edge Stack")
+    lines.append("  📋 <b>Supported Kinds</b>")
+    lines.append("  • edge_stack_v1 — 2-level stack (LR+GBDT→Meta)")
+    lines.append("  • util_mh_v1 — Fast Linear Utility MH")
+    lines.append("  • meta_lr — MetaModel Logistic Regression")
+    lines.append("  • edge_stack_mh_v1 — Multi-horizon Edge Stack")
 
     return "\n".join(lines)
 
@@ -459,7 +456,7 @@ def _report_ml_confirm_gate(r) -> str:
 # ---------------------------------------------------------------------------
 
 def _report_confidence_cal(r, cal_dir: str) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("🎚️ <b>Model 6: Confidence Calibration</b>")
@@ -472,7 +469,7 @@ def _report_confidence_cal(r, cal_dir: str) -> str:
             continue
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
         except Exception:
             lines.append(f"\n  <b>{label}:</b> ⚠️ Load error")
@@ -522,7 +519,7 @@ def _report_confidence_cal(r, cal_dir: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _report_feature_drift(r) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("📉 <b>Feature Drift & Governance</b>")
@@ -546,9 +543,9 @@ def _report_feature_drift(r) -> str:
             lines.append(f"  • Worst feature:      <code>{max_psi_feat}</code>")
 
         lines.append("")
-        lines.append(f"  🛡️ <b>Thresholds</b>")
-        lines.append(f"  • PSI alert: > 0.10")
-        lines.append(f"  • KS alert:  > 0.15")
+        lines.append("  🛡️ <b>Thresholds</b>")
+        lines.append("  • PSI alert: > 0.10")
+        lines.append("  • KS alert:  > 0.15")
     else:
         lines.append("  ⚠️ No drift batch metrics in Redis")
 
@@ -557,7 +554,7 @@ def _report_feature_drift(r) -> str:
     if meta_drift:
         drift_status = meta_drift.get("status") or "?"
         frozen_count = int(_f(meta_drift.get("frozen_count"), 0))
-        lines.append(f"\n  📋 <b>Meta Drift Guard</b>")
+        lines.append("\n  📋 <b>Meta Drift Guard</b>")
         lines.append(f"  • Status:  <code>{drift_status}</code>")
         lines.append(f"  • Frozen models: <code>{frozen_count}</code>")
 
@@ -569,7 +566,7 @@ def _report_feature_drift(r) -> str:
 # ---------------------------------------------------------------------------
 
 def _report_edge_stack_v13(r, base_dir: str) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("🧪 <b>Model 3b: Edge Stack V13_OF (Candidate)</b>")
@@ -592,7 +589,7 @@ def _report_edge_stack_v13(r, base_dir: str) -> str:
         lines.append(f"  <b>Status:</b>  <code>{status}</code>")
         lines.append(f"  <b>Updated:</b> {_ts_str(updated)} ({_age_str(updated)} ago)")
         lines.append("")
-        lines.append(f"  📊 <b>Metrics</b>")
+        lines.append("  📊 <b>Metrics</b>")
         lines.append(f"  • Joined:  <code>{int(joined)}</code>  {_status_emoji(joined >= 2000)}")
         lines.append(f"  • Pos rate:<code>{_fmt(pos_rate)}</code>  {_status_emoji(0.05 <= pos_rate <= 0.60)}")
         lines.append(f"  • Brier:   <code>{_fmt(brier)}</code>  {_status_emoji(0 < brier <= 0.30)}")
@@ -601,7 +598,7 @@ def _report_edge_stack_v13(r, base_dir: str) -> str:
         lines.append("  ⚠️ No V13 training metrics in Redis")
         champion = os.path.join(base_dir, "champions", "edge_stack_v1_champion.joblib")
         if os.path.exists(champion):
-            lines.append(f"  📁 Champion file exists at isolated path")
+            lines.append("  📁 Champion file exists at isolated path")
 
     return "\n".join(lines)
 
@@ -611,7 +608,7 @@ def _report_edge_stack_v13(r, base_dir: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _report_summary_header() -> str:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     return (
         f"🧠 <b>Trade Scanner — ML Models Report</b>\n"
         f"📅 <code>{now}</code>\n"
@@ -625,7 +622,7 @@ def _report_summary_header() -> str:
 def build_full_report(r, *, scorer_dir: str, edge_dir: str, edge_v13_dir: str,
                       meta_dir: str, cal_dir: str) -> str:
     """Build the complete multi-model report."""
-    parts: List[str] = []
+    parts: list[str] = []
 
     parts.append(_report_summary_header())
 
@@ -660,7 +657,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="ML All Models Report")
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--send-telegram", type=int, default=1, help="1=send report to Telegram")
-    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_STREAM", "notify:telegram"))
+    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM))
 
     # Model directories
     ap.add_argument("--scorer-dir", default=os.getenv("ML_SCORER_DIR",

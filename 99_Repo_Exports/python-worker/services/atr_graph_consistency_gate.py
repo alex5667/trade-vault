@@ -2,8 +2,8 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, Dict, List, Tuple
 from datetime import datetime
+from typing import Any
 
 from services.analytics_db import get_conn
 
@@ -37,13 +37,13 @@ def _generate_id(prefix: str) -> str:
 def is_in_scope(symbol: str, risk_level: str) -> bool:
     if _GLOBAL_ENFORCE and risk_level in ("high", "critical"):
         return True
-    
+
     symbol_ok = symbol in _BOUNDED_SYMBOLS if _BOUNDED_SYMBOLS else True
     risk_ok = risk_level in _BOUNDED_RISK_LEVELS if _BOUNDED_RISK_LEVELS else True
-    
+
     return symbol_ok and risk_ok
 
-def collect_graph_consistency_inputs(scope_value: str) -> Dict[str, Any]:
+def collect_graph_consistency_inputs(scope_value: str) -> dict[str, Any]:
     """
     Query component certs and open drifts for a given scope.
     """
@@ -59,7 +59,7 @@ def collect_graph_consistency_inputs(scope_value: str) -> Dict[str, Any]:
         },
         "open_drifts": []
     }
-    
+
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             for family, table in DRIFT_TABLES.items():
@@ -78,23 +78,23 @@ def collect_graph_consistency_inputs(scope_value: str) -> Dict[str, Any]:
                             "severity": r["severity"],
                             "reason_code": r["reason_code"]
                         })
-                        
+
             inputs["pass_scores"]["graph_consistency"] = True
-            
+
             return inputs
     except Exception as e:
         logger.error(f"Failed to collect graph consistency inputs for {scope_value}: {e}")
         return inputs
 
-def classify_graph_blockers(inputs: Dict[str, Any], risk_level: str) -> Tuple[List[str], List[str]]:
+def classify_graph_blockers(inputs: dict[str, Any], risk_level: str) -> tuple[list[str], list[str]]:
     blockers = []
     warnings = []
-    
+
     for drift in inputs.get("open_drifts", []):
         family = drift["family"]
         sev = drift["severity"]
         kind = drift["drift_kind"]
-        
+
         # Policy rules
         if sev == "critical":
             blockers.append(f"{family}_critical_drift_open")
@@ -105,16 +105,16 @@ def classify_graph_blockers(inputs: Dict[str, Any], risk_level: str) -> Tuple[Li
                 warnings.append(f"{family}_error_drift_open")
         else:
             warnings.append(f"{family}_warning_drift_open")
-            
+
         if kind == "projection_stale_beyond_sla" and risk_level in ("high", "critical"):
              blockers.append("projection_stale_beyond_sla_on_target_scope")
-             
+
         if kind == "missing_replay_cert_edge" and risk_level == "critical":
              blockers.append("missing_required_cert_edge_for_live_scope")
-             
+
     return list(set(blockers)), list(set(warnings))
 
-def decide_graph_consistency(change_id: str, scope_value: str, risk_level: str) -> Dict[str, Any]:
+def decide_graph_consistency(change_id: str, scope_value: str, risk_level: str) -> dict[str, Any]:
     if not _ENABLE:
         return {
             "check_id": None,
@@ -125,11 +125,11 @@ def decide_graph_consistency(change_id: str, scope_value: str, risk_level: str) 
             "warnings": [],
             "summary": {"gate_disabled": True}
         }
-    
+
     inputs = collect_graph_consistency_inputs(scope_value)
-    
+
     blockers, warnings = classify_graph_blockers(inputs, risk_level)
-    
+
     score = 0.0
     ps = inputs["pass_scores"]
     if ps.get("graph_consistency"): score += 20
@@ -139,21 +139,21 @@ def decide_graph_consistency(change_id: str, scope_value: str, risk_level: str) 
     if ps.get("effective_state"): score += 10
     if ps.get("runtime_gate"): score += 15
     if ps.get("protective_lifecycle"): score += 10
-    
+
     if blockers:
         decision = "deny"
     elif warnings:
         decision = "allow_with_override"
     else:
         decision = "allow"
-        
+
     check_id = _generate_id("gcg")
-    
+
     summary = {
         "total_open_drifts": len(inputs.get("open_drifts", [])),
         "pass_scores": ps,
     }
-    
+
     try:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute("""
@@ -165,7 +165,7 @@ def decide_graph_consistency(change_id: str, scope_value: str, risk_level: str) 
                 check_id, change_id, scope_value, risk_level, score, decision,
                 json.dumps(blockers), json.dumps(warnings), json.dumps(summary)
             ))
-            
+
             if decision == "deny":
                  drift_id = _generate_id("gcdrift")
                  cur.execute("""
@@ -177,11 +177,11 @@ def decide_graph_consistency(change_id: str, scope_value: str, risk_level: str) 
                      drift_id, change_id, scope_value, "graph_core", "graph_consistency_cert_failed",
                      "critical", "blockers_present", json.dumps({"blockers": blockers})
                  ))
-            
+
             conn.commit()
     except Exception as e:
         logger.error(f"Failed to persist graph consistency check for {change_id}: {e}")
-        
+
     return {
         "check_id": check_id,
         "change_id": change_id,
@@ -199,22 +199,22 @@ def request_waiver(drift_id: str, approver: str, reason_code: str, ttl_sec: int)
             drift = cur.fetchone()
             if not drift:
                 return False
-                
+
             # Forbid waiver for runtime/protective critical drifts or projection missing replay edge
             if drift["severity"] == "critical" and drift["drift_family"] in ("runtime_gate", "protective"):
                 return False
-                
+
             waiver_id = _generate_id("waiver")
             # Calculate not_after
             cur.execute("SELECT now() + interval '%s seconds'", (ttl_sec,))
             not_after = cur.fetchone()[0]
-            
+
             cur.execute("""
                 INSERT INTO atr_graph_consistency_waivers (
                     waiver_id, drift_id, approver, reason_code, ttl_sec, not_after, waiver_json
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (waiver_id, drift_id, approver, reason_code, ttl_sec, not_after, json.dumps({})))
-            
+
             conn.commit()
             return True
     except Exception as e:

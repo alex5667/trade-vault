@@ -1,43 +1,50 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
-from services.orderflow.runtime import SymbolRuntime, BookSnapshot, BookState
-from services.orderflow.configuration import _safe_int, _safe_float
-from services.orderflow.metrics import (
-    log_silent_error, book_missing_seq_events_total, book_missing_seq_ema_gauge, book_rate_ema_gauge, book_rate_z_gauge,
-    of_lob_queue_imbalance_gauge, of_lob_queue_imbalance_mean_gauge,
-    of_lob_queue_imbalance_max_abs_gauge, of_lob_queue_imbalance_slope_gauge,
-    of_lob_micro_mid_div_bps_gauge, of_lob_micro_shift_bps_gauge,
-    of_lob_depth_slope_gauge, of_lob_depth_convexity_gauge,
-    of_lob_dw_obi_gauge, of_lob_dw_obi_z_gauge, of_lob_dw_obi_stability_score_gauge,
-    of_lob_dw_obi_stable_secs_gauge, of_lob_dw_obi_stable_gauge,
-)
-
-# P112: minimal DQ/book-seq metrics live in a dedicated module to avoid
-# duplicate metric registration across SoT/mirror import paths.
-from services.orderflow.metrics_bookseq_dq_p112 import (
-    book_missing_seq_ema_gauge,
-    book_seq_last_gap_gauge,
-)
-
-# P112: minimal DQ/book-seq metrics live in a dedicated module to avoid
-# duplicate metric registration across SoT/mirror import paths.
-from services.orderflow.metrics_bookseq_dq_p112 import (
-    book_missing_seq_ema_gauge,
-    book_seq_last_gap_gauge,
-)
-from services.orderflow.utils import _fields_to_dict
-from services.orderflow.components.parsing import OrderFlowParsing
-
-# P5: book sanity + stream integrity
-from services.orderflow.book_sanity import check_book_sanity
-from services.orderflow.metrics_stream_integrity_p5 import emit_integrity_metrics
-from services.orderflow.metrics_book_sanity_p5 import book_crossed_total, book_sanity_flags_total
 from core.book_churn import compute_churn_from_z
 from core.lob_pressure import compute_lob_pressure  # LOB pressure features (P91)
 from core.ofi_tracker import OFIEvent
+
+# P5: book sanity + stream integrity
+from services.orderflow.book_sanity import check_book_sanity
+from services.orderflow.components.parsing import OrderFlowParsing
+from services.orderflow.configuration import _safe_float, _safe_int
+from services.orderflow.metrics import (
+    book_missing_seq_ema_gauge,
+    book_missing_seq_events_total,
+    book_rate_ema_gauge,
+    book_rate_z_gauge,
+    log_silent_error,
+    of_lob_depth_convexity_gauge,
+    of_lob_depth_slope_gauge,
+    of_lob_dw_obi_gauge,
+    of_lob_dw_obi_stability_score_gauge,
+    of_lob_dw_obi_stable_gauge,
+    of_lob_dw_obi_stable_secs_gauge,
+    of_lob_dw_obi_z_gauge,
+    of_lob_micro_mid_div_bps_gauge,
+    of_lob_micro_shift_bps_gauge,
+    of_lob_queue_imbalance_gauge,
+    of_lob_queue_imbalance_max_abs_gauge,
+    of_lob_queue_imbalance_mean_gauge,
+    of_lob_queue_imbalance_slope_gauge,
+)
+from services.orderflow.metrics_book_sanity_p5 import book_crossed_total, book_sanity_flags_total
+
+# P112: minimal DQ/book-seq metrics live in a dedicated module to avoid
+# duplicate metric registration across SoT/mirror import paths.
+from services.orderflow.metrics_bookseq_dq_p112 import (
+    book_missing_seq_ema_gauge,
+    book_seq_last_gap_gauge,
+)
+from services.orderflow.metrics_stream_integrity_p5 import emit_integrity_metrics
+from services.orderflow.runtime import BookSnapshot, BookState, SymbolRuntime
+
+# P112: minimal DQ/book-seq metrics live in a dedicated module to avoid
+# duplicate metric registration across SoT/mirror import paths.
+from services.orderflow.utils import _fields_to_dict
 
 # GPU L2 processor — lazy import, no hard dependency
 try:
@@ -49,7 +56,7 @@ except ImportError:
 logger = logging.getLogger("orderflow_book_processor")
 
 # Per-symbol GPU processor cache (created on first use)
-_l2gpu_cache: Dict[str, Any] = {}
+_l2gpu_cache: dict[str, Any] = {}
 
 class BookProcessor:
     """
@@ -66,7 +73,7 @@ class BookProcessor:
         self.book_churn_z_hi = book_churn_z_hi
 
 
-    def _update_book_missing_seq(self, runtime: SymbolRuntime, book_raw: Dict[str, Any]) -> None:
+    def _update_book_missing_seq(self, runtime: SymbolRuntime, book_raw: dict[str, Any]) -> None:
         """Update runtime.book_missing_seq_ema using Binance depthUpdate continuity.
 
         The plan requires this telemetry to be:
@@ -87,7 +94,9 @@ class BookProcessor:
         # Local import to reduce patch conflict risk between SoT/mirror trees.
         try:
             from services.orderflow.components.book_seq_tracker_uu import (
-                decide_book_seq_uu, ema_update_clamped, resolve_book_seq_ema_alpha,
+                decide_book_seq_uu,
+                ema_update_clamped,
+                resolve_book_seq_ema_alpha,
             )
         except Exception:
             from .book_seq_tracker_uu import decide_book_seq_uu, ema_update_clamped, resolve_book_seq_ema_alpha
@@ -149,7 +158,7 @@ class BookProcessor:
 
         # Runbook-friendly diagnostics (always set, even during warmup).
         runtime.book_missing_seq_last_gap = int(gap)
-        runtime.book_seq_last_reason = str(reason)
+        runtime.book_seq_last_reason = reason
 
         # Optional counters (safe defaults).
         if reason == "gap":
@@ -205,7 +214,7 @@ class BookProcessor:
         if next_last_u > prev_u:
             runtime.book_seq_last_u = int(next_last_u)
 
-    def process_book(self, runtime: SymbolRuntime, payload: Dict[str, Any], ingest_ts_ms: int) -> bool:
+    def process_book(self, runtime: SymbolRuntime, payload: dict[str, Any], ingest_ts_ms: int) -> bool:
         """
         Processes a raw book payload from Redis stream.
         Returns True if processed successfully, False otherwise.
@@ -407,33 +416,33 @@ class BookProcessor:
                     inst = 1000.0 / float(max(1, dt))
                     a = float(runtime.config.get("book_rate_ema_alpha", 0.2))
                     runtime.book_rate_ema = a * inst + (1.0 - a) * float(runtime.book_rate_ema or 0.0)
-                    
+
                     # Calibration
                     try:
                         rg = str(getattr(runtime, "last_regime", "na") or "na")
                         runtime.br_calib.update(regime=rg, inst_hz=float(inst), dt_ms=int(dt))
                     except Exception:
                         pass
-                    
+
                     # Z-Score
                     try:
                         runtime.book_rate_stats.update(float(inst))
                         runtime.book_rate_z = float(runtime.book_rate_stats.z(float(inst)))
                     except Exception:
                         pass
-                
+
                 # Churn
                 try:
                     ch = compute_churn_from_z(
-                        rate_hz=float(inst), 
-                        rate_z=float(runtime.book_rate_z), 
-                        z_start=self.book_churn_z_start, 
-                        z_full=self.book_churn_z_full, 
+                        rate_hz=float(inst),
+                        rate_z=float(runtime.book_rate_z),
+                        z_start=self.book_churn_z_start,
+                        z_full=self.book_churn_z_full,
                         z_hi=self.book_churn_z_hi
                     )
                     runtime.book_churn_score = float(ch.churn_score)
                     runtime.book_churn_hi = int(ch.churn_hi)
-                    
+
                     if book_rate_ema_gauge:
                         book_rate_ema_gauge.labels(symbol=runtime.symbol).set(float(runtime.book_rate_ema))
                     if book_rate_z_gauge:
@@ -445,7 +454,7 @@ class BookProcessor:
                  pass
 
             # 4. Detectors Feed
-            
+
             # OBI
             obi_event = runtime.obi_detector.push(book_raw)
             if obi_event:
@@ -482,7 +491,7 @@ class BookProcessor:
                     val_usd = qty_ref * prc_ice
                     if val_usd < min_usd_ice:
                         pass_ice = False
-                
+
                 if pass_ice:
                     runtime.last_iceberg_event = {
                         "side": iceberg_event.get("side"),
@@ -492,7 +501,7 @@ class BookProcessor:
                         "ts_ms": book_ts_ms,
                         "total_refresh_qty": iceberg_event.get("total_refresh_qty", 0.0),
                     }
-            
+
             # OFI (requires prev_snap)
             self._update_ofi(runtime, snap, prev_snap, book_ts_ms, book_raw)
 
@@ -566,7 +575,7 @@ class BookProcessor:
             log_silent_error(exc, 'book_process_failure', runtime.symbol, 'BookProcessor:process_book')
             return False
 
-    def _update_l2_gpu(self, runtime: SymbolRuntime, book_raw: Dict[str, Any]) -> None:
+    def _update_l2_gpu(self, runtime: SymbolRuntime, book_raw: dict[str, Any]) -> None:
         """Run GPU-accelerated L2 microstructure computation.
 
         Computes spread, depth imbalance, microprice, and liquidity walls
@@ -610,14 +619,14 @@ class BookProcessor:
         except Exception:
             pass  # Fail open — GPU errors must never break the hot path
 
-    def _update_ofi(self, runtime: SymbolRuntime, snap: BookSnapshot, prev_snap: Optional[BookSnapshot], book_ts_ms: int, book_raw: Dict[str, Any]):
+    def _update_ofi(self, runtime: SymbolRuntime, snap: BookSnapshot, prev_snap: BookSnapshot | None, book_ts_ms: int, book_raw: dict[str, Any]):
         try:
              bids = book_raw.get("bids") or []
              asks = book_raw.get("asks") or []
              if bids and asks:
                  bb_px = float(bids[0][0] or 0.0); bb_q = float(bids[0][1] or 0.0)
                  ba_px = float(asks[0][0] or 0.0); ba_q = float(asks[0][1] or 0.0)
-                 
+
                  if bb_px > 0 and ba_px > 0:
                      mid = 0.5 * (bb_px + ba_px)
                      runtime.last_book_mid = float(mid)
@@ -636,7 +645,7 @@ class BookProcessor:
                      else:
                          # Crossed or zero spread: annotate but preserve last good value
                          runtime.book_crossed = 1
-                     
+
                      # Depth USD (Top 5)
                      db = 0.0; da = 0.0
                      for lv in bids[:5]:
@@ -747,7 +756,7 @@ class BookProcessor:
                                      pass
                              except Exception:
                                  pass
-                             
+
                              runtime.last_ofi_event = {
                                  "ts_ms": _safe_int(ev.ts_ms),
                                  "direction": str(ev.direction),
@@ -759,7 +768,7 @@ class BookProcessor:
                              }
                      except Exception:
                          pass
-                     
+
                      # Best Level OFI (if prev_snap)
                      if prev_snap is not None:
                          try:
@@ -798,7 +807,7 @@ class BookProcessor:
         except Exception:
             pass
 
-    def _update_liquidity(self, runtime: SymbolRuntime, book_ts_ms: int, book_raw: Dict[str, Any]):
+    def _update_liquidity(self, runtime: SymbolRuntime, book_ts_ms: int, book_raw: dict[str, Any]):
         if _safe_int(runtime.config.get("liq_enable", 1) or 0) == 1:
             try:
                 liq = runtime.liq_guard.update(

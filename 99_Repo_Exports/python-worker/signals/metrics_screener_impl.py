@@ -3,16 +3,16 @@
 """
 import asyncio
 
-from .data_access import get_24h_ticker_symbols, get_ticker_data, get_funding_rate_data
-from .sorting import get_sorted_tickers_by_change
+from .data_access import get_24h_ticker_symbols, get_funding_rate_data, get_ticker_data
 from .formatters import (
     format_entries,
-    format_volume_entries,
     format_funding_entries,
+    format_volume_entries,
 )
-from .publishers import publish_list
-from .volumes import get_volume_data
 from .orchestrator import fetch_and_publish_top_metrics, run_metrics_screener
+from .publishers import publish_list
+from .sorting import get_sorted_tickers_by_change
+from .volumes import get_volume_data
 
 __all__ = [
     'get_24h_ticker_symbols',
@@ -29,4 +29,4 @@ __all__ = [
 ]
 
 if __name__ == "__main__":
-    asyncio.run(run_metrics_screener()) 
+    asyncio.run(run_metrics_screener())

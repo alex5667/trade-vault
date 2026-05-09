@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 test_exec_health_slo_autoguard_alerts_yaml_v1.py
 Validates that the P5 AutoGuard Prometheus alerts YAML is loadable and contains expected alert names.
@@ -6,8 +7,9 @@ Parametrized: checks both the python-worker/orderflow_services copy and the root
 """
 
 import os
-import yaml
+
 import pytest
+import yaml
 
 
 def _alerts_path(tick_flow_full: bool = False) -> str:

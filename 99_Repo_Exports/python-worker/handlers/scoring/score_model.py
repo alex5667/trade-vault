@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-import os
 import math
+import os
+from dataclasses import dataclass
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:

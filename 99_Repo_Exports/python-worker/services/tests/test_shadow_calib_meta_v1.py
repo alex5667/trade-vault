@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for services/shadow_calib_meta.py — the shared calibration metadata module.
 
@@ -10,7 +11,6 @@ Covers:
 """
 
 
-import sys
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, "/home/alex/front/trade/scanner_infra/python-worker")
 
@@ -20,7 +20,6 @@ from services.shadow_calib_meta import (
     merge_calib_fields,
     stamp_virtual_if_calib,
 )
-
 
 # -----------------------------------------------------------------------
 # extract_calib_fields

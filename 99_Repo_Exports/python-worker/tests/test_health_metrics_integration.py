@@ -3,8 +3,6 @@
 Тесты для интеграции метрик lag и pending в HealthMetrics.
 """
 
-import pytest
-from unittest.mock import Mock
 
 from health_metrics import HealthMetrics
 

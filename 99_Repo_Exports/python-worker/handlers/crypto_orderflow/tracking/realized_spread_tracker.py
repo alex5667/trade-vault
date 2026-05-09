@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Tuple, List
-
 from ..models.data_models import _PendingMid
 
 
@@ -40,7 +38,7 @@ class RealizedSpreadTracker:
         self.alpha = max(0.01, min(0.5, float(alpha)))
         self.max_pending = max(100, int(max_pending))
 
-        self.pending: List[_PendingMid] = []
+        self.pending: list[_PendingMid] = []
         self._head = 0
 
         self.last_realized_bps: float = 0.0
@@ -58,7 +56,7 @@ class RealizedSpreadTracker:
         ask: float,
         is_trade: bool,
         side: int,
-    ) -> Tuple[float, float, float, float]:
+    ) -> tuple[float, float, float, float]:
         """
         Returns:
           spread_bps, last_realized_bps, realized_ema_bps, adverse_ratio_ema

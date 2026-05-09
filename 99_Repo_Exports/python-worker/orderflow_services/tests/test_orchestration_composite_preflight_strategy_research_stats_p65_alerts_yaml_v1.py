@@ -25,7 +25,6 @@ import os
 import pytest
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -65,7 +64,7 @@ def _alerts_path(tick_flow_full: bool = False) -> str:
 def test_strategy_research_stats_p65_alerts_yaml_parses(tick_flow_full: bool) -> None:
     """YAML file must be parseable and contain all three P6.5 alert names."""
     path = _alerts_path(tick_flow_full)
-    with open(path, 'r', encoding='utf-8') as fh:
+    with open(path, encoding='utf-8') as fh:
         doc = yaml.safe_load(fh)
 
     # Top-level structure
@@ -92,11 +91,11 @@ def test_strategy_research_stats_p65_alert_exprs_reference_history_metrics(tick_
     """All P6.5 alert expressions must reference the P6.4 history drilldown metrics
     and the expected family label values."""
     path = _alerts_path(tick_flow_full)
-    with open(path, 'r', encoding='utf-8') as fh:
+    with open(path, encoding='utf-8') as fh:
         doc = yaml.safe_load(fh)
 
     exprs = '\n'.join(
-        str(rule.get('expr') or '') for rule in doc['groups'][0].get('rules', [])
+        (rule.get('expr') or '') for rule in doc['groups'][0].get('rules', [])
     )
 
     # P6.4 drilldown history metric (per-purpose per-family counter)

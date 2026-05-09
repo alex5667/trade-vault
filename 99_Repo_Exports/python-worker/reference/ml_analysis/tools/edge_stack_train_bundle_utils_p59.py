@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P59 helpers for edge_stack_v1 nightly training bundle.
 
 Goals:
@@ -8,13 +9,12 @@ Goals:
   - optional monitoring-smoke gate helpers (auto-promote safety)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -83,7 +83,7 @@ def read_monitoring_smoke_gate(
         d = r.hgetall(key) or {}
         if not d:
             return SmokeGate(ok=(fail_mode == "fail_open"), reason="missing", age_s=10**9)
-        success = str(d.get("success", "0"))
+        success = (d.get("success", "0"))
         updated_ts_ms = int(float(d.get("updated_ts_ms", "0") or 0))
         age_s = int(max(0, (get_ny_time_millis() - updated_ts_ms) / 1000)) if updated_ts_ms > 0 else 10**9
         if age_s > int(max_age_s):
@@ -96,7 +96,7 @@ def read_monitoring_smoke_gate(
 
 
 def validate_dataset_report(
-    report: Dict[str, Any],
+    report: dict[str, Any],
     min_joined: int = 200,
     pos_rate_min: float = 0.05,
     pos_rate_max: float = 0.60,
@@ -124,7 +124,7 @@ class TrainValidation:
 
 
 def validate_train_report(
-    report: Dict[str, Any],
+    report: dict[str, Any],
     *,
     brier_max: float = 0.30,
     ece_max: float = 0.08,
@@ -165,11 +165,11 @@ def redis_client(redis_url: str):
 def write_train_metrics(
     redis_url: str,
     key: str,
-    mapping: Dict[str, Any],
+    mapping: dict[str, Any],
 ) -> None:
     try:
         r = redis_client(redis_url)
-        flat: Dict[str, str] = {}
+        flat: dict[str, str] = {}
         for k, v in mapping.items():
             if v is None:
                 continue

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 
-
 def is_transient_error(e: BaseException) -> bool:
     """
     Единый источник истины по transient-классификации.
@@ -11,13 +10,17 @@ def is_transient_error(e: BaseException) -> bool:
     # --- Типы исключений (первичный сигнал) ---
     try:
         from redis.exceptions import (
-            ConnectionError as RedisConnectionError,
-            TimeoutError as RedisTimeoutError,
             BusyLoadingError,
-            TryAgainError,
             ClusterDownError,
             MasterDownError,
             ReadOnlyError,
+            TryAgainError,
+        )
+        from redis.exceptions import (
+            ConnectionError as RedisConnectionError,
+        )
+        from redis.exceptions import (
+            TimeoutError as RedisTimeoutError,
         )
 
         if isinstance(

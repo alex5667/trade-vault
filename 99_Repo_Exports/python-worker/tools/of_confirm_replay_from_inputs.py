@@ -7,10 +7,11 @@ import os
 import time
 from copy import deepcopy
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+import contextlib
 
 
-def _safe_loads(line: str) -> Optional[Dict[str, Any]]:
+def _safe_loads(line: str) -> dict[str, Any] | None:
     try:
         d = json.loads(line)
         return d if isinstance(d, dict) else None
@@ -18,7 +19,7 @@ def _safe_loads(line: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _safe_loads_maybe(s: Any) -> Optional[Dict[str, Any]]:
+def _safe_loads_maybe(s: Any) -> dict[str, Any] | None:
     if s is None:
         return None
     if isinstance(s, dict):
@@ -41,7 +42,7 @@ def _safe_loads_maybe(s: Any) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _filter_kwargs(fn: Any, kw: Dict[str, Any]) -> Dict[str, Any]:
+def _filter_kwargs(fn: Any, kw: dict[str, Any]) -> dict[str, Any]:
     try:
         sig = inspect.signature(fn)
         allowed = set(sig.parameters.keys())
@@ -50,21 +51,21 @@ def _filter_kwargs(fn: Any, kw: Dict[str, Any]) -> Dict[str, Any]:
         return kw
 
 
-def _key(inp: Dict[str, Any]) -> str:
+def _key(inp: dict[str, Any]) -> str:
     """
     Stable replay key. Prefer explicit ids if present to avoid collisions when multiple events share ts.
     """
-    sym = str(inp.get("symbol", "") or "").upper()
+    sym = (inp.get("symbol", "") or "").upper()
     ts = str(int(float(inp.get("tick_ts_ms", inp.get("ts_ms", 0)) or 0)))
-    direction = str(inp.get("direction", "") or "")
-    tf = str(inp.get("tf", inp.get("micro_tf", "1s")) or "1s")
-    sid = str(inp.get("sid", inp.get("signal_id", inp.get("id", ""))) or "")
+    direction = (inp.get("direction", "") or "")
+    tf = (inp.get("tf", inp.get("micro_tf", "1s")) or "1s")
+    sid = (inp.get("sid", inp.get("signal_id", inp.get("id", ""))) or "")
     if sid:
         return f"{sym}|{ts}|{direction}|{tf}|{sid}"
     return f"{sym}|{ts}|{direction}|{tf}"
 
 
-def _extract_inputs(raw: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_inputs(raw: dict[str, Any]) -> dict[str, Any]:
     """
     Normalize various Redis/XADD shapes into one canonical dict.
 
@@ -88,7 +89,7 @@ def _extract_inputs(raw: Dict[str, Any]) -> Dict[str, Any]:
     if payload is None and "msg" in meta:
         payload = _safe_loads_maybe(meta.get("msg"))
 
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     if isinstance(payload, dict):
         out.update(payload)
 
@@ -105,17 +106,17 @@ def _extract_inputs(raw: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _mk_runtime(inp: Dict[str, Any]) -> Any:
+def _mk_runtime(inp: dict[str, Any]) -> Any:
     """
     Minimal runtime stub: must satisfy whatever OFConfirmEngine.build reads.
     Strategy passes `runtime=runtime` where runtime has .symbol and .config at minimum.
     """
-    sym = str(inp.get("symbol", "") or "")
-    rtd = inp.get("runtime", None)
+    sym = (inp.get("symbol", "") or "")
+    rtd = inp.get("runtime")
     rt_cfg = inp.get("runtime_config") if isinstance(inp.get("runtime_config"), dict) else None
 
     # If runtime dict exists, preserve as much as possible (determinism)
-    base: Dict[str, Any] = {}
+    base: dict[str, Any] = {}
     if isinstance(rtd, dict):
         base.update(rtd)
         if rt_cfg is None and isinstance(rtd.get("config"), dict):
@@ -130,8 +131,8 @@ def _mk_runtime(inp: Dict[str, Any]) -> Any:
 
     # build namespace with known stable fields (avoid missing attribute branches inside engine)
     ns = SimpleNamespace(**{k: v for k, v in base.items() if k != "config"})
-    setattr(ns, "symbol", sym)
-    setattr(ns, "config", rt_cfg)
+    ns.symbol = sym
+    ns.config = rt_cfg
     return ns
 
 
@@ -142,10 +143,11 @@ def _mk_engine() -> Any:
     - else OFConfirmEngine() default ctor
     """
     import logging
+
     log = logging.getLogger("replay")
 
     from core.of_confirm_engine import OFConfirmEngine  # type: ignore
-    if hasattr(OFConfirmEngine, "from_env") and callable(getattr(OFConfirmEngine, "from_env")):
+    if hasattr(OFConfirmEngine, "from_env") and callable(OFConfirmEngine.from_env):
         engine = OFConfirmEngine.from_env()  # type: ignore
     else:
         engine = OFConfirmEngine()  # type: ignore
@@ -167,29 +169,27 @@ def _mk_engine() -> Any:
     return engine
 
 
-def _ofc_to_dict(ofc: Any) -> Dict[str, Any]:
+def _ofc_to_dict(ofc: Any) -> dict[str, Any]:
     if ofc is None:
         return {}
     if isinstance(ofc, dict):
         return ofc
-    if hasattr(ofc, "to_dict") and callable(getattr(ofc, "to_dict")):
+    if hasattr(ofc, "to_dict") and callable(ofc.to_dict):
         try:
             d = ofc.to_dict()
             return d if isinstance(d, dict) else {}
         except Exception:
             return {}
     # best effort
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k in ("ok", "scenario", "have", "need", "score", "reason", "gate_bits"):
         if hasattr(ofc, k):
-            try:
+            with contextlib.suppress(Exception):
                 out[k] = getattr(ofc, k)
-            except Exception:
-                pass
     return out
 
 
-def _evidence(ofc: Any) -> Dict[str, Any]:
+def _evidence(ofc: Any) -> dict[str, Any]:
     try:
         ev = getattr(ofc, "evidence", {}) if ofc is not None else {}
         return ev if isinstance(ev, dict) else {}
@@ -219,14 +219,14 @@ def _to_float(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _norm_direction(inp: Dict[str, Any]) -> str:
+def _norm_direction(inp: dict[str, Any]) -> str:
     # tolerate various naming
     v = inp.get("direction", inp.get("dir", inp.get("side", "")))
-    s = str(v or "")
+    s = (v or "")
     return s
 
 
-def _norm_tick_ts_ms(inp: Dict[str, Any]) -> int:
+def _norm_tick_ts_ms(inp: dict[str, Any]) -> int:
     # tolerate tick_ts_ms / tick_ts / ts_ms / timestamp
     for k in ("tick_ts_ms", "tick_ts", "ts_ms", "timestamp_ms", "timestamp"):
         if k in inp and inp.get(k) is not None:
@@ -234,10 +234,10 @@ def _norm_tick_ts_ms(inp: Dict[str, Any]) -> int:
     return 0
 
 
-def _norm_tf(inp: Dict[str, Any], runtime: Any) -> str:
+def _norm_tf(inp: dict[str, Any], runtime: Any) -> str:
     # precedence: explicit tf -> micro_tf -> runtime.config.micro_tf -> "1s"
     for k in ("tf", "timeframe", "micro_tf"):
-        v = inp.get(k, None)
+        v = inp.get(k)
         if v is not None and str(v).strip():
             return str(v)
     try:
@@ -250,7 +250,7 @@ def _norm_tf(inp: Dict[str, Any], runtime: Any) -> str:
     return "1s"
 
 
-def _norm_price(inp: Dict[str, Any]) -> float:
+def _norm_price(inp: dict[str, Any]) -> float:
     # strict order (avoid accidental switch if multiple present)
     for k in ("price", "last_price", "mid_price", "mid", "px"):
         if k in inp and inp.get(k) is not None:
@@ -258,14 +258,14 @@ def _norm_price(inp: Dict[str, Any]) -> float:
     return 0.0
 
 
-def _norm_delta_z(inp: Dict[str, Any]) -> float:
+def _norm_delta_z(inp: dict[str, Any]) -> float:
     for k in ("delta_z", "delta_z_used", "deltaZ", "delta_zscore", "delta_z_spike"):
         if k in inp and inp.get(k) is not None:
             return _to_float(inp.get(k), 0.0)
     return 0.0
 
 
-def replay_one(engine: Any, inp: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def replay_one(engine: Any, inp: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """
     Runs engine.build() with best-effort kwargs filtering.
     Returns (out_row, debug_raw).
@@ -273,7 +273,7 @@ def replay_one(engine: Any, inp: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[s
     runtime = _mk_runtime(inp)
     # deep-copy to prevent accidental mutation causing nondeterminism across replays
     indicators = deepcopy(inp.get("indicators", {})) if isinstance(inp.get("indicators", {}), dict) else {}
-    absorption = deepcopy(inp.get("absorption", None))
+    absorption = deepcopy(inp.get("absorption"))
     if not isinstance(absorption, dict):
         absorption = None
 
@@ -294,7 +294,7 @@ def replay_one(engine: Any, inp: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[s
     delta_z = _norm_delta_z(inp)
 
     # build() call
-    build = getattr(engine, "build")
+    build = engine.build
     kw = {
         "symbol": symbol,
         "tf": tf,
@@ -311,12 +311,12 @@ def replay_one(engine: Any, inp: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[s
 
     # best-effort deterministic clock override if engine supports it
     try:
-        if hasattr(engine, "set_replay_time_ms") and callable(getattr(engine, "set_replay_time_ms")):
+        if hasattr(engine, "set_replay_time_ms") and callable(engine.set_replay_time_ms):
             engine.set_replay_time_ms(int(tick_ts_ms))
         elif hasattr(engine, "now_ms_override"):
-            setattr(engine, "now_ms_override", int(tick_ts_ms))
+            engine.now_ms_override = int(tick_ts_ms)
         elif hasattr(engine, "replay_now_ms"):
-            setattr(engine, "replay_now_ms", int(tick_ts_ms))
+            engine.replay_now_ms = int(tick_ts_ms)
     except Exception:
         pass
 
@@ -338,12 +338,12 @@ def replay_one(engine: Any, inp: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[s
 
     ofc_d = _ofc_to_dict(ofc)
     ev = _evidence(ofc)
-    scenario_v4 = str(ev.get("scenario_v4", "") or "") or str(ofc_d.get("scenario", "") or "")
+    scenario_v4 = (ev.get("scenario_v4", "") or "") or (ofc_d.get("scenario", "") or "")
     ok = 1 if bool(ofc_d.get("ok", False)) else 0
 
     out = {
         "k": _key(inp),
-        "symbol": str(symbol).upper(),
+        "symbol": symbol.upper(),
         "tick_ts_ms": int(tick_ts_ms),
         "tf": tf,
         "direction": direction,
@@ -353,10 +353,10 @@ def replay_one(engine: Any, inp: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[s
         "need": int(ofc_d.get("need", 0) or 0),
         "score": float(ofc_d.get("score", 0.0) or 0.0),
         "gate_bits": int(ofc_d.get("gate_bits", 0) or 0),
-        "reason": str(ofc_d.get("reason", "") or "")[:160],
+        "reason": (ofc_d.get("reason", "") or "")[:160],
         "exec_risk_norm": float(ev.get("exec_risk_norm", 0.0) or 0.0),
         "ok_soft": int(ev.get("ok_soft", 0) or 0),
-        "meta_veto": int(ev.get("meta_veto", 0) or 0),
+        "meta_veto": int(ev.get(MetaKeys.VETO, 0) or 0),
         "latency_us": int(t_us),
         "err": err,
         "evidence": ev,
@@ -398,7 +398,7 @@ def main() -> None:
     engine = _mk_engine()
 
     n = 0
-    with open(args.inputs, "r", encoding="utf-8") as f_in, open(args.out, "w", encoding="utf-8") as f_out:
+    with open(args.inputs, encoding="utf-8") as f_in, open(args.out, "w", encoding="utf-8") as f_out:
         f_dbg = open(args.debug_out, "w", encoding="utf-8") if args.debug_out else None
         try:
             for line in f_in:

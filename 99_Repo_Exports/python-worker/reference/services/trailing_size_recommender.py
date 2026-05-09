@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 TrailingSizeRecommender
 
@@ -19,9 +19,9 @@ TrailingSizeRecommender
 
 
 import statistics as stats
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, Optional, Dict, Any, List, NamedTuple
-
+from typing import Any, NamedTuple
 
 EPS = 1e-9
 
@@ -55,16 +55,16 @@ class ClosedTradeSnapshot:
     close_reason_detail: str = ""
 
     @classmethod
-    def from_trade_closed_dict(cls, d: Dict[str, Any]) -> "ClosedTradeSnapshot":
+    def from_trade_closed_dict(cls, d: dict[str, Any]) -> ClosedTradeSnapshot:
         """
         Удобный конструктор из словаря (например, TradeClosed.__dict__
         или payload из Redis/JSON).
         """
         return cls(
-            source=str(d.get("source") or ""),
-            symbol=str(d.get("symbol") or ""),
-            strategy=str(d.get("strategy") or ""),
-            entry_tag=str(d.get("entry_tag") or ""),
+            source=(d.get("source") or ""),
+            symbol=(d.get("symbol") or ""),
+            strategy=(d.get("strategy") or ""),
+            entry_tag=(d.get("entry_tag") or ""),
 
             exit_ts_ms=int(d.get("exit_ts_ms") or 0),
 
@@ -79,9 +79,9 @@ class ClosedTradeSnapshot:
 
             trailing_started=bool(d.get("trailing_started") or d.get("trailing_active") or False),
             trailing_active=bool(d.get("trailing_active") or False),
-            close_reason=str(d.get("close_reason") or ""),
-            close_reason_raw=str(d.get("close_reason_raw") or ""),
-            close_reason_detail=str(d.get("close_reason_detail") or ""),
+            close_reason=(d.get("close_reason") or ""),
+            close_reason_raw=(d.get("close_reason_raw") or ""),
+            close_reason_detail=(d.get("close_reason_detail") or ""),
         )
 
 
@@ -111,7 +111,7 @@ class TrailingSizeRecommendation(NamedTuple):
     std_giveback_ratio: float       # std отклонение giveback_ratio
 
 
-def _quantile(xs: List[float], q: float) -> float:
+def _quantile(xs: list[float], q: float) -> float:
     """
     Простейшая реализация квантиля q (0..1) без numpy.
     """
@@ -130,8 +130,8 @@ def _quantile(xs: List[float], q: float) -> float:
 
 
 def _compute_confidence(
-    mfe_r_win: List[float],
-    giveback_ratio_win: List[float],
+    mfe_r_win: list[float],
+    giveback_ratio_win: list[float],
     wins_count: int,
     min_trades_required: int,
 ) -> Tuple[float, float, float]:
@@ -179,7 +179,7 @@ def recommend_trailing_size(
     winners_only: bool = True,
     mfe_quantile: float = 0.25,
     trailing_only: bool = False,
-) -> Optional[TrailingSizeRecommendation]:
+) -> TrailingSizeRecommendation | None:
     """
     Рассчитывает рекомендованный размер трейлинга (lock_r и TRAILING_TP1_OFFSET_ATR)
     по выборке закрытых сделок.
@@ -198,10 +198,10 @@ def recommend_trailing_size(
     Returns:
         TrailingSizeRecommendation или None, если данных недостаточно.
     """
-    r_win: List[float] = []
-    mfe_r_win: List[float] = []
-    giveback_r_win: List[float] = []
-    giveback_ratio_win: List[float] = []
+    r_win: list[float] = []
+    mfe_r_win: list[float] = []
+    giveback_r_win: list[float] = []
+    giveback_ratio_win: list[float] = []
 
     count_total = 0
     for t in trades:

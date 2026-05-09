@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import os
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 from services.reliability_curves import (
     load_bucket_rate,
 )
-
 
 # =============================================================================
 # Confidence post-calibration (Variant A).
@@ -40,14 +39,14 @@ def _env_int(k: str, default: int) -> int:
     try:
         return int(float(os.getenv(k, str(default))))
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(k: str, default: float) -> float:
     try:
         return float(os.getenv(k, str(default)))
     except Exception:
-        return float(default)
+        return default
 
 
 def _env_bool(k: str, default: bool) -> bool:
@@ -109,7 +108,7 @@ def _pick_profile() -> str:
 def maybe_apply_confidence_adjustment(
     redis_client: Any,
     *,
-    envelope: Dict[str, Any],
+    envelope: dict[str, Any],
     strategy: str,
     symbol: str,
     tf: str,
@@ -158,7 +157,7 @@ def maybe_apply_confidence_adjustment(
         return
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         v = float(x)
         if not math.isfinite(v):
@@ -199,27 +198,27 @@ def _boolish(x: Any) -> bool:
     return s in {"1", "true", "yes", "on"}
 
 
-def _extract_ctx(envelope: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_ctx(envelope: dict[str, Any]) -> dict[str, Any]:
     ctx = envelope.get("ctx")
     return ctx if isinstance(ctx, dict) else {}
 
 
 def _canon_kind(s: Any) -> str:
-    v = str(s or "").strip().lower()
+    v = (s or "").strip().lower()
     return v or "na"
 
 
 def _canon_regime(s: Any) -> str:
-    v = str(s or "").strip().lower()
+    v = (s or "").strip().lower()
     return v or "na"
 
 
 def _canon_venue(s: Any) -> str:
-    v = str(s or "").strip().lower()
+    v = (s or "").strip().lower()
     return v or "na"
 
 
-def _extract_venue(envelope: Dict[str, Any]) -> str:
+def _extract_venue(envelope: dict[str, Any]) -> str:
     v = envelope.get("venue")
     if v:
         return _canon_venue(v)
@@ -227,11 +226,11 @@ def _extract_venue(envelope: Dict[str, Any]) -> str:
     return _canon_venue(ctx.get("venue") if isinstance(ctx, dict) else None)
 
 
-def _extract_kind(envelope: Dict[str, Any]) -> str:
+def _extract_kind(envelope: dict[str, Any]) -> str:
     return _canon_kind(envelope.get("kind") or "na")
 
 
-def _extract_entry_regime(envelope: Dict[str, Any]) -> str:
+def _extract_entry_regime(envelope: dict[str, Any]) -> str:
     return _canon_regime(envelope.get("entry_regime") or envelope.get("regime") or envelope.get("regime_label") or "na")
 
 
@@ -282,7 +281,7 @@ def _shrink_ctx_to_global(h_ctx: int, n_ctx: int, p_glob: float, prior_n: int) -
         return float(p_glob)
 
 
-def _extract_base_confidence(envelope: Dict[str, Any]) -> Optional[float]:
+def _extract_base_confidence(envelope: dict[str, Any]) -> float | None:
     """
     Extract base confidence from envelope and/or ctx.
     We support multiple synonyms to avoid tight coupling.
@@ -299,14 +298,14 @@ def _extract_base_confidence(envelope: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def _smt_ctx_key(envelope: Dict[str, Any], *, coh_thr: float, direction: str) -> Optional[str]:
+def _smt_ctx_key(envelope: dict[str, Any], *, coh_thr: float, direction: str) -> str | None:
     ctx = _extract_ctx(envelope)
     if "smt_leader_confirm" not in ctx and "smt_coh" not in ctx and "smt_leader_dir" not in ctx:
         return None
     leader_confirm = 1 if _boolish(ctx.get("smt_leader_confirm")) else 0
     coh = _safe_float(ctx.get("smt_coh"))
     coh_hi = 1 if (coh is not None and float(coh) >= float(coh_thr)) else 0
-    leader_dir = str(ctx.get("smt_leader_dir") or "NA").strip().upper()
+    leader_dir = (ctx.get("smt_leader_dir") or "NA").strip().upper()
     sig_ud = _dir_to_ud(direction)
     align = 1 if (leader_dir in {"UP", "DOWN"} and sig_ud in {"UP", "DOWN"} and leader_dir == sig_ud) else 0
     return f"smtc{leader_confirm}_coh{coh_hi}_al{align}"
@@ -331,12 +330,12 @@ class ConfidenceAdjustResult:
 def maybe_adjust_confidence(
     redis_client: Any,
     *,
-    envelope: Dict[str, Any],
+    envelope: dict[str, Any],
     strategy: str,
     symbol: str,
     tf: str,
     direction: str,
-) -> Optional[ConfidenceAdjustResult]:
+) -> ConfidenceAdjustResult | None:
     """
     Post-calibration confidence adjuster using reliability curves.
 
@@ -407,7 +406,7 @@ def maybe_adjust_confidence(
     ctx_key = _smt_ctx_key(envelope, coh_thr=coh_thr, direction=direction) or "na"
 
     # keep for audit
-    ctx_key_final = str(ctx_key or "na")
+    ctx_key_final = (ctx_key or "na")
 
     # ------------------------------------------------------------------
     # HARDEST profile = maximum stability.

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 P5.7 execution audit-chain scheduler / compose runner.
 
@@ -23,8 +24,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
-
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECKER_PATH = ROOT / "scripts" / "check_execution_audit_chain.py"

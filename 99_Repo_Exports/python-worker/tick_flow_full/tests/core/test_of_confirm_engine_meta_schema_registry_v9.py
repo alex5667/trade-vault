@@ -8,9 +8,9 @@ import inspect
 
 import core.of_confirm_engine as ofe
 from core.meta_features_v9 import (
+    META_FEAT_V9_HASH,
     META_FEAT_V9_NAME,
     META_FEAT_V9_VERSION,
-    META_FEAT_V9_HASH,
 )
 
 

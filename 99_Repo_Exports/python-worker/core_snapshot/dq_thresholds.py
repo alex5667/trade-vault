@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -40,14 +41,14 @@ def _safe_int(x: Any, default: int) -> int:
     try:
         return int(x)
     except Exception:
-        return int(default)
+        return default
 
 
 def _safe_float(x: Any, default: float) -> float:
     try:
         return float(x)
     except Exception:
-        return float(default)
+        return default
 
 
 def _first(cfg: Mapping[str, Any], keys: list[str]) -> Any:
@@ -86,7 +87,7 @@ def derive_book_seq_ema_alpha(interval_ms: int) -> float:
 def _derive_book_hard(mode: str, interval_ms: int) -> float:
     """Per-interval defaults for the HARD book_missing_seq_ema threshold."""
 
-    m = str(mode or "").strip().lower()
+    m = (mode or "").strip().lower()
     ms = int(interval_ms or 0)
     if ms <= 0:
         ms = 100
@@ -216,7 +217,7 @@ def resolve_dq_thresholds(cfg: Mapping[str, Any] | None) -> DQThresholds:
 
     # --- EMA alpha (single SoT) ---
     alpha_raw = _first(c, ["dq_book_seq_ema_alpha", "DQ_BOOK_SEQ_EMA_ALPHA", "book_missing_seq_ema_alpha", "BOOK_MISSING_SEQ_EMA_ALPHA"]) or 0.0
-    a = float(_safe_float(alpha_raw, 0.0))
+    a = _safe_float(alpha_raw, 0.0)
     if 0.0 < a <= 1.0:
         book_seq_ema_alpha = a
     else:

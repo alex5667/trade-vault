@@ -1,5 +1,7 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
+#!/usr/bin/env python3
 """OFInputs DLQ DB drilldown (P99).
 
 Reads from Timescale/Postgres table `of_inputs_dlq_events` (P98) and prints:
@@ -23,15 +25,15 @@ ENV (notify):
   REDIS_URL (default redis://redis-worker-1:6379/0)
   TELEGRAM_NOTIFY_STREAM / NOTIFY_TELEGRAM_STREAM,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import os
-import time
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 import psycopg2
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _pick_dsn() -> str:
@@ -46,7 +48,7 @@ def _pick_dsn() -> str:
 
 
 def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _fmt_age_s(age_s: float) -> str:
@@ -72,7 +74,7 @@ def _has_view(conn, name: str) -> bool:
         return bool(row and row[0])
 
 
-def _query_top_reasons(conn, lookback_h: int, kind: str, top_n: int) -> List[Tuple[str, int, datetime]]:
+def _query_top_reasons(conn, lookback_h: int, kind: str, top_n: int) -> list[tuple[str, int, datetime]]:
     use_view = _has_view(conn, "public.v_of_inputs_dlq_events_reason_24h")
     with conn.cursor() as cur:
         if use_view and lookback_h == 24:
@@ -111,13 +113,13 @@ def _query_top_reasons(conn, lookback_h: int, kind: str, top_n: int) -> List[Tup
             """,
             cur.execute(sql, (int(lookback_h), kind, kind, top_n))
         rows = cur.fetchall() or []
-    out: List[Tuple[str, int, datetime]] = []
+    out: list[tuple[str, int, datetime]] = []
     for r in rows:
         out.append((str(r[0]), int(r[1]), r[2]))
     return out
 
 
-def _query_last_event(conn, kind: str) -> Optional[datetime]:
+def _query_last_event(conn, kind: str) -> datetime | None:
     with conn.cursor() as cur:
         sql = """,
         SELECT MAX(ts)
@@ -135,7 +137,7 @@ def _query_last_event(conn, kind: str) -> Optional[datetime]:
     return None
 
 
-def _query_samples(conn, reason: str, kind: str, limit: int) -> List[Dict[str, Any]]:
+def _query_samples(conn, reason: str, kind: str, limit: int) -> list[dict[str, Any]]:
     use_view = _has_view(conn, "public.v_of_inputs_dlq_events_parsed")
     with conn.cursor() as cur:
         if use_view:
@@ -183,7 +185,7 @@ def _query_samples(conn, reason: str, kind: str, limit: int) -> List[Dict[str, A
         cols = [d[0] for d in cur.description]
         rows = cur.fetchall() or []
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in rows:
         d = {}
         for i, c in enumerate(cols):
@@ -201,7 +203,7 @@ def _notify(text: str, severity: str = "crit") -> None:
         stream = (
             os.getenv("TELEGRAM_NOTIFY_STREAM")
             or os.getenv("NOTIFY_TELEGRAM_STREAM")
-            or ("notify:telegram:crit" if severity == "crit" else "notify:telegram")
+            or (RS.NOTIFY_TELEGRAM_CRIT if severity == "crit" else RS.NOTIFY_TELEGRAM)
         )
         r.xadd(
             stream,
@@ -258,7 +260,7 @@ def main() -> None:
                 return
 
             top_reasons = _query_top_reasons(conn, args.lookback_h, args.kind, args.top)
-            lines: List[str] = []
+            lines: list[str] = []
             for reason, n, last in top_reasons:
                 age = (_now_utc() - last).total_seconds() if last else 0.0
                 lines.append(f"{reason}: n={n} last_age={_fmt_age_s(age)}")
@@ -273,10 +275,8 @@ def main() -> None:
                 _notify(msg, severity="crit")
     finally:
         if conn is not None:
-            try:
+            with contextlib.suppress(Exception):
                 conn.rollback()
-            except Exception:
-                pass
             conn.close()
 
 

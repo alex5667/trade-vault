@@ -1,7 +1,7 @@
-import json
-from typing import Optional, Dict, Any
+from typing import Any
 
-async def aread_breadth_context(redis) -> Optional[Dict[str, Any]]:
+
+async def aread_breadth_context(redis) -> dict[str, Any] | None:
     """Read the runtime:breadth context from Redis."""
     try:
         if not redis:
@@ -9,7 +9,7 @@ async def aread_breadth_context(redis) -> Optional[Dict[str, Any]]:
         raw = await redis.hgetall("runtime:breadth")
         if not raw:
             return None
-        
+
         # Redis hgetall returns bytes keys and bytes values
         def _get_float(k: str) -> float:
             v = raw.get(k.encode()) or raw.get(k)

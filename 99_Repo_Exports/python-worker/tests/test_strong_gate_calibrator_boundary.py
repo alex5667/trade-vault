@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Regression: Strong Gate Calibrator — boundary math conditions (merge-blocker).
 
@@ -16,6 +16,7 @@ Run:
 """
 
 import math
+
 import pytest
 
 from core.strong_gate_calibrator import (

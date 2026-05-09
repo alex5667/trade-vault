@@ -1,9 +1,7 @@
 import logging
-from dataclasses import dataclass
 from collections import defaultdict
-import types
-
-import pytest
+from dataclasses import dataclass
+from core.redis_keys import RedisStreams as RS
 
 
 @dataclass
@@ -56,8 +54,8 @@ def _mk_dispatcher():
         self.redis = self.simple_redis
         # Call the rest of __init__ logic
         self.dual_redis = None
-        self.outbox_stream = "stream:signals:outbox"
-        self.dlq_stream = "stream:signals:dlq"
+        self.outbox_stream = RS.SIGNAL_OUTBOX
+        self.dlq_stream = RS.SIGNAL_DLQ
         # ... add other required attributes
         self._ctr = defaultdict(int)
         self.claim_every_ms = 0

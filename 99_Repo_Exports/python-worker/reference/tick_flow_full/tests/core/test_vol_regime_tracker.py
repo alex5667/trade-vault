@@ -1,5 +1,4 @@
 # tick_flow_full/tests/core/test_vol_regime_tracker.py
-# -*- coding: utf-8 -*-
 """
 Tests for VolRegimeTracker.
 
@@ -12,10 +11,8 @@ Coverage:
 """
 import math
 import types
-import pytest
 
-from core.vol_regime_tracker import VolRegimeTracker, VolRegimeSnapshot
-
+from core.vol_regime_tracker import VolRegimeSnapshot, VolRegimeTracker
 
 # ===========================================================================
 # Helpers

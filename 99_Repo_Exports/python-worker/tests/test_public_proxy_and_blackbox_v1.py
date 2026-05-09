@@ -9,6 +9,7 @@ Validates:
 5. prometheus_alerts_web_uptime_v1.yml contains required alerting rules
 """
 import os
+
 import pytest
 import yaml
 
@@ -23,12 +24,12 @@ RUNBOOK_MD = os.path.join(ROOT, "monitoring", "runbooks", "web_uptime.md")
 
 
 def load_yaml(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 
 def read_text(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         return fh.read()
 
 

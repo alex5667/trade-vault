@@ -1,10 +1,10 @@
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Mapping
+from typing import Any
 
 import yaml
-
 
 Direction = int  # +1, -1, 0
 
@@ -57,7 +57,7 @@ class CryptoConfScorerConfig:
     """
 
     default_profile: L3Profile
-    by_symbol: Dict[str, Dict[str, Dict[str, L3Profile]]]  # symbol -> family -> dir_key -> profile
+    by_symbol: dict[str, dict[str, dict[str, L3Profile]]]  # symbol -> family -> dir_key -> profile
 
     @classmethod
     def from_yaml_dict(cls, root: Mapping[str, Any]) -> "CryptoConfScorerConfig":
@@ -69,7 +69,7 @@ class CryptoConfScorerConfig:
             l3=L3Thresholds.from_dict(default_l3_cfg),
         )
 
-        by_symbol: Dict[str, Dict[str, Dict[str, L3Profile]]] = {}
+        by_symbol: dict[str, dict[str, dict[str, L3Profile]]] = {}
         syms_cfg = cfg.get("by_symbol", {}) or {}
 
         for symbol, sym_val in syms_cfg.items():
@@ -141,7 +141,7 @@ class CryptoConfScorer:
         self.yaml_path = yaml_path
         self.reload_interval_sec = reload_interval_sec
 
-        self._config: Optional[CryptoConfScorerConfig] = None
+        self._config: CryptoConfScorerConfig | None = None
         self._last_loaded_mtime: float = 0.0
         self._last_checked_ts: float = 0.0
 
@@ -162,7 +162,7 @@ class CryptoConfScorer:
         l3_cancel_to_trade_ask_5s: float,
         l3_cancel_to_trade_bid_20s: float,
         l3_cancel_to_trade_ask_20s: float,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Основной метод: возвращает dict со структурой:
           {
@@ -397,7 +397,7 @@ class CryptoConfScorer:
         if (not force) and mtime <= self._last_loaded_mtime:
             return  # нет изменений
 
-        with open(self.yaml_path, "r", encoding="utf-8") as f:
+        with open(self.yaml_path, encoding="utf-8") as f:
             root = yaml.safe_load(f) or {}
 
         self._config = CryptoConfScorerConfig.from_yaml_dict(root)

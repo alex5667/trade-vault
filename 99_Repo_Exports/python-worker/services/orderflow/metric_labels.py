@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Helpers to control Prometheus label cardinality and emission rate.
 
 Why:
@@ -13,21 +14,20 @@ ENV (recommended):
 
 
 from dataclasses import dataclass
-from typing import Optional, Set
 
 
-def _parse_allowlist(raw: Optional[str]) -> Optional[Set[str]]:
+def _parse_allowlist(raw: str | None) -> set[str] | None:
     if not raw:
         return None
     parts = [p.strip().upper() for p in str(raw).split(",") if p.strip()]
     return set(parts) if parts else None
 
 
-def normalize_symbol(symbol: Optional[str]) -> str:
+def normalize_symbol(symbol: str | None) -> str:
     return (symbol or "").strip().upper()
 
 
-def symbol_label(symbol: Optional[str], allowlist: Optional[Set[str]], mode: str = "collapse") -> Optional[str]:
+def symbol_label(symbol: str | None, allowlist: set[str] | None, mode: str = "collapse") -> str | None:
     """Return a safe label value, or None to skip metric emission.
 
     mode:
@@ -69,9 +69,9 @@ def should_emit(now_ms: int, last_emit_ms: int, min_interval_ms: int) -> bool:
 class TickMetricLimiter:
     """Stateful limiter for per-symbol emission."""
 
-    allowlist: Optional[Set[str]]
+    allowlist: set[str] | None
     mode: str = "collapse"
     ema_min_update_ms: int = 250
 
-    def label(self, symbol: Optional[str]) -> Optional[str]:
+    def label(self, symbol: str | None) -> str | None:
         return symbol_label(symbol, self.allowlist, self.mode)

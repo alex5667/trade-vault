@@ -1,11 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis  # type: ignore
@@ -13,7 +15,7 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
-
+import contextlib
 
 STREAM_GOVERNOR_DECISIONS = os.getenv(
     "ML_OPERATOR_RCA_GOVERNOR_DECISIONS_STREAM",
@@ -91,8 +93,8 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _decode(fields: Dict[Any, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _decode(fields: dict[Any, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         vv = v.decode() if isinstance(v, (bytes, bytearray)) else str(v)
@@ -122,20 +124,20 @@ class GovernorDecision:
     policy_version: str
     score: float
     ts_ms: int
-    reason_codes: List[str]
+    reason_codes: list[str]
 
 
-def parse_governor_decision(fields: Dict[Any, Any]) -> Optional[GovernorDecision]:
+def parse_governor_decision(fields: dict[Any, Any]) -> GovernorDecision | None:
     d = _decode(fields)
     try:
         return GovernorDecision(
-            scope=str(d.get("scope", "provider_prompt")),
-            decision=str(d.get("decision", "HOLD")).upper(),
-            action_type=str(d.get("action_type", "*")),
-            provider=str(d.get("provider", "vertex")),
-            model_name=str(d.get("model_name", "gemini-2.5-flash-lite")),
-            prompt_version=str(d.get("prompt_version", "ml_triage_v1")),
-            policy_version=str(d.get("policy_version", "policy_v1")),
+            scope=(d.get("scope", "provider_prompt")),
+            decision=(d.get("decision", "HOLD")).upper(),
+            action_type=(d.get("action_type", "*")),
+            provider=(d.get("provider", "vertex")),
+            model_name=(d.get("model_name", "gemini-2.5-flash-lite")),
+            prompt_version=(d.get("prompt_version", "ml_triage_v1")),
+            policy_version=(d.get("policy_version", "policy_v1")),
             score=float(d.get("score", "0") or 0.0),
             ts_ms=int(d.get("ts_ms", "0") or 0),
             reason_codes=_jloads(d.get("reason_codes_json", "[]"), []),
@@ -146,17 +148,17 @@ def parse_governor_decision(fields: Dict[Any, Any]) -> Optional[GovernorDecision
 
 def choose_route(
     *,
-    current: Dict[str, str],
+    current: dict[str, str],
     decisions: Iterable[GovernorDecision],
     allow_promote: bool,
     allow_suppress: bool,
     fallback_provider: str,
     fallback_model: str,
     fallback_prompt_version: str,
-) -> Tuple[Dict[str, str], List[Dict[str, Any]]]:
+) -> tuple[dict[str, str], list[dict[str, Any]]]:
     route = dict(current)
-    audit: List[Dict[str, Any]] = []
-    promoted: Optional[GovernorDecision] = None
+    audit: list[dict[str, Any]] = []
+    promoted: GovernorDecision | None = None
     suppressed_keys: set[str] = set()
 
     for dec in decisions:
@@ -239,8 +241,8 @@ class RoutingController:
         self.loop_sleep_sec = float(os.getenv("ML_OPERATOR_RCA_ROUTING_LOOP_SLEEP_SEC", "1.0"))
         self.max_decisions = int(os.getenv("ML_OPERATOR_RCA_ROUTING_DECISIONS_BATCH", "100"))
         self.max_requests = int(os.getenv("ML_OPERATOR_RCA_ROUTING_REQUESTS_BATCH", "100"))
-        self.decisions_buffer: List[GovernorDecision] = []
-        self.current_route: Dict[str, str] = {
+        self.decisions_buffer: list[GovernorDecision] = []
+        self.current_route: dict[str, str] = {
             "provider": self.default_provider,
             "model_name": self.default_model,
             "prompt_version": self.default_prompt_version,
@@ -250,10 +252,8 @@ class RoutingController:
 
     async def ensure_groups(self) -> None:
         for stream, group in ((STREAM_GOVERNOR_DECISIONS, GROUP_DECISIONS), (STREAM_OPERATOR_RCA_REQUESTS, GROUP_REQUESTS)):
-            try:
+            with contextlib.suppress(Exception):
                 await self.r.xgroup_create(stream, group, id="0", mkstream=True)
-            except Exception:
-                pass
 
     async def load_active_route(self) -> None:
         try:
@@ -377,7 +377,7 @@ class RoutingController:
                 ).inc()
         return total
 
-    async def loop_once(self) -> Tuple[int, int]:
+    async def loop_once(self) -> tuple[int, int]:
         t0 = time.perf_counter()
         dec_n = await self.handle_governor_decisions()
         if dec_n > 0:

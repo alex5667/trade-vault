@@ -8,8 +8,8 @@ Tests five scenarios:
 5. book bucket, warmup elapsed vs not elapsed
 """
 import pytest
-from core.of_confirm_engine import OFConfirmEngine
 
+from core.of_confirm_engine import OFConfirmEngine
 
 # ---------------------------------------------------------------------------
 # Fixtures

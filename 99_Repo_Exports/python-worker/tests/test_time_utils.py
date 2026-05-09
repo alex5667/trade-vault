@@ -1,5 +1,5 @@
-import pytest
-from common.time_utils import normalize_epoch_ms, NormalizedTime
+from common.time_utils import normalize_epoch_ms
+
 
 def test_normalize_epoch_ms_seconds():
     # Example: 1672531200 (2023-01-01) in seconds

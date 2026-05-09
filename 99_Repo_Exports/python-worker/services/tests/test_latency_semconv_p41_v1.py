@@ -1,11 +1,10 @@
 from __future__ import annotations
+
 """Tests for P4.1 latency_semconv additions: required_stage_owners and build_external_state_mapping."""
 
-import sys
-import os
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from services.observability.latency_semconv import required_stage_owners, build_external_state_mapping
+from services.observability.latency_semconv import build_external_state_mapping, required_stage_owners
 
 
 def test_required_stage_owner_matrix_contains_external_services():

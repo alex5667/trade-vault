@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -97,15 +98,15 @@ DEFAULT_WARNING_REASONS_JSON = os.getenv(
 )
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -153,8 +154,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -178,7 +179,7 @@ def maybe_json(value: Any, default: Any = None) -> Any:
         return default
 
 
-def normalize_weights(raw: Any) -> Dict[str, int]:
+def normalize_weights(raw: Any) -> dict[str, int]:
     obj = maybe_json(raw, {})
     if not isinstance(obj, dict):
         obj = {}
@@ -189,7 +190,7 @@ def normalize_weights(raw: Any) -> Dict[str, int]:
     }
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     allowed_retry = maybe_json(raw.get("allowed_retry_reasons_json"), maybe_json(DEFAULT_ALLOWED_RETRY_REASONS_JSON, []))
     warning_reasons = maybe_json(raw.get("warning_reasons_json"), maybe_json(DEFAULT_WARNING_REASONS_JSON, []))
     if not isinstance(allowed_retry, list):
@@ -212,15 +213,15 @@ def build_state_key(target_profile: str, target_incumbent_arm: str, reason_code:
     return f"{STATE_KEY_PREFIX}:{target_profile}:{target_incumbent_arm}:{reason_code}"
 
 
-def evaluate_action(verification_row: Dict[str, Any], attempts: int, policy: Dict[str, Any]) -> Dict[str, Any]:
-    reason_code = str(verification_row.get("reason_code") or "")
-    decision = str(verification_row.get("decision") or "")
+def evaluate_action(verification_row: dict[str, Any], attempts: int, policy: dict[str, Any]) -> dict[str, Any]:
+    reason_code = (verification_row.get("reason_code") or "")
+    decision = (verification_row.get("decision") or "")
     out = {
         "decision": "HOLD",
         "reason_code": "NO_ACTION",
         "severity": "info",
-        "target_profile": str(verification_row.get("target_profile") or ""),
-        "target_incumbent_arm": str(verification_row.get("target_incumbent_arm") or ""),
+        "target_profile": (verification_row.get("target_profile") or ""),
+        "target_incumbent_arm": (verification_row.get("target_incumbent_arm") or ""),
         "target_weights": normalize_weights(verification_row.get("target_weights_json")),
     }
     if policy["kill_switch"] == 1:
@@ -250,7 +251,7 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def persist_if_configured(db_url: str, verification_row: Dict[str, Any], action_out: Dict[str, Any], attempts: int, applied: int) -> None:
+async def persist_if_configured(db_url: str, verification_row: dict[str, Any], action_out: dict[str, Any], attempts: int, applied: int) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -327,11 +328,11 @@ async def main() -> None:  # pragma: no cover
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     state_key = build_state_key(
-                        str(verification_row.get("target_profile") or ""),
-                        str(verification_row.get("target_incumbent_arm") or ""),
-                        str(verification_row.get("reason_code") or ""),
+                        (verification_row.get("target_profile") or ""),
+                        (verification_row.get("target_incumbent_arm") or ""),
+                        (verification_row.get("reason_code") or ""),
                     )
                     attempts = parse_int(await r.get(state_key), 0)
                     action_out = evaluate_action(verification_row, attempts, policy)

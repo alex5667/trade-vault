@@ -15,5 +15,5 @@ ENV:
 
 
 def strict_contracts_enabled() -> bool:
-    v = str(os.getenv("PIPELINE_STRICT_CONTRACTS", "0")).strip().lower()
+    v = os.getenv("PIPELINE_STRICT_CONTRACTS", "0").strip().lower()
     return v in {"1", "true", "yes", "on"}

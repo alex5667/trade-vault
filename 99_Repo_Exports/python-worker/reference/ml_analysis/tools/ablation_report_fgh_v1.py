@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from __future__ import annotations
+
 """Offline ablation report for derived ROI features F/G/H.
 
 Goal:
@@ -19,10 +20,10 @@ Output:
 import argparse
 import json
 import math
-from typing import Any, Dict, List
+from typing import Any
 
 
-def _topk_precision(y: List[int], p: List[float], frac: float) -> float:
+def _topk_precision(y: list[int], p: list[float], frac: float) -> float:
     if not y:
         return float("nan")
     n = max(1, int(round(len(y) * float(frac))))
@@ -32,7 +33,7 @@ def _topk_precision(y: List[int], p: List[float], frac: float) -> float:
     return float(sum(int(y[i]) for i in idx)) / float(len(idx))
 
 
-def _safe_auc_roc(y: List[int], p: List[float]) -> float:
+def _safe_auc_roc(y: list[int], p: list[float]) -> float:
     # Minimal AUC implementation to avoid hard dependency on sklearn metrics.
     # If labels are all the same, return NaN.
     n_pos = sum(1 for v in y if int(v) == 1)
@@ -59,7 +60,7 @@ def _fmt(x: Any) -> str:
         return "nan"
 
 
-FGH_NUMERIC_KEYS: List[str] = [
+FGH_NUMERIC_KEYS: list[str] = [
     "rel_ofi_ml_norm_btc",
     "rel_lob_micro_shift_bps_btc",
     "ask_replenish_imb",
@@ -75,7 +76,7 @@ FGH_NUMERIC_KEYS: List[str] = [
 ]
 
 
-def _variant_feature_cols(base_cols: List[str]) -> Dict[str, List[str]]:
+def _variant_feature_cols(base_cols: list[str]) -> dict[str, list[str]]:
     base = list(base_cols)
     add_f = ["f_rel_ofi_ml_norm_btc", "f_rel_lob_micro_shift_bps_btc"]
     add_g = [
@@ -93,7 +94,7 @@ def _variant_feature_cols(base_cols: List[str]) -> Dict[str, List[str]]:
         "f_micro_shift_bps_vel_z_ema",
     ]
 
-    def merge(extra: List[str]) -> List[str]:
+    def merge(extra: list[str]) -> list[str]:
         out = list(base)
         for c in extra:
             if c not in out:
@@ -109,13 +110,13 @@ def _variant_feature_cols(base_cols: List[str]) -> Dict[str, List[str]]:
     }
 
 
-def _get_bucket(mod, ex: Dict[str, Any]) -> str:
+def _get_bucket(mod, ex: dict[str, Any]) -> str:
     scen = ex.get("scenario")
-    scen = mod._scenario_norm(str(scen or ""))
+    scen = mod._scenario_norm((scen or ""))
     return str(mod._bucket_from_scenario(scen) or "unknown")
 
 
-def _fit_predict_oof(mod, ex: List[Dict[str, Any]], feature_cols: List[str], args) -> Dict[str, Any]:
+def _fit_predict_oof(mod, ex: list[dict[str, Any]], feature_cols: list[str], args) -> dict[str, Any]:
     # Mirrors train_edge_stack_v1_oof.py main() training loop,
     # but returns OOF predictions for ablation slicing.
     base_feature_names = mod._collect_base_feature_names(feature_cols)
@@ -124,15 +125,15 @@ def _fit_predict_oof(mod, ex: List[Dict[str, Any]], feature_cols: List[str], arg
     transforms = args._feature_transforms or {}
 
     # Fit / load robust scaler
-    scaler: Dict[str, Any] = {}
+    scaler: dict[str, Any] = {}
     if int(args.with_robust_scaler) == 1:
         scaler = mod._fit_robust_scaler(ex, base_feature_names, feature_cols)
 
     # Build X, y, ts
-    X: List[List[float]] = []
-    y: List[int] = []
-    ts: List[int] = []
-    buckets: List[str] = []
+    X: list[list[float]] = []
+    y: list[int] = []
+    ts: list[int] = []
+    buckets: list[str] = []
     for r in ex:
         X.append(mod.build_feature_row(r, base_feature_names, feature_cols, transforms, scaler, strict=int(args.strict) == 1))
         y.append(int(mod._get_label(r)))
@@ -212,8 +213,8 @@ def _fit_predict_oof(mod, ex: List[Dict[str, Any]], feature_cols: List[str], arg
     }
 
 
-def _slice_metrics(y: List[int], p: List[float]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {
+def _slice_metrics(y: list[int], p: list[float]) -> dict[str, Any]:
+    out: dict[str, Any] = {
         "n": int(len(y)),
         "pos_rate": float(sum(int(v) for v in y)) / float(len(y) or 1),
         "auc_roc": _safe_auc_roc(y, p),
@@ -224,12 +225,12 @@ def _slice_metrics(y: List[int], p: List[float]) -> Dict[str, Any]:
     return out
 
 
-def _per_bucket_report(res: Dict[str, Any]) -> Dict[str, Any]:
+def _per_bucket_report(res: dict[str, Any]) -> dict[str, Any]:
     y = res["y"]
     p = res["p_meta"]
     b = res["bucket"]
     buckets = sorted(set(b))
-    rep: Dict[str, Any] = {"overall": _slice_metrics(y, p), "by_bucket": {}}
+    rep: dict[str, Any] = {"overall": _slice_metrics(y, p), "by_bucket": {}}
     for bb in buckets:
         idx = [i for i in range(len(b)) if b[i] == bb]
         rep["by_bucket"][bb] = _slice_metrics([y[i] for i in idx], [p[i] for i in idx])
@@ -272,19 +273,19 @@ def main() -> None:
     # Load transforms once (optional)
     args._feature_transforms = {}
     if args.feature_transforms_json:
-        with open(args.feature_transforms_json, "r", encoding="utf-8") as f:
+        with open(args.feature_transforms_json, encoding="utf-8") as f:
             ft = json.load(f)
         if isinstance(ft, dict):
             args._feature_transforms = ft
 
     rows = mod._load_jsonl(args.data_jsonl)
-    with open(args.feature_cols_json, "r", encoding="utf-8") as f:
+    with open(args.feature_cols_json, encoding="utf-8") as f:
         base_cols = json.load(f)
     if not isinstance(base_cols, list) or not all(isinstance(x, str) for x in base_cols):
         raise SystemExit("feature_cols_json must be a JSON array of strings")
 
     # build examples with the same filtering logic as training
-    ex: List[Dict[str, Any]] = []
+    ex: list[dict[str, Any]] = []
     for r in rows:
         try:
             p = float(r.get("p") or 0.0)
@@ -304,7 +305,7 @@ def main() -> None:
 
     variants = _variant_feature_cols([str(x) for x in base_cols])
 
-    results: Dict[str, Any] = {"meta": {"p_min": float(args.p_min), "n": int(len(ex))}, "variants": {}}
+    results: dict[str, Any] = {"meta": {"p_min": float(args.p_min), "n": int(len(ex))}, "variants": {}}
     for name, cols in variants.items():
         res = _fit_predict_oof(mod, ex, cols, args)
         rep = _per_bucket_report(res)

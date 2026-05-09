@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for position_strategy — POSITION_STRATEGY enum resolver.
 
 Tests:
@@ -18,7 +19,6 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import pytest
 
 
 # Helper to set env cleanly
@@ -119,7 +119,7 @@ def test_backward_compat_scale_in_flag():
 
 
 def test_strategy_summary():
-    from services.position_strategy import strategy_summary, PositionStrategy
+    from services.position_strategy import PositionStrategy, strategy_summary
     s1 = PositionStrategy(name="scale_in", single_active=True, router_enable=True, scale_in_enable=True)
     assert "scale_in" in strategy_summary(s1)
     s2 = PositionStrategy(name="single", single_active=True, router_enable=True, scale_in_enable=False)

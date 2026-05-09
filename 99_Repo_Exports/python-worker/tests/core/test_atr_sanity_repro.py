@@ -1,5 +1,5 @@
-import pytest
 from core.atr_sanity import ATRSanity
+
 
 class TestATRSanityRepro:
     def test_mixed_timeframes_bug(self):
@@ -14,7 +14,7 @@ class TestATRSanityRepro:
         # avg ~ 10.0
         for _ in range(20):
             res = sanity.update(
-                atr=10.0, px=50000.0, age_ms=0, now_ms=1000, 
+                atr=10.0, px=50000.0, age_ms=0, now_ms=1000,
                 symbol=symbol, tf="1m"
             )
             assert res.bad == 0
@@ -24,14 +24,14 @@ class TestATRSanityRepro:
         # This SHOULD be treated as a new stream or separate history.
         # But in the buggy version, it compares 40.0 against 1m median (10.0) -> Jump > 300% -> BAD
         res = sanity.update(
-            atr=40.0, px=50000.0, age_ms=0, now_ms=2000, 
+            atr=40.0, px=50000.0, age_ms=0, now_ms=2000,
             symbol=symbol, tf="15m"
         )
-        
+
         # In FIXED version, this should be 0 (fresh history for 15m).
         # We assert that the fix works.
         print(f"Result for 15m switch: bad={res.bad}, reason={res.reason}")
-        
+
         # Expect NO alert (bad=0) because 15m history is now separate from 1m.
         assert res.bad == 0
         assert res.reason == ""

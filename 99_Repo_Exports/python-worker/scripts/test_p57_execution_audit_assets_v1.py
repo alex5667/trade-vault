@@ -1,8 +1,8 @@
 from __future__ import annotations
+
 """P5.7 asset integrity tests: verify systemd units and runbook reference the expected SoT paths."""
 
 from pathlib import Path
-
 
 # Root of the python-worker subtree (two levels up from scripts/)
 ROOT = Path(__file__).resolve().parents[1]

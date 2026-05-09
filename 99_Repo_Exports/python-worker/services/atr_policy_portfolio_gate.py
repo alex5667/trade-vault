@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+from typing import Any
+
 import redis
-from typing import Any, Dict
+
 
 class PolicyPortfolioGate:
     """
@@ -21,20 +23,20 @@ class PolicyPortfolioGate:
             url = redis_url or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
             self.r = redis.Redis.from_url(url, decode_responses=True)
 
-    def validate(self, signal: Dict[str, Any], ctx: Any = None) -> tuple[bool, str, Dict[str, Any]]:
+    def validate(self, signal: dict[str, Any], ctx: Any = None) -> tuple[bool, str, dict[str, Any]]:
         # Advisory mode toggle is evaluated outside usually, but we keep the gate stateless.
-        
+
         meta = signal.get("meta", {}) if isinstance(signal.get("meta"), dict) else {}
         prov = meta.get("policy_provenance", {}) if isinstance(meta.get("policy_provenance"), dict) else {}
 
-        source = str(signal.get("source") or "CryptoOrderFlow")
-        venue = str(signal.get("venue") or "unknown")
-        symbol = str(signal.get("symbol") or "").upper()
-        side = str(signal.get("side") or str(signal.get("direction")) or "").upper()
+        source = (signal.get("source") or "CryptoOrderFlow")
+        venue = (signal.get("venue") or "unknown")
+        symbol = (signal.get("symbol") or "").upper()
+        side = str(signal.get("side") or (signal.get("direction")) or "").upper()
         scenario = str(prov.get("scenario") or signal.get("kind") or "").lower()
         regime = str(prov.get("regime") or meta.get("regime") or "na").lower()
-        bucket = str(prov.get("risk_horizon_bucket") or "unknown").lower()
-        layer = str(signal.get("atr_policy_layer") or "stop_ttl")
+        bucket = (prov.get("risk_horizon_bucket") or "unknown").lower()
+        layer = (signal.get("atr_policy_layer") or "stop_ttl")
         policy_ver = int(prov.get("policy_ver") or 0)
 
         cluster = str(self.r.get(f"cfg:atr_symbol_cluster:{symbol}") or "unclassified")

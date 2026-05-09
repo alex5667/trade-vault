@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Metrics Publisher - Публикация метрик для Grafana и мониторинга.
 
@@ -13,10 +14,10 @@ Redis схема:
 - metrics:strategy_perf stream = временной ряд для Grafana
 """
 
+import json
 import os
 import time
-import json
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 import redis
 
@@ -32,7 +33,7 @@ class MetricsPublisher:
     - stream: metrics:strategy_perf
     """
 
-    def __init__(self, redis_url: Optional[str] = None):
+    def __init__(self, redis_url: str | None = None):
         """
         Инициализация Metrics Publisher.
         
@@ -58,8 +59,8 @@ class MetricsPublisher:
         *,
         strategy: str,
         symbol: str,
-        metrics: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        metrics: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Публикация метрик для стратегии/символа.
         
@@ -115,7 +116,7 @@ class MetricsPublisher:
             self.logger.error(f"❌ Ошибка публикации метрик: {e}", exc_info=True)
             return {}
 
-    def get_latest(self, strategy: str, symbol: str) -> Optional[Dict[str, Any]]:
+    def get_latest(self, strategy: str, symbol: str) -> dict[str, Any] | None:
         """
         Получение последних опубликованных метрик.
         
@@ -142,9 +143,9 @@ class MetricsPublisher:
     def get_timeseries(
         self,
         count: int = 100,
-        strategy: Optional[str] = None,
-        symbol: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        strategy: str | None = None,
+        symbol: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         Получение временного ряда метрик.
         

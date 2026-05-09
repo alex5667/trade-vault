@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Metrics - Расчёт аналитических метрик для торговых сигналов.
 
@@ -14,9 +15,10 @@ Metrics - Расчёт аналитических метрик для торго
 - Работает с Signal и Order объектами
 """
 
-import numpy as np
-from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
 
 from common.log import setup_logger
 
@@ -24,12 +26,12 @@ from common.log import setup_logger
 @dataclass
 class ROCResult:
     """Результат ROC анализа"""
-    fpr: List[float]  # False Positive Rate
-    tpr: List[float]  # True Positive Rate
-    thresholds: List[float]
+    fpr: list[float]  # False Positive Rate
+    tpr: list[float]  # True Positive Rate
+    thresholds: list[float]
     auc: float
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "fpr": self.fpr,
             "tpr": self.tpr,
@@ -42,8 +44,8 @@ logger = setup_logger("Metrics")
 
 
 def calculate_roc_auc(
-    scores: List[float],
-    labels: List[int],
+    scores: list[float],
+    labels: list[int],
 ) -> ROCResult:
     """
     Вычисление ROC кривой и AUC.
@@ -113,9 +115,9 @@ def calculate_roc_auc(
 
 
 def roc_from_signals(
-    signals: List[Any],
-    order_by_signal: Dict[str, Any]
-) -> Optional[ROCResult]:
+    signals: list[Any],
+    order_by_signal: dict[str, Any]
+) -> ROCResult | None:
     """
     Построение ROC кривой из сигналов и их результатов.
 
@@ -164,7 +166,7 @@ def calculate_precision_recall(
     tp: int,
     fp: int,
     fn: int
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Вычисление Precision, Recall и F1-score.
 
@@ -184,10 +186,10 @@ def calculate_precision_recall(
 
 
 def calculate_confusion_matrix(
-    scores: List[float],
-    labels: List[int],
+    scores: list[float],
+    labels: list[int],
     threshold: float
-) -> Tuple[int, int, int, int]:
+) -> tuple[int, int, int, int]:
     """
     Вычисление confusion matrix для заданного порога.
 
@@ -230,7 +232,7 @@ def calculate_youden_index(tpr: float, fpr: float) -> float:
 def find_best_threshold(
     roc: ROCResult,
     method: str = "youden"
-) -> Tuple[float, Dict[str, float]]:
+) -> tuple[float, dict[str, float]]:
     """
     Поиск оптимального порога.
 
@@ -243,7 +245,7 @@ def find_best_threshold(
     """
     best_threshold = 0.5
     best_score = -np.inf
-    best_metrics: Dict[str, float] = {}
+    best_metrics: dict[str, float] = {}
 
     for i, threshold in enumerate(roc.thresholds):
         tpr = roc.tpr[i]

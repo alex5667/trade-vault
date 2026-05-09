@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Tests for health_reporter CVD quarantine and streams reporting functionality.
 
@@ -7,9 +8,7 @@ integrated from trade_patch_reports_cvd_and_streams_health_v1.diff
 """
 
 import json
-import os
-import time
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 import redis
@@ -17,10 +16,6 @@ import redis
 from services.reports.health_reporter import (
     _report_cvd,
     _report_streams,
-    _sscan_all,
-    _now_ms,
-    _decode,
-    _redis,
 )
 
 
@@ -39,9 +34,9 @@ class TestCVDQuarantineReporting:
     def test_report_cvd_no_quarantine(self, mock_redis):
         """Test CVD report when no symbols are in quarantine."""
         mock_redis.sscan.return_value = (0, [])
-        
+
         result_text, result_count = _report_cvd(mock_redis, top_n=15)
-        
+
         assert result_count == 0
         assert "ok (no quarantine)" in result_text
 
@@ -50,7 +45,7 @@ class TestCVDQuarantineReporting:
         # Setup mock data
         symbols = ["BTCUSDT", "ETHUSDT"]
         mock_redis.sscan.return_value = (0, symbols)
-        
+
         # Mock pipeline execution
         now_ms = get_ny_time_millis()
         until_ms = now_ms + 3600000  # 1 hour from now
@@ -66,15 +61,15 @@ class TestCVDQuarantineReporting:
             "mode": "volume",
             "ts_ms": now_ms - 2000
         })
-        
+
         # Setup pipeline mock
         pipe = Mock()
         pipe.get = Mock(return_value=pipe)
         pipe.execute.return_value = [meta1.encode('utf-8'), meta2.encode('utf-8')]
         mock_redis.pipeline.return_value = pipe
-        
+
         result_text, result_count = _report_cvd(mock_redis, top_n=15)
-        
+
         assert result_count == 2
         assert "CVD quarantine (top):" in result_text
         assert "BTCUSDT" in result_text
@@ -87,7 +82,7 @@ class TestCVDQuarantineReporting:
         """Test that CVD items are sorted by remaining TTL (longest first)."""
         symbols = ["BTCUSDT", "ETHUSDT"]
         mock_redis.sscan.return_value = (0, symbols)
-        
+
         now_ms = get_ny_time_millis()
         # BTCUSDT: 2 hours remaining
         meta1 = json.dumps({
@@ -103,14 +98,14 @@ class TestCVDQuarantineReporting:
             "mode": "volume",
             "ts_ms": now_ms
         })
-        
+
         pipe = Mock()
         pipe.get = Mock(return_value=pipe)
         pipe.execute.return_value = [meta1.encode('utf-8'), meta2.encode('utf-8')]
         mock_redis.pipeline.return_value = pipe
-        
+
         result_text, result_count = _report_cvd(mock_redis, top_n=15)
-        
+
         assert result_count == 2
         # BTCUSDT should appear first (longer TTL)
         btc_pos = result_text.find("BTCUSDT")
@@ -121,7 +116,7 @@ class TestCVDQuarantineReporting:
         """Test that CVD report respects top_n limit."""
         symbols = [f"SYM{i}" for i in range(20)]
         mock_redis.sscan.return_value = (0, symbols)
-        
+
         now_ms = get_ny_time_millis()
         metas = []
         for i in range(20):
@@ -132,14 +127,14 @@ class TestCVDQuarantineReporting:
                 "ts_ms": now_ms
             })
             metas.append(meta.encode('utf-8'))
-        
+
         pipe = Mock()
         pipe.get = Mock(return_value=pipe)
         pipe.execute.return_value = metas
         mock_redis.pipeline.return_value = pipe
-        
+
         result_text, result_count = _report_cvd(mock_redis, top_n=5)
-        
+
         # Should only show top 5
         assert result_count == 5
         assert result_text.count("- ") == 5
@@ -153,9 +148,9 @@ class TestStreamsHealthReporting:
         mock_redis.xlen.side_effect = Exception("Key not found")
         mock_redis.scard.side_effect = Exception("Key not found")
         mock_redis.sscan.return_value = (0, [])
-        
+
         result_text, result_count = _report_streams(mock_redis, top_n=15)
-        
+
         assert result_count == 0
         assert "no data" in result_text
 
@@ -167,9 +162,9 @@ class TestStreamsHealthReporting:
         }.get(key, 0)
         mock_redis.scard.return_value = 10
         mock_redis.sscan.return_value = (0, [])
-        
+
         result_text, result_count = _report_streams(mock_redis, top_n=15)
-        
+
         assert "Streams health:" in result_text
         assert "symbols_active: 10" in result_text
         assert "legacy_xlen: 1000" in result_text
@@ -187,14 +182,14 @@ class TestStreamsHealthReporting:
             "events:microbar_closed:SOLUSDT": 5000
         }.get(key, 0)
         mock_redis.scard.return_value = 3
-        
+
         pipe = Mock()
         pipe.xlen = Mock(return_value=pipe)
         pipe.execute.return_value = [200, 50, 5000]
         mock_redis.pipeline.return_value = pipe
-        
+
         result_text, result_count = _report_streams(mock_redis, top_n=15)
-        
+
         assert result_count == 3
         assert "per-symbol xlen (smallest):" in result_text
         assert "per-symbol xlen (largest):" in result_text
@@ -209,15 +204,15 @@ class TestStreamsHealthReporting:
         mock_redis.sscan.return_value = (0, symbols)
         mock_redis.xlen.return_value = 1000
         mock_redis.scard.return_value = 20
-        
+
         pipe = Mock()
         pipe.xlen = Mock(return_value=pipe)
         # Create varied xlen values
         pipe.execute.return_value = [i * 10 for i in range(20)]
         mock_redis.pipeline.return_value = pipe
-        
+
         result_text, result_count = _report_streams(mock_redis, top_n=5)
-        
+
         assert result_count == 20
         # Should show top 5 smallest and top 5 largest
         lines = result_text.split("\n")
@@ -225,7 +220,7 @@ class TestStreamsHealthReporting:
         largest_section = False
         smallest_count = 0
         largest_count = 0
-        
+
         for line in lines:
             if "per-symbol xlen (smallest):" in line:
                 smallest_section = True
@@ -238,14 +233,14 @@ class TestStreamsHealthReporting:
                 smallest_count += 1
             if largest_section and line.strip().startswith("-"):
                 largest_count += 1
-        
+
         assert smallest_count <= 5
         assert largest_count <= 5
 
 
 class TestCVDQuarantineMetaPersistence:
     """Tests for CVD quarantine metadata persistence in strategy.py."""
-    
+
     @pytest.mark.asyncio
     async def test_cvd_quarantine_meta_saved_to_redis(self):
         """Test that CVD quarantine metadata is saved to Redis when active."""

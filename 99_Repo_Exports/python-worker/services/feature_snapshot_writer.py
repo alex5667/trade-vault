@@ -1,5 +1,6 @@
 # services/feature_snapshot_writer.py
 from __future__ import annotations
+
 """
 FeatureSnapshotWriter — асинхронная fail-open персистенция снимков фичей
 в гипертаблицу features_pit.
@@ -11,11 +12,11 @@ FeatureSnapshotWriter — асинхронная fail-open персистенц�
 import json
 import logging
 import threading
-from typing import Any, Dict, Optional
+from typing import Any
 
 log = logging.getLogger("feature_snapshot_writer")
 
-_instance: Optional["FeatureSnapshotWriter"] = None
+_instance: FeatureSnapshotWriter | None = None
 _lock = threading.Lock()
 
 
@@ -25,7 +26,7 @@ class FeatureSnapshotWriter:
     def __init__(self) -> None:
         pass
 
-    def emit_to_db(self, symbol: str, ts_ms: int, feature_set: Dict[str, Any]) -> bool:
+    def emit_to_db(self, symbol: str, ts_ms: int, feature_set: dict[str, Any]) -> bool:
         """
         INSERT в features_pit таблицу.
         Идемпотентная ставка ON CONFLICT (symbol, ts) DO NOTHING.
@@ -36,7 +37,7 @@ class FeatureSnapshotWriter:
             VALUES (%s, %s, %s::jsonb)
             ON CONFLICT (symbol, ts) DO NOTHING
         """
-        
+
         # Конвертация типов для JSON (избежание float32 json errors)
         try:
             safe_features = json.loads(json.dumps(feature_set, default=str))
@@ -60,7 +61,7 @@ class FeatureSnapshotWriter:
             log.warning("⚠️ feature_snapshot DB persist failed (fail-open): %s", e)
             return False
 
-    def emit_async(self, symbol: str, ts_ms: int, feature_set: Dict[str, Any]) -> None:
+    def emit_async(self, symbol: str, ts_ms: int, feature_set: dict[str, Any]) -> None:
         """Асинхронно пишет в БД, чтобы не блокировать hot-path торговли."""
         def _task():
             success = self.emit_to_db(symbol, ts_ms, feature_set)

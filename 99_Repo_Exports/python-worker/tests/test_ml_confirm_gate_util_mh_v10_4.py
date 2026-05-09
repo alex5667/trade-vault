@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Unit test for MLConfirmGate util_mh_v1 (v10.4 champion JSON compatibility).
 
@@ -10,10 +11,10 @@ Tests:
 - Scenario normalization (|, space, :, @ separators)
 """
 
-import time
 import numpy as np
 import pytest
-from services.ml_confirm_gate import MLConfirmGate, MLConfirmDecision, _scenario_norm
+
+from services.ml_confirm_gate import MLConfirmGate, _scenario_norm
 
 
 class DummyUtilMH:
@@ -39,8 +40,9 @@ class DummyUtilMH:
 
 def test_util_mh_floor_and_best_h():
     """Test that best horizon is selected and floor check works."""
-    import redis
     from unittest.mock import Mock
+
+    import redis
 
     # Mock Redis
     r = Mock(spec=redis.Redis)
@@ -94,8 +96,9 @@ def test_util_mh_floor_and_best_h():
 
 def test_util_mh_by_bucket_floor():
     """Test that bucket-specific floor is used when available."""
-    import redis
     from unittest.mock import Mock
+
+    import redis
 
     r = Mock(spec=redis.Redis)
     r.get = Mock(return_value=None)
@@ -143,8 +146,9 @@ def test_util_mh_by_bucket_floor():
 
 def test_util_mh_missing_critical_enforce():
     """Test that ENFORCE mode blocks when critical features are missing."""
-    import redis
     from unittest.mock import Mock
+
+    import redis
 
     r = Mock(spec=redis.Redis)
     r.get = Mock(return_value=None)
@@ -188,8 +192,9 @@ def test_util_mh_missing_critical_enforce():
 
 def test_util_mh_missing_critical_shadow():
     """Test that SHADOW mode allows even when critical features are missing."""
-    import redis
     from unittest.mock import Mock
+
+    import redis
 
     r = Mock(spec=redis.Redis)
     r.get = Mock(return_value=None)
@@ -233,9 +238,10 @@ def test_util_mh_missing_critical_shadow():
 
 def test_util_mh_exec_risk_norm_derivation():
     """Test that exec_risk_norm is derived when missing."""
-    import redis
-    from unittest.mock import Mock
     import os
+    from unittest.mock import Mock
+
+    import redis
 
     r = Mock(spec=redis.Redis)
     r.get = Mock(return_value=None)
@@ -288,34 +294,34 @@ def test_scenario_norm_unit():
         ("range_meanrev", "range_meanrev"),
         ("RANGE_MEANREV", "range_meanrev"),  # lowercase
         ("  range_meanrev  ", "range_meanrev"),  # strip whitespace
-        
+
         # Pipe separator (existing)
         ("range_meanrev|extra_info", "range_meanrev"),
         ("range_meanrev|", "range_meanrev"),
         ("continuation|v1|extra", "continuation"),
-        
+
         # Space separator (existing)
         ("range_meanrev extra", "range_meanrev"),
         ("range_meanrev ", "range_meanrev"),
         ("reversal v2", "reversal"),
-        
+
         # Colon separator (new)
         ("range_meanrev:v2", "range_meanrev"),
         ("range_meanrev:v3:extra", "range_meanrev"),
         ("continuation:latest", "continuation"),
         ("vol_shock_news_proxy:v1", "vol_shock_news_proxy"),
-        
+
         # At symbol separator (new)
         ("range_meanrev@X", "range_meanrev"),
         ("range_meanrev@canary", "range_meanrev"),
         ("saw_chop_spoof_proxy@test", "saw_chop_spoof_proxy"),
-        
+
         # Combined separators (should process in order: |, space, :, @)
         ("range_meanrev|info:v2", "range_meanrev"),  # | takes precedence
         ("range_meanrev info:v2", "range_meanrev"),  # space takes precedence
         ("range_meanrev:v2@X", "range_meanrev"),  # : takes precedence
         ("range_meanrev@X:v2", "range_meanrev"),  # @ takes precedence
-        
+
         # Edge cases
         ("", ""),
         (None, ""),
@@ -325,7 +331,7 @@ def test_scenario_norm_unit():
         (" :@| ", ""),
         ("a|b:c@d", "a"),  # all separators, | wins
     ]
-    
+
     for input_scenario, expected in test_cases:
         result = _scenario_norm(input_scenario)
         assert result == expected, f"Input: {input_scenario!r}, Expected: {expected!r}, Got: {result!r}"
@@ -333,8 +339,9 @@ def test_scenario_norm_unit():
 
 def test_util_mh_scenario_normalization():
     """Test that scenario normalization works for one-hot encoding in ML gate."""
-    import redis
     from unittest.mock import Mock
+
+    import redis
 
     r = Mock(spec=redis.Redis)
     r.get = Mock(return_value=None)
@@ -366,7 +373,7 @@ def test_util_mh_scenario_normalization():
         "range_meanrev@X",           # at symbol (new)
         "range_meanrev",             # clean format
     ]
-    
+
     for scenario in test_scenarios:
         dec = gate.check(
             symbol="BTCUSDT",
@@ -380,7 +387,7 @@ def test_util_mh_scenario_normalization():
             cancel_spike_veto=0,
             ok_rule=1,
         )
-        
+
         # All should normalize to "range_meanrev" and recognize as "range" bucket
         assert dec.bucket == "range", f"Failed for scenario: {scenario!r}, got bucket: {dec.bucket!r}, reason: {dec.reason!r}"
 

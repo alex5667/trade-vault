@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """common.market_mode
 
 Single source of truth for regime / market-mode label normalisation.

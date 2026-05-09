@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Nightly feature drift report (PSI + KS) for key online features.
@@ -36,10 +37,10 @@ import fnmatch
 import json
 import math
 import os
-import time
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, MutableMapping, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -57,7 +58,7 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 
-_TIER1_PATTERNS: Tuple[str, ...] = (
+_TIER1_PATTERNS: tuple[str, ...] = (
     "ofi_norm",
     "dw_obi",
     "depth_slope_*",
@@ -93,7 +94,7 @@ class FeatureDriftRow:
     flag_crit: int
     denylist_suggested: int
     shadow_disable_suggested: int
-    reasons: List[str]
+    reasons: list[str]
 
 
 @dataclass(frozen=True)
@@ -121,22 +122,22 @@ def _now_ms() -> int:
 def _safe_float(x: Any, d: float = 0.0) -> float:
     try:
         if x is None:
-            return float(d)
+            return d
         v = float(x)
         if not math.isfinite(v):
-            return float(d)
+            return d
         return float(v)
     except Exception:
-        return float(d)
+        return d
 
 
 def _safe_int(x: Any, d: int = 0) -> int:
     try:
         if x is None:
-            return int(d)
+            return d
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _json_default(x: Any) -> Any:
@@ -154,16 +155,16 @@ def _match_any(name: str, patterns: Sequence[str]) -> bool:
     return any(fnmatch.fnmatch(name, p) for p in patterns)
 
 
-def _candidate_feature_names(columns: Iterable[str], patterns: Sequence[str]) -> List[str]:
-    out: List[str] = []
+def _candidate_feature_names(columns: Iterable[str], patterns: Sequence[str]) -> list[str]:
+    out: list[str] = []
     for c in columns:
         if _match_any(str(c), patterns):
             out.append(str(c))
     return sorted(set(out))
 
 
-def _iter_jsonl(path: str) -> Iterator[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def _iter_jsonl(path: str) -> Iterator[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -185,8 +186,8 @@ def _maybe_nested_feature(row: Mapping[str, Any], feature: str) -> Any:
     return None
 
 
-def _gather_from_jsonl(path: str, selected_features: Sequence[str]) -> Dict[str, List[float | None]]:
-    out: Dict[str, List[float | None]] = {f: [] for f in selected_features}
+def _gather_from_jsonl(path: str, selected_features: Sequence[str]) -> dict[str, list[float | None]]:
+    out: dict[str, list[float | None]] = {f: [] for f in selected_features}
     for row in _iter_jsonl(path):
         for f in selected_features:
             v = _maybe_nested_feature(row, f)
@@ -200,7 +201,7 @@ def _gather_from_jsonl(path: str, selected_features: Sequence[str]) -> Dict[str,
     return out
 
 
-def _infer_jsonl_features(path: str, patterns: Sequence[str], max_rows: int = 1024) -> List[str]:
+def _infer_jsonl_features(path: str, patterns: Sequence[str], max_rows: int = 1024) -> list[str]:
     seen: set[str] = set()
     n = 0
     for row in _iter_jsonl(path):
@@ -218,7 +219,7 @@ def _infer_jsonl_features(path: str, patterns: Sequence[str], max_rows: int = 10
     return sorted(seen)
 
 
-def _load_wide_table(path: str) -> "pd.DataFrame":
+def _load_wide_table(path: str) -> pd.DataFrame:
     if pd is None:
         raise RuntimeError("pandas is required for csv/parquet feature drift inputs")
     p = str(path).lower()
@@ -229,7 +230,7 @@ def _load_wide_table(path: str) -> "pd.DataFrame":
     raise RuntimeError(f"unsupported tabular format: {path}")
 
 
-def _load_feature_vectors(path: str, selected_features: Sequence[str], patterns: Sequence[str]) -> Tuple[Dict[str, List[float | None]], List[str]]:
+def _load_feature_vectors(path: str, selected_features: Sequence[str], patterns: Sequence[str]) -> tuple[dict[str, list[float | None]], list[str]]:
     p = str(path).lower()
     if p.endswith(".jsonl") or p.endswith(".ndjson"):
         feats = list(selected_features) if selected_features else _infer_jsonl_features(path, patterns)
@@ -237,10 +238,10 @@ def _load_feature_vectors(path: str, selected_features: Sequence[str], patterns:
 
     df = _load_wide_table(path)
     feats = list(selected_features) if selected_features else _candidate_feature_names(df.columns, patterns)
-    out: Dict[str, List[float | None]] = {}
+    out: dict[str, list[float | None]] = {}
     for f in feats:
         if f not in df.columns:
-            out[f] = [None] * int(len(df))
+            out[f] = [None] * len(df)
         else:
             vals = []
             for x in df[f].tolist():
@@ -271,7 +272,7 @@ def _score_feature(
     psi_res = psi_report(ref_vals, cur_vals)
     ks_res = ks_report(ref_vals, cur_vals)
 
-    reasons: List[str] = []
+    reasons: list[str] = []
     warn = 0
     crit = 0
 
@@ -308,23 +309,23 @@ def _score_feature(
 
     return FeatureDriftRow(
         feature=str(feature),
-        n_ref=int(psi_res.n_ref),
-        n_cur=int(psi_res.n_cur),
-        psi=float(psi_res.psi),
-        ks_stat=float(ks_res.ks_stat),
-        ks_pvalue=float(ks_res.ks_pvalue),
-        missing_rate_delta=float(psi_res.missing_rate_delta),
-        zero_rate_delta=float(psi_res.zero_rate_delta),
-        clip_rate_delta=float(psi_res.clip_rate_delta),
-        missing_rate_ref=float(psi_res.missing_rate_ref),
-        missing_rate_cur=float(psi_res.missing_rate_cur),
-        zero_rate_ref=float(psi_res.zero_rate_ref),
-        zero_rate_cur=float(psi_res.zero_rate_cur),
-        clip_rate_ref=float(psi_res.clip_rate_ref),
-        clip_rate_cur=float(psi_res.clip_rate_cur),
-        flag_warn=int(warn),
-        flag_crit=int(crit),
-        denylist_suggested=int(denylist_suggested),
+        n_ref=psi_res.n_ref,
+        n_cur=psi_res.n_cur,
+        psi=psi_res.psi,
+        ks_stat=ks_res.ks_stat,
+        ks_pvalue=ks_res.ks_pvalue,
+        missing_rate_delta=psi_res.missing_rate_delta,
+        zero_rate_delta=psi_res.zero_rate_delta,
+        clip_rate_delta=psi_res.clip_rate_delta,
+        missing_rate_ref=psi_res.missing_rate_ref,
+        missing_rate_cur=psi_res.missing_rate_cur,
+        zero_rate_ref=psi_res.zero_rate_ref,
+        zero_rate_cur=psi_res.zero_rate_cur,
+        clip_rate_ref=psi_res.clip_rate_ref,
+        clip_rate_cur=psi_res.clip_rate_cur,
+        flag_warn=warn,
+        flag_crit=crit,
+        denylist_suggested=denylist_suggested,
         shadow_disable_suggested=int(shadow_disable),
         reasons=sorted(set(reasons)),
     )
@@ -347,10 +348,10 @@ def build_feature_drift_report(
     zero_delta_warn: float = 0.10,
     clip_delta_warn: float = 0.05,
     min_samples: int = 64,
-) -> Dict[str, Any]:
-    selected_features = [s.strip() for s in str(features_csv or "").split(",") if s.strip()]
+) -> dict[str, Any]:
+    selected_features = [s.strip() for s in (features_csv or "").split(",") if s.strip()]
     patterns = list(_TIER1_PATTERNS if int(tier1_only) == 1 else ())
-    patterns.extend([s.strip() for s in str(extra_patterns_csv or "").split(",") if s.strip()])
+    patterns.extend([s.strip() for s in (extra_patterns_csv or "").split(",") if s.strip()])
     if not selected_features and not patterns:
         patterns = list(_TIER1_PATTERNS)
 
@@ -362,9 +363,9 @@ def build_feature_drift_report(
     else:
         features = sorted(set(ref_feats) | set(cur_feats))
 
-    protect_patterns = [s.strip() for s in str(protect_patterns_csv or "").split(",") if s.strip()]
+    protect_patterns = [s.strip() for s in (protect_patterns_csv or "").split(",") if s.strip()]
 
-    rows: List[FeatureDriftRow] = []
+    rows: list[FeatureDriftRow] = []
     for f in features:
         row = _score_feature(
             f,
@@ -399,8 +400,8 @@ def build_feature_drift_report(
 
     summary = FeatureDriftSummary(
         status=status,
-        features_total=int(len(features)),
-        features_evaluated=int(len(rows)),
+        features_total=len(features),
+        features_evaluated=len(rows),
         warn_n=int(warn_n),
         crit_n=int(crit_n),
         denylist_suggest_n=int(deny_n),
@@ -434,7 +435,7 @@ def _write_json(path: str, obj: Any) -> None:
 
 def _write_csv(path: str, rows: Sequence[Mapping[str, Any]]) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    cols: List[str] = []
+    cols: list[str] = []
     for r in rows:
         for k in r.keys():
             if k not in cols:
@@ -456,7 +457,7 @@ def _write_metrics_hash(redis_url: str, metrics_key: str, report_json: str, rep:
         r = redis.Redis.from_url(redis_url, decode_responses=True)
         s = dict(rep.get("summary") or {})
         mapping = {
-            "status": str(s.get("status", "")),
+            "status": (s.get("status", "")),
             "updated_ts_ms": int(rep.get("ts_ms", 0) or 0),
             "features_total": int(s.get("features_total", 0) or 0),
             "features_evaluated": int(s.get("features_evaluated", 0) or 0),
@@ -464,12 +465,12 @@ def _write_metrics_hash(redis_url: str, metrics_key: str, report_json: str, rep:
             "crit_n": int(s.get("crit_n", 0) or 0),
             "denylist_suggest_n": int(s.get("denylist_suggest_n", 0) or 0),
             "shadow_disable_suggest_n": int(s.get("shadow_disable_suggest_n", 0) or 0),
-            "worst_feature": str(s.get("worst_feature", "")),
+            "worst_feature": (s.get("worst_feature", "")),
             "worst_psi": float(s.get("worst_psi", 0.0) or 0.0),
             "worst_ks_stat": float(s.get("worst_ks_stat", 0.0) or 0.0),
             "report_json": str(report_json),
-            "reference_path": str(rep.get("reference_path", "")),
-            "current_path": str(rep.get("current_path", "")),
+            "reference_path": (rep.get("reference_path", "")),
+            "current_path": (rep.get("current_path", "")),
         }
         r.hset(metrics_key, mapping={str(k): str(v) for k, v in mapping.items()})
     except Exception:
@@ -480,7 +481,7 @@ def _write_metrics_hash(redis_url: str, metrics_key: str, report_json: str, rep:
 # CLI
 # ---------------------------------------------------------------------------
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Nightly feature drift batch report (PSI/KS)")
     ap.add_argument("--reference_path", required=True)
     ap.add_argument("--current_path", required=True)

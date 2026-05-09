@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """ExecHealth Redis reconnect chaos/integration harness.
 
 P16 adds an operator-facing harness and deterministic integration tests for the
@@ -16,7 +17,7 @@ The harness can run against a real Redis URL or against test doubles.
 import argparse
 import json
 import os
-from typing import Any, Dict
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -31,13 +32,14 @@ from services.orderflow.exec_health_freeze_service_identity import (
     ensure_service_identity_sync,
     get_expected_service,
 )
+import contextlib
 
 
 def _s(x: Any, d: str = '') -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
 class ChaosHarness:
@@ -49,22 +51,20 @@ class ChaosHarness:
         self.service = service
         self.r = redis.Redis.from_url(redis_url, decode_responses=True)
 
-    def _read_heal_state(self) -> Dict[str, Any]:
+    def _read_heal_state(self) -> dict[str, Any]:
         try:
             return self.r.hgetall(get_heal_state_key(self.service)) or {}
         except Exception:
             return {}
 
     def _clear_state(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.r.delete(get_heal_state_key(self.service))
-        except Exception:
-            pass
 
-    def _current_entry(self) -> Dict[str, Any]:
+    def _current_entry(self) -> dict[str, Any]:
         raw = self.r.execute_command('CLIENT', 'LIST', 'ID', self.r.execute_command('CLIENT', 'ID'))
         line = _s(raw).splitlines()[0]
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         for part in line.split():
             if '=' not in part:
                 continue
@@ -84,7 +84,7 @@ class ChaosHarness:
         if mode in {'reconnect-lib', 'reconnect-both'}:
             self.r.execute_command('CLIENT', 'SETINFO', 'LIB-NAME', f'chaos-{expected.lib_name}-bad')
 
-    def run_repairable(self, mode: str) -> Dict[str, Any]:
+    def run_repairable(self, mode: str) -> dict[str, Any]:
         self._clear_state()
         ensure_service_identity_sync(self.r, self.service)
         # Seed heal-state/cache on the healthy connection so the next client-id
@@ -111,7 +111,7 @@ class ChaosHarness:
             'state': state,
         }
 
-    def run_wrong_user(self) -> Dict[str, Any]:
+    def run_wrong_user(self) -> dict[str, Any]:
         url = self.wrong_user_url or self.redis_url
         r = redis.Redis.from_url(url, decode_responses=True)
         try:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ML Meta-Labeling Trainer: Train LogisticRegression + Platt/Isotonic calibration.
 
 Why:
@@ -13,20 +14,20 @@ Usage:
 import argparse
 import json
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 try:
     import numpy as np
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import roc_auc_score, precision_recall_fscore_support
     from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
+    from sklearn.model_selection import train_test_split
 except Exception as e:
     raise SystemExit("Missing deps. Install: pip install numpy scikit-learn") from e
 
 
 def iter_ndjson(path: str):
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -38,10 +39,10 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
-def build_xy(rows: List[Dict[str, Any]], feat_names: List[str]) -> Tuple[np.ndarray, np.ndarray]:
+def build_xy(rows: list[dict[str, Any]], feat_names: list[str]) -> tuple[np.ndarray, np.ndarray]:
     X = np.zeros((len(rows), len(feat_names)), dtype=np.float32)
     y = np.zeros((len(rows),), dtype=np.int64)
     for i, r in enumerate(rows):
@@ -86,7 +87,7 @@ def main() -> None:
     ]
 
     X, y = build_xy(rows, feat)
-    
+
     # Handle single-class case (e.g. all 1s or all 0s)
     classes = np.unique(y)
     if len(classes) < 2:

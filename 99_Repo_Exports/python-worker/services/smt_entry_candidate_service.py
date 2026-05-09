@@ -1,27 +1,26 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
-import os
-import time
 import logging
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
-import redis.asyncio as aioredis # type: ignore
+import redis.asyncio as aioredis  # type: ignore
 
 from services.abc_router import choose_arm_abc
-from services.smt_entry_abc_config import ABCPolicyLoader, ArmPolicy
 from services.entry_policy_overrides_v1 import EntryPolicyOverridesV1
-from core.redis_keys import RedisStreams as RS
+from services.smt_entry_abc_config import ABCPolicyLoader, ArmPolicy
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _json_load(s: str) -> Dict[str, Any]:
+def _json_load(s: str) -> dict[str, Any]:
     try:
         d = json.loads(s)
         return d if isinstance(d, dict) else {}
@@ -29,7 +28,7 @@ def _json_load(s: str) -> Dict[str, Any]:
         return {}
 
 
-def _json_dump(d: Dict[str, Any]) -> str:
+def _json_dump(d: dict[str, Any]) -> str:
     return json.dumps(d, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -123,13 +122,13 @@ def _inside_band(px: float, lo: float, hi: float) -> bool:
     return a <= px <= b
 
 
-def _mk_ab_key(setup: Any, snap: Dict[str, Any]) -> str:
+def _mk_ab_key(setup: Any, snap: dict[str, Any]) -> str:
     try:
         ts_ms = int(snap.get("ts_ms", 0) or 0)
     except Exception:
         ts_ms = 0
     mb = ts_ms // 60000 if ts_ms > 0 else 0
-    zid = str(snap.get("zone_id", "") or "")
+    zid = (snap.get("zone_id", "") or "")
     bundle = str(getattr(setup, "bundle", "") or "")
     return f"{bundle}|{setup.kind}|{setup.leader}|{setup.pick}|{zid}|{mb}"
 
@@ -138,16 +137,16 @@ def _fsm_step(
     *,
     setup: Setup,
     st: RetestState,
-    snap: Dict[str, Any],
+    snap: dict[str, Any],
     now_ms: int,
     touch_bp: float,
     away_bp: float,
     retest_bp: float,
     pol: ArmPolicy = None,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     try:
         px = float(snap.get("close_px", 0.0) or 0.0)
-        zid = str(snap.get("zone_id", "") or "")
+        zid = (snap.get("zone_id", "") or "")
         zlo = float(snap.get("zone_px_lo", 0.0) or 0.0)
         zhi = float(snap.get("zone_px_hi", 0.0) or 0.0)
         dist_bp = float(snap.get("zone_dist_bp", 0.0) or 0.0)
@@ -186,14 +185,14 @@ def _fsm_step(
     if st.stage == "WAIT_RETEST":
         if near_retest:
             want = _desired_side(setup)
-            zone_side = str(snap.get("zone_side", "NA") or "NA").upper()
-            
+            zone_side = (snap.get("zone_side", "NA") or "NA").upper()
+
             if want == "LONG" and zone_side not in ("SUP", "MID", "NA"):
                 return False, "zone_side_mismatch"
             if want == "SHORT" and zone_side not in ("RES", "MID", "NA"):
                 return False, "zone_side_mismatch"
-            
-            regime = str(snap.get("regime", "na") or "na").lower()
+
+            regime = (snap.get("regime", "na") or "na").lower()
             unstable = int(snap.get("abs_lvl_th_unstable", 0) or 0)
             adx_q = float(snap.get("adx_q", 0.5) or 0.5)
 
@@ -236,7 +235,7 @@ class SmtEntryCandidateService:
     def __init__(self, r: aioredis.Redis) -> None:
         self.r = r
         self._abc = ABCPolicyLoader(cfg_key=os.getenv("CFG_SMT_ENTRY_ABC_KEY", "cfg:smt_entry:abc:config"))
-        
+
         self.streams = Streams(
             in_stream=os.getenv("SMT_SETUP_STREAM", "stream:signals"),
             in_group=os.getenv("SMT_SETUP_GROUP", "smt_entry"),
@@ -246,17 +245,17 @@ class SmtEntryCandidateService:
         )
         self.maxlen = int(os.getenv("SMT_ENTRY_MAXLEN", "20000"))
         self.snap_prefix = os.getenv("SMT_SNAP_PREFIX", "smt:snap:")
-        
+
         self.max_wait_ms = int(os.getenv("SMT_RETEST_MAX_WAIT_MS", "120000"))
         self.dedup_ms = int(os.getenv("SMT_ENTRY_DEDUP_MS", "60000"))
         self.poll_ms = int(os.getenv("SMT_ENTRY_POLL_MS", "100"))
-        self._dedup: Dict[str, int] = {}
-        
+        self._dedup: dict[str, int] = {}
+
         self._ovr: EntryPolicyOverridesV1 = EntryPolicyOverridesV1()
         self._ovr_loaded_ts_ms: int = 0
         self._ovr_last_apply_ts_ms: int = 0
-        
-        self.active: Dict[str, Tuple[Setup, RetestState]] = {}
+
+        self.active: dict[str, tuple[Setup, RetestState]] = {}
 
     async def _maybe_poll_overrides(self, now_ms: int, group: str) -> None:
         try:
@@ -287,17 +286,17 @@ class SmtEntryCandidateService:
 
     async def run_forever(self) -> None:
         logger = logging.getLogger("smt_entry_candidate")
-        
+
         from core.redis_client import wait_for_redis_async
         if not await wait_for_redis_async(self.r):
             logger.error("❌ Redis is not ready after wait. Exiting.")
             return
 
         logger.info("🚀 SMT Entry Candidate Service started (Group: %s)", self.streams.in_group)
-        
+
         from core.redis_stream_consumer import AsyncRedisStreamHelper
         helper = AsyncRedisStreamHelper(self.r, self.streams.in_group, self.streams.in_consumer)
-        
+
         # Ensure consumer group exists
         try:
             await helper.ensure_group(self.streams.in_stream, start_id="0")
@@ -316,14 +315,14 @@ class SmtEntryCandidateService:
                                 payload = _json_load(data.get("payload", "{}"))
                                 if not payload: continue
                                 setup = Setup(
-                                    bundle=str(payload.get("bundle", "")),
-                                    kind=str(payload.get("kind", "")),
-                                    leader=str(payload.get("leader", "")),
-                                    pick=str(payload.get("symbol", "")),
-                                    trend_dir=str(payload.get("trend_dir", "")),
+                                    bundle=(payload.get("bundle", "")),
+                                    kind=(payload.get("kind", "")),
+                                    leader=(payload.get("leader", "")),
+                                    pick=(payload.get("symbol", "")),
+                                    trend_dir=(payload.get("trend_dir", "")),
                                     ts_ms=int(payload.get("ts_ms", _now_ms())),
                                     ttl_ms=int(os.getenv("SMT_SETUP_TTL_MS", "120000")),
-                                    div=str(payload.get("div", "")),
+                                    div=(payload.get("div", "")),
                                     coh=float(payload.get("coherence", 0.0)),
                                     leader_conf_score=float(payload.get("confidence", 0.0)),
                                 )
@@ -332,8 +331,7 @@ class SmtEntryCandidateService:
                                     self.active[sid] = (setup, RetestState())
                             except Exception: pass
                             finally:
-                                try: await helper.ack(self.streams.in_stream, mid)
-                                except Exception: pass
+                                with contextlib.suppress(Exception): await helper.ack(self.streams.in_stream, mid)
 
                 now = _now_ms()
                 for setup_id in list(self.active.keys()):
@@ -341,21 +339,21 @@ class SmtEntryCandidateService:
                     if (now - setup.ts_ms) > self.max_wait_ms:
                         self.active.pop(setup_id, None)
                         continue
-                    
+
                     snap_raw = await self.r.get(f"{self.snap_prefix}{setup.pick}")
                     if not snap_raw: continue
                     snap = _json_load(str(snap_raw))
                     if not snap: continue
-                    
+
                     if st.stage == "WAIT_TOUCH":
-                        regime = str(snap.get("regime", "na") or "na").lower()
+                        regime = (snap.get("regime", "na") or "na").lower()
                         grp_guess = regime if regime in ("thin", "range", "trend") else "default"
                         await self._maybe_poll_overrides(now_ms=now, group=grp_guess)
-                        
+
                         ab_key = _mk_ab_key(setup, snap)
                         sb = int(os.getenv("AB_SPLIT_B", "10"))
                         sc = int(os.getenv("AB_SPLIT_C", "10"))
-                        salt = str(os.getenv("AB_SALT", "v1"))
+                        salt = os.getenv("AB_SALT", "v1")
                         try:
                             if int(getattr(self._ovr, "enabled", 1) or 1) == 1:
                                 sb = int(getattr(self._ovr, "ab_split_b", sb) or sb)
@@ -368,7 +366,7 @@ class SmtEntryCandidateService:
                         C = sc/100.0
                         arm = choose_arm_abc(key=ab_key, split_b=B, split_c=C, salt=salt)
                         split_reason = "overrides_v1" if self._ovr_loaded_ts_ms > 0 else "env_defaults"
-                        
+
                         if regime in ("thin", "news", "illiquid"): grp = "thin"
                         elif regime == "range": grp = "range"
                         else: grp = "default"
@@ -391,18 +389,18 @@ class SmtEntryCandidateService:
                         "type": "smt_entry_fsm_audit", "ts_ms": now, "symbol": setup.pick, "bundle": setup.bundle,
                         "kind": setup.kind, "leader": setup.leader, "ab_arm": st.ab_arm, "ab_group": st.ab_group,
                         "ab_key": st.ab_key, "ab_split_reason": st.ab_split_reason, "stage": st.stage, "reason": reason,
-                        "ok": int(1 if emit else 0), "regime": regime, "zone_id": str(snap.get("zone_id", "")),
+                        "ok": int(1 if emit else 0), "regime": regime, "zone_id": (snap.get("zone_id", "")),
                     }
                     await self.r.xadd(self.streams.out_audit, {"payload": _json_dump(audit_payload)}, maxlen=self.maxlen, approximate=True)
-                    
+
                     if emit and st.emitted == 1:
                         side = _desired_side(setup)
-                        dk = f"{setup.pick}:{str(snap.get('zone_id', ''))}:{side}"
+                        dk = f"{setup.pick}:{(snap.get('zone_id', ''))}:{side}"
                         last = self._dedup.get(dk, 0)
                         if last > 0 and (now - last) < self.dedup_ms:
                             self.active.pop(setup_id, None); continue
                         self._dedup[dk] = now
-                        
+
                         entry_payload = {
                             "type": "entry_candidate", "ts_ms": now, "symbol": setup.pick, "side": side,
                             "bundle": setup.bundle, "kind": setup.kind, "leader": setup.leader,

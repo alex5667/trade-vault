@@ -1,7 +1,7 @@
 # python-worker/news_pipeline/standby/uid.py
 from __future__ import annotations
+
 import hashlib
-import time
 from dataclasses import dataclass
 
 SEP = b"\x1f"

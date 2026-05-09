@@ -2,8 +2,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any
 
 from services.analytics_db import get_conn
 from services.atr_effective_state_resolver import EffectiveStateResolver
@@ -17,7 +16,7 @@ class ATRFreezeOverrideEquivalenceCertService:
     """
 
     @staticmethod
-    def certify_equivalence(scope_kind: str, scope_value: str) -> Dict[str, Any]:
+    def certify_equivalence(scope_kind: str, scope_value: str) -> dict[str, Any]:
         """
         Runs certification checks between legacy and graph sources of truth.
         """
@@ -25,10 +24,10 @@ class ATRFreezeOverrideEquivalenceCertService:
         try:
             # 1. Resolve Legacy State
             legacy_state = EffectiveStateResolver.resolve_scope(scope_kind, scope_value, is_shadow_graph_mode=False)
-            
+
             # 2. Resolve Graph State
             graph_state = EffectiveStateResolver.resolve_scope(scope_kind, scope_value, is_shadow_graph_mode=True)
-            
+
             # 3. Perform Checks (F1-F9)
             checks = {
                 "F1_effective_runtime_match": legacy_state.get("effective_runtime_state") == graph_state.get("effective_runtime_state"),
@@ -37,10 +36,10 @@ class ATRFreezeOverrideEquivalenceCertService:
                 "F4_rollout_stage_match": legacy_state.get("rollout_stage") == graph_state.get("rollout_stage"),
                 "F5_release_blocked_match": legacy_state.get("release_state") == graph_state.get("release_state")
             }
-            
+
             all_passed = all(checks.values())
             drift_detected = not all_passed
-            
+
             with get_conn() as conn, conn.cursor() as cur:
                 # 4. Record Check Result
                 cur.execute("""
@@ -49,11 +48,11 @@ class ATRFreezeOverrideEquivalenceCertService:
                         graph_state_json, checks_json, drift_detected
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    cert_id, scope_kind, scope_value, 
-                    json.dumps(legacy_state), json.dumps(graph_state), 
+                    cert_id, scope_kind, scope_value,
+                    json.dumps(legacy_state), json.dumps(graph_state),
                     json.dumps(checks), drift_detected
                 ))
-                
+
                 # 5. Log Drift if detected
                 if drift_detected:
                     drift_id = f"drift_{cert_id}"
@@ -69,7 +68,7 @@ class ATRFreezeOverrideEquivalenceCertService:
                     logger.warning(f"Drift detected in {scope_value}: {drift_json}")
 
                 conn.commit()
-                
+
             return {
                 "cert_id": cert_id,
                 "passed": all_passed,
@@ -83,7 +82,7 @@ class ATRFreezeOverrideEquivalenceCertService:
             return {"cert_id": cert_id, "passed": False, "error": str(e)}
 
     @staticmethod
-    def run_batch_certification(scope_kind: str, scope_values: List[str]):
+    def run_batch_certification(scope_kind: str, scope_values: list[str]):
         results = []
         for val in scope_values:
             res = ATRFreezeOverrideEquivalenceCertService.certify_equivalence(scope_kind, val)

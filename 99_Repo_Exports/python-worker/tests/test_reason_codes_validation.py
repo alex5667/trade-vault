@@ -1,7 +1,4 @@
-import os
 from dataclasses import dataclass
-
-import pytest
 
 from handlers.confirmations.engine import ConfirmationsEngine
 from signal_scoring.reason_codes import ReasonCode

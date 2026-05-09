@@ -1,11 +1,11 @@
-from utils.time_utils import get_ny_time_millis
 import time
 from types import SimpleNamespace
 
 import pytest
-
 from fake_redis import FakeRedis
+
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
+from utils.time_utils import get_ny_time_millis
 
 # NOTE: _ctx(...) helper and existing tests are already in this file.
 
@@ -31,12 +31,12 @@ def _put_slipema_v2(
 def _ctx(entry: float | None = None, tp1: float | None = None, spread_bps: float | None = None):
     ctx = SimpleNamespace()
     if entry is not None:
-        ctx.entry_price = float(entry)
-        ctx.entry = float(entry)
-        ctx.price = float(entry)
+        ctx.entry_price = entry
+        ctx.entry = entry
+        ctx.price = entry
     if tp1 is not None:
-        ctx.tp1_price = float(tp1)
-        ctx.tp1 = float(tp1)
+        ctx.tp1_price = tp1
+        ctx.tp1 = tp1
     if spread_bps is not None:
         ctx.spread_bps = float(spread_bps)
     return ctx

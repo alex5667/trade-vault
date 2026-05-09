@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """Preflight guard for strategy research blocker on rollout-sensitive jobs (P5.2).
 
 Exit codes:
@@ -53,8 +54,8 @@ def main() -> int:
         max_age_sec=float(_env('STRATEGY_RESEARCH_GUARD_MAX_AGE_SEC', '129600') or 129600),
         fail_closed_missing=int(_env('STRATEGY_RESEARCH_GUARD_FAIL_CLOSED_MISSING', '1') or 1),
     )
-    status = str(state.get('status') or 'invalid')
-    reason = str(state.get('reason') or 'unknown')
+    status = (state.get('status') or 'invalid')
+    reason = (state.get('reason') or 'unknown')
     if status == 'ok':
         print(f'STRATEGY_RESEARCH_GUARD_PREFLIGHT_OK purpose={ns.purpose} reason={reason}')
         return 0

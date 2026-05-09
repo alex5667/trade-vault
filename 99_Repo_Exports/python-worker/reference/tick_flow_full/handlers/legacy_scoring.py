@@ -50,7 +50,7 @@ def _apply_scoring(ctx: "OrderflowSignalContext") -> None:
     #     GOLDEN_SCORE_MULTIPLIER,
     #     FINAL_SCORE_MAX,
     # )
-    from core.config import CONFIDENCE_SCALE, GOLDEN_SCORE_MULTIPLIER, FINAL_SCORE_MAX
+    from core.config import CONFIDENCE_SCALE, FINAL_SCORE_MAX, GOLDEN_SCORE_MULTIPLIER
 
     # 1) нормализуем confidence
     base_score = ctx.confidence * CONFIDENCE_SCALE  # 80 → 0.8 при 0.01

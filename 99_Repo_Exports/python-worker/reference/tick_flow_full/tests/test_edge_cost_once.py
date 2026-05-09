@@ -1,5 +1,6 @@
 from services.candidate_emit_pipeline_v2 import CandidateFrame, GateRunner
 
+
 class DummyCtx: pass
 class DummyCand:
     kind="breakout"

@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import math
+
 import pytest
 
 from services.ml_calibration import (
     PlattLogitCalibrator,
-    clip_prob,
-    logit,
-    sigmoid,
     brier_score,
-    logloss,
+    clip_prob,
     ece_score,
     fit_platt_logit,
+    logit,
+    logloss,
+    sigmoid,
 )
 
 
@@ -193,10 +194,10 @@ class TestFitPlattLogit:
         # Create uncalibrated data: overconfident
         probs_raw = [0.8, 0.8, 0.8, 0.2, 0.2, 0.2]
         y = [1, 0, 0, 0, 0, 1]  # Only 2/6 correct at 0.8, 1/6 correct at 0.2
-        
+
         cal = fit_platt_logit(probs_raw, y, l2=1e-3, max_iter=50)
         probs_cal = cal.apply(probs_raw)
-        
+
         # Calibrated should have better ECE
         ece_raw, _ = ece_score(probs_raw, y, n_bins=10)
         ece_cal, _ = ece_score(probs_cal, y, n_bins=10)

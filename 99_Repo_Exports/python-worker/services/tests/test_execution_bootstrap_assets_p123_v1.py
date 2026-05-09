@@ -5,8 +5,8 @@ file contains the expected service definition and ENV keys, and the env example
 contains the required bootstrap guard knobs.
 """
 from pathlib import Path
-import yaml
 
+import yaml
 
 # Test file is at: scanner_infra/python-worker/services/tests/test_*.py
 # parents[0] = tests/

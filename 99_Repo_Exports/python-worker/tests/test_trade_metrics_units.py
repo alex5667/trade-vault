@@ -1,13 +1,10 @@
 
-import sys
-import os
 import unittest
-from typing import Dict, Any
 
 # Add parent directory to path to import services
 # [AUTOGRAVITY CLEANUP] sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-
 from services.trade_metrics_service import TradeMetricsService
+
 
 class TestTradeMetricsUnits(unittest.TestCase):
     def setUp(self):
@@ -25,7 +22,7 @@ class TestTradeMetricsUnits(unittest.TestCase):
             "close_reason": "TP"
         }
         self.tm.accumulate_trade(m, t)
-        
+
         # MFE USD = 1000 * 0.01 = 10.0
         # Exit Eff = 10.0 / 10.0 = 1.0
         self.assertAlmostEqual(m["sum_exit_eff_win"], 1.0)
@@ -45,7 +42,7 @@ class TestTradeMetricsUnits(unittest.TestCase):
             "close_reason": "TP"
         }
         self.tm.accumulate_trade(m, t)
-        
+
         # MFE USD = 20.0
         # Giveback USD = 10.0
         # Ratio = 10/20 = 0.5
@@ -65,7 +62,7 @@ class TestTradeMetricsUnits(unittest.TestCase):
             "close_reason": "SL_AFTER_TP" # Trigger specific path
         }
         self.tm.accumulate_trade(m, t)
-        
+
         # MFE USD = 20.0
         # Missed USD = 20.0
         # Ratio = 1.0
@@ -82,7 +79,7 @@ class TestTradeMetricsUnits(unittest.TestCase):
             "close_reason": "TP"
         }
         self.tm.accumulate_trade(m, t)
-        
+
         # Eff = 10 / 20 = 0.5
         self.assertAlmostEqual(m["sum_exit_eff_win"], 0.5)
 

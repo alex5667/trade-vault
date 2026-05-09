@@ -1,18 +1,19 @@
 # news_pipeline/analyzer_worker.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
+import logging
 import os
 import time
-import logging
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
 
+from news_pipeline.llm_client import FallbackLLMClient, GeminiHTTPClient, NvidiaKimiClient, NvidiaQwenClient
 from news_pipeline.stream_worker import StreamWorker
-from news_pipeline.llm_client import GeminiHTTPClient, NvidiaQwenClient, NvidiaKimiClient, FallbackLLMClient
-from news_pipeline.tags import tags_to_mask, pick_primary_tag
+from news_pipeline.tags import pick_primary_tag, tags_to_mask
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 log = logging.getLogger("news_analyzer")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -31,10 +32,10 @@ ANALYSIS_DONE_TTL_SEC = int(float(os.getenv("NEWS_ANALYSIS_DONE_TTL_SEC", "60480
 
 
 def _safe_s(v: Any) -> str:
-    return str(v or "").strip()
+    return (v or "").strip()
 
 
-def _parse_symbols_json(s: str) -> List[str]:
+def _parse_symbols_json(s: str) -> list[str]:
     s = (s or "").strip()
     if not s:
         return []
@@ -80,7 +81,7 @@ class NewsAnalyzerWorker(StreamWorker):
         else:
             self.llm = primary_llm
 
-    def handle_message(self, msg_id: str, fields: Dict[str, Any]) -> None:
+    def handle_message(self, msg_id: str, fields: dict[str, Any]) -> None:
         uid = _safe_s(fields.get("uid"))
         if not uid:
             return
@@ -130,7 +131,7 @@ class NewsAnalyzerWorker(StreamWorker):
             # emit to stream (per symbol)
             # важно: все поля stringable
             now_ms = get_ny_time_millis()
-            
+
             # Calculate tags metrics
             tags = a.get("tags") or []
             mask = tags_to_mask(tags)
@@ -140,12 +141,12 @@ class NewsAnalyzerWorker(StreamWorker):
                 out = {
                     "uid": uid,
                     "symbol": sym,
-                    "risk": str(a.get("risk", 0.0)),
-                    "surprise": str(a.get("surprise", 0.0)),
-                    "confidence": str(a.get("confidence", 0.0)),
+                    "risk": (a.get("risk", 0.0)),
+                    "surprise": (a.get("surprise", 0.0)),
+                    "confidence": (a.get("confidence", 0.0)),
                     "tags_mask": str(mask),
                     "primary_tag_id": str(primary_tag_id),
-                    "summary": str(a.get("summary", "")),
+                    "summary": (a.get("summary", "")),
                     "ts_ms": str(published_ts_ms),
                     "ingested_ts_ms": str(now_ms),
                 }
@@ -158,10 +159,8 @@ class NewsAnalyzerWorker(StreamWorker):
 
 
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 self.r.delete(lease_key)
-            except Exception:
-                pass
 def main() -> None:
     try:
         # Отключаем CLIENT SETINFO для совместимости со старыми версиями Redis
@@ -186,7 +185,6 @@ def main() -> None:
 def _wait_for_redis_ready(redis_url: str) -> redis.Redis:
     """Wait for Redis to be ready, handling BusyLoadingError"""
     import redis
-    import time
 
     max_retries = 60  # 10 минут при 10сек задержке
     retry_count = 0

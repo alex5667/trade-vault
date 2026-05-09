@@ -4,7 +4,6 @@ from pathlib import Path
 
 from orderflow_services.orchestration_composite_preflight_history_exporter_v1 import (
     HistoryEvent,
-    WINDOWS_SECONDS,
     aggregate_events,
     compute_window_summaries,
     export_history_textfile,

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 AB Winner Evaluator Runner (loop inside container).
 
@@ -11,10 +10,11 @@ It performs:
   - sleep interval
 """
 
-import os
 import asyncio
+import os
 
 from tools.ab_winner_evaluator_once import main as run_once
+import contextlib
 
 
 async def runner() -> None:
@@ -22,10 +22,8 @@ async def runner() -> None:
     if interval_sec < 60:
         interval_sec = 60
     while True:
-        try:
+        with contextlib.suppress(Exception):
             await run_once()
-        except Exception:
-            pass
         await asyncio.sleep(interval_sec)
 
 

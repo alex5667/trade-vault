@@ -9,8 +9,8 @@ Execution Filters Group
 - Liquidity guard (дополнительный фильтр по liquidity_score)
 """
 
-from signals.unified_pipeline import SignalContext
 from signal_scoring.config import ScoringConfig
+from signals.unified_pipeline import SignalContext
 
 
 class ExecFiltersGroup:

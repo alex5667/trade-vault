@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -32,14 +32,14 @@ class ExecCostModelV1:
         "global": {"cost_mult": 1.0, "cost_add_bps": 0.0, "cost_p90_mult": 1.5, "exec_risk_ref_mult": 1.0}
       }
     """
-    def __init__(self, payload: Dict[str, Any]) -> None:
+    def __init__(self, payload: dict[str, Any]) -> None:
         self.payload = dict(payload or {})
         self.groups = dict(self.payload.get("groups", {}) or {})
         self.global_group = dict(self.payload.get("global", {}) or {})
         self.model_version = str(self.payload.get("model_version", "ecm_v1") or "ecm_v1")
         self.artifact_version = str(self.payload.get("artifact_version", "") or "")
 
-    def predict(self, *, features: Dict[str, float], ctx_key: str, fallback_keys: List[str]) -> ExecCostPrediction:
+    def predict(self, *, features: dict[str, float], ctx_key: str, fallback_keys: list[str]) -> ExecCostPrediction:
         grp = None
         level = "global"
         for key in [ctx_key] + list(fallback_keys or []):

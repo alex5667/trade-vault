@@ -1,10 +1,5 @@
-import pytest
-from services.orderflow.meta_ab_v2_report_exporter_v1 import (
-    _apply_report,
-    REPORT_PRESENT,
-    REPORT_SHARE_NEXT,
-    ACTION
-)
+from services.orderflow.meta_ab_v2_report_exporter_v1 import ACTION, REPORT_PRESENT, REPORT_SHARE_NEXT, _apply_report
+
 
 def test_exporter_smoke():
     sample_report = {

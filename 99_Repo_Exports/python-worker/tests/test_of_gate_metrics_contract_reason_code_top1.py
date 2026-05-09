@@ -9,8 +9,6 @@ Verifies:
 - High-cardinality / dangerous value → truncated and sanitized
 - reason_code is still derived normally when not provided
 """
-import sys
-import importlib
 import pytest
 
 
@@ -22,7 +20,7 @@ def _contract(path: str):
     """
     import types
     mod = types.ModuleType("of_gate_metrics_contract")
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         src = fh.read()
     code = compile(src, path, "exec")
     exec(code, mod.__dict__)
@@ -31,6 +29,7 @@ def _contract(path: str):
 
 # Test both the main contract and tick_flow_full mirror
 import os
+
 _BASE = os.path.join(os.path.dirname(__file__), "..")
 CONTRACTS = [
     os.path.join(_BASE, "common", "of_gate_metrics_contract.py"),

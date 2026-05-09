@@ -1,7 +1,7 @@
 """Tests for build_risk_engine_canary_report.py — canary score and bucketing logic (P4.5)."""
-from pathlib import Path
 import importlib.util
 import sys
+from pathlib import Path
 
 # Standalone load so tests work without full package context
 mod_path = Path(__file__).resolve().parent / 'build_risk_engine_canary_report.py'

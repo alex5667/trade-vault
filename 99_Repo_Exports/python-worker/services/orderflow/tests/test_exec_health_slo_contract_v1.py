@@ -1,12 +1,13 @@
 from __future__ import annotations
+
 """Tests for exec_health_slo_contract (P4)."""
 
 import unittest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
 
 class _FakePipe:
-    def __init__(self, parent: "FakeRedis"):
+    def __init__(self, parent: FakeRedis):
         self._parent = parent
         self._ops: list = []
 
@@ -49,6 +50,7 @@ class FakeRedis(MagicMock):
 class TestExecHealthSloContractFlush(unittest.TestCase):
     def _import_module(self):
         import importlib
+
         import services.orderflow.exec_health_slo_contract as m
         importlib.reload(m)
         return m

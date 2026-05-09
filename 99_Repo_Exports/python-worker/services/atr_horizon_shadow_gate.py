@@ -3,8 +3,8 @@ from __future__ import annotations
 import math
 import os
 import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict
+from dataclasses import asdict, dataclass
+from typing import Any
 
 
 def _safe_int(v: Any, default: int = 0) -> int:
@@ -22,7 +22,7 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
         return default
 
 
-def _ensure_dict(v: Any) -> Dict[str, Any]:
+def _ensure_dict(v: Any) -> dict[str, Any]:
     return dict(v) if isinstance(v, dict) else {}
 
 
@@ -37,10 +37,10 @@ class HorizonDQShadow:
     book_age_budget_ms: int
     signal_age_budget_ms: int
     selector_reason_code: str
-    reason_details: Dict[str, Any]
+    reason_details: dict[str, Any]
 
 
-def compute_horizon_dq_shadow(ctx: Any, cand: Any = None) -> Dict[str, Any]:
+def compute_horizon_dq_shadow(ctx: Any, cand: Any = None) -> dict[str, Any]:
     """
     Phase 2.2: shadow-only horizon-aware DQ evaluation.
 

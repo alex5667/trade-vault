@@ -10,7 +10,6 @@ The goal is to reject malformed exit contracts *before* they hit Binance:
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -24,13 +23,13 @@ class ExitIntentResult:
 def validate_exit_intent(
     *,
     position_mode: str,
-    position_side: Optional[str],
+    position_side: str | None,
     exit_intent: str,
     reduce_only: bool,
     close_position: bool,
-    quantity: Optional[float],
+    quantity: float | None,
     order_type: str,
-    working_type: Optional[str],
+    working_type: str | None,
     is_algo: bool,
 ) -> ExitIntentResult:
     pm = (position_mode or "oneway").strip().lower()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict, field
-from typing import Any, Dict
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -25,7 +25,7 @@ class SignalL3Snapshot:
     queue_pressure_ask: float = 0.0
     market_depth_imbalance: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -49,9 +49,9 @@ class SignalSnapshot:
     weak_progress_ratio: float = 0.0
 
     # Extra field to preserve additional context (e.g. confidence metrics, debug flags)
-    extra: Dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dict for database insertion"""
         result = asdict(self)
         # Flatten L3 fields
@@ -61,7 +61,7 @@ class SignalSnapshot:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> SignalSnapshot:
+    def from_dict(cls, data: dict[str, Any]) -> SignalSnapshot:
         """Create SignalSnapshot from dictionary"""
         l3_data = {}
         # Try to find L3 keys (prefixed or not)

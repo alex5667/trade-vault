@@ -1,28 +1,28 @@
-
 from __future__ import annotations
 
-import warnings
 import logging
+import warnings
+
 logger = logging.getLogger(__name__)
 msg = "This feature schema version is DEPRECATED (causes data leakage). See DEPRECATED_SCHEMAS in feature_registry."
 warnings.warn(msg, DeprecationWarning, stacklevel=2)
 logger.error(msg)
 
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
-import math
 import datetime as _dt
+import math
 import os
+from dataclasses import dataclass
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         if x is None:
-            return float(d)
+            return d
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i01(x: Any) -> int:
@@ -64,7 +64,7 @@ def _schema_ver_from_env() -> int:
     V3 adds continuation-context quality features.
     """
     try:
-        v = int(str(os.getenv("ML_FEATURE_SCHEMA_VERSION", "1") or "1").strip())
+        v = int((os.getenv("ML_FEATURE_SCHEMA_VERSION", "1") or "1").strip())
     except Exception:
         v = 1
     if v >= 3:
@@ -74,7 +74,7 @@ def _schema_ver_from_env() -> int:
 
 # NOTE: Keep ordering stable within a schema version.
 # V2 appends confirmation features at the end (train==serve upgrade path).
-FEATURES_V1: List[FeatureSpec] = [
+FEATURES_V1: list[FeatureSpec] = [
     # Direction / scenario one-hots
     FeatureSpec("dir_long", 0.0),
 
@@ -128,7 +128,7 @@ FEATURES_V1: List[FeatureSpec] = [
 ]
 
 # V2 adds first-class confirmations (Stage 4).
-FEATURES_V2: List[FeatureSpec] = FEATURES_V1 + [
+FEATURES_V2: list[FeatureSpec] = FEATURES_V1 + [
     FeatureSpec("rsi_agree", 0.0),
     FeatureSpec("div_match", 0.0),
     FeatureSpec("sweep_any", 0.0),
@@ -141,7 +141,7 @@ FEATURES_V2: List[FeatureSpec] = FEATURES_V1 + [
 # the calibrated cont_ctx_valid_ms parameter → train≠serve drift risk.
 # cont_ctx_age_ms is the raw numeric value that lets the model learn the
 # optimal threshold automatically.
-FEATURES_V3: List[FeatureSpec] = FEATURES_V2 + [
+FEATURES_V3: list[FeatureSpec] = FEATURES_V2 + [
     # Continuation context quality (non-zero only for scenario=continuation)
     FeatureSpec("cont_ctx_age_ms", 0.0),
     FeatureSpec("hidden_ctx_recent", 0.0),
@@ -152,7 +152,7 @@ FEATURES_V3: List[FeatureSpec] = FEATURES_V2 + [
 ]
 
 
-def _feats_for_ver(sv: int) -> List[FeatureSpec]:
+def _feats_for_ver(sv: int) -> list[FeatureSpec]:
     if sv >= 3:
         return FEATURES_V3
     if sv == 2:
@@ -160,7 +160,7 @@ def _feats_for_ver(sv: int) -> List[FeatureSpec]:
     return FEATURES_V1
 
 
-def feature_names(schema_ver: int | None = None) -> List[str]:
+def feature_names(schema_ver: int | None = None) -> list[str]:
     sv = _schema_ver_from_env() if schema_ver is None else max(1, min(3, int(schema_ver)))
     return [f.name for f in _feats_for_ver(sv)]
 
@@ -171,13 +171,13 @@ def build_feature_vector(
     ts_ms: int,
     direction: str,
     scenario: str,
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     rule_score: float,
     rule_have: int,
     rule_need: int,
     cancel_spike_veto: int,
     schema_ver: int | None = None,
-) -> Tuple[List[float], List[str]]:
+) -> tuple[list[float], list[str]]:
     """
     Deterministic feature builder. Must be stable across versions.
 
@@ -188,8 +188,8 @@ def build_feature_vector(
     Returns:
       (x, missing_features)
     """
-    missing: List[str] = []
-    out: Dict[str, float] = {}
+    missing: list[str] = []
+    out: dict[str, float] = {}
 
     # one-hots
     out["dir_long"] = 1.0 if str(direction).upper() == "LONG" else 0.0
@@ -203,10 +203,10 @@ def build_feature_vector(
 
     # numeric from indicators
     def need_num(k: str, default: float = 0.0) -> float:
-        v = indicators.get(k, None)
+        v = indicators.get(k)
         if v is None:
             missing.append(k)
-            return float(default)
+            return default
         return _f(v, default)
 
     out["delta_z"] = need_num("delta_z", 0.0)
@@ -230,7 +230,7 @@ def build_feature_vector(
     # binary flags: take from indicators if present, else missing->0
     for k in ["sweep_recent","reclaim_recent","obi_stable","iceberg_strict","abs_lvl_ok","weak_progress","fp_edge_absorb",
               "ofi_stable","ofi_dir_ok"]:
-        v = indicators.get(k, None)
+        v = indicators.get(k)
         if v is None:
             missing.append(k)
             out[k] = 0.0
@@ -259,7 +259,7 @@ def build_feature_vector(
     sv = _schema_ver_from_env() if schema_ver is None else max(1, min(3, int(schema_ver)))
 
     def _need_bin(k: str) -> float:
-        v = indicators.get(k, None)
+        v = indicators.get(k)
         if v is None:
             missing.append(k)
             return 0.0
@@ -271,10 +271,10 @@ def build_feature_vector(
         out["div_match"] = _need_bin("div_match")
 
         # sweep_any: OR across all sweep sources (any explicit flag wins)
-        v_any = indicators.get("sweep_any", None)
-        v_recent = indicators.get("sweep_recent", None)
-        v_eqh = indicators.get("sweep_eqh", None)
-        v_eql = indicators.get("sweep_eql", None)
+        v_any = indicators.get("sweep_any")
+        v_recent = indicators.get("sweep_recent")
+        v_eqh = indicators.get("sweep_eqh")
+        v_eql = indicators.get("sweep_eql")
 
         if (v_any is None) and (v_recent is None) and (v_eqh is None) and (v_eql is None):
             missing.append("sweep_any")
@@ -298,13 +298,13 @@ def build_feature_vector(
         out["hidden_ctx_recent"] = _need_bin("hidden_ctx_recent")
 
         # trend_dir_source one-hots
-        tds = str(indicators.get("trend_dir_source", "none") or "none").lower()
+        tds = (indicators.get("trend_dir_source", "none") or "none").lower()
         out["trend_src_hidden_div"] = 1.0 if tds == "hidden_div" else 0.0
         out["trend_src_regime"] = 1.0 if tds == "regime" else 0.0
         out["trend_src_dz_bypass"] = 1.0 if int(indicators.get("scenario_dz_bypass", 0) or 0) == 1 else 0.0
 
     # finalize in schema order
-    vec: List[float] = []
+    vec: list[float] = []
     feats = _feats_for_ver(sv)
     for fs in feats:
         vec.append(float(out.get(fs.name, fs.default)))
@@ -312,7 +312,7 @@ def build_feature_vector(
 
 
 # Additional function for nightly pipeline compatibility
-def build_features(payload: Dict[str, Any]) -> Any:
+def build_features(payload: dict[str, Any]) -> Any:
     """
     payload: dict from signals:of:inputs
     - numeric features from top-level and/or indicators
@@ -320,18 +320,18 @@ def build_features(payload: Dict[str, Any]) -> Any:
     Compatible with nightly pipeline FeatureRow format.
     """
     from dataclasses import dataclass
-    
+
     @dataclass(frozen=True)
     class FeatureRow:
-        x: List[float]
-        feature_names: List[str]
-    
-    def _parse_confirmations_obj(obj: Any) -> Dict[str, Any]:
+        x: list[float]
+        feature_names: list[str]
+
+    def _parse_confirmations_obj(obj: Any) -> dict[str, Any]:
         """Accept dict OR legacy list[str] like ["rsi_agree=1", ...]."""
         if isinstance(obj, dict):
             return obj
         if isinstance(obj, (list, tuple)):
-            out2: Dict[str, Any] = {}
+            out2: dict[str, Any] = {}
             for it in obj:
                 if it is None:
                     continue
@@ -355,19 +355,19 @@ def build_features(payload: Dict[str, Any]) -> Any:
 
     ind = payload.get("indicators") or {}
     conf = _parse_confirmations_obj(payload.get("confirmations"))
-    
+
     # Use existing build_feature_vector for consistency
     vec, missing = build_feature_vector(
-        symbol=str(payload.get("symbol", "")),
+        symbol=(payload.get("symbol", "")),
         ts_ms=int(payload.get("ts_ms", 0) or 0),
-        direction=str(payload.get("direction", "")),
-        scenario=str(payload.get("scenario", payload.get("scenario_v4", "none")) or "none"),
+        direction=(payload.get("direction", "")),
+        scenario=(payload.get("scenario", payload.get("scenario_v4", "none")) or "none"),
         indicators=dict(ind, **conf),
         rule_score=_f(payload.get("rule_score", ind.get("of_score", 0.0)), 0.0),
         rule_have=int(payload.get("rule_have", ind.get("strong_gate_have", 0)) or 0),
         rule_need=int(payload.get("rule_need", ind.get("strong_gate_need", 0)) or 0),
         cancel_spike_veto=int(payload.get("cancel_spike_veto", ind.get("cancel_spike_veto", 0)) or 0),
     )
-    
+
     return FeatureRow(x=vec, feature_names=feature_names())
 

@@ -1,7 +1,5 @@
 # domain/normalizers.py
 from __future__ import annotations
-from typing import Any, Dict, List
-
 
 _CRYPTO_SOURCE_ALIASES = {
     "cryptoorderflow": "CryptoOrderFlow",
@@ -59,7 +57,7 @@ def source_from_strategy(strategy: str, fallback_source: str) -> str:
 #      чтобы писать индексы/листы в оба ключа,
 #      читать из обоих ключей без миграций.
 #
-_TF_ALIASES: Dict[str, str] = {
+_TF_ALIASES: dict[str, str] = {
     # легаси "m1/m5" -> канонические
     "m1": "1m",
     "m5": "5m",
@@ -118,7 +116,7 @@ def canon_source(v) -> str:
     return _CRYPTO_SOURCE_ALIASES.get(sl, s)
 
 
-def tf_variants(v) -> List[str]:
+def tf_variants(v) -> list[str]:
     """
     Возвращает список TF-ключей (канон + легаси), чтобы:
       - писать индексы/листы в оба ключа,
@@ -131,7 +129,7 @@ def tf_variants(v) -> List[str]:
     """
     raw = ("" if v is None else str(v)).strip()
     c = canon_tf(raw)
-    out: List[str] = []
+    out: list[str] = []
     if c:
         out.append(c)
     legacy = raw.strip().lower()
@@ -157,7 +155,7 @@ def tf_variants(v) -> List[str]:
         out.append("month")
     # уникальные с сохранением порядка
     seen = set()
-    uniq: List[str] = []
+    uniq: list[str] = []
     for x in out:
         if x and x not in seen:
             seen.add(x)

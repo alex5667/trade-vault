@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from common.cost_edge_adapter import decision_to_legacy_tuple, attach_cost_edge_veto_fields
+from common.cost_edge_adapter import attach_cost_edge_veto_fields, decision_to_legacy_tuple
 
 
 class _Dec:
@@ -33,5 +33,5 @@ def test_attach_cost_edge_veto_fields_is_best_effort():
     ctx = SimpleNamespace()
     dec = _Dec(apply=True, veto=True)
     attach_cost_edge_veto_fields(ctx, dec)
-    assert getattr(ctx, "veto_reason_code") == "VETO_EDGE_COST"
-    assert getattr(ctx, "veto_threshold_bps") == 20.0
+    assert ctx.veto_reason_code == "VETO_EDGE_COST"
+    assert ctx.veto_threshold_bps == 20.0

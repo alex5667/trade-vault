@@ -13,7 +13,7 @@ class RegimeDriftDetector:
         self._m = 0.0
         self._M = 0.0
         self._n = 0
-    
+
     def update(self, outcome: float) -> bool:
         """
         outcome: 1.0 = win, 0.0 = loss. Returns True если drift detected.
@@ -30,7 +30,7 @@ class RegimeDriftDetector:
             self._reset()
             return True  # DRIFT DETECTED
         return False
-    
+
     def _reset(self):
         self._m = self._M = 0.0
         self._n = 0

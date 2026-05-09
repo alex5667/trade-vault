@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Tiny Telegram sender (no external deps).
 Env:
@@ -8,21 +8,21 @@ Env:
 """
 import json
 import os
-import urllib.request
 import urllib.parse
-from typing import Optional
+import urllib.request
 
-def send_telegram(text: str, *, token: Optional[str] = None, chat_id: Optional[str] = None, parse_mode: str = "Markdown") -> bool:
+
+def send_telegram(text: str, *, token: str | None = None, chat_id: str | None = None, parse_mode: str = "Markdown") -> bool:
     token = token or os.getenv("TG_BOT_TOKEN", "")
     chat_id = chat_id or os.getenv("TG_CHAT_ID", "")
     if not token or not chat_id:
         # try lowercase fallbacks
         token = token or os.getenv("telegram_bot_token", "")
         chat_id = chat_id or os.getenv("telegram_chat_id", "")
-        
+
     if not token or not chat_id:
         return False
-        
+
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     data = {
         "chat_id": chat_id,

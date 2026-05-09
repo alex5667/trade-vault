@@ -1,6 +1,8 @@
-import unittest
 import json
+import unittest
+
 from tools.redis_window import _merge_payload_fields
+
 
 class TestRedisWindow(unittest.TestCase):
     def test_merge_payload_fields_simple(self):

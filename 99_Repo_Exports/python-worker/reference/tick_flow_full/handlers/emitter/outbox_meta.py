@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 import json
-from typing import Any, Optional
+import os
+from typing import Any
 
 
 def meta_key(signal_id: str) -> str:

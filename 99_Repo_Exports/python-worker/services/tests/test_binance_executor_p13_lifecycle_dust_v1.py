@@ -4,10 +4,9 @@ Tests that _monitor_trade_lifecycle_thread does NOT treat a position
 with qty exactly equal to step_size as "closed" (which would cancel
 all protection and leave a micro-position unprotected).
 """
-from pathlib import Path
 import importlib.util
 import sys
-import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 mod_dir = Path(__file__).parent.parent
@@ -45,14 +44,13 @@ def test_lifecycle_does_not_cancel_when_qty_equals_step_size():
     ]
 
     # Deadline immediately exceeded to exit the loop fast
-    with patch("time.sleep"):
-        with patch("time.time", side_effect=[100, 100 + 14401]):  # past deadline
-            ex._monitor_trade_lifecycle_thread(
-                sid="sid-dust",
-                symbol="SUIUSDT",
-                logical_side="LONG",
-                client=client,
-            )
+    with patch("time.sleep"), patch("time.time", side_effect=[100, 100 + 14401]):  # past deadline
+        ex._monitor_trade_lifecycle_thread(
+            sid="sid-dust",
+            symbol="SUIUSDT",
+            logical_side="LONG",
+            client=client,
+        )
 
     # Neither cancel method should be called — position is still open
     ex._cancel_all_symbol_orders_best_effort.assert_not_called()
@@ -75,14 +73,13 @@ def test_lifecycle_cancels_when_qty_below_step_size():
         [{"symbol": "SUIUSDT", "positionAmt": "0.0"}],
     ]
 
-    with patch("time.sleep"):
-        with patch("time.time", side_effect=[100, 101, 102, 103]):
-            ex._monitor_trade_lifecycle_thread(
-                sid="sid-close",
-                symbol="SUIUSDT",
-                logical_side="LONG",
-                client=client,
-            )
+    with patch("time.sleep"), patch("time.time", side_effect=[100, 101, 102, 103]):
+        ex._monitor_trade_lifecycle_thread(
+            sid="sid-close",
+            symbol="SUIUSDT",
+            logical_side="LONG",
+            client=client,
+        )
 
     # Must call cancel_all for fully closed positions
     ex._cancel_all_symbol_orders_best_effort.assert_called_once_with(
@@ -105,14 +102,13 @@ def test_lifecycle_cancels_when_qty_is_half_step_size():
         [{"symbol": "XRPUSDT", "positionAmt": "-0.05"}],
     ]
 
-    with patch("time.sleep"):
-        with patch("time.time", side_effect=[100, 101, 102]):
-            ex._monitor_trade_lifecycle_thread(
-                sid="sid-half-dust",
-                symbol="XRPUSDT",
-                logical_side="SHORT",
-                client=client,
-            )
+    with patch("time.sleep"), patch("time.time", side_effect=[100, 101, 102]):
+        ex._monitor_trade_lifecycle_thread(
+            sid="sid-half-dust",
+            symbol="XRPUSDT",
+            logical_side="SHORT",
+            client=client,
+        )
 
     ex._cancel_all_symbol_orders_best_effort.assert_called_once()
     args, _ = ex._exec_event.call_args

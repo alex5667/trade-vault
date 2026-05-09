@@ -1,22 +1,21 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from core.signal_outbox import SignalOutboxPublisher
+from utils.time_utils import get_ny_time_millis
 
 
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)) or str(default))
     except Exception:
-        return int(default)
+        return default
 
 
 def _canon_side(v: Any) -> str:
-    s = str(v or "").strip().upper()
+    s = (v or "").strip().upper()
     if s in {"LONG", "SHORT"}:
         return s
     # allow "BUY"/"SELL" just in case
@@ -86,7 +85,7 @@ class OutboxPublisherAdapter:
             except Exception:
                 return 0
 
-    def _extract_ts_ms(self, payload: Dict[str, Any]) -> int:
+    def _extract_ts_ms(self, payload: dict[str, Any]) -> int:
         """
         Priority:
           1) ts_ms
@@ -96,13 +95,13 @@ class OutboxPublisherAdapter:
         We do NOT guess from other fields here. If nothing present => 0.
         """
         ts_raw = (
-            payload.get("ts_ms", None)
+            payload.get("ts_ms")
             if payload is not None else None
         )
         if ts_raw is None and isinstance(payload, dict):
-            ts_raw = payload.get("ts", None)
+            ts_raw = payload.get("ts")
         if ts_raw is None and isinstance(payload, dict):
-            ts_raw = payload.get("timestamp", None)
+            ts_raw = payload.get("timestamp")
         return self._normalize_ts_ms(ts_raw)
 
     def _bucket_ts_ms(self, ts_ms: int) -> int:
@@ -120,7 +119,7 @@ class OutboxPublisherAdapter:
             return x
         return (x // b) * b
 
-    def _dims_from_payload(self, payload: Dict[str, Any]) -> Tuple[str, str, str, str, str, str, int, Dict[str, Any]]:
+    def _dims_from_payload(self, payload: dict[str, Any]) -> tuple[str, str, str, str, str, str, int, dict[str, Any]]:
         """
         Extract (source, strategy, symbol, side, kind, level_key, ts_ms_bucket, envelope).
 
@@ -133,11 +132,11 @@ class OutboxPublisherAdapter:
 
         # Preserve raw timestamps for audit when we correct invalid ones (hard mode).
         ts_raw_present = any(k in p for k in ("ts_ms", "ts", "timestamp"))
-        ts_raw_value = p.get("ts_ms", None) if "ts_ms" in p else (p.get("ts", None) if "ts" in p else p.get("timestamp", None))
+        ts_raw_value = p.get("ts_ms") if "ts_ms" in p else (p.get("ts") if "ts" in p else p.get("timestamp"))
 
         source = str(p.get("strategy_source") or p.get("source") or self.default_source)
         strategy = str(p.get("strategy_name") or p.get("strategy") or self.default_strategy)
-        symbol = str(p.get("symbol") or "")
+        symbol = (p.get("symbol") or "")
 
         side = str(p.get("side") or p.get("direction") or "").upper()
         if side not in ("LONG", "SHORT"):
@@ -189,7 +188,7 @@ class OutboxPublisherAdapter:
 
         return source, strategy, symbol, side, kind, level_key, int(ts_bucket), p
 
-    def publish(self, payload: Dict[str, Any]) -> Optional[str]:
+    def publish(self, payload: dict[str, Any]) -> str | None:
         """
         Publish a dict payload via SignalOutboxPublisher.
 

@@ -37,10 +37,10 @@ for line_num, kind, context in reversed(targets):
             # Get indentation
             indent = len(line) - len(line.lstrip())
             spaces = ' ' * indent
-            
+
             # Replace with instrumented version
             lines[idx] = f"{spaces}except Exception as exc:"
-            
+
             # Check next line for pass/return
             if idx + 1 < len(lines):
                 next_line = lines[idx + 1]

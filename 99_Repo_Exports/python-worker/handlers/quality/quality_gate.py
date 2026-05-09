@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import math
+import os
 from dataclasses import dataclass
 from typing import Any
-import os
-import math
 
-from handlers.confirmations.l2_quality import L2QualityPolicy, L2Assessment
+from handlers.confirmations.l2_quality import L2Assessment, L2QualityPolicy
 from handlers.confirmations.l3_quality import L3QualityPolicy, apply_l3_policy_to_ctx
 from handlers.geometry.geometry_quality import GeometryQualityPolicy, apply_geometry_policy_to_ctx
 from handlers.metrics.quality_metrics import QualityMetrics
+import contextlib
 
 
 def clamp01(x: float) -> float:
@@ -46,10 +47,8 @@ class QualityGate:
         arr = getattr(ctx, "data_quality_flags", None)
         if arr is None or not isinstance(arr, list):
             arr = []
-            try:
-                setattr(ctx, "data_quality_flags", arr)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                ctx.data_quality_flags = arr
         return arr
 
     def _ctx_price_ok(self, ctx: Any) -> bool:
@@ -124,10 +123,8 @@ class QualityGate:
         q = clamp01(float(q))
         parts["global_quality01"] = q
 
-        try:
-            setattr(ctx, "global_quality01", q)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            ctx.global_quality01 = q
 
         # метрики
         self._m.record_flags(ctx, list(flags))
@@ -168,10 +165,8 @@ class QualityGate:
         q = clamp01(q)
         parts["quality_score01"] = q
 
-        try:
-            setattr(ctx, "quality_score01", q)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            ctx.quality_score01 = q
 
         reason = l2a.reason if veto else "quality_ok"
         self._m.record_flags(ctx, list(flags))

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """bootstrap_ci.py — Bootstrap confidence intervals for AB winner evaluation.
 
 Pure Python (no numpy). Deterministic via seeded Random.
@@ -16,7 +17,6 @@ Design:
 
 from dataclasses import dataclass
 from random import Random
-from typing import List
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ class BootstrapCI:
     alpha: float
 
 
-def _quantile_sorted(xs_sorted: List[float], q: float) -> float:
+def _quantile_sorted(xs_sorted: list[float], q: float) -> float:
     """Nearest-rank quantile on a pre-sorted list.
 
     Returns NaN for empty input, first/last element for q≤0 or q≥1.
@@ -63,8 +63,8 @@ def _quantile_sorted(xs_sorted: List[float], q: float) -> float:
 
 
 def bootstrap_mean_diff(
-    a: List[float],
-    b: List[float],
+    a: list[float],
+    b: list[float],
     *,
     n_boot: int = 400,
     alpha: float = 0.05,
@@ -94,7 +94,7 @@ def bootstrap_mean_diff(
 
     obs = (sum(a) / float(n_a)) - (sum(b) / float(n_b))
     rng = Random(int(seed))
-    diffs: List[float] = []
+    diffs: list[float] = []
     n_boot_i = max(1, int(n_boot))
     for _ in range(n_boot_i):
         sa = 0.0
@@ -111,8 +111,8 @@ def bootstrap_mean_diff(
 
 
 def bootstrap_rate_diff(
-    a01: List[int],
-    b01: List[int],
+    a01: list[int],
+    b01: list[int],
     *,
     n_boot: int = 400,
     alpha: float = 0.05,

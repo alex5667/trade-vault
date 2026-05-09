@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Predict p_edge on signals:of:inputs NDJSON.
 
 Used for Golden Replay (Step 7): baseline vs new model distributions.
@@ -10,13 +10,14 @@ Used for Golden Replay (Step 7): baseline vs new model distributions.
 import argparse
 import json
 import math
-from typing import Any, Dict, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import joblib
 
 
-def _read_ndjson(path: str) -> Iterator[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def _read_ndjson(path: str) -> Iterator[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -35,8 +36,8 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _flatten(inp: Dict[str, Any]) -> Dict[str, Any]:
-    X: Dict[str, Any] = {}
+def _flatten(inp: dict[str, Any]) -> dict[str, Any]:
+    X: dict[str, Any] = {}
     for k, v in inp.items():
         if k in ("cfg", "raw_ctx", "context", "payload"):
             continue
@@ -44,9 +45,7 @@ def _flatten(inp: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if isinstance(v, bool):
             X[k] = int(v)
-        elif isinstance(v, (int, float)):
-            X[k] = v
-        elif isinstance(v, str) and len(v) <= 64:
+        elif isinstance(v, (int, float)) or isinstance(v, str) and len(v) <= 64:
             X[k] = v
         elif isinstance(v, dict):
             for kk, vv in v.items():
@@ -55,22 +54,20 @@ def _flatten(inp: Dict[str, Any]) -> Dict[str, Any]:
                 nk = f"{k}.{kk}"
                 if isinstance(vv, bool):
                     X[nk] = int(vv)
-                elif isinstance(vv, (int, float)):
-                    X[nk] = vv
-                elif isinstance(vv, str) and len(vv) <= 64:
+                elif isinstance(vv, (int, float)) or isinstance(vv, str) and len(vv) <= 64:
                     X[nk] = vv
     if "symbol" in inp:
-        X["symbol"] = str(inp.get("symbol")).upper()
+        X["symbol"] = (inp.get("symbol")).upper()
     if "direction" in inp:
-        X["direction"] = str(inp.get("direction")).upper()
+        X["direction"] = (inp.get("direction")).upper()
     if "scenario_v4" in inp:
-        X["scenario_v4"] = str(inp.get("scenario_v4"))
+        X["scenario_v4"] = (inp.get("scenario_v4"))
     elif "scenario" in inp:
-        X["scenario_v4"] = str(inp.get("scenario"))
+        X["scenario_v4"] = (inp.get("scenario"))
     if "regime_group" in inp:
-        X["regime_group"] = str(inp.get("regime_group"))
+        X["regime_group"] = (inp.get("regime_group"))
     elif "regime" in inp:
-        X["regime_group"] = str(inp.get("regime"))
+        X["regime_group"] = (inp.get("regime"))
     # exec_risk_norm best-effort
     if "exec_risk_norm" not in X:
         spread = _f(inp.get("spread_bps"), 0.0)
@@ -94,9 +91,9 @@ def main() -> None:
 
     with open(args.out, "w", encoding="utf-8") as f:
         for inp in _read_ndjson(args.inputs):
-            sid = str(inp.get("sid", "") or "")
+            sid = (inp.get("sid", "") or "")
             ts_ms = int(inp.get("ts_ms", inp.get("ts", 0)) or 0)
-            sym = str(inp.get("symbol", "") or "").upper()
+            sym = (inp.get("symbol", "") or "").upper()
             X = _flatten(inp)
             A = vec.transform([X])
             p = float(clf.predict_proba(A)[:, 1][0])

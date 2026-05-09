@@ -1,9 +1,7 @@
 from unittest.mock import MagicMock, patch
-import pytest
-import os
-import time
 
 from services.of_timers_worker import run_of_gate_dlq_db_archive_nightly
+
 
 @patch("services.of_timers_worker.run_tool")
 @patch("os.getenv")

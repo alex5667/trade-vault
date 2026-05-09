@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Replay/AB gate for feature-denylist proposals.
 
 Goal
@@ -27,25 +28,26 @@ import argparse
 import json
 import math
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 
-UTC = timezone.utc
+UTC = UTC
 
 
 def _utc_now_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
 
 
-def _read_json(p: Path) -> Dict[str, Any]:
+def _read_json(p: Path) -> dict[str, Any]:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def _write_json(p: Path, obj: Dict[str, Any]) -> None:
+def _write_json(p: Path, obj: dict[str, Any]) -> None:
     p.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
@@ -132,7 +134,7 @@ def _predict_proba(model, X: np.ndarray) -> np.ndarray:
     raise SystemExit("model has no predict_proba/decision_function")
 
 
-def _auc(y: np.ndarray, p: np.ndarray) -> Optional[float]:
+def _auc(y: np.ndarray, p: np.ndarray) -> float | None:
     _ensure_sklearn()
     from sklearn.metrics import roc_auc_score
 
@@ -146,7 +148,7 @@ def _brier(y: np.ndarray, p: np.ndarray) -> float:
     return float(np.mean((p - y) ** 2))
 
 
-def _logloss(y: np.ndarray, p: np.ndarray) -> Optional[float]:
+def _logloss(y: np.ndarray, p: np.ndarray) -> float | None:
     _ensure_sklearn()
     from sklearn.metrics import log_loss
 
@@ -158,7 +160,7 @@ def _logloss(y: np.ndarray, p: np.ndarray) -> Optional[float]:
         return None
 
 
-def _mcc(y: np.ndarray, p: np.ndarray, thr: float = 0.5) -> Optional[float]:
+def _mcc(y: np.ndarray, p: np.ndarray, thr: float = 0.5) -> float | None:
     _ensure_sklearn()
     from sklearn.metrics import matthews_corrcoef
 
@@ -181,8 +183,8 @@ def _load_df(data_path: str):
     if data_path.endswith(".csv"):
         return pd.read_csv(data_path)
     if data_path.endswith(".ndjson") or data_path.endswith(".jsonl"):
-        rows: List[Dict[str, Any]] = []
-        with open(data_path, "r", encoding="utf-8") as f:
+        rows: list[dict[str, Any]] = []
+        with open(data_path, encoding="utf-8") as f:
             for line in f:
                 s = line.strip()
                 if not s:
@@ -218,7 +220,7 @@ def _expand_indicators_if_needed(df, feature_names: Sequence[str], column_names:
     return out
 
 
-def _schema_from_registry(schema_ver: str) -> Optional[Tuple[List[str], List[str]]]:
+def _schema_from_registry(schema_ver: str) -> tuple[list[str], list[str]] | None:
     try:
         from core.feature_registry import FeatureRegistry  # type: ignore
 
@@ -233,12 +235,12 @@ def _filter_by_denylist(
     column_names: Sequence[str],
     deny_num: Sequence[str],
     deny_bool: Sequence[str],
-) -> Tuple[List[str], List[str]]:
+) -> tuple[list[str], list[str]]:
     dnum = set(map(str, deny_num or []))
     dbool = set(map(str, deny_bool or []))
 
-    out_fn: List[str] = []
-    out_cn: List[str] = []
+    out_fn: list[str] = []
+    out_cn: list[str] = []
     for fn, cn in zip(feature_names, column_names):
         s = str(fn)
         if s.startswith("n:"):
@@ -254,7 +256,7 @@ def _filter_by_denylist(
     return out_fn, out_cn
 
 
-def _group_auc(y: np.ndarray, p: np.ndarray, mask: np.ndarray) -> Optional[float]:
+def _group_auc(y: np.ndarray, p: np.ndarray, mask: np.ndarray) -> float | None:
     y2 = y[mask]
     p2 = p[mask]
     if len(y2) < 10:
@@ -268,8 +270,8 @@ def _group_metrics(
     regimes: np.ndarray,
     hours: np.ndarray,
     min_group_rows: int,
-) -> Dict[str, Any]:
-    out: Dict[str, Any] = {"regime": {}, "hour": {}}
+) -> dict[str, Any]:
+    out: dict[str, Any] = {"regime": {}, "hour": {}}
 
     # regime
     for g in sorted({str(x) for x in regimes.tolist()}):
@@ -292,7 +294,7 @@ def _group_metrics(
     return out
 
 
-def _worst_auc_drop(groups_a: Dict[str, Any], groups_b: Dict[str, Any]) -> float:
+def _worst_auc_drop(groups_a: dict[str, Any], groups_b: dict[str, Any]) -> float:
     worst = 0.0
     for k, ga in groups_a.items():
         gb = groups_b.get(k) or {}
@@ -306,7 +308,7 @@ def _worst_auc_drop(groups_a: Dict[str, Any], groups_b: Dict[str, Any]) -> float
     return float(worst)
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
     ap.add_argument("--out_dir", default="")
@@ -344,13 +346,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("bad manifest format/kind")
         return 2
 
-    if str(m.get("status")) not in ("pending_ab", "ab_failed", "ab_done"):
+    if (m.get("status")) not in ("pending_ab", "ab_failed", "ab_done"):
         print(f"manifest status not eligible for AB: {m.get('status')}")
         return 2
 
     inputs = m.get("inputs") or {}
-    fs_run_dir = str(inputs.get("fs_run_dir") or "")
-    stab_path = str(inputs.get("stability_table") or "")
+    fs_run_dir = (inputs.get("fs_run_dir") or "")
+    stab_path = (inputs.get("stability_table") or "")
 
     fs_dir = Path(fs_run_dir).expanduser().resolve() if fs_run_dir else (mp.parent.parent if mp.parent.name == "proposals" else mp.parent)
     if not fs_dir.exists():
@@ -369,8 +371,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     fs_sum = _read_json(summary_path)
-    data_path = str(fs_sum.get("data_path") or "")
-    meta_json = str(fs_sum.get("meta_json") or "")
+    data_path = (fs_sum.get("data_path") or "")
+    meta_json = (fs_sum.get("meta_json") or "")
 
     if not data_path:
         print("summary.json missing data_path")
@@ -380,7 +382,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     out_dir = Path(args.out_dir).expanduser().resolve() if str(args.out_dir).strip() else (fs_dir / "proposals" / "ab_runs")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    proposal_hash = str(m.get("proposal_hash") or "")
+    proposal_hash = (m.get("proposal_hash") or "")
     tag = proposal_hash[:12] if proposal_hash else mp.stem.replace("denylist_proposal_", "")
 
     # Baseline schema lists: prefer registry (v5_of), otherwise meta.json
@@ -491,7 +493,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     hours_va = np.array([_utc_hour(int(t)) for t in ts_va], dtype=np.int16)
 
     # Decide model kind
-    model_kind = str(args.model).strip() or str(fs_sum.get("model") or "").strip() or "gbdt"
+    model_kind = str(args.model).strip() or (fs_sum.get("model") or "").strip() or "gbdt"
     if model_kind not in ("gbdt", "lr"):
         model_kind = "gbdt"
 
@@ -534,7 +536,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     },
 
     gate_pass = True
-    reasons: List[str] = []
+    reasons: list[str] = []
 
     if auc_drop is None:
         gate_pass = False
@@ -621,7 +623,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # markdown summary (human quick scan)
     with open(rep_md, "w", encoding="utf-8") as f:
-        f.write(f"# Feature denylist AB report\n\n")
+        f.write("# Feature denylist AB report\n\n")
         f.write(f"proposal_hash: `{proposal_hash}`\n\n")
         f.write(f"model: **{model_kind}**\n\n")
         f.write(f"gate: **{'PASS' if gate_pass else 'FAIL'}**\n\n")

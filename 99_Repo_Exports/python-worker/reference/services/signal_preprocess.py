@@ -1,12 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
 import hashlib
-import time
 import math
-from typing import Any, Dict, List
+import os
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
 
 # Cache environment variables at module level (Zero I/O in Hot Path)
 _DQ_TICK_GAP_FLAG_MS = int(os.getenv("DQ_TICK_GAP_FLAG_MS", "5000"))
@@ -22,11 +21,11 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
         return default
 
 
-def _dedup_str_list(xs: List[str]) -> List[str]:
+def _dedup_str_list(xs: list[str]) -> list[str]:
     seen = set()
-    out: List[str] = []
+    out: list[str] = []
     for x in xs:
-        s = str(x or "").strip().lower()
+        s = (x or "").strip().lower()
         if not s or s in seen:
             continue
         seen.add(s)
@@ -34,7 +33,7 @@ def _dedup_str_list(xs: List[str]) -> List[str]:
     return out
 
 
-def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: str, logger: Any) -> Dict[str, Any]:
+def preprocess_signal_for_publish(signal: dict[str, Any], symbol: str, source: str, logger: Any) -> dict[str, Any]:
     """
     In-place normalize + attach *data-quality* flags that downstream gates can use.
 
@@ -65,9 +64,9 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
     signal["tick_ts"] = int(signal.get("tick_ts") or ts_ms)
 
     # Direction / side (keep legacy `side` for consumers)
-    direction = str(signal.get("direction") or "").upper().strip()
+    direction = (signal.get("direction") or "").upper().strip()
     if not direction:
-        direction = str(signal.get("side") or "").upper().strip()
+        direction = (signal.get("side") or "").upper().strip()
 
     if direction in {"LONG", "SHORT", "BUY", "SELL"}:
         if direction in {"BUY", "LONG"}:
@@ -76,7 +75,7 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
         else:
             norm_dir = "SHORT"
             side_int = -1
-        
+
         signal["direction"] = norm_dir
         signal["side"] = norm_dir.lower()
         signal["side_int"] = side_int
@@ -87,7 +86,7 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
         raw_id = f"{signal['symbol']}_{signal['ts_ms']}_{signal.get('price', 0)}"
         sig_id = hashlib.md5(raw_id.encode()).hexdigest()[:16]
         signal["signal_id"] = sig_id
-    
+
     signal["sid"] = signal["signal_id"]
 
     # Confidence mirrors
@@ -127,7 +126,7 @@ def preprocess_signal_for_publish(signal: Dict[str, Any], symbol: str, source: s
     # ------------------------------------------------------------------
     # Data-quality flags (fail-open by default; veto is controlled elsewhere)
     # ------------------------------------------------------------------
-    flags: List[str] = []
+    flags: list[str] = []
     if isinstance(signal.get("data_quality_flags"), list):
         flags.extend([str(x) for x in signal.get("data_quality_flags") if x is not None])
 

@@ -1,12 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
-import hmac
+
 import hashlib
+import hmac
 import json
-import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -45,7 +45,7 @@ def verify_sig(bundle_id: str, sig: str, secret: str) -> bool:
     Returns:
         True если подпись валидна, False иначе
     """
-    return hmac.compare_digest(sign_bundle_id(bundle_id, secret), str(sig or ""))
+    return hmac.compare_digest(sign_bundle_id(bundle_id, secret), (sig or ""))
 
 
 @dataclass
@@ -74,8 +74,8 @@ class RecBundle:
     created_ms: int         # Timestamp создания (epoch ms)
     ttl_sec: int            # TTL в секундах (обычно 86400 = 24 часа)
     who: str                # Источник создания (e.g. "cron_of_reports")
-    ops: List[RecOp]        # Список операций для применения
-    meta: Dict[str, Any]    # Метаданные (mode, ts, и т.д.)
+    ops: list[RecOp]        # Список операций для применения
+    meta: dict[str, Any]    # Метаданные (mode, ts, и т.д.)
 
     def to_json(self) -> str:
         """
@@ -93,7 +93,7 @@ class RecBundle:
         }, ensure_ascii=False, separators=(",", ":"))
 
     @staticmethod
-    def from_dict(d: Dict[str, Any]) -> "RecBundle":
+    def from_dict(d: dict[str, Any]) -> RecBundle:
         """
         Десериализует bundle из словаря (после чтения из Redis).
         
@@ -105,10 +105,10 @@ class RecBundle:
         """
         ops = [RecOp(**x) for x in (d.get("ops") or [])]
         return RecBundle(
-            id=str(d.get("id", "")),
+            id=(d.get("id", "")),
             created_ms=int(d.get("created_ms", 0) or 0),
             ttl_sec=int(d.get("ttl_sec", 0) or 0),
-            who=str(d.get("who", "")),
+            who=(d.get("who", "")),
             ops=ops,
             meta=dict(d.get("meta") or {}),
         )

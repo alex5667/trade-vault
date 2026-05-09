@@ -1,9 +1,10 @@
-from typing import Any, Dict, List
+from typing import Any
 
-def render_window_open_message(window_kind: str, target_scope: str, checks: Dict[str, Any]) -> Dict[str, Any]:
+
+def render_window_open_message(window_kind: str, target_scope: str, checks: dict[str, Any]) -> dict[str, Any]:
     """Render Telegram message for an opened release window."""
-    
-    def check_status(check_group: Dict[str, Any]) -> str:
+
+    def check_status(check_group: dict[str, Any]) -> str:
         # A simple mock representation of 'green' status logic.
         return "green" if check_group else "unknown"
 
@@ -11,7 +12,7 @@ def render_window_open_message(window_kind: str, target_scope: str, checks: Dict
     signal_gates_status = check_status(checks.get("signal_gates", {}))
     execution_status = check_status(checks.get("execution", {}))
     protective_status = check_status(checks.get("protective", {}))
-    
+
     rollback_ready = checks.get("rollback_ready", {}).get("rollback_bundle_prepared", False)
     rollback_status = "ready" if rollback_ready else "not ready"
 
@@ -29,14 +30,14 @@ def render_window_open_message(window_kind: str, target_scope: str, checks: Dict
         f"- protective: {protective_status}",
         f"- rollback bundle: {rollback_status}"
     ]
-    
+
     return {
         "text": "\n".join(msg_lines),
         "parse_mode": "HTML"
     }
 
 
-def render_window_blocked_message(change_id: str, change_class: str, blockers: List[str]) -> Dict[str, Any]:
+def render_window_blocked_message(change_id: str, change_class: str, blockers: list[str]) -> dict[str, Any]:
     """Render Telegram message for a blocked release window."""
     msg_lines = [
         "<b>ATR Release Window Blocked</b>",
@@ -56,7 +57,7 @@ def render_window_blocked_message(change_id: str, change_class: str, blockers: L
     }
 
 
-def render_checklist_approved_message(change_id: str, change_class: str, signoffs: List[str]) -> Dict[str, Any]:
+def render_checklist_approved_message(change_id: str, change_class: str, signoffs: list[str]) -> dict[str, Any]:
     """Render Telegram message for an approved checklist."""
     msg_lines = [
         "<b>ATR Pre-Release Checklist Approved</b>",

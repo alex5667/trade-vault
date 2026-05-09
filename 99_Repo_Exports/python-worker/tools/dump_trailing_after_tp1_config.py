@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # tools/dump_trailing_after_tp1_config.py
 from __future__ import annotations
+
 """
 Скрипт для вывода конфигурации trailing after TP1 по source/symbol.
 
@@ -12,26 +13,22 @@ from __future__ import annotations
 
 
 import os
-import sys
-from typing import Dict, Tuple, List, Set, Optional
 
 # Добавляем путь к корню проекта
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
 import redis
 
 from domain.normalizers import canon_source, canon_symbol
 from services.pnl_math import get_symbol_info, spec_from_symbol_info
 
-
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 
 
-def _discover_pairs(r: redis.Redis) -> List[Tuple[str, str]]:
+def _discover_pairs(r: redis.Redis) -> list[tuple[str, str]]:
     """
     Находит пары (source, symbol) на основе stats:strategies + stats:symbols:<strategy>.
     """
-    pairs: Set[Tuple[str, str]] = set()
+    pairs: set[tuple[str, str]] = set()
     strategies = r.smembers("stats:strategies") or []
 
     mapping = {
@@ -54,7 +51,7 @@ def _discover_pairs(r: redis.Redis) -> List[Tuple[str, str]]:
     return sorted(pairs)
 
 
-def _extract_spec_flag(spec) -> Optional[bool]:
+def _extract_spec_flag(spec) -> bool | None:
     """
     Извлекает флаг из SymbolSpec:
     trailing_after_tp1_enabled / trailing_enabled.
@@ -77,7 +74,7 @@ def _extract_spec_flag(spec) -> Optional[bool]:
     return None
 
 
-def _get_spec_trailing_tp1_offset_atr(spec) -> Optional[float]:
+def _get_spec_trailing_tp1_offset_atr(spec) -> float | None:
     """
     Сырой trailing_tp1_offset_atr из SymbolSpec (если задан и > 0).
     """
@@ -99,7 +96,7 @@ def _is_trailing_after_tp1_enabled_effective(
     source: str,
     symbol: str,
     spec,
-) -> Tuple[bool, Dict[str, str]]:
+) -> tuple[bool, dict[str, str]]:
     """
     Эффективный флаг after_tp1_enabled с приоритетами.
 
@@ -112,7 +109,7 @@ def _is_trailing_after_tp1_enabled_effective(
     symbol_up = (symbol or "").upper()
     source_norm = canon_source(source or "")
 
-    meta: Dict[str, str] = {}
+    meta: dict[str, str] = {}
 
     # 1) spec flag (из Redis) - ВЫСШИЙ ПРИОРИТЕТ
     spec_flag = _extract_spec_flag(spec)
@@ -147,7 +144,7 @@ def _resolve_trailing_tp1_offset_atr_effective(
     source: str,
     symbol: str,
     spec,
-) -> Tuple[float, Dict[str, str]]:
+) -> tuple[float, dict[str, str]]:
     """
     Эффективный offset ATR с приоритетами.
 
@@ -160,7 +157,7 @@ def _resolve_trailing_tp1_offset_atr_effective(
     symbol_up = (symbol or "").upper()
     source_norm = canon_source(source or "")
 
-    meta: Dict[str, str] = {}
+    meta: dict[str, str] = {}
 
     # 1) spec (из Redis) - ВЫСШИЙ ПРИОРИТЕТ
     try:
@@ -213,8 +210,8 @@ def main() -> None:
         print("⚠️ Не найдено пар source/symbol в stats:strategies / stats:symbols:*")
         return
 
-    enabled_rows: List[str] = []
-    disabled_rows: List[str] = []
+    enabled_rows: list[str] = []
+    disabled_rows: list[str] = []
 
     header = (
         f"{'SOURCE':20} "

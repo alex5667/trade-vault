@@ -1,15 +1,12 @@
-# -*- coding: utf-8 -*-
 """
 Unit tests for core/adverse_gate_calibrator.py.
 """
-import pytest
 from core.adverse_gate_calibrator import (
     AdverseOutcome,
-    AdverseGateCalibResult,
-    evaluate_adverse_gate,
     adv_mode_to_int,
-    is_adv_enable,
+    evaluate_adverse_gate,
     is_adv_disable,
+    is_adv_enable,
 )
 
 

@@ -4,19 +4,16 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 log = logging.getLogger("news_pg_writer")
 
 # Поддержим psycopg3 и psycopg2 (какой установлен — тот и используем)
 _PG = None
 try:
-    import psycopg  # type: ignore
     _PG = "psycopg3"
 except Exception:
     try:
-        import psycopg2  # type: ignore
-        import psycopg2.extras  # type: ignore
         _PG = "psycopg2"
     except Exception:
         _PG = None
@@ -34,7 +31,7 @@ class NewsPgWriter:
         if not self.enabled or not self.dsn or _PG is None:
             self.enabled = False
 
-    def write_news_analysis_rows(self, rows: List[Dict[str, Any]]) -> None:
+    def write_news_analysis_rows(self, rows: list[dict[str, Any]]) -> None:
         if not self.enabled or not rows:
             return
         try:
@@ -45,7 +42,7 @@ class NewsPgWriter:
         except Exception as e:
             log.exception("write_news_analysis_rows failed: %s", e)
 
-    def write_features_rows(self, rows: List[Dict[str, Any]]) -> None:
+    def write_features_rows(self, rows: list[dict[str, Any]]) -> None:
         if not self.enabled or not rows:
             return
         try:
@@ -58,7 +55,7 @@ class NewsPgWriter:
 
     # ---------------- psycopg3 ----------------
 
-    def _write_news_analysis_psycopg3(self, rows: List[Dict[str, Any]]) -> None:
+    def _write_news_analysis_psycopg3(self, rows: list[dict[str, Any]]) -> None:
         import psycopg  # type: ignore
 
         sql = """
@@ -75,11 +72,10 @@ class NewsPgWriter:
           payload_json=EXCLUDED.payload_json,
           inserted_at=now()
         """
-        with psycopg.connect(self.dsn, autocommit=True) as conn:
-            with conn.cursor() as cur:
-                cur.executemany(sql, rows)
+        with psycopg.connect(self.dsn, autocommit=True) as conn, conn.cursor() as cur:
+            cur.executemany(sql, rows)
 
-    def _write_features_psycopg3(self, rows: List[Dict[str, Any]]) -> None:
+    def _write_features_psycopg3(self, rows: list[dict[str, Any]]) -> None:
         import psycopg  # type: ignore
 
         sql = """
@@ -98,13 +94,12 @@ class NewsPgWriter:
           horizon_sec=EXCLUDED.horizon_sec,
           inserted_at=now()
         """
-        with psycopg.connect(self.dsn, autocommit=True) as conn:
-            with conn.cursor() as cur:
-                cur.executemany(sql, rows)
+        with psycopg.connect(self.dsn, autocommit=True) as conn, conn.cursor() as cur:
+            cur.executemany(sql, rows)
 
     # ---------------- psycopg2 ----------------
 
-    def _write_news_analysis_psycopg2(self, rows: List[Dict[str, Any]]) -> None:
+    def _write_news_analysis_psycopg2(self, rows: list[dict[str, Any]]) -> None:
         import psycopg2  # type: ignore
         import psycopg2.extras  # type: ignore
 
@@ -134,7 +129,7 @@ class NewsPgWriter:
             with conn.cursor() as cur:
                 psycopg2.extras.execute_values(cur, sql, values, page_size=200)
 
-    def _write_features_psycopg2(self, rows: List[Dict[str, Any]]) -> None:
+    def _write_features_psycopg2(self, rows: list[dict[str, Any]]) -> None:
         import psycopg2  # type: ignore
         import psycopg2.extras  # type: ignore
 

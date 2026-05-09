@@ -11,11 +11,11 @@
 6. Конфигурацию символов
 """
 
+import json
 import os
 import sys
-import json
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from datetime import UTC, datetime
+from core.redis_keys import RedisStreams as RS
 
 # Добавляем путь к корню проекта
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -36,7 +36,7 @@ def get_redis_client(url: str) -> redis.Redis:
         return None
 
 
-def check_stream(r: redis.Redis, stream_name: str, count: int = 5) -> List[Dict]:
+def check_stream(r: redis.Redis, stream_name: str, count: int = 5) -> list[dict]:
     """Проверяет наличие записей в stream."""
     try:
         entries = r.xrevrange(stream_name, max="+", min="-", count=count)
@@ -50,7 +50,7 @@ def check_stream(r: redis.Redis, stream_name: str, count: int = 5) -> List[Dict]
         return []
 
 
-def check_key(r: redis.Redis, key: str) -> Optional[str]:
+def check_key(r: redis.Redis, key: str) -> str | None:
     """Проверяет значение ключа."""
     try:
         return r.get(key)
@@ -59,7 +59,7 @@ def check_key(r: redis.Redis, key: str) -> Optional[str]:
         return None
 
 
-def check_set(r: redis.Redis, key: str) -> List[str]:
+def check_set(r: redis.Redis, key: str) -> list[str]:
     """Проверяет элементы set."""
     try:
         return list(r.smembers(key))
@@ -68,12 +68,12 @@ def check_set(r: redis.Redis, key: str) -> List[str]:
         return []
 
 
-def format_timestamp(ts_ms: Optional[int]) -> str:
+def format_timestamp(ts_ms: int | None) -> str:
     """Форматирует timestamp."""
     if not ts_ms:
         return "N/A"
     try:
-        dt = datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc)
+        dt = datetime.fromtimestamp(int(ts_ms) / 1000, tz=UTC)
         return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
     except Exception:
         return str(ts_ms)
@@ -83,25 +83,25 @@ def main():
     # Читаем конфигурацию из env
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     redis_ticks_url = os.getenv("REDIS_TICKS_URL", "redis://redis-ticks:6379/0")
-    notify_stream = os.getenv("CRYPTO_NOTIFY_STREAM", "notify:telegram")
+    notify_stream = os.getenv("CRYPTO_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     notify_redis_url = os.getenv("CRYPTO_NOTIFY_REDIS_URL", redis_url)
-    
+
     print("=" * 80)
     print("🔍 ДИАГНОСТИКА CRYPTO ORDERFLOW SIGNALS")
     print("=" * 80)
-    print(f"📅 Время: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print(f"📅 Время: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}")
     print()
-    
+
     # Подключаемся к Redis
     print("🔌 Подключение к Redis...")
     r_main = get_redis_client(redis_url)
     r_ticks = get_redis_client(redis_ticks_url)
     r_notify = get_redis_client(notify_redis_url) if notify_redis_url != redis_url else r_main
-    
+
     if not r_main or not r_ticks:
         print("❌ Не удалось подключиться к Redis")
         return 1
-    
+
     # Проверяем символы
     print("\n" + "=" * 80)
     print("1️⃣ ПРОВЕРКА СИМВОЛОВ")
@@ -109,12 +109,12 @@ def main():
     symbols_set = check_set(r_main, "crypto:symbols")
     default_symbols = ["BTCUSDT", "ETHUSDT"]
     all_symbols = set(symbols_set + default_symbols)
-    
+
     print(f"📊 Символы в crypto:symbols: {symbols_set if symbols_set else '(пусто)'}")
     print(f"📊 Всего символов для проверки: {len(all_symbols)}")
     for sym in sorted(all_symbols):
         print(f"   - {sym}")
-    
+
     # Проверяем тики для каждого символа
     print("\n" + "=" * 80)
     print("2️⃣ ПРОВЕРКА ТИКОВ")
@@ -137,17 +137,17 @@ def main():
                 pass
         else:
             print(f"❌ {symbol}: НЕТ записей в {stream_name}")
-    
+
     if not ticks_found:
         print("\n⚠️ ВНИМАНИЕ: Тики не найдены! Проверьте, что тики публикуются в Redis.")
-    
+
     # Проверяем сырые сигналы
     print("\n" + "=" * 80)
     print("3️⃣ ПРОВЕРКА СЫРЫХ СИГНАЛОВ (signals:crypto:raw)")
     print("=" * 80)
-    raw_stream = os.getenv("CRYPTO_RAW_STREAM", "signals:crypto:raw")
+    raw_stream = os.getenv("CRYPTO_RAW_STREAM", RS.CRYPTO_RAW)
     raw_entries = check_stream(r_main, raw_stream, count=5)
-    
+
     if raw_entries:
         print(f"✅ Найдено {len(raw_entries)} последних сигналов в {raw_stream}")
         for i, (msg_id, fields) in enumerate(raw_entries[:3], 1):
@@ -164,13 +164,13 @@ def main():
     else:
         print(f"❌ НЕТ сигналов в {raw_stream}")
         print("   ⚠️ Сигналы не генерируются или не публикуются")
-    
+
     # Проверяем структурированные сигналы
     print("\n" + "=" * 80)
     print("4️⃣ ПРОВЕРКА СТРУКТУРИРОВАННЫХ СИГНАЛОВ (signals:cryptoorderflow:{symbol})")
     print("=" * 80)
     signal_template = os.getenv("CRYPTO_ORDERFLOW_SIGNAL_STREAM", "signals:cryptoorderflow:{symbol}")
-    
+
     for symbol in sorted(all_symbols):
         stream_name = signal_template.format(symbol=symbol)
         entries = check_stream(r_main, stream_name, count=3)
@@ -188,14 +188,14 @@ def main():
                     print(f"   {i}. msg_id={msg_id}")
         else:
             print(f"❌ {symbol}: НЕТ записей в {stream_name}")
-    
+
     # Проверяем Telegram stream
     print("\n" + "=" * 80)
     print("5️⃣ ПРОВЕРКА TELEGRAM STREAM")
     print("=" * 80)
     print(f"Stream: {notify_stream}")
     print(f"Redis: {notify_redis_url}")
-    
+
     telegram_entries = check_stream(r_notify, notify_stream, count=5)
     if telegram_entries:
         print(f"✅ Найдено {len(telegram_entries)} последних сообщений в {notify_stream}")
@@ -207,18 +207,18 @@ def main():
     else:
         print(f"❌ НЕТ сообщений в {notify_stream}")
         print("   ⚠️ Сообщения не публикуются или бот читает другой stream")
-    
+
     # Проверяем счетчик гейтинга
     print("\n" + "=" * 80)
     print("6️⃣ ПРОВЕРКА ГЕЙТИНГА TELEGRAM")
     print("=" * 80)
-    counter_key = os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", "notify:telegram:signal_counter")
+    counter_key = os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", RS.NOTIFY_SIGNAL_COUNTER)
     counter_value = check_key(r_notify, counter_key)
     every_n = int(os.getenv("CRYPTO_NOTIFY_SIGNAL_EVERY_N", "1"))
-    
+
     print(f"Счетчик: {counter_key} = {counter_value if counter_value else '(не установлен)'}")
     print(f"Every N: {every_n}")
-    
+
     if counter_value:
         counter_int = int(counter_value)
         if every_n > 1:
@@ -233,7 +233,7 @@ def main():
             print("✅ Гейтинг отключен (every_n=1), все сигналы отправляются")
     else:
         print("⚠️ Счетчик не установлен (первый сигнал еще не был обработан)")
-    
+
     # Проверяем конфигурацию
     print("\n" + "=" * 80)
     print("7️⃣ ПРОВЕРКА КОНФИГУРАЦИИ")
@@ -243,12 +243,12 @@ def main():
     print(f"Минимальная confidence: {min_conf}%")
     print(f"Delta Z threshold: {delta_z_threshold}")
     print(f"Telegram every_n: {every_n}")
-    
+
     # Итоговая сводка
     print("\n" + "=" * 80)
     print("📊 ИТОГОВАЯ СВОДКА")
     print("=" * 80)
-    
+
     issues = []
     if not ticks_found:
         issues.append("❌ Тики не найдены в streams")
@@ -256,14 +256,14 @@ def main():
         issues.append("❌ Сырые сигналы не генерируются")
     if not telegram_entries:
         issues.append("❌ Сообщения не публикуются в Telegram")
-    
+
     if issues:
         print("⚠️ Обнаружены проблемы:")
         for issue in issues:
             print(f"   {issue}")
     else:
         print("✅ Все проверки пройдены успешно!")
-    
+
     print("\n" + "=" * 80)
     return 0
 

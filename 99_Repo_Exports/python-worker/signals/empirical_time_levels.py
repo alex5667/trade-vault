@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, List, Optional, Set
+from typing import Any
+import contextlib
 
 
 def _canon(x: Any) -> str:
-    return (str(x or "").strip().lower() or "na")
+    return ((x or "").strip().lower() or "na")
 
 
 def _canon_sym(x: Any) -> str:
-    return (str(x or "").strip().upper().replace("/", "").replace("-", "") or "NA")
+    return ((x or "").strip().upper().replace("/", "").replace("-", "") or "NA")
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -22,31 +23,29 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(float(os.getenv(name, str(default)) or default))
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)) or default)
     except Exception:
-        return float(default)
+        return default
 
 
-def _parse_csv_ints(s: str) -> List[int]:
-    out: List[int] = []
+def _parse_csv_ints(s: str) -> list[int]:
+    out: list[int] = []
     for part in (s or "").split(","):
         p = part.strip()
         if not p:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(int(float(p)))
-        except Exception:
-            pass
     return out
 
 
-def _parse_csv_strs(s: str) -> List[str]:
-    out: List[str] = []
+def _parse_csv_strs(s: str) -> list[str]:
+    out: list[str] = []
     for part in (s or "").split(","):
         p = part.strip().lower()
         if p:
@@ -62,7 +61,7 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return x
 
 
-def _percentile(xs: List[float], q: float) -> Optional[float]:
+def _percentile(xs: list[float], q: float) -> float | None:
     """
     Simple percentile without numpy. q in [0,1].
     """
@@ -81,7 +80,7 @@ def _percentile(xs: List[float], q: float) -> Optional[float]:
     return float(ys[lo] * (1.0 - w) + ys[hi] * w)
 
 
-def _nearest_bucket(buckets: List[int], t_ms: int) -> Optional[int]:
+def _nearest_bucket(buckets: list[int], t_ms: int) -> int | None:
     if not buckets:
         return None
     tt = int(t_ms)
@@ -105,12 +104,12 @@ class EmpiricalTimeLevelsConfig:
     min_n_alive: int
     q_mfe: float
     q_mae: float
-    buckets_minutes: List[int]
+    buckets_minutes: list[int]
 
     # NEW: Double-T (TTD quantile selector)
     ttd_q_slow: float           # default 0.50 (median)
     ttd_q_fast: float           # default 0.25
-    fast_regimes: Set[str]      # regimes where we use q25 instead of q50
+    fast_regimes: set[str]      # regimes where we use q25 instead of q50
 
     # NEW: TP/SL clamp (bps) to avoid insane levels on small/noisy samples
     tp1_min_bps: float
@@ -123,7 +122,7 @@ class EmpiricalTimeLevelsConfig:
     survive_min: float          # p_survive(T) >= survive_min
 
     @classmethod
-    def from_env(cls) -> "EmpiricalTimeLevelsConfig":
+    def from_env(cls) -> EmpiricalTimeLevelsConfig:
         mins = _parse_csv_ints(os.getenv("EMP_TIME_BUCKETS_MINUTES", "1,2,3,5,8,13,21,34,45"))
         return cls(
             enabled=_env_bool("EMP_TIME_LEVELS_RUNTIME_ENABLED", True),
@@ -149,7 +148,7 @@ class EmpiricalTimeLevelsConfig:
             survive_min=max(0.0, min(1.0, _env_float("EMP_TIME_LEVELS_SURVIVE_MIN", 0.25))),
         )
 
-    def buckets_ms(self) -> List[int]:
+    def buckets_ms(self) -> list[int]:
         return [m * 60_000 for m in self.buckets_minutes]
 
 
@@ -176,12 +175,12 @@ class RedisEmpiricalTimeLevelsProvider:
         r = _canon(regime) if self.cfg.use_regime_dim else "na"
         return f"statsbuf:{k}:{s}:{t}:{r}:{suffix}"
 
-    def _lrange_floats(self, key: str) -> List[float]:
+    def _lrange_floats(self, key: str) -> list[float]:
         try:
             xs = self.redis.lrange(key, 0, -1) or []
         except Exception:
             return []
-        out: List[float] = []
+        out: list[float] = []
         for v in xs:
             try:
                 if isinstance(v, (bytes, bytearray)):
@@ -193,7 +192,7 @@ class RedisEmpiricalTimeLevelsProvider:
                 pass
         return out
 
-    def _median_ttd_ms(self, *, kind: str, symbol: str, tf: str, regime: str) -> Optional[int]:
+    def _median_ttd_ms(self, *, kind: str, symbol: str, tf: str, regime: str) -> int | None:
         # existing list already stores ttd for tp1_hit trades (your pipeline behavior)
         key = self._key(kind=kind, symbol=symbol, tf=tf, regime=regime, suffix="ttd_ms")
         xs = self._lrange_floats(key)
@@ -202,7 +201,7 @@ class RedisEmpiricalTimeLevelsProvider:
         med = _percentile(xs, 0.50)
         return int(med or 0) if med is not None else None
 
-    def _ttd_quantile_ms(self, *, kind: str, symbol: str, tf: str, regime: str, q: float) -> Optional[int]:
+    def _ttd_quantile_ms(self, *, kind: str, symbol: str, tf: str, regime: str, q: float) -> int | None:
         key = self._key(kind=kind, symbol=symbol, tf=tf, regime=regime, suffix="ttd_ms")
         xs = self._lrange_floats(key)
         if len(xs) < 5:

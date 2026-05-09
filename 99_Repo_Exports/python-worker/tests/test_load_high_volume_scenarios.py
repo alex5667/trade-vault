@@ -4,9 +4,13 @@ Tests that the system maintains exactly-once semantics under load.
 """
 import json
 import time
+
 import pytest
-from core.signal_outbox import SignalOutboxPublisher, OutboxSettings
+
+from core.signal_outbox import OutboxSettings, SignalOutboxPublisher
 from services.signal_dispatcher import SignalDispatcher
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 class TestLoadHighVolume:
@@ -15,7 +19,7 @@ class TestLoadHighVolume:
     def test_outbox_load_no_duplicates(self, r):
         """Load test: много сигналов в outbox, проверка отсутствия дубликатов."""
         settings = OutboxSettings(
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             dedup_bucket_ms=60000,
         )
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
@@ -43,12 +47,12 @@ class TestLoadHighVolume:
 
         # Все должны быть опубликованы (разные timestamps = разные buckets)
         assert len(published_ids) == n
-        assert r.xlen("stream:signals:outbox") == n
+        assert r.xlen(RS.SIGNAL_OUTBOX) == n
 
     def test_outbox_dedup_load_same_bucket(self, r):
         """Load test: дедуп в одном бакете под нагрузкой."""
         settings = OutboxSettings(
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             dedup_bucket_ms=60000,
         )
         outbox = SignalOutboxPublisher(redis_client=r, settings=settings)
@@ -76,13 +80,13 @@ class TestLoadHighVolume:
         # Только первый должен опубликоваться, остальные dedup
         assert published_count == 1
         assert dedup_count == n - 1
-        assert r.xlen("stream:signals:outbox") == 1
+        assert r.xlen(RS.SIGNAL_OUTBOX) == 1
 
     def test_dispatcher_load_idempotent(self, r):
         """Load test: dispatcher должен оставаться идемпотентным под нагрузкой."""
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="load-test-group",
         )
 
@@ -130,14 +134,14 @@ class TestLoadHighVolume:
         """End-to-end load test: outbox -> dispatcher -> targets."""
         # Настройка компонентов
         outbox_settings = OutboxSettings(
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             dedup_bucket_ms=60000,
         )
         outbox = SignalOutboxPublisher(redis_client=r, settings=outbox_settings)
 
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="e2e-test-group",
         )
 
@@ -168,10 +172,10 @@ class TestLoadHighVolume:
                 published_signals += 1
 
         assert published_signals == n
-        assert r.xlen("stream:signals:outbox") == n
+        assert r.xlen(RS.SIGNAL_OUTBOX) == n
 
         # 2. "Обрабатываем" все сообщения из outbox
-        messages = r.xrange("stream:signals:outbox")
+        messages = r.xrange(RS.SIGNAL_OUTBOX)
         for msg_id, fields in messages:
             ok = dispatcher._handle_one(msg_id, fields)
             assert ok is True
@@ -195,7 +199,7 @@ class TestLoadHighVolume:
     def test_concurrent_dedup_simulation(self, r):
         """Симуляция конкурентного доступа к дедуп ключам."""
         settings = OutboxSettings(
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             dedup_bucket_ms=60000,
         )
 
@@ -224,7 +228,7 @@ class TestLoadHighVolume:
 
         assert published_count == 1
         assert dedup_count == 2
-        assert r.xlen("stream:signals:outbox") == 1
+        assert r.xlen(RS.SIGNAL_OUTBOX) == 1
 
     @pytest.mark.slow
     def test_load_heavy_volume(self, r, redis_url):
@@ -240,10 +244,8 @@ class TestLoadHighVolume:
         outbox = SignalOutboxPublisher(redis_url=redis_url, settings=settings)
 
         start_time = time.time()
-        try:
+        with contextlib.suppress(Exception):
             outbox._redis.flushdb()
-        except Exception:
-            pass
 
         # Публикуем 1000 уникальных сигналов и парные SRE метрики
         for i in range(n):
@@ -266,13 +268,13 @@ class TestLoadHighVolume:
                 ts_ms=1700000000000 + i, envelope=env,
             )
             assert msg_id, f"Publish failed for i={i}, maybe deduped?"
-            
+
             # Эмулируем P4 публикацию в SRE метрики (для bench tool)
             start_us = time.perf_counter_ns() // 1000
             time.sleep(0.0001)  # Искусственная задержка (100us)
             now_us = time.perf_counter_ns() // 1000
             lat_us = now_us - start_us
-            
+
             r.xadd(
                 f"metrics:of_gate:heavy_{run_id}",
                 {
@@ -305,7 +307,7 @@ class TestLoadHighVolume:
         dispatcher.simple_redis = r
         dispatcher.redis = r
         dispatcher.outbox_stream = f"stream:signals:outbox:heavy_{run_id}"
-        
+
         dispatched = 0
 
         messages = r.xrange(f"stream:signals:outbox:heavy_{run_id}")

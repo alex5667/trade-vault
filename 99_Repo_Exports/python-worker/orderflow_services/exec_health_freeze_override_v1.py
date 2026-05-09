@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+
 """Operator CLI for ExecHealth dual-control override / thaw workflow (P9).
 
 Usage
@@ -45,17 +47,13 @@ import json
 import os
 import secrets
 import sys
-import time
-from typing import Any, Dict
+from typing import Any
 
 try:
     import redis  # type: ignore
 except Exception:  # pragma: no cover
     redis = None
 
-from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
-from services.orderflow.exec_health_freeze_deploy_contract import assert_runtime_service_env_contract
-from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
 from services.orderflow.exec_health_freeze_control import (
     ACK_SIGNING_SECRET_ENV,
     build_dual_control_commit_thaw_update,
@@ -66,7 +64,8 @@ from services.orderflow.exec_health_freeze_control import (
     sign_dual_control_commit,
     stringify_mapping,
 )
-from services.orderflow.exec_health_freeze_sealed_state import sealed_set_sync
+from services.orderflow.exec_health_freeze_deploy_contract import assert_runtime_service_env_contract
+from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
 from services.orderflow.exec_health_freeze_request_log import (
     DEFAULT_REQUEST_STREAM,
     eval_approve_cas,
@@ -74,13 +73,15 @@ from services.orderflow.exec_health_freeze_request_log import (
     eval_prepare_cas,
 )
 from services.orderflow.exec_health_freeze_rollout_gate import assert_rollout_gate_open
+from services.orderflow.exec_health_freeze_sealed_state import sealed_set_sync
+from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _jprint(obj: Dict[str, Any]) -> None:
+def _jprint(obj: dict[str, Any]) -> None:
     print(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True))
 
 
@@ -108,13 +109,13 @@ class OverrideController:
         ensure_service_identity_sync(self.r, "exec_health_freeze_override_v1")
         heal_service_identity_sync(self.r, "exec_health_freeze_override_v1", force=True)
 
-    def _read_hash(self, key: str) -> Dict[str, Any]:
+    def _read_hash(self, key: str) -> dict[str, Any]:
         try:
             return self.r.hgetall(key) or {}
         except Exception:
             return {}
 
-    def _write_hash(self, key: str, payload: Dict[str, Any], *, entrypoint: str, force: bool = False, force_reason: str = '') -> None:
+    def _write_hash(self, key: str, payload: dict[str, Any], *, entrypoint: str, force: bool = False, force_reason: str = '') -> None:
         """P11: write hash через sealed_set_sync (FCALL whitelist entrypoint).
 
         Прямой HSET не используется — ACL заблокирует прямые hash writes.
@@ -133,21 +134,21 @@ class OverrideController:
         if not res.get('ok'):
             raise ValueError(f"sealed write failed for {key}: {res.get('error') or res.get('rc')}")
 
-    def _emit_event(self, payload: Dict[str, Any]) -> str:
+    def _emit_event(self, payload: dict[str, Any]) -> str:
         """Best-effort event emit to the freeze event stream. Returns event ID.""",
         try:
-            return str(self.r.xadd(self.event_stream, stringify_mapping(payload), maxlen=5000) or "")
+            return str(self.r.xadd(self.event_stream, stringify_mapping(payload), maxlen=5000, approximate=True) or "")
         except Exception:
             return ""
 
-    def _emit_request_event(self, payload: Dict[str, Any]) -> str:
+    def _emit_request_event(self, payload: dict[str, Any]) -> str:
         """Emit to the P10 append-only request log stream. Returns event ID.""",
         try:
-            return str(self.r.xadd(self.request_stream, stringify_mapping(payload), maxlen=10000) or "")
+            return str(self.r.xadd(self.request_stream, stringify_mapping(payload), maxlen=10000, approximate=True) or "")
         except Exception:
             return ""
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         """Return current state from all three sources for operator inspection.""",
         heal_service_identity_sync(self.r, "exec_health_freeze_override_v1")
         ctl = parse_exec_health_freeze_control(self._read_hash(self.control_key))
@@ -180,7 +181,7 @@ class OverrideController:
         st = parse_exec_health_freeze_control(prev_state)
         return prev_ctl, prev_state, ctl, st
 
-    def prepare_thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> Dict[str, Any]:
+    def prepare_thaw(self, *, operator: str, reason: str, ticket: str, nonce: str) -> dict[str, Any]:
         """P9 Phase 1: Prepare a thaw request (operator A).
 
         Creates a new request_id, validates the nonce CAS, stores the pending
@@ -236,7 +237,7 @@ class OverrideController:
             raise ValueError(f"prepare CAS failed: rc={rc}")
         return {"ok": True, "action": "prepare-thaw", **event_payload, "request_event_id": request_event_id, "effective_freeze_active": 1}
 
-    def approve_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
+    def approve_thaw(self, *, operator: str, request_id: str) -> dict[str, Any]:
         """P9 Phase 2: Approve a thaw request (operator B, must differ from operator A).
 
         Validates that the request is in 'prepared' state and that the approving
@@ -273,7 +274,7 @@ class OverrideController:
             raise ValueError(f"approve CAS failed: rc={rc}")
         return {"ok": True, "action": "approve-thaw", **event_payload, "request_event_id": request_event_id, "effective_freeze_active": 1}
 
-    def commit_thaw(self, *, operator: str, request_id: str) -> Dict[str, Any]:
+    def commit_thaw(self, *, operator: str, request_id: str) -> dict[str, Any]:
         """P9 Phase 3: Commit (execute) the approved thaw (operator B).
 
         Validates request is 'approved', approver != preparer, then signs and writes
@@ -347,7 +348,7 @@ class OverrideController:
             raise ValueError(f"commit CAS failed: rc={rc}")
         return {"ok": True, "action": "commit-thaw", **event_payload, "event_id": event_id, "request_event_id": request_event_id, "effective_freeze_active": 0}
 
-    def freeze(self, *, operator: str, reason: str, ticket: str, minutes: int) -> Dict[str, Any]:
+    def freeze(self, *, operator: str, reason: str, ticket: str, minutes: int) -> dict[str, Any]:
         """Operator force-freeze for maintenance windows or manual intervention.
 
         Writes to control hash, state hash, and raw freeze key (legacy compat).

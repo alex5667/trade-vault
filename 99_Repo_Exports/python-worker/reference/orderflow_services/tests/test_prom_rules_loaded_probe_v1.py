@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for prom_rules_loaded_probe_v1 (v18).
 
 Covers:
@@ -8,8 +9,6 @@ Covers:
   - runbook mentions (links P91 section exists)
 """
 
-import json
-import os
 from pathlib import Path
 
 import pytest
@@ -44,7 +43,7 @@ def test_alert_rules_yaml_parseable():
     path = _get_rules_path()
     if path is None:
         pytest.skip("prometheus_alerts_prom_rules_loaded_probe_v1.yml not found")
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         doc = yaml.safe_load(f)
     assert isinstance(doc, dict), "Top-level must be a dict"
     assert "groups" in doc, "Missing 'groups' key"
@@ -55,7 +54,7 @@ def test_alert_rules_have_groups_and_rules():
     path = _get_rules_path()
     if path is None:
         pytest.skip("prometheus_alerts_prom_rules_loaded_probe_v1.yml not found")
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         doc = yaml.safe_load(f)
     groups = doc.get("groups", [])
     assert len(groups) >= 1, "At least one group expected"
@@ -68,7 +67,7 @@ def test_alert_rules_contain_expected_alerts():
     path = _get_rules_path()
     if path is None:
         pytest.skip("prometheus_alerts_prom_rules_loaded_probe_v1.yml not found")
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         doc = yaml.safe_load(f)
     alert_names = {
         r.get("alert")
@@ -90,7 +89,7 @@ def test_alert_rules_stall_check_refers_to_correct_metric():
     path = _get_rules_path()
     if path is None:
         pytest.skip("prometheus_alerts_prom_rules_loaded_probe_v1.yml not found")
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         doc = yaml.safe_load(f)
     stall_rule = None
     for g in doc.get("groups", []):

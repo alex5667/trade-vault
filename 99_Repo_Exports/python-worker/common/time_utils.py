@@ -1,9 +1,10 @@
 from __future__ import annotations
-# Stage1-P1: NormalizedEpochMs + normalize_epoch_ms_v2 aliases added
-from dataclasses import dataclass
 
 import time
-from typing import Any, Optional
+
+# Stage1-P1: NormalizedEpochMs + normalize_epoch_ms_v2 aliases added
+from dataclasses import dataclass
+from typing import Any
 
 EPOCH_MS_MIN = 946684800000       # 2000-01-01
 EPOCH_MS_MAX = 4102444800000      # 2100-01-01
@@ -24,7 +25,7 @@ def parse_timestamp_from_redis(ts_str: str) -> int:
     """Parse timestamp from Redis."""
     return int(ts_str)
 
-def extract_binance_close_time(data: Any) -> Optional[int]:
+def extract_binance_close_time(data: Any) -> int | None:
     """Extract close time from Binance data."""
     return None
 
@@ -32,7 +33,7 @@ def format_duration_ms(ms: int) -> str:
     """Format duration in milliseconds to string."""
     return f"{ms}ms"
 
-def normalize_timestamp(ts: Any) -> Optional[int]:
+def normalize_timestamp(ts: Any) -> int | None:
     """Normalize timestamp."""
     try:
         return int(ts)
@@ -44,7 +45,7 @@ def format_timestamp_iso(ts: int) -> str:
     from datetime import datetime
     return datetime.fromtimestamp(ts / 1000).isoformat()
 
-def normalize_epoch_ms_best_effort(ts: Any, *, now_ms: Optional[int] = None) -> int:
+def normalize_epoch_ms_best_effort(ts: Any, *, now_ms: int | None = None) -> int:
     """
     Защита от: ts_ms<=0, time-of-day, секунды вместо мс, мусор.
     Возвращает plausibly-epoch milliseconds.
@@ -73,7 +74,6 @@ def normalize_epoch_ms_best_effort(ts: Any, *, now_ms: Optional[int] = None) -> 
         return int(now_ms)
 
     return int(v)
-from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class NormalizedTime:
@@ -85,7 +85,7 @@ class NormalizedTime:
 def normalize_epoch_ms(
     x: Any,
     *,
-    now_ms: Optional[int] = None,
+    now_ms: int | None = None,
     max_future_ms: int = 2 * 24 * 3600_000,
     max_past_ms: int = 10 * 365 * 24 * 3600_000,
 ) -> NormalizedTime:
@@ -160,7 +160,7 @@ class NormalizedEpochMs:
     clamped: bool = False
 
 
-def normalize_epoch_ms_v2(value: Any, *, now_ms: Optional[int] = None) -> NormalizedEpochMs:
+def normalize_epoch_ms_v2(value: Any, *, now_ms: int | None = None) -> NormalizedEpochMs:
     """
     Best-effort normalization to epoch milliseconds.
 

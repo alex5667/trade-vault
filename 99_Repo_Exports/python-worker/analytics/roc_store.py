@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 ROC Store - Хранение ROC кривых и метрик в Redis.
 
@@ -14,10 +15,10 @@ ROC Store - Хранение ROC кривых и метрик в Redis.
 - Визуализация ROC кривых
 """
 
-import os
 import json
+import os
 import time
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 import redis
 
@@ -33,7 +34,7 @@ class ROCStore:
     - metrics:roc stream = события публикации ROC
     """
 
-    def __init__(self, redis_url: Optional[str] = None):
+    def __init__(self, redis_url: str | None = None):
         """
         Инициализация ROC Store.
         
@@ -58,9 +59,9 @@ class ROCStore:
         self,
         strategy: str,
         symbol: str,
-        points: List[Dict[str, Any]],
+        points: list[dict[str, Any]],
         auc: float
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Сохранение ROC точек и метрик.
         
@@ -115,7 +116,7 @@ class ROCStore:
             self.logger.error(f"❌ Ошибка сохранения ROC: {e}", exc_info=True)
             return {}
 
-    def load(self, strategy: str, symbol: str) -> Optional[Dict[str, Any]]:
+    def load(self, strategy: str, symbol: str) -> dict[str, Any] | None:
         """
         Загрузка ROC данных.
         
@@ -139,7 +140,7 @@ class ROCStore:
             self.logger.error(f"❌ Ошибка загрузки ROC: {e}")
             return None
 
-    def get_recent_roc_events(self, count: int = 100) -> List[Dict[str, Any]]:
+    def get_recent_roc_events(self, count: int = 100) -> list[dict[str, Any]]:
         """
         Получение последних событий ROC из stream.
         

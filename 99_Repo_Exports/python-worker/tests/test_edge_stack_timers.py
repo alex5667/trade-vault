@@ -1,8 +1,7 @@
 """Tests for Edge Stack v1 timers and exporter."""
 
+
 import pytest
-import os
-import sys
 
 # Ensure python-worker is in path
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))

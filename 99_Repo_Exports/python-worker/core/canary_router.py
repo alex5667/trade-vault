@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Iterable, Optional, Set
+
 
 def _stable_u01(s: str) -> float:
     """Deterministic u in [0,1). Use first 8 bytes of sha1.
@@ -27,7 +27,7 @@ class CanaryPolicy:
     timebucket_sec: bucket size for symbol_ts mode (default 60)
     """
     enforce_share: float = 1.0
-    enforce_symbols: Optional[Set[str]] = None
+    enforce_symbols: set[str] | None = None
     sample_key_mode: str = "sid"  # sid|symbol_ts
     timebucket_sec: int = 60
 
@@ -66,7 +66,7 @@ class CanaryPolicy:
 
         return _stable_u01(key) < p
 
-def parse_symbol_set(csv: str) -> Set[str]:
+def parse_symbol_set(csv: str) -> set[str]:
     """Parse comma-separated symbol list into set.
     
     Args:
@@ -75,7 +75,7 @@ def parse_symbol_set(csv: str) -> Set[str]:
     Returns:
         Set of uppercase symbols
     """
-    out: Set[str] = set()
+    out: set[str] = set()
     for x in (csv or "").split(","):
         x = x.strip().upper()
         if x:

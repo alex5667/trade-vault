@@ -1,14 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import sys
-import time
-from typing import Dict, Any
+from typing import Any
 
-from tick_flow_full.core.promote_freeze import read_freeze, set_freeze, clear_freeze
+from tick_flow_full.core.promote_freeze import clear_freeze, read_freeze, set_freeze
+from utils.time_utils import get_ny_time_millis
 
 
 def _env(name: str, default: str = "") -> str:
@@ -19,7 +17,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _write_ops_event(redis_url: str, event: Dict[str, Any]) -> None:
+def _write_ops_event(redis_url: str, event: dict[str, Any]) -> None:
     stream = _env("OPS_EVENT_STREAM", "ops:eventlog")
     try:
         import redis  # type: ignore

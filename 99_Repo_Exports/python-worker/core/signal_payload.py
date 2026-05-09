@@ -12,8 +12,8 @@ Design goals
 - JSON-serializable: dataclasses expose `to_dict()`.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -30,9 +30,9 @@ class StrongGateDecision:
     gate_bits: int = 0
     # Optional detailed legs for debug (A/B/C breakdown is often enough)
     # Kept for backward compatibility with signal_pipeline
-    legs: Optional[Dict[str, int]] = None
+    legs: dict[str, int] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "ok": 1 if self.ok else 0,
@@ -50,19 +50,19 @@ class StrongGateDecision:
 
 @dataclass
 class SignalPayload:
-    confirmations: Dict[str, Any]
-    indicators: Dict[str, Any]
-    gate: Optional[StrongGateDecision] = None
-    confidence_parts: Optional[Dict[str, Any]] = None
-    rejection_reason: Optional[str] = None
-    
+    confirmations: dict[str, Any]
+    indicators: dict[str, Any]
+    gate: StrongGateDecision | None = None
+    confidence_parts: dict[str, Any] | None = None
+    rejection_reason: str | None = None
+
     # Optional extras to capture context
     ts_ms: int = 0
     symbol: str = ""
     signal_id: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
             "confirmations": dict(self.confirmations or {}),
             "indicators": dict(self.indicators or {}),
             "rejection_reason": self.rejection_reason,

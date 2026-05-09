@@ -1,5 +1,7 @@
 import time
+
 from common.confidence_auto_train import decide_should_train
+
 
 def test_decide_train_by_new_cnt():
     ok, reason = decide_should_train(

@@ -15,15 +15,15 @@ Usage:
     uvicorn services.orders_http_bridge:app --host 0.0.0.0 --port 8088
 """
 
-import os
 import json
+import os
+
 import redis
-from fastapi import FastAPI, Response, Query
+from fastapi import FastAPI, Query, Response
 from fastapi.responses import JSONResponse
-from typing import Dict, Optional
 
 from core.redis_keys import RedisStreams as RS
-
+import contextlib
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -31,7 +31,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 ORDERS_QUEUE = os.getenv("ORDERS_QUEUE_MT5") or os.getenv("ORDERS_QUEUE") or RS.ORDERS_QUEUE_MT5
 EXEC_STREAM = os.getenv("EXEC_STREAM", RS.ORDERS_EXEC)
 # orders:exec stream size cap (0 = unlimited). Recommended production value: 500000.
-EXEC_STREAM_MAXLEN: Optional[int] = int(os.getenv("EXEC_STREAM_MAXLEN", "0")) or None
+EXEC_STREAM_MAXLEN: int | None = int(os.getenv("EXEC_STREAM_MAXLEN", "0")) or None
 
 # Connect to Redis
 r = redis.from_url(REDIS_URL, decode_responses=True)
@@ -49,10 +49,8 @@ GROUP_NAME = "mt5-executor-group"
 CONSUMER_NAME = "mt5-ea-1"
 
 # Initialize Redis consumer group
-try:
+with contextlib.suppress(Exception):
     r.xgroup_create(ORDERS_QUEUE, GROUP_NAME, id="0", mkstream=True)
-except Exception:
-    pass
 
 
 @app.get("/healthz")
@@ -69,11 +67,11 @@ def health():
 
 
 @app.post("/orders/queue")
-def queue_order(payload: Dict):
+def queue_order(payload: dict):
     """
     Manually add order to queue (as a Stream).
     """
-    sid = str(payload.get("sid") or "").strip()
+    sid = (payload.get("sid") or "").strip()
     if not sid:
         return JSONResponse({"error": "sid_required"}, status_code=400)
 
@@ -89,7 +87,7 @@ def queue_order(payload: Dict):
 
 
 @app.get("/orders/poll")
-def poll_orders(symbol: Optional[str] = Query(None)):
+def poll_orders(symbol: str | None = Query(None)):
     """
     Poll next order from queue (Stream xreadgroup).
     """
@@ -101,20 +99,18 @@ def poll_orders(symbol: Optional[str] = Query(None)):
 
         stream_name, entries = msgs[0]
         msg_id, payload = entries[0]
-        
+
         # Add message ID to payload so client can confirm it
         payload["_msg_id"] = msg_id
-        
+
         # If tp_levels was JSON-encoded, decode it
         if "tp_levels" in payload and isinstance(payload["tp_levels"], str):
-            try:
+            with contextlib.suppress(Exception):
                 payload["tp_levels"] = json.loads(payload["tp_levels"])
-            except:
-                pass
 
         # Symbol filter
         if symbol and payload.get("symbol") and payload["symbol"] != symbol:
-            # We can't easily "push back" to a stream in a group, 
+            # We can't easily "push back" to a stream in a group,
             # but we can leave it un-ACKed and it will be re-read by others or on timeout.
             # However, for simplicity with single-EA setups, we just return it or ignore.
             # In MT5 context, usually one EA handles one symbol or all symbols.
@@ -126,7 +122,7 @@ def poll_orders(symbol: Optional[str] = Query(None)):
 
 
 @app.post("/orders/confirm")
-def confirm_execution(exec_report: Dict):
+def confirm_execution(exec_report: dict):
     """
     Confirm order execution and ACK stream message.
     """
@@ -134,12 +130,12 @@ def confirm_execution(exec_report: Dict):
     try:
         # Add to execution stream
         r.xadd(EXEC_STREAM, exec_report, maxlen=EXEC_STREAM_MAXLEN, approximate=True)
-        
+
         # ACK the message in orders queue if ID was provided
         if msg_id:
             r.xack(ORDERS_QUEUE, GROUP_NAME, msg_id)
             r.xdel(ORDERS_QUEUE, msg_id) # Optional: clean up stream
-        
+
         return {"ok": True, "recorded": True, "acked": bool(msg_id)}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -152,7 +148,7 @@ def get_stats():
         queue_info = r.xinfo_stream(ORDERS_QUEUE)
         queue_len = queue_info.get("length", 0)
         exec_len = r.xlen(EXEC_STREAM)
-        
+
         return {
             "queue_length": queue_len,
             "executions_total": exec_len

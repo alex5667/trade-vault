@@ -1,7 +1,6 @@
 from signal_scoring.reason_registry import (
-    _REASON_CODE_U16,
     _ALLOWED_DUP_U16,
-    _U16_TO_CANONICAL,
+    _REASON_CODE_U16,
     reason_code_to_u16,
     u16_to_reason_code,
 )

@@ -1,8 +1,8 @@
 from __future__ import annotations
-import json
-from typing import Optional
-from core.recs_contract import RecBundle
 
+import json
+
+from core.recs_contract import RecBundle
 
 # Redis ключи для хранения bundle, статуса и аудита
 BUNDLE_KEY = "recs:bundle:"
@@ -27,7 +27,7 @@ def store_bundle(r, bundle: RecBundle) -> None:
     r.set(STATUS_KEY + bundle.id, "PENDING", ex=bundle.ttl_sec)
 
 
-def get_bundle(r, bundle_id: str) -> Optional[RecBundle]:
+def get_bundle(r, bundle_id: str) -> RecBundle | None:
     """
     Читает bundle из Redis.
     

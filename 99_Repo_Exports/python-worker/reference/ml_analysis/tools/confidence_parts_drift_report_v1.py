@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Confidence parts drift report (world practice).
 
 Reads JSONL dataset rows (typically produced by build_edge_stack_dataset_from_redis) where:
@@ -13,22 +14,23 @@ import argparse
 import json
 import math
 import os
-from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Tuple, DefaultDict
 from collections import defaultdict
+from collections.abc import Iterable
+from datetime import UTC, datetime
+from typing import Any
 
 
 def _as_int(x: Any, default: int = 0) -> int:
     try:
         if x is None:
-            return int(default)
+            return default
         if isinstance(x, bool):
-            return int(default)
+            return default
         if isinstance(x, (int, float)):
             return int(x)
         return int(float(str(x).strip()))
     except Exception:
-        return int(default)
+        return default
 
 
 def _as_str(x: Any) -> str:
@@ -45,11 +47,11 @@ def _as_str(x: Any) -> str:
 def _utc_day_from_ts_ms(ts_ms: int) -> str:
     if ts_ms <= 0:
         return ""
-    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
     return dt.date().isoformat()
 
 
-def _median(xs: List[float]) -> float:
+def _median(xs: list[float]) -> float:
     if not xs:
         return float("nan")
     xs = sorted(xs)
@@ -60,41 +62,41 @@ def _median(xs: List[float]) -> float:
     return 0.5 * (float(xs[mid - 1]) + float(xs[mid]))
 
 
-def _mad(xs: List[float], med: float) -> float:
+def _mad(xs: list[float], med: float) -> float:
     if not xs:
         return float("nan")
     # Handle NaN in median if it happened
     if not math.isfinite(med):
          return float("nan")
-         
+
     dev = [abs(float(x) - med) for x in xs]
     return _median(dev)
 
 
-def robust_median_mad(xs: List[float]) -> Tuple[float, float]:
+def robust_median_mad(xs: list[float]) -> tuple[float, float]:
     """Returns (median, MAD)."""
     m = _median(xs)
     d = _mad(xs, m)
     return m, d
 
 
-def drift_z(base: List[float], target: List[float], eps: float = 1e-9) -> float:
+def drift_z(base: list[float], target: list[float], eps: float = 1e-9) -> float:
     """Robust drift Z using baseline median and MAD (scaled to sigma)."""
     if not base or not target:
         return float("nan")
     base_med, base_mad = robust_median_mad(base)
     tgt_med = _median(target)
-    
+
     if not (math.isfinite(base_med) and math.isfinite(base_mad) and math.isfinite(tgt_med)):
         return float("nan")
-    
+
     sigma = 1.4826 * float(base_mad)
     denom = sigma if sigma > eps else eps
     return (float(tgt_med) - float(base_med)) / denom
 
 
-def _read_jsonl(path: str) -> Iterable[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def _read_jsonl(path: str) -> Iterable[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -107,7 +109,7 @@ def _read_jsonl(path: str) -> Iterable[Dict[str, Any]]:
                 continue
 
 
-def _get_group_key(row: Dict[str, Any], group_by: str) -> Tuple[str, ...]:
+def _get_group_key(row: dict[str, Any], group_by: str) -> tuple[str, ...]:
     symbol = _as_str(row.get("symbol")).upper()
     ind = row.get("indicators") if isinstance(row.get("indicators"), dict) else {}
     regime = _as_str(ind.get("regime_class") or ind.get("market_mode") or "").lower()
@@ -121,15 +123,15 @@ def _get_group_key(row: Dict[str, Any], group_by: str) -> Tuple[str, ...]:
 
 
 def build_report(
-    rows: Iterable[Dict[str, Any]],
+    rows: Iterable[dict[str, Any]],
     *,
     group_by: str = "symbol_regime",
     baseline_days: int = 7,
     target_day: str | None = None,
     top_n: int = 50,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     # Collect part values by (group, day, key)
-    data: DefaultDict[Tuple[str, ...], DefaultDict[str, DefaultDict[str, List[float]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    data: defaultdict[tuple[str, ...], defaultdict[str, defaultdict[str, list[float]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
     max_day = ""
     for row in rows:
@@ -163,7 +165,7 @@ def build_report(
     base_days = [d for d in all_days if d < target_day][-max(0, int(baseline_days)):]
     base_set = set(base_days)
 
-    out_groups: List[Dict[str, Any]] = []
+    out_groups: list[dict[str, Any]] = []
     # Sort groups for deterministic output
     for gk, by_day in sorted(data.items(), key=lambda kv: kv[0]):
         tgt = by_day.get(target_day, {})
@@ -171,7 +173,7 @@ def build_report(
             continue
 
         # Build baseline pool per key
-        baseline_pool: DefaultDict[str, List[float]] = defaultdict(list)
+        baseline_pool: defaultdict[str, list[float]] = defaultdict(list)
         for d, per_key in by_day.items():
             if d in base_set:
                 for k, vs in per_key.items():
@@ -245,7 +247,7 @@ def main() -> int:
     except Exception as e:
         print(f"Error: {e}")
         return 1
-        
+
     return 0
 
 

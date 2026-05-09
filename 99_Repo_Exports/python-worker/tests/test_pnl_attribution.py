@@ -1,8 +1,9 @@
 import unittest
-import time
 from unittest.mock import Mock
-from domain.models import SignalNorm, PositionState, TradeClosed, Tick
-from domain.handlers import create_position, process_tick, finalize_trade
+
+from domain.handlers import create_position, finalize_trade, process_tick
+from domain.models import PositionState, SignalNorm, Tick, TradeClosed
+
 
 class TestPnLAttribution(unittest.TestCase):
     def setUp(self):
@@ -24,19 +25,19 @@ class TestPnLAttribution(unittest.TestCase):
             # Ensure these are None or 0 to test defensive init in process_tick
             max_price_seen=0.0, min_price_seen=0.0, p0_entry_px=0.0
         )
-        
+
         # Ticks: 101@1010, 99@1020, 102@1030
         tick1 = Tick(symbol="BTCUSDT", ts_ms=1010, mid=101.0)
         process_tick(pos, tick1, self.spec_mock, [1.0])
         self.assertEqual(pos.max_price_seen, 101.0)
         self.assertEqual(pos.max_price_seen_ts_ms, 1010)
         self.assertEqual(pos.min_price_seen, 101.0) # Defensive init sets both
-        
+
         tick2 = Tick(symbol="BTCUSDT", ts_ms=1020, mid=99.0)
         process_tick(pos, tick2, self.spec_mock, [1.0])
         self.assertEqual(pos.min_price_seen, 99.0)
         self.assertEqual(pos.min_price_seen_ts_ms, 1020)
-        
+
         tick3 = Tick(symbol="BTCUSDT", ts_ms=1030, mid=102.0)
         process_tick(pos, tick3, self.spec_mock, [1.0])
         self.assertEqual(pos.max_price_seen, 102.0)
@@ -55,9 +56,9 @@ class TestPnLAttribution(unittest.TestCase):
         pos.min_price_seen = 99.0
         pos.max_adverse_price = 99.0
         pos.realized_pnl_gross = 2.0
-        
+
         closed = finalize_trade(pos, self.spec_mock, exit_price=102.0, exit_ts_ms=2000, close_reason_raw="TP1", tp_ratios=[1.0])
-        
+
         # MFE bps = (102-100)/100 * 10000 = 200 bps
         # MAE bps = (100-99)/100 * 10000 = 100 bps
         self.assertAlmostEqual(closed.mfe_bps, 200.0)
@@ -86,7 +87,7 @@ class TestPnLAttribution(unittest.TestCase):
             }
         )
         pos = create_position(signal, self.spec_mock)
-        
+
         self.assertEqual(pos.p0_signal_id, "sig-123")
         self.assertEqual(pos.p0_regime, "trending")
         self.assertEqual(pos.p0_scenario, "breakout")

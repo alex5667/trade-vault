@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Node-exporter textfile exporter for orchestration composite preflight history (P5.5 / P6.4).
 
 Reads the unified orchestration preflight audit stream and rolls it into bounded
@@ -13,16 +15,16 @@ rollout: ``psr_low``, ``dsr_low``, ``pbo_high``, ``metric_low`` or ``report_stal
 import os
 import time
 from collections import Counter
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, Tuple
+from typing import Any
 
 from orderflow_services.orchestration_composite_preflight_exporter_v1 import (
     ALLOWED_PURPOSES,
     KNOWN_REASON_CODES,
     KNOWN_SOURCES,
     KNOWN_STATUSES,
-    STRATEGY_RESEARCH_STATS_REASON_FAMILIES,
     normalize_reason_code,
     research_stats_reason_family,
 )
@@ -33,7 +35,7 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 
-WINDOWS_SECONDS: Dict[str, int] = {
+WINDOWS_SECONDS: dict[str, int] = {
     '24h': 24 * 60 * 60,
     '7d': 7 * 24 * 60 * 60,
 },
@@ -65,14 +67,14 @@ def _i(value: Any, default: int = 0) -> int:
     try:
         return int(float(value))
     except Exception:
-        return int(default)
+        return default
 
 
-def _parse_csv(raw: str, fallback: Iterable[str]) -> List[str]:
-    values = [v.strip() for v in str(raw or '').split(',') if v.strip()]
+def _parse_csv(raw: str, fallback: Iterable[str]) -> list[str]:
+    values = [v.strip() for v in (raw or '').split(',') if v.strip()]
     if not values:
         return list(fallback)
-    out: List[str] = []
+    out: list[str] = []
     seen: set = set()
     for value in values:
         if value in seen:
@@ -91,7 +93,7 @@ def _redis_client():
         return None
 
 
-def _iter_stream_range(client: Any, stream_key: str, min_id: str, *, max_count: int) -> Iterator[Tuple[str, Mapping]]:
+def _iter_stream_range(client: Any, stream_key: str, min_id: str, *, max_count: int) -> Iterator[tuple[str, Mapping]]:
     """Iterate stream entries starting from min_id up to max_count total.
 
     Uses cursor-based pagination in batches of 1000 to avoid large single XRANGE calls.
@@ -130,7 +132,7 @@ def _stream_oldest_ts_ms(client: Any, stream_key: str) -> int:
         return 0
 
 
-def parse_event(payload: Mapping, *, entry_id: str) -> 'HistoryEvent | None':
+def parse_event(payload: Mapping, *, entry_id: str) -> HistoryEvent | None:
     """Parse a raw stream entry into a HistoryEvent.
 
     Returns None if the purpose is not in ALLOWED_PURPOSES or the timestamp
@@ -138,15 +140,15 @@ def parse_event(payload: Mapping, *, entry_id: str) -> 'HistoryEvent | None':
     Reason codes that don't match the bounded set collapse into ``<source>:other`` /
     ``none:ok`` — consistent with the P5.4 live exporter's normalization.
     """,
-    purpose = str(payload.get('purpose') or '').strip()
+    purpose = (payload.get('purpose') or '').strip()
     if purpose not in ALLOWED_PURPOSES:
         return None
 
-    status = str(payload.get('decision_status') or '').strip() or 'invalid'
+    status = (payload.get('decision_status') or '').strip() or 'invalid'
     if status not in KNOWN_STATUSES:
         status = 'invalid'
 
-    source = str(payload.get('selected_source') or '').strip() or 'none'
+    source = (payload.get('selected_source') or '').strip() or 'none'
     if source not in KNOWN_SOURCES:
         source = 'none'
 
@@ -173,7 +175,7 @@ def aggregate_events(
     *,
     now_ms: int,
     windows: Mapping = None,
-) -> 'tuple[Dict, Dict, Dict]':
+) -> tuple[dict, dict, dict]:
     """Aggregate events into per-window counts/totals/scanned dicts.
 
     Returns:
@@ -183,9 +185,9 @@ def aggregate_events(
     """,
     if windows is None:
         windows = WINDOWS_SECONDS
-    counts: Dict = Counter()
-    totals: Dict = Counter()
-    scanned: Dict = Counter()
+    counts: dict = Counter()
+    totals: dict = Counter()
+    scanned: dict = Counter()
 
     for event in events:
         age_s = max(0.0, (now_ms - event.ts_ms) / 1000.0)
@@ -204,7 +206,7 @@ def compute_window_summaries(
     now_ms: int,
     scanned: Mapping,
     windows: Mapping = None,
-) -> Dict[str, WindowSummary]:
+) -> dict[str, WindowSummary]:
     """Compute coverage metadata for each requested window.
 
     complete=1.0 only when the oldest stream event predates the start of the window.
@@ -218,7 +220,7 @@ def compute_window_summaries(
     if oldest_ts_ms > 0:
         oldest_age_seconds = max(0.0, (now_ms - oldest_ts_ms) / 1000.0)
 
-    out: Dict[str, WindowSummary] = {}
+    out: dict[str, WindowSummary] = {}
     for window, seconds in windows.items():
         complete = 1.0 if oldest_ts_ms > 0 and oldest_ts_ms <= (now_ms - seconds * 1000) else 0.0
         if oldest_ts_ms == 0:
@@ -233,7 +235,7 @@ def compute_window_summaries(
     return out
 
 
-def _metric(name: str, labels: 'Mapping | None', value: float) -> str:
+def _metric(name: str, labels: Mapping | None, value: float) -> str:
     if labels:
         joined = ','.join(f'{k}="{v}"' for k, v in labels.items())
         return f'{name}{{{joined}}} {value}\n'
@@ -258,7 +260,7 @@ def render_metrics(
     if windows is None:
         windows = WINDOWS_SECONDS
     purposes = list(purposes)
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append('# HELP orchestration_composite_preflight_history_events_total Composite preflight events in the requested history window\n')
     lines.append('# TYPE orchestration_composite_preflight_history_events_total gauge\n')
     for window in windows:
@@ -316,10 +318,10 @@ def render_metrics(
     lines.append('# TYPE orchestration_composite_preflight_history_strategy_research_stats_reason_family_summary gauge\n')
     for window in windows:
         # summary: {(decision_status, family): float} — sums across all purposes
-        family_summary: Dict[tuple, float] = Counter()
+        family_summary: dict[tuple, float] = Counter()
         for purpose in purposes:
             for status in KNOWN_STATUSES:
-                family_totals: Dict[str, float] = Counter()
+                family_totals: dict[str, float] = Counter()
                 for reason_code in KNOWN_REASON_CODES:
                     if not reason_code.startswith('strategy_research_stats:'):
                         continue
@@ -381,7 +383,7 @@ def export_history_textfile() -> int:
     now_ms = get_ny_time_millis()
     # Start scan from the earliest possible event that could land in the longest window
     earliest_cutoff_ms = now_ms - (max(WINDOWS_SECONDS.values()) * 1000)
-    events: List[HistoryEvent] = []
+    events: list[HistoryEvent] = []
     for entry_id, payload in _iter_stream_range(client, stream_key, f'{earliest_cutoff_ms}-0', max_count=max_scan):
         event = parse_event(payload, entry_id=entry_id)
         if event is None:

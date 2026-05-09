@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+
 """Prometheus exporter for OFC contextual writer + ops bundle health.
 
 Reads Redis hashes written by:
@@ -9,7 +11,7 @@ Reads Redis hashes written by:
 """,
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server  # type: ignore
 
@@ -54,7 +56,7 @@ class Exporter:
         self.ops_key = os.getenv("OFC_CTX_OPS_METRICS_KEY", "metrics:ofc_contextual_ops_bundle")
         self.r = redis.Redis.from_url(self.redis_url, decode_responses=False) if redis else None
 
-    def _hgetall(self, key: str) -> Dict[str, Any]:
+    def _hgetall(self, key: str) -> dict[str, Any]:
         if not self.r:
             return {}
         try:

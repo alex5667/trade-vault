@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Unit tests for core/v12_of_features.py
 
@@ -6,22 +7,23 @@ Tests: all compute groups, inject_v12_of_features master function,
        temporal determinism (MC), fail-open on missing attributes, MX derivation.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import math
-import time
-import pytest
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any
 
-from core.v12_of_features import (
-    compute_group_ma, compute_group_mb, compute_group_mc,
-    compute_group_md, compute_group_me, compute_group_mx,
-    inject_v12_of_features,
-    _next_funding_ts_ms, _is_session_overlap,
-)
+import pytest
+
 from core.ml_feature_schema_v12_of import V12_OF_NUMERIC_KEYS
-
+from core.v12_of_features import (
+    compute_group_ma,
+    compute_group_mb,
+    compute_group_mc,
+    compute_group_md,
+    compute_group_me,
+    compute_group_mx,
+    inject_v12_of_features,
+)
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -203,7 +205,7 @@ class TestGroupMX:
 class TestInjectV12OfFeatures:
     def test_all_keys_present(self):
         rt = _runtime()
-        indicators: Dict[str, Any] = {}
+        indicators: dict[str, Any] = {}
         inject_v12_of_features(runtime=rt, now_ms=_now_ms(), indicators=indicators)
 
         # The 21 new group MA/MB/MC/MD/ME/MX keys must all be present
@@ -220,7 +222,7 @@ class TestInjectV12OfFeatures:
 
     def test_no_nan_on_empty_runtime(self):
         rt = _runtime()
-        indicators: Dict[str, Any] = {}
+        indicators: dict[str, Any] = {}
         inject_v12_of_features(runtime=rt, now_ms=_now_ms(), indicators=indicators)
         for k, v in indicators.items():
             if isinstance(v, float):
@@ -230,7 +232,7 @@ class TestInjectV12OfFeatures:
         """inject_ must not erase existing indicator values set before it runs."""
         rt = _runtime(eth_btc_corr_5m=0.8)
         # Pre-set some keys that exist in v10_of too
-        indicators: Dict[str, Any] = {"cvd_slope": 1.5, "momentum_10s": 1.0, "ofi": 2.0}
+        indicators: dict[str, Any] = {"cvd_slope": 1.5, "momentum_10s": 1.0, "ofi": 2.0}
         inject_v12_of_features(runtime=rt, now_ms=_now_ms(), indicators=indicators)
         assert indicators["cvd_slope"] == 1.5   # must be preserved
         assert indicators["eth_btc_corr_5m"] == pytest.approx(0.8)
@@ -238,7 +240,7 @@ class TestInjectV12OfFeatures:
     def test_minutes_to_funding_always_positive(self):
         rt = _runtime()
         for ts in [1704067200000, 1704067200000 + 7200000, _now_ms()]:
-            indicators: Dict[str, Any] = {}
+            indicators: dict[str, Any] = {}
             inject_v12_of_features(runtime=rt, now_ms=ts, indicators=indicators)
             assert indicators["minutes_to_funding"] >= 0.0
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.entry_policy_ab_report_service import EntryPolicyABReportService, Pending
+from services.entry_policy_ab_report_service import EntryPolicyABReportService
 
 
 def test_ret_bps_sign():

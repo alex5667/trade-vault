@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -88,7 +88,7 @@ class FeatureFlagsManager:
       - safe fail-open: on parse/read errors keeps the previous snapshot.
     """
 
-    def __init__(self, *, redis: Optional[Any] = None, logger: Optional[Any] = None) -> None:
+    def __init__(self, *, redis: Any | None = None, logger: Any | None = None) -> None:
         self._redis = redis
         self._logger = logger
 
@@ -134,7 +134,7 @@ class FeatureFlagsManager:
         self._snap = snap
         return self._snap
 
-    def _try_load_from_redis(self, *, now_ms: int) -> Optional[FeatureFlagsSnapshot]:
+    def _try_load_from_redis(self, *, now_ms: int) -> FeatureFlagsSnapshot | None:
         try:
             raw = self._redis.get(self._redis_key)
             if not raw:
@@ -152,14 +152,14 @@ class FeatureFlagsManager:
                 self._logger.warning(f"FeatureFlagsManager: redis load failed: {e}")
             return None
 
-    def _try_load_from_file(self, *, now_ms: int) -> Optional[FeatureFlagsSnapshot]:
+    def _try_load_from_file(self, *, now_ms: int) -> FeatureFlagsSnapshot | None:
         try:
             st = os.stat(self._file_path)
             # cheap skip if no changes
             if st.st_mtime <= self._file_mtime:
                 return None
             self._file_mtime = float(st.st_mtime)
-            with open(self._file_path, "r", encoding="utf-8") as f:
+            with open(self._file_path, encoding="utf-8") as f:
                 raw = f.read()
             d = json.loads(raw)
             if not isinstance(d, dict):

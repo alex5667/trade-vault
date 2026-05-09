@@ -1,6 +1,7 @@
 # python-worker/tests/test_enricher_ref.py
-from news_pipeline.enricher_sync import NewsEnricherSync
 from contexts import OrderflowSignalContext
+from news_pipeline.enricher_sync import NewsEnricherSync
+
 
 class FakePipe:
     def __init__(self, res):

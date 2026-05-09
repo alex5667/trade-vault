@@ -1,7 +1,8 @@
 from __future__ import annotations
+
 """Unit tests for triple-barrier labeling core logic."""
 
-from core.tb_labeling import infer_tp_sl_bps, barrier_stats, Barriers, exec_cost_r
+from core.tb_labeling import Barriers, barrier_stats, exec_cost_r, infer_tp_sl_bps
 
 
 def test_infer_stop_first():

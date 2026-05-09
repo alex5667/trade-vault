@@ -1,9 +1,9 @@
-import pytest
 from services.position_leg_policy import PositionLeg
+
 
 def test_position_leg_serialization() -> None:
     leg = PositionLeg(entry=10000.0, qty=0.5, side="LONG", signal_id="sig_1", ts_ms=12345678, seq=1)
-    
+
     d = leg.to_dict()
     assert d["entry"] == 10000.0
     assert d["qty"] == 0.5
@@ -11,7 +11,7 @@ def test_position_leg_serialization() -> None:
     assert d["signal_id"] == "sig_1"
     assert d["ts_ms"] == 12345678
     assert d["seq"] == 1
-    
+
     leg2 = PositionLeg.from_dict(d)
     assert leg2.entry == 10000.0
     assert leg2.qty == 0.5

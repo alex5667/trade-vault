@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any
 
-import pytest
-
+from domain.handlers import _should_start_trailing_after_tp1, create_position
 from runners.trade_monitor_runner import _parse_signal
 from services.trade_monitor import TradeMonitorService
-from domain.handlers import create_position, _should_start_trailing_after_tp1
+from core.redis_keys import RedisStreams as RS
 
 
 # --------------------------------------------------------------------
@@ -22,8 +20,8 @@ class FakeRedis:
       - handlers/emitter/outbox_writer commonly uses ms TTL knobs
     """
     def __init__(self) -> None:
-        self.kv: Dict[str, str] = {}
-        self.streams: Dict[str, List[Tuple[str, Dict[str, str]]]] = {}
+        self.kv: dict[str, str] = {}
+        self.streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
         self._seq = 0
 
     def set(
@@ -33,8 +31,8 @@ class FakeRedis:
         *,
         nx: bool = False,
         xx: bool = False,
-        ex: Optional[int] = None,
-        px: Optional[int] = None,
+        ex: int | None = None,
+        px: int | None = None,
     ) -> bool:
         exists = key in self.kv
         if nx and exists:
@@ -44,7 +42,7 @@ class FakeRedis:
         self.kv[key] = str(value)
         return True
 
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         return self.kv.get(key)
 
     def delete(self, key: str) -> int:
@@ -53,16 +51,16 @@ class FakeRedis:
             return 1
         return 0
 
-    def xadd(self, stream: str, fields: Dict[str, Any], *args: Any, **kwargs: Any) -> str:
+    def xadd(self, stream: str, fields: dict[str, Any], *args: Any, **kwargs: Any) -> str:
         self._seq += 1
         entry_id = f"{self._seq}-0"
-        d: Dict[str, str] = {}
+        d: dict[str, str] = {}
         for k, v in (fields or {}).items():
             d[str(k)] = v if isinstance(v, str) else str(v)
         self.streams.setdefault(stream, []).append((entry_id, d))
         return entry_id
 
-    def last_stream_fields(self, stream: str) -> Dict[str, str]:
+    def last_stream_fields(self, stream: str) -> dict[str, str]:
         items = self.streams.get(stream) or []
         assert items, f"Stream {stream} is empty"
         return items[-1][1]
@@ -84,7 +82,7 @@ class FakeSignalOutboxPublisher:
         self,
         redis: FakeRedis,
         *,
-        stream_name: str = "stream:signals:outbox",
+        stream_name: str = RS.SIGNAL_OUTBOX,
         maxlen: int = 20000,
         dedup_ttl_ms: int = 60000,
         dedup_bucket_ms: int = 60000,
@@ -95,7 +93,7 @@ class FakeSignalOutboxPublisher:
         self.dedup_ttl_ms = int(dedup_ttl_ms)
         self.dedup_bucket_ms = int(dedup_bucket_ms)
 
-    def publish_envelope(self, env: Any) -> Dict[str, Any]:
+    def publish_envelope(self, env: Any) -> dict[str, Any]:
         """
         Accepts a core.outbox_envelope.OutboxEnvelope-like object.
         Returns a small dict (ok/written/duplicate/entry_id) to be duck-typed by writers.
@@ -123,7 +121,7 @@ def _mk_trade_monitor_like() -> TradeMonitorService:
         trailing_profile_default = "rocket_v1"
 
     def risk_money(self, entry, sl, lot, direction):
-        return abs(float(entry) - float(sl)) * float(lot)
+        return abs(entry - sl) * lot
 
     mon = TradeMonitorService.__new__(TradeMonitorService)
     mon._get_spec = lambda symbol: _SpecStub()
@@ -244,7 +242,7 @@ def test_handlers_outbox_writer_unified_emitter_to_trade_monitor_position_traili
     )
     assert getattr(res, "ok", True) is True
 
-    fields = r.last_stream_fields("stream:signals:outbox")
+    fields = r.last_stream_fields(RS.SIGNAL_OUTBOX)
     assert "payload_json" in fields
 
     raw = _parse_signal(fields)
@@ -278,4 +276,4 @@ def test_handlers_outbox_writer_dedup_bucketed():
 
     assert getattr(res1, "ok", True) is True
     assert getattr(res2, "ok", True) is True
-    assert len(r.streams.get("stream:signals:outbox") or []) == 1
+    assert len(r.streams.get(RS.SIGNAL_OUTBOX) or []) == 1

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P4.10 deploy env example files contain dual-control variables."""
 
 import os

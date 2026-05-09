@@ -1,12 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-import time
 import zlib
-from typing import Any, Dict, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     from .confidence_cal_metrics import (
@@ -54,11 +54,11 @@ async def _xadd_any(redis: Any, stream: str, payload_json: str, maxlen: int) -> 
 
 def schedule_conf_cal_decision_log(
     redis: Any,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     *,
-    stream: Optional[str] = None,
-    maxlen: Optional[int] = None,
-    sample_rate: Optional[float] = None,
+    stream: str | None = None,
+    maxlen: int | None = None,
+    sample_rate: float | None = None,
     symbol="",
     stage: str = "",
     served_arm: str = "",
@@ -72,7 +72,7 @@ def schedule_conf_cal_decision_log(
     ml = int(maxlen or DEFAULT_MAXLEN)
     rate = float(sample_rate if sample_rate is not None else DEFAULT_SAMPLE)
 
-    sid = str(payload.get("sid") or "")
+    sid = (payload.get("sid") or "")
     sample_key = sid or f"{payload.get('symbol','')}|{payload.get('ts_ms',0)}"
 
     if not deterministic_sample(sample_key, rate):

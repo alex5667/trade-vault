@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis_async  # type: ignore
@@ -13,7 +14,7 @@ except Exception:  # pragma: no cover
     redis_async = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
-
+import contextlib
 
 PORT = int(os.getenv("ML_OPERATOR_RCA_WINNER_ROUTING_PORT", "9877"))
 SRC_STREAM = os.getenv("ML_OPERATOR_RCA_EXPERIMENT_WINNER_STREAM", "stream:ml:operator_rca_experiment_winner_decisions")
@@ -45,8 +46,8 @@ class WinnerDecision:
     control_score: float
     confidence: float
     ts_ms: int
-    reason_codes: List[str]
-    raw: Dict[str, Any]
+    reason_codes: list[str]
+    raw: dict[str, Any]
 
     @property
     def uplift(self) -> float:
@@ -78,11 +79,11 @@ def _i(x: Any, d: int = 0) -> int:
 
 
 def _csv_set(v: str) -> set[str]:
-    return {x.strip() for x in str(v or "").split(",") if x.strip()}
+    return {x.strip() for x in (v or "").split(",") if x.strip()}
 
 
-def parse_winner_message(fields: Dict[Any, Any]) -> WinnerDecision:
-    d: Dict[str, Any] = {}
+def parse_winner_message(fields: dict[Any, Any]) -> WinnerDecision:
+    d: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         vv = v.decode() if isinstance(v, (bytes, bytearray)) else v
@@ -121,8 +122,8 @@ def compute_apply_decision(
     allowed_providers: set[str],
     allowed_models: set[str],
     allowed_prompts: set[str],
-) -> Tuple[str, List[str]]:
-    reasons: List[str] = []
+) -> tuple[str, list[str]]:
+    reasons: list[str] = []
     if kill_switch:
         reasons.append("KILL_SWITCH")
         return "HOLD", reasons
@@ -154,7 +155,7 @@ def compute_apply_decision(
     return "PROMOTE_COMMIT", reasons
 
 
-def build_policy_update(wd: WinnerDecision, current: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+def build_policy_update(wd: WinnerDecision, current: dict[str, Any] | None = None) -> dict[str, str]:
     cur = current or {}
     return {
         "provider": wd.provider,
@@ -176,11 +177,11 @@ def build_policy_update(wd: WinnerDecision, current: Optional[Dict[str, Any]] = 
     }
 
 
-async def _write_audit(r: Any, payload: Dict[str, Any]) -> None:
+async def _write_audit(r: Any, payload: dict[str, Any]) -> None:
     await r.xadd(AUDIT_STREAM, {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in payload.items()}, maxlen=100000, approximate=True)
 
 
-async def _write_result(r: Any, payload: Dict[str, Any]) -> None:
+async def _write_result(r: Any, payload: dict[str, Any]) -> None:
     await r.xadd(RESULTS_STREAM, {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in payload.items()}, maxlen=100000, approximate=True)
 
 
@@ -189,10 +190,8 @@ async def worker() -> None:  # pragma: no cover
         raise RuntimeError("redis.asyncio is required to run worker")
     start_http_server(PORT)
     r = redis_async.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(SRC_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
 
     advisory_only = _i(os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_ADVISORY_ONLY", "1"), 1) == 1
     min_sample = _i(os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_MIN_SAMPLE", "12"), 12)

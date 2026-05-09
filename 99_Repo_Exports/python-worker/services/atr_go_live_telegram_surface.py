@@ -1,16 +1,15 @@
 import json
 import logging
-import os
-from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
+
 import psycopg2.extras
 
 from services.analytics_db import get_conn
-from services.atr_go_live_readiness_service import ATRGoLiveReadinessService, REQUIRED_ROLES
+from services.atr_go_live_readiness_service import REQUIRED_ROLES, ATRGoLiveReadinessService
 
 logger = logging.getLogger("atr_go_live_telegram")
 
-def render_golive_package_message(package_id: str) -> Dict[str, Any]:
+def render_golive_package_message(package_id: str) -> dict[str, Any]:
     """Build a detailed Telegram message for a Go-Live Readiness package."""
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -34,7 +33,7 @@ def render_golive_package_message(package_id: str) -> Dict[str, Any]:
 
     verdict = pkg["verdict"]
     status = pkg["package_status"]
-    
+
     icon = "✅" if verdict == "GO_LIVE" else "🟡" if verdict == "GO_LIVE_WITH_CONSTRAINTS" else "🚫"
     if status == "draft": icon = "📝"
 
@@ -90,18 +89,18 @@ def render_golive_package_message(package_id: str) -> Dict[str, Any]:
         "reply_markup": json.dumps({"inline_keyboard": inline_keyboard})
     }
 
-def handle_golive_callback(callback_query: Dict[str, Any]) -> Dict[str, Any]:
+def handle_golive_callback(callback_query: dict[str, Any]) -> dict[str, Any]:
     """Handle /golive callback actions."""
     data = callback_query.get("data", "")
     from_user = callback_query.get("from", {}).get("username", "unknown_user")
-    
+
     parts = data.split(" ")
     if len(parts) < 3:
         return {"text": "Invalid golive callback format"}
 
     action = parts[1]
     package_id = parts[2]
-    
+
     svc = ATRGoLiveReadinessService()
 
     if action == "sign":

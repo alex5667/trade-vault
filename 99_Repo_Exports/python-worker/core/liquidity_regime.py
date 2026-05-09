@@ -22,7 +22,7 @@ LiquidityRegimeService
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
 def _clamp01(x: float) -> float:
@@ -80,16 +80,16 @@ class LiquidityRegimeEvent:
 
 
 class LiquidityRegimeService:
-    def __init__(self, *, symbol: str, cfg: Dict[str, Any]) -> None:
-        self.symbol = str(symbol)
+    def __init__(self, *, symbol: str, cfg: dict[str, Any]) -> None:
+        self.symbol = symbol
         self.cfg = cfg
         self._thr = self._build_thresholds(symbol=self.symbol, cfg=cfg)
-        self._last: Optional[LiquidityRegimeEvent] = None
+        self._last: LiquidityRegimeEvent | None = None
 
     def thresholds(self) -> LiquidityThresholds:
         return self._thr
 
-    def last(self) -> Optional[LiquidityRegimeEvent]:
+    def last(self) -> LiquidityRegimeEvent | None:
         return self._last
 
     def update(
@@ -148,7 +148,7 @@ class LiquidityRegimeService:
         return ev
 
     # ---------------- internals ----------------
-    def _build_thresholds(self, *, symbol: str, cfg: Dict[str, Any]) -> LiquidityThresholds:
+    def _build_thresholds(self, *, symbol: str, cfg: dict[str, Any]) -> LiquidityThresholds:
         # Pull defaults from cfg; fallback to instrument_config if missing.
         dist_bp = float(cfg.get("dist_bp_threshold", 0.0) or 0.0)
         br_min = float(cfg.get("book_rate_min_hz", 0.0) or 0.0)
@@ -159,8 +159,8 @@ class LiquidityRegimeService:
             try:
                 from core.instrument_config import (
                     get_default_book_rate_settings,
-                    get_default_dist_bp_threshold,
                     get_default_delta_tiers,
+                    get_default_dist_bp_threshold,
                 )
                 if dist_bp <= 0:
                     dist_bp = float(get_default_dist_bp_threshold(symbol) or 0.0)

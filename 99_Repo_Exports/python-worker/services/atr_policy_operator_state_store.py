@@ -4,7 +4,7 @@ import json
 import os
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, List
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -36,7 +36,7 @@ def insert_confirm_request(
     target_kind: str,
     target_id: str,
     proposal_id: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     expires_at_ms: int,
 ) -> None:
     with conn.cursor() as cur:
@@ -88,7 +88,7 @@ def expire_pending_confirms_on_boot(conn) -> int:
         return int(cur.rowcount or 0)
 
 
-def load_current_active_snapshots(conn) -> List[Dict[str, Any]]:
+def load_current_active_snapshots(conn) -> list[dict[str, Any]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """

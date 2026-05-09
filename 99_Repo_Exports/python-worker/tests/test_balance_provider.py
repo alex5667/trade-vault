@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for common.balance_provider — BalanceProvider.
 
@@ -16,8 +17,8 @@ Coverage:
 
 import json
 import os
-import time
 import threading
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-import pytest
+
 from ml_analysis.reality_check import evaluate_rows, load_jsonl, normalize_row
 
 

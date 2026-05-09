@@ -3,6 +3,7 @@ Fade pattern filters and preconditions.
 """
 
 from signal_scoring.ctx import SignalContext
+
 from .config import WeakProgressConfig
 
 

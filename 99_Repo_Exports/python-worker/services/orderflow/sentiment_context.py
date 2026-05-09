@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
+
 
 @dataclass(frozen=True)
 class SentimentContextSnapshot:
@@ -34,7 +35,7 @@ def _i(v: Any, d: int = 0) -> int:
     except Exception:
         return d
 
-async def aread_sentiment_context(redis) -> Optional[SentimentContextSnapshot]:
+async def aread_sentiment_context(redis) -> SentimentContextSnapshot | None:
     if redis is None:
         return None
 
@@ -53,16 +54,16 @@ async def aread_sentiment_context(redis) -> Optional[SentimentContextSnapshot]:
 
     return SentimentContextSnapshot(
         schema_version=_i(obj.get("schema_version"), 1),
-        provider=str(obj.get("provider") or "alternative_me"),
+        provider=(obj.get("provider") or "alternative_me"),
         ts_ms=_i(obj.get("ts_ms")),
         ingest_ts_ms=_i(obj.get("ingest_ts_ms")),
 
         fear_greed_value=_i(obj.get("fear_greed_value")),
         fear_greed_delta_1d=_i(obj.get("fear_greed_delta_1d")),
         fear_greed_delta_7d=_i(obj.get("fear_greed_delta_7d")),
-        sentiment_regime=str(obj.get("sentiment_regime") or "unknown"),
+        sentiment_regime=(obj.get("sentiment_regime") or "unknown"),
         sentiment_risk_multiplier=_f(obj.get("sentiment_risk_multiplier"), 1.0),
-        value_classification=str(obj.get("value_classification") or ""),
+        value_classification=(obj.get("value_classification") or ""),
         time_until_update_sec=_i(obj.get("time_until_update_sec")),
-        quality_status=str(obj.get("quality_status") or "UNKNOWN"),
+        quality_status=(obj.get("quality_status") or "UNKNOWN"),
     )

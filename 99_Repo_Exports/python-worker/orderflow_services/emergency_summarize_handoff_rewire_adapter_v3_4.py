@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -67,15 +68,15 @@ DEFAULT_ALLOW_INFO = int(os.getenv("ML_EMERGENCY_SUMMARIZE_HANDOFF_REWIRE_ALLOW_
 DB_URL = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -118,8 +119,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -143,7 +144,7 @@ def maybe_json(value: Any, default: Any = None) -> Any:
         return default
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "enabled": parse_int(raw.get("enabled"), DEFAULT_ENABLED),
         "mode": str(raw.get("mode") or DEFAULT_MODE).upper(),
@@ -156,7 +157,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def severity_allowed(severity: str, policy: Dict[str, Any]) -> bool:
+def severity_allowed(severity: str, policy: dict[str, Any]) -> bool:
     sev = severity.lower()
     if sev == "critical":
         return policy["allow_critical"] == 1
@@ -167,14 +168,14 @@ def severity_allowed(severity: str, policy: Dict[str, Any]) -> bool:
     return False
 
 
-def build_payload_json(row: Dict[str, Any]) -> str:
+def build_payload_json(row: dict[str, Any]) -> str:
     payload_json = row.get("payload_json")
     if payload_json:
         return str(payload_json)
-    prompt = str(row.get("prompt") or "")
-    title = str(row.get("title") or "")
+    prompt = (row.get("prompt") or "")
+    title = (row.get("title") or "")
     context = maybe_json(row.get("context_json"), {})
-    summary = str(row.get("summary") or "")
+    summary = (row.get("summary") or "")
     if prompt or title or context or summary:
         return stable_json({
             "title": title,
@@ -185,10 +186,10 @@ def build_payload_json(row: Dict[str, Any]) -> str:
     return stable_json(row)
 
 
-def evaluate_row(row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
-    request_id = str(row.get("request_id") or "")
-    prompt = str(row.get("prompt") or "")
-    severity = str(row.get("severity") or "info")
+def evaluate_row(row: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    request_id = (row.get("request_id") or "")
+    prompt = (row.get("prompt") or "")
+    severity = (row.get("severity") or "info")
     payload_json = build_payload_json(row)
 
     out = {
@@ -219,18 +220,18 @@ def evaluate_row(row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def build_handoff_row(row: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
-    severity = str(row.get("severity") or "warning")
+def build_handoff_row(row: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    severity = (row.get("severity") or "warning")
     return {
         "schema_version": 1,
-        "request_id": str(row.get("request_id") or ""),
+        "request_id": (row.get("request_id") or ""),
         "task_family": "emergency_summarize",
-        "incident_id": str(row.get("incident_id") or ""),
+        "incident_id": (row.get("incident_id") or ""),
         "task_type": "emergency_summarize",
         "severity": severity,
         "source": "emergency_summarize_handoff_rewire_v3_4",
         "payload_json": build_payload_json(row),
-        "compact_hash": str(row.get("compact_hash") or ""),
+        "compact_hash": (row.get("compact_hash") or ""),
         "vertex_unavailable": str(parse_int(row.get("vertex_unavailable"), 0)),
         "force_local": str(max(parse_int(row.get("force_local"), 0), policy["force_local"])),
         "ts_ms": str(now_ms()),
@@ -244,12 +245,12 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_policy(r: Any) -> Dict[str, Any]:
+async def read_policy(r: Any) -> dict[str, Any]:
     raw = await r.hgetall(GLOBAL_POLICY_KEY)
     return policy_from_hash(as_dict(raw))
 
 
-async def persist_if_configured(db_url: str, row: Dict[str, Any], decision: Dict[str, Any], handoff_row: Dict[str, Any] | None) -> None:
+async def persist_if_configured(db_url: str, row: dict[str, Any], decision: dict[str, Any], handoff_row: dict[str, Any] | None) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -325,7 +326,7 @@ async def main() -> None:  # pragma: no cover
 
                     decision_payload = {
                         "schema_version": 1,
-                        "request_id": str(row.get("request_id") or ""),
+                        "request_id": (row.get("request_id") or ""),
                         "decision": decision["decision"],
                         "reason_code": decision["reason_code"],
                         "source_stream": INPUT_STREAM,
@@ -344,7 +345,7 @@ async def main() -> None:  # pragma: no cover
                     await r.hset(
                         LAST_HASH,
                         mapping={
-                            "request_id": str(row.get("request_id") or ""),
+                            "request_id": (row.get("request_id") or ""),
                             "decision": decision["decision"],
                             "reason_code": decision["reason_code"],
                             "source_stream": INPUT_STREAM,

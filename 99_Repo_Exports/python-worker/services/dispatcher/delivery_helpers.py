@@ -1,4 +1,3 @@
-from utils.time_utils import get_ny_time_millis
 """
 Delivery utilities for SignalDispatcher.
 
@@ -6,9 +5,11 @@ Extracted delivery-related helper methods to reduce SignalDispatcher complexity.
 """
 
 import json
-import time
-from typing import Any, Dict, Optional
 import logging
+from typing import Any
+
+from core.redis_keys import STREAM_RETENTION
+from utils.time_utils import get_ny_time_millis
 
 
 class DeliveryHelpers:
@@ -18,7 +19,7 @@ class DeliveryHelpers:
     Extracted from SignalDispatcher to reduce class complexity.
     These are stateless utility methods that can be used by SignalDispatcher.
     """
-    
+
     @staticmethod
     def marker_key(marker_prefix: str, target: str, sid: str) -> str:
         """
@@ -33,7 +34,7 @@ class DeliveryHelpers:
             Marker key string
         """
         return f"{marker_prefix}:{target}:{sid}"
-    
+
     @staticmethod
     def delivery_key(marker_prefix: str, target: str, sid: str) -> str:
         """
@@ -48,7 +49,7 @@ class DeliveryHelpers:
             Delivery key string
         """
         return DeliveryHelpers.marker_key(marker_prefix, target, sid)
-    
+
     @staticmethod
     def retry_dedup_key(retry_dedup_prefix: str, target: str, sid: str) -> str:
         """
@@ -63,7 +64,7 @@ class DeliveryHelpers:
             Retry dedup key string
         """
         return f"{retry_dedup_prefix}:{target}:{sid}"
-    
+
     @staticmethod
     def calculate_retry_delay(
         attempt: int,
@@ -87,17 +88,17 @@ class DeliveryHelpers:
         delay = min(base_ms * (2 ** attempt), max_ms)
         jitter = random.randint(0, jitter_ms)
         return delay + jitter
-    
+
     @staticmethod
     def send_to_dlq(
         redis_client: Any,
         dlq_stream: str,
         target: str,
         sid: str,
-        env: Dict[str, Any],
+        env: dict[str, Any],
         reason: str,
         error: str,
-        logger: Optional[logging.Logger] = None
+        logger: logging.Logger | None = None
     ) -> bool:
         """
         Send failed delivery to DLQ.
@@ -123,12 +124,12 @@ class DeliveryHelpers:
             "error": error,
             "env": env,
         }
-        
+
         try:
             redis_client.xadd(
                 dlq_stream,
                 {"data": json.dumps(payload, ensure_ascii=False)},
-                maxlen=200000,
+                maxlen=STREAM_RETENTION.get(dlq_stream, 5_000),
                 approximate=True
             )
             return True
@@ -136,7 +137,7 @@ class DeliveryHelpers:
             if logger:
                 logger.error(f"Failed to write target DLQ: {exc}", exc_info=True)
             return False
-    
+
     @staticmethod
     def get_dlq_stream_for_target(
         target: str,

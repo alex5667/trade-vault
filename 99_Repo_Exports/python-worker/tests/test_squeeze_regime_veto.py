@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Regression pack — Squeeze-режим: publish_signal должен вернуться без публикации.
 
@@ -10,9 +11,9 @@ Regression pack — Squeeze-режим: publish_signal должен вернут
 """
 
 import time
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -215,7 +216,7 @@ async def test_range_regime_not_vetoed():
 ])
 def test_squeeze_classification(regime: str, expect_squeeze_flag: bool, expect_veto: bool):
     """is_squeeze_regime_flag классификация и фактический veto-приоритет (if/elif)."""
-    rg = str(regime or "na").lower()
+    rg = (regime or "na").lower()
     is_range = "range" in rg
     is_squeeze = "squeeze" in rg
     # Veto применяется только если squeeze=True И range=False (if/elif порядок)
@@ -238,7 +239,7 @@ def test_squeeze_classification(regime: str, expect_squeeze_flag: bool, expect_v
 ])
 def test_range_classification(regime: str, expect_range: bool):
     """is_range_regime_flag логика корректна."""
-    rg = str(regime or "na").lower()
+    rg = (regime or "na").lower()
     is_range = "range" in rg
     assert is_range == expect_range, (
         f"regime={regime!r}: ожидали is_range={expect_range}, получили {is_range}"

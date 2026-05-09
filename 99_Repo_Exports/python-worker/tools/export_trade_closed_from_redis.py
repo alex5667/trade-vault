@@ -1,15 +1,16 @@
 from __future__ import annotations
-\
 
 import argparse
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
+from core.redis_keys import RedisStreams as RS
 
-def _event_ts_ms(fields: Dict[str, Any]) -> int:
+
+def _event_ts_ms(fields: dict[str, Any]) -> int:
     for k in ("ts_ms","ts","timestamp"):
         if k in fields:
             try:
@@ -26,21 +27,21 @@ def _event_ts_ms(fields: Dict[str, Any]) -> int:
             return 0
     return 0
 
-def _is_closed(fields: Dict[str, Any]) -> bool:
-    et = str(fields.get("event_type", fields.get("type","")) or "").upper()
+def _is_closed(fields: dict[str, Any]) -> bool:
+    et = (fields.get("event_type", fields.get("type","")) or "").upper()
     if et in ("POSITION_CLOSED","CLOSE"):
         return True
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            et2 = str(j.get("event_type", j.get("type","")) or "").upper()
+            et2 = (j.get("event_type", j.get("type","")) or "").upper()
             return et2 in ("POSITION_CLOSED","CLOSE")
         except Exception:
             return False
     return False
 
-def _to_json(fields: Dict[str, Any]) -> Dict[str, Any]:
+def _to_json(fields: dict[str, Any]) -> dict[str, Any]:
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
@@ -51,10 +52,10 @@ def _to_json(fields: Dict[str, Any]) -> Dict[str, Any]:
             pass
     return dict(fields)
 
-def export_closed(*, r: redis.Redis, stream: str, since_ms: int, out_path: str, max_scan: int = 500_000) -> Tuple[int,int]:
+def export_closed(*, r: redis.Redis, stream: str, since_ms: int, out_path: str, max_scan: int = 500_000) -> tuple[int,int]:
     scanned = 0
     written = 0
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     while scanned < max_scan:
         batch = r.xrevrange(stream, max=last_id, min="-", count=2000)
@@ -87,7 +88,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--since-hours", type=float, default=168.0)
-    ap.add_argument("--stream", type=str, default=os.getenv("TRADE_EVENTS_STREAM", "events:trades"))
+    ap.add_argument("--stream", type=str, default=os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES))
     ap.add_argument("--redis-url", type=str, default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--max-scan", type=int, default=500_000)
     args = ap.parse_args()

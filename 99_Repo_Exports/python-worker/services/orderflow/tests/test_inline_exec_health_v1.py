@@ -9,12 +9,8 @@ Coverage:
 """
 
 import asyncio
-import json
-import math
 import unittest
-from types import SimpleNamespace
-from typing import Any, Dict, Optional, Tuple
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Lightweight fake async Redis client (no external deps)
@@ -24,17 +20,17 @@ class _FakeRedis:
     """Minimal fake async-compatible Redis with hset / hgetall / expire / zadd / zcard / zrange / zrem / hdel / get / set."""
 
     def __init__(self):
-        self._store: Dict[str, Any] = {}
+        self._store: dict[str, Any] = {}
 
     # hash helpers
-    async def hset(self, name: str, *, mapping: Dict[str, str]) -> None:
+    async def hset(self, name: str, *, mapping: dict[str, str]) -> None:
         h = self._store.setdefault(name, {})
         h.update(mapping)
 
-    async def hget(self, name: str, field: str) -> Optional[str]:
+    async def hget(self, name: str, field: str) -> str | None:
         return self._store.get(name, {}).get(field)
 
-    async def hgetall(self, name: str) -> Dict[str, str]:
+    async def hgetall(self, name: str) -> dict[str, str]:
         return dict(self._store.get(name, {}))
 
     async def hdel(self, name: str, *fields: str) -> None:
@@ -46,7 +42,7 @@ class _FakeRedis:
         pass  # not tracked in tests
 
     # sorted set helpers
-    async def zadd(self, name: str, mapping: Dict[str, int]) -> None:
+    async def zadd(self, name: str, mapping: dict[str, int]) -> None:
         z = self._store.setdefault(name + ":zset", {})
         z.update(mapping)
 
@@ -69,18 +65,18 @@ class _FakeRedis:
     async def set(self, name: str, value: Any) -> None:
         self._store[name] = str(value)
 
-    async def get(self, name: str) -> Optional[str]:
+    async def get(self, name: str) -> str | None:
         return self._store.get(name)
 
     # sync hgetall for read_inline_exec_rollup_sync tests
-    def hgetall_sync(self, name: str) -> Dict[str, str]:
+    def hgetall_sync(self, name: str) -> dict[str, str]:
         return dict(self._store.get(name, {}))
 
 
 class _FakeSyncRedis(_FakeRedis):
     """Sync-only subset of Redis used by read_inline_exec_rollup_sync."""
 
-    def hgetall(self, name: str) -> Dict[str, str]:
+    def hgetall(self, name: str) -> dict[str, str]:
         return dict(self._store.get(name, {}))
 
 
@@ -91,12 +87,9 @@ class _FakeSyncRedis(_FakeRedis):
 try:
     from services.orderflow.inline_exec_health import (
         InlineExecDims,
-        InlineExecPolicyDecision,
         decide_inline_exec_health,
         inline_is_from_cumulative_state,
         make_rollup_key,
-        make_samples_key,
-        make_sid_state_key,
         read_inline_exec_rollup_sync,
         resolve_mode,
         update_inline_exec_from_fill,

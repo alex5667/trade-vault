@@ -3,12 +3,12 @@ import os
 import tempfile
 
 from ml_analysis.tools.build_edge_stack_dataset_from_redis import (
+    CloseRow,
     DropStats,
     QuarantineWriter,
     SignalRow,
-    CloseRow,
-    diagnose_unmatched_closes,
     _make_sid,
+    diagnose_unmatched_closes,
     join_signals_with_closes_v2,
 )
 
@@ -35,7 +35,7 @@ def test_quarantine_writer_writes_jsonl():
         q.write("signal", "signal_parse_none", stream="signals:of:inputs", msg_id="2-0", data={"y": 2})
         q.close()
 
-        lines = open(p, "r", encoding="utf-8").read().strip().splitlines()
+        lines = open(p, encoding="utf-8").read().strip().splitlines()
         assert len(lines) == 2
         r0 = json.loads(lines[0])
         assert r0["kind"] == "close"

@@ -1,11 +1,13 @@
-import unittest
-import json
 import asyncio
-from unittest.mock import AsyncMock, patch
-from typing import Any, Dict
+import json
+import unittest
+from unittest.mock import AsyncMock
+
+from domain.evidence_keys import MetaKeys
 
 # Mocking parts of the worker to test _handle_close
-from services.orderflow.tools.trade_close_joiner_worker_v5 import _handle_close, _loads_json
+from services.orderflow.tools.trade_close_joiner_worker_v5 import _handle_close
+
 
 class TestJoinerV5(unittest.TestCase):
 
@@ -54,18 +56,18 @@ class TestJoinerV5(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual(reason, "ok")
-        
+
         # Verify xadd for trades:closed
         self.r.xadd.assert_any_call(self.trades_closed_stream, unittest.mock.ANY, maxlen=100, approximate=True)
         call_args = self.r.xadd.call_args_list[0]
         fields = call_args[0][1]
         payload = json.loads(fields["payload"])
-        
+
         self.assertEqual(payload["dq_state"], "ok")
         self.assertEqual(payload["drift_state"], "warn")
         self.assertEqual(payload["drift_mode"], "warn")
-        self.assertEqual(payload["meta_enforce_cov_bucket"], "A")
-        self.assertEqual(payload["meta_enforce_applied"], "1")
+        self.assertEqual(payload[MetaKeys.ENFORCE_COV_BUCKET], "A")
+        self.assertEqual(payload[MetaKeys.ENFORCE_APPLIED], "1")
         self.assertEqual(payload["rule_reason_code_top1"], "RC_01")
 
     def test_handle_close_missing_decision(self):
@@ -90,7 +92,7 @@ class TestJoinerV5(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertEqual(reason, "missing_decision")
-        
+
         # Verify push to close_wait
         self.r.xadd.assert_called_once_with(self.close_wait_stream, unittest.mock.ANY, maxlen=100, approximate=True)
 

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
 import os
-import urllib.request
 import urllib.parse
-from typing import Optional
+import urllib.request
 
 from .sem_dedup_reporter import TelegramSink
 
@@ -18,7 +16,7 @@ class TelegramHttpSink(TelegramSink):
       (optional) TG_PARSE_MODE=HTML|MarkdownV2
       (optional) TG_DISABLE_WEB_PAGE_PREVIEW=1
     """
-    def __init__(self, *, token: Optional[str] = None, chat_id: Optional[str] = None, timeout_s: float = 3.5) -> None:
+    def __init__(self, *, token: str | None = None, chat_id: str | None = None, timeout_s: float = 3.5) -> None:
         self._token = token or os.getenv("TG_BOT_TOKEN", "")
         self._chat_id = chat_id or os.getenv("TG_CHAT_ID", "")
         self._parse_mode = os.getenv("TG_PARSE_MODE", "")

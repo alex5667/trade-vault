@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
 import math
+from typing import Any
+
 
 def _to_f(x: Any, default: float = 0.0) -> float:
     try:
@@ -14,11 +15,11 @@ def eval_liq_pressure_gate(
     direction: str,
     qimb_wmean: float,
     ofi_ml_norm: float,
-    cfg2: Dict[str, Any],
+    cfg2: dict[str, Any],
     obi_dw: float = 0.0,
     res_recovered: int = 0,
     res_recovery_ms: int = 0,
-) -> Tuple[float, float, int, str, int, int]:
+) -> tuple[float, float, int, str, int, int]:
     """
     Liquidity Pressure Gate (P2d) with extra “world practice” signals:
       - Depth-weighted OBI (obi_dw)
@@ -43,31 +44,31 @@ def eval_liq_pressure_gate(
     Returns:
       (liq_boost, liq_pen, liq_veto, liq_reason, q_align, ofi_align)
     """
-    
+
     # 1. Config & Thresholds
-    mode = str(cfg2.get("liq_pressure_gate_mode", "off")).lower()
+    mode = (cfg2.get("liq_pressure_gate_mode", "off")).lower()
     if mode == "off":
         return 0.0, 0.0, 0, "", 0, 0
-        
+
     q_thr = float(cfg2.get("liq_pressure_qimb_thr", 0.12) or 0.12)
     ofi_thr = float(cfg2.get("liq_pressure_ofi_thr", 0.02) or 0.02)
     obi_thr = float(cfg2.get("liq_pressure_obi_dw_thr", 0.06) or 0.06)
-    
+
     boost_max = float(cfg2.get("liq_pressure_boost_max", 0.05) or 0.05)
     pen_max = float(cfg2.get("liq_pressure_pen_max", 0.10) or 0.10)
     veto_mult = float(cfg2.get("liq_pressure_veto_mult", 2.0) or 2.0)
 
     res_fast_ms = int(cfg2.get("liq_pressure_res_fast_ms", 1200) or 1200)
     res_pen_max = float(cfg2.get("liq_pressure_res_pen_max", 0.05) or 0.05)
-    
+
     # 2. Alignment Check
     # qimb: >0 means Bid heavier (support for LONG), <0 means Ask heavier (support for SHORT)
     # ofi: >0 means Bid add/Ask remove (support for LONG), <0 means Ask add/Bid remove (support for SHORT)
-    
+
     q_val = _to_f(qimb_wmean, 0.0)
     ofi_val = _to_f(ofi_ml_norm, 0.0)
     obi_val = _to_f(obi_dw, 0.0)
-    
+
     q_align = 0
     if direction == "LONG":
         if q_val > q_thr: q_align = 1
@@ -75,7 +76,7 @@ def eval_liq_pressure_gate(
     else: # SHORT
         if q_val < -q_thr: q_align = 1
         elif q_val > q_thr: q_align = -1 # Contradiction
-        
+
     ofi_align = 0
     if direction == "LONG":
         if ofi_val > ofi_thr: ofi_align = 1
@@ -91,15 +92,15 @@ def eval_liq_pressure_gate(
     else: # SHORT
         if obi_val < -obi_thr: obi_align = 1
         elif obi_val > obi_thr: obi_align = -1
-        
+
     # 3. Compute Boost/Penalty
     # Boost: both align=1
     # Penalty: either align=-1
-    
+
     boost_score = 0.0
     pen_score = 0.0
     reasons = []
-    
+
     # Boost Logic
     if mode in ["boost", "both", "enforce"]:
         # allow any 2-of-3 (qimb/ofi/obi) alignments
@@ -107,7 +108,7 @@ def eval_liq_pressure_gate(
             boost_score = boost_max
             # scale by intensity? Keep simple step function for v1
             reasons.append("bst")
-            
+
     # Penalty Logic
     if mode in ["penalty", "both", "enforce"]:
         # Penalty if SIGNIFICANT misalignment (split across 3 sources)
@@ -130,17 +131,17 @@ def eval_liq_pressure_gate(
             reasons.append("fast_recover")
     except Exception:
         pass
-        
+
     # 4. Veto Logic (Enforce only)
     veto = 0
     if mode == "enforce":
         # Hard Veto if BOTH are contradicting strongly
         # or if one is contradicting strongly (> veto_mult * thr)
-        
+
         q_bad_severe = False
         if direction == "LONG" and q_val < (-q_thr * veto_mult): q_bad_severe = True
         if direction == "SHORT" and q_val > (q_thr * veto_mult): q_bad_severe = True
-        
+
         ofi_bad_severe = False
         if direction == "LONG" and ofi_val < (-ofi_thr * veto_mult): ofi_bad_severe = True
         if direction == "SHORT" and ofi_val > (ofi_thr * veto_mult): ofi_bad_severe = True
@@ -148,9 +149,9 @@ def eval_liq_pressure_gate(
         obi_bad_severe = False
         if direction == "LONG" and obi_val < (-obi_thr * veto_mult): obi_bad_severe = True
         if direction == "SHORT" and obi_val > (obi_thr * veto_mult): obi_bad_severe = True
-        
+
         if q_bad_severe or ofi_bad_severe or obi_bad_severe:
             veto = 1
             reasons.append("VETO")
-            
+
     return boost_score, pen_score, veto, ",".join(reasons), q_align, ofi_align

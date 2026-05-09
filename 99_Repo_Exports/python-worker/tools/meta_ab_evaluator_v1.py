@@ -1,13 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
+
+from domain.evidence_keys import MetaKeys
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def now_ms() -> int:
@@ -29,7 +31,7 @@ def safe_int(x: Any, d: int = 0) -> int:
         return d
 
 
-def _loads_maybe_json(x: Any) -> Dict[str, Any]:
+def _loads_maybe_json(x: Any) -> dict[str, Any]:
     if x is None:
         return {}
     if isinstance(x, dict):
@@ -51,7 +53,7 @@ def _loads_maybe_json(x: Any) -> Dict[str, Any]:
     return {}
 
 
-def _extract_meta(fields: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_meta(fields: dict[str, Any]) -> dict[str, Any]:
     meta = _loads_maybe_json(fields.get("meta") or fields.get("metadata"))
     if meta:
         return meta
@@ -64,7 +66,7 @@ def _extract_meta(fields: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
-def _extract_of_evidence(meta: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_of_evidence(meta: dict[str, Any]) -> dict[str, Any]:
     if isinstance(meta.get("of_confirm"), dict):
         oc = meta.get("of_confirm") or {}
         if isinstance(oc.get("evidence"), dict):
@@ -76,8 +78,8 @@ def _extract_of_evidence(meta: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
-def _extract_r_mult(fields: Dict[str, Any], meta: Dict[str, Any]) -> float:
-    rm = meta.get("r_mult", fields.get("r_mult", None))
+def _extract_r_mult(fields: dict[str, Any], meta: dict[str, Any]) -> float:
+    rm = meta.get("r_mult", fields.get("r_mult"))
     if rm is not None:
         return safe_float(rm, 0.0)
     pnl = safe_float(fields.get("pnl", meta.get("pnl", 0.0)), 0.0)
@@ -92,7 +94,7 @@ def read_trades_closed(r: redis.Redis, stream: str, since_ms: int, max_scan: int
     scanned = 0
     while scanned < max_scan:
         batch = r.xrevrange(stream, max=last_id, min="-", count=2000)
-        if not batch:
+        if not batch or not isinstance(batch, list):
             break
         if len(batch) == 1 and batch[0][0] == last_id:
             break
@@ -110,10 +112,10 @@ def read_trades_closed(r: redis.Redis, stream: str, since_ms: int, max_scan: int
             yield row
 
 
-def atomic_promote(challenger_path: str, champion_path: str) -> Tuple[bool, str]:
+def atomic_promote(challenger_path: str, champion_path: str) -> tuple[bool, str]:
     try:
-        challenger_path = str(challenger_path or "").strip()
-        champion_path = str(champion_path or "").strip()
+        challenger_path = (challenger_path or "").strip()
+        champion_path = (champion_path or "").strip()
         if not challenger_path or not champion_path:
             return False, "missing_path"
         if not os.path.exists(challenger_path):
@@ -153,7 +155,7 @@ def main() -> None:
     r = redis.Redis.from_url(args.redis_url, decode_responses=True)
     since_ms = now_ms() - args.since_min * 60_000
 
-    stats: Dict[str, Dict[str, Any]] = {"champion": {"r": []}, "challenger": {"r": []}, "unknown": {"r": []}}
+    stats: dict[str, dict[str, Any]] = {"champion": {"r": []}, "challenger": {"r": []}, "unknown": {"r": []}}
     miss_arm = 0
     miss_meta = 0
     n_total = 0
@@ -164,7 +166,7 @@ def main() -> None:
         if not meta:
             miss_meta += 1
         ev = _extract_of_evidence(meta)
-        arm = str(ev.get("meta_arm", meta.get("meta_arm", "")) or "").lower()
+        arm = (ev.get(MetaKeys.ARM, meta.get(MetaKeys.ARM, "")) or "").lower()
         if arm not in ("champion", "challenger"):
             arm = "unknown"
             miss_arm += 1
@@ -174,7 +176,7 @@ def main() -> None:
     if n_total == 0:
         return
 
-    def summarize(arr: List[float]) -> Dict[str, Any]:
+    def summarize(arr: list[float]) -> dict[str, Any]:
         if not arr:
             return {"n": 0}
         arr2 = sorted(arr)
@@ -210,15 +212,13 @@ def main() -> None:
 
     r.set("meta_ab:last_report", json.dumps(report, separators=(",", ":")))
     r.set("meta_ab:last_ts_ms", str(report["ts_ms"]))
-    try:
+    with contextlib.suppress(Exception):
         r.xadd(
             os.getenv("META_AB_METRICS_STREAM", "metrics:meta_ab"),
             {"ts_ms": str(report["ts_ms"]), "json": json.dumps(report)},
             maxlen=200000,
             approximate=True,
         )
-    except Exception:
-        pass
 
     if args.promote and winner == "challenger":
         champion_path = os.getenv("META_MODEL_PATH", "").strip()

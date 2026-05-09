@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -11,7 +11,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _as_dict_maybe_json(x: Any) -> Dict[str, Any]:
+def _as_dict_maybe_json(x: Any) -> dict[str, Any]:
     """Accept dict or JSON-encoded dict; return {} on failure."""
     if isinstance(x, dict):
         return x
@@ -26,14 +26,14 @@ def _as_dict_maybe_json(x: Any) -> Dict[str, Any]:
     return {}
 
 
-def compute_r_mult_from_pnl_risk(pnl: float, risk_usd: float) -> Tuple[float, str]:
+def compute_r_mult_from_pnl_risk(pnl: float, risk_usd: float) -> tuple[float, str]:
     """Compute r-multiple from pnl/risk. Returns (r_mult, source)."""
     if float(risk_usd) <= 0.0:
         return 0.0, 'no_risk'
     return float(pnl) / float(risk_usd), 'pnl_over_risk'
 
 
-def compute_r_mult_from_closed(fields: Dict[str, Any]) -> Tuple[float, str]:
+def compute_r_mult_from_closed(fields: dict[str, Any]) -> tuple[float, str]:
     """Compute r-multiple from a POSITION_CLOSED payload.
 
     Preference order:
@@ -65,8 +65,8 @@ def compute_r_mult_from_closed(fields: Dict[str, Any]) -> Tuple[float, str]:
         return float(r), 'pnl_over_risk'
 
     # 3) heuristic
-    rsn = str(fields.get('reason') or '').upper()
-    rsn_raw = str(fields.get('reason_raw') or '').upper()
+    rsn = (fields.get('reason') or '').upper()
+    rsn_raw = (fields.get('reason_raw') or '').upper()
     if 'TP' in rsn or 'TP' in rsn_raw or 'WIN' in rsn:
         return 1.0, 'heuristic_tp'
 
@@ -77,7 +77,7 @@ def compute_y_from_r_mult(r_mult: float, r_min: float) -> int:
     return 1 if float(r_mult) >= float(r_min) else 0
 
 
-def compute_y_and_r_from_closed(fields: Dict[str, Any], *, r_min: float = 0.5) -> Tuple[int, float, str]:
+def compute_y_and_r_from_closed(fields: dict[str, Any], *, r_min: float = 0.5) -> tuple[int, float, str]:
     r_mult, src = compute_r_mult_from_closed(fields)
     y = compute_y_from_r_mult(r_mult, r_min)
     return int(y), float(r_mult), str(src)

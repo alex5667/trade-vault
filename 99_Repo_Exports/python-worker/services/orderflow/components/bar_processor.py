@@ -1,16 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import logging
-import asyncio
-from utils.task_manager import safe_create_task
-
-import os
-import time
-import math
 import json
+import logging
+import math
+import os
 from collections import deque
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.task_manager import safe_create_task
+from utils.time_utils import get_ny_time_millis
 
 try:
     from handlers.regime_service import MarketRegimeService, RegimeConfig, RegimeFeatures
@@ -20,22 +18,33 @@ except ImportError:
     except ImportError:
         MarketRegimeService = RegimeConfig = RegimeFeatures = None  # type: ignore
 
-from services.orderflow.runtime import SymbolRuntime, MicroBar
-from services.tp_config import parse_tp_ratio
+from core.cvd_reclaim import compute_cvd_reclaim
+from core.dyn_cfg_keys import DynCfgKeys as DK
+from core.weak_progress import compute_weak_progress
 from services.orderflow.configuration import _safe_int
 from services.orderflow.metrics import (
-    log_silent_error, bars_closed_total, sweep_detected_total, divergence_detected_total,
-    cvd_reclaim_eval_total, cvd_reclaim_ok_total, fp_buckets_evicted_total,
-    ptier_tier0_usd, ptier_tier1_usd, ptier_tier2_usd,
-    atr_tf_target_bps, atr_tf_candidate_score, atr_tf_switch_total,
-    divergence_bias_source_total, divergence_bias_inferred_total
+    atr_tf_candidate_score,
+    atr_tf_switch_total,
+    atr_tf_target_bps,
+    bars_closed_total,
+    cvd_reclaim_eval_total,
+    cvd_reclaim_ok_total,
+    divergence_bias_inferred_total,
+    divergence_bias_source_total,
+    divergence_detected_total,
+    fp_buckets_evicted_total,
+    log_silent_error,
+    ptier_tier0_usd,
+    ptier_tier1_usd,
+    ptier_tier2_usd,
+    sweep_detected_total,
 )
-from services.signal_preprocess import preprocess_signal_for_publish
 from services.orderflow.microbar_publish import publish_microbar_closed
+from services.orderflow.runtime import MicroBar, SymbolRuntime
 from services.persistence_manager import get_persistence_manager
-from core.cvd_reclaim import compute_cvd_reclaim
-from core.weak_progress import compute_weak_progress
-from core.dyn_cfg_keys import DynCfgKeys as DK
+from services.signal_preprocess import preprocess_signal_for_publish
+from services.tp_config import parse_tp_ratio
+import contextlib
 
 logger = logging.getLogger("orderflow_bar_processor")
 
@@ -55,20 +64,18 @@ class BarProcessor:
         self.atr_cache = atr_cache
         self.atr_tf_selector = atr_tf_selector
         self.calib_svc = calib_svc
-        
+
         # Local counters for logging
-        self.swing_point_counters: Dict[str, int] = {}
-        self.adverse_continuation_counters: Dict[str, int] = {}
+        self.swing_point_counters: dict[str, int] = {}
+        self.adverse_continuation_counters: dict[str, int] = {}
 
         # ── Inline regime computation (eliminates cross-service dependency) ──
         # Without this, regime:{symbol} is only written by the handler pipeline
         # (scanner-python-worker) which does NOT cover Shard 3/3B symbols.
         self._regime_svc = None
         if MarketRegimeService is not None and RegimeConfig is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._regime_svc = MarketRegimeService(RegimeConfig())
-            except Exception:
-                pass
         self._regime_vwap: float = 0.0
         self._regime_pv: float = 0.0
         self._regime_vol: float = 0.0
@@ -96,10 +103,8 @@ class BarProcessor:
             await self._update_atr_sanity_range(runtime, bar)
 
             # 2. Daily Tracker Update
-            try:
+            with contextlib.suppress(Exception):
                 runtime.daily_tracker.update(bar)
-            except Exception:
-                pass
 
             # 3. Dynamic Regime Update (Redis read + inline fallback)
             await self._update_regime(runtime, bar)
@@ -136,7 +141,7 @@ class BarProcessor:
                         runtime.dynamic_cfg[DK.VOL_SLOW_BPS]     = float(vol_snap.get("vol_slow_bps", 0.0))
                         runtime.dynamic_cfg[DK.VOL_RATIO]        = float(vol_snap.get("vol_ratio", 0.0))
                         runtime.dynamic_cfg[DK.VOL_RATIO_Z]      = float(vol_snap.get("vol_ratio_z", 0.0))
-                        runtime.dynamic_cfg[DK.VOL_REGIME_LABEL] = str(vol_snap.get("vol_regime_label", "na"))
+                        runtime.dynamic_cfg[DK.VOL_REGIME_LABEL] = (vol_snap.get("vol_regime_label", "na"))
                 except Exception:
                     pass
 
@@ -235,10 +240,8 @@ class BarProcessor:
                 pass
 
             # 22. v13_of runtime tracker: per-bar update (OHLC vol, Amihud, Corwin-Schultz, etc.)
-            try:
+            with contextlib.suppress(Exception):
                 runtime.v13_tracker.on_bar_close(bar)
-            except Exception:
-                pass
 
         except Exception as exc:
             log_silent_error(exc, 'process_bar_fatal', runtime.symbol, 'BarProcessor:process_bar')
@@ -267,13 +270,12 @@ class BarProcessor:
                     sig = runtime.pending_adverse_payload
                     age_adv = ts - int(runtime.pending_adverse_ts_ms or 0)
                     if 0 < age_adv < 5000:
-                         s_dir = str(sig.get("direction", "")).upper()
+                         s_dir = (sig.get("direction", "")).upper()
                          c = float(getattr(bar, "close", 0.0) or 0.0)
                          o = float(getattr(bar, "open", 0.0) or 0.0)
                          verified = False
-                         if s_dir == "LONG" and c > o: verified = True
-                         elif s_dir == "SHORT" and c < o: verified = True
-                         
+                         if s_dir == "LONG" and c > o or s_dir == "SHORT" and c < o: verified = True
+
                          if verified:
                              cnt = self.adverse_continuation_counters.get(runtime.symbol, 0) + 1
                              self.adverse_continuation_counters[runtime.symbol] = cnt
@@ -282,25 +284,25 @@ class BarProcessor:
                              sig["adverse_wait_ms"] = age_adv
                              # Assuming we can emit; here we just use what we have or signal_pub
                              # But wait, original code calls self._emit_payload which is complex tick logic.
-                             # Actually _emit_payload logic is in TickProcessor now. 
+                             # Actually _emit_payload logic is in TickProcessor now.
                              # We might need to expose a helper or just emit via publisher if sig is ready.
                              # For now, we'll assume sig is complete enough or we can't fully reproduce `_emit_payload` logic here easily without TickProcessor instance.
                              # Simplified: just publish what we have.
                              preprocess_signal_for_publish(sig, runtime.symbol, "CryptoOrderFlow", logger)
                              if self.calib_svc: # Using calib_svc as proxy for 'service with access'? No.
                                  # We need publisher. BarProcessor has signal_pipeline but we need publisher.
-                                 pass 
+                                 pass
                              # TODO: Cleanly handle adverse emit. For now, we skip emission here to avoid circular dep.
                              # In refactor, adverse logic might be better placed in TickProcessor or a shared bus.
-                    
+
                     runtime.pending_adverse_payload = None
                     runtime.pending_adverse_ts_ms = 0
 
                 runtime.atr_range_agg.push_microbar(
-                    end_ts_ms=ts, 
-                    o=float(getattr(bar, "open", 0)), 
-                    h=float(getattr(bar, "high", 0)), 
-                    l=float(getattr(bar, "low", 0)), 
+                    end_ts_ms=ts,
+                    o=float(getattr(bar, "open", 0)),
+                    h=float(getattr(bar, "high", 0)),
+                    l=float(getattr(bar, "low", 0)),
                     c=float(getattr(bar, "close", 0))
                 )
                 snap = runtime.atr_range_agg.snapshot()
@@ -462,7 +464,7 @@ class BarProcessor:
         except Exception:
             return "na"
 
-    def _compute_trend_bias(self, runtime: SymbolRuntime, bar: MicroBar) -> Tuple[str, str, float]:
+    def _compute_trend_bias(self, runtime: SymbolRuntime, bar: MicroBar) -> tuple[str, str, float]:
         """
         Computes trend bias using a cascade of sources:
         1) Continuation-context bias (strongest)
@@ -471,7 +473,7 @@ class BarProcessor:
         4) RSI-based fallback (weak/medium)
         """
         cfg = runtime.config or {}
-        
+
         # 1) Continuation-context bias (strongest)
         td = getattr(runtime, "cont_ctx_trend_dir", None)
         if td:
@@ -494,7 +496,7 @@ class BarProcessor:
             regime_ts = int(getattr(runtime, "last_regime_ts_ms", 0) or 0)
             now_ms = get_ny_time_millis()
             ttl = int(cfg.get("bias_regime_ttl_ms", os.getenv("BIAS_REGIME_TTL_MS", "300000")))
-            
+
             if regime != "na" and (now_ms - regime_ts) < ttl:
                 if regime in ("trending_bull", "bull_trend", "strong_bull"):
                     return ("UP", "regime", 0.6)
@@ -508,11 +510,11 @@ class BarProcessor:
             rsi_ts = int(getattr(runtime, "last_rsi_ts_ms", 0) or 0)
             now_ms = get_ny_time_millis()
             ttl = int(cfg.get("bias_rsi_ttl_ms", os.getenv("BIAS_RSI_TTL_MS", "300000")))
-            
+
             if math.isfinite(rsi_val) and (now_ms - rsi_ts) < ttl:
                 rsi_hi = float(cfg.get("bias_rsi_hi", os.getenv("BIAS_RSI_HI", "60")))
                 rsi_lo = float(cfg.get("bias_rsi_lo", os.getenv("BIAS_RSI_LO", "40")))
-                
+
                 # Optional slope check
                 req_slope = bool(_safe_int(cfg.get("bias_rsi_require_slope", os.getenv("BIAS_RSI_REQUIRE_SLOPE", "0")), 0))
                 slope_ok = True
@@ -532,14 +534,14 @@ class BarProcessor:
 
         return ("none", "none", 0.0)
 
-    def _infer_bias_from_divergence(self, runtime: SymbolRuntime, d: Any, bar_ts_ms: int, base_bias: str) -> Tuple[str, str, float, int]:
+    def _infer_bias_from_divergence(self, runtime: SymbolRuntime, d: Any, bar_ts_ms: int, base_bias: str) -> tuple[str, str, float, int]:
         """
         Optional inference for regular divergences (if base bias is none).
         """
         cfg = runtime.config or {}
         if not bool(_safe_int(cfg.get("div_infer_enable", os.getenv("DIV_INFER_ENABLE", "0")), 0)):
             return (base_bias, "base", 0.0, 0)
-            
+
         if base_bias != "none":
             return (base_bias, "base", 0.0, 0)
 
@@ -552,7 +554,7 @@ class BarProcessor:
         max_age = int(cfg.get("div_infer_max_age_ms", os.getenv("DIV_INFER_MAX_AGE_MS", "300000")))
         if (bar_ts_ms - int(d.ts_ms)) > max_age:
             return (base_bias, "base", 0.0, 0)
-            
+
         # Min strength check
         min_str = float(cfg.get("div_infer_min_strength", os.getenv("DIV_INFER_MIN_STRENGTH", "0.0")))
         if float(getattr(d, "strength", 0.0)) < min_str:
@@ -562,7 +564,7 @@ class BarProcessor:
             return ("UP", "div_infer", 0.3, 1)
         if kind_l.startswith("bearish"):
             return ("DOWN", "div_infer", 0.3, 1)
-            
+
         return (base_bias, "base", 0.0, 0)
 
     async def _update_atr_tf_calib(self, runtime: SymbolRuntime, bar: MicroBar):
@@ -575,17 +577,17 @@ class BarProcessor:
                     cand_str = str(runtime.config.get("atr_tf_candidates", os.getenv("ATR_TF_CANDIDATES", "1m,5m,15m")) or "")
                     cands = tuple([x.strip() for x in cand_str.split(",") if x.strip()])
                     if not cands: cands = ("1m", "5m", "15m")
-                    
+
                     hint_floor = float(runtime.dynamic_cfg.get(DK.ATR_BPS_TH, 0.0) or runtime.config.get("atr_bps_min_static", 0.0) or 0.0)
-                    scores_inst: Dict[str, float] = {}
-                    
+                    scores_inst: dict[str, float] = {}
+
                     for tf in cands:
                         v, m = self.atr_cache.get_with_meta(symbol=runtime.symbol, timeframe=tf, now_ms=now_ts)
                         vv = float(v or 0.0)
                         if vv <= 0 or not m: continue
                         age_ms = int((m or {}).get("age_ms", 0) or 0)
                         atr_bps = 10000.0 * (vv / close_px) if close_px > 0 else 0.0
-                        
+
                         fresh = float(1.0 / (1.0 + (max(0, age_ms) / float(max(1, int(os.getenv("ATR_TF_CALIB_MAX_AGE_MS", str(10 * 60_000))) ) / 2))))
                         cons = 1.0
                         if hint_floor > 0 and atr_bps > 0:
@@ -593,11 +595,11 @@ class BarProcessor:
                         sc = float(0.7 * fresh + 0.3 * min(1.0, cons))
                         src = str((m or {}).get("src", (m or {}).get("source", "")) or "")
                         if src == "tracker_hash": sc *= 1.05
-                        scores_inst[str(tf)] = float(sc)
+                        scores_inst[tf] = float(sc)
 
                     runtime.atr_tf_calib.update(regime=rg, scores_inst=scores_inst, ts_ms=now_ts)
                     dec = runtime.atr_tf_calib.pick(regime=rg, default_tf=str(runtime.config.get("atr_tf", "5m") or "5m"), candidates=cands)
-                    
+
                     runtime.dynamic_cfg[DK.ATR_TF_SELECTED] = str(dec.tf)
                     # ... other fields ...
         except Exception:
@@ -615,7 +617,7 @@ class BarProcessor:
             if close_px > 0 and atr_val > 0:
                 atr_bps = 10000.0 * (atr_val / close_px)
                 runtime.dynamic_cfg[DK.ATR_BPS] = float(atr_bps)
-                
+
                 if bool(int(os.getenv("ATR_BPS_CALIB_ENABLE", "1"))):
                     runtime.atr_bps_calib.update(regime=rg, atr_bps=float(atr_bps))
 
@@ -625,13 +627,13 @@ class BarProcessor:
                 d1 = float(cfg.get("atr_floor_t1_bps", 0.0) or 0.0)
                 d2 = float(cfg.get("atr_floor_t2_bps", 0.0) or 0.0)
                 floors = runtime.atr_bps_calib.thresholds(regime=rg, default_floor_t0=d0, default_floor_t1=d1, default_floor_t2=d2)
-                
+
                 # ... fill dynamic_cfg defaults ...
-                
+
                 # Compute Threshold (imported from runtime or implemented here? likely helpers)
                 from services.orderflow.calibration_models import compute_atr_bps_threshold
                 tier, rg2, th = compute_atr_bps_threshold(
-                    regime=rg, cfg=runtime.config, 
+                    regime=rg, cfg=runtime.config,
                     t0=float(floors.floor_t0), t1=float(floors.floor_t1), t2=float(floors.floor_t2)
                 )
                 runtime.dynamic_cfg[DK.ATR_FLOOR_TIER] = int(tier)
@@ -654,7 +656,7 @@ class BarProcessor:
             if math.isfinite(dn_usd) and dn_usd > 0:
                 rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
                 runtime.dn_calib.update(regime=rg, dn_usd=float(dn_usd), ts_ms=int(bar.end_ts_ms))
-                
+
                 # Telemetry & Persistence logic...
                 if bool(int(runtime.config.get("calib_persist_enable", 1))):
                      runtime._calib_bars_since_persist = int(getattr(runtime, "_calib_bars_since_persist", 0) or 0) + 1
@@ -672,18 +674,18 @@ class BarProcessor:
                  now_ts = int(getattr(bar, "end_ts_ms", 0) or 0)
                  close_px = float(getattr(bar, "close", 0.0) or 0.0)
                  rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
-                 
+
                  refresh_ms = int(runtime.config.get("atr_tf_calib_refresh_ms", 60_000))
                  last = int(runtime.dynamic_cfg.get(DK.ATR_TF_CALIB_LAST_MS, 0) or 0)
                  if refresh_ms < 10_000: refresh_ms = 10_000
-                 
+
                  if now_ts > 0 and (now_ts - last) >= refresh_ms and close_px > 0:
                      runtime.dynamic_cfg[DK.ATR_TF_CALIB_LAST_MS] = int(now_ts)
-                     
-                     tfs_raw = str(os.getenv("ATR_TF_CALIB_TFS", "1m,5m,15m,1h"))
+
+                     tfs_raw = os.getenv("ATR_TF_CALIB_TFS", "1m,5m,15m,1h")
                      tfs = [x.strip() for x in tfs_raw.split(",") if x.strip()]
                      if not tfs: tfs = ["1m", "5m", "15m", "1h"]
-                     
+
                      target_bps = 0.0
                      try:
                          tp_ratios = parse_tp_ratio(runtime.config.get("tp_ratio") or runtime.config.get("tp_rr") or "")
@@ -694,8 +696,8 @@ class BarProcessor:
                              target_bps = float((float(self.signal_pipeline.FEES_BPS_RT) + float(self.signal_pipeline.TP_BPS_BUFFER)) / denom)
                      except Exception:
                          target_bps = 0.0
-                         
-                     atr_bps_by_tf: Dict[str, float] = {}
+
+                     atr_bps_by_tf: dict[str, float] = {}
                      for tf in tfs:
                          try:
                              atr_tf = float(self.atr_cache.get(runtime.symbol, tf) or 0.0)
@@ -703,10 +705,10 @@ class BarProcessor:
                                  atr_bps_by_tf[tf] = 10000.0 * (atr_tf / close_px)
                          except Exception:
                              continue
-                             
+
                      if atr_bps_by_tf:
                          runtime.atr_tf_calib.update_many(regime=rg, atr_bps_by_tf=atr_bps_by_tf)
-                         
+
                          fallback_tf = str(runtime.config.get("atr_tf", os.getenv("ATR_TF", "5m")) or "5m")
                          current_tf = runtime.get_atr_tf_selected()
                          # ATR_TF_SELECTOR_MODE takes priority; ATR_TF_CALIB_MODE is alias for back-compat
@@ -717,26 +719,26 @@ class BarProcessor:
                          ).lower()
                          allow_switch = (mode == "enforce")
                          runtime.dynamic_cfg[DK.ATR_TF_MODE] = mode
-                         
+
                          choice = runtime.atr_tf_calib.recommend_tf(
                              regime=rg, target_bps=target_bps, fallback_tf=fallback_tf,
                              now_ts_ms=now_ts, current_tf=current_tf, allow_switch=allow_switch
                          )
-                         
+
                          runtime.dynamic_cfg[DK.ATR_TF_TARGET_BPS] = float(choice.target_bps)
                          runtime.dynamic_cfg[DK.ATR_TF_READY] = int(1 if choice.src != "static" and choice.n >= int(os.getenv("ATR_TF_CALIB_MIN_SAMPLES", "30")) else 0)
                          runtime.dynamic_cfg[DK.ATR_TF_SRC] = str(choice.src)
                          runtime.dynamic_cfg[DK.ATR_TF_N] = int(choice.n)
-                         
+
                          runtime.dynamic_cfg[DK.ATR_TF_CANDIDATE] = str(choice.tf)
                          runtime.dynamic_cfg[DK.ATR_TF_CANDIDATE_SRC] = str(choice.src)
                          runtime.dynamic_cfg[DK.ATR_TF_CANDIDATE_N] = int(choice.n)
                          runtime.dynamic_cfg[DK.ATR_TF_CANDIDATE_SCORE] = float(getattr(choice, "score", 0.0) or 0.0)
                          runtime.dynamic_cfg[DK.ATR_TF_CANDIDATES_BPS] = dict(atr_bps_by_tf)
-                         
+
                          atr_tf_target_bps.labels(symbol=runtime.symbol).set(float(target_bps))
                          atr_tf_candidate_score.labels(symbol=runtime.symbol).set(float(getattr(choice, "score", 0.0) or 0.0))
-                         
+
                          if allow_switch and str(choice.tf) != current_tf:
                              new_tf = str(choice.tf)
                              runtime.dynamic_cfg[DK.ATR_TF_SELECTED] = new_tf
@@ -744,7 +746,7 @@ class BarProcessor:
                              atr_tf_switch_total.labels(symbol=runtime.symbol).inc()
                          elif not allow_switch:
                              runtime.dynamic_cfg.setdefault("atr_tf_selected", current_tf)
-                             
+
                          persist_gap = int(runtime.config.get("atr_tf_calib_persist_gap_ms", 300_000))
                          if persist_gap < 60_000: persist_gap = 60_000
                          last_p = int(getattr(runtime, "_atr_tf_last_persist_ts_ms", 0) or 0)
@@ -798,8 +800,8 @@ class BarProcessor:
                     atr_tmp, atr_meta = self.atr_cache.get_with_meta(symbol=runtime.symbol, timeframe=tf_sel, now_ms=int(now_ts))
                     atr_tmp = float(atr_tmp or 0.0)
                     if isinstance(atr_meta, dict):
-                        runtime.dynamic_cfg[DK.ATR_LIVE_SRC] = str(atr_meta.get("src", "na"))
-                        runtime.dynamic_cfg[DK.ATR_LIVE_KEY] = str(atr_meta.get("key", ""))
+                        runtime.dynamic_cfg[DK.ATR_LIVE_SRC] = (atr_meta.get("src", "na"))
+                        runtime.dynamic_cfg[DK.ATR_LIVE_KEY] = (atr_meta.get("key", ""))
                         runtime.dynamic_cfg[DK.ATR_LIVE_AGE_MS] = int(atr_meta.get("age_ms", 0) or 0)
                 except Exception:
                     atr_tmp = 0.0
@@ -817,7 +819,7 @@ class BarProcessor:
                                 px=float(px0),
                                 age_ms=int(age0),
                                 now_ms=int(now_ts),
-                                tf=str(atr_meta.get("tf", "1m")) if isinstance(atr_meta, dict) else "1m",
+                                tf=(atr_meta.get("tf", "1m")) if isinstance(atr_meta, dict) else "1m",
                             )
                             runtime.last_atr = float(res.atr_used)
                             runtime.last_atr_ts_ms = int(now_ts)
@@ -841,7 +843,7 @@ class BarProcessor:
 
                 if sp_cnt % 50 == 0:
                      logger.info("📐 Swing Point detected (%s): kind=%s, price=%.2f, ts_ms=%d (x%d)", runtime.symbol, sp.kind, sp.price, sp.ts_ms, sp_cnt)
-                
+
                 if sp.kind == "high":
                     runtime.prev_swing_high = runtime.last_swing_high
                     runtime.last_swing_high = sp
@@ -859,23 +861,23 @@ class BarProcessor:
                     bar_ts_ms = int(getattr(bar, "end_ts_ms", 0) or 0)
                     for d in divs_swing:
                         divergence_detected_total.labels(symbol=runtime.symbol, kind=str(d.kind)).inc()
-                        logger.info("💎 Divergence Detected (%s): kind=%s, strength=%.2f base_bias=%s(%s)", 
+                        logger.info("💎 Divergence Detected (%s): kind=%s, strength=%.2f base_bias=%s(%s)",
                                     runtime.symbol, d.kind, d.strength, bias, bias_source)
-                        
+
                         try:
                             # 2) Optional Inference for regular divergence if bias is still none
                             eff_bias = bias
                             eff_bias_source = bias_source
                             eff_bias_strength = float(bias_strength)
                             inferred = 0
-                            
+
                             ib, isrc, istr, inf = self._infer_bias_from_divergence(runtime, d, bar_ts_ms=bar_ts_ms, base_bias=eff_bias)
                             if inf == 1:
                                 eff_bias = ib
                                 eff_bias_source = isrc
                                 eff_bias_strength = float(istr)
                                 inferred = 1
-                            
+
                             divergence_bias_source_total.labels(symbol=runtime.symbol, source=eff_bias_source, kind=str(d.kind)).inc()
                             if inferred:
                                 divergence_bias_inferred_total.labels(symbol=runtime.symbol, kind=str(d.kind)).inc()
@@ -911,7 +913,7 @@ class BarProcessor:
                             # 5. Payload
                             direction_map = {"UP": "LONG", "DOWN": "SHORT"}
                             direction = direction_map.get(eff_bias, "NONE")
-                            
+
                             if direction in ("LONG", "SHORT"):
                                 signal_payload = {
                                     "signal_id": f"div:{runtime.symbol}:{d.ts_ms}",
@@ -942,7 +944,7 @@ class BarProcessor:
                                         "direction_inferred": int(inferred),
                                     },
                                     "confirmations": [
-                                        f"div_kind={d.kind}", 
+                                        f"div_kind={d.kind}",
                                         f"strength={d.strength:.2f}",
                                         f"bias_src={eff_bias_source}"
                                     ],
@@ -962,39 +964,37 @@ class BarProcessor:
                             logger.warning(f"⚠️ Failed to publish Divergence signal: {ex}", exc_info=True)
 
                 # Update EQ pools from swing points
-                try:
+                with contextlib.suppress(Exception):
                     runtime.eq_pools.on_swing(sp, atr=float(getattr(runtime, "last_atr", 0.0) or 0.0))
-                except Exception:
-                    pass
 
             divs = runtime.divergence.update(bar, runtime.swing.swings)
             bar_ts_ms = int(getattr(bar, "end_ts_ms", 0) or 0)
             bias, bias_source, bias_strength = self._compute_trend_bias(runtime, bar)
-            
+
             for d in divs:
                 runtime.last_div = d
                 divergence_detected_total.labels(symbol=runtime.symbol, kind=str(d.kind)).inc()
-                
+
                 # Check for regular divergence signals
                 eff_bias = bias
                 eff_bias_source = bias_source
                 eff_bias_strength = float(bias_strength)
                 inferred = 0
-                
+
                 ib, isrc, istr, inf = self._infer_bias_from_divergence(runtime, d, bar_ts_ms=bar_ts_ms, base_bias=eff_bias)
                 if inf == 1:
                     eff_bias = ib
                     eff_bias_source = isrc
                     eff_bias_strength = float(istr)
                     inferred = 1
-                
+
                 divergence_bias_source_total.labels(symbol=runtime.symbol, source=eff_bias_source, kind=str(d.kind)).inc()
                 if inferred:
                     divergence_bias_inferred_total.labels(symbol=runtime.symbol, kind=str(d.kind)).inc()
-                
+
                 # Payload creation for regular divergence...
-                # (Skipping full payload here for brevity unless needed; 
-                # usually regular divergences without swing might not trigger signal here, 
+                # (Skipping full payload here for brevity unless needed;
+                # usually regular divergences without swing might not trigger signal here,
                 # but we want to track them in metrics at least).
                 # Actually if runtime.divergence.update returns them, they might be new regular divs.
                 # The original code only handles signals inside the swing loop.
@@ -1052,7 +1052,7 @@ class BarProcessor:
                     else:
                         runtime.dynamic_cfg[DK.STRONG_NEED_REVERSAL] = int(cfg.get("strong_need_reversal", 2))
                         runtime.dynamic_cfg[DK.STRONG_NEED_CONTINUATION] = int(cfg.get("strong_need_continuation", 2))
-                
+
                 # Persist
                 if bool(int(runtime.config.get("calib_persist_enable", 1))):
                     runtime._calib_bars_since_persist = int(getattr(runtime, "_calib_bars_since_persist", 0) or 0) + 1
@@ -1060,7 +1060,7 @@ class BarProcessor:
                     min_dt = int(runtime.config.get("calib_persist_min_interval_ms", 60_000))
                     ts_ms = int(getattr(bar, "end_ts_ms", 0) or 0)
                     last = int(getattr(runtime, "_calib_last_persist_ts_ms", 0) or 0)
-                    
+
                     due = (runtime._calib_bars_since_persist >= min_bars) or (ts_ms > 0 and last > 0 and (ts_ms - last) >= min_dt)
                     if due and ts_ms > 0:
                         runtime._calib_last_persist_ts_ms = ts_ms
@@ -1109,7 +1109,7 @@ class BarProcessor:
                     pass
         except Exception:
             pass
-            
+
         try:
             if int(getattr(runtime, "reclaim_start_ts_ms", 0)) == int(bar.end_ts_ms):
                 pass
@@ -1118,9 +1118,9 @@ class BarProcessor:
                 if ev is not None:
                     runtime.last_reclaim = ev
                     try:
-                        if (int(runtime.config.get("cvd_reclaim_enable", 1) or 0) == 1 and 
+                        if (int(runtime.config.get("cvd_reclaim_enable", 1) or 0) == 1 and
                             runtime.last_sweep_ts_ms > 0):
-                            
+
                             res = compute_cvd_reclaim(
                                 ts_ms=int(ev.ts_ms),
                                 sweep_ts_ms=runtime.last_sweep_ts_ms,
@@ -1132,11 +1132,11 @@ class BarProcessor:
                                 sat_abs=float(runtime.config.get("cvd_reclaim_sat_abs", 0.0)),
                             )
                             runtime.last_cvd_reclaim = res
-                            
+
                             cvd_reclaim_eval_total.labels(symbol=runtime.symbol, bias=str(ev.direction_bias)).inc()
                             if res.ok:
                                 cvd_reclaim_ok_total.labels(symbol=runtime.symbol, bias=str(ev.direction_bias)).inc()
-                            
+
                             logger.info(
                                 "CVDReclaim computed sym=%s bias=%s ok=%d score=%.3f delta=%.1f window_ms=%d",
                                 runtime.symbol, ev.direction_bias, res.ok, res.score, res.cvd_delta, (int(ev.ts_ms) - runtime.last_sweep_ts_ms)
@@ -1186,7 +1186,7 @@ class BarProcessor:
             now_ms = int(getattr(bar, "end_ts_ms", 0) or 0)
             calib_min_samples = int(os.getenv("PRESSURE_TIER_CALIB_MIN_SAMPLES", "300"))
             calib_refresh_ms = int(os.getenv("PRESSURE_TIER_CALIB_REFRESH_MS", "60000"))
-            
+
             last_update = int(getattr(runtime, "ptier_last_update_ts_ms", 0) or 0)
             if now_ms > 0 and (now_ms - last_update) >= calib_refresh_ms:
                  samples = list(runtime.ptier_samples_usd)
@@ -1194,33 +1194,33 @@ class BarProcessor:
                      samples.sort()
                      n = len(samples)
                      def _q(p): return samples[int(p * (n - 1))]
-                     
+
                      p75 = _q(0.75)
                      p90 = _q(0.90)
                      p97 = _q(0.97)
-                     
+
                      min_usd = float(os.getenv("PRESSURE_TIER_MIN_USD", "10000.0"))
                      max_usd = float(os.getenv("PRESSURE_TIER_MAX_USD", "5000000.0"))
                      def _clamp_usd(x): return max(min_usd, min(max_usd, x))
-                     
+
                      t0 = _clamp_usd(p75)
                      t1 = _clamp_usd(p90)
                      t2 = _clamp_usd(p97)
-                     
+
                      runtime.dynamic_cfg[DK.PRESSURE_TIER0_USD] = t0
                      runtime.dynamic_cfg[DK.PRESSURE_TIER1_USD] = t1
                      runtime.dynamic_cfg[DK.PRESSURE_TIER2_USD] = t2
-                     
+
                      runtime.ptier_last_update_ts_ms = int(now_ms)
-                     
+
             rg = str(getattr(runtime, "last_regime", "na") or "na").lower()
             tiers = runtime.ptier_calib.maybe_recompute(now_ms=int(now_ms), regime=rg)
-            
+
             if tiers:
                 runtime.dynamic_cfg[DK.PTIER_TIER0_USD] = float(tiers["tier0"])
                 runtime.dynamic_cfg[DK.PTIER_TIER1_USD] = float(tiers["tier1"])
                 runtime.dynamic_cfg[DK.PTIER_TIER2_USD] = float(tiers["tier2"])
-                
+
                 ptier_tier0_usd.labels(symbol=runtime.symbol).set(float(tiers["tier0"]))
                 ptier_tier1_usd.labels(symbol=runtime.symbol).set(float(tiers["tier1"]))
                 ptier_tier2_usd.labels(symbol=runtime.symbol).set(float(tiers["tier2"]))
@@ -1232,10 +1232,10 @@ class BarProcessor:
         try:
              now_ts = int(getattr(bar, "end_ts_ms", 0) or 0)
              if now_ts <= 0: now_ts = get_ny_time_millis()
-             
+
              snap_every_ms = int(runtime.config.get("smt_snapshot_every_ms", 1000))
              if snap_every_ms < 250: snap_every_ms = 250
-             
+
              if (now_ts - int(getattr(runtime, "last_snapshot_ts_ms", 0) or 0)) >= snap_every_ms:
                  runtime.last_snapshot_ts_ms = now_ts
 
@@ -1255,38 +1255,38 @@ class BarProcessor:
                  close_cross = 0
                  close_cross_dir = "NONE"
                  close_cross_level = 0.0
-                 
+
                  if runtime.last_swing_high:
                      lvl = float(runtime.last_swing_high.price)
                      if lvl > 0 and close_px > lvl:
                          close_cross = 1
                          close_cross_dir = "UP"
                          close_cross_level = lvl
-                 
+
                  if runtime.last_swing_low:
                      lvl = float(runtime.last_swing_low.price)
                      if lvl > 0 and close_px < lvl:
                          close_cross = 1
                          close_cross_dir = "DOWN"
                          close_cross_level = lvl
-                 
+
                  trend_dir = "NONE"
                  if runtime.last_div:
                      k = str(runtime.last_div.kind)
                      if k == "bullish_hidden": trend_dir = "UP"
                      elif k == "bearish_hidden": trend_dir = "DOWN"
-                 
+
                  if trend_dir == "NONE" and close_cross_dir in ("UP", "DOWN"):
                      trend_dir = close_cross_dir
-                     
+
                  of_valid_ms = int(runtime.config.get("smt_of_strong_valid_ms", 120000))
                  of_strong = 0
                  if runtime.last_of_strong_ts_ms > 0:
                       if (now_ts - runtime.last_of_strong_ts_ms) <= of_valid_ms:
                           of_strong = 1
-                 
+
                  wp = 1 if (runtime.last_wp and runtime.last_wp.weak_any) else 0
-                 
+
                  reclaim = 0
                  reclaim_dir = "NONE"
                  if runtime.last_reclaim:
@@ -1294,7 +1294,7 @@ class BarProcessor:
                      if now_ts - reclaim_ts <= int(runtime.config.get("smt_reclaim_valid_ms", 120000)):
                          reclaim = 1
                          reclaim_dir = str(runtime.last_reclaim.direction_bias).upper()
-                 
+
                  sweep = 0
                  sweep_dir = "NONE"
                  if runtime.last_sweep:
@@ -1302,11 +1302,11 @@ class BarProcessor:
                      if now_ts - sweep_ts <= int(runtime.config.get("smt_sweep_valid_ms", 120000)):
                          sweep = 1
                          sweep_dir = str(runtime.last_sweep.direction_bias).upper()
-                         
+
                  obi_stable_sec = 0.0
                  if runtime.last_obi_event:
                       obi_stable_sec = float(runtime.last_obi_event.get("stable_secs", 0.0) or 0.0)
-                 
+
                  iceberg_strict = 0
                  if runtime.last_iceberg_event:
                      refresh = int(runtime.last_iceberg_event.get("refresh", 0) or 0)
@@ -1315,29 +1315,29 @@ class BarProcessor:
                      d_min = float(runtime.config.get("iceberg_strict_duration_min", 1.5))
                      if refresh >= r_min and dur >= d_min:
                          iceberg_strict = 1
-                 
+
                  div_kind = "none"
                  div_ts = 0
                  if runtime.last_div:
                      div_kind = str(runtime.last_div.kind)
                      div_ts = int(runtime.last_div.ts_ms)
-                 
+
                  rsi14 = float(runtime.rsi_price.value) if (hasattr(runtime, "rsi_price") and runtime.rsi_price.value is not None) else 0.0
                  cvd_slope = float(getattr(runtime.cvd_state, "cvd_slope", 0.0)) if hasattr(runtime.cvd_state, "cvd_slope") else 0.0
                  retrace_atr = 0.0
                  if runtime.last_retrace:
                       retrace_atr = float(getattr(runtime.last_retrace, "depth_atr", 0.0) or 0.0)
-                      
+
                  delta_z = float(getattr(runtime, "last_delta_z", 0.0) or 0.0)
                  delta_eff_norm = float(getattr(runtime, "last_delta_eff_norm", 0.0) or 0.0)
                  abs_lvl_ok = int(getattr(runtime, "last_abs_lvl_ok", 0) or 0)
-                 
+
                  zone_id = ""
                  zone_type = ""
                  zone_dist_bp = 0.0
                  near_zone = 0
                  zone_ok = 0
-                 
+
                  try:
                      await runtime.maybe_load_htf_zones(now_ts_ms=int(now_ts), redis_client=self.redis)
                      px = float(close_px or 0.0)
@@ -1354,7 +1354,7 @@ class BarProcessor:
                              zone_ok = 1 if (inside or (zone_dist_bp > 0 and zone_dist_bp <= ok_bp)) else 0
                  except Exception:
                      pass
-                     
+
                  if zone_ok == 0 and (not zone_id):
                      try:
                          z_level = float(close_cross_level or 0.0)
@@ -1399,9 +1399,9 @@ class BarProcessor:
                      "tf": str(runtime.config.get("micro_tf", "1s")),
                      "regime": str(getattr(runtime, "last_regime", "na")),
                  }
-                 
+
                  pl_json = json.dumps(payload, default=str, ensure_ascii=False)
-                 stream = str(os.getenv("SMT_SNAPSHOT_STREAM", "stream:smt_snap"))
+                 stream = os.getenv("SMT_SNAPSHOT_STREAM", "stream:smt_snap")
                  await self.redis.xadd(stream, {"payload": pl_json}, maxlen=20000)
 
         except Exception:

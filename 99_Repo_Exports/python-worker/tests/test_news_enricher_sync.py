@@ -1,8 +1,7 @@
-from utils.time_utils import get_ny_time_millis
-import time
-import pytest
+
 
 from news_pipeline.enricher_sync import NewsEnricherSync
+from utils.time_utils import get_ny_time_millis
 
 
 class DummyCtx:

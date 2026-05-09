@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 import redis
 
 from services.signal_preprocess import preprocess_signal_for_publish
+import contextlib
 
 
 def _json_dumps_safe(obj: Any) -> str:
@@ -46,16 +47,14 @@ class SyncSignalPublisher:
 
     def __init__(self, *, redis_client: Any, source: str, metrics_prefix: str = "signals_publish_sync", logger: Any = None) -> None:
         self.r = redis_client
-        self.source = str(source or "na")
-        self.metrics_prefix = str(metrics_prefix or "signals_publish_sync")
+        self.source = (source or "na")
+        self.metrics_prefix = (metrics_prefix or "signals_publish_sync")
         self.logger = logger
 
-    def xadd_json(self, *, sink: StreamSink, payload: Dict[str, Any], symbol: str, approximate: bool = True) -> SyncPublishResult:
+    def xadd_json(self, *, sink: StreamSink, payload: dict[str, Any], symbol: str, approximate: bool = True) -> SyncPublishResult:
         errors = 0
-        try:
-            preprocess_signal_for_publish(payload, symbol=str(symbol), source=self.source, logger=self.logger)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            preprocess_signal_for_publish(payload, symbol=symbol, source=self.source, logger=self.logger)
 
         ser = _json_dumps_safe(payload)
         try:

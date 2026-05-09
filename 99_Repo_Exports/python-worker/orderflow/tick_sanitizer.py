@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """
@@ -13,13 +14,13 @@ from utils.time_utils import get_ny_time_millis
 """
 
 import os
-import time
-from typing import Any, Optional
+from typing import Any
 
 from common.sanitize_math import finite_float, is_finite_number
+import contextlib
 
 
-def normalize_ts_ms(ts: Any) -> Optional[int]:
+def normalize_ts_ms(ts: Any) -> int | None:
     """
     Нормализация времени:
       - если < 1e12 считаем секунды и умножаем на 1000
@@ -38,7 +39,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def sanitize_tick(tick: Any, *, logger: Optional[Any] = None) -> Optional[Any]:
+def sanitize_tick(tick: Any, *, logger: Any | None = None) -> Any | None:
     """
     Возвращает:
       - tick (мутированный) если он годится
@@ -55,17 +56,13 @@ def sanitize_tick(tick: Any, *, logger: Optional[Any] = None) -> Optional[Any]:
     now = _now_ms()
     if ts_ms < (now - past_ms):
         # слишком старый тик
-        try:
-            setattr(tick, "ts", ts_ms)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            tick.ts = ts_ms
         return None
     if ts_ms > (now + future_ms):
         # тик из будущего — отдельный класс багов
-        try:
-            setattr(tick, "ts", ts_ms)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            tick.ts = ts_ms
         return None
 
     # ---- price fields ----
@@ -92,18 +89,16 @@ def sanitize_tick(tick: Any, *, logger: Optional[Any] = None) -> Optional[Any]:
 
     # ---- commit sanitized fields ----
     try:
-        setattr(tick, "ts", int(ts_ms))
-        setattr(tick, "bid", float(bid))
-        setattr(tick, "ask", float(ask))
-        setattr(tick, "last", float(last if (last is not None and is_finite_number(last)) else float((bid + ask) / 2.0)))
-        setattr(tick, "volume", float(vol))
-        setattr(tick, "flags", int(flags))
+        tick.ts = int(ts_ms)
+        tick.bid = float(bid)
+        tick.ask = float(ask)
+        tick.last = float(last if last is not None and is_finite_number(last) else float((bid + ask) / 2.0))
+        tick.volume = float(vol)
+        tick.flags = int(flags)
     except Exception as e:  # pragma: no cover
         if logger is not None:
-            try:
+            with contextlib.suppress(Exception):
                 logger.warning(f"sanitize_tick failed to set attrs: {e}")
-            except Exception:
-                pass
         return None
 
     return tick

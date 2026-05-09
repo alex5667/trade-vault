@@ -1,27 +1,31 @@
 # error_handler.py
 from __future__ import annotations
+
 """
 Функционал обработки ошибок и DLQ, извлеченный из base_orderflow_handler.py
 """
 
-from utils.time_utils import get_ny_time_millis
-
-from typing import Optional, Dict, Any, Tuple
-import time
-from common.transient_errors import is_transient_error
 import json
-import traceback
 import os
+import time
+import traceback
+from typing import Any
+
+from common.transient_errors import is_transient_error
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis
-    from redis.exceptions import ConnectionError as RedisConnError, TimeoutError as RedisTimeoutError, ResponseError as RedisResponseError
+    from redis.exceptions import ConnectionError as RedisConnError
+    from redis.exceptions import ResponseError as RedisResponseError
+    from redis.exceptions import TimeoutError as RedisTimeoutError
 except Exception:  # pragma: no cover
     redis = None
     RedisConnError = RedisTimeoutError = RedisResponseError = Exception  # type: ignore
 
 from common.transient import is_transient_error
 from core.redis_keys import RedisStreams as RS
+
 
 def setup_logger(name):
     import logging
@@ -56,9 +60,9 @@ class ErrorHandler:
         # 1) типовые исключения
         try:
             import redis
+            from redis.exceptions import BusyLoadingError as RedisBusyLoadingErr
             from redis.exceptions import ConnectionError as RedisConnErr
             from redis.exceptions import TimeoutError as RedisTimeoutErr
-            from redis.exceptions import BusyLoadingError as RedisBusyLoadingErr
         except Exception:
             redis = None  # type: ignore
             RedisConnErr = ()  # type: ignore
@@ -97,9 +101,9 @@ class ErrorHandler:
     def _is_transient_error(self, e: Exception) -> bool:
         return self.is_transient_error(e)
 
-    def _sanitize_dlq_payload(self, payload: Dict[str, Any]) -> Dict[str, str]:
+    def _sanitize_dlq_payload(self, payload: dict[str, Any]) -> dict[str, str]:
         """Очистка payload для сохранения в DLQ (все значения должны быть строками)."""
-        out: Dict[str, str] = {}
+        out: dict[str, str] = {}
         for k, v in payload.items():
             try:
                 if isinstance(v, str):
@@ -110,7 +114,7 @@ class ErrorHandler:
                 out[str(k)] = str(v)
         return out
 
-    def _dlq_write(self, consumer: object, dlq_stream: str, payload: Dict[str, str]) -> None:
+    def _dlq_write(self, consumer: object, dlq_stream: str, payload: dict[str, str]) -> None:
         """Низкоуровневая запись в DLQ с фоллбеками."""
         # 1) Предпочтительный API хелпера
         fn = getattr(consumer, "add_dlq", None)
@@ -121,7 +125,7 @@ class ErrorHandler:
         # 2) Fallback: напрямую через Redis клиент
         client = getattr(consumer, "client", None)
         if client is not None and hasattr(client, "xadd"):
-            client.xadd(dlq_stream, payload, maxlen=200000)
+            client.xadd(dlq_stream, payload, maxlen=200000, approximate=True)
             return
 
         raise RuntimeError("DLQ writer unavailable: consumer has no add_dlq() and no client.xadd(, maxlen=200000)")
@@ -129,7 +133,7 @@ class ErrorHandler:
     def _try_add_dlq_or_backoff(
         self,
         consumer: object,
-        dlq_payload: Dict[str, Any],
+        dlq_payload: dict[str, Any],
         *,
         backoff: object,
         where: str,
@@ -179,10 +183,10 @@ class ErrorHandler:
         e: Exception,
         consumer: object,
         backoff: object,
-        fail_counts: Dict[Tuple[str, str], int],
+        fail_counts: dict[tuple[str, str], int],
         stream: str,
         msg_id: str,
-        fields: Optional[Dict[str, Any]] = None,
+        fields: dict[str, Any] | None = None,
         where: str = "unknown",
         stop_event: Any = None,
     ) -> bool:
@@ -230,7 +234,7 @@ class ErrorHandler:
             return False  # “обработано” (можно ACK в MessageHandler)
         return True  # DLQ transient error -> ретрай позже
 
-    def cleanup_fail_counts(self, fail_counts: Dict[Tuple[str, str], int]) -> None:
+    def cleanup_fail_counts(self, fail_counts: dict[tuple[str, str], int]) -> None:
         """Очистка словаря fail_counts для предотвращения неограниченного роста."""
         if len(fail_counts) > 20000:
             # Trim oldest 5000

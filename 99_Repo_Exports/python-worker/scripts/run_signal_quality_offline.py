@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from signal_quality import run_offline_quality_job
 
+
 def main():
     """Main function to run offline quality job."""
     pg_dsn = os.getenv("PG_DSN", "postgresql://user:pass@localhost:5432/trade")

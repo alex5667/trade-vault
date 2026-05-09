@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Extended calibration diagnostics for confidence models.
 
 Complements classic ECE/Brier with:
@@ -9,14 +10,14 @@ Complements classic ECE/Brier with:
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import numpy as np
 
 _EPS = 1e-6
 
 
-def _as_arrays(y: Any, p: Any) -> Tuple[np.ndarray, np.ndarray]:
+def _as_arrays(y: Any, p: Any) -> tuple[np.ndarray, np.ndarray]:
     yy = np.asarray(y, dtype=np.float64).reshape(-1)
     pp = np.asarray(p, dtype=np.float64).reshape(-1)
     n = min(len(yy), len(pp))
@@ -115,7 +116,7 @@ def calibration_regression(
     ridge: float = 1e-6,
     max_iter: int = 50,
     tol: float = 1e-8,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Fit logistic regression y ~ intercept + slope * logit(p) via IRLS/ridge.
 
     slope ≈ 1 and intercept ≈ 0 indicates perfect calibration.
@@ -158,7 +159,7 @@ class CalibrationExtendedConfig:
     near_half_width: float = 0.05
 
 
-def report(y: Any, p: Any, *, bins: int = 20, near_half_width: float = 0.05) -> Dict[str, float]:
+def report(y: Any, p: Any, *, bins: int = 20, near_half_width: float = 0.05) -> dict[str, float]:
     """Full extended calibration report.
 
     Returns dict with keys:

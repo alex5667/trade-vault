@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Optional
 import json
+from dataclasses import asdict, dataclass
+from typing import Any
 
 
 @dataclass
@@ -71,7 +71,7 @@ class SymbolSnapshot:
     zone_ok: int = 0
     near_zone: int = 0
     abs_lvl_ok: int = 0
-    
+
     # ADX-aware regime strength (0..1)
     adx_q: float = 0.5
     adx14: float = 0.0
@@ -82,21 +82,21 @@ class SymbolSnapshot:
     cooldown_sps: float = 0.0
     # spread z (optional) for entry policy / penalties
     spread_z: float = 0.0
-    
+
     # Book Health
     book_rate_hz: float = 0.0
     book_rate_z: float = 0.0
     book_age_ms: int = 0
     book_health_ok: int = 1
     book_health: str = "OK"     # "OK"|"WARN"|"ERR"
-    
+
     # Data-quality (deterministic, at snapshot ts_ms)
     spread_bp: float = 0.0
     obi_age_ms: int = 10**9
     iceberg_age_ms: int = 10**9
     pressure_1m: float = 0.0  # signals/min
     cooldown_sps: float = 0.0
-    
+
     # Real nearest zone (HTF) - filled by CryptoOrderflowService from zones:htf:v1:<symbol>
     zone_id: str = ""
     zone_type: str = ""
@@ -122,16 +122,16 @@ class SymbolSnapshot:
     strong_gate_scn: str = ""
 
     @staticmethod
-    def from_dict(d: Dict[str, Any]) -> "SymbolSnapshot":
+    def from_dict(d: dict[str, Any]) -> SymbolSnapshot:
         def _f(k: str, default: float = 0.0) -> float:
             try: return float(d.get(k, default))
-            except Exception: return float(default)
+            except Exception: return default
         def _i(k: str, default: int = 0) -> int:
             try: return int(d.get(k, default))
-            except Exception: return int(default)
+            except Exception: return default
         def _s(k: str, default: str = "") -> str:
             try: return str(d.get(k, default) or default)
-            except Exception: return str(default)
+            except Exception: return default
 
         return SymbolSnapshot(
             symbol=_s("symbol", ""),
@@ -166,7 +166,7 @@ class SymbolSnapshot:
             rsi14=_f("rsi14", 0.0),
             cvd_slope=_f("cvd_slope", 0.0),
             retrace_atr=_f("retrace_atr", 0.0),
-            
+
             # New fields for SMT V2
             delta_z=_f("delta_z", 0.0),
             delta_eff_norm=_f("delta_eff_norm", 0.0),
@@ -174,7 +174,7 @@ class SymbolSnapshot:
             zone_ok=_i("zone_ok", 0),
             near_zone=_i("near_zone", 0),
             abs_lvl_ok=_i("abs_lvl_ok", 0),
-            
+
             # Real zone fields
             zone_id=_s("zone_id", ""),
             zone_type=_s("zone_type", ""),
@@ -184,11 +184,11 @@ class SymbolSnapshot:
             zone_px_hi=_f("zone_px_hi", 0.0),
             zone_ts_ms=_i("zone_ts_ms", 0),
             zone_weight=_f("zone_weight", 0.0),
-            
+
             # Market context
             regime=_s("regime", "na"),
             atr=_f("atr", 0.0),
-            
+
             # Absorption/Gate diagnostics
             abs_lvl_ready=_i("abs_lvl_ready", 0),
             abs_lvl_th_unstable=_i("abs_lvl_th_unstable", 0),
@@ -196,26 +196,26 @@ class SymbolSnapshot:
             strong_gate_have=_i("strong_gate_have", 0),
             strong_gate_need=_i("strong_gate_need", 0),
             strong_gate_scn=_s("strong_gate_scn", ""),
-            
+
             # NEW DQ / Pressure
             pressure_sps=_f("pressure_sps", 0.0),
             pressure_hi=_i("pressure_hi", 0),
             pressure_1m=_f("pressure_1m", 0.0),
             spread_bp=_f("spread_bp", 0.0),
-            
+
             book_rate_hz=_f("book_rate_hz", 0.0),
             book_rate_z=_f("book_rate_z", 0.0),
             book_age_ms=_i("book_age_ms", 0),
             book_health_ok=_i("book_health_ok", 1),
             book_health=_s("book_health", "OK"),
-            
+
             obi_age_ms=_i("obi_age_ms", 10**9),
             iceberg_age_ms=_i("iceberg_age_ms", 10**9),
             cooldown_sps=_f("cooldown_sps", 0.0),
             spread_z=_f("spread_z", 0.0),
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_json(self) -> str:
@@ -228,7 +228,7 @@ class SMTDiv:
     ts_ms: int
 
 
-def detect_smt_divergence(leader: SymbolSnapshot, sat: SymbolSnapshot) -> Optional[SMTDiv]:
+def detect_smt_divergence(leader: SymbolSnapshot, sat: SymbolSnapshot) -> SMTDiv | None:
     """
     Detect SMT divergence between leader and satellite.
     Simplified logic for SMT V2 basket.
@@ -237,12 +237,12 @@ def detect_smt_divergence(leader: SymbolSnapshot, sat: SymbolSnapshot) -> Option
     # Leader makes Lower Low (LL): L0 < L1
     # Satellite makes Higher Low (HL): S0 > S1
     # => Bullish SMT (Satellite shows strength)
-    
+
     l_l0 = leader.swing_low_0
     l_l1 = leader.swing_low_1
     s_l0 = sat.swing_low_0
     s_l1 = sat.swing_low_1
-    
+
     if l_l0 < l_l1 and s_l0 > s_l1:
         if l_l0 > 0 and l_l1 > 0 and s_l0 > 0 and s_l1 > 0:
             return SMTDiv(kind="bullish_smt", ts_ms=int(sat.ts_ms))
@@ -251,12 +251,12 @@ def detect_smt_divergence(leader: SymbolSnapshot, sat: SymbolSnapshot) -> Option
     # Leader makes Higher High (HH): H0 > H1
     # Satellite makes Lower High (LH): H0 < H1
     # => Bearish SMT (Satellite shows weakness)
-    
+
     l_h0 = leader.swing_high_0
     l_h1 = leader.swing_high_1
     s_h0 = sat.swing_high_0
     s_h1 = sat.swing_high_1
-    
+
     if l_h0 > l_h1 and s_h0 < s_h1:
         if l_h0 > 0 and l_h1 > 0 and s_h0 > 0 and s_h1 > 0:
             return SMTDiv(kind="bearish_smt", ts_ms=int(sat.ts_ms))

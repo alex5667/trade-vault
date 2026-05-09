@@ -1,11 +1,12 @@
 from __future__ import annotations
+
 """
 Signal Quality Estimator for assessing signal quality based on historical performance.
 """
 
 
 from dataclasses import dataclass
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import psycopg2
 from psycopg2.extras import DictCursor
@@ -62,8 +63,8 @@ class SignalQualityEstimator:
         session: str,
         regime: str,
         feature_bucket: str,
-        conn: Optional[psycopg2.extensions.connection] = None,
-    ) -> Optional[QualityEstimate]:
+        conn: psycopg2.extensions.connection | None = None,
+    ) -> QualityEstimate | None:
         """
         Estimate quality for a signal based on historical performance.
 
@@ -177,7 +178,7 @@ class SignalQualityEstimator:
         ctx,  # SignalContext or similar
         base_score: float,
         base_confidence: float,
-    ) -> "QualityResult":
+    ) -> QualityResult:
         """
         Estimate signal quality and return QualityResult.
 

@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """
 Meta Status Snapshot V1.
@@ -10,10 +11,9 @@ import argparse
 import json
 import logging
 import os
-import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Configure logging
 logging.basicConfig(
@@ -23,17 +23,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("meta_status")
 
-def load_json(path: str) -> Dict[str, Any]:
+def load_json(path: str) -> dict[str, Any]:
     if not path or not Path(path).exists():
         return {}
     try:
-        with open(path, "r") as f:
+        with open(path) as f:
             return json.load(f)
     except Exception as e:
         logger.warning(f"Failed to load JSON from {path}: {e}")
         return {}
 
-def get_redis_cfg(redis_url: str) -> Dict[str, Any]:
+def get_redis_cfg(redis_url: str) -> dict[str, Any]:
     try:
         import redis
         r = redis.from_url(redis_url, decode_responses=True)
@@ -67,7 +67,7 @@ def _block_reason_code(reason: str) -> float:
     if "cooldown" in r: return 4.0
     return 5.0
 
-def _dyn_get_schema(dyn: Dict[str, Any], schema: str, key: str, default: Any) -> Any:
+def _dyn_get_schema(dyn: dict[str, Any], schema: str, key: str, default: Any) -> Any:
     # Mirror meta_ramp_apply_v3._cfg_get() / _state_get() logic
     sk = f"{key}__{schema}"
     if sk in dyn: return dyn[sk]
@@ -152,10 +152,10 @@ def main():
     ramp_state = {}
     dyn = snapshot["redis_cfg"]
     if isinstance(dyn, dict) and schema:
-        def _fi(k: str) -> Optional[float]:
+        def _fi(k: str) -> float | None:
             v = _dyn_get_schema(dyn, schema, k, "")
             try: return float(v)
-            except: return None
+            except Exception: return None
 
         ramp_state["share"] = _fi("meta_enforce_share") or _fi("meta_ramp_share") or 0.0
         ramp_state["mode"] = str(_dyn_get_schema(dyn, schema, "meta_model_mode", _dyn_get_schema(dyn, schema, "meta_ramp_mode", "SHADOW"))).strip().upper()
@@ -165,7 +165,7 @@ def main():
         ramp_state["last_reason"] = _dyn_get_schema(dyn, schema, "meta_ramp_last_reason", "")
         ramp_state["block_reason"] = _dyn_get_schema(dyn, schema, "meta_status_ramp_block_reason", "")
         ramp_state["baseline_ts"] = int(_fi("meta_ramp_baseline_ts") or 0)
-        
+
         ramp_state["baseline_pr_auc"] = _fi("meta_ramp_baseline_pr_auc")
         ramp_state["baseline_ece"] = _fi("meta_ramp_baseline_ece")
         ramp_state["baseline_dq_health_mean"] = _fi("meta_ramp_baseline_dq_health_mean")
@@ -201,8 +201,8 @@ def main():
     if args.prom_textfile:
         try:
             lines = [
-                f"# HELP meta_status_ts_ms Current snapshot timestamp",
-                f"# TYPE meta_status_ts_ms gauge",
+                "# HELP meta_status_ts_ms Current snapshot timestamp",
+                "# TYPE meta_status_ts_ms gauge",
                 f"meta_status_ts_ms {snapshot['ts']}",
             ]
 
@@ -218,7 +218,7 @@ def main():
                 lines.append(f"meta_status_dq_health_mean {rep['dq_health_mean']}")
             if rep.get("corr_meta_p_dq_health") is not None:
                 lines.append(f"meta_status_corr_meta_p_dq_health {rep['corr_meta_p_dq_health']}")
-            
+
             # Worst bucket
             worst = rep.get("worst_bucket")
             if worst:
@@ -227,9 +227,9 @@ def main():
 
             # Redis Cfg / Latch
             rcfg = snapshot["redis_cfg"]
-            latch = 1 if str(rcfg.get("meta_guard_freeze", "0")) in ("1", "true", "True") else 0
+            latch = 1 if (rcfg.get("meta_guard_freeze", "0")) in ("1", "true", "True") else 0
             lines.append(f"meta_status_guard_freeze {latch}")
-            
+
             # Ramp State Metrics
             rs = snapshot.get("ramp_state", {})
             if rs:
@@ -240,7 +240,7 @@ def main():
                 lines.append(f"meta_status_ramp_baseline_ts {rs.get('baseline_ts', 0)}")
                 lines.append(f"meta_status_ramp_last_action_code {_action_code(rs.get('last_action', ''))}")
                 lines.append(f"meta_status_ramp_block_reason_code {_block_reason_code(rs.get('block_reason', ''))}")
-                
+
                 if rs.get("delta_pr_auc") is not None:
                     lines.append(f"meta_status_ramp_delta_pr_auc {rs['delta_pr_auc']}")
                 if rs.get("delta_ece") is not None:

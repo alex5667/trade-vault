@@ -4,7 +4,7 @@ import math
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -26,7 +26,7 @@ def _canon_tf(x: Any) -> str:
     чтобы ключи EMA были стабильными.
     """
     try:
-        s = str(x or "").strip().lower()
+        s = (x or "").strip().lower()
         return s if s else "na"
     except Exception:
         return "na"
@@ -34,7 +34,7 @@ def _canon_tf(x: Any) -> str:
 
 def _canon(s: Any) -> str:
     try:
-        v = str(s or "").strip().lower()
+        v = (s or "").strip().lower()
         return v if v else "na"
     except Exception:
         return "na"
@@ -89,7 +89,7 @@ class SlippageEmaConfig:
     use_kind_dim: bool = True
 
     @staticmethod
-    def from_env() -> "SlippageEmaConfig":
+    def from_env() -> SlippageEmaConfig:
         enabled = _env_bool("SLIPPAGE_EMA_ENABLED", True)
         try:
             alpha = float(os.getenv("SLIPPAGE_EMA_ALPHA", "0.05"))
@@ -106,7 +106,7 @@ class SlippageEmaConfig:
         except Exception:
             min_samples = 20
         min_samples = max(0, min_samples)
-        key_prefix = str(os.getenv("SLIPPAGE_EMA_KEY_PREFIX", "slipema:") or "slipema:")
+        key_prefix = (os.getenv("SLIPPAGE_EMA_KEY_PREFIX", "slipema:") or "slipema:")
         use_kind_dim = _env_bool("SLIPPAGE_EMA_USE_KIND_DIM", True)
         return SlippageEmaConfig(
             enabled=enabled,
@@ -125,7 +125,7 @@ def _key(
     venue: str,
     session: str,
     tf: str,
-    kind: Optional[str] = None,
+    kind: str | None = None,
 ) -> str:
     """
     Key format:
@@ -154,7 +154,7 @@ def update_slippage_ema(
     venue: str,
     session: str,
     tf: str,
-    kind: Optional[str] = None,
+    kind: str | None = None,
     now_ms: int,
     realized_slippage_bps: float,
     realized_spread_bps: float = 0.0,
@@ -237,8 +237,8 @@ def read_slippage_ema(
     venue: str,
     session: str,
     tf: str,
-    kind: Optional[str] = None,
-) -> Optional[Dict[str, float]]:
+    kind: str | None = None,
+) -> dict[str, float] | None:
     """
     Чтение EMA (для gate).
     Возвращает None, если нет данных/ошибка/недостаточно сэмплов.

@@ -1,13 +1,10 @@
-import os
-import sys
-import time
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 # Force python to load tick_flow_full's core before python-worker's core
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'tick_flow_full')))
-
-from core.promote_freeze import FreezeState, read_freeze, set_freeze, clear_freeze, freeze_key
+from core.promote_freeze import clear_freeze, freeze_key, read_freeze, set_freeze
 
 
 @pytest.fixture

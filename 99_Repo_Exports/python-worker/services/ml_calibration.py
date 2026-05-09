@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
 def clip_prob(p: float, eps: float = 1e-6) -> float:
@@ -65,20 +65,20 @@ class PlattLogitCalibrator:
         lr = logit(clip_prob(float(p_raw), self.eps))
         return sigmoid(self.a * lr + self.b)
 
-    def apply(self, probs: List[float]) -> List[float]:
+    def apply(self, probs: list[float]) -> list[float]:
         """
         Apply calibration to a list of probabilities.
         """
         return [self.apply_one(p) for p in probs]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Serialize calibrator to dict for storage in Redis cfg.
         """
         return {"type": "platt_logit", "a": float(self.a), "b": float(self.b), "eps": float(self.eps)}
 
     @staticmethod
-    def from_dict(d: Dict[str, Any]) -> "PlattLogitCalibrator":
+    def from_dict(d: dict[str, Any]) -> PlattLogitCalibrator:
         """
         Deserialize calibrator from dict (loaded from Redis cfg).
         """
@@ -89,7 +89,7 @@ class PlattLogitCalibrator:
         )
 
 
-def brier_score(probs: List[float], y: List[int]) -> float:
+def brier_score(probs: list[float], y: list[int]) -> float:
     """
     Brier score: mean squared error between probabilities and binary targets.
     Lower is better. Range: [0, 1].
@@ -106,7 +106,7 @@ def brier_score(probs: List[float], y: List[int]) -> float:
     return s / float(n) if n > 0 else 0.0
 
 
-def logloss(probs: List[float], y: List[int], eps: float = 1e-6) -> float:
+def logloss(probs: list[float], y: list[int], eps: float = 1e-6) -> float:
     """
     Log loss (binary cross-entropy): -mean(y*log(p) + (1-y)*log(1-p))
     Lower is better. Range: [0, +inf).
@@ -123,7 +123,7 @@ def logloss(probs: List[float], y: List[int], eps: float = 1e-6) -> float:
     return s / float(n) if n > 0 else 0.0
 
 
-def ece_score(probs: List[float], y: List[int], n_bins: int = 15) -> Tuple[float, List[Dict[str, float]]]:
+def ece_score(probs: list[float], y: list[int], n_bins: int = 15) -> tuple[float, list[dict[str, float]]]:
     """
     Expected Calibration Error (ECE): sum_k (|acc_k - conf_k| * (n_k / n))
     
@@ -149,7 +149,7 @@ def ece_score(probs: List[float], y: List[int], n_bins: int = 15) -> Tuple[float
         bins[idx]["conf"] += pp
         bins[idx]["acc"] += 1.0 if int(t) == 1 else 0.0
     ece = 0.0
-    out_bins: List[Dict[str, float]] = []
+    out_bins: list[dict[str, float]] = []
     for b in bins:
         nk = int(b["n"])
         if nk <= 0:
@@ -162,7 +162,7 @@ def ece_score(probs: List[float], y: List[int], n_bins: int = 15) -> Tuple[float
     return float(ece), out_bins
 
 
-def fit_platt_logit(probs: List[float], y: List[int], *, l2: float = 1e-3, max_iter: int = 50) -> PlattLogitCalibrator:
+def fit_platt_logit(probs: list[float], y: list[int], *, l2: float = 1e-3, max_iter: int = 50) -> PlattLogitCalibrator:
     """
     Fit Platt scaling on logit space using scipy.optimize.minimize.
     
@@ -185,10 +185,10 @@ def fit_platt_logit(probs: List[float], y: List[int], *, l2: float = 1e-3, max_i
 
     import numpy as np
     from scipy.optimize import minimize
-    
+
     xs = np.array([logit(clip_prob(float(p))) for p in probs], dtype=np.float64)
     ts = np.array([1.0 if int(t) == 1 else 0.0 for t in y], dtype=np.float64)
-    
+
     def loss(w):
         a, b = w
         z = a * xs + b

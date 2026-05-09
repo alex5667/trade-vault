@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for P80 OF-gate Rollups Freshness Probe.
 
 Covers:
@@ -8,15 +9,13 @@ Covers:
   - of_gate_rollups_freshness_probe_v1: dt_to_ms, query_max_bucket, hset_redis, main()
 """
 
+import datetime as dt
 import importlib
 import os
 import sys
-import datetime as dt
-import tempfile
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Both module paths are tested (canonical + tick_flow_full mirror)
@@ -351,7 +350,7 @@ class TestDtToMs:
 
     def test_tz_aware_datetime(self):
         p = _probe()
-        aware = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+        aware = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
         assert p.dt_to_ms(aware) == 1704067200000
 
 
@@ -467,9 +466,8 @@ class TestProbeMain:
         mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
         mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
-        with patch("psycopg2.connect", return_value=mock_conn):
-            with pytest.raises(SystemExit) as exc:
-                p.main()
+        with patch("psycopg2.connect", return_value=mock_conn), pytest.raises(SystemExit) as exc:
+            p.main()
 
         assert exc.value.code == 2
 

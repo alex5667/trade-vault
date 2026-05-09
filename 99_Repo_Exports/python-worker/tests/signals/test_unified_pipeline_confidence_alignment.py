@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import pytest
 
 from handlers.crypto_orderflow.core.crypto_orderflow_calibration import RollingPercentileCalibrator

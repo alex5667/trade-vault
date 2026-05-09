@@ -1,7 +1,7 @@
 from orderflow_services.conf_score_guardrails_apply_v1 import (
+    apply_hysteresis_and_recovery,
     decide_actions,
     decide_actions_thresholds,
-    apply_hysteresis_and_recovery,
 )
 
 

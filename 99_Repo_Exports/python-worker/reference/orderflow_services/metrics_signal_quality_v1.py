@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Signal-quality metrics (Step 6).
 
 This module defines low-cardinality Prometheus metrics used to monitor
@@ -16,7 +17,6 @@ Cardinality rules:
 
 
 from prometheus_client import Counter, Gauge
-
 
 _DQ_BUCKET_ALLOWLIST = {
     # Contract buckets (alerting + dashboards)

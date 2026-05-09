@@ -1,13 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import hashlib
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -107,15 +108,15 @@ ALLOWED_MODES = {"ENABLED", "DISABLED"}
 SOURCE_STREAMS = (VERIFICATION_STREAM, ROLLBACK_STREAM, RETRY_STREAM, ESCALATIONS_STREAM, SLO_STREAM)
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -165,8 +166,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -194,7 +195,7 @@ def default_allow_severities() -> set[str]:
     return {x.strip().lower() for x in DEFAULT_ALLOW_SEVERITIES.split(",") if x.strip()}
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     mode = str(raw.get("mode") or DEFAULT_MODE).upper()
     if mode not in ALLOWED_MODES:
         mode = DEFAULT_MODE
@@ -214,7 +215,7 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def recent(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def recent(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     cutoff = now_ms() - WINDOW_MIN * 60 * 1000
     return [r for r in rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
 
@@ -225,7 +226,7 @@ def build_bundle_id(trigger_type: str, reason_code: str, severity: str, ts_ms: i
     return f"apply-flow-experiment-incident:{h}"
 
 
-def latest_slo_payload(slo_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def latest_slo_payload(slo_rows: list[dict[str, Any]]) -> dict[str, Any]:
     if not slo_rows:
         return {}
     payload = maybe_json(slo_rows[0].get("rollup_json"), {})
@@ -233,21 +234,21 @@ def latest_slo_payload(slo_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def build_summary(
-    verification_rows: List[Dict[str, Any]],
-    rollback_rows: List[Dict[str, Any]],
-    retry_rows: List[Dict[str, Any]],
-    escalation_rows: List[Dict[str, Any]],
-    slo_payload: Dict[str, Any],
-) -> Dict[str, Any]:
+    verification_rows: list[dict[str, Any]],
+    rollback_rows: list[dict[str, Any]],
+    retry_rows: list[dict[str, Any]],
+    escalation_rows: list[dict[str, Any]],
+    slo_payload: dict[str, Any],
+) -> dict[str, Any]:
     vr = recent(verification_rows)
     rr = recent(rollback_rows)
     tr = recent(retry_rows)
     er = recent(escalation_rows)
-    verification_reason_codes = sorted({str(r.get("reason_code") or "") for r in vr if str(r.get("reason_code") or "")})
-    rollback_reason_codes = sorted({str(r.get("reason_code") or "") for r in rr if str(r.get("reason_code") or "")})
-    retry_reason_codes = sorted({str(r.get("reason_code") or "") for r in tr if str(r.get("reason_code") or "")})
-    escalation_reason_codes = sorted({str(r.get("reason_code") or "") for r in er if str(r.get("reason_code") or "")})
-    escalation_severities = sorted({str(r.get("severity") or "") for r in er if str(r.get("severity") or "")})
+    verification_reason_codes = sorted({(r.get("reason_code") or "") for r in vr if (r.get("reason_code") or "")})
+    rollback_reason_codes = sorted({(r.get("reason_code") or "") for r in rr if (r.get("reason_code") or "")})
+    retry_reason_codes = sorted({(r.get("reason_code") or "") for r in tr if (r.get("reason_code") or "")})
+    escalation_reason_codes = sorted({(r.get("reason_code") or "") for r in er if (r.get("reason_code") or "")})
+    escalation_severities = sorted({(r.get("severity") or "") for r in er if (r.get("severity") or "")})
     return {
         "verification_events_n": len(vr),
         "rollback_events_n": len(rr),
@@ -266,30 +267,30 @@ def build_summary(
     }
 
 
-def choose_trigger(trigger_stream: str, trigger_row: Dict[str, Any]) -> Dict[str, str]:
+def choose_trigger(trigger_stream: str, trigger_row: dict[str, Any]) -> dict[str, str]:
     if trigger_stream == VERIFICATION_STREAM:
-        decision = str(trigger_row.get("decision") or "")
-        reason = str(trigger_row.get("reason_code") or "")
+        decision = (trigger_row.get("decision") or "")
+        reason = (trigger_row.get("reason_code") or "")
         if decision == "ROLLBACK_PREVIOUS_PROFILE":
             return {"trigger_type": "verification", "reason_code": reason or "ROLLBACK_PREVIOUS_PROFILE"}
         return {"trigger_type": "verification", "reason_code": reason or decision or "VERIFICATION"}
     if trigger_stream == ROLLBACK_STREAM:
-        return {"trigger_type": "rollback", "reason_code": str(trigger_row.get("reason_code") or "ROLLBACK")}
+        return {"trigger_type": "rollback", "reason_code": (trigger_row.get("reason_code") or "ROLLBACK")}
     if trigger_stream == RETRY_STREAM:
-        return {"trigger_type": "retry", "reason_code": str(trigger_row.get("reason_code") or "RETRY")}
+        return {"trigger_type": "retry", "reason_code": (trigger_row.get("reason_code") or "RETRY")}
     if trigger_stream == ESCALATIONS_STREAM:
-        return {"trigger_type": "escalation", "reason_code": str(trigger_row.get("reason_code") or "ESCALATION")}
+        return {"trigger_type": "escalation", "reason_code": (trigger_row.get("reason_code") or "ESCALATION")}
     return {"trigger_type": "slo_rollup", "reason_code": "SLO"}
 
 
-def choose_severity(trigger_stream: str, trigger_row: Dict[str, Any], summary: Dict[str, Any], policy: Dict[str, Any]) -> str:
+def choose_severity(trigger_stream: str, trigger_row: dict[str, Any], summary: dict[str, Any], policy: dict[str, Any]) -> str:
     if trigger_stream == ESCALATIONS_STREAM:
-        return str(trigger_row.get("severity") or "warning").lower()
+        return (trigger_row.get("severity") or "warning").lower()
     if trigger_stream == RETRY_STREAM:
         return "warning"
     if trigger_stream == ROLLBACK_STREAM:
         return "critical" if parse_int(trigger_row.get("applied"), 0) == 1 else "warning"
-    if trigger_stream == VERIFICATION_STREAM and str(trigger_row.get("decision") or "") == "ROLLBACK_PREVIOUS_PROFILE":
+    if trigger_stream == VERIFICATION_STREAM and (trigger_row.get("decision") or "") == "ROLLBACK_PREVIOUS_PROFILE":
         return "critical"
     if summary["verify_keep_rate"] < policy["verify_keep_rate_crit"]:
         return "warning"
@@ -300,7 +301,7 @@ def choose_severity(trigger_stream: str, trigger_row: Dict[str, Any], summary: D
     return "warning"
 
 
-def evaluate_bundle(summary: Dict[str, Any], severity: str, policy: Dict[str, Any]) -> Dict[str, Any]:
+def evaluate_bundle(summary: dict[str, Any], severity: str, policy: dict[str, Any]) -> dict[str, Any]:
     out = {"decision": "REJECT", "reason_code": "REJECTED", "severity": severity}
     if policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
@@ -324,14 +325,14 @@ def evaluate_bundle(summary: Dict[str, Any], severity: str, policy: Dict[str, An
 
 def build_bundle(
     trigger_stream: str,
-    trigger_row: Dict[str, Any],
-    verification_rows: List[Dict[str, Any]],
-    rollback_rows: List[Dict[str, Any]],
-    retry_rows: List[Dict[str, Any]],
-    escalation_rows: List[Dict[str, Any]],
-    slo_rows: List[Dict[str, Any]],
-    policy: Dict[str, Any],
-) -> Dict[str, Any]:
+    trigger_row: dict[str, Any],
+    verification_rows: list[dict[str, Any]],
+    rollback_rows: list[dict[str, Any]],
+    retry_rows: list[dict[str, Any]],
+    escalation_rows: list[dict[str, Any]],
+    slo_rows: list[dict[str, Any]],
+    policy: dict[str, Any],
+) -> dict[str, Any]:
     slo_payload = latest_slo_payload(slo_rows)
     summary = build_summary(verification_rows, rollback_rows, retry_rows, escalation_rows, slo_payload)
     trigger_meta = choose_trigger(trigger_stream, trigger_row)
@@ -372,12 +373,12 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def xr_recent(r: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
+async def xr_recent(r: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await r.xrevrange(stream_key, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -385,11 +386,11 @@ async def xr_recent(r: Any, stream_key: str, count: int) -> List[Dict[str, Any]]
     return out
 
 
-async def read_hash(r: Any, key: str) -> Dict[str, Any]:
+async def read_hash(r: Any, key: str) -> dict[str, Any]:
     return as_dict(await r.hgetall(key))
 
 
-async def persist_if_configured(db_url: str, bundle: Dict[str, Any], trigger_stream: str) -> None:
+async def persist_if_configured(db_url: str, bundle: dict[str, Any], trigger_stream: str) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -431,7 +432,7 @@ async def main() -> None:  # pragma: no cover
         rows = await r.xreadgroup(
             GROUP,
             CONSUMER,
-            {s: ">" for s in SOURCE_STREAMS},
+            dict.fromkeys(SOURCE_STREAMS, ">"),
             count=16,
             block=5000,
         )
@@ -450,7 +451,7 @@ async def main() -> None:  # pragma: no cover
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     verification_rows = await xr_recent(r, VERIFICATION_STREAM, LOOKBACK_COUNT)
                     rollback_rows = await xr_recent(r, ROLLBACK_STREAM, LOOKBACK_COUNT)
                     retry_rows = await xr_recent(r, RETRY_STREAM, LOOKBACK_COUNT)
@@ -466,7 +467,7 @@ async def main() -> None:  # pragma: no cover
                         slo_rows=slo_rows,
                         policy=policy,
                     )
-                    trigger_type = str(bundle.get("trigger_type") or "unknown")
+                    trigger_type = (bundle.get("trigger_type") or "unknown")
                     decision = evaluate_bundle(bundle["summary"], str(bundle["trigger_severity"]), policy)
                     decision_label = decision["decision"]
 

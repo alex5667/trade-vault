@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Execution Router — Variant B intent→queue pre-processor.
 
 Reads from ``orders:intent:binance`` (BLPOP), applies routing logic:
@@ -30,17 +31,17 @@ ENV (P1-8 additions):
       If owner has been in PROTECTION_ARMING longer than this (ms), block
       scale-in regardless of reconcile_first flag — position may be unprotected.
 """
-from utils.time_utils import get_ny_time_millis
-
 import json
 import logging
 import os
 import signal
-import sys
 import time
-from typing import Any, Dict, Optional
+from typing import Any
+
 import redis as _redis_mod
+
 from core.redis_keys import RedisStreams as RS
+from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger("execution_router")
 
@@ -172,7 +173,7 @@ class ExecutionRouter:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _load_active_guard(self, symbol: str) -> Dict[str, Any]:
+    def _load_active_guard(self, symbol: str) -> dict[str, Any]:
         """Load active symbol guard doc from Redis."""
         key = f"{self.active_symbol_prefix}{symbol.upper()}"
         try:
@@ -183,14 +184,14 @@ class ExecutionRouter:
             if not isinstance(doc, dict):
                 return {}
             # Only return if guard is active (not released tombstone)
-            status = str(doc.get("guard_status") or "active").lower()
+            status = (doc.get("guard_status") or "active").lower()
             if status == "released":
                 return {}
             return doc
         except Exception:
             return {}
 
-    def _load_state(self, sid: str) -> Dict[str, Any]:
+    def _load_state(self, sid: str) -> dict[str, Any]:
         """Load order state from Redis."""
         key = f"{self.state_prefix}{sid}"
         try:
@@ -202,14 +203,14 @@ class ExecutionRouter:
         except Exception:
             return {}
 
-    def _emit_route_event(self, payload: Dict[str, Any]) -> None:
+    def _emit_route_event(self, payload: dict[str, Any]) -> None:
         """Emit routing event to orders:exec stream for auditability."""
         try:
             _maxlen = _env_int("EXEC_STREAM_MAXLEN", 50000)
             fields = {k: str(v) for k, v in payload.items() if v is not None}
             fields["event_type"] = "execution_route_event"
             fields["ts_event_ms"] = str(_ms_now())
-            kwargs: Dict[str, Any] = {}
+            kwargs: dict[str, Any] = {}
             if _maxlen > 0:
                 kwargs = {"maxlen": _maxlen, "approximate": True}
             self.r.xadd(self.exec_stream, fields, **kwargs)
@@ -225,14 +226,14 @@ class ExecutionRouter:
     # ------------------------------------------------------------------
 
     def _check_scale_in_conditions(
-        self, payload: Dict[str, Any], guard: Dict[str, Any], state: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, payload: dict[str, Any], guard: dict[str, Any], state: dict[str, Any]
+    ) -> dict[str, Any]:
         """Check all scale-in conditions. Returns {"ok": bool, "reason": str, ...}."""
 
         # P1-8 [FIRST]: FSM state safety check — must run before any other conditions.
         # If the owner position is mid-flight (protection arming, reconcile pending,
         # protection replacing), scale-in redirect is unsafe regardless of other flags.
-        owner_fsm = str(state.get("fsm_state") or "").strip().upper()
+        owner_fsm = (state.get("fsm_state") or "").strip().upper()
         if owner_fsm:
             # 0a. Hard deadline: if arming has been running longer than
             #     protection_arm_timeout_ms (even with reconcile_first=False),
@@ -269,14 +270,14 @@ class ExecutionRouter:
 
         # 1. Same-side check
         if self.same_side_only:
-            payload_side = str(payload.get("side") or "").upper()
+            payload_side = (payload.get("side") or "").upper()
             guard_side = str(guard.get("side") or state.get("side") or "").upper()
             if payload_side and guard_side and payload_side != guard_side:
                 return {"ok": False, "reason": "opposite_side", "payload_side": payload_side, "guard_side": guard_side}
 
         # 2. Owner stability check
         if self.require_owner_stable:
-            guard_status = str(guard.get("guard_status") or "").lower()
+            guard_status = (guard.get("guard_status") or "").lower()
             release_pending = bool(guard.get("guard_release_pending"))
             if guard_status != "active" or release_pending:
                 return {"ok": False, "reason": "owner_unstable", "guard_status": guard_status, "release_pending": release_pending}
@@ -289,7 +290,7 @@ class ExecutionRouter:
         # 4. WCL budget check
         if self.require_wcl_budget:
             try:
-                from services.position_leg_policy import PositionLeg, worst_case_loss_usdt, max_add_qty_for_budget
+                from services.position_leg_policy import PositionLeg, max_add_qty_for_budget, worst_case_loss_usdt
 
                 existing_entry = float(state.get("exec_price") or state.get("avg_price") or 0)
                 existing_qty = float(state.get("qty") or state.get("filled_qty") or 0)
@@ -316,10 +317,10 @@ class ExecutionRouter:
         return {"ok": True, "reason": "all_checks_passed"}
 
     def _build_resize_payload(
-        self, original_payload: Dict[str, Any], guard: Dict[str, Any], state: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, original_payload: dict[str, Any], guard: dict[str, Any], state: dict[str, Any]
+    ) -> dict[str, Any]:
         """Transform open payload into resize payload for scale-in."""
-        owner_sid = str(guard.get("sid") or "").strip()
+        owner_sid = (guard.get("sid") or "").strip()
         new_qty = float(original_payload.get("qty") or original_payload.get("lot") or 0)
         current_seq = int(state.get("scale_in_seq") or 0)
 
@@ -331,7 +332,7 @@ class ExecutionRouter:
 
             existing_entry = float(state.get("exec_price") or state.get("avg_price") or 0)
             existing_qty = float(state.get("qty") or state.get("filled_qty") or 0)
-            existing_side = str(state.get("side") or "LONG").upper()
+            existing_side = (state.get("side") or "LONG").upper()
             tp_prices = original_payload.get("tp_levels") or state.get("tp_levels_requested") or []
             tp_prices = [float(x) for x in tp_prices if x not in (None, "")]
 
@@ -341,10 +342,10 @@ class ExecutionRouter:
         except Exception as e:
             logger.warning("build_scale_in_tp_schema error: %s", e)
 
-        resize_payload: Dict[str, Any] = {
+        resize_payload: dict[str, Any] = {
             "action": "resize",
             "sid": owner_sid,
-            "symbol": str(original_payload.get("symbol") or "").upper(),
+            "symbol": (original_payload.get("symbol") or "").upper(),
             "resize_mode": "delta_qty",
             "delta_qty": new_qty,
             # Preserve SL/TP from original signal
@@ -353,7 +354,7 @@ class ExecutionRouter:
             "trail_after_tp1_requested": original_payload.get("trail_after_tp1") or state.get("trail_after_tp1_requested"),
             # Scale-in metadata
             "scale_in_seq": current_seq + 1,
-            "source_signal_id": str(original_payload.get("sid") or ""),
+            "source_signal_id": (original_payload.get("sid") or ""),
             "owner_sid": owner_sid,
             "ts_ms": int(original_payload.get("ts_ms") or _ms_now()),
             # Passthrough fields
@@ -381,7 +382,7 @@ class ExecutionRouter:
         # Remove None values
         return {k: v for k, v in resize_payload.items() if v is not None}
 
-    def route_one(self, raw_msg: str) -> Dict[str, Any]:
+    def route_one(self, raw_msg: str) -> dict[str, Any]:
         """Route one message. Returns routing result dict for observability."""
         try:
             payload = json.loads(raw_msg)
@@ -390,9 +391,9 @@ class ExecutionRouter:
             self._passthrough(raw_msg)
             return {"status": "passthrough", "reason": "bad_json"}
 
-        action = str(payload.get("action") or "").strip().lower()
-        symbol = str(payload.get("symbol") or "").strip().upper()
-        sid = str(payload.get("sid") or "").strip()
+        action = (payload.get("action") or "").strip().lower()
+        symbol = (payload.get("symbol") or "").strip().upper()
+        sid = (payload.get("sid") or "").strip()
 
         # Non-open actions → passthrough
         if action != "open":
@@ -411,7 +412,7 @@ class ExecutionRouter:
             self._passthrough(raw_msg)
             return {"status": "passthrough", "reason": "no_existing_position"}
 
-        owner_sid = str(guard.get("sid") or "").strip()
+        owner_sid = (guard.get("sid") or "").strip()
         if not owner_sid:
             self._passthrough(raw_msg)
             return {"status": "passthrough", "reason": "no_owner_sid"}

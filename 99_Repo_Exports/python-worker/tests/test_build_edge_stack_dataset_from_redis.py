@@ -59,7 +59,7 @@ def test_parse_trade_closed_requires_sid():
 
 
 def test_join_signals_with_closes_and_label():
-    from ml_analysis.tools.build_edge_stack_dataset_from_redis import SignalRow, CloseRow, join_signals_with_closes
+    from ml_analysis.tools.build_edge_stack_dataset_from_redis import CloseRow, SignalRow, join_signals_with_closes
 
     s = SignalRow(
         sid="crypto-of:BTCUSDT:1700000000000",

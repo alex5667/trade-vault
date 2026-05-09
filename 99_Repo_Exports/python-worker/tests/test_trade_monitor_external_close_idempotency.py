@@ -1,9 +1,7 @@
-from utils.time_utils import get_ny_time_millis
-import time
 import threading
 from types import SimpleNamespace
 
-import pytest
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:
@@ -47,7 +45,6 @@ class FakeRepo:
 
 def test_external_sl_hit_returns_true_if_sid_already_closed(monkeypatch):
     from services.trade_monitor import TradeMonitorService
-    from domain.models import PositionState
 
     r = FakeRedis()
     repo = FakeRepo()
@@ -64,8 +61,8 @@ def test_external_sl_hit_returns_true_if_sid_already_closed(monkeypatch):
 
 
 def test_external_sl_hit_closes_and_marks_sid_closed(monkeypatch):
-    from services.trade_monitor import TradeMonitorService
     from domain.models import PositionState
+    from services.trade_monitor import TradeMonitorService
 
     r = FakeRedis()
     repo = FakeRepo()

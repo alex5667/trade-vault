@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Ensemble Weight Calibrator — hourly recalculation of per-source signal weights.
 
@@ -27,19 +27,19 @@ Usage:
   - python -m services.ensemble_weight_calibrator
   - Called from of_timers_worker.py as an hourly timer task
 """
-from utils.time_utils import get_ny_time_millis
-
 import hashlib
 import json
 import os
 import time
 import uuid
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis as redis_lib
@@ -60,16 +60,17 @@ except ImportError:
     logger = logging.getLogger("EnsembleWeightCalibrator")
 
 from core.redis_keys import RedisStreams as RS
+import contextlib
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-ENSEMBLE_SOURCES: List[str] = ["orderflow", "ta_indicators", "microstructure", "regime_filter"]
+ENSEMBLE_SOURCES: list[str] = ["orderflow", "ta_indicators", "microstructure", "regime_filter"]
 
 # Source tag mapping: how to match trades_closed.source / indicators JSON
 # to ensemble source names
-SOURCE_TAG_MAP: Dict[str, List[str]] = {
+SOURCE_TAG_MAP: dict[str, list[str]] = {
     "orderflow": ["CryptoOrderFlow", "AggregatedHub-V2", "orderflow"],
     "ta_indicators": ["ta_indicators", "ta"],
     "microstructure": ["microstructure", "micro"],
@@ -85,7 +86,7 @@ NOTIFY_STREAM = RS.NOTIFY_TELEGRAM
 PENDING_TTL_SEC = 48 * 3600  # 48 hours
 
 # Source name for human-readable display
-SOURCE_DISPLAY: Dict[str, str] = {
+SOURCE_DISPLAY: dict[str, str] = {
     "orderflow": "📊 OrderFlow",
     "ta_indicators": "📈 TA Indicators",
     "microstructure": "🔬 Microstructure",
@@ -97,7 +98,7 @@ SOURCE_DISPLAY: Dict[str, str] = {
 # Sharpe computation (robust: MAD-based)
 # ---------------------------------------------------------------------------
 
-def compute_sharpe_robust(pnl_series: List[float]) -> float:
+def compute_sharpe_robust(pnl_series: list[float]) -> float:
     """
     Compute annualized Sharpe ratio using MAD (Median Absolute Deviation)
     instead of standard deviation for robustness against outliers.
@@ -149,9 +150,9 @@ def compute_sharpe_robust(pnl_series: List[float]) -> float:
 def load_outcomes(
     dsn: str,
     symbol: str,
-    source_tags: List[str],
+    source_tags: list[str],
     days: int = DEFAULT_LOOKBACK_DAYS,
-) -> List[float]:
+) -> list[float]:
     """
     Load PnL (R-multiple or raw pnl_pct) from trades_closed for given source tags.
     """
@@ -188,10 +189,8 @@ def load_outcomes(
         return []
     finally:
         if conn:
-            try:
+            with contextlib.suppress(Exception):
                 conn.close()
-            except Exception:
-                pass
 
 
 # ---------------------------------------------------------------------------
@@ -202,22 +201,22 @@ def load_outcomes(
 class WeightCalibrationResult:
     """Result of a single calibration run."""
     symbol: str
-    weights: Dict[str, float]
-    sharpes: Dict[str, float]
-    outcome_counts: Dict[str, int]
-    previous_weights: Dict[str, float]
+    weights: dict[str, float]
+    sharpes: dict[str, float]
+    outcome_counts: dict[str, int]
+    previous_weights: dict[str, float]
     ts: str = ""
 
     def __post_init__(self) -> None:
         if not self.ts:
-            self.ts = datetime.now(timezone.utc).isoformat()
+            self.ts = datetime.now(UTC).isoformat()
 
 
 # ---------------------------------------------------------------------------
 # Main calibrator
 # ---------------------------------------------------------------------------
 
-def _read_current_weights(redis_client: Any, symbol: str) -> Dict[str, float]:
+def _read_current_weights(redis_client: Any, symbol: str) -> dict[str, float]:
     """Read current enforce weights from Redis for delta tracking."""
     try:
         h = redis_client.hgetall(f"weights:ensemble:{symbol}")
@@ -244,8 +243,8 @@ def calibrate_ensemble_weights(
 
     Returns WeightCalibrationResult with weights and diagnostics.
     """
-    sharpes: Dict[str, float] = {}
-    outcome_counts: Dict[str, int] = {}
+    sharpes: dict[str, float] = {}
+    outcome_counts: dict[str, int] = {}
     previous_weights = {}
     if redis_client:
         previous_weights = _read_current_weights(redis_client, symbol)
@@ -354,7 +353,7 @@ def _generate_run_id() -> str:
 
 
 def format_telegram_report(
-    results: List[WeightCalibrationResult],
+    results: list[WeightCalibrationResult],
     mode: str,
     run_id: str,
     days: int,
@@ -398,7 +397,7 @@ def format_telegram_report(
     return "\n".join(lines)
 
 
-def _build_buttons(run_id: str, mode: str) -> Optional[str]:
+def _build_buttons(run_id: str, mode: str) -> str | None:
     """Build Telegram inline keyboard buttons for approve/reject.
 
     Only in shadow mode: user must approve to switch to enforce.
@@ -416,7 +415,7 @@ def _build_buttons(run_id: str, mode: str) -> Optional[str]:
 def _store_pending(
     redis_client: Any,
     run_id: str,
-    results: List[WeightCalibrationResult],
+    results: list[WeightCalibrationResult],
     mode: str,
 ) -> None:
     """Store calibration data for pending approval (used by callback handler)."""
@@ -448,11 +447,11 @@ def _store_pending(
 def _send_telegram(
     redis_client: Any,
     text: str,
-    buttons_json: Optional[str] = None,
+    buttons_json: str | None = None,
 ) -> None:
     """Push message to notify:telegram stream."""
     notify_stream = os.getenv("NOTIFY_STREAM", NOTIFY_STREAM)
-    fields: Dict[str, str] = {
+    fields: dict[str, str] = {
         "type": "report",
         "text": text,
         "ts": str(get_ny_time_millis()),
@@ -493,14 +492,12 @@ def _should_run(redis_client: Any, interval_sec: int) -> bool:
 
 def _record_sent(redis_client: Any, interval_sec: int) -> None:
     """Record last send timestamp for throttle."""
-    try:
+    with contextlib.suppress(Exception):
         redis_client.set(
             "ensemble:calib:last_sent_ts",
             str(time.time()),
             ex=interval_sec * 2,
         )
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -508,14 +505,14 @@ def _record_sent(redis_client: Any, interval_sec: int) -> None:
 # ---------------------------------------------------------------------------
 
 def run_calibration_for_symbols(
-    symbols: List[str],
+    symbols: list[str],
     dsn: str,
     redis_url: str,
     days: int = DEFAULT_LOOKBACK_DAYS,
     mode: str = "shadow",
     send_telegram: bool = True,
     telegram_interval_sec: int = 3600,
-) -> List[WeightCalibrationResult]:
+) -> list[WeightCalibrationResult]:
     """
     Run weight calibration for all specified symbols.
 
@@ -534,7 +531,7 @@ def run_calibration_for_symbols(
     if send_telegram and not _should_run(r, telegram_interval_sec):
         return []
 
-    results: List[WeightCalibrationResult] = []
+    results: list[WeightCalibrationResult] = []
     for symbol in symbols:
         try:
             result = calibrate_ensemble_weights(symbol, dsn, r, days)

@@ -1,12 +1,11 @@
 from __future__ import annotations
+
 """
 Unit tests for Phase E / P4: MessageRateTracker
 
 test_message_rate_tracker_p4_v1.py
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

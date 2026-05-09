@@ -3,15 +3,17 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
 
-from services.ml_pred_cache import get_pred
+from common.redis_errors import retry_redis_operation
 from core.bucket_utils import bucket_from_scenario
 from core.redis_client import get_redis
-from core.redis_client import get_redis
-from common.redis_errors import retry_redis_operation
+from core.redis_keys import STREAM_RETENTION
+from core.redis_keys import RedisStreams as RS
+from services.ml_pred_cache import get_pred
+import contextlib
 
 # We don't import write_decision_record / etc to avoid circular deps if they import something heavy
 # But we need basic struct knowledge or just raw JSON parsing.
@@ -26,58 +28,58 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def _event_ts_ms(fields: Dict[str, Any]) -> int:
+def _event_ts_ms(fields: dict[str, Any]) -> int:
     """Extract event timestamp from fields (supports multiple formats)."""
     return _i(fields.get("ts_ms", fields.get("ts", fields.get("timestamp", 0))), 0)
 
 
-def _is_closed(fields: Dict[str, Any]) -> bool:
+def _is_closed(fields: dict[str, Any]) -> bool:
     """Check if event is a position closed event."""
-    et = str(fields.get("event_type", fields.get("type", "")) or "").upper()
+    et = (fields.get("event_type", fields.get("type", "")) or "").upper()
     if et in ("POSITION_CLOSED", "CLOSE"):
         return True
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            et2 = str(j.get("event_type", j.get("type", "")) or "").upper()
+            et2 = (j.get("event_type", j.get("type", "")) or "").upper()
             return et2 in ("POSITION_CLOSED", "CLOSE")
         except Exception:
             return False
     return False
 
 
-def _get_sid(fields: Dict[str, Any]) -> str:
+def _get_sid(fields: dict[str, Any]) -> str:
     """Extract signal ID from fields (supports nested payload)."""
-    sid = str(fields.get("sid", "") or "")
+    sid = (fields.get("sid", "") or "")
     if sid:
         return sid
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            return str(j.get("sid", "") or "")
+            return (j.get("sid", "") or "")
         except Exception:
             return ""
     return ""
 
 
-def _get_symbol(fields: Dict[str, Any]) -> str:
+def _get_symbol(fields: dict[str, Any]) -> str:
     """Extract symbol from fields (supports nested payload)."""
-    s = str(fields.get("symbol", "") or "").upper()
+    s = (fields.get("symbol", "") or "").upper()
     if s:
         return s
     p = fields.get("payload")
     if isinstance(p, str) and p and p[0] == "{":
         try:
             j = json.loads(p)
-            return str(j.get("symbol", "") or "").upper()
+            return (j.get("symbol", "") or "").upper()
         except Exception:
             return ""
     return ""
 
 
-def _get_r_mult(fields: Dict[str, Any]) -> Optional[float]:
+def _get_r_mult(fields: dict[str, Any]) -> float | None:
     """Extract r_mult (risk multiplier) from fields."""
     if "r_mult" in fields:
         try:
@@ -105,7 +107,7 @@ def main() -> None:
     # Use get_redis() which handles LOADING state with retries
     r = get_redis(retry_attempts=20, retry_delay=2.0)
 
-    trade_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    trade_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     out_stream = os.getenv("ML_OUTCOME_METRICS_STREAM", "metrics:ml_outcome")
 
     group = os.getenv("ML_OUTCOME_GROUP", "ml-outcome-joiner-v3")
@@ -208,7 +210,7 @@ def main() -> None:
                         )
                         continue
 
-                    sym = _get_symbol(fields) or str(pred.get("symbol", "")).upper()
+                    sym = _get_symbol(fields) or (pred.get("symbol", "")).upper()
                     ts = _event_ts_ms(fields) or int(pred.get("ts_ms", 0) or 0)
 
                     rmult = _get_r_mult(fields)
@@ -221,7 +223,7 @@ def main() -> None:
 
                     y = 1 if float(rmult) >= r_min else 0
 
-                    scenario = str(pred.get("scenario_v4", "")) or ""
+                    scenario = (pred.get("scenario_v4", "")) or ""
                     bucket = str(pred.get("bucket", "") or bucket_from_scenario(scenario))
 
                     p = float(pred.get("p_edge", 0.0) or 0.0)
@@ -238,26 +240,26 @@ def main() -> None:
                         "r_mult": str(float(rmult)),
                         "p_edge": str(float(p)),
                         "brier": str(float(_brier(p, y))),
-                        "model_ver": str(pred.get("model_ver", "na")),
+                        "model_ver": (pred.get("model_ver", "na")),
                         "enforce": str(int(pred.get("enforce", 0) or 0)),
                         "share_used": str(float(pred.get("share_used", 0.0) or 0.0)),
                         "p_min": str(float(pred.get("p_min", 0.0) or 0.0)),
                         "exec_risk_norm": str(float(exec_risk_norm)),
                     }
-                    if pch > 0.0 and str(pred.get("chal_ver", "")).strip():
+                    if pch > 0.0 and (pred.get("chal_ver", "")).strip():
                         row.update({
                             "p_edge_chal": str(float(pch)),
                             "brier_chal": str(float(_brier(pch, y))),
-                            "chal_ver": str(pred.get("chal_ver", "")),
+                            "chal_ver": (pred.get("chal_ver", "")),
                         })
-                    
+
                     # P69: Enrich with policy mode from decision record
                     try:
                         dec_raw = r.get(f"decision:{sid}")
                         if dec_raw:
                             dec = json.loads(dec_raw)
                             row["policy_mode"] = str(dec.get("policy_effective_mode", "") or dec.get("policy_regime", "") or "na")
-                            row["policy_raw"] = str(dec.get("policy_raw_mode", "") or "na")
+                            row["policy_raw"] = (dec.get("policy_raw_mode", "") or "na")
                         else:
                              row["policy_mode"] = "na"
                              row["policy_raw"] = "na"
@@ -266,7 +268,7 @@ def main() -> None:
                          row["policy_raw"] = "error"
 
                     retry_redis_operation(
-                        lambda: r.xadd(out_stream, row, maxlen=700000, approximate=True),
+                        lambda: r.xadd(out_stream, row, maxlen=STREAM_RETENTION.get(out_stream, STREAM_RETENTION[RS.ML_OUTCOME_METRICS]), approximate=True),
                         operation_name="xadd ml_outcome",
                     )
                     retry_redis_operation(
@@ -274,14 +276,26 @@ def main() -> None:
                         operation_name="xack success",
                     )
 
-                except Exception:
-                    try:
+                except Exception as _exc:
+                    with contextlib.suppress(Exception):
+                        r.xadd(
+                            RS.DLQ_EVENTS,
+                            {
+                                "source_stream": trade_stream,
+                                "msg_id": str(msg_id),
+                                "error": str(_exc)[:200],
+                                "fields": json.dumps(
+                                    {k: str(v) for k, v in fields.items()}, ensure_ascii=False
+                                )[:2000] if isinstance(fields, dict) else "",
+                            },
+                            maxlen=STREAM_RETENTION.get(RS.DLQ_EVENTS, 2_000),
+                            approximate=True,
+                        )
+                    with contextlib.suppress(Exception):
                         retry_redis_operation(
                             lambda: r.xack(trade_stream, group, msg_id),
                             operation_name="xack exception",
                         )
-                    except Exception:
-                        pass  # Fail-open: if ack fails, continue processing
 
 
 if __name__ == "__main__":

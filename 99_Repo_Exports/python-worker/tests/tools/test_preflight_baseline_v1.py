@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for preflight_baseline_v1.py.
 
 Covers:
@@ -11,9 +12,7 @@ Covers:
 
 import json
 import os
-import sys
 import tempfile
-import unittest.mock
 
 import pytest
 
@@ -24,17 +23,17 @@ import pytest
 
 try:
     from tools.preflight_baseline_v1 import (
-        parse_prometheus_text,
-        parse_prom_rules,
         parse_compose_book_env,
+        parse_prom_rules,
+        parse_prometheus_text,
         run,
     )
 except ImportError:
     try:
         from preflight_baseline_v1 import (  # type: ignore
-            parse_prometheus_text,
-            parse_prom_rules,
             parse_compose_book_env,
+            parse_prom_rules,
+            parse_prometheus_text,
             run,
         )
     except Exception as exc:

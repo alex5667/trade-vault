@@ -1,8 +1,8 @@
 
-import os
-import redis
 import json
-import time
+import os
+
+import redis
 
 # Default to localhost if not set
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -51,7 +51,7 @@ def inspect_trades_zset(r, strategy="CryptoOrderFlow", symbol="ETHUSDT", tf="tic
             zkey = zkey_short
 
         print(f"Found {len(members)} order IDs in {zkey}")
-        
+
         for oid in members:
             order_key = f"order:{oid}"
             data = r.hgetall(order_key)
@@ -61,7 +61,7 @@ def inspect_trades_zset(r, strategy="CryptoOrderFlow", symbol="ETHUSDT", tf="tic
 
             print(f"\nOrder ID: {oid}")
             print(f"Symbol: {data.get('symbol')}, Source: {data.get('source')}, PnL: {data.get('pnl')}")
-            
+
             sp_str = data.get('signal_payload')
             if sp_str and sp_str != "{}":
                 try:
@@ -69,17 +69,17 @@ def inspect_trades_zset(r, strategy="CryptoOrderFlow", symbol="ETHUSDT", tf="tic
                     print("signal_payload keys:", list(sp.keys()))
                     indicators = sp.get('indicators', {})
                     print("indicators keys:", list(indicators.keys()))
-                    
+
                     if 'of_confirm' in indicators:
                         of_c = indicators['of_confirm']
                         print(f"of_confirm found: {type(of_c)}")
                     else:
                         print("of_confirm found: NO")
-                        
+
                     if 'ml_stats' in sp:
-                         print(f"ml_stats found: Yes")
+                         print("ml_stats found: Yes")
                     else:
-                         print(f"ml_stats found: NO")
+                         print("ml_stats found: NO")
 
                 except Exception as e:
                     print(f"Error parsing signal_payload: {e}")
@@ -101,17 +101,17 @@ def inspect_signals(r, symbol="ETHUSDT"):
         for msg_id, data in entries:
             print(f"\nID: {msg_id}")
             payload_str = data.get('payload') or data.get('data')
-            
+
             if payload_str:
                 try:
                     payload = json.loads(payload_str)
                     val_status = payload.get('validation_status')
                     print(f"validation_status: {val_status}")
-                    
+
                     indicators = payload.get('indicators', {})
                     of_ok = indicators.get('of_confirm_ok')
                     print(f"of_confirm_ok: {of_ok}")
-                    
+
                 except Exception as e:
                     print(f"Error parsing payload: {e}")
             else:

@@ -19,10 +19,10 @@ def normal_cdf(x: float) -> float:
 
 
 def calculate_proportion_skew(
-    train_n: int, 
-    train_p: float, 
-    serve_n: int, 
-    serve_p: float, 
+    train_n: int,
+    train_p: float,
+    serve_n: int,
+    serve_p: float,
     alpha: float = 0.01
 ) -> ProportionSkewResult:
     """Compare two proportions using Z-test.
@@ -42,21 +42,21 @@ def calculate_proportion_skew(
 
     # Pooled proportion
     p_pool = (train_p * train_n + serve_p * serve_n) / (train_n + serve_n)
-    
+
     # Standard Error (SE) for pooled proportion
     if p_pool <= 0 or p_pool >= 1:
         # If both are 0 or both are 1, there is no variance, hence no statistical significance
         return ProportionSkewResult(0.0, 1.0, abs(train_p - serve_p), False)
-        
+
     se = math.sqrt(p_pool * (1 - p_pool) * (1 / train_n + 1 / serve_n))
-    
+
     # Z-score: difference divided by standard error
     z = (serve_p - train_p) / se
-    
+
     # Two-tailed P-value
     p_value = 2 * (1 - normal_cdf(abs(z)))
-    
+
     drift = abs(serve_p - train_p)
     significant = p_value < alpha
-    
+
     return ProportionSkewResult(z, p_value, drift, significant)

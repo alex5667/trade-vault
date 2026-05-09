@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 core/v13_runtime_tracker.py
 ===========================
@@ -23,8 +24,9 @@ Design:
 import math
 import time
 from collections import deque
-from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any
+import contextlib
 
 try:
     import numpy as np
@@ -121,21 +123,21 @@ class V13RuntimeTracker:
         self.mid_vwap_diff_std: float = 0.0
 
         # ── Rolling buffers ──
-        self._bar_buf: Deque[_OHLCBar] = deque(maxlen=_BAR_WINDOW)
-        self._return_buf: Deque[float] = deque(maxlen=_TICK_WINDOW)
-        self._volume_buf: Deque[float] = deque(maxlen=_TICK_WINDOW)
-        self._side_buf: Deque[int] = deque(maxlen=_TICK_WINDOW)  # +1 buy, -1 sell
-        self._price_buf: Deque[float] = deque(maxlen=_TICK_WINDOW)
-        self._size_buf: Deque[float] = deque(maxlen=_TICK_WINDOW)
-        self._vol_bps_buf: Deque[float] = deque(maxlen=_BAR_WINDOW)
-        self._buy_vol_buf: Deque[float] = deque(maxlen=_TICK_WINDOW)
-        self._sell_vol_buf: Deque[float] = deque(maxlen=_TICK_WINDOW)
-        self._mid_vwap_diff_buf: Deque[float] = deque(maxlen=50)
+        self._bar_buf: deque[_OHLCBar] = deque(maxlen=_BAR_WINDOW)
+        self._return_buf: deque[float] = deque(maxlen=_TICK_WINDOW)
+        self._volume_buf: deque[float] = deque(maxlen=_TICK_WINDOW)
+        self._side_buf: deque[int] = deque(maxlen=_TICK_WINDOW)  # +1 buy, -1 sell
+        self._price_buf: deque[float] = deque(maxlen=_TICK_WINDOW)
+        self._size_buf: deque[float] = deque(maxlen=_TICK_WINDOW)
+        self._vol_bps_buf: deque[float] = deque(maxlen=_BAR_WINDOW)
+        self._buy_vol_buf: deque[float] = deque(maxlen=_TICK_WINDOW)
+        self._sell_vol_buf: deque[float] = deque(maxlen=_TICK_WINDOW)
+        self._mid_vwap_diff_buf: deque[float] = deque(maxlen=50)
 
         # Depth resilience
         self._depth_pre_sweep: float = 0.0
-        self._depth_post_times: Deque[Tuple[int, float]] = deque(maxlen=20)
-        self._depth_recovery_buf: Deque[float] = deque(maxlen=20)
+        self._depth_post_times: deque[tuple[int, float]] = deque(maxlen=20)
+        self._depth_recovery_buf: deque[float] = deque(maxlen=20)
 
         # Sweep level tracking
         self._sweep_level_count: int = 0
@@ -173,7 +175,7 @@ class V13RuntimeTracker:
             book_depth_near: near-touch depth USD (for resilience)
         """
         try:
-            s = 1 if str(side).upper() == "BUY" else -1
+            s = 1 if side.upper() == "BUY" else -1
 
             # Populate rolling buffers
             self._price_buf.append(price)
@@ -290,10 +292,8 @@ class V13RuntimeTracker:
                 "price_entropy_50", "order_size_gini", "mutual_info_price_volume",
                 "half_life_mean_reversion", "adf_pvalue_50", "mid_vwap_diff_std",
             ):
-                try:
+                with contextlib.suppress(Exception):
                     setattr(runtime, attr, getattr(self, attr, 0.0))
-                except Exception:
-                    pass
         except Exception:
             pass
 
@@ -597,7 +597,7 @@ class V13RuntimeTracker:
             # Discretize into 5 bins each
             n_bins = 5
 
-            def _bin(values: List[float]) -> List[int]:
+            def _bin(values: list[float]) -> list[int]:
                 mn, mx = min(values), max(values)
                 if mx - mn < 1e-12:
                     return [0] * len(values)

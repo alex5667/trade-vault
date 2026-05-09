@@ -1,11 +1,9 @@
 import os
 import unittest
 from unittest.mock import patch
-from core.instrument_config import (
-    get_default_delta_tiers, 
-    get_default_book_rate_settings, 
-    OrderFlowConfig
-)
+
+from core.instrument_config import OrderFlowConfig, get_default_delta_tiers
+
 
 class TestCalibrationConfig(unittest.TestCase):
     def test_get_default_delta_tiers_btc(self):
@@ -42,7 +40,7 @@ class TestCalibrationConfig(unittest.TestCase):
             # XRP defaults: 800k, 1.6M, 2.4M
             self.assertEqual(cfg.dn_tier0_usd, 800_000.0)
             self.assertEqual(cfg.dn_tier1_usd, 1_600_000.0)
-            
+
             # Check book rate defaults (min=10.0 for XRP, warn=5.0)
             self.assertEqual(cfg.book_rate_min_hz, 10.0)
 

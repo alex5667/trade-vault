@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict
-
 
 from core.instrument_config import get_liquidity_class
 
@@ -32,7 +30,7 @@ class LiquidityThresholds:
     min_conf_bump_thin_pct: float
     min_conf_bump_stressed_pct: float
 
-    def to_cfg_overrides(self) -> Dict[str, float]:
+    def to_cfg_overrides(self) -> dict[str, float]:
         return {
             "liq_spread_bad_bp": self.spread_bad_bp,
             "liq_spread_crit_bp": self.spread_crit_bp,
@@ -50,7 +48,7 @@ class LiquidityThresholds:
 
 
 # Seed thresholds (good starting points; tune via histograms/percentiles)
-DEFAULT_BY_CLASS: Dict[str, LiquidityThresholds] = {
+DEFAULT_BY_CLASS: dict[str, LiquidityThresholds] = {
     # Majors: tighter spreads, high depth, high book rate
     "majors": LiquidityThresholds(
         spread_bad_bp=15.0, spread_crit_bp=30.0,

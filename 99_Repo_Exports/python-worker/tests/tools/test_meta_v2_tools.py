@@ -1,17 +1,15 @@
-import unittest
-import os
 import json
-import six
+import os
 import sys
-from unittest.mock import patch, MagicMock
+import unittest
+from unittest.mock import MagicMock, patch
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Mock pandas before importing tools
 with patch("pandas.read_parquet"), patch("pandas.DataFrame.to_parquet"):
-    from tools import meta_model_quality_report_v2
-    from tools import meta_auto_ramp_v2
+    from tools import meta_auto_ramp_v2, meta_model_quality_report_v2
 
 class TestMetaV2Tools(unittest.TestCase):
     def setUp(self):
@@ -19,7 +17,7 @@ class TestMetaV2Tools(unittest.TestCase):
         self.report_path = "/tmp/report.json"
         self.prom_path = "/tmp/metrics.prom"
         self.data_path = "/tmp/data.parquet"
-        
+
         # Create dummy model
         model = {
             "features": ["f1"],
@@ -30,12 +28,12 @@ class TestMetaV2Tools(unittest.TestCase):
         }
         with open(self.model_path, "w") as f:
             json.dump(model, f)
-            
+
     def test_quality_report_v2(self):
         # Mock pandas dataframe validation
         mock_df = MagicMock()
         mock_df.columns = ["y", "f1", "evidence", "indicators", "regime_bucket", "session_bucket"]
-        
+
         # Mock data iteration
         def to_dict_side_effect():
             return {
@@ -46,12 +44,12 @@ class TestMetaV2Tools(unittest.TestCase):
                 "regime_bucket": "R1",
                 "session_bucket": "S1"
             }
-        
+
         row_mock = MagicMock()
         row_mock.to_dict.side_effect = to_dict_side_effect
         mock_df.iloc.__getitem__.return_value = row_mock
         mock_df.__len__.return_value = 10
-        
+
         # Mock label column
         import numpy as np
         mock_y = MagicMock()
@@ -75,7 +73,7 @@ class TestMetaV2Tools(unittest.TestCase):
         with open(self.report_path) as f:
             report = json.load(f)
         self.assertIn("metrics", report)
-        
+
         # Check prom file
         if os.path.exists(self.prom_path):
              with open(self.prom_path) as f:
@@ -103,14 +101,14 @@ class TestMetaV2Tools(unittest.TestCase):
         }
         with open(self.report_path, "w") as f:
             json.dump(report, f)
-            
+
         # Mock Redis
         with patch("tools.meta_auto_ramp_v2.redis") as mock_redis:
             mock_r = MagicMock()
             if mock_redis:
                  mock_redis.Redis.return_value = mock_r
-            mock_r.hgetall.return_value = {} 
-            
+            mock_r.hgetall.return_value = {}
+
             argv = [
                 "prog",
                 "--report-json", self.report_path,
@@ -127,7 +125,7 @@ class TestMetaV2Tools(unittest.TestCase):
             ]
             with patch.object(sys, 'argv', argv):
                 meta_auto_ramp_v2.main()
-                
+
             # Verify redis write (only if redis was successfully mocked/imported)
             if mock_redis:
                  mock_r.hset.assert_called()

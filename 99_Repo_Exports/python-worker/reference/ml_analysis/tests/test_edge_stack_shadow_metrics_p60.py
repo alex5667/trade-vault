@@ -1,13 +1,14 @@
 
-import pytest
 import numpy as np
+
 from ml_analysis.tools.edge_stack_shadow_metrics_p60 import (
     calculate_brier_score,
     calculate_ece,
-    calculate_precision_top_k_pct,
     calculate_expectancy_top_k_pct,
-    check_promotion_guard
+    calculate_precision_top_k_pct,
+    check_promotion_guard,
 )
+
 
 def test_brier_score():
     y_true = np.array([1, 0, 1, 0])
@@ -36,7 +37,7 @@ def test_precision_top_k():
     # All top 5 are 1. Precision = 1.0
     prec = calculate_precision_top_k_pct(y_true, y_prob, k_pct=0.5)
     assert prec == 1.0
-    
+
     # Top 10% (n=1): 0.9 (1) -> 1.0
     prec = calculate_precision_top_k_pct(y_true, y_prob, k_pct=0.1)
     assert prec == 1.0
@@ -52,7 +53,7 @@ def test_expectancy_top_k():
 def test_promotion_guard_success():
     champ = {"brier": 0.10, "ece": 0.05, "precision_top5pct": 0.6}
     cand = {"brier": 0.09, "ece": 0.04, "precision_top5pct": 0.65}
-    
+
     promote, reasons = check_promotion_guard(champ, cand)
     assert promote
     assert len(reasons) == 0
@@ -61,16 +62,16 @@ def test_promotion_guard_failure_brier():
     champ = {"brier": 0.10, "ece": 0.05, "precision_top5pct": 0.6}
     cand = {"brier": 0.15, "ece": 0.05, "precision_top5pct": 0.6}
     # 0.15 / 0.10 = 1.5 > 1.02
-    
+
     promote, reasons = check_promotion_guard(champ, cand)
     assert not promote
     assert "brier_rel 1.5000 > 1.02" in reasons[0]
 
 def test_promotion_guard_failure_precision():
     champ = {"brier": 0.10, "ece": 0.05, "precision_top5pct": 0.7}
-    cand = {"brier": 0.10, "ece": 0.05, "precision_top5pct": 0.6} 
+    cand = {"brier": 0.10, "ece": 0.05, "precision_top5pct": 0.6}
     # Delta = -0.1 < 0.0
-    
+
     promote, reasons = check_promotion_guard(champ, cand)
     assert not promote
     assert "prec_delta -0.1000 < 0.0" in reasons[0]

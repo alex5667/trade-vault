@@ -9,50 +9,49 @@ import sys
 # Add parent directory to path (matches other test scripts in this repo)
 sys.path.insert(0, "/app")
 
-from core.of_confirm_engine import META_SCHEMA_REGISTRY, META_SCHEMA_V2P
-
 from core.meta_features_v1 import (
+    META_FEAT_V1_HASH,
     META_FEAT_V1_NAME,
     META_FEAT_V1_VERSION,
-    META_FEAT_V1_HASH,
     build_meta_features_v1,
 )
 from core.meta_features_v2 import (
+    META_FEAT_V2_HASH,
     META_FEAT_V2_NAME,
     META_FEAT_V2_VERSION,
-    META_FEAT_V2_HASH,
     build_meta_features_v2,
 )
 from core.meta_features_v3 import (
+    META_FEAT_V3_HASH,
     META_FEAT_V3_NAME,
     META_FEAT_V3_VERSION,
-    META_FEAT_V3_HASH,
     build_meta_features_v3,
 )
 from core.meta_features_v4 import (
+    META_FEAT_V4_HASH,
     META_FEAT_V4_NAME,
     META_FEAT_V4_VERSION,
-    META_FEAT_V4_HASH,
     build_meta_features_v4,
 )
 from core.meta_features_v5 import (
+    META_FEAT_V5_HASH,
     META_FEAT_V5_NAME,
     META_FEAT_V5_VERSION,
-    META_FEAT_V5_HASH,
     build_meta_features_v5,
 )
 from core.meta_features_v6 import (
+    META_FEAT_V6_HASH,
     META_FEAT_V6_NAME,
     META_FEAT_V6_VERSION,
-    META_FEAT_V6_HASH,
     build_meta_features_v6,
 )
 from core.meta_features_v7 import (
+    META_FEAT_V7_HASH,
     META_FEAT_V7_NAME,
     META_FEAT_V7_VERSION,
-    META_FEAT_V7_HASH,
     build_meta_features_v7,
 )
+from core.of_confirm_engine import META_SCHEMA_REGISTRY, META_SCHEMA_V2P
 
 
 def _smoke(builder, needs_runtime: bool) -> None:

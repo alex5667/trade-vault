@@ -1,7 +1,5 @@
 """Tests for DefiLlama context gate policy."""
-import pytest
 from services.orderflow.defillama_context_gate import (
-    DefiLlamaContextDecision,
     evaluate_defillama_context,
 )
 

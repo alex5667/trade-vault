@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
 from prometheus_client import Counter
 
-from services.signal_preprocess import preprocess_signal_for_publish
 from core.redis_keys import RedisStreams as RS
+from services.signal_preprocess import preprocess_signal_for_publish
 
 # Create In-Memory Prometheus counters
 PUB_OK_TOTAL = Counter("signals_publish_ok_total", "Successful signal publishes", ["source", "stream"])
@@ -55,13 +55,18 @@ class AsyncPublishResult:
 
 
 import asyncio
+import logging
 import time as _wall_time
-from utils.task_manager import safe_create_task
 from concurrent.futures import ThreadPoolExecutor
 
-import logging
+from utils.task_manager import safe_create_task
 
 _COMPARISON_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="async_pub_cmp")
+
+# Dedicated pool for InvariantEngine + GraphGate validation.
+# Previously used None (default executor), competing with preprocess_signal_for_publish
+# threads and causing contention during signal bursts.
+_INVARIANT_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="async_pub_inv")
 
 # Lazy pre-xadd overhead histogram (registered once at import time)
 _signal_emit_pre_xadd_us = None
@@ -75,7 +80,7 @@ def _get_pre_xadd_hist():
                 "signal_emit_pre_xadd_us",
                 "Pre-XADD overhead in AsyncSignalPublisher (invariant/gate/mget) (us). SLO budget: < 2ms.",
                 ["symbol", "stream"],
-                buckets=(50, 100, 250, 500, 1_000, 2_000, 5_000, 8_000, 15_000, 30_000),
+                buckets=[50, 100, 250, 500, 1_000, 2_000, 5_000, 8_000, 15_000, 30_000],
             )
         except Exception:
             pass
@@ -102,8 +107,8 @@ class AsyncSignalPublisher:
         retry_queue_maxsize: int = 1000,
     ) -> None:
         self.r = redis_client
-        self.source = str(source or "na")
-        self.metrics_prefix = str(metrics_prefix or "signals_publish_async")
+        self.source = source or "na"
+        self.metrics_prefix = metrics_prefix or "signals_publish_async"
         self.logger = logger or logging.getLogger(__name__)
         self.max_retries = max_retries
 
@@ -112,7 +117,7 @@ class AsyncSignalPublisher:
         # Background worker task — created lazily via start() to avoid
         # RuntimeError: no running event loop when __init__ is called
         # outside an asyncio context (e.g. from a plain Thread).
-        self._worker_task: Optional[asyncio.Task] = None
+        self._worker_task: asyncio.Task | None = None
 
         # ── Hot-path ENV cache ──────────────────────────────────────────────
         # Read ENV flags ONCE at construction (and refresh every 30s) to avoid
@@ -193,7 +198,7 @@ class AsyncSignalPublisher:
                             # Bad payload
                             await self.r.xdel(RS.PUBLISHER_RETRY, _id)
                             continue
-                            
+
                         sink_d = rec.get("sink", {})
                         sink = StreamSink(name=sink_d.get("name", ""), field=sink_d.get("field", "payload"), maxlen=sink_d.get("maxlen", 10000))
                         payload = rec.get("payload")
@@ -265,11 +270,11 @@ class AsyncSignalPublisher:
         self,
         *,
         sink: StreamSink,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         symbol: str,
         approximate: bool = True,
         no_retry: bool = False,
-        timeout_sec: Optional[float] = None,
+        timeout_sec: float | None = None,
     ) -> AsyncPublishResult:
         """
         Public method that guarantees At-Least-Once delivery (via Redis stream or local buffer).
@@ -306,7 +311,7 @@ class AsyncSignalPublisher:
                         self._retry_queue.put_nowait((sink, payload, symbol, 1, approximate))
                     self.logger.warning("⚠️ Signal %s queued LOCALLY for retry (Redis fail)", symbol)
                     PUB_RETRIES_ENQUEUED_TOTAL.labels(source=self.source, symbol=symbol).inc()
-                except (asyncio.QueueFull, asyncio.TimeoutError):
+                except (TimeoutError, asyncio.QueueFull):
                     PUB_DROPPED_TOTAL.labels(source=self.source, symbol=symbol).inc()
                     self.logger.critical("🚨 RETRY QUEUE OVERFLOW! Signal lost: %s", symbol)
 
@@ -316,10 +321,10 @@ class AsyncSignalPublisher:
         self,
         *,
         sink: StreamSink,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         symbol: str,
         approximate: bool = True,
-        timeout_sec: Optional[float] = None,
+        timeout_sec: float | None = None,
     ) -> AsyncPublishResult:
         """
         Internal raw XADD logic.
@@ -339,7 +344,7 @@ class AsyncSignalPublisher:
 
         raw_fast_xadd_only = (
             self._env["raw_fast_xadd_only"]
-            and str(sink.name) == "signals:crypto:raw"
+            and sink.name == RS.CRYPTO_RAW
         )
 
         # 1) normalize contract (hot-path optimization)
@@ -353,10 +358,10 @@ class AsyncSignalPublisher:
                 if fast_path:
                     # Fast path: Synchronous block is minimal (basic normalization)
                     preprocess_signal_for_publish(
-                        payload, 
-                        symbol=str(symbol), 
-                        source=self.source, 
-                        logger=self.logger, 
+                        payload,
+                        symbol=symbol,
+                        source=self.source,
+                        logger=self.logger,
                         fast_path=True
                     )
                 else:
@@ -365,7 +370,7 @@ class AsyncSignalPublisher:
                     await asyncio.to_thread(
                         preprocess_signal_for_publish,
                         payload,
-                        symbol=str(symbol),
+                        symbol=symbol,
                         source=self.source,
                         logger=self.logger,
                         fast_path=False
@@ -385,7 +390,7 @@ class AsyncSignalPublisher:
                 from services.atr_invariant_runtime_engine import get_runtime_engine
                 engine = get_runtime_engine()
                 loop = asyncio.get_running_loop()
-                allow, violations = await loop.run_in_executor(None, engine.validate_signal, payload)
+                allow, violations = await loop.run_in_executor(_INVARIANT_EXECUTOR, engine.validate_signal, payload)
 
                 if violations:
                     try:
@@ -426,9 +431,9 @@ class AsyncSignalPublisher:
 
                 # Sacred Protective Exits mapping (MUST bypass freezes)
                 is_protective_exit = (action != "OPEN") and (
-                    str(kind).lower() not in ["new_entry", "signal", ""]
+                    kind.lower() not in ["new_entry", "signal", ""]
                 )
-                if any(x in str(kind).lower() for x in ["tp", "sl", "be", "close", "trail", "ratchet"]):
+                if any(x in kind.lower() for x in ["tp", "sl", "be", "close", "trail", "ratchet"]):
                     is_protective_exit = True
 
                 if not is_protective_exit:
@@ -491,7 +496,7 @@ class AsyncSignalPublisher:
                         scope_value = symbol
                         loop = asyncio.get_running_loop()
                         graph_decision = await loop.run_in_executor(
-                            None,
+                            _INVARIANT_EXECUTOR,
                             ATRGraphBackedRuntimeGateService.decide_runtime_from_graph,
                             payload, scope_value
                         )
@@ -591,7 +596,7 @@ class AsyncSignalPublisher:
         try:
             await self.r.xadd(
                 sink.name,
-                fields={str(sink.field or "payload"): ser},
+                fields={sink.field or "payload": ser},
                 maxlen=int(sink.maxlen),
                 approximate=bool(approximate),
             )
@@ -614,7 +619,7 @@ class AsyncSignalPublisher:
                         or "TimeoutError" in type(e).__name__
                     )
                     is_conn_error = (
-                        "ConnectionError" in type(e).__name__ or 
+                        "ConnectionError" in type(e).__name__ or
                         "No connection available" in str(e)
                     )
                     if (is_timeout or is_conn_error) and "bbo_ts" in sink.name:
@@ -633,11 +638,11 @@ class AsyncSignalPublisher:
             _pre_us = (_t0 - _t_entry) / 1_000
             from services.orderflow.metrics import signal_emit_latency_us
             signal_emit_latency_us.labels(
-                symbol=str(symbol), stream=str(sink.name)
+                symbol=symbol, stream=sink.name
             ).observe(_xadd_us)
             _h = _get_pre_xadd_hist()
             if _h is not None:
-                _h.labels(symbol=str(symbol), stream=str(sink.name)).observe(_pre_us)
+                _h.labels(symbol=symbol, stream=sink.name).observe(_pre_us)
         except Exception:
             pass
 

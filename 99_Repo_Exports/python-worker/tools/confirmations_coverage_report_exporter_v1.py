@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Confirmations coverage report exporter (v1).
 
 Exposes Prometheus metrics from confirmations coverage JSON report.
@@ -13,10 +14,10 @@ import argparse
 import json
 import os
 import time
-from typing import Any, Dict, Iterable, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server  # type: ignore
-
 
 REPORT_PRESENT = Gauge("confirmations_coverage_report_present", "1 if report file exists")
 REPORT_PARSED_OK = Gauge("confirmations_coverage_report_parsed_ok", "1 if report parsed")
@@ -72,11 +73,11 @@ def _clear() -> None:
         COVERAGE_REASON.labels(reason=r).set(0.0)
 
 
-def _load_report(path: str) -> Optional[Dict[str, Any]]:
+def _load_report(path: str) -> dict[str, Any] | None:
     if not path or not os.path.exists(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return None
@@ -88,7 +89,7 @@ def _set_onehot_reasons(reasons: Iterable[str]) -> None:
         COVERAGE_REASON.labels(reason=r).set(1.0 if r in reason_set else 0.0)
 
 
-def update_metrics(rep: Dict[str, Any], stale_sec: int) -> None:
+def update_metrics(rep: dict[str, Any], stale_sec: int) -> None:
     REPORT_PRESENT.set(1.0)
     REPORT_PARSED_OK.set(1.0)
 

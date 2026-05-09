@@ -1,8 +1,7 @@
-from utils.time_utils import get_ny_time_millis
-import time
 from types import SimpleNamespace
 
 from handlers.crypto_orderflow.utils.quality_gates import DataQualityGate
+from utils.time_utils import get_ny_time_millis
 
 
 def test_data_quality_veto_atr_stale(monkeypatch):

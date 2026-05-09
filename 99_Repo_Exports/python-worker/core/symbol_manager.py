@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Dynamic Symbol Manager - Динамическое управление торговыми символами через Redis
 
@@ -13,13 +14,14 @@ Format: {"action": "add|remove|set", "symbols": ["BTCUSD", ...]}
 """
 
 import json
-import time
 import threading
-from typing import Dict, List, Set, Optional, Union
+import time
+
 import redis
+
+from core.symbol_config import SymbolConfig, SymbolConfigFactory
 from handlers.base_orderflow_handler import BaseOrderFlowHandler
 from handlers.handler_factory import create_handler
-from core.symbol_config import SymbolConfig, SymbolConfigFactory
 
 
 class SymbolManager:
@@ -29,12 +31,12 @@ class SymbolManager:
     Читает команды из Redis stream 'config:symbols' и динамически
     создает/удаляет handlers без перезапуска сервиса.
     """
-    
+
     def __init__(
         self,
         redis_url: str = "redis://localhost:6379/0",
         config_stream: str = "config:symbols",
-        initial_symbols: Optional[List[str]] = None
+        initial_symbols: list[str] | None = None
     ):
         """
         Args:
@@ -43,7 +45,7 @@ class SymbolManager:
             initial_symbols: Начальный список символов (опционально)
         """
         self.redis_client = redis.from_url(
-            redis_url, 
+            redis_url,
             decode_responses=True,
             socket_keepalive=True,
             health_check_interval=30,
@@ -51,17 +53,17 @@ class SymbolManager:
             retry_on_timeout=False
         )
         self.config_stream = config_stream
-        
+
         # Активные handlers и их конфигурации
-        self.handlers: Dict[str, BaseOrderFlowHandler] = {}
-        self.configs: Dict[str, SymbolConfig] = {}  # Symbol configurations
-        self.active_symbols: Set[str] = set()
-        
+        self.handlers: dict[str, BaseOrderFlowHandler] = {}
+        self.configs: dict[str, SymbolConfig] = {}  # Symbol configurations
+        self.active_symbols: set[str] = set()
+
         # Управление жизненным циклом
         self.is_running = False
-        self._watcher_thread: Optional[threading.Thread] = None
+        self._watcher_thread: threading.Thread | None = None
         self._lock = threading.Lock()
-        
+
         # Инициализация с начальными символами
         if initial_symbols:
             for symbol in initial_symbols:
@@ -75,7 +77,7 @@ class SymbolManager:
                     # Используем defaults
                     print(f"📦 Using default config for {symbol}")
                     self._add_symbol(symbol)
-        
+
         # Создаем consumer group для конфигурации
         try:
             self.redis_client.xgroup_create(
@@ -87,10 +89,10 @@ class SymbolManager:
             print(f"✅ Consumer group 'symbol-manager' создана для {self.config_stream}")
         except Exception as e:
             if "BUSYGROUP" in str(e):
-                print(f"ℹ️  Consumer group 'symbol-manager' уже существует")
+                print("ℹ️  Consumer group 'symbol-manager' уже существует")
             else:
                 print(f"⚠️  Ошибка создания consumer group: {e}")
-    
+
     def restore_state(self) -> None:
         """
         Восстанавливает состояние из сохраненных конфигураций в Redis.
@@ -157,19 +159,19 @@ class SymbolManager:
         self._watcher_thread.start()
 
         print(f"🚀 SymbolManager запущен (active symbols: {sorted(self.active_symbols)})")
-    
+
     def stop(self) -> None:
         """Останавливает все handlers и watcher"""
         print("⛔ Остановка SymbolManager...")
         self.is_running = False
-        
+
         # Останавливаем все handlers
         with self._lock:
             for symbol, handler in list(self.handlers.items()):
                 self._remove_symbol(symbol)
-        
+
         print("✅ SymbolManager остановлен")
-    
+
     def _watch_config_stream(self) -> None:
         """
         Мониторит Redis stream для изменений конфигурации символов.
@@ -181,9 +183,9 @@ class SymbolManager:
         }
         """
         consumer_name = f"manager-{int(time.time())}"
-        
+
         print(f"🔄 Запуск watcher для {self.config_stream}...")
-        
+
         while self.is_running:
             try:
                 # Читаем из stream
@@ -194,10 +196,10 @@ class SymbolManager:
                     count=10,
                     block=1000  # 1 секунда
                 )
-                
+
                 if not messages:
                     continue
-                
+
                 for stream, items in messages:
                     for msg_id, fields in items:
                         try:
@@ -205,18 +207,18 @@ class SymbolManager:
                             data = json.loads(fields.get("data", "{}"))
                             action = data.get("action", "set")
                             symbols = data.get("symbols", [])
-                            
+
                             # Выполняем команду
                             self._handle_config_command(action, symbols)
-                            
+
                             # ACK сообщение
                             self.redis_client.xack(stream, "symbol-manager", msg_id)
-                            
+
                         except Exception as e:
                             print(f"❌ Ошибка обработки config message {msg_id}: {e}")
-                
+
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
-                print(f"⚠️  Redis connection lost in config watcher. Reconnecting...")
+                print("⚠️  Redis connection lost in config watcher. Reconnecting...")
                 time.sleep(3)
             except Exception as e:
                 if "NOGROUP" in str(e):
@@ -234,8 +236,8 @@ class SymbolManager:
                 else:
                     print(f"❌ Ошибка в config watcher: {e}")
                 time.sleep(1)
-    
-    def _handle_config_command(self, action: str, symbols: Union[List[str], List[Dict]]) -> None:
+
+    def _handle_config_command(self, action: str, symbols: list[str] | list[dict]) -> None:
         """
         Обрабатывает команду изменения конфигурации.
         
@@ -244,7 +246,7 @@ class SymbolManager:
             symbols: Список символов (str) или список {symbol, config} (dict)
         """
         print(f"📝 Config command: {action} {symbols}")
-        
+
         if action == "add":
             # Добавить символы (с конфигурацией или без)
             for item in symbols:
@@ -252,14 +254,14 @@ class SymbolManager:
                     # Формат: {"symbol": "BTCUSD", "config": {...}}
                     symbol = item['symbol']
                     config_data = item.get('config')
-                    
+
                     # Сначала проверяем Redis на наличие сохраненной конфигурации
                     saved_config = self._load_symbol_config(symbol)
-                    
+
                     if config_data:
                         # Передана конфигурация → создаем и помечаем как custom
                         config = SymbolConfigFactory.create_from_symbol(
-                            symbol, 
+                            symbol,
                             custom_params=config_data
                         )
                         config.is_custom = True  # Помечаем как кастомная
@@ -273,7 +275,7 @@ class SymbolManager:
                         config = SymbolConfigFactory.create_from_symbol(symbol)
                         config.is_custom = False
                         config.created_at = get_ny_time_millis()
-                    
+
                     self._add_symbol(symbol, config)
                 else:
                     # Старый формат: просто строка "BTCUSD"
@@ -287,13 +289,13 @@ class SymbolManager:
                         config.is_custom = False
                         config.created_at = get_ny_time_millis()
                         self._add_symbol(item, config)
-        
+
         elif action == "remove":
             # Удалить символы
             for item in symbols:
                 symbol = item if isinstance(item, str) else item['symbol']
                 self._remove_symbol(symbol)
-        
+
         elif action == "set":
             # Установить список (удалить все кроме указанных, добавить новые)
             # Извлекаем названия символов
@@ -301,14 +303,14 @@ class SymbolManager:
                 new_symbols = set(item['symbol'] for item in symbols)
             else:
                 new_symbols = set(symbols)
-            
+
             current_symbols = set(self.active_symbols)
-            
+
             # Удалить те, которых нет в новом списке
             to_remove = current_symbols - new_symbols
             for symbol in to_remove:
                 self._remove_symbol(symbol)
-            
+
             # Добавить новые
             to_add = new_symbols - current_symbols
             for item in symbols:
@@ -317,7 +319,7 @@ class SymbolManager:
                     if symbol in to_add:
                         config_data = item.get('config')
                         config = SymbolConfigFactory.create_from_symbol(
-                            symbol, 
+                            symbol,
                             custom_params=config_data
                         ) if config_data else SymbolConfigFactory.create_from_symbol(symbol)
                         self._add_symbol(symbol, config)
@@ -325,12 +327,12 @@ class SymbolManager:
                     if item in to_add:
                         config = SymbolConfigFactory.create_from_symbol(item)
                         self._add_symbol(item, config)
-        
+
         elif action == "update_config":
             # Обновить конфигурацию существующего символа (вручную)
             symbol = symbols if isinstance(symbols, str) else symbols.get('symbol')
             config_data = symbols.get('config') if isinstance(symbols, dict) else None
-            
+
             if symbol in self.active_symbols and config_data:
                 # Обновляем конфигурацию
                 current_config = self.configs.get(symbol)
@@ -339,41 +341,41 @@ class SymbolManager:
                         symbol,
                         custom_params=config_data
                     )
-                    
+
                     # ВАЖНО: Помечаем как custom (изменена вручную)
                     updated_config.is_custom = True
                     updated_config.updated_at = get_ny_time_millis()
-                    
+
                     self.configs[symbol] = updated_config
-                    
+
                     # Пересоздаем handler с новой конфигурацией
                     self._remove_symbol(symbol)
                     self._add_symbol(symbol, updated_config)
-                    
+
                     print(f"✅ Config updated for {symbol} (marked as CUSTOM)")
-        
+
         elif action == "reset_config":
             # Сбросить конфигурацию к defaults (удалить кастомную)
             symbol = symbols if isinstance(symbols, str) else symbols.get('symbol')
-            
+
             if symbol in self.active_symbols:
                 # Удаляем кастомную конфигурацию из Redis
                 self.redis_client.delete(f"config:symbol:{symbol}")
-                
+
                 # Создаем новую конфигурацию из defaults
                 default_config = SymbolConfigFactory.create_from_symbol(symbol)
                 default_config.is_custom = False
                 default_config.created_at = get_ny_time_millis()
-                
+
                 # Пересоздаем handler
                 self._remove_symbol(symbol)
                 self._add_symbol(symbol, default_config)
-                
+
                 print(f"✅ Config reset to defaults for {symbol}")
-        
+
         print(f"✅ Active symbols: {sorted(self.active_symbols)}")
-    
-    def _add_symbol(self, symbol: str, config: Optional[SymbolConfig] = None) -> bool:
+
+    def _add_symbol(self, symbol: str, config: SymbolConfig | None = None) -> bool:
         """
         Добавляет новый символ и запускает handler с конфигурацией.
         
@@ -391,7 +393,7 @@ class SymbolManager:
 
             try:
                 print(f"🔄 Adding symbol {symbol}...")
-                
+
                 # Создаем или используем переданную конфигурацию
                 if config is None:
                     # Проверяем, есть ли сохраненная конфигурация в Redis
@@ -406,41 +408,40 @@ class SymbolManager:
                         config.is_custom = False
                         config.created_at = get_ny_time_millis()
                         print(f"📦 Using DEFAULT config for {symbol}")
-                
+
                 # Сохраняем конфигурацию
                 self.configs[symbol] = config
 
                 # Сохраняем в Redis для persistence
                 self._save_symbol_config(symbol, config)
-                
+
                 # Конвертируем SymbolConfig в OrderFlowConfig из instrument_config.py
                 # для использования в handlers
                 try:
-                    from core.instrument_config import OrderFlowConfig
                     handler_config = config.to_instrument_config()
                 except Exception as e:
                     print(f"⚠️  Failed to convert config for {symbol}: {e}, using default config")
                     handler_config = None
-                
+
                 # Создаем handler с конфигурацией
                 handler = create_handler(symbol, handler_config)
-                
+
                 # Запускаем если manager запущен
                 if self.is_running:
                     handler.start()
-                
+
                 # Сохраняем handler
                 self.handlers[symbol] = handler
                 self.active_symbols.add(symbol)
-                
+
                 config_type = "CUSTOM" if config.is_custom else "DEFAULT"
                 print(f"✅ Symbol {symbol} added and started (config: {config.symbol_type.value}, type: {config_type})")
                 return True
-                
+
             except Exception as e:
                 print(f"❌ Failed to add symbol {symbol}: {e}")
                 return False
-    
+
     def _remove_symbol(self, symbol: str) -> bool:
         """
         Удаляет символ и останавливает handler.
@@ -455,37 +456,37 @@ class SymbolManager:
             if symbol not in self.active_symbols:
                 print(f"ℹ️  Symbol {symbol} not active")
                 return False
-            
+
             try:
                 print(f"🔄 Removing symbol {symbol}...")
-                
+
                 # Останавливаем handler
                 handler = self.handlers.get(symbol)
                 if handler:
                     handler.stop()
                     del self.handlers[symbol]
-                
+
                 # Удаляем из активных и конфигурации
                 self.active_symbols.remove(symbol)
                 if symbol in self.configs:
                     del self.configs[symbol]
-                
+
                 # Удаляем из Redis
                 self.redis_client.delete(f"config:symbol:{symbol}")
-                
+
                 print(f"✅ Symbol {symbol} removed and stopped")
                 return True
-                
+
             except Exception as e:
                 print(f"❌ Failed to remove symbol {symbol}: {e}")
                 return False
-    
-    def get_active_symbols(self) -> List[str]:
+
+    def get_active_symbols(self) -> list[str]:
         """Возвращает список активных символов"""
         with self._lock:
             return sorted(self.active_symbols)
-    
-    def get_handler(self, symbol: str) -> Optional[BaseOrderFlowHandler]:
+
+    def get_handler(self, symbol: str) -> BaseOrderFlowHandler | None:
         """
         Возвращает handler для символа.
         
@@ -497,8 +498,8 @@ class SymbolManager:
         """
         with self._lock:
             return self.handlers.get(symbol)
-    
-    def _load_symbol_config(self, symbol: str) -> Optional[SymbolConfig]:
+
+    def _load_symbol_config(self, symbol: str) -> SymbolConfig | None:
         """
         Загружает конфигурацию символа из Redis.
         
@@ -517,7 +518,7 @@ class SymbolManager:
         except Exception as e:
             print(f"⚠️  Failed to load config for {symbol}: {e}")
             return None
-    
+
     def _save_symbol_config(self, symbol: str, config: SymbolConfig) -> None:
         """
         Сохраняет конфигурацию символа в Redis.
@@ -531,10 +532,10 @@ class SymbolManager:
                 config.to_json(),
                 ex=86400 * 30  # TTL 30 days
             )
-            
+
             # Добавляем в set активных символов
             self.redis_client.sadd("config:symbols:all", symbol)
-            
+
             # Сохраняем в history stream
             self.redis_client.xadd(
                 f"config:symbol:{symbol}:history",
@@ -545,15 +546,15 @@ class SymbolManager:
                 },
                 maxlen=100
             )
-            
+
             # Логируем тип конфигурации
             config_type = "CUSTOM" if config.is_custom else "DEFAULT"
             print(f"💾 Config saved for {symbol} (type: {config_type})")
-            
+
         except Exception as e:
             print(f"⚠️  Failed to save config for {symbol}: {e}")
-    
-    def get_status(self) -> Dict:
+
+    def get_status(self) -> dict:
         """
         Возвращает статус всех handlers с их конфигурациями.
         
@@ -561,7 +562,7 @@ class SymbolManager:
             Словарь {symbol: {is_running, processed_ticks, config, ...}}
         """
         status = {}
-        
+
         with self._lock:
             for symbol, handler in self.handlers.items():
                 config = self.configs.get(symbol)
@@ -575,7 +576,7 @@ class SymbolManager:
                     "config_type": config.symbol_type.value if config else "unknown",
                     "config": config.to_dict() if config else None
                 }
-        
+
         return status
 
 
@@ -583,7 +584,7 @@ class SymbolManager:
 # HELPER FUNCTIONS для публикации команд в Redis
 # ═════════════════════════════════════════════════════════════════════
 
-def publish_add_symbols(redis_client: redis.Redis, symbols: List[str], stream: str = "config:symbols") -> None:
+def publish_add_symbols(redis_client: redis.Redis, symbols: list[str], stream: str = "config:symbols") -> None:
     """
     Публикует команду добавления символов.
     
@@ -601,12 +602,12 @@ def publish_add_symbols(redis_client: redis.Redis, symbols: List[str], stream: s
         "symbols": symbols,
         "ts": get_ny_time_millis()
     }
-    
-    redis_client.xadd(stream, {"data": json.dumps(command)}, maxlen=50000)
+
+    redis_client.xadd(stream, {"data": json.dumps(command)}, maxlen=50000, approximate=True)
     print(f"📤 Published: ADD {symbols}")
 
 
-def publish_remove_symbols(redis_client: redis.Redis, symbols: List[str], stream: str = "config:symbols") -> None:
+def publish_remove_symbols(redis_client: redis.Redis, symbols: list[str], stream: str = "config:symbols") -> None:
     """
     Публикует команду удаления символов.
     
@@ -624,12 +625,12 @@ def publish_remove_symbols(redis_client: redis.Redis, symbols: List[str], stream
         "symbols": symbols,
         "ts": get_ny_time_millis()
     }
-    
-    redis_client.xadd(stream, {"data": json.dumps(command)}, maxlen=50000)
+
+    redis_client.xadd(stream, {"data": json.dumps(command)}, maxlen=50000, approximate=True)
     print(f"📤 Published: REMOVE {symbols}")
 
 
-def publish_set_symbols(redis_client: redis.Redis, symbols: List[str], stream: str = "config:symbols") -> None:
+def publish_set_symbols(redis_client: redis.Redis, symbols: list[str], stream: str = "config:symbols") -> None:
     """
     Публикует команду установки списка символов (заменяет текущий список).
     
@@ -648,8 +649,8 @@ def publish_set_symbols(redis_client: redis.Redis, symbols: List[str], stream: s
         "symbols": symbols,
         "ts": get_ny_time_millis()
     }
-    
-    redis_client.xadd(stream, {"data": json.dumps(command)}, maxlen=50000)
+
+    redis_client.xadd(stream, {"data": json.dumps(command)}, maxlen=50000, approximate=True)
     print(f"📤 Published: SET {symbols}")
 
 
@@ -659,9 +660,9 @@ def publish_set_symbols(redis_client: redis.Redis, symbols: List[str], stream: s
 
 if __name__ == "__main__":
     """CLI для управления символами"""
-    import sys
     import os
-    
+    import sys
+
     if len(sys.argv) < 2:
         print("Usage:")
         print("  python symbol_manager.py add BTCUSD ETHUSD")
@@ -669,25 +670,25 @@ if __name__ == "__main__":
         print("  python symbol_manager.py set  BTCUSD ETHUSD")
         print("  python symbol_manager.py list")
         sys.exit(1)
-    
+
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     r = redis.from_url(redis_url, decode_responses=True)
-    
+
     action = sys.argv[1]
     symbols = sys.argv[2:] if len(sys.argv) > 2 else []
-    
+
     if action == "add":
         publish_add_symbols(r, symbols)
         print(f"✅ Command sent: ADD {symbols}")
-        
+
     elif action == "remove":
         publish_remove_symbols(r, symbols)
         print(f"✅ Command sent: REMOVE {symbols}")
-        
+
     elif action == "set":
         publish_set_symbols(r, symbols)
         print(f"✅ Command sent: SET {symbols}")
-        
+
     elif action == "list":
         # Получить текущий список из Redis (если хранится)
         try:
@@ -699,7 +700,7 @@ if __name__ == "__main__":
                 print("No symbols configured (check config:symbols stream)")
         except Exception as e:
             print(f"Error: {e}")
-    
+
     else:
         print(f"Unknown action: {action}")
         sys.exit(1)

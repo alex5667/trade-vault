@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """P59 nightly bundle for edge_stack_v1 (Dataset -> Validate -> Train -> Validate -> Promote).
 
 Design goals:
@@ -27,7 +29,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -35,20 +37,22 @@ except Exception:
     redis = None  # type: ignore
 
 try:
-    from tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 except Exception:
-    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from ml_analysis.tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 
 from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import (
     atomic_copy,
     atomic_write_json,
+    compare_with_champion,
     now_ms,
     validate_dataset_report,
     validate_train_report,
-    compare_with_champion,
     write_train_metrics,
 )
-
+import contextlib
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("nightly_edge_stack_v1_bundle_p59")
@@ -63,7 +67,7 @@ def _sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def _run(module: str, args: list, timeout: int = 3600) -> Tuple[bool, str, str]:
+def _run(module: str, args: list, timeout: int = 3600) -> tuple[bool, str, str]:
     """Run a python module via subprocess, return (ok, stdout, stderr)."""
     cmd = [sys.executable, "-m", module] + list(args)
     logger.info("Running: %s", " ".join(cmd))
@@ -74,10 +78,10 @@ def _run(module: str, args: list, timeout: int = 3600) -> Tuple[bool, str, str]:
     return ok, (p.stdout or ""), (p.stderr or "")
 
 
-def _load_json(path: str) -> Dict[str, Any]:
+def _load_json(path: str) -> dict[str, Any]:
     """Load JSON from file; return empty dict on any error."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         return obj if isinstance(obj, dict) else {}
     except Exception:
@@ -91,7 +95,7 @@ def _connect_redis(redis_url: str):
     return redis.Redis.from_url(redis_url, decode_responses=True)
 
 
-def _write_cfg(r, key: str, mapping: Dict[str, Any]) -> None:
+def _write_cfg(r, key: str, mapping: dict[str, Any]) -> None:
     """Best-effort cfg write. Uses HSET for legacy hash keys, or SET JSON for new keys."""
     try:
         # Detect if it's a legacy hash
@@ -103,7 +107,7 @@ def _write_cfg(r, key: str, mapping: Dict[str, Any]) -> None:
                     is_hash = True
             except Exception:
                 pass
-            
+
         if is_hash:
             flat = {str(k): str(v) for k, v in mapping.items() if v is not None}
             if flat:
@@ -127,7 +131,7 @@ def _build_telegram_report(
     tv_reason: str,
     tv_brier: float,
     tv_ece: float,
-    tr: Dict[str, Any],
+    tr: dict[str, Any],
     champion_cmp: Any,
     n_total: int,
     n_oof: int,
@@ -156,7 +160,7 @@ def _build_telegram_report(
         *,
         lower_better: bool = True,
         fmt: str = ".6f",
-        threshold: Optional[float] = None,
+        threshold: float | None = None,
         pct: bool = False,
     ) -> str:
         """Build one table row."""
@@ -236,7 +240,7 @@ def _notify_telegram_sync(
     redis_url: str,
     text: str,
     *,
-    stream: str = "notify:telegram",
+    stream: str = RS.NOTIFY_TELEGRAM,
 ) -> None:
     """Best-effort synchronous Redis xadd to notify:telegram stream."""
     try:
@@ -253,14 +257,14 @@ def _notify_telegram_sync(
         logger.warning("[telegram-notify] failed: %s", e)
 
 
-def main(argv: Optional[list] = None) -> int:
+def main(argv: list | None = None) -> int:
     ap = argparse.ArgumentParser(description="P59 nightly edge_stack_v1 train bundle")
     ap.add_argument("--redis_url", default=os.environ.get("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--cfg_hash_key", default=os.environ.get("ML_CONFIRM_CFG_KEY", "cfg:ml_confirm"))
     ap.add_argument("--metrics_key", default=os.environ.get("EDGE_STACK_TRAIN_METRICS_KEY", "metrics:edge_stack_train:last"))
 
     ap.add_argument("--out_dir", default=os.environ.get("EDGE_STACK_V1_DIR", "/var/lib/trade/ml_models/edge_stack_v1"))
-    ap.add_argument("--signals_stream", default=os.environ.get("EDGE_STACK_SIGNALS_STREAM", "signals:of:inputs"))
+    ap.add_argument("--signals_stream", default=os.environ.get("EDGE_STACK_SIGNALS_STREAM", RS.OF_INPUTS))
     ap.add_argument("--closed_stream", default=os.environ.get("EDGE_STACK_CLOSED_STREAM", "trades:closed"))
     ap.add_argument("--window_hours", type=int, default=int(os.environ.get("EDGE_STACK_WINDOW_HOURS", "72")))
     ap.add_argument("--signals_count", type=int, default=int(os.environ.get("EDGE_STACK_SIGNALS_COUNT", "200000")))
@@ -295,7 +299,7 @@ def main(argv: Optional[list] = None) -> int:
     ap.add_argument("--ece_max", type=float, default=float(os.environ.get("EDGE_STACK_PROMOTE_ECE_MAX", "0.08")))
     # auto_promote=0 is safe default: produces candidate but never auto-promotes champion
     ap.add_argument("--auto_promote", type=int, default=int(os.environ.get("EDGE_STACK_AUTO_PROMOTE", "0")))
-    
+
     # Optional explicitly-provided dataset and aliases
     ap.add_argument("--dataset", required=False, help="Path to pre-built JSONL dataset. Skips dataset generation step.")
     ap.add_argument("--dataset_report", required=False, help="Path to pre-built dataset report JSON.")
@@ -376,9 +380,9 @@ def main(argv: Optional[list] = None) -> int:
         if not os.path.exists(pre_report):
             # Fallback to the hardcoded v12 report name in the same folder
             pre_report = os.path.join(os.path.dirname(args.dataset), "v12_of_report.json")
-            
+
         logger.info("Using pre-built report: %s", pre_report)
-        
+
         # We don't redefine dataset_jsonl string globally, we just copy it into our run_dir
         # so steps 2 and 3 can use it seamlessly
         try:
@@ -404,7 +408,7 @@ def main(argv: Optional[list] = None) -> int:
             "--out_report_json", dataset_report,
             "--out_quarantine_jsonl", quarantine_jsonl,
             "--emit_feature_cols_json", feature_cols_json,
-            "--feature_schema_ver", str(feature_schema_ver or "").strip(),
+            "--feature_schema_ver", (feature_schema_ver or "").strip(),
             "--scenario_prefix", str(args.scenario_prefix),
             "--include_time_onehot", str(int(args.include_time_onehot)),
             "--strict_feature_cols", str(int(args.strict_feature_cols)),
@@ -420,10 +424,8 @@ def main(argv: Optional[list] = None) -> int:
                 "run_id": run_id,
                 "updated_ts_ms": now_ms(),
             }
-            try:
+            with contextlib.suppress(Exception):
                 write_train_metrics(str(args.redis_url), str(args.metrics_key), mapping)
-            except Exception:
-                pass
             atomic_write_json(version_json, {"run_id": run_id, "status": "fail_build", "reason": "dataset_build_failed"})
             atomic_write_json(bundle_latest, {"run_id": run_id, "status": "fail_build", "reason": "dataset_build_failed"})
             return 2
@@ -447,10 +449,8 @@ def main(argv: Optional[list] = None) -> int:
             mapping["feature_cols_hash"] = fr.get("feature_cols_hash", "")
             mapping["schema_hash"] = fr.get("schema_hash", "")
             mapping["feature_schema_ver"] = fr.get("schema_ver", "")
-        try:
+        with contextlib.suppress(Exception):
             write_train_metrics(str(args.redis_url), str(args.metrics_key), mapping)
-        except Exception:
-            pass
         atomic_write_json(version_json, {"run_id": run_id, "status": "fail_validate", "reason": dv.reason, "dataset_report": rep})
         atomic_write_json(bundle_latest, {"run_id": run_id, "status": "fail_validate", "reason": dv.reason})
         return 3
@@ -472,7 +472,7 @@ def main(argv: Optional[list] = None) -> int:
         # --feature_cols_json is intentionally NOT passed: when --feature_schema_ver=v9_of
         # is set, trainer derives feature_cols from registry directly.
         # Passing both triggers strict_registry_match check which fails due to session_* one-hots.
-        "--feature_schema_ver", str(feature_schema_ver or "").strip(),
+        "--feature_schema_ver", (feature_schema_ver or "").strip(),
         "--scenario_prefix", str(args.scenario_prefix),
         "--include_time_onehot", str(int(args.include_time_onehot)),
         "--require_feature_registry", "0",
@@ -490,16 +490,14 @@ def main(argv: Optional[list] = None) -> int:
             "pos_rate": dv.pos_rate,
             "updated_ts_ms": now_ms(),
         }
-        try:
+        with contextlib.suppress(Exception):
             write_train_metrics(str(args.redis_url), str(args.metrics_key), mapping)
-        except Exception:
-            pass
         atomic_write_json(version_json, {"run_id": run_id, "status": "fail_train", "reason": "train_failed"})
         atomic_write_json(bundle_latest, {"run_id": run_id, "status": "fail_train", "reason": "train_failed"})
         return 4
 
     # parse train report from stdout (last JSON object on line)
-    tr: Dict[str, Any] = {}
+    tr: dict[str, Any] = {}
     for line in (out or "").splitlines()[::-1]:
         line = line.strip()
         if line.startswith("{") and line.endswith("}"):
@@ -525,7 +523,7 @@ def main(argv: Optional[list] = None) -> int:
             "kind": "edge_stack_v1",
             "model_path": candidate_path,
             "model_ver": run_id,
-            "feature_schema_ver": str(feature_schema_ver or ""),
+            "feature_schema_ver": (feature_schema_ver or ""),
             "mode": "SHADOW",
             "fail_policy": "OPEN"
         })
@@ -602,7 +600,7 @@ def main(argv: Optional[list] = None) -> int:
                     "kind": "edge_stack_v1",
                     "model_path": champion_path,
                     "model_ver": run_id,
-                    "feature_schema_ver": str(feature_schema_ver or ""),
+                    "feature_schema_ver": (feature_schema_ver or ""),
                     "mode": "ENFORCE",
                     "fail_policy": "OPEN"
                 })
@@ -631,7 +629,7 @@ def main(argv: Optional[list] = None) -> int:
         "oof_meta_ece": tv.ece,
         "train_ok": 1 if tv.ok else 0,
         "train_reason": tv.reason,
-        "feature_schema_ver": str(feature_schema_ver or ""),
+        "feature_schema_ver": (feature_schema_ver or ""),
         "candidate_path": candidate_path,
         "champion_path": champion_path if promoted else "",
         "promote_applied": 1 if promoted else 0,
@@ -649,14 +647,12 @@ def main(argv: Optional[list] = None) -> int:
     # Pin hashes from dataset/train reports for Prometheus alerts
     fr = rep.get("feature_registry") if isinstance(rep, dict) else None
     if isinstance(fr, dict):
-        mapping["feature_cols_hash"] = str(fr.get("feature_cols_hash") or "")
-        mapping["schema_hash"] = str(fr.get("schema_hash") or "")
+        mapping["feature_cols_hash"] = (fr.get("feature_cols_hash") or "")
+        mapping["schema_hash"] = (fr.get("schema_hash") or "")
     if isinstance(tr, dict):
-        mapping["train_feature_cols_hash"] = str(tr.get("feature_cols_hash") or "")
-    try:
+        mapping["train_feature_cols_hash"] = (tr.get("feature_cols_hash") or "")
+    with contextlib.suppress(Exception):
         write_train_metrics(str(args.redis_url), str(args.metrics_key), mapping)
-    except Exception:
-        pass
 
     # --- Step 8: Persist bundle manifest (versioned + latest symlink)
     manifest = {
@@ -712,10 +708,10 @@ def main(argv: Optional[list] = None) -> int:
 
     # --- Step 9: Telegram notification (best-effort, non-blocking)
     try:
-        notify_stream = str(os.environ.get("NOTIFY_TELEGRAM_STREAM", "notify:telegram"))
+        notify_stream = os.environ.get("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
         tg_text = _build_telegram_report(
             run_id=run_id,
-            schema_ver=str(feature_schema_ver or ""),
+            schema_ver=(feature_schema_ver or ""),
             promoted=promoted,
             promote_reason=promote_reason,
             dv_ok=dv.ok,

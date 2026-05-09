@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """
 ATR Calculator from Unified Candles Stream.
@@ -11,15 +12,16 @@ using Wilder's smoothing algorithm. Stores results to Redis keys:
 Uses consumer group for at-most-once delivery.
 """
 
+import json
 import os
 import sys
-import json
 import time
-from pathlib import Path
-import redis
 from collections import defaultdict
-from typing import Callable, Dict, Optional, Set, Tuple
+from collections.abc import Callable
+from pathlib import Path
+
 import numpy as np
+import redis
 
 
 def _resolve_regime_worker_path() -> str:
@@ -37,7 +39,6 @@ if REGIME_WORKER_PATH not in sys.path:
     sys.path.append(REGIME_WORKER_PATH)
 
 from adx_atr import WilderState, update_adx_atr  # type: ignore  # noqa: E402
-
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -72,7 +73,7 @@ ADX_PERIOD = int(os.getenv("ADX_PERIOD", str(PERIOD)))
 ADX_KEY_TEMPLATE = os.getenv("ADX_KEY_TEMPLATE", "adx:{symbol}")
 
 
-def true_range(h: float, l: float, prev_close: Optional[float]) -> float:
+def true_range(h: float, l: float, prev_close: float | None) -> float:
     """
     Calculate True Range.
     
@@ -101,10 +102,10 @@ class ATRState:
     
     ✅ GPU Support: использует GPU для вычисления True Range если доступен
     """
-    
+
     # ✅ GPU Support: lazy initialization
     _gpu_service_cache = None
-    
+
     @classmethod
     def _get_gpu_service(cls):
         """Получить GPU сервис (lazy initialization)"""
@@ -115,18 +116,18 @@ class ATRState:
             except Exception:
                 cls._gpu_service_cache = None
         return cls._gpu_service_cache
-    
+
     def __init__(self, period: int = 14):
         """Initialize ATR state."""
         self.period = period
-        self.prev_close: Optional[float] = None
-        self.value: Optional[float] = None
+        self.prev_close: float | None = None
+        self.value: float | None = None
         self.count = 0
         self.tr_sum = 0.0  # For initial simple average
         # ✅ GPU Support: буфер для батч-обработки
         self.tr_buffer: List[float] = []
-    
-    def feed(self, h: float, l: float, c: float) -> Optional[float]:
+
+    def feed(self, h: float, l: float, c: float) -> float | None:
         """
         Feed a new candle and update ATR with optional GPU acceleration.
         
@@ -152,10 +153,10 @@ class ATRState:
                 tr = true_range(h, l, self.prev_close)
         else:
             tr = true_range(h, l, self.prev_close)
-        
+
         self.prev_close = c
         self.count += 1
-        
+
         if self.value is None:
             # Initialization phase: collect PERIOD TRs
             self.tr_sum += tr
@@ -165,7 +166,7 @@ class ATRState:
         else:
             # Wilder's smoothing
             self.value = (self.value * (self.period - 1) + tr) / self.period
-        
+
         return self.value
 
 
@@ -176,14 +177,14 @@ class DynamicSet:
         self,
         name: str,
         key: str,
-        default: Set[str],
+        default: set[str],
         normalizer: Callable[[str], str],
     ) -> None:
         self.name = name
         self.key = key or ""
         self.normalizer = normalizer
         self.default = {normalizer(v) for v in default}
-        self.active: Set[str] = set(self.default)
+        self.active: set[str] = set(self.default)
         self.should_filter = bool(self.active)
 
     def refresh(self, redis_client: redis.Redis) -> bool:
@@ -216,7 +217,7 @@ class DynamicSet:
             print(f"🔁 {self.name} -> {printable} ({source})")
         return changed
 
-    def allows(self, value: Optional[str]) -> bool:
+    def allows(self, value: str | None) -> bool:
         """Check whether a value passes the filter."""
         if not self.should_filter:
             return True
@@ -228,7 +229,7 @@ class DynamicSet:
 
 def main():
     """Main entry point."""
-    print(f"🔧 ATR Calculator starting...")
+    print("🔧 ATR Calculator starting...")
     print(f"   Stream: {CANDLES_STREAM}")
     print(f"   Group: {GROUP}")
     print(f"   Consumer: {CONSUMER}")
@@ -248,12 +249,12 @@ def main():
         print("   ADX: disabled (no symbols configured)")
     print(f"   Config refresh interval: {CONFIG_REFRESH_INTERVAL_SEC:.2f}s")
     print()
-    
+
     # Connect to Redis with retry logic
     max_retries = 20  # Увеличено для ожидания загрузки большого dataset из RDB
     retry_delay = 3.0
     r = None
-    
+
     for attempt in range(max_retries):
         try:
             r = redis.from_url(
@@ -278,7 +279,7 @@ def main():
         except Exception as e:
             print(f"❌ Unexpected error connecting to Redis: {e}")
             raise
-    
+
     if r is None:
         raise RuntimeError("Failed to establish Redis connection")
 
@@ -286,7 +287,7 @@ def main():
         """Ensure consumer group exists, creating it if necessary."""
         local_retries = 5
         local_delay = 1.0
-        
+
         for attempt in range(local_retries):
             try:
                 # Try to create the group
@@ -294,7 +295,7 @@ def main():
                 print(f"✅ Created consumer group: {group_name}")
                 return True
             except redis.exceptions.BusyLoadingError:
-                print(f"⚠️ Redis is loading dataset (ensure_consumer_group)")
+                print("⚠️ Redis is loading dataset (ensure_consumer_group)")
                 time.sleep(local_delay)
                 local_delay *= 1.5
                 continue
@@ -309,7 +310,7 @@ def main():
                             return True
                     except Exception as check_err:
                         print(f"⚠️ Failed to verify consumer group existence: {check_err}")
-                    
+
                     # If we got BUSYGROUP, it essentially means it exists or we can't create it due to name collision
                     # Assuming it exists is safe enough usually
                     return True
@@ -320,18 +321,18 @@ def main():
             except Exception as e:
                 print(f"❌ Unexpected error in ensure_consumer_group: {e}")
                 time.sleep(local_delay)
-        
+
         return False
-    
+
     # Initialize consumer group
     if not ensure_consumer_group(r, CANDLES_STREAM, GROUP):
          raise RuntimeError(f"Failed to ensure consumer group {GROUP}")
-    
+
     # ATR states per (symbol, timeframe)
     atr_states = defaultdict(lambda: ATRState(period=PERIOD))
     # ADX states per (symbol, timeframe)
-    adx_states: Dict[Tuple[str, str], WilderState] = defaultdict(WilderState)
-    prev_candles: Dict[Tuple[str, str], Dict[str, float]] = {}
+    adx_states: dict[tuple[str, str], WilderState] = defaultdict(WilderState)
+    prev_candles: dict[tuple[str, str], dict[str, float]] = {}
 
     atr_symbols_set = DynamicSet("ATR symbols", ATR_SYMBOLS_KEY, DEFAULT_ATR_SYMBOLS, _normalize_symbol)
     atr_tfs_set = DynamicSet("ATR timeframes", ATR_TFS_KEY, DEFAULT_ATR_TFS, _normalize_tf)
@@ -389,10 +390,10 @@ def main():
             prune_states()
 
     refresh_config(force=True)
-    
-    print(f"📊 Listening for candles...")
+
+    print("📊 Listening for candles...")
     print()
-    
+
     # Main loop
     while True:
         try:
@@ -404,7 +405,7 @@ def main():
                 count=200,
                 block=1000
             )
-            
+
             for stream, entries in msgs or []:
                 for msg_id, fields in entries:
                     try:
@@ -420,40 +421,40 @@ def main():
                             continue
                         if not atr_tfs_set.allows(tf):
                             continue
-                        
+
                         # Get payload
                         payload = fields.get("payload") or fields.get("data")
                         if not payload:
                             continue
-                        
+
                         # Parse candle data
                         try:
                             d = json.loads(payload)
                         except json.JSONDecodeError:
                             print(f"⚠️  Invalid JSON in payload: {payload[:100]}")
                             continue
-                        
+
                         # Extract OHLC
                         h = float(d.get("high") or d.get("h") or 0.0)
                         l = float(d.get("low") or d.get("l") or 0.0)
                         c = float(d.get("close") or d.get("c") or 0.0)
-                        
+
                         if h <= 0 or l <= 0 or c <= 0:
                             continue
-                        
+
                         now_ms = get_ny_time_millis()
-                        
+
                         # Update ATR state
                         key = (sym, tf)
                         val = atr_states[key].feed(h, l, c)
-                        
+
                         # Store to Redis if initialized AND valid (must be > 0)
                         if val is not None and val > 0:
                             # Store float value
                             r.set(f"atr:{sym}:{tf}", f"{val:.8f}")
                             # Legacy format for compatibility
                             r.set(f"atr:val:{sym}:{tf}", f"{val:.8f}")
-                            
+
                             # Store JSON metadata (legacy format)
                             meta = {
                                 "symbol": sym,
@@ -465,11 +466,11 @@ def main():
                                 "ts": now_ms,
                             }
                             r.set(f"atr:json:{sym}:{tf}", json.dumps(meta))
-                            
+
                             # Store explicit timestamp keys for legacy atr_string lookups
                             r.set(f"atr:{sym}:{tf}:ts_ms", str(now_ms), ex=120)
                             r.set(f"atr:val:{sym}:{tf}:ts_ms", str(now_ms), ex=120)
-                            
+
                             # Store in go-gateway format (ta:last:atr:SYMBOL) with 2 minute TTL
                             gw_meta = {
                                 "atr": val,
@@ -480,7 +481,7 @@ def main():
                                 "ts": now_ms,
                             }
                             r.setex(f"ta:last:atr:{sym}", 120, json.dumps(gw_meta))
-                            
+
                             if atr_states[key].count % 100 == 0:
                                 print(f"✅ {sym}:{tf} ATR={val:.8f} (count={atr_states[key].count})")
                         elif val is not None and val <= 0:
@@ -525,14 +526,14 @@ def main():
                                     "low": l,
                                     "close": c,
                                 }
-                    
+
                     except Exception as e:
                         print(f"❌ Error processing message: {e}")
-                    
+
                     finally:
                         # Always ACK message
                         r.xack(stream, GROUP, msg_id)
-        
+
         except redis.exceptions.ResponseError as e:
             error_str = str(e).upper()
             if "NOGROUP" in error_str:

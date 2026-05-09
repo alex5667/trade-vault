@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """services.news_reco_reader.metrics
 
 Minimal Prometheus metrics for trade-side news recommendations reader.
@@ -12,7 +13,7 @@ Design goals
 
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 class _NoopMetric:
@@ -25,7 +26,7 @@ class _NoopMetric:
     def observe(self, value: float) -> None:
         return
 
-    def labels(self, **kwargs: Any) -> "_NoopMetric":  # noqa: ANN401
+    def labels(self, **kwargs: Any) -> _NoopMetric:  # noqa: ANN401
         return self
 
 

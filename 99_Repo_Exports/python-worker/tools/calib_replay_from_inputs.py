@@ -3,14 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 from core.eff_quote_calibrator import EffQuoteCalibrator
 
 
-def load_payload_ndjson(path: str) -> List[Dict[str, Any]]:
+def load_payload_ndjson(path: str) -> list[dict[str, Any]]:
     out = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -42,7 +42,7 @@ def load_payload_redis_streams(
     start_id: str,
     count: int,
     max_batches: int,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Split-streams migration helper:
       - if stream contains '{sym}', expand per symbol from symbols_set and read per-symbol streams
@@ -55,7 +55,7 @@ def load_payload_redis_streams(
     import redis  # redis-py
 
     r = redis.Redis.from_url(redis_url, decode_responses=True)
-    syms: List[str] = []
+    syms: list[str] = []
     if "{sym}" in stream:
         try:
             syms = sorted([_to_str(x) for x in (r.smembers(symbols_set) or set()) if _to_str(x)])
@@ -64,7 +64,7 @@ def load_payload_redis_streams(
     else:
         syms = ["_single_"]
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for sym in syms:
         skey = stream.format(sym=sym) if sym != "_single_" else stream
         last = start_id
@@ -77,7 +77,7 @@ def load_payload_redis_streams(
                 break
             for msg_id, fields in entries:
                 last = _to_str(msg_id) or last
-                d: Dict[str, Any] = dict(fields or {})
+                d: dict[str, Any] = dict(fields or {})
                 p = d.get("payload")
                 if isinstance(p, str) and p and (p.startswith("{") or p.startswith("[")):
                     try:
@@ -120,12 +120,12 @@ def main() -> None:
     rows.sort(key=lambda x: (int(x.get("ts_ms", 0)), x.get("symbol", ""), x.get("scenario", "")))
 
     # per symbol calibrator
-    cal: Dict[str, EffQuoteCalibrator] = {}
-    out: List[Dict[str, Any]] = []
+    cal: dict[str, EffQuoteCalibrator] = {}
+    out: list[dict[str, Any]] = []
 
     for r in rows:
-        sym = str(r.get("symbol", ""))
-        regime = str(r.get("regime", "na") or "na")
+        sym = (r.get("symbol", ""))
+        regime = (r.get("regime", "na") or "na")
         ts_ms = int(r.get("ts_ms", 0) or 0)
         effq = float(r.get("fp_eff_quote", 0.0) or 0.0)
         qd = float(r.get("fp_quote_delta", 0.0) or 0.0)

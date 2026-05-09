@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Smoke tests for v7 schema wiring in ML analysis CLI tools.
 
 We keep this test intentionally lightweight:
@@ -10,11 +11,10 @@ We keep this test intentionally lightweight:
 
 import json
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pytest
-
 
 # Ensure tick_flow_full is importable as top-level packages (core/, services/, common/).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -46,9 +46,9 @@ def test_v7_schema_choices_help_smoke() -> None:
     from ml_analysis.tools import build_dataset_from_inputs_outcomes_v2 as t_build
     from ml_analysis.tools import build_edge_stack_dataset_from_redis as t_redis
     from ml_analysis.tools import feature_selection_loop_v1 as t_fs
-    from ml_analysis.tools import train_edge_stack_v1_oof as t_train
     from ml_analysis.tools import nightly_edge_stack_v1_train_bundle as t_bundle
     from ml_analysis.tools import nightly_feature_selection_loop_bundle_v1 as t_fs_bundle
+    from ml_analysis.tools import train_edge_stack_v1_oof as t_train
 
     _expect_help_ok(t_build.main, takes_argv=False)
     _expect_help_ok(t_redis.main, takes_argv=True)
@@ -136,6 +136,6 @@ def test_build_dataset_wide_cols_v7_smoke(tmp_path: Path) -> None:
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary.get("emit_wide_cols") == 1
-    assert str(summary.get("schema_ver")) in ("v7_of", "v7")
+    assert (summary.get("schema_ver")) in ("v7_of", "v7")
     # when registry is available, schema_hash should be included
     assert "schema_hash" in summary

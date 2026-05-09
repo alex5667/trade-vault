@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Единая конфигурация источников новостей/календаря.
 
@@ -13,8 +13,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 DEFAULT_RSS_URLS = [
     # RSS URLs из вашего Excel файла (news_sources_tables.xlsx)
@@ -43,12 +42,12 @@ class ProviderFlags:
 @dataclass(frozen=True)
 class SourcesConfig:
     # providers order controls ingestion priority (useful for rate limits)
-    providers: List[str]
-    raw: Dict[str, Any]
+    providers: list[str]
+    raw: dict[str, Any]
     flags: ProviderFlags
 
     @property
-    def rss_urls(self) -> List[str]:
+    def rss_urls(self) -> list[str]:
         rss = self.raw.get("rss", {}) if isinstance(self.raw, dict) else {}
         urls = rss.get("urls") if isinstance(rss, dict) else None
         if isinstance(urls, list) and urls:
@@ -71,7 +70,7 @@ def load_sources_config() -> SourcesConfig:
     """
     raw_json = _env("NEWS_SOURCES_JSON", "").strip()
     if not raw_json:
-        raw: Dict[str, Any] = {
+        raw: dict[str, Any] = {
             "providers": ["rss"],
             "rss": {"enabled": True, "urls": list(DEFAULT_RSS_URLS)},
         }

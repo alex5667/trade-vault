@@ -5,7 +5,7 @@ import os
 import random
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from orderflow_services.context_cache_registry_v1 import ContextCacheRegistryV1
 from orderflow_services.vertex_budget_guard_v1 import VertexBudgetGuardV1
@@ -22,7 +22,7 @@ class VertexBatchItemResult:
     model_name: str
     batch_id: str
     request_id: str
-    output_json: Dict[str, Any]
+    output_json: dict[str, Any]
     latency_ms: int
     input_chars: int
     output_chars: int
@@ -38,13 +38,13 @@ class VertexGenAIProviderV12:
         self.model_name = os.getenv("VERTEX_BATCH_TRIAGE_MODEL", os.getenv("VERTEX_TRIAGE_MODEL", "gemini-2.5-flash-lite"))
         self.retry_max = int(os.getenv("VERTEX_RETRY_MAX", "5") or 5)
         self.retry_base_ms = int(os.getenv("VERTEX_RETRY_BASE_MS", "500") or 500)
-        self.context_cache_enable = str(os.getenv("VERTEX_CONTEXT_CACHE_ENABLE", "0") or "0") == "1"
-        self.context_cache_mode = str(os.getenv("VERTEX_CONTEXT_CACHE_MODE", "ADVISORY") or "ADVISORY").upper()
+        self.context_cache_enable = (os.getenv("VERTEX_CONTEXT_CACHE_ENABLE", "0") or "0") == "1"
+        self.context_cache_mode = (os.getenv("VERTEX_CONTEXT_CACHE_MODE", "ADVISORY") or "ADVISORY").upper()
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         self.budget_guard = VertexBudgetGuardV1(self.redis_url)
         self.cache_registry = ContextCacheRegistryV1(self.redis_url)
 
-    def _build_batch_prompt(self, payload: Dict[str, Any]) -> str:
+    def _build_batch_prompt(self, payload: dict[str, Any]) -> str:
         items = payload.get("items_json") or []
         body = {
             "task": "fleet_batch_triage",
@@ -59,7 +59,7 @@ class VertexGenAIProviderV12:
         }
         return json.dumps(body, ensure_ascii=False, sort_keys=True)
 
-    def _parse_batch_response(self, text: str, fallback_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _parse_batch_response(self, text: str, fallback_payload: dict[str, Any]) -> list[dict[str, Any]]:
         try:
             obj = json.loads(text)
             if isinstance(obj, dict) and isinstance(obj.get("items"), list):
@@ -70,7 +70,7 @@ class VertexGenAIProviderV12:
             pass
         # deterministic fallback: emit one blocked/inspection result per item
         items = fallback_payload.get("items_json") or []
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for item in items:
             out.append({
                 "analysis_run_id": f"fallback_{item.get('model_id', 'unknown')}",
@@ -80,7 +80,7 @@ class VertexGenAIProviderV12:
                 "recommendations": [
                     {
                         "action": "open_incident",
-                        "target": str(item.get("model_id") or "unknown"),
+                        "target": (item.get("model_id") or "unknown"),
                         "risk": "low",
                         "reason_code": "VERTEX_BATCH_PARSE_FAILED",
                     }
@@ -112,11 +112,11 @@ class VertexGenAIProviderV12:
             raise VertexProviderError("empty_vertex_response")
         return str(text)
 
-    def analyze_batch(self, payload: Dict[str, Any]) -> List[VertexBatchItemResult]:
-        batch_id = str(payload.get("batch_id") or "")
+    def analyze_batch(self, payload: dict[str, Any]) -> list[VertexBatchItemResult]:
+        batch_id = (payload.get("batch_id") or "")
         prompt = self._build_batch_prompt(payload)
-        prompt_version = str(payload.get("prompt_version") or "unknown")
-        policy_version = str(payload.get("policy_version") or "unknown")
+        prompt_version = (payload.get("prompt_version") or "unknown")
+        policy_version = (payload.get("policy_version") or "unknown")
         compact_hash = str(payload.get("batch_compact_hash") or batch_id)
         context_cache_ref = ""
         if self.context_cache_enable:
@@ -131,7 +131,7 @@ class VertexGenAIProviderV12:
             raise VertexProviderError(f"budget_guard:{budget_dec.reason}")
 
         started = time.perf_counter()
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         text = ""
         for attempt in range(self.retry_max):
             try:
@@ -148,7 +148,7 @@ class VertexGenAIProviderV12:
         output_chars = len(text)
         actual_cost = estimate_cost_usd(model_name=self.model_name, input_chars=input_chars, output_chars=output_chars)
         items = payload.get("items_json") or []
-        out: List[VertexBatchItemResult] = []
+        out: list[VertexBatchItemResult] = []
         for idx, item in enumerate(items):
             result_json = parsed[idx] if idx < len(parsed) else {
                 "analysis_run_id": f"missing_{item.get('model_id', idx)}",

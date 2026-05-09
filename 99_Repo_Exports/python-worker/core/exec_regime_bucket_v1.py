@@ -31,7 +31,7 @@ class ExecRegimeBucketResult:
 
 
 def _norm(s: str) -> str:
-    return str(s or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return (s or "").strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def compute_exec_regime_bucket(

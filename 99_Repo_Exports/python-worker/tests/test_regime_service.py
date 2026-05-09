@@ -4,6 +4,7 @@ Tests for MarketRegimeService.
 """
 
 import pytest
+
 from handlers.regime_service import MarketRegimeService, RegimeConfig, RegimeFeatures, regime_label_to_enum
 
 

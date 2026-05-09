@@ -68,7 +68,7 @@ def test_build_shadow_rows_have_expected_family_and_shape():
     assert handoff["shadow_mode"] == "1"
     assert "payload_json" in handoff
     assert handoff["force_local"] == "0"
-    
+
     assert legacy["shadow_mode"] == "1"
     assert legacy["incident_id"] == "route-inc-1"
     assert "payload_json" in legacy

@@ -1,9 +1,10 @@
 import json
 import logging
-from typing import Any, Dict
-from services.orderflow.metrics import log_silent_error, calib_persist_total
+from typing import Any
+
 from core.book_rate_calibrator import BookRateCalibrator
 from core.dyn_cfg_keys import DynCfgKeys as DK
+from services.orderflow.metrics import calib_persist_total, log_silent_error
 
 logger = logging.getLogger("crypto_orderflow.calibration_repo")
 
@@ -18,13 +19,13 @@ class CalibrationRepository:
         Redis-first + PG safety-net. Applies into runtime calibrators.
         """
         sym = str(runtime.symbol)
-        
+
         # 1. Load EffQuote (effq)
         await self._load_effq(runtime)
-        
+
         # 2. Load BookRate (bookrate)
         await self._load_bookrate(runtime)
-        
+
         # 3. Load DeltaNotional (dn) and Tick DeltaNotional (tick_dn)
         await self._load_dn(runtime)
         await self._load_tick_dn(runtime)
@@ -47,7 +48,7 @@ class CalibrationRepository:
                     state_json = s.get("state_json")
                     if not state_json:
                         continue
-                    
+
                     if kind == "effq":
                         runtime.eff_calib.load_regime_state(state_json)
                     elif kind == "dn":
@@ -176,7 +177,7 @@ class CalibrationRepository:
 
     async def _load_atr_tf(self, runtime):
         sym = str(runtime.symbol)
-        
+
         # 1. Load Choice (Active Selection)
         try:
             prefix = str(runtime.config.get("atr_tf_key_prefix", "calib:atr_tf"))
@@ -185,10 +186,10 @@ class CalibrationRepository:
             raw = await self.r.get(key)
             if raw:
                 st = json.loads(raw)
-                tf = str(st.get("tf") or "")
+                tf = (st.get("tf") or "")
                 if tf:
                     runtime.dynamic_cfg[DK.ATR_TF_SELECTED] = tf
-                    runtime.dynamic_cfg[DK.ATR_TF_SRC] = str(st.get("src") or "na")
+                    runtime.dynamic_cfg[DK.ATR_TF_SRC] = (st.get("src") or "na")
                     runtime.dynamic_cfg[DK.ATR_TF_SCORE] = float(st.get("score", 0.0) or 0.0)
                     runtime.dynamic_cfg[DK.ATR_TF_UPDATED_TS_MS] = int(st.get("updated_ts_ms", 0) or 0)
         except Exception as exc:
@@ -216,10 +217,10 @@ class CalibrationRepository:
     async def save_effq(self, runtime, *, regime: str, ts_ms: int) -> None:
         cfg = runtime.config
         sym = str(runtime.symbol)
-        rg = str(regime or "na")
+        rg = (regime or "na")
 
-        prefix = str(cfg.get("calib_key_prefix", "calib:effq"))
-        set_prefix = str(cfg.get("calib_regimes_set_prefix", "calib:effq:regimes"))
+        prefix = (cfg.get("calib_key_prefix", "calib:effq"))
+        set_prefix = (cfg.get("calib_regimes_set_prefix", "calib:effq:regimes"))
         ttl_sec = int(cfg.get("calib_ttl_sec", 7 * 24 * 3600))
         key = f"{prefix}:{sym}:{rg}"
         regimes_key = f"{set_prefix}:{sym}"
@@ -244,7 +245,7 @@ class CalibrationRepository:
         # 3. Audit Stream (with Dedup)
         try:
             if bool(int(cfg.get("calib_audit_enable", 1))):
-                audit_stream = str(cfg.get("calib_audit_stream", "signals:calib:effq"))
+                audit_stream = (cfg.get("calib_audit_stream", "signals:calib:effq"))
                 maxlen = int(cfg.get("calib_audit_stream_maxlen", 200000))
 
                 th = runtime.eff_calib.thresholds(
@@ -263,8 +264,8 @@ class CalibrationRepository:
 
                 last_key = f"{prefix}:last_hash:{sym}:{rg}"
                 prev = await self.r.get(last_key)
-                if str(prev or "") != str(ev.get("state_hash", "")):
-                    await self.r.set(last_key, str(ev.get("state_hash", "")), ex=ttl_sec)
+                if (prev or "") != (ev.get("state_hash", "")):
+                    await self.r.set(last_key, (ev.get("state_hash", "")), ex=ttl_sec)
                     await self.r.xadd(
                         audit_stream,
                         fields={"payload": json.dumps(ev, ensure_ascii=False)},
@@ -281,10 +282,10 @@ class CalibrationRepository:
     async def save_bookrate(self, runtime, *, regime: str, ts_ms: int) -> None:
         cfg = runtime.config
         sym = str(runtime.symbol)
-        rg = str(regime or "na")
+        rg = (regime or "na")
 
-        prefix = str(cfg.get("book_calib_key_prefix", "calib:bookrate"))
-        set_prefix = str(cfg.get("book_calib_regimes_set_prefix", "calib:bookrate:regimes"))
+        prefix = (cfg.get("book_calib_key_prefix", "calib:bookrate"))
+        set_prefix = (cfg.get("book_calib_regimes_set_prefix", "calib:bookrate:regimes"))
         ttl_sec = int(cfg.get("book_calib_ttl_sec", 7 * 24 * 3600))
         key = f"{prefix}:{sym}:{rg}"
         regimes_key = f"{set_prefix}:{sym}"
@@ -310,10 +311,10 @@ class CalibrationRepository:
     async def save_dn(self, runtime, *, regime: str, ts_ms: int) -> None:
         cfg = runtime.config
         sym = str(runtime.symbol)
-        rg = str(regime or "na")
+        rg = (regime or "na")
 
-        prefix = str(cfg.get("calib_dn_prefix", "calib:dn"))
-        set_prefix = str(cfg.get("calib_dn_set_prefix", "calib:dn:regimes"))
+        prefix = (cfg.get("calib_dn_prefix", "calib:dn"))
+        set_prefix = (cfg.get("calib_dn_set_prefix", "calib:dn:regimes"))
         ttl_sec = int(cfg.get("calib_ttl_sec", 7 * 24 * 3600))
         key = f"{prefix}:{sym}:{rg}"
         regimes_key = f"{set_prefix}:{sym}"
@@ -339,10 +340,10 @@ class CalibrationRepository:
     async def save_tick_dn(self, runtime, *, regime: str, ts_ms: int) -> None:
         cfg = runtime.config
         sym = str(runtime.symbol)
-        rg = str(regime or "na")
+        rg = (regime or "na")
 
-        prefix = str(cfg.get("tick_dn_calib_prefix", "calib:tick_dn"))
-        set_prefix = str(cfg.get("tick_dn_calib_set_prefix", "calib:tick_dn:regimes"))
+        prefix = (cfg.get("tick_dn_calib_prefix", "calib:tick_dn"))
+        set_prefix = (cfg.get("tick_dn_calib_set_prefix", "calib:tick_dn:regimes"))
         ttl_sec = int(cfg.get("calib_ttl_sec", 7 * 24 * 3600))
         key = f"{prefix}:{sym}:{rg}"
         regimes_key = f"{set_prefix}:{sym}"
@@ -368,10 +369,10 @@ class CalibrationRepository:
     async def save_atr_bps(self, runtime, *, regime: str, ts_ms: int) -> None:
         cfg = runtime.config
         sym = str(runtime.symbol)
-        rg = str(regime or "na")
+        rg = (regime or "na")
 
-        prefix = str(cfg.get("atr_bps_key_prefix", "calib:atrbps"))
-        set_prefix = str(cfg.get("atr_bps_regimes_set_prefix", "calib:atrbps:regimes"))
+        prefix = (cfg.get("atr_bps_key_prefix", "calib:atrbps"))
+        set_prefix = (cfg.get("atr_bps_regimes_set_prefix", "calib:atrbps:regimes"))
         ttl_sec = int(cfg.get("calib_ttl_sec", 7 * 24 * 3600))
         key = f"{prefix}:{sym}:{rg}"
         regimes_key = f"{set_prefix}:{sym}"
@@ -397,9 +398,9 @@ class CalibrationRepository:
     async def save_atr_sanity(self, runtime, *, tf_norm: str, ts_ms: int) -> None:
         cfg = runtime.config
         sym = str(runtime.symbol)
-        tfk = str(tf_norm or "M1").upper()
-        prefix = str(cfg.get("atr_sanity_key_prefix", "calib:atrbps:src"))
-        set_prefix = str(cfg.get("atr_sanity_set_prefix", "calib:atrbps:src:set"))
+        tfk = (tf_norm or "M1").upper()
+        prefix = (cfg.get("atr_sanity_key_prefix", "calib:atrbps:src"))
+        set_prefix = (cfg.get("atr_sanity_set_prefix", "calib:atrbps:src:set"))
         ttl_sec = int(cfg.get("atr_sanity_ttl_sec", 7 * 24 * 3600))
         key = f"{prefix}:{sym}:{tfk}"
         set_key = f"{set_prefix}:{sym}"
@@ -413,10 +414,10 @@ class CalibrationRepository:
         except Exception as exc:
             log_silent_error(exc, 'redis_write_failure', sym, 'calib_repo:save_atr_sanity:redis')
 
-    async def save_atr_tf_choice(self, runtime, *, choice_state: Dict[str, Any], ts_ms: int) -> None:
+    async def save_atr_tf_choice(self, runtime, *, choice_state: dict[str, Any], ts_ms: int) -> None:
         cfg = runtime.config
         sym = str(runtime.symbol).upper()
-        prefix = str(cfg.get("atr_tf_key_prefix", "calib:atr_tf"))
+        prefix = (cfg.get("atr_tf_key_prefix", "calib:atr_tf"))
         ttl_sec = int(cfg.get("atr_tf_ttl_sec", 7 * 24 * 3600))
         key = f"{prefix}:{sym}"
         try:
@@ -427,13 +428,13 @@ class CalibrationRepository:
     async def save_atr_tf_regime(self, runtime, *, regime: str, ts_ms: int) -> None:
         cfg = runtime.config
         sym = str(runtime.symbol)
-        rg = str(regime or "na")
-        prefix = str(cfg.get("calib_atr_tf_key_prefix", "calib:atrtf"))
-        set_prefix = str(cfg.get("calib_atr_tf_regimes_set_prefix", "calib:atrtf:regimes"))
+        rg = (regime or "na")
+        prefix = (cfg.get("calib_atr_tf_key_prefix", "calib:atrtf"))
+        set_prefix = (cfg.get("calib_atr_tf_regimes_set_prefix", "calib:atrtf:regimes"))
         ttl_sec = int(cfg.get("calib_ttl_sec", 7 * 24 * 3600))
         key = f"{prefix}:{sym}:{rg}"
         regimes_key = f"{set_prefix}:{sym}"
-        
+
         # NOTE: Using a generic dump_regime_state if available, or specific one
         # For ATR TF we use atr_tf_calibrator (assumed similar to others)
         if hasattr(runtime, "atr_tf_calibrator"):

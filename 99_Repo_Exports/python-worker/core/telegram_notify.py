@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import os
-import json
 import urllib.parse
 import urllib.request
-from typing import Optional
 
 
-def send_telegram(text: str, *, chat_id: Optional[str] = None, token: Optional[str] = None) -> bool:
+def send_telegram(text: str, *, chat_id: str | None = None, token: str | None = None) -> bool:
     """Minimal Telegram sender via Bot API.
 
     Uses env:

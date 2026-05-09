@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Deterministic HA-safe projection worker for ``orders:exec`` -> ``orders:state:{sid}``.
 
@@ -41,11 +43,12 @@ import argparse
 import json
 import os
 import socket
-import sys
 import threading
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
+import contextlib
 
 try:  # pragma: no cover
     import redis  # type: ignore
@@ -53,22 +56,22 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 try:  # pragma: no cover
-    from prometheus_client import Counter, Gauge, REGISTRY
+    from prometheus_client import REGISTRY, Counter, Gauge
 except Exception:  # pragma: no cover
     Counter = None  # type: ignore
     Gauge = None  # type: ignore
     REGISTRY = None  # type: ignore
 
 try:  # pragma: no cover
+    from services.active_symbol_guard_store import ActiveSymbolGuardStore
     from services.execution_contracts import build_materialized_state_view
     from services.execution_journal import ExecutionJournalSink
     from services.execution_state_replay import project_event_into_state
-    from services.active_symbol_guard_store import ActiveSymbolGuardStore
 except Exception:  # pragma: no cover
+    from active_symbol_guard_store import ActiveSymbolGuardStore
     from execution_contracts import build_materialized_state_view
     from execution_journal import ExecutionJournalSink
     from execution_state_replay import project_event_into_state
-    from active_symbol_guard_store import ActiveSymbolGuardStore
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +101,7 @@ def _s(v: Any) -> str:
     return str(v)
 
 
-def _stream_sort_key(stream_id: str) -> Tuple[int, int]:
+def _stream_sort_key(stream_id: str) -> tuple[int, int]:
     """Convert Redis stream ID '1700000000000-0' to comparable tuple."""
     try:
         left, right = str(stream_id).split('-', 1)
@@ -197,7 +200,7 @@ class LeaderLease:
         self._fencing_token: int = 0
         self._stop = threading.Event()
         self._lock = threading.Lock()
-        self._renew_thread: Optional[threading.Thread] = None
+        self._renew_thread: threading.Thread | None = None
 
     def acquire(self) -> bool:
         """Try to acquire the lease. Returns True if this worker is now leader."""
@@ -332,25 +335,25 @@ class ExecutionProjectionWorker:
         self,
         redis_client: Any,
         *,
-        exec_stream: str = 'orders:exec',
+        exec_stream: str = RS.ORDERS_EXEC,
         state_key_prefix: str = 'orders:state:',
         active_symbol_key_prefix: str = 'orders:active_symbol_sid:',
         exchange_truth_release: bool = False,
         state_ttl_sec: int = 86400,
         cursor_key: str = 'orders:exec:projection:cursor',
         batch_size: int = 500,
-        execution_journal: Optional[ExecutionJournalSink] = None,
-        leader_lease: Optional[LeaderLease] = None,  # P1.2.2: inject lease
+        execution_journal: ExecutionJournalSink | None = None,
+        leader_lease: LeaderLease | None = None,  # P1.2.2: inject lease
     ) -> None:
         self.r = redis_client
-        self.exec_stream = str(exec_stream or 'orders:exec')
-        self.state_key_prefix = str(state_key_prefix or 'orders:state:').rstrip(':') + ':'
-        self.active_symbol_key_prefix = str(active_symbol_key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
+        self.exec_stream = str(exec_stream or RS.ORDERS_EXEC)
+        self.state_key_prefix = (state_key_prefix or 'orders:state:').rstrip(':') + ':'
+        self.active_symbol_key_prefix = (active_symbol_key_prefix or 'orders:active_symbol_sid:').rstrip(':') + ':'
         # P6: when True, terminal state does NOT immediately delete the guard key;
         # instead the guard is set to pending-release, waiting for exchange-truth confirmation.
         self.exchange_truth_release = bool(exchange_truth_release)
         self.state_ttl_sec = int(state_ttl_sec)
-        self.cursor_key = str(cursor_key or 'orders:exec:projection:cursor')
+        self.cursor_key = (cursor_key or 'orders:exec:projection:cursor')
         self.batch_size = max(int(batch_size or 500), 1)
         self.execution_journal = execution_journal
         self.leader_lease = leader_lease  # None → single-node / lease disabled
@@ -374,10 +377,10 @@ class ExecutionProjectionWorker:
         try:
             if EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL is not None:
                 EXECUTION_ACTIVE_SYMBOL_GUARD_CAS_TOTAL.labels(
-                    symbol=str(symbol or "").strip().upper(),
+                    symbol=(symbol or "").strip().upper(),
                     writer="projection",
-                    outcome=str(outcome or ""),
-                    reason=str(reason or "")
+                    outcome=(outcome or ""),
+                    reason=(reason or "")
                 ).inc()
         except Exception:
             pass
@@ -395,10 +398,8 @@ class ExecutionProjectionWorker:
     def _set_cursor(self, stream_id: str) -> None:
         if not stream_id:
             return
-        try:
+        with contextlib.suppress(Exception):
             self.r.set(self.cursor_key, stream_id)
-        except Exception:
-            pass
         try:
             if TRADE_EXECUTION_PROJECTION_CURSOR_TS_MS:
                 TRADE_EXECUTION_PROJECTION_CURSOR_TS_MS.set(float(_stream_sort_key(stream_id)[0]))
@@ -409,7 +410,7 @@ class ExecutionProjectionWorker:
     # State persistence
     # ------------------------------------------------------------------
 
-    def _load_state(self, sid: str) -> Dict[str, Any]:
+    def _load_state(self, sid: str) -> dict[str, Any]:
         try:
             raw = self.r.get(f'{self.state_key_prefix}{sid}')
             if raw:
@@ -421,14 +422,14 @@ class ExecutionProjectionWorker:
         return {}
 
     def _active_symbol_key(self, symbol: str) -> str:
-        return f"{self.active_symbol_key_prefix}{str(symbol or '').strip().upper()}"
+        return f"{self.active_symbol_key_prefix}{(symbol or '').strip().upper()}"
 
     def _state_is_terminalish(self, doc: Mapping[str, Any]) -> bool:
         state = dict(doc or {})
-        fsm_state = str(state.get('fsm_state') or '').strip().upper()
+        fsm_state = (state.get('fsm_state') or '').strip().upper()
         if fsm_state in {'EXIT_FILLED', 'EMERGENCY_FLATTENED', 'FAILED'}:
             return True
-        status = str(state.get('status') or '').strip().lower()
+        status = (state.get('status') or '').strip().lower()
         if status in {'closed', 'cancelled', 'canceled', 'failed', 'exited', 'exit_filled', 'emergency_flattened'}:
             return True
         if bool(state.get('closed')):
@@ -443,7 +444,7 @@ class ExecutionProjectionWorker:
             return
 
         fsm_state = _s(doc.get('fsm_state'))
-        status = str(doc.get('status') or '').strip().lower()
+        status = (doc.get('status') or '').strip().lower()
         # Avoid holding guards for pre-execution intents (e.g. INTENT_PUBLISHED)
         if not fsm_state and status in ('', 'ok'):
             return
@@ -473,7 +474,7 @@ class ExecutionProjectionWorker:
             'sid': sid,
             'fsm_state': str(doc.get('fsm_state') or doc.get('status') or ''),
             'state': str(doc.get('fsm_state') or doc.get('status') or ''),
-            'side': str(doc.get('side') or ''),
+            'side': (doc.get('side') or ''),
             'updated_at_ms': int(doc.get('updated_at_ms') or doc.get('ts_state_commit_ms') or _ms_now()),
             'ts_state_commit_ms': int(doc.get('ts_state_commit_ms') or _ms_now()),
             # P6 semantic fields: guard lifecycle / release contract
@@ -495,7 +496,7 @@ class ExecutionProjectionWorker:
         except Exception:
             self._record_active_symbol_guard_cas(symbol=symbol, outcome="error", reason="exception")
 
-    def _persist_state(self, sid: str, state_doc: Mapping[str, Any]) -> Dict[str, Any]:
+    def _persist_state(self, sid: str, state_doc: Mapping[str, Any]) -> dict[str, Any]:
         doc = build_materialized_state_view(dict(state_doc or {}))
         doc['updated_at_ms'] = int(doc.get('updated_at_ms') or _ms_now())
         if 'created_at_ms' not in doc:
@@ -521,7 +522,7 @@ class ExecutionProjectionWorker:
     # Stream reading
     # ------------------------------------------------------------------
 
-    def _rows_after_cursor(self, cursor: str) -> List[Tuple[Any, Mapping[str, Any]]]:
+    def _rows_after_cursor(self, cursor: str) -> list[tuple[Any, Mapping[str, Any]]]:
         # Use cursor as the exclusive start position so XRANGE seeks directly to
         # entries after the cursor rather than scanning from the beginning of the
         # stream.  This fixes a stall when the cursor is positioned near the end
@@ -551,7 +552,7 @@ class ExecutionProjectionWorker:
     # Row projection
     # ------------------------------------------------------------------
 
-    def _project_row(self, stream_id: str, fields: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    def _project_row(self, stream_id: str, fields: Mapping[str, Any]) -> dict[str, Any] | None:
         ev = {_s(k): _s(v) for k, v in dict(fields or {}).items()}
         sid = _s(ev.get('sid'))
         if not sid:
@@ -659,7 +660,7 @@ class ExecutionProjectionWorker:
     # P1.2.2: Health snapshot (used by health server and --print-health)
     # ------------------------------------------------------------------
 
-    def health_snapshot(self, *, lag_readyz_max_ms: int = 30000) -> Dict[str, Any]:
+    def health_snapshot(self, *, lag_readyz_max_ms: int = 30000) -> dict[str, Any]:
         """Return a health snapshot dict for the health endpoint and CLI.
 
         Fields
@@ -736,7 +737,7 @@ class ExecutionProjectionWorker:
         except Exception:
             return 0
 
-        state: Dict[str, Any] = {}
+        state: dict[str, Any] = {}
         for stream_id, fields in (all_rows or []):
             ev = {_s(k): _s(v) for k, v in dict(fields or {}).items()}
             if _s(ev.get('sid')) != sid:
@@ -751,7 +752,7 @@ class ExecutionProjectionWorker:
             self._persist_state(sid, state)
         return processed
 
-    def rebuild_all(self) -> Dict[str, int]:
+    def rebuild_all(self) -> dict[str, int]:
         """Replay entire orders:exec stream, rebuilding all orders:state:{sid} keys.
 
         Returns dict mapping sid → event count.
@@ -762,8 +763,8 @@ class ExecutionProjectionWorker:
             return {}
 
         # Group events by SID, preserving stream order
-        sid_states: Dict[str, Dict[str, Any]] = {}
-        sid_counts: Dict[str, int] = {}
+        sid_states: dict[str, dict[str, Any]] = {}
+        sid_counts: dict[str, int] = {}
 
         for stream_id, fields in (all_rows or []):
             ev = {_s(k): _s(v) for k, v in dict(fields or {}).items()}
@@ -839,7 +840,7 @@ def _worker_from_env(r: Any) -> ExecutionProjectionWorker:  # pragma: no cover
     """Build ExecutionProjectionWorker from environment variables."""
     # P1.2.2: HA lease (opt-in, default 1 in production)
     lease_enabled = os.getenv('EXEC_PROJECTION_LEASE_ENABLE', '1').strip() == '1'
-    leader_lease: Optional[LeaderLease] = None
+    leader_lease: LeaderLease | None = None
     if lease_enabled:
         leader_lease = LeaderLease(
             r,
@@ -852,7 +853,7 @@ def _worker_from_env(r: Any) -> ExecutionProjectionWorker:  # pragma: no cover
 
     return ExecutionProjectionWorker(
         r,
-        exec_stream=os.getenv('EXEC_STREAM', 'orders:exec'),
+        exec_stream=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC),
         state_key_prefix=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'),
         active_symbol_key_prefix=os.getenv('ORDERS_ACTIVE_SYMBOL_KEY_PREFIX', 'orders:active_symbol_sid:'),
         # P6: projection worker now respects the same exchange-truth release flag as executor

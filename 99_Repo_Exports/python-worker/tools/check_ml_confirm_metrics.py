@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Проверка последних событий metrics:ml_confirm с детальными значениями.
 
@@ -18,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import os
-from typing import Any, Dict, List
 
 import redis
 
@@ -120,9 +120,9 @@ def main() -> None:
     print(f"ПОСЛЕДНИЕ {len(items)} СОБЫТИЙ ИЗ {args.stream}")
     print(f"{'='*80}\n")
 
-    status_counts: Dict[str, int] = {}
-    err_counts: Dict[str, int] = {}
-    kind_counts: Dict[str, int] = {}
+    status_counts: dict[str, int] = {}
+    err_counts: dict[str, int] = {}
+    kind_counts: dict[str, int] = {}
     model_run_ids: set[str] = set()
 
     for msg_id, raw_fields in items:
@@ -158,19 +158,19 @@ def main() -> None:
             print("  keys:", ", ".join(sorted(fields.keys())))
 
         # stats
-        status = str(fields.get("status", "") or "").strip()
+        status = (fields.get("status", "") or "").strip()
         if status:
             status_counts[status] = status_counts.get(status, 0) + 1
 
-        err = str(fields.get("err", "") or "").strip()
+        err = (fields.get("err", "") or "").strip()
         if err:
             err_counts[err] = err_counts.get(err, 0) + 1
 
-        kind = str(fields.get("kind", "") or "").strip()
+        kind = (fields.get("kind", "") or "").strip()
         if kind:
             kind_counts[kind] = kind_counts.get(kind, 0) + 1
 
-        model_run_id = str(fields.get("model_run_id", "") or "").strip()
+        model_run_id = (fields.get("model_run_id", "") or "").strip()
         if model_run_id:
             model_run_ids.add(model_run_id)
 
@@ -225,7 +225,7 @@ def main() -> None:
     has_model_run_id = len(model_run_ids) > 0
     has_errors = len(err_counts) > 0
 
-    issues: List[str] = []
+    issues: list[str] = []
     if has_err_no_cfg:
         issues.append("❌ status=ERR_NO_CFG обнаружен")
     if not has_util_mh_v1:

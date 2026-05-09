@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """tools.autopilot_run_once
 
 One-shot autopilot runner:
@@ -13,17 +13,16 @@ This file intentionally uses subprocess to reuse CLI tools, so behavior
 matches exactly what you run manually.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Tuple
 
 from core.telegram_client import TelegramConfig, send_message
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _now_ms() -> int:
@@ -35,7 +34,7 @@ def _pyworker_dir() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _run_cmd(*, cwd: Path, args: list[str], env: dict) -> Tuple[int, str]:
+def _run_cmd(*, cwd: Path, args: list[str], env: dict) -> tuple[int, str]:
     """Run command and return (rc, stdout+stderr)."""
     p = subprocess.run(
         args,
@@ -70,7 +69,7 @@ def run_once(
     env = os.environ.copy()
     # ensure local imports work the same as Makefile
     env["PYTHONPATH"] = f"{env.get('PYTHONPATH','')}:.:.."
-    
+
     # Keep Redis URL consistent across all sub-tools (tuner uses REDIS_URL).
     redis_url = os.getenv("AUTOPILOT_REDIS_URL") or os.getenv("REDIS_URL") or ""
     if redis_url:
@@ -111,13 +110,13 @@ def run_once(
         str(ndjson_path),
         "--window-days",
         str(int(window_days)),
-        # Note: some newer versions of tm_policy_tuner might not support --out-md/--out-json directly via CLI 
-        # if they were simplified. Let's assume the version we have uses stdout for the report 
+        # Note: some newer versions of tm_policy_tuner might not support --out-md/--out-json directly via CLI
+        # if they were simplified. Let's assume the version we have uses stdout for the report
         # and we capture it.
     ]
     if redis_write:
         tuner_args.append("--redis-write")
-    
+
     rc2, out2 = _run_cmd(cwd=base, args=tuner_args, env=env)
     if rc2 != 0:
         print(f"❌ Tuner failed (rc={rc2}):\n{out2}")
@@ -151,18 +150,17 @@ def run_once(
             ),
             parse_mode=telegram_parse_mode,
         )
-        
+
         # Also save to file for audit
-        try:
+        with contextlib.suppress(Exception):
             report_md.write_text(report_text, encoding="utf-8")
-        except Exception: pass
 
     return 0
 
 
 def _send_telegram_text(*, text: str, parse_mode: str = "") -> None:
-    tok = str(os.getenv("TELEGRAM_BOT_TOKEN", "") or "").strip()
-    chat = str(os.getenv("TELEGRAM_CHAT_ID", "") or "").strip()
+    tok = (os.getenv("TELEGRAM_BOT_TOKEN", "") or "").strip()
+    chat = (os.getenv("TELEGRAM_CHAT_ID", "") or "").strip()
     if not tok or not chat:
         return
     cfg = TelegramConfig(token=tok, chat_id=chat)
@@ -173,19 +171,19 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--since-hours", type=int, default=int(os.getenv("AUTOPILOT_SINCE_HOURS", "168")))
     ap.add_argument("--window-days", type=int, default=int(os.getenv("AUTOPILOT_WINDOW_DAYS", "7")))
-    ap.add_argument("--out-dir", type=str, default=str(os.getenv("AUTOPILOT_OUT_DIR", "/tmp/autopilot")))
-    
+    ap.add_argument("--out-dir", type=str, default=os.getenv("AUTOPILOT_OUT_DIR", "/tmp/autopilot"))
+
     rw_default = bool(int(os.getenv("AUTOPILOT_REDIS_WRITE", "0")))
     ap.add_argument("--redis-write", action="store_true", default=rw_default)
     ap.add_argument("--no-redis-write", action="store_false", dest="redis_write")
-    
+
     ap.add_argument("--telegram", action="store_true", default=True)
     ap.add_argument("--no-telegram", action="store_false", dest="telegram")
-    
+
     ap.add_argument(
         "--telegram-parse-mode",
         type=str,
-        default=str(os.getenv("AUTOPILOT_TG_PARSE_MODE", "")),
+        default=os.getenv("AUTOPILOT_TG_PARSE_MODE", ""),
         help="Telegram parse_mode ('' recommended, or 'MarkdownV2' if you escape)",
     )
     args = ap.parse_args()

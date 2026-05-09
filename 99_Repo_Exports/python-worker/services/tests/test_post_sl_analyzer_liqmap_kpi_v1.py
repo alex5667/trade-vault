@@ -1,5 +1,6 @@
 from services.post_sl_analyzer import compute_sl_hit_near_liqmap_peak, is_tp1_anchored_by_liqmap
 
+
 def test_sl_hit_near_liqmap_peak_explicit_price_long():
     indicators = {
         "liqmap_1h_peak_dn_price": 90.0,

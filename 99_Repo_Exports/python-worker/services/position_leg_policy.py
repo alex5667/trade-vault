@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Position leg policy — pure-math module for scale-in TP schema computation.
 
 No external dependencies beyond stdlib.  Used by:
@@ -13,8 +14,8 @@ Key concepts:
     build_scale_in_tp_schema — TP prices/qtys where TP1 closes the new (second) leg.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -27,7 +28,7 @@ class PositionLeg:
     ts_ms: int = 0             # epoch-ms when the leg was filled
     seq: int = 0               # monotonic sequence within the owner position
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "entry": self.entry,
             "qty": self.qty,
@@ -38,12 +39,12 @@ class PositionLeg:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "PositionLeg":
+    def from_dict(cls, d: dict[str, Any]) -> PositionLeg:
         return cls(
             entry=float(d.get("entry") or 0.0),
             qty=float(d.get("qty") or 0.0),
-            side=str(d.get("side") or "LONG").upper(),
-            signal_id=str(d.get("signal_id") or ""),
+            side=(d.get("side") or "LONG").upper(),
+            signal_id=(d.get("signal_id") or ""),
             ts_ms=int(d.get("ts_ms") or 0),
             seq=int(d.get("seq") or 0),
         )
@@ -53,7 +54,7 @@ class PositionLeg:
 # Math helpers
 # ---------------------------------------------------------------------------
 
-def blended_entry_price(legs: List[PositionLeg]) -> float:
+def blended_entry_price(legs: list[PositionLeg]) -> float:
     """Qty-weighted average entry price across all legs.
 
     Returns 0.0 when legs are empty or total qty is zero.
@@ -64,7 +65,7 @@ def blended_entry_price(legs: List[PositionLeg]) -> float:
     return sum(leg.entry * leg.qty for leg in legs) / total_qty
 
 
-def worst_case_loss_usdt(legs: List[PositionLeg], sl: float) -> float:
+def worst_case_loss_usdt(legs: list[PositionLeg], sl: float) -> float:
     """Max drawdown in USDT if SL is hit, across all legs.
 
     For LONG: loss = (entry - sl) * qty  (positive when sl < entry)
@@ -85,7 +86,7 @@ def worst_case_loss_usdt(legs: List[PositionLeg], sl: float) -> float:
 
 
 def max_add_qty_for_budget(
-    legs: List[PositionLeg],
+    legs: list[PositionLeg],
     sl: float,
     budget_usdt: float,
     new_entry: float = 0.0,
@@ -123,11 +124,11 @@ def max_add_qty_for_budget(
 # ---------------------------------------------------------------------------
 
 def build_scale_in_tp_schema(
-    existing_legs: List[PositionLeg],
+    existing_legs: list[PositionLeg],
     new_qty: float,
-    tp_prices: List[float],
-    original_tp_qtys: Optional[List[float]] = None,
-) -> Tuple[List[float], List[float], int]:
+    tp_prices: list[float],
+    original_tp_qtys: list[float] | None = None,
+) -> tuple[list[float], list[float], int]:
     """Build TP prices + qty allocation for a scale-in resize.
 
     Design intent:
@@ -164,7 +165,7 @@ def build_scale_in_tp_schema(
     tp1_qty = min(new_qty, total_qty)
     remaining = total_qty - tp1_qty
 
-    tp_qtys: List[float] = [tp1_qty]
+    tp_qtys: list[float] = [tp1_qty]
 
     if n_tps == 1:
         # Only one TP level — it gets everything

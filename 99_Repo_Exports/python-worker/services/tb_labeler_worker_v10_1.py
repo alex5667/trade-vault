@@ -1,26 +1,28 @@
 # python-worker/services/tb_labeler_worker_v10_1.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple, Optional
 import traceback
+from typing import Any
 
 import redis
 
-from core.tb_labeling import infer_tp_sl_bps, barrier_stats, exec_cost_r
+from core.tb_labeling import barrier_stats, exec_cost_r, infer_tp_sl_bps
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 # prometheus is optional; TB labeler can run without it
 try:
-    from prometheus_client import Counter, Histogram, Gauge, start_http_server  # type: ignore
+    from prometheus_client import Counter, Gauge, Histogram, start_http_server  # type: ignore
 except Exception:  # pragma: no cover
     Counter = Histogram = Gauge = start_http_server = None  # type: ignore
 
 
 class _NoopMetric:
-    def labels(self, *args: Any, **kwargs: Any) -> "_NoopMetric":
+    def labels(self, *args: Any, **kwargs: Any) -> _NoopMetric:
         return self
 
     def inc(self, n: float = 1.0) -> None:
@@ -65,7 +67,7 @@ except Exception:  # pragma: no cover
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 TICKS_REDIS_URL = os.getenv("TICKS_REDIS_URL", "redis://redis-ticks:6379/0")
 
-OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")  # already used in your stack
+OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)  # already used in your stack
 OF_INPUTS_FIELD = os.getenv("OF_INPUTS_FIELD", "payload")
 # O(1) SID -> stream_id index to avoid O(N) tail scans when resolving inputs for scheduled jobs.
 OF_INPUTS_SID_INDEX_PREFIX = os.getenv("OF_INPUTS_SID_INDEX_PREFIX", "idx:of_inputs:sid:")
@@ -129,7 +131,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _safe_loads(s: Any) -> Dict[str, Any]:
+def _safe_loads(s: Any) -> dict[str, Any]:
     try:
         if isinstance(s, dict):
             return s
@@ -146,7 +148,7 @@ def _safe_loads(s: Any) -> Dict[str, Any]:
         return {}
 
 
-def _merge_tick_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_tick_fields(fields: dict[str, Any]) -> dict[str, Any]:
     merged = dict(fields)
     nested = _safe_loads(fields.get("data"))
     if nested:
@@ -154,7 +156,7 @@ def _merge_tick_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
     return merged
 
 
-def _pick_tick_ts_ms(t: Dict[str, Any]) -> int:
+def _pick_tick_ts_ms(t: dict[str, Any]) -> int:
     """Extract timestamp from tick fields."""
     ts = _i(t.get("ts", 0), 0)
     if ts <= 0:
@@ -164,7 +166,7 @@ def _pick_tick_ts_ms(t: Dict[str, Any]) -> int:
     return ts
 
 
-def _pick_price(t: Dict[str, Any]) -> float:
+def _pick_price(t: dict[str, Any]) -> float:
     """Extract price from tick fields (mid > price > last > (bid+ask)/2)."""
     def _f(x: Any, d: float = 0.0) -> float:
         try:
@@ -198,11 +200,11 @@ def fetch_ticks_window(
     start_ms: int,
     end_ms: int,
     max_rows: int = 250_000,
-) -> List[Tuple[int, float]]:
+) -> list[tuple[int, float]]:
     """
     XRANGE by ID because your IDs are ms-based (<ms>-<seq>).
     """
-    out: List[Tuple[int, float]] = []
+    out: list[tuple[int, float]] = []
     cur = _stream_id(start_ms, 0)
     end_id = _stream_id(end_ms, 999999)
     scanned = 0
@@ -249,7 +251,7 @@ def fetch_ticks_window(
     return out
 
 
-def sample_ticks(path: List[Tuple[int, float]], every: int, max_n: int) -> Optional[List[List[float]]]:
+def sample_ticks(path: list[tuple[int, float]], every: int, max_n: int) -> list[list[float]] | None:
     """Sample ticks for storage (to avoid huge JSON in PG)."""
     if not path:
         return None
@@ -272,7 +274,7 @@ class TBLabelerWorker:
             # Ensure table exists (auto-migration for existing databases)
             self._ensure_table_exists()
 
-    def _load_of_input(self, sid: str) -> Optional[Dict[str, Any]]:
+    def _load_of_input(self, sid: str) -> dict[str, Any] | None:
         """Fetch the originating OF input by SID from signals:of:inputs.
 
         Fast path: GET idx:of_inputs:sid:{sid} -> stream_id, then XRANGE stream_id..stream_id.
@@ -280,7 +282,7 @@ class TBLabelerWorker:
         """
         t0 = time.time()
         key = f"{OF_INPUTS_SID_INDEX_PREFIX}{sid}"
-        stream_id: Optional[str] = None
+        stream_id: str | None = None
         try:
             v = self.r.get(key)
             if isinstance(v, bytes):
@@ -323,7 +325,7 @@ class TBLabelerWorker:
             o = _safe_loads(raw)
             if not o:
                 continue
-            if str(o.get("sid") or "") == sid:
+            if (o.get("sid") or "") == sid:
                 TB_INPUT_LOOKUP_TOTAL.labels("scan").inc()
                 TB_INPUT_LOOKUP_MS.observe((time.time() - t0) * 1000.0)
                 # refresh index for next time
@@ -386,7 +388,7 @@ class TBLabelerWorker:
         except Exception as e:
             print(f"⚠️  Warning: Could not ensure tb_labels table exists: {e}")
 
-    def _pg_upsert(self, row: Dict[str, Any]) -> None:
+    def _pg_upsert(self, row: dict[str, Any]) -> None:
         if not self.pg:
             return
         q = """
@@ -402,11 +404,11 @@ class TBLabelerWorker:
         with self.pg.cursor() as cur:
             cur.execute(q, row)
 
-    def enqueue_job(self, inp: Dict[str, Any], msg_id: Optional[str] = None) -> None:
+    def enqueue_job(self, inp: dict[str, Any], msg_id: str | None = None) -> None:
         sid = str(inp.get("sid", "") or msg_id or "")
-        symbol = str(inp.get("symbol", "") or "").upper()
+        symbol = (inp.get("symbol", "") or "").upper()
         ts_ms = _i(inp.get("ts_ms", inp.get("ts", 0)), 0)
-        direction = str(inp.get("direction", "") or "").upper()
+        direction = (inp.get("direction", "") or "").upper()
         indicators = inp.get("indicators") if isinstance(inp.get("indicators"), dict) else inp
 
         print(f"DEBUG: ENQUEUE: sid={sid} sym={symbol} ts={ts_ms} direction={direction}")
@@ -454,9 +456,9 @@ class TBLabelerWorker:
                 self.r.zrem(TB_JOBS_ZSET, sid)
                 continue
             job = _safe_loads(raw)
-            symbol = str(job.get("symbol", "") or "").upper()
+            symbol = (job.get("symbol", "") or "").upper()
             ts0 = _i(job.get("ts_ms", 0), 0)
-            direction = str(job.get("direction", "") or "").upper()
+            direction = (job.get("direction", "") or "").upper()
             indicators = job.get("indicators") if isinstance(job.get("indicators"), dict) else {}
 
             if not symbol or ts0 <= 0 or direction not in ("LONG", "SHORT"):
@@ -489,7 +491,7 @@ class TBLabelerWorker:
                     fallback_sl_bps=FALLBACK_SL_BPS,
                 )
 
-                horizons_out: Dict[str, Any] = {}
+                horizons_out: dict[str, Any] = {}
                 for h in HORIZONS:
                     horizons_out[str(h)] = barrier_stats(
                         ts0=ts0,
@@ -529,13 +531,11 @@ class TBLabelerWorker:
                 try:
                     self.r.xadd(TB_LABELS_STREAM, {"payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}, maxlen=200000, approximate=True)
                     TB_LABEL_WRITE_TOTAL.inc()
-                    try:
+                    with contextlib.suppress(Exception):
                         self.r.set(b"tb:last_label_ts_ms", str(int(payload.get("ts_ms", 0))).encode())
-                    except Exception:
-                        pass
                 except Exception:
                     traceback.print_exc()
-                
+
                 TB_JOBS_TOTAL.labels("ok").inc()
 
 
@@ -562,10 +562,8 @@ class TBLabelerWorker:
                     traceback.print_exc()
 
                 # mark done (long ttl so we don't relabel)
-                try:
+                with contextlib.suppress(Exception):
                     self.r.set(TB_DONE_KEY_PREFIX + sid, "1", ex=7 * 24 * 3600)
-                except Exception:
-                    pass
 
                 # cleanup job
                 self.r.zrem(TB_JOBS_ZSET, sid)
@@ -626,13 +624,11 @@ class TBLabelerWorker:
                         for msg_id, fields in msgs:
                             raw = fields.get(OF_INPUTS_FIELD)
                             inp = _safe_loads(raw)
-                            sid = str(inp.get("sid") or "")
+                            sid = (inp.get("sid") or "")
                             ts_ms = _i(inp.get("ts_ms") or inp.get("ts") or 0, 0)
                             if ts_ms <= 0:
-                                try:
+                                with contextlib.suppress(Exception):
                                     ts_ms = int((msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)).split("-", 1)[0])
-                                except Exception:
-                                    pass
 
                             print(f"DEBUG: Processing msg_id={msg_id} sid={sid}")
                             # update lag metric and persist last seen ts_ms
@@ -660,10 +656,8 @@ class TBLabelerWorker:
             except redis.exceptions.ResponseError as e:
                 if "NOGROUP" in str(e):
                     print(f"WARNING: Group {group} missing (NOGROUP error), recreating...")
-                    try:
+                    with contextlib.suppress(Exception):
                         self._ensure_consumer_group(OF_INPUTS_STREAM, group)
-                    except Exception:
-                        pass
                     continue
                 else:
                     print("ERROR: In run_forever consumer loop (ResponseError):")

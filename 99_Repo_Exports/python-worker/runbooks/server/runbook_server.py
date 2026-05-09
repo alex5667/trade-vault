@@ -28,10 +28,10 @@ import html
 import http.server
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any
 from urllib.parse import parse_qs, urlparse
-
 
 # ---------------------------------------------------------------------------
 # P5.6 Audit Chain helpers
@@ -42,7 +42,7 @@ EXEC_AUDIT_REPORT_JSON_PATH = os.getenv(
 )
 
 
-def load_audit_chain_report(path: Optional[str] = None) -> Dict[str, Any]:
+def load_audit_chain_report(path: str | None = None) -> dict[str, Any]:
     """Load the audit chain JSON report from *path*.
     Returns a safe error dict if the file is missing or unreadable.
     """
@@ -70,8 +70,8 @@ def load_audit_chain_report(path: Optional[str] = None) -> Dict[str, Any]:
 
 
 def filter_audit_chain_report(
-    report: Mapping[str, Any], query: Mapping[str, List[str]]
-) -> Dict[str, Any]:
+    report: Mapping[str, Any], query: Mapping[str, list[str]]
+) -> dict[str, Any]:
     """Filter audit chain broken rows by optional query parameters.
 
     Supported filters (all optional):
@@ -95,20 +95,20 @@ def filter_audit_chain_report(
     limit = int(limit_raw) if limit_raw.isdigit() else 200
 
     def ok(row: Mapping[str, Any]) -> bool:
-        if sid and str(row.get("sid") or "") != sid:
+        if sid and (row.get("sid") or "") != sid:
             return False
-        if signal_id and str(row.get("signal_id") or "") != signal_id:
+        if signal_id and (row.get("signal_id") or "") != signal_id:
             return False
-        if closed_trade_id and str(row.get("closed_trade_id") or "") != closed_trade_id:
+        if closed_trade_id and (row.get("closed_trade_id") or "") != closed_trade_id:
             return False
-        if kind and str(row.get("kind") or "") != kind:
+        if kind and (row.get("kind") or "") != kind:
             return False
         return True
 
     filtered = [row for row in rows if ok(row)][: max(1, limit)]
-    broken_by_kind: Dict[str, int] = {}
+    broken_by_kind: dict[str, int] = {}
     for row in filtered:
-        k = str(row.get("kind") or "unknown")
+        k = (row.get("kind") or "unknown")
         broken_by_kind[k] = broken_by_kind.get(k, 0) + 1
 
     out = dict(report)
@@ -118,7 +118,7 @@ def filter_audit_chain_report(
     return out
 
 
-def discover_runbooks(root: Path) -> List[Path]:
+def discover_runbooks(root: Path) -> list[Path]:
     """Return all *.md files under *root*, sorted by relative path."""
     return sorted(p for p in root.rglob('*.md') if p.is_file())
 

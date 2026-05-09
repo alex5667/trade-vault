@@ -34,7 +34,7 @@ _MAX_RETRIES = 3
 _BACKOFF_SECONDS = (5, 15, 30)
 
 
-def _connect_with_retry(dsn: str, *, max_retries: int = _MAX_RETRIES) -> "psycopg.Connection":
+def _connect_with_retry(dsn: str, *, max_retries: int = _MAX_RETRIES) -> psycopg.Connection:
     """Connect to PostgreSQL with exponential back-off on transient errors."""
     last_exc: Exception | None = None
     for attempt in range(max_retries + 1):

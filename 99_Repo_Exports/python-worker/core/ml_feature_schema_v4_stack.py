@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import warnings
 import logging
+import warnings
+
 logger = logging.getLogger(__name__)
 msg = "This feature schema version is DEPRECATED (causes data leakage). See DEPRECATED_SCHEMAS in feature_registry."
 warnings.warn(msg, DeprecationWarning, stacklevel=2)
@@ -29,8 +30,8 @@ Activate via: ML_FEATURE_SCHEMA_VER=v4  (or v4_stack)
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from core.bucket_utils import bucket_from_scenario
 
@@ -59,10 +60,10 @@ def _b(x: Any) -> float:
         return 0.0
 
 
-def _utc_hour_dow(ts_ms: int) -> Tuple[int, int]:
+def _utc_hour_dow(ts_ms: int) -> tuple[int, int]:
     """Return (hour_utc 0-23, weekday 0=Mon…6=Sun) from epoch-ms."""
     try:
-        dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+        dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
         return dt.hour, dt.weekday()
     except Exception:
         return 0, 0
@@ -79,7 +80,7 @@ class MLFeatureSchemaV4Stack:
     Total features: 97
     """
 
-    num_keys: Tuple[str, ...] = (
+    num_keys: tuple[str, ...] = (
         # v2 numeric (15)
         "delta_z",
         "ofi_z",
@@ -133,7 +134,7 @@ class MLFeatureSchemaV4Stack:
         "cos_dow",
     )
 
-    bool_keys: Tuple[str, ...] = (
+    bool_keys: tuple[str, ...] = (
         # v2 bools (9)
         "ofi_stable",
         "ofi_dir_ok",
@@ -154,9 +155,9 @@ class MLFeatureSchemaV4Stack:
         "reclaim",
     )
 
-    def feature_names(self) -> List[str]:
+    def feature_names(self) -> list[str]:
         """Return stable ordered feature name list (training-time registry)."""
-        names: List[str] = []
+        names: list[str] = []
         names.extend([f"n:{k}" for k in self.num_keys])
         names.extend([f"b:{k}" for k in self.bool_keys])
         names.extend(["dir:LONG", "dir:SHORT"])
@@ -165,7 +166,7 @@ class MLFeatureSchemaV4Stack:
         names.extend([f"dow:{d}" for d in range(7)])
         return names
 
-    def _get(self, indicators: Dict[str, Any], root: Dict[str, Any], k: str) -> Any:
+    def _get(self, indicators: dict[str, Any], root: dict[str, Any], k: str) -> Any:
         """Look up key from indicators first, then root (rule_score etc.)."""
         if k in indicators:
             return indicators.get(k)
@@ -178,14 +179,14 @@ class MLFeatureSchemaV4Stack:
         ts_ms: int,
         direction: str,
         scenario: str,
-        indicators: Dict[str, Any],
+        indicators: dict[str, Any],
         rule_score: float,
         rule_have: int,
         rule_need: int,
         cancel_spike_veto: int,
-    ) -> List[float]:
+    ) -> list[float]:
         """Vectorize one observation into a float list aligned with feature_names()."""
-        root: Dict[str, Any] = {
+        root: dict[str, Any] = {
             "symbol": symbol,
             "ts_ms": ts_ms,
             "direction": direction,
@@ -212,14 +213,14 @@ class MLFeatureSchemaV4Stack:
             sin_d, cos_d = 0.0, 0.0
 
         # Override cyclical keys in indicators lookup
-        computed: Dict[str, float] = {
+        computed: dict[str, float] = {
             "sin_hour": sin_h,
             "cos_hour": cos_h,
             "sin_dow": sin_d,
             "cos_dow": cos_d,
         }
 
-        x: List[float] = []
+        x: list[float] = []
 
         # Numeric features — use precomputed values for cyclical keys
         for k in self.num_keys:
@@ -253,16 +254,16 @@ class MLFeatureSchemaV4Stack:
 
         return x
 
-    def vectorize_row(self, row: Dict[str, Any]) -> List[float]:
+    def vectorize_row(self, row: dict[str, Any]) -> list[float]:
         """Vectorize from a flat dict (offline dataset row / replay)."""
         indicators = row.get("indicators") or {}
         if not isinstance(indicators, dict):
             indicators = {}
         return self.vectorize(
-            symbol=str(row.get("symbol", "") or ""),
+            symbol=(row.get("symbol", "") or ""),
             ts_ms=int(_f(row.get("ts_ms", 0), 0)),
-            direction=str(row.get("direction", "") or ""),
-            scenario=str(row.get("scenario_v4", row.get("scenario", "")) or ""),
+            direction=(row.get("direction", "") or ""),
+            scenario=(row.get("scenario_v4", row.get("scenario", "")) or ""),
             indicators=indicators,
             rule_score=_f(row.get("rule_score", indicators.get("rule_score", 0.0)), 0.0),
             rule_have=int(_f(row.get("rule_have", indicators.get("rule_have", 0)), 0)),

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Prometheus metrics for DecisionSnapshotWriter.
 
 Design goals:
@@ -24,7 +25,7 @@ Additional useful counters (low-cardinality):
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("decision_snapshot_writer.metrics")
 
@@ -41,7 +42,7 @@ class _NoOp:
     def set(self, amount: float) -> None:
         return
 
-    def labels(self, **_kw: Any) -> "_NoOp":
+    def labels(self, **_kw: Any) -> _NoOp:
         # Allow dlq_by_reason_total.labels(reason=...).inc() without errors.
         return self
 
@@ -59,8 +60,8 @@ class WriterMetrics:
     redis_lag_ms: Any
 
 
-_METRICS: Optional[WriterMetrics] = None
-_METRICS_PORT: Optional[int] = None
+_METRICS: WriterMetrics | None = None
+_METRICS_PORT: int | None = None
 
 
 def build_metrics() -> WriterMetrics:
@@ -70,7 +71,7 @@ def build_metrics() -> WriterMetrics:
         return _METRICS
 
     try:
-        from prometheus_client import Counter, Histogram, Gauge
+        from prometheus_client import Counter, Gauge, Histogram
 
         written_total = Counter(
             "decision_snapshot_writer_written_total",
@@ -142,7 +143,7 @@ def build_metrics() -> WriterMetrics:
         return _METRICS
 
 
-def start_metrics_server() -> Optional[int]:
+def start_metrics_server() -> int | None:
     """Start HTTP server for /metrics. Returns bound port or None.
 
     ENV:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for P5 stream integrity.
 
 Covers:
@@ -8,7 +9,8 @@ Covers:
 
 
 import pytest
-from services.orderflow.stream_integrity import StreamIntegrityTracker, schema_hash, IntegritySnapshot
+
+from services.orderflow.stream_integrity import IntegritySnapshot, StreamIntegrityTracker, schema_hash
 from services.orderflow.stream_integrity_gate import StreamIntegrityGate
 
 

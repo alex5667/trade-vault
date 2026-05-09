@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Phase 2.1 — Unit tests for ATRCandidateProvider.
 
@@ -8,8 +9,8 @@ Run:
 """
 
 import pytest
-from services.atr_candidate_provider import ATRCandidateProvider
 
+from services.atr_candidate_provider import ATRCandidateProvider
 
 # ---------------------------------------------------------------------------
 # Helpers

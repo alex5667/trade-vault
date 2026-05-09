@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 def test_tamper_guard_alerts_yaml_loads() -> None:

@@ -4,12 +4,13 @@ import argparse
 import importlib
 import statistics
 import time
-from typing import Any, Callable, Dict, List
+from collections.abc import Callable
+from typing import Any
 
 from core.replay_io import iter_ndjson
 
 
-def import_callable(path: str) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
+def import_callable(path: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     if ":" not in path:
         raise ValueError("--runner must be module:function")
     mod_name, fn_name = path.split(":", 1)
@@ -20,7 +21,7 @@ def import_callable(path: str) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
     return fn  # type: ignore
 
 
-def pct(xs: List[float], p: float) -> float:
+def pct(xs: list[float], p: float) -> float:
     xs2 = sorted(xs)
     if not xs2:
         return 0.0
@@ -45,7 +46,7 @@ def main() -> int:
     for i in range(min(args.warmup, len(rows))):
         runner(rows[i])
 
-    ms: List[float] = []
+    ms: list[float] = []
     for i in range(args.n):
         row = rows[i % len(rows)]
         t0 = time.perf_counter_ns()

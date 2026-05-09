@@ -20,9 +20,9 @@ Keys (new/11-key):   + weak_progress, absorption, reclaim, sweep,
                        iceberg_strict, fp_edge_absorb, abs_lvl_ok
 """
 
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # LEGACY 4-KEY API  (kept for backward compatibility)
@@ -57,13 +57,13 @@ def _as_int01(v: Any) -> int:
         return 0
 
 
-def parse_confirmations_list(confirmations: Sequence[str] | None) -> Dict[str, int]:
+def parse_confirmations_list(confirmations: Sequence[str] | None) -> dict[str, int]:
     """Parse UI/Telegram-style confirmations like ["rsi_agree=1", "absorption=123.4", ...].
 
     Only allow-listed keys are returned; all others are silently ignored.
     If a key appears multiple times, the maximum value wins (OR semantics).
     """
-    out = {k: 0 for k in CONF_KEYS_V1}
+    out = dict.fromkeys(CONF_KEYS_V1, 0)
     if not confirmations:
         return out
 
@@ -86,7 +86,7 @@ def extract_confirmation_flags(
     confirmations: Sequence[str] | None = None,
     *,
     indicators: Mapping[str, Any] | None = None,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """Return deterministic binary flags for known confirmations.
 
     Priority:
@@ -142,7 +142,7 @@ class ConfirmationSignalV1:
 
 
 # Canonicalize common spelling variants → canonical key name
-_ALIASES: Dict[str, str] = {
+_ALIASES: dict[str, str] = {
     "fp_edge": "fp_edge_absorb",
     "fp_edge_absorption": "fp_edge_absorb",
     "absorb": "absorption",
@@ -167,7 +167,7 @@ _CANONICAL_KEYS_11 = frozenset({
 })
 
 
-def _parse_one_v1(item: str) -> Optional[ConfirmationSignalV1]:
+def _parse_one_v1(item: str) -> ConfirmationSignalV1 | None:
     """Parse a single confirmation string into a ConfirmationSignalV1. Never raises."""
     if not item:
         return None
@@ -198,14 +198,14 @@ def _parse_one_v1(item: str) -> Optional[ConfirmationSignalV1]:
     return ConfirmationSignalV1(key=k_norm, value=val)
 
 
-def parse_confirmations_v1(confirmations: Iterable[str]) -> List[ConfirmationSignalV1]:
+def parse_confirmations_v1(confirmations: Iterable[str]) -> list[ConfirmationSignalV1]:
     """Parse an iterable of confirmation strings into ConfirmationSignalV1 objects.
 
     Accepts None gracefully. Unknown/alias keys are resolved via _ALIASES.
     No allow-list filtering here — use confirmations_to_indicator_keys_v1 for
     canonical subset selection.
     """
-    out: List[ConfirmationSignalV1] = []
+    out: list[ConfirmationSignalV1] = []
     if confirmations is None:
         return out
     for it in confirmations:
@@ -216,7 +216,7 @@ def parse_confirmations_v1(confirmations: Iterable[str]) -> List[ConfirmationSig
     return out
 
 
-def confirmations_to_indicator_keys_v1(parsed: List[ConfirmationSignalV1]) -> Dict[str, float]:
+def confirmations_to_indicator_keys_v1(parsed: list[ConfirmationSignalV1]) -> dict[str, float]:
     """Map parsed confirmations to indicators keys.
 
     Convention:
@@ -224,7 +224,7 @@ def confirmations_to_indicator_keys_v1(parsed: List[ConfirmationSignalV1]) -> Di
       - b:<key>    -> numeric 0/1 for canonical 11-key subset (ML schema compat)
       - <key>      -> raw 0/1 for canonical keys (ML schema compat)
     """
-    ind: Dict[str, float] = {}
+    ind: dict[str, float] = {}
     for c in parsed:
         # Always write conf:<key> = numeric value
         ind[f"conf:{c.key}"] = float(c.value)
@@ -240,9 +240,9 @@ def confirmations_to_indicator_keys_v1(parsed: List[ConfirmationSignalV1]) -> Di
 def apply_confirmations_to_indicators(
     *,
     confirmations: Iterable[str],
-    indicators: Dict[str, object],
+    indicators: dict[str, object],
     also_write_raw_keys: bool = True,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """Materialize confirmation-derived feature keys into indicators dict (in-place).
 
     Writes:
@@ -268,7 +268,7 @@ def apply_confirmations_to_indicators(
     return indicators
 
 
-def summarize_confirmations_v1(confirmations: Iterable[str]) -> Tuple[int, List[str]]:
+def summarize_confirmations_v1(confirmations: Iterable[str]) -> tuple[int, list[str]]:
     """Utility: (count, sorted_unique_keys) for logging/metrics telemetry."""
     parsed = parse_confirmations_v1(confirmations)
     keys = sorted({c.key for c in parsed})

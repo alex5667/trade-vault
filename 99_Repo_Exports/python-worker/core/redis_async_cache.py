@@ -1,19 +1,17 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
-
-import asyncio
-from utils.task_manager import safe_create_task
 
 import json
-import time
-from typing import Any, Dict, Optional
+from typing import Any
+
+from utils.task_manager import safe_create_task
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-async def _fetch_json(redis, key: str) -> Optional[Dict[str, Any]]:
+async def _fetch_json(redis, key: str) -> dict[str, Any] | None:
     try:
         raw = await redis.get(key)
         if not raw:
@@ -25,7 +23,7 @@ async def _fetch_json(redis, key: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def maybe_refresh_json(redis, *, key: str, dst: Dict[str, Any], dst_key: str, refresh_ms: int) -> None:
+def maybe_refresh_json(redis, *, key: str, dst: dict[str, Any], dst_key: str, refresh_ms: int) -> None:
     """
     Best-effort async refresh into an in-memory dict without blocking hot-path.
     Stores:

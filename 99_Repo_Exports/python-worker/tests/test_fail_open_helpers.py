@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 
 def test_safe_call_fail_open_appends_dq_flag_on_error():
-    from handlers.base_orderflow_handler import _safe_call_fail_open, _append_flag
+    from handlers.base_orderflow_handler import _append_flag, _safe_call_fail_open
 
     class L:
         def __init__(self):

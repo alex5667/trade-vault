@@ -1,7 +1,8 @@
 from __future__ import annotations
-import os
+
 from typing import Any
-from prometheus_client import Counter, Gauge, Histogram, REGISTRY
+
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram
 
 # ------------------------------------------------------------
 # Idempotent Metric Factory

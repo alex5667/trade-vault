@@ -1,7 +1,7 @@
 import os
-import yaml
-import pytest
 
+import pytest
+import yaml
 
 # Both parametrize variants resolve to the same real path (the file lives in
 # tick_flow_full/orderflow_services alongside this test directory).

@@ -1,4 +1,6 @@
+from domain.evidence_keys import MetaKeys
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3,
 """meta_cov_rollout_exporter_v1.py
 
@@ -28,7 +30,7 @@ ENV:
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server  # type: ignore
 
@@ -288,7 +290,7 @@ def _loads_maybe_json(v: Any) -> Any:
     return v
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     xs2 = sorted(xs)
@@ -313,7 +315,7 @@ class Exporter:
         self.max_scan = int(os.getenv("META_COV_EXPORTER_MAX_SCAN", "50000") or 50000)
         self.r = redis.Redis.from_url(self.redis_url, decode_responses=False) if redis else None
 
-    def _load_cfg2(self) -> Dict[str, Any]:
+    def _load_cfg2(self) -> dict[str, Any]:
         if not self.r:
             return {}
         try:
@@ -322,10 +324,10 @@ class Exporter:
         except Exception:
             return {}
 
-    def _read_recent(self) -> List[Dict[str, Any]]:
+    def _read_recent(self) -> list[dict[str, Any]]:
         if not self.r:
             return []
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         since_ms = get_ny_time_millis() - self.lookback_min * 60 * 1000
         # Read in paginated batches to avoid one giant XREVRANGE blocking Redis
         # for 7+ ms.  2000 per batch is safe (each batch << 1ms).
@@ -339,7 +341,7 @@ class Exporter:
                 if not batch:
                     break
                 for entry_id, fields in batch:
-                    d: Dict[str, Any] = {}
+                    d: dict[str, Any] = {}
                     for k, v in fields.items():
                         ks = k.decode() if isinstance(k, bytes) else str(k)
                         d[ks] = _loads_maybe_json(v)
@@ -368,11 +370,11 @@ class Exporter:
         except Exception:
             pass
         return rows
-    
+
     def _check_blocks(self):
         if not auto_apply_guard:
             return
-        
+
         try:
             # We want to check detailed status for all reasons
             # Reuse get_block_state but we need the components.
@@ -381,28 +383,28 @@ class Exporter:
             # But auto_apply_guard.get_block_state does that and populates the meta structure?
             # It returns the FIRST blocking reason as primary reason, but we might want all.
             # Let's peek into Redis manually for all reasons to be comprehensive, OR rely on auto_apply_guard if possible.
-            # auto_apply_guard iterates reasons. 
+            # auto_apply_guard iterates reasons.
             # Impl below duplicates logic slightly to be robust.
-            
+
             pfx = os.getenv("AUTO_APPLY_BLOCK_PREFIX", "cfg:suggestions:entry_policy:auto_apply_block")
             reasons_str = os.getenv("AUTO_APPLY_BLOCK_REASONS", "tick_gate,meta_cov")
             reasons = [r.strip() for r in reasons_str.split(",") if r.strip()]
-            
+
             # Reset all reasons to 0 first? Or just set known ones.
-            # Prometheus gauges persist. 
-            
+            # Prometheus gauges persist.
+
             now = now_ms()
-            
+
             for rsn in reasons:
                 try:
                     # Check existence
                     block_val = self.r.get(f"{pfx}:{rsn}")
                     meta_val = self.r.get(f"{pfx}:{rsn}:meta")
                     ts_val = self.r.get(f"{pfx}:{rsn}:ts_ms")
-                    
+
                     is_blocked = False
                     block_ts = 0
-                    
+
                     if block_val is not None:
                         is_blocked = True
                         block_ts = now # Treat hard block as fresh? Or try to find ts.
@@ -414,11 +416,11 @@ class Exporter:
                          # But exporter just wants to report "Is it blocked now?"
                          # We should use get_block_state logic basically.
                          pass
-                    
+
                     # If we use guard's logic:
                     # But calling guard for each reason is tricky if guard function only returns first one.
                     # We will rely on simple existence + soft block logic for monitoring.
-                    
+
                     # Re-implement simplified check:
                     if block_val is not None:
                          is_blocked = True
@@ -429,7 +431,7 @@ class Exporter:
                              ts = int(ts_val)
                              # If meta says blocked=true and age is valid
                              meta = _loads_maybe_json(meta_val)
-                             if isinstance(meta, dict) and str(meta.get("blocked") or "0") in ("1", "true", "True"):
+                             if isinstance(meta, dict) and (meta.get("blocked") or "0") in ("1", "true", "True"):
                                  # age check
                                  if (now - ts) < 15 * 60 * 1000: # 15 min default
                                      is_blocked = True
@@ -442,7 +444,7 @@ class Exporter:
                     else:
                          GAUGE_AUTO_APPLY_BLOCK_TS.labels(reason=rsn).set(0)
                          GAUGE_AUTO_APPLY_BLOCK_AGE.labels(reason=rsn).set(0)
-                         
+
                 except Exception:
                     pass
 
@@ -461,7 +463,7 @@ class Exporter:
         for b in ["a", "b", "c", "d"]:
             v = cfg2.get(f"meta_enforce_share_cov_{b}")
             if v is None:
-                v = cfg2.get("meta_enforce_share", 1.0)
+                v = cfg2.get(MetaKeys.ENFORCE_SHARE, 1.0)
             GAUGE_SHARE_COV.labels(bucket=b).set(float(v))
 
         # P34: quarantine + recovery gauges (cfg2)
@@ -471,7 +473,7 @@ class Exporter:
             q_until = _i(cfg2.get(f"meta_cov_quarantine_until_ms_{b}"), 0)
             ttl_ms = (max(0, q_until - _now) if (q_active == 1 and q_until > 0) else 0)
             ttl_sec = ttl_ms / 1000.0
-            
+
             GAUGE_COV_QUARANTINE_ACTIVE.labels(bucket=b).set(float(1 if q_active == 1 else 0))
             GAUGE_COV_QUARANTINE_TTL_SEC.labels(bucket=b).set(float(ttl_sec))
             GAUGE_COV_QUARANTINE_TTL_MS.labels(bucket=b).set(float(ttl_ms))
@@ -487,20 +489,20 @@ class Exporter:
         GAUGE_OPS_LAST_EXIT.set(float(_i(cfg2.get("meta_cov_ops_last_exit_code"), 0)))
         GAUGE_OPS_APPLY_EFFECTIVE.set(float(_i(cfg2.get("meta_cov_ops_last_apply_effective"), 0)))
         GAUGE_OPS_PREFLIGHT_RC.set(float(_i(cfg2.get("meta_cov_ops_last_preflight_rc"), -1)))
-        
+
         for s in ["validate", "rollout", "guard", "outcome", "monitor"]:
             rc = _i(cfg2.get(f"meta_cov_ops_last_step_rc_{s}"), -1)
             GAUGE_OPS_STEP_RC.labels(step=s).set(float(rc))
 
         # P43: Decision Code
-        dec_code = str(cfg2.get("meta_cov_ops_last_decision_code") or "unknown")
+        dec_code = (cfg2.get("meta_cov_ops_last_decision_code") or "unknown")
         # Reset all codes to 0, set active to 1.
         # This is tricky with Prometheus without knowing all possible codes.
         # We'll just set the current one to 1. Using a set of known codes helps.
         # Known: ok, guard_block, guard_error, preflight_fail, unknown.
         for c in ["ok", "guard_block", "guard_error", "preflight_fail", "unknown"]:
             GAUGE_OPS_LAST_DECISION.labels(code=c).set(1.0 if c == dec_code else 0.0)
-            
+
         dec_ts = _i(cfg2.get("meta_cov_ops_last_decision_ts_ms"), 0)
         if dec_ts > 0:
             GAUGE_OPS_LAST_DECISION_AGE.set((_now - dec_ts) / 1000.0)
@@ -529,7 +531,7 @@ class Exporter:
 
         pm_ts = _i(cfg2.get("signal_quality_policy_mode_last_ts_ms"), 0)
         GAUGE_SQ_POLICY_MODE_LAST_TS_MS.set(float(pm_ts))
-            
+
         # P71: Policy effectiveness report (coverage shares + deltas vs ok)
         pe_ts = _i(cfg2.get("policy_effectiveness_last_ts_ms"), 0)
         GAUGE_POLICY_EFF_LAST_TS_MS.set(float(pe_ts))
@@ -594,21 +596,21 @@ class Exporter:
 
         # stream stats
         rows = self._read_recent()
-        covs: List[float] = []
+        covs: list[float] = []
         counts = {"a": 0, "b": 0, "c": 0, "d": 0}
-        
+
         a_ge = _f(cfg2.get("meta_cov_bucket_a_ge"), 0.98)
         b_ge = _f(cfg2.get("meta_cov_bucket_b_ge"), 0.95)
         c_ge = _f(cfg2.get("meta_cov_bucket_c_ge"), 0.90)
 
         for r_row in rows:
-            c = _f(r_row.get("meta_feature_coverage"), -1.0)
+            c = _f(r_row.get(MetaKeys.FEATURE_COVERAGE), -1.0)
             if c < 0:
-                tot = _i(r_row.get("meta_model_feature_total"), 0)
-                mis = _i(r_row.get("meta_model_feature_missing"), 0)
+                tot = _i(r_row.get(MetaKeys.MODEL_FEATURE_TOTAL), 0)
+                mis = _i(r_row.get(MetaKeys.MODEL_FEATURE_MISSING), 0)
                 if tot > 0:
                     c = 1.0 - (mis / float(tot))
-            
+
             if c >= 0:
                 covs.append(c)
                 if c >= a_ge:
@@ -638,7 +640,7 @@ def main() -> None:
     port = int(os.getenv("META_COV_EXPORTER_PORT", "9132") or 9132)
     print(f"Starting meta_cov_rollout_exporter_v1 on port {port}...")
     start_http_server(port)
-    
+
     exp = Exporter()
     while True:
         try:

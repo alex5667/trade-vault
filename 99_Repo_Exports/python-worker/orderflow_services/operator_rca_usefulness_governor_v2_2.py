@@ -1,11 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -13,7 +15,6 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
-
 
 STREAM_FEEDBACK_SUMMARY = os.getenv("ML_OPERATOR_RCA_FEEDBACK_SUMMARY_STREAM", "stream:ml:operator_rca_feedback_summary")
 STREAM_GOV_DECISIONS = os.getenv("ML_OPERATOR_RCA_GOVERNOR_DECISIONS_STREAM", "stream:ml:operator_rca_governor_decisions")
@@ -62,8 +63,8 @@ def _safe_int(x: Any, d: int = 0) -> int:
         return d
 
 
-def _b2s_map(fields: Dict[Any, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _b2s_map(fields: dict[Any, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         vv = v.decode() if isinstance(v, (bytes, bytearray)) else str(v)
@@ -71,7 +72,7 @@ def _b2s_map(fields: Dict[Any, Any]) -> Dict[str, str]:
     return out
 
 
-def _json_loads_or_empty(s: Any) -> Dict[str, Any]:
+def _json_loads_or_empty(s: Any) -> dict[str, Any]:
     try:
         if s is None:
             return {}
@@ -116,8 +117,8 @@ def _decision_from_stats(avg_score: float, useful_rate: float, sample_n: int) ->
     return "HOLD"
 
 
-def _reason_codes(avg_score: float, useful_rate: float, sample_n: int, decision: str) -> List[str]:
-    reasons: List[str] = []
+def _reason_codes(avg_score: float, useful_rate: float, sample_n: int, decision: str) -> list[str]:
+    reasons: list[str] = []
     if sample_n < MIN_SAMPLE:
         reasons.append("LOW_SAMPLE")
     if avg_score <= SUPPRESS_SCORE_MAX:
@@ -132,8 +133,8 @@ def _reason_codes(avg_score: float, useful_rate: float, sample_n: int, decision:
     return reasons
 
 
-def build_action_pattern_decisions(rows: Iterable[GovernorRow]) -> List[Dict[str, Any]]:
-    agg: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+def build_action_pattern_decisions(rows: Iterable[GovernorRow]) -> list[dict[str, Any]]:
+    agg: dict[tuple[str, str, str], dict[str, Any]] = {}
     for r in rows:
         key = (r.action_type, r.prompt_version, r.policy_version)
         state = agg.setdefault(
@@ -155,7 +156,7 @@ def build_action_pattern_decisions(rows: Iterable[GovernorRow]) -> List[Dict[str
         providers = state["providers"]
         providers[r.provider] = providers.get(r.provider, 0) + 1
 
-    decisions: List[Dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
     for (action_type, prompt_version, policy_version), state in agg.items():
         sample_n = int(state["sample_n"])
         avg_score = (state["score_sum"] / sample_n) if sample_n else 0.0
@@ -180,8 +181,8 @@ def build_action_pattern_decisions(rows: Iterable[GovernorRow]) -> List[Dict[str
     return decisions
 
 
-def build_provider_version_decisions(rows: Iterable[GovernorRow]) -> List[Dict[str, Any]]:
-    agg: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+def build_provider_version_decisions(rows: Iterable[GovernorRow]) -> list[dict[str, Any]]:
+    agg: dict[tuple[str, str, str], dict[str, Any]] = {}
     for r in rows:
         key = (r.provider, r.model_name, r.prompt_version)
         state = agg.setdefault(key, {"sample_n": 0, "score_sum": 0.0, "useful_n": 0})
@@ -191,7 +192,7 @@ def build_provider_version_decisions(rows: Iterable[GovernorRow]) -> List[Dict[s
         if r.usefulness_score >= 0.75:
             state["useful_n"] += 1
 
-    decisions: List[Dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
     for (provider, model_name, prompt_version), state in agg.items():
         sample_n = int(state["sample_n"])
         avg_score = (state["score_sum"] / sample_n) if sample_n else 0.0
@@ -231,9 +232,9 @@ class GovernorRepo:
         except Exception:
             return
 
-    async def read_feedback(self) -> List[Tuple[str, Dict[str, str]]]:
+    async def read_feedback(self) -> list[tuple[str, dict[str, str]]]:
         rows = await self.redis.xreadgroup(GROUP, CONSUMER, {STREAM_FEEDBACK_SUMMARY: ">"}, count=READ_COUNT, block=2000)
-        out: List[Tuple[str, Dict[str, str]]] = []
+        out: list[tuple[str, dict[str, str]]] = []
         if not rows:
             return out
         for _stream, messages in rows:
@@ -241,14 +242,14 @@ class GovernorRepo:
                 out.append((msg_id.decode() if isinstance(msg_id, (bytes, bytearray)) else str(msg_id), _b2s_map(fields)))
         return out
 
-    async def ack(self, msg_ids: List[str]) -> None:
+    async def ack(self, msg_ids: list[str]) -> None:
         if msg_ids:
             await self.redis.xack(STREAM_FEEDBACK_SUMMARY, GROUP, *msg_ids)
 
-    async def fetch_recent_rows(self, lookback_ms: int) -> List[GovernorRow]:
+    async def fetch_recent_rows(self, lookback_ms: int) -> list[GovernorRow]:
         # Reference dataset lives in SQL in production; Redis fallback keeps worker useful even before full SQL hydration.
         raw = await self.redis.xrevrange(STREAM_FEEDBACK_SUMMARY, "+", "-", count=5000)
-        out: List[GovernorRow] = []
+        out: list[GovernorRow] = []
         now_ms = _now_ms()
         for _msg_id, fields in raw:
             d = _b2s_map(fields)
@@ -272,7 +273,7 @@ class GovernorRepo:
             )
         return out
 
-    async def write_decision(self, decision: Dict[str, Any]) -> None:
+    async def write_decision(self, decision: dict[str, Any]) -> None:
         payload = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v)) for k, v in decision.items()}
         payload.setdefault("ts_ms", str(_now_ms()))
         await self.redis.xadd(STREAM_GOV_DECISIONS, payload, maxlen=200_000, approximate=True)
@@ -284,12 +285,12 @@ class GovernorRepo:
             await self.redis.hset(key, mapping={**payload, "apply_mode": "LIVE_POLICY"})
         await self.redis.xadd(STREAM_GOV_AUDIT, {**payload, "event": "GOVERNOR_DECISION"}, maxlen=200_000, approximate=True)
 
-    async def write_dlq(self, reason: str, row: Dict[str, Any]) -> None:
+    async def write_dlq(self, reason: str, row: dict[str, Any]) -> None:
         payload = {"ts_ms": str(_now_ms()), "reason": reason, "row_json": json.dumps(row, ensure_ascii=False)}
         await self.redis.xadd(STREAM_GOV_DLQ, payload, maxlen=20_000, approximate=True)
 
 
-def _policy_key_for(decision: Dict[str, Any]) -> str:
+def _policy_key_for(decision: dict[str, Any]) -> str:
     scope = decision.get("scope", "unknown")
     if scope == "action_pattern":
         return f"{POLICY_KEY_PREFIX}:action:{decision.get('action_type','unknown')}:{decision.get('prompt_version','unknown')}:{decision.get('policy_version','unknown')}"
@@ -300,7 +301,7 @@ class OperatorRCAUsefulnessGovernor:
     def __init__(self, repo: GovernorRepo) -> None:
         self.repo = repo
 
-    async def run_once(self) -> Dict[str, int]:
+    async def run_once(self) -> dict[str, int]:
         t0 = time.perf_counter()
         rows = await self.repo.fetch_recent_rows(lookback_ms=WINDOW_MIN * 60_000)
         ROWS.labels(source="feedback_summary").inc(len(rows))

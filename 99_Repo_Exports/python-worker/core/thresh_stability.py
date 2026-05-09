@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from collections import deque
-from typing import Deque, Optional, Tuple
 import math
+from collections import deque
+from dataclasses import dataclass
 
 
 def _pct(xs, p: float) -> float:
@@ -48,8 +47,8 @@ class ThresholdStabilityTracker:
         self.alpha = float(alpha)
         self.window = int(window)
         self.eps = float(eps)
-        self._ema: Optional[float] = None
-        self._buf: Deque[float] = deque(maxlen=self.window)
+        self._ema: float | None = None
+        self._buf: deque[float] = deque(maxlen=self.window)
 
     def update(self, x: float) -> Stability:
         v = float(x)

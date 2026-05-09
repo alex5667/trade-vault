@@ -1,11 +1,12 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 """
 Tests for DLQ (Dead Letter Queue) handling of malformed envelopes.
 Tests that bad envelopes are properly quarantined without breaking the pipeline.
 """
 import json
-import time
-import pytest
+
 from services.signal_dispatcher import SignalDispatcher
 
 
@@ -16,9 +17,9 @@ class TestDLQMalformedEnvelopes:
         """Envelope без sid должен пойти в DLQ и быть ACK."""
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="test-group",
-            dlq_stream="stream:signals:dlq",
+            dlq_stream=RS.SIGNAL_DLQ,
         )
 
         # Malformed envelope без sid
@@ -34,11 +35,11 @@ class TestDLQMalformedEnvelopes:
         assert ok is True
 
         # Проверяем что в DLQ есть сообщение
-        dlq_len = r.xlen("stream:signals:dlq")
+        dlq_len = r.xlen(RS.SIGNAL_DLQ)
         assert dlq_len >= 1
 
         # Проверяем содержание DLQ сообщения
-        dlq_messages = r.xrange("stream:signals:dlq")
+        dlq_messages = r.xrange(RS.SIGNAL_DLQ)
         found = False
         for msg_id_dlq, fields in dlq_messages:
             if "data" in fields:
@@ -53,9 +54,9 @@ class TestDLQMalformedEnvelopes:
         """Пустой envelope должен пойти в DLQ."""
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="test-group",
-            dlq_stream="stream:signals:dlq",
+            dlq_stream=RS.SIGNAL_DLQ,
         )
 
         empty_env = {}
@@ -65,16 +66,16 @@ class TestDLQMalformedEnvelopes:
         assert ok is True
 
         # DLQ должен содержать сообщение
-        dlq_len = r.xlen("stream:signals:dlq")
+        dlq_len = r.xlen(RS.SIGNAL_DLQ)
         assert dlq_len >= 1
 
     def test_invalid_json_goes_to_dlq(self, r):
         """Invalid JSON в data поле должен пойти в DLQ."""
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="test-group",
-            dlq_stream="stream:signals:dlq",
+            dlq_stream=RS.SIGNAL_DLQ,
         )
 
         # Invalid JSON - незакрытая скобка
@@ -89,16 +90,16 @@ class TestDLQMalformedEnvelopes:
         ok = dispatcher._handle_one(msg_id, {"data": invalid_json})
         assert ok is True  # ACK ok, отправлено в DLQ
 
-        dlq_len = r.xlen("stream:signals:dlq")
+        dlq_len = r.xlen(RS.SIGNAL_DLQ)
         assert dlq_len >= 1
 
     def test_missing_data_field_goes_to_dlq(self, r):
         """Отсутствие data поля должно пойти в DLQ."""
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="test-group",
-            dlq_stream="stream:signals:dlq",
+            dlq_stream=RS.SIGNAL_DLQ,
         )
 
         # Поля без data
@@ -112,16 +113,16 @@ class TestDLQMalformedEnvelopes:
         ok = dispatcher._handle_one(msg_id, fields_without_data)
         assert ok is True
 
-        dlq_len = r.xlen("stream:signals:dlq")
+        dlq_len = r.xlen(RS.SIGNAL_DLQ)
         assert dlq_len >= 1
 
     def test_max_attempts_exceeded_goes_to_dlq(self, r, monkeypatch):
         """После max_attempts неудачных попыток - DLQ."""
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="test-group",
-            dlq_stream="stream:signals:dlq",
+            dlq_stream=RS.SIGNAL_DLQ,
             max_attempts=2,  # маленький лимит для теста
         )
 
@@ -144,12 +145,12 @@ class TestDLQMalformedEnvelopes:
         assert ok1 is True  # re-enqueued
 
         # Должно появиться новое сообщение в outbox с attempt=1
-        outbox_len = r.xlen("stream:signals:outbox")
+        outbox_len = r.xlen(RS.SIGNAL_OUTBOX)
         assert outbox_len >= 1
 
         # Вторая попытка - должна отправить в DLQ
         # (нужно найти новое сообщение и обработать его)
-        messages = r.xrange("stream:signals:outbox")
+        messages = r.xrange(RS.SIGNAL_OUTBOX)
         for re_msg_id, re_fields in messages:
             if "data" in re_fields:
                 re_env = json.loads(re_fields["data"])
@@ -159,14 +160,14 @@ class TestDLQMalformedEnvelopes:
                     break
 
         # DLQ должно содержать сообщение
-        dlq_len = r.xlen("stream:signals:dlq")
+        dlq_len = r.xlen(RS.SIGNAL_DLQ)
         assert dlq_len >= 1
 
     def test_dlq_contains_original_message_and_reason(self, r):
         """DLQ сообщения должны содержать оригинал и причину."""
         dispatcher = SignalDispatcher(
             redis_client=r,
-            dlq_stream="stream:signals:dlq",
+            dlq_stream=RS.SIGNAL_DLQ,
         )
 
         original_fields = {"data": '{"symbol": "BTCUSDT"}'}  # без sid
@@ -176,7 +177,7 @@ class TestDLQMalformedEnvelopes:
         dispatcher._send_dlq(msg_id, original_fields, reason=reason)
 
         # Проверяем DLQ
-        dlq_messages = r.xrange("stream:signals:dlq")
+        dlq_messages = r.xrange(RS.SIGNAL_DLQ)
         found = False
         for dlq_id, dlq_fields in dlq_messages:
             if "data" in dlq_fields:
@@ -195,13 +196,13 @@ class TestDLQMalformedEnvelopes:
         """После отправки в DLQ оригинальное сообщение должно быть ACK."""
         dispatcher = SignalDispatcher(
             redis_client=r,
-            outbox_stream="stream:signals:outbox",
+            outbox_stream=RS.SIGNAL_OUTBOX,
             group="test-group",
-            dlq_stream="stream:signals:dlq",
+            dlq_stream=RS.SIGNAL_DLQ,
         )
 
         # Добавим тестовое сообщение в outbox
-        msg_id = r.xadd("stream:signals:outbox", {"data": '{"symbol": "BTCUSDT"}'})
+        msg_id = r.xadd(RS.SIGNAL_OUTBOX, {"data": '{"symbol": "BTCUSDT"}'})
 
         # Обработаем его (должно пойти в DLQ)
         ok = dispatcher._handle_one(msg_id, {"data": '{"symbol": "BTCUSDT"}'})
@@ -209,6 +210,6 @@ class TestDLQMalformedEnvelopes:
 
         # Проверяем что сообщение ACK в consumer group
         # (это сложно проверить напрямую без mock, но можем проверить что оно не в pending)
-        pending = r.xpending("stream:signals:outbox", "test-group")
+        pending = r.xpending(RS.SIGNAL_OUTBOX, "test-group")
         msg_ids = [p["message_id"] for p in pending]
         assert msg_id not in msg_ids  # должно быть ACK

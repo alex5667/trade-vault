@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 Adverse Gate Calibrator — pure computation module (no IO).
 
@@ -28,10 +29,8 @@ Import as:
     from core.adverse_gate_calibrator import evaluate_adverse_gate, AdverseGateCalibResult
 """
 
-import math
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional
-
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -107,9 +106,9 @@ class AdverseGateCalibResult:
 
     # Diagnostics
     data_sufficient: bool = False
-    thresholds: Dict[str, float] = field(default_factory=dict)
+    thresholds: dict[str, float] = field(default_factory=dict)
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @property
@@ -126,7 +125,7 @@ class AdverseGateCalibResult:
 # ---------------------------------------------------------------------------
 
 def evaluate_adverse_gate(
-    outcomes: List[AdverseOutcome],
+    outcomes: list[AdverseOutcome],
     *,
     symbol="",
     window_h: int = 24,

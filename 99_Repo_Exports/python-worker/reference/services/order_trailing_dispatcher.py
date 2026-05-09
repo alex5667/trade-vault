@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 Отправка команд трейлинга в go-gateway.
@@ -11,11 +12,12 @@ from utils.time_utils import get_ny_time_millis
 
 import os
 import time
+from typing import Any
+
 import requests
-from typing import Optional, Dict, Any, List
-from services.trailing_profiles import TrailingProfile
 
 from common.log import setup_logger
+from services.trailing_profiles import TrailingProfile
 
 log = setup_logger("order_trailing_dispatcher")
 
@@ -31,8 +33,8 @@ class OrderTrailingDispatcher:
     """
 
     def __init__(
-        self, 
-        gateway_url: Optional[str] = None, 
+        self,
+        gateway_url: str | None = None,
         max_retries: int = 3,
         redis_client = None
     ):
@@ -45,7 +47,7 @@ class OrderTrailingDispatcher:
         self.gateway_url = (gateway_url or os.getenv("GATEWAY_URL", "http://scanner-go-gateway:8090")).rstrip("/")
         self.max_retries = max_retries
         self.timeout = float(os.getenv("GATEWAY_TIMEOUT", "3.0"))
-        
+
         # Redis для symbol specs
         if redis_client is None:
             import redis
@@ -53,10 +55,10 @@ class OrderTrailingDispatcher:
             self.r = redis.from_url(redis_url, decode_responses=True)
         else:
             self.r = redis_client
-        
+
         log.info("✅ OrderTrailingDispatcher initialized: gateway=%s", self.gateway_url)
 
-    def _post_to_gateway(self, payload: Dict[str, Any], label: str) -> bool:
+    def _post_to_gateway(self, payload: dict[str, Any], label: str) -> bool:
         """Отправка payload в gateway с retry."""
         for attempt in range(1, self.max_retries + 1):
             try:
@@ -126,9 +128,9 @@ class OrderTrailingDispatcher:
         self,
         sid: str,
         symbol: str,
-        position_id: Optional[str],
+        position_id: str | None,
         profile: TrailingProfile,
-        metadata: Optional[dict] = None
+        metadata: dict | None = None
     ) -> bool:
         """
         Отправить команду трейлинга в gateway.
@@ -151,11 +153,11 @@ class OrderTrailingDispatcher:
             "source": "tp1_trailing_orchestrator",
             "timestamp": get_ny_time_millis()
         }
-        
+
         # Добавляем position_id если есть
         if position_id:
             payload["position_id"] = position_id
-        
+
         # Дополнительные параметры в зависимости от режима
         if profile.mode == "ATR":
             payload["atr_mult"] = profile.atr_mult
@@ -164,27 +166,27 @@ class OrderTrailingDispatcher:
         elif profile.mode == "STEP":
             if profile.step_points:
                 payload["step_points"] = profile.step_points
-        
+
         # Минимальная фиксация прибыли
         if profile.hard_min_lock is not None:
             payload["hard_min_lock"] = profile.hard_min_lock
-        
+
         # Метаданные
         if metadata:
             payload["metadata"] = metadata
-        
+
         # 🛑 gateway не принимает action=trail без SL → пропускаем как успешное
         return True
-    
+
     def send_trailing_command_from_atr(
         self,
         sid: str,
         symbol: str,
-        position_id: Optional[str],
+        position_id: str | None,
         atr_value: float,
         atr_mult: float,
-        point: Optional[float] = None,
-        metadata: Optional[dict] = None
+        point: float | None = None,
+        metadata: dict | None = None
     ) -> bool:
         """
         Отправить команду трейлинга с конвертацией ATR в пункты (РЕКОМЕНДУЕТСЯ).
@@ -210,11 +212,11 @@ class OrderTrailingDispatcher:
         # Получаем point из symbol specs если не передан
         if point is None:
             point = self._get_symbol_point(symbol)
-        
+
         # Рассчитываем расстояние трейлинга
         trail_dist_price = atr_value * atr_mult  # В единицах цены
         trail_points = trail_dist_price / point   # В пунктах MT5
-        
+
         payload = {
             "action": "trail",
             "sid": sid,
@@ -224,15 +226,15 @@ class OrderTrailingDispatcher:
             "source": "tp1_trailing_orchestrator",
             "timestamp": get_ny_time_millis()
         }
-        
+
         # Добавляем position_id если есть
         if position_id:
             payload["position_id"] = position_id
-        
+
         # Метаданные для логов и анализа
         if metadata is None:
             metadata = {}
-        
+
         metadata.update({
             "atr_value": atr_value,
             "atr_mult": atr_mult,
@@ -241,14 +243,14 @@ class OrderTrailingDispatcher:
             "calculated_from_signal_atr": True
         })
         payload["metadata"] = metadata
-        
+
         log.info(
             "Skipping trail command to gateway (POINTS): sid=%s points=%.1f (ATR %.2f × %.2f = %.2f) — will rely on modify with SL",
             sid, trail_points, atr_value, atr_mult, trail_dist_price
         )
         # 🛑 gateway требует SL для action=modify; trail без SL отклоняется. Пропускаем как успешное.
         return True
-    
+
     def _get_symbol_point(self, symbol: str) -> float:
         """
         Получить размер пункта для символа из Redis symbol specs.
@@ -261,21 +263,21 @@ class OrderTrailingDispatcher:
         """
         try:
             import json
-            
+
             # Пробуем получить из symbol_specs
             specs_key = f"symbol_specs:{symbol}"
             specs_data = self.r.get(specs_key)
-            
+
             if specs_data:
                 specs = json.loads(specs_data)
                 point = specs.get("point")
                 if point and point > 0:
                     log.debug("Symbol point from Redis: %s = %.4f", symbol, point)
                     return float(point)
-            
+
         except Exception as e:
             log.debug("Could not get symbol specs from Redis: %s", e)
-        
+
         # Fallback значения
         defaults = {
             "XAUUSD": 0.1,
@@ -285,7 +287,7 @@ class OrderTrailingDispatcher:
             "EURUSD": 0.00001,
             "GBPUSD": 0.00001,
         }
-        
+
         point = defaults.get(symbol, 0.1)
         log.debug("Using default point for %s: %.5f", symbol, point)
         return point
@@ -298,14 +300,14 @@ class OrderTrailingDispatcher:
         self,
         sid: str,
         symbol: str,
-        side: Optional[str],
-        position_id: Optional[str],
+        side: str | None,
+        position_id: str | None,
         new_sl: float,
-        tp_levels: Optional[List[float]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        tp_levels: list[float] | None = None,
+        metadata: dict[str, Any] | None = None,
         clear_tp_levels: bool = False
     ) -> bool:
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "action": "modify",
             "sid": sid,
             "symbol": symbol,
@@ -330,13 +332,13 @@ class OrderTrailingDispatcher:
             payload["metadata"] = metadata
 
         return self._post_to_gateway(payload, "trailing modify")
-    
+
     def send_modify_sl(
         self,
         sid: str,
         symbol: str,
         new_sl: float,
-        position_id: Optional[str] = None
+        position_id: str | None = None
     ) -> bool:
         """
         Отправить команду модификации SL.
@@ -358,19 +360,19 @@ class OrderTrailingDispatcher:
             "source": "tp1_trailing_orchestrator",
             "timestamp": get_ny_time_millis()
         }
-        
+
         if position_id:
             payload["position_id"] = position_id
-        
+
         return self._post_to_gateway(payload, "modify_sl")
 
 
 if __name__ == "__main__":
     # Тестирование
     from services.trailing_profiles import TrailingProfile
-    
+
     dispatcher = OrderTrailingDispatcher()
-    
+
     # Тестовый профиль
     test_profile = TrailingProfile(
         name="test_rocket",
@@ -378,7 +380,7 @@ if __name__ == "__main__":
         atr_mult=0.6,
         comment="Test profile"
     )
-    
+
     # Отправка тестовой команды
     success = dispatcher.send_trailing_command(
         sid="test-signal-123",
@@ -387,6 +389,6 @@ if __name__ == "__main__":
         profile=test_profile,
         metadata={"test": True}
     )
-    
+
     print(f"\n{'✅' if success else '❌'} Test trailing command: {success}")
 

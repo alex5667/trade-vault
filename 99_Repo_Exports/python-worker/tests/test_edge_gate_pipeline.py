@@ -1,15 +1,14 @@
 
-import sys
 import os
-import json
 import unittest
 from unittest.mock import MagicMock, patch
 
+from edge_gate_ingestor import PostgresWriter
+
 # Add path
 # [AUTOGRAVITY CLEANUP] sys.path.append("/home/alex/front/trade/scanner_infra/python-worker")
-
 from handlers.crypto_orderflow.pipeline.orchestrator import SignalOrchestrator
-from edge_gate_ingestor import PostgresWriter
+
 
 class TestEdgeGatePipeline(unittest.TestCase):
     def test_orchestrator_publishing(self):
@@ -19,11 +18,11 @@ class TestEdgeGatePipeline(unittest.TestCase):
         ctx.redis = MagicMock()
         ctx.symbol = "BTCUSDT"
         ctx.ts = 1700000000000
-        
+
         cand = MagicMock()
         cand.signal_id = "sig-123"
         cand.kind = "test-kind"
-        
+
         cost_decision = MagicMock()
         cost_decision.passed = False
         cost_decision.veto_reason = "VETO_TEST"
@@ -35,7 +34,7 @@ class TestEdgeGatePipeline(unittest.TestCase):
         cost_decision.slippage_bps = 4.0
         cost_decision.buffer_bps = 0.0
         cost_decision.total_costs_bps = 8.0
-        
+
         # Override ENV to force sync publishing (mock 100% sample)
         with patch.dict(os.environ, {
             "EDGE_GATE_EVENTS_MODE": "stream",
@@ -45,14 +44,14 @@ class TestEdgeGatePipeline(unittest.TestCase):
             orch = SignalOrchestrator(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock())
             # Directly call the helper to test logic
             orch._maybe_publish_edge_event(ctx, cand, cost_decision, "test-kind")
-            
+
             # Verify Redis XADD
             ctx.redis.xadd.assert_called_once()
             args, kwargs = ctx.redis.xadd.call_args
-            
+
             stream = args[0]
             fields = args[1]
-            
+
             self.assertEqual(stream, "test:stream")
             self.assertEqual(fields["signal_id"], "sig-123")
             self.assertEqual(fields["gate_name"], "edge_cost")
@@ -64,10 +63,10 @@ class TestEdgeGatePipeline(unittest.TestCase):
     def test_ingestor_batch_write(self, mock_psycopg2):
         """Verify proper sql generation and execution in ingestor."""
         writer = PostgresWriter("dsn")
-        
+
         mock_conn = writer.pool.getconn.return_value
         mock_cursor = mock_conn.cursor.return_value
-        
+
         events = [
             {
                 "signal_id": "s1", "symbol": "BTC", "gate_name": "g1", "gate_version": 2, "stage": "pre",
@@ -77,11 +76,11 @@ class TestEdgeGatePipeline(unittest.TestCase):
                 "ctx_obj": {}
             }
         ]
-        
+
         # Patch execute_values to check logic
         with patch("edge_gate_ingestor.extras.execute_values") as mock_exec:
             writer.write_batch(events)
-            
+
             self.assertTrue(mock_exec.called)
             # Check SQL contains ON CONFLICT
             sql = mock_exec.call_args[0][1]

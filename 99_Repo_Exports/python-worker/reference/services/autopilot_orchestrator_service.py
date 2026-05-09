@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """services.autopilot_orchestrator_service
 
 Runs the "Autopilot" daily loop inside a container:
@@ -27,8 +27,6 @@ Env:
   AUTOPILOT_LOCK_TTL_SEC=21600
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import os
 import subprocess
 import time
@@ -36,8 +34,9 @@ from dataclasses import dataclass
 
 import redis
 
-from core.redis_lock import acquire_lock_sync, release_lock_sync, lock_key_daily, utc_yyyymmdd
+from core.redis_lock import acquire_lock_sync, lock_key_daily, release_lock_sync, utc_yyyymmdd
 from utils.telegram_notify import send_telegram_message
+from utils.time_utils import get_ny_time_millis
 
 
 @dataclass
@@ -82,18 +81,18 @@ def run_once(*, repo_root: str, since_hours: int, window_days: int, out_path: st
     """Executes export + tuner and returns a Markdown report (best-effort)."""
     py_path = "PYTHONPATH=\".:..\""
     redis_write = os.getenv("AUTOPILOT_REDIS_WRITE", "0") == "1"
-    
+
     # 1) Export
     cmd1 = f"{py_path} python tools/export_trade_closed_ndjson.py --since-hours {int(since_hours)} --out {out_path}"
     rc1, out1 = _run_cmd(cmd1, cwd=repo_root)
-    
+
     # 2) Tuner
     cmd2 = f"{py_path} python tools/tm_policy_tuner.py --input {out_path} --window-days {int(window_days)}"
     if redis_write:
         cmd2 += " --redis-write"
-        
+
     rc2, out2 = _run_cmd(cmd2, cwd=repo_root)
-    
+
     # Compose report
     ts = get_ny_time_millis()
     md = []

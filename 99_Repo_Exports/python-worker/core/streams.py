@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from typing import List
 
 
 def microbar_legacy_stream() -> str:
@@ -22,14 +21,14 @@ def microbar_symbols_set() -> str:
 
 
 def microbar_stream_for_symbol(symbol: str) -> str:
-    return f"{microbar_per_symbol_prefix()}{str(symbol)}"
+    return f"{microbar_per_symbol_prefix()}{symbol}"
 
 
-def list_microbar_symbols(r, max_n: int = 1000) -> List[str]:
+def list_microbar_symbols(r, max_n: int = 1000) -> list[str]:
     """Returns active symbols from microbar symbols set."""
     key = microbar_symbols_set()
     xs = list(r.smembers(key) or [])
-    out: List[str] = []
+    out: list[str] = []
     for x in xs[:max_n]:
         try:
             out.append(x.decode("utf-8") if isinstance(x, (bytes, bytearray)) else str(x))

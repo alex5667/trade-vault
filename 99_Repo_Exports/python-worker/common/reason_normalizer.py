@@ -18,8 +18,6 @@ common/reason_normalizer.py
 """
 
 import re
-from typing import Optional
-
 
 _RE_NUM = re.compile(r"\b\d+(\.\d+)?\b")
 _RE_MULTI_SEP = re.compile(r"[:\s]+")
@@ -34,7 +32,7 @@ def _clean(s: str) -> str:
     return s
 
 
-def normalize_reason(reason: str, *, kind: Optional[str] = None) -> str:
+def normalize_reason(reason: str, *, kind: str | None = None) -> str:
     r = _clean(reason)
     k = _clean(kind or "")
 

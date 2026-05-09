@@ -1,21 +1,23 @@
 # initialization_manager.py
 from __future__ import annotations
+
 """
 Initialization management functionality extracted from base_orderflow_handler.py
 """
 
-from utils.time_utils import get_ny_time_millis
-
-from dataclasses import dataclass
-from typing import Optional, Any, TYPE_CHECKING
 import os
 import time
+from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
-from .config_manager import ConfigManager
+from utils.time_utils import get_ny_time_millis
+
 from .cache_service import CacheService
+from .config_manager import ConfigManager
 from .error_handler import ErrorHandler
+
 
 # from common.log import setup_logger
 def setup_logger(name):
@@ -159,7 +161,7 @@ class InitializationManager:
             cfg.claim_interval_ms = int(os.getenv("CLAIM_INTERVAL_MS", "30000"))
         if not hasattr(cfg, "max_fail_retries"):
             cfg.max_fail_retries = int(os.getenv("MAX_FAIL_RETRIES", "3"))
-        
+
         # Compatibility shim
         self.handler.max_fail_retries = int(getattr(cfg, "max_fail_retries", 3))
 
@@ -196,7 +198,7 @@ class InitializationManager:
 
         # L3 configuration
         l3_alpha = float(os.getenv("L3_TAKER_RATE_EMA_ALPHA", "0.12"))
-        
+
         L3Queue = self.handler.dependencies.l3_queue
         if L3Queue:
             try:
@@ -382,11 +384,13 @@ class InitializationManager:
                 # We need SymbolSetupConfig which is a model, might be imported or passed?
                 # It was imported from signal_exec.models.
                 # If we want to fully remove imports, we should add it to dependencies or use factory.
-                # But it's a data model, less critical? 
+                # But it's a data model, less critical?
                 # Ideally HandlerDependencies should have it.
-                from signal_exec.models import SymbolSetupConfig # Keeping local import for data model for now or moving to top?
+                from signal_exec.models import (
+                    SymbolSetupConfig,  # Keeping local import for data model for now or moving to top?
+                )
                 # Data models are usually fine. The issue is heavy imports.
-                
+
                 redis_url_main = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 
                 basic_config = SymbolSetupConfig(
@@ -403,7 +407,7 @@ class InitializationManager:
                     risk_multipliers=(0.5, 1.0, 1.5, 2.0)
                 )
                 setup_configs = {(self.handler.symbol, "orderflow"): basic_config}
-                
+
                 # Instantiate using injected classes
                 self.handler._execution_planner = d.execution_planner(setup_configs)
                 self.handler._signal_repo = d.signal_repo(database_url)
@@ -418,7 +422,7 @@ class InitializationManager:
             except Exception as e:
                 self.logger.warning("Failed to initialize execution components: %s", e)
 
-    def _init_calibration(self, local_calibration: Optional[LCStoreV2] = None) -> None:
+    def _init_calibration(self, local_calibration: LCStoreV2 | None = None) -> None:
         """Инициализация систем калибровки."""
         self.handler.local_calibration = local_calibration
 
@@ -447,7 +451,7 @@ class InitializationManager:
             self.logger.warning("Failed to init scoring engine (fail-open): %s", e)
             self.handler._scoring_engine = None
 
-    def _init_unified_pipeline(self, unified_pipeline: Optional[Any] = None) -> None:
+    def _init_unified_pipeline(self, unified_pipeline: Any | None = None) -> None:
         self.handler._unified_pipeline = unified_pipeline
 
     def _init_l2l3(self) -> None:
@@ -467,9 +471,9 @@ class InitializationManager:
     def initialize_all(
         self,
         symbol: str,
-        config: Optional[Any] = None,
-        local_calibration: Optional["LCStoreV2"] = None,
-        unified_pipeline: Optional[Any] = None,
+        config: Any | None = None,
+        local_calibration: LCStoreV2 | None = None,
+        unified_pipeline: Any | None = None,
     ) -> Infra:
         self.handler.symbol = symbol
         cfg = self._ensure_config()
@@ -532,6 +536,7 @@ class InitializationManager:
 
 
 from dataclasses import dataclass
+
 
 @dataclass(frozen=True)
 class Infra:

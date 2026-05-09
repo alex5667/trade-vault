@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Integration tests for SignalDispatcher atomicity guarantees.
 
@@ -11,7 +12,6 @@ Run with: pytest -m integration tests/test_signal_dispatcher_atomicity_integrati
 
 import json
 import time
-from typing import Any, Dict, Optional
 
 import pytest
 

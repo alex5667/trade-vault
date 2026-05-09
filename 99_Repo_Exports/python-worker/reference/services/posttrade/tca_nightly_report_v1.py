@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Nightly TCA report bundle (P6 gap-closure).
@@ -15,8 +16,8 @@ import argparse
 import json
 import os
 import re
-import time
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 
 def _now_ms() -> int:
@@ -39,7 +40,7 @@ def _env_float(name: str, default: str) -> float:
     try:
         return float(_env(name, default))
     except Exception:
-        return float(default)
+        return default
 
 
 def pick_dsn() -> str:
@@ -56,14 +57,14 @@ def pick_dsn() -> str:
 
 
 def _safe_ident(name: str, default: str) -> str:
-    s = str(name or '').strip()
+    s = (name or '').strip()
     if not s or not re.fullmatch(r'[A-Za-z0-9_\.]+', s):
         return default
     return s
 
 
-def _write_json_atomic(path: str, obj: Dict[str, Any]) -> None:
-    p = str(path or '').strip()
+def _write_json_atomic(path: str, obj: dict[str, Any]) -> None:
+    p = (path or '').strip()
     if not p:
         return
     os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
@@ -95,7 +96,7 @@ def _f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
     except Exception:
-        return float(default)
+        return default
     return float(v)
 
 
@@ -103,10 +104,10 @@ def _i(x: Any, default: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(default)
+        return default
 
 
-def _fetch_rollups(cur, *, table: str, lookback_h: int, min_rows: int) -> List[Dict[str, Any]]:
+def _fetch_rollups(cur, *, table: str, lookback_h: int, min_rows: int) -> list[dict[str, Any]]:
     q = f"""
       select
         sym,
@@ -150,36 +151,36 @@ def _fetch_rollups(cur, *, table: str, lookback_h: int, min_rows: int) -> List[D
     return rows
 
 
-def _row_key(row: Dict[str, Any]) -> str:
+def _row_key(row: dict[str, Any]) -> str:
     return ':'.join([
-        str(row.get('sym') or ''),
-        str(row.get('venue') or ''),
-        str(row.get('session') or ''),
-        str(row.get('tf') or ''),
-        str(row.get('kind') or ''),
-        str(row.get('side') or '')])
+        (row.get('sym') or ''),
+        (row.get('venue') or ''),
+        (row.get('session') or ''),
+        (row.get('tf') or ''),
+        (row.get('kind') or ''),
+        (row.get('side') or '')])
 
 
-def _top_rows(rows: Sequence[Dict[str, Any]], *, field: str, reverse: bool, top_n: int) -> List[Dict[str, Any]]:
+def _top_rows(rows: Sequence[dict[str, Any]], *, field: str, reverse: bool, top_n: int) -> list[dict[str, Any]]:
     ranked = sorted(rows, key=lambda r: (_f(r.get(field), 0.0), _i(r.get('n'), 0)), reverse=reverse)
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for row in ranked[: max(1, int(top_n))]:
         out.append({
             'key': _row_key(row),
             'value': _f(row.get(field), 0.0),
             'n': _i(row.get('n'), 0),
-            'sym': str(row.get('sym') or ''),
-            'venue': str(row.get('venue') or ''),
-            'session': str(row.get('session') or ''),
-            'tf': str(row.get('tf') or ''),
-            'kind': str(row.get('kind') or ''),
-            'side': str(row.get('side') or ''),
+            'sym': (row.get('sym') or ''),
+            'venue': (row.get('venue') or ''),
+            'session': (row.get('session') or ''),
+            'tf': (row.get('tf') or ''),
+            'kind': (row.get('kind') or ''),
+            'side': (row.get('side') or ''),
         })
     return out
 
 
-def build_report(*, rows_24h: Sequence[Dict[str, Any]], rows_7d: Sequence[Dict[str, Any]], thresholds: Dict[str, float], top_n: int) -> Dict[str, Any]:
-    def _total_rows(rows: Sequence[Dict[str, Any]]) -> int:
+def build_report(*, rows_24h: Sequence[dict[str, Any]], rows_7d: Sequence[dict[str, Any]], thresholds: dict[str, float], top_n: int) -> dict[str, Any]:
+    def _total_rows(rows: Sequence[dict[str, Any]]) -> int:
         return int(sum(max(0, _i(r.get('n'), 0)) for r in rows))
 
     max_is = _f(thresholds.get('max_is_p95_bps'), 0.0)
@@ -187,7 +188,7 @@ def build_report(*, rows_24h: Sequence[Dict[str, Any]], rows_7d: Sequence[Dict[s
     min_rs = _f(thresholds.get('min_realized_spread_p50_bps'), -999.0),
     max_eff = _f(thresholds.get('max_eff_spread_p95_bps'), 0.0),
 
-    def _breach_counts(rows: Sequence[Dict[str, Any]]) -> Dict[str, int]:
+    def _breach_counts(rows: Sequence[dict[str, Any]]) -> dict[str, int]:
         return {
             'is_p95': int(sum(1 for r in rows if _f(r.get('is_p95_bps'), 0.0) >= max_is)) if max_is > 0 else 0,
             'perm_impact_p95': int(sum(1 for r in rows if _f(r.get('perm_impact_1s_p95_bps'), 0.0) >= max_imp)) if max_imp > 0 else 0,
@@ -226,7 +227,7 @@ def build_report(*, rows_24h: Sequence[Dict[str, Any]], rows_7d: Sequence[Dict[s
     return report
 
 
-def build_summary_state(*, report: Dict[str, Any], now_ms: int, dur_ms: int, ok: bool) -> Dict[str, str]:
+def build_summary_state(*, report: dict[str, Any], now_ms: int, dur_ms: int, ok: bool) -> dict[str, str]:
     s = dict((report or {}).get('summary') or {})
     top24 = dict((report or {}).get('top_offenders_24h') or {})
 
@@ -257,7 +258,7 @@ def build_summary_state(*, report: Dict[str, Any], now_ms: int, dur_ms: int, ok:
     }
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description='Nightly TCA report bundle')
     ap.add_argument('--dsn', default=pick_dsn())
     ap.add_argument('--redis-url', default=os.getenv('REDIS_URL') or os.getenv('CRYPTO_NOTIFY_REDIS_URL') or '')
@@ -272,7 +273,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = ap.parse_args(list(argv) if argv is not None else None)
 
     t0 = _now_ms()
-    status: Dict[str, Any] = {'ts_ms': t0, 'ok': False, 'dur_ms': 0}
+    status: dict[str, Any] = {'ts_ms': t0, 'ok': False, 'dur_ms': 0}
     dsn = str(args.dsn or '').strip()
     if not dsn:
         status['reason'] = 'missing_dsn'

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Replay OFC capture (NDJSON) to validate determinism and snapshot completeness.
 
@@ -14,13 +15,13 @@ Notes:
 import argparse
 import json
 import sys
-from typing import Any, Dict, Optional
+from typing import Any
 
 from core.of_confirm_engine import OFConfirmEngine
 
 
 def _load_ndjson(path: str):
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for ln in f:
             ln = ln.strip()
             if not ln:
@@ -71,9 +72,9 @@ def main() -> int:
             eng.set_replay_time_ms(tick_ts_ms)
             try:
                 ofc, dec = eng.build(
-                    symbol=str(row.get("symbol") or ""),
-                    tf=str(row.get("tf") or ""),
-                    direction=str(row.get("direction") or ""),
+                    symbol=(row.get("symbol") or ""),
+                    tf=(row.get("tf") or ""),
+                    direction=(row.get("direction") or ""),
                     tick_ts_ms=tick_ts_ms,
                     price=float(row.get("price") or 0.0),
                     delta_z=float(row.get("delta_z") or 0.0),
@@ -82,7 +83,7 @@ def main() -> int:
                     absorption=absorption,
                     runtime=runtime,
                 )
-                out_row: Dict[str, Any] = dict(row)
+                out_row: dict[str, Any] = dict(row)
                 out_row["missing_snapshot"] = missing
                 out_row["ofc_ok"] = int(getattr(ofc, "ok", 0) or 0) if ofc is not None else 0
                 out_row["ofc_reason"] = str(getattr(ofc, "reason", "") or "") if ofc is not None else ""

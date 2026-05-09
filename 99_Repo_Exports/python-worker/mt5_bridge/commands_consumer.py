@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Commands Consumer - обработка команд из Redis Streams
 
@@ -8,11 +9,10 @@ Commands Consumer - обработка команд из Redis Streams
 
 
 import json
-from typing import Dict, Any
-
-import redis
 
 import MetaTrader5 as mt5
+import redis
+
 from .mt5_client import Mt5Client
 
 

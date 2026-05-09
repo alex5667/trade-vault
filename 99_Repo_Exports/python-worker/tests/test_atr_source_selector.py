@@ -1,8 +1,6 @@
-from utils.time_utils import get_ny_time_millis
-import json
-import time
 
 from core.atr_source_selector_v2 import ATRSourceSelector
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:

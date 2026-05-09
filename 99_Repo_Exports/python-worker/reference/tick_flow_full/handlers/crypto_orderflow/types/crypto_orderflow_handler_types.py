@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum, auto
-from typing import List, Optional
+from enum import Enum
 
 
 class ZoneType(str, Enum):
@@ -25,7 +24,7 @@ class HTFLevel:
 
 @dataclass
 class GeoZoneHit:
-    nearest_zone: Optional[ZoneType]
+    nearest_zone: ZoneType | None
     distance_bps: float
     in_zone: bool
     zone_strength: float
@@ -58,15 +57,15 @@ class L2Level:
 
 @dataclass
 class L2Snapshot:
-    bids: List[L2Level]
-    asks: List[L2Level]
+    bids: list[L2Level]
+    asks: list[L2Level]
 
 
 @dataclass
 class SimpleL2Snapshot:
     """Simplified L2 Snapshot used in logic."""
-    bids: List[L2Level]
-    asks: List[L2Level]
+    bids: list[L2Level]
+    asks: list[L2Level]
 
 
 @dataclass(frozen=True)
@@ -83,20 +82,20 @@ class RegimeFeatures:
     Biases are expected in [-1..+1] (or close), optional when data is missing.
     """
     # raw metrics
-    vwap_dev_bps: Optional[float] = None
-    daily_open_dev_bps: Optional[float] = None
-    daily_open_cross_freq: Optional[float] = None
-    htf_level_dist_bps: Optional[float] = None
+    vwap_dev_bps: float | None = None
+    daily_open_dev_bps: float | None = None
+    daily_open_cross_freq: float | None = None
+    htf_level_dist_bps: float | None = None
 
     # biases
-    atr_bias: Optional[float] = None
-    delta_dir_bias: Optional[float] = None
-    vwap_dev_bias: Optional[float] = None
-    daily_open_dev_bias: Optional[float] = None
-    daily_open_cross_bias: Optional[float] = None
-    htf_prox_bias: Optional[float] = None
-    weak_progress_bias: Optional[float] = None
-    session_bias: Optional[float] = None
+    atr_bias: float | None = None
+    delta_dir_bias: float | None = None
+    vwap_dev_bias: float | None = None
+    daily_open_dev_bias: float | None = None
+    daily_open_cross_bias: float | None = None
+    htf_prox_bias: float | None = None
+    weak_progress_bias: float | None = None
+    session_bias: float | None = None
 
 
 @dataclass(frozen=True)
@@ -107,4 +106,4 @@ class RegimeSample:
     daily_open_side: int
     vol_total: float
     notional: float
-    bar_index: Optional[int] = None
+    bar_index: int | None = None

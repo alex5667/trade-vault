@@ -1,10 +1,12 @@
-import os
-import unittest
 import json
-import time
-from services.atr_protective_lifecycle_mirror import ProtectiveLifecycleMirror, _node_id, NODE_PROTECTIVE_POSITION, NODE_BREAK_EVEN, NODE_TRAILING, NODE_CLOSEOUT
-from services.atr_protective_lifecycle_equivalence_cert_service import ATRProtectiveLifecycleEquivalenceCertService
+import unittest
+
 from services.atr_graph_backed_protective_resolver import ATRGraphBackedProtectiveResolver
+from services.atr_protective_lifecycle_equivalence_cert_service import ATRProtectiveLifecycleEquivalenceCertService
+from services.atr_protective_lifecycle_mirror import (
+    ProtectiveLifecycleMirror,
+)
+
 
 class DummyConn:
     def __init__(self):
@@ -56,7 +58,7 @@ class TestProtectiveLifecyclePhase86(unittest.TestCase):
         conn = DummyConn()
         # Mock trailing state fetch
         conn._cur.rows = [[json.dumps({"moves_count": 0})]]
-        
+
         # Test ratchet backwards logging (normally it would emit drift and not throw)
         try:
             self.mirror.on_sl_moved("sig123", "BTCUSDT", "LONG", 59000.0, 58000.0, 60500.0, 2000)

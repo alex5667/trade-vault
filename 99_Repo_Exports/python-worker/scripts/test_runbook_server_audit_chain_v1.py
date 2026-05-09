@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P5.6 tests for the audit chain endpoint in the runbook server.
 
 Tests use the filter_report and load_report functions from a wrapped runbook_server
@@ -6,12 +7,8 @@ that exposes the /api/audit-chain/latest endpoint.
 """
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
-from io import BytesIO
-from unittest.mock import patch
-
 
 # Load the runbook_server module directly without executing its __main__ block
 ROOT = Path(__file__).resolve().parents[1]

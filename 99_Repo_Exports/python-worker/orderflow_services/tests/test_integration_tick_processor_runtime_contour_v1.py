@@ -1,20 +1,19 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
+import importlib.util
 import os
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import pytest
 
-import importlib.util
+from utils.time_utils import get_ny_time_millis
 
 
-def _load_test_harness() -> Tuple[Any, Any]:
+def _load_test_harness() -> tuple[Any, Any]:
     """Load local test harness modules by path (works even if tests/ is not a package)."""
     p = Path(__file__).resolve().parent / "harness" / "fake_redis_v1.py"
     spec = importlib.util.spec_from_file_location("fake_redis_v1", str(p))
@@ -79,7 +78,7 @@ class _DummyDeltaDetector:
         self._delta = float(delta)
         self._z = float(z)
 
-    def push(self, tick: Dict[str, Any]) -> Dict[str, float]:  # noqa: ARG002
+    def push(self, tick: dict[str, Any]) -> dict[str, float]:  # noqa: ARG002
         # TickProcessor requires a truthy dict. It then computes delta_usd = abs(delta) * price.
         return {"delta": self._delta, "z": self._z}
 
@@ -96,7 +95,7 @@ class _DummyTickGaps:
         except Exception:
             return None
 
-    def snapshot(self) -> Tuple[float, float, int]:
+    def snapshot(self) -> tuple[float, float, int]:
         if not self._gaps:
             return 0.0, 0.0, 0
         xs = sorted(self._gaps)
@@ -127,17 +126,17 @@ class _DummySeqGapEMA:
 class _DummyOFC:
     """OFConfirm-like object sufficient for tick_processor to proceed and early-return on veto."""
 
-    def __init__(self, *, ok: int, scenario: str, reason: str, evidence: Dict[str, Any]):
+    def __init__(self, *, ok: int, scenario: str, reason: str, evidence: dict[str, Any]):
         self.ok = int(ok)
         self.scenario = str(scenario)
-        self.reason = str(reason)
+        self.reason = reason
         self.score = 0.0
         self.have = 0
         self.need = 0
         self.gate_bits = 0
         self.evidence = dict(evidence)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "ok": int(self.ok),
             "scenario": str(self.scenario),
@@ -152,10 +151,10 @@ class _DummyOFEngine:
 
     def __init__(self, dq_mod: Any) -> None:
         self.dq = dq_mod
-        self.last_indicators_pre_dq: Optional[Dict[str, Any]] = None
-        self.last_dq_out: Optional[Dict[str, Any]] = None
+        self.last_indicators_pre_dq: dict[str, Any] | None = None
+        self.last_dq_out: dict[str, Any] | None = None
 
-    def build(self, *, runtime: Any, cfg: Dict[str, Any], indicators: Dict[str, Any], **kwargs: Any):  # noqa: ARG002
+    def build(self, *, runtime: Any, cfg: dict[str, Any], indicators: dict[str, Any], **kwargs: Any):  # noqa: ARG002
         # Capture pre-DQ surface contract (A2).
         self.last_indicators_pre_dq = dict(indicators)
 
@@ -168,7 +167,7 @@ class _DummyOFEngine:
         return _DummyOFC(ok=0, scenario="dq_veto", reason="DQ", evidence={"ok_soft": 0, "scenario_v4": "dq"}), out
 
 
-def _mk_min_runtime(cfg: Dict[str, Any]) -> Any:
+def _mk_min_runtime(cfg: dict[str, Any]) -> Any:
     rt = SimpleNamespace()
     rt.symbol = "BTCUSDT"
     rt.config = dict(cfg)
@@ -334,5 +333,5 @@ async def test_tick_processor_runtime_contour_book_gap_observe_only(uptime_sec: 
     dq = engine.last_dq_out
     assert int(dq.get("dq_level", -1)) == 2
     assert int(dq.get("dq_veto", -1)) == int(expect_veto)
-    assert str(dq.get("dq_reason_bucket", "")) in ("book_seq", "book", "data_health", "other", "")
+    assert (dq.get("dq_reason_bucket", "")) in ("book_seq", "book", "data_health", "other", "")
 

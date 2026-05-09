@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from services.orderflow.signal_pipeline import SignalPipeline
+from core.redis_keys import RedisStreams as RS
 
 
 def _make_pipeline(strict: bool) -> SignalPipeline:
@@ -18,7 +19,7 @@ def _make_pipeline(strict: bool) -> SignalPipeline:
         "os.environ",
         {
             "OF_INPUTS_PUBLISH_STRICT": "1" if strict else "0",
-            "OF_INPUTS_STREAM": "signals:of:inputs",
+            "OF_INPUTS_STREAM": RS.OF_INPUTS,
             "OF_INPUTS_STREAM_MAXLEN": "5000",
         },
         clear=False,
@@ -40,7 +41,7 @@ async def test_publish_of_inputs_logs_metric_and_swallow_when_not_strict():
 
     metric.labels.assert_called_once_with(
         symbol="BTCUSDT",
-        stream="signals:of:inputs",
+        stream=RS.OF_INPUTS,
         path="direct",
     )
 
@@ -60,6 +61,6 @@ async def test_publish_of_inputs_raises_in_strict_mode():
 
     metric.labels.assert_called_once_with(
         symbol="BTCUSDT",
-        stream="signals:of:inputs",
+        stream=RS.OF_INPUTS,
         path="outbox",
     )

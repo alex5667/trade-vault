@@ -1,18 +1,19 @@
-from typing import Any, Dict, Tuple
+from typing import Any
 
-def is_gate_row(r: Dict[str, Any]) -> bool:
+
+def is_gate_row(r: dict[str, Any]) -> bool:
     """Check if a row from Redis stream is an actual of_gate record."""
-    t = str(r.get("type") or "").strip().lower()
+    t = (r.get("type") or "").strip().lower()
     return t == "of_gate" or t == "of_gate_metrics_v1" or (t == "" and "ok" in r)
 
-def derive_ok_fields(r: Dict[str, Any]) -> Tuple[int, int, str, str]:
+def derive_ok_fields(r: dict[str, Any]) -> tuple[int, int, str, str]:
     """
     Robust extraction of ok and ok_soft, plus their sources.
     Returns: (ok, ok_soft, ok_src, ok_soft_src)
     """
-    ok_src = str(r.get("ok_src") or "missing")
-    ok_soft_src = str(r.get("ok_soft_src") or "missing")
-    
+    ok_src = (r.get("ok_src") or "missing")
+    ok_soft_src = (r.get("ok_soft_src") or "missing")
+
     ok_raw = r.get("ok")
     if ok_raw is not None:
         try:
@@ -35,7 +36,7 @@ def derive_ok_fields(r: Dict[str, Any]) -> Tuple[int, int, str, str]:
 
     return ok, soft, ok_src, ok_soft_src
 
-def scenario_key(r: Dict[str, Any]) -> str:
+def scenario_key(r: dict[str, Any]) -> str:
     """Extract standard scenario."""
     from core.ok_fields import get_scenario
     return get_scenario(r) or "na"

@@ -1,22 +1,19 @@
 from __future__ import annotations
+
 """Tests for build_confirm_train_v7_from_redis."""
 
 import json
 import os
 import tempfile
-from typing import Any, Dict, List, Optional
-
-import pytest
 
 from ml_analysis.tools.build_confirm_train_v7_from_redis import (
     _normalize_sid,
+    _write_json_atomic,
+    _write_jsonl_atomic,
+    build_confirm_train_v7,
     parse_decision,
     parse_outcome,
-    build_confirm_train_v7,
-    _write_jsonl_atomic,
-    _write_json_atomic,
 )
-
 
 # ─── SID normalization ────────────────────────────────────────────────────────
 

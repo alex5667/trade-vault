@@ -3,13 +3,11 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Dict
-
 
 _RE_VER_SUFFIX = re.compile(r"([_-])v(\d+)$", re.IGNORECASE)
 
 
-def _load_map() -> Dict[str, str]:
+def _load_map() -> dict[str, str]:
     """
     Позволяет явно склеить legacy kind'ы:
       CONF_CAL_KIND_MAP_JSON='{"absorption_v2":"absorption"}'
@@ -20,10 +18,10 @@ def _load_map() -> Dict[str, str]:
     try:
         obj = json.loads(raw)
         if isinstance(obj, dict):
-            out: Dict[str, str] = {}
+            out: dict[str, str] = {}
             for k, v in obj.items():
-                ks = str(k or "").strip()
-                vs = str(v or "").strip()
+                ks = (k or "").strip()
+                vs = (v or "").strip()
                 if ks and vs:
                     out[ks] = vs
             return out
@@ -41,7 +39,7 @@ def normalize_kind(kind: str) -> str:
       - применяет явную карту (если задана)
       - (опционально) срезает суффикс _vN / -vN
     """
-    k = str(kind or "*").strip()
+    k = (kind or "*").strip()
     if not k or k == "*":
         return "*"
 

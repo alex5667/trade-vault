@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import os
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from common.json_fast import dumps1
-
+import contextlib
 
 _JSON_SCALARS = (str, int, float, bool, type(None))
 
@@ -25,7 +25,7 @@ class ContractViolation(Exception):
 
 
 # Tradeable message MUST NOT contain these anywhere.
-FORBIDDEN_TRADEABLE_KEYS: Set[str] = {
+FORBIDDEN_TRADEABLE_KEYS: set[str] = {
     "trace",
     "events",
     "payload_meta",
@@ -33,7 +33,7 @@ FORBIDDEN_TRADEABLE_KEYS: Set[str] = {
 }
 
 # Targets inside envelope are tradeable-ish: keep them clean too.
-FORBIDDEN_TARGET_KEYS: Set[str] = {
+FORBIDDEN_TARGET_KEYS: set[str] = {
     "trace",
     "events",
     "payload_meta",
@@ -52,7 +52,7 @@ def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 def outbox_contract_mode() -> str:
@@ -111,11 +111,11 @@ def assert_json_safe(obj: Any, *, path: str = "$", max_depth: int = 12) -> None:
     raise ContractViolation("not_json_safe_type", path)
 
 
-def find_forbidden_keys(obj: Any, forbidden: Set[str], *, path: str = "$", max_depth: int = 12) -> List[Tuple[str, str]]:
+def find_forbidden_keys(obj: Any, forbidden: set[str], *, path: str = "$", max_depth: int = 12) -> list[tuple[str, str]]:
     """
     Returns list of (path, key) where forbidden keys were found.
     """
-    hits: List[Tuple[str, str]] = []
+    hits: list[tuple[str, str]] = []
     if max_depth <= 0:
         return hits
     if isinstance(obj, dict):
@@ -130,7 +130,7 @@ def find_forbidden_keys(obj: Any, forbidden: Set[str], *, path: str = "$", max_d
     return hits
 
 
-def strip_forbidden_keys(obj: Any, forbidden: Set[str], *, max_depth: int = 12, max_list: int = 512, max_dict: int = 512) -> Any:
+def strip_forbidden_keys(obj: Any, forbidden: set[str], *, max_depth: int = 12, max_list: int = 512, max_dict: int = 512) -> Any:
     """
     Defensive stripping for targets/envelopes:
     - removes forbidden dict keys recursively
@@ -141,7 +141,7 @@ def strip_forbidden_keys(obj: Any, forbidden: Set[str], *, max_depth: int = 12, 
     if isinstance(obj, list):
         return [strip_forbidden_keys(x, forbidden, max_depth=max_depth - 1, max_list=max_list, max_dict=max_dict) for x in obj[:max_list]]
     if isinstance(obj, dict):
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         i = 0
         for k, v in obj.items():
             if i >= max_dict:
@@ -164,7 +164,7 @@ def _approx_bytes(obj: Any) -> int:
         return 10**9
 
 
-def validate_tradeable_payload(payload: Dict[str, Any]) -> None:
+def validate_tradeable_payload(payload: dict[str, Any]) -> None:
     if not isinstance(payload, dict):
         raise ContractViolation("payload_not_dict", "$")
     assert_json_safe(payload, path="$payload")
@@ -174,14 +174,14 @@ def validate_tradeable_payload(payload: Dict[str, Any]) -> None:
         raise ContractViolation(f"forbidden_key:{k}", p)
 
 
-def validate_sidecar_meta(meta: Dict[str, Any]) -> None:
+def validate_sidecar_meta(meta: dict[str, Any]) -> None:
     # Sidecar is allowed to contain heavy dicts (trace/payload_meta), but must be JSON-safe.
     if not isinstance(meta, dict):
         raise ContractViolation("meta_not_dict", "$")
     assert_json_safe(meta, path="$meta")
 
 
-def validate_outbox_envelope(env: Dict[str, Any]) -> None:
+def validate_outbox_envelope(env: dict[str, Any]) -> None:
     if not isinstance(env, dict):
         raise ContractViolation("envelope_not_dict", "$")
     assert_json_safe(env, path="$env")
@@ -202,10 +202,10 @@ def validate_outbox_envelope(env: Dict[str, Any]) -> None:
 def contract_check_best_effort(
     *,
     kind: str,
-    obj: Dict[str, Any],
+    obj: dict[str, Any],
     where: str,
     sid: str = "",
-    logger: Optional[Any] = None,
+    logger: Any | None = None,
 ) -> bool:
     """
     Enforcement wrapper:
@@ -231,19 +231,17 @@ def contract_check_best_effort(
             raise
         # warn
         if logger is not None:
-            try:
+            with contextlib.suppress(Exception):
                 logger.error(
                     dumps1(
                         {
                             "event": "outbox_contract_violation",
                             "where": str(where),
                             "kind": str(kind),
-                            "sid": str(sid or ""),
+                            "sid": (sid or ""),
                             "reason": str(e.reason),
                             "path": str(e.path),
                         }
                     )
                 )
-            except Exception:
-                pass
         return False

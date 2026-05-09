@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Meta AB v2 — Prometheus exporter (v1)
 
 Reads the JSON report produced by `tools.meta_ab_v2_nightly_job_v1` and exposes
@@ -19,17 +20,16 @@ Env:
   META_AB_V2_STALE_AFTER_H          Staleness threshold hours (default 30)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server
 
+from utils.time_utils import get_ny_time_millis
 
 REPORT_JSON = os.getenv("META_AB_V2_REPORT_JSON", "/var/lib/trade/of_reports/meta_ab_v2_report.json")
 PORT = int(os.getenv("META_AB_V2_EXPORTER_PORT", "9627") or 9627)
@@ -41,7 +41,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -53,7 +53,7 @@ def _safe_float(x: Any) -> Optional[float]:
         return None
 
 
-def _safe_int(x: Any) -> Optional[int]:
+def _safe_int(x: Any) -> int | None:
     try:
         if x is None:
             return None
@@ -66,21 +66,21 @@ def _safe_int(x: Any) -> Optional[int]:
 class MetaAbReport:
     parsed_ok: bool
     run_ok: bool
-    ts_ms: Optional[int] = None
-    n_total: Optional[int] = None
-    n_eligible: Optional[int] = None
-    share_current: Optional[float] = None
-    share_next: Optional[float] = None
-    delta_exp_r_per_candidate: Optional[float] = None
-    delta_tail_rate_per_candidate: Optional[float] = None
-    p_min: Optional[float] = None
-    winner: Optional[str] = None  # champion|challenger|tie
-    action: Optional[str] = None  # increase_share|decrease_share|hold
-    report_age_sec: Optional[float] = None
+    ts_ms: int | None = None
+    n_total: int | None = None
+    n_eligible: int | None = None
+    share_current: float | None = None
+    share_next: float | None = None
+    delta_exp_r_per_candidate: float | None = None
+    delta_tail_rate_per_candidate: float | None = None
+    p_min: float | None = None
+    winner: str | None = None  # champion|challenger|tie
+    action: str | None = None  # increase_share|decrease_share|hold
+    report_age_sec: float | None = None
     stale_after_h: float = 30.0
 
 
-def parse_report_obj(obj: Dict[str, Any], file_mtime_ms: Optional[int] = None, *, stale_after_h: float = STALE_AFTER_H) -> MetaAbReport:
+def parse_report_obj(obj: dict[str, Any], file_mtime_ms: int | None = None, *, stale_after_h: float = STALE_AFTER_H) -> MetaAbReport:
     """Parse the report dict into a normalized struct. Never raises."""
     ts_ms = _safe_int(obj.get("ts_ms"))
     if ts_ms is None and file_mtime_ms is not None:
@@ -122,7 +122,7 @@ def parse_report_obj(obj: Dict[str, Any], file_mtime_ms: Optional[int] = None, *
     )
 
 
-def read_report(path: str) -> Tuple[MetaAbReport, Optional[str]]:
+def read_report(path: str) -> tuple[MetaAbReport, str | None]:
     """Return (report, error). Never raises."""
     try:
         st = os.stat(path)
@@ -131,11 +131,11 @@ def read_report(path: str) -> Tuple[MetaAbReport, Optional[str]]:
         file_mtime_ms = None
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         if not isinstance(obj, dict):
             return MetaAbReport(parsed_ok=False, run_ok=False, stale_after_h=STALE_AFTER_H), "report_not_dict"
-        
+
         # Also store raw obj for policy parsing
         global _LAST_OBJ
         _LAST_OBJ = obj
@@ -176,7 +176,7 @@ ACTION_RAW = Gauge("meta_ab_v2_action_raw", "one-hot raw action before policy", 
 REPORT_SHARE_NEXT_RAW = Gauge("meta_ab_v2_share_next_raw", "raw recommended challenger share before policy")
 
 
-def _set_one_hot(g: Gauge, candidates: Tuple[str, ...], value: Optional[str]) -> None:
+def _set_one_hot(g: Gauge, candidates: tuple[str, ...], value: str | None) -> None:
     for c in candidates:
         g.labels(c).set(1.0 if value == c else 0.0)
 
@@ -230,11 +230,11 @@ def export_once(path: str) -> None:
         POLICY_BLOCKED.set(1.0 if bool(pol.get("blocked", False)) else 0.0)
         POLICY_ALLOW_APPLY.set(1.0 if bool(pol.get("allow_apply", False)) else 0.0)
 
-        action_raw = str(pol.get("action_raw", "hold") or "hold").strip().lower()
+        action_raw = (pol.get("action_raw", "hold") or "hold").strip().lower()
         if action_raw not in ("increase_share", "decrease_share", "hold"):
             action_raw = "hold"
         _set_one_hot(ACTION_RAW, ("increase_share", "decrease_share", "hold"), action_raw)
-        
+
         ramp_sn = float((_LAST_OBJ.get("ramp") or {}).get("share_next", 0.0))
         REPORT_SHARE_NEXT_RAW.set(_safe_float(pol.get("share_next_raw")) or ramp_sn)
 

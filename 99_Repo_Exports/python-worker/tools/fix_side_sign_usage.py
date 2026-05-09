@@ -15,7 +15,6 @@ import difflib
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
 
 
 @dataclass
@@ -24,7 +23,7 @@ class Change:
     rule: str
 
 
-RULES: List[Tuple[str, re.Pattern, str]] = [
+RULES: list[tuple[str, re.Pattern, str]] = [
     (
         "call_arg_side_buy_else_sell",
         re.compile(r"side\s*=\s*1\s*if\s*\(str\(tick\.get\(['\"]side['\"]\)\)\.upper\(\)\s*==\s*['\"]BUY['\"]\)\s*else\s*-1\s*,"),
@@ -82,8 +81,8 @@ RULES: List[Tuple[str, re.Pattern, str]] = [
 IMPORT_LINE = "from services.orderflow.side_sign import side_sign_from_tick\n"
 
 
-def iter_py_files(root: Path) -> List[Path]:
-    out: List[Path] = []
+def iter_py_files(root: Path) -> list[Path]:
+    out: list[Path] = []
     for p in root.rglob("*.py"):
         s = str(p)
         if any(x in s for x in ("/.venv/", "/venv/", "/__pycache__/", "/dist/", "/build/", "/.git/")):
@@ -118,7 +117,7 @@ def ensure_import(text: str) -> str:
 
 
 def apply_fixes(text: str):
-    applied: List[str] = []
+    applied: list[str] = []
     new = text
     for rule, pat, repl in RULES:
         if pat.search(new):

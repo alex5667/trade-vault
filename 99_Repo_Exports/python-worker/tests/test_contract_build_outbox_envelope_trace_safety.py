@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from services.outbox.envelope_builder import build_outbox_envelope
 from common.contracts.tradeable_contracts import assert_tradeable_dict
+from services.outbox.envelope_builder import build_outbox_envelope
 
 
 def test_build_outbox_envelope_trace_is_summary_only():

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Модуль для корректного расчета P&L с учетом спецификаций символов.
 
@@ -7,8 +8,9 @@ from __future__ import annotations
 """
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, List, Mapping, Optional
+from typing import Any
 
 
 def safe_div(num: float, den: float, default: float = 0.0) -> float:
@@ -34,20 +36,20 @@ class SymbolSpec:
     contract_size: float = 1.0
 
     # Тиковая модель: pnl = ticks * tick_value * lot
-    tick_size: Optional[float] = None
-    tick_value: Optional[float] = None
+    tick_size: float | None = None
+    tick_value: float | None = None
 
     # Для "пунктов" в метриках/трейлинге (если нужно)
-    point_size: Optional[float] = None  # напр., XAUUSD=0.01
+    point_size: float | None = None  # напр., XAUUSD=0.01
 
     # Fallback множитель на случай, если ничего нет (НЕЖЕЛАТЕЛЕН)
-    legacy_multiplier: Optional[float] = None
-    
+    legacy_multiplier: float | None = None
+
     # ✅ Комиссии и swap
-    commission_rate: Optional[float] = None  # % от объема (например, 0.001 = 0.1%)
-    commission_per_lot: Optional[float] = None  # Фиксированная комиссия за лот
-    swap_long: Optional[float] = None  # Swap для LONG позиций (за день)
-    swap_short: Optional[float] = None  # Swap для SHORT позиций (за день)
+    commission_rate: float | None = None  # % от объема (например, 0.001 = 0.1%)
+    commission_per_lot: float | None = None  # Фиксированная комиссия за лот
+    swap_long: float | None = None  # Swap для LONG позиций (за день)
+    swap_short: float | None = None  # Swap для SHORT позиций (за день)
 
     # ✅ Трейлинг после TP1
     trailing_enabled: bool = False  # общий флаг трейлинга по символу
@@ -58,7 +60,7 @@ class SymbolSpec:
 
     # ✅ Параметры стоп-лосса и RR уровней (для калибровки под волатильность)
     stop_atr_mult: float = 1.0  # множитель ATR для SL (калибруется под шум символа)
-    rr_levels: List[float] = field(default_factory=lambda: [1.0, 2.0, 3.0])  # RR уровни для TP1/TP2/TP3
+    rr_levels: list[float] = field(default_factory=lambda: [1.0, 2.0, 3.0])  # RR уровни для TP1/TP2/TP3
 
     @property
     def uses_ticks(self) -> bool:
@@ -90,7 +92,7 @@ class SymbolSpec:
         # Это эквивалентно: diff * lot (без умножения на contract_size)
         # ✅ ИСПРАВЛЕНИЕ: Используем суффиксы для определения крипты (исключая XAU)
         is_crypto = symbol and symbol.upper().endswith(('USDT', 'USDC', 'BUSD')) and not symbol.upper().startswith('XAU')
-        
+
         if is_crypto:
             # Для крипты: lot уже пересчитан из position_size_usd, поэтому просто diff * lot
             # Но нужно учесть, что lot = position_size_usd / entry_price
@@ -127,7 +129,7 @@ class SymbolSpec:
         """
         r = self.pnl_money(entry, sl, lot, side, symbol=symbol)
         return abs(r)
-    
+
     def calculate_fees(
         self,
         entry_price: float,
@@ -155,9 +157,9 @@ class SymbolSpec:
         """
         if lot <= 0:
             return 0.0
-        
+
         total_fees = 0.0
-        
+
         # 1. Комиссия на вход и выход
         if self.commission_rate is not None and self.commission_rate > 0:
             # Процент от объема позиции
@@ -171,7 +173,7 @@ class SymbolSpec:
         elif self.commission_per_lot is not None and self.commission_per_lot > 0:
             # Фиксированная комиссия за лот (вход + выход)
             total_fees += self.commission_per_lot * lot * 2
-        
+
         # 2. Swap (если позиция держалась более суток)
         duration_days = duration_ms / (1000.0 * 60 * 60 * 24)
         if duration_days >= 1.0:
@@ -180,14 +182,14 @@ class SymbolSpec:
                 swap_rate = self.swap_long
             elif side == "SHORT" and self.swap_short is not None:
                 swap_rate = self.swap_short
-            
+
             if swap_rate is not None:
                 position_value = abs(entry_price * lot * self.contract_size)
                 swap = position_value * swap_rate * int(duration_days)
                 total_fees += abs(swap)
-        
+
         return total_fees
-    
+
     def calculate_risk_lot(
         self,
         entry_price: float,
@@ -219,10 +221,10 @@ class SymbolSpec:
         sl_distance = abs(entry_price - sl_price)
         if sl_distance <= 0:
             return lot_step
-        
+
         # Риск в USD
         risk_usd = deposit * (risk_percent / 100.0)
-        
+
         # Потеря на 1 лот при срабатывании SL
         # Используем pnl_money для точного расчета
         try:
@@ -230,26 +232,26 @@ class SymbolSpec:
         except Exception:
             # Fallback: простой расчет
             loss_per_lot = sl_distance * self.contract_size
-        
+
         if loss_per_lot <= 0:
             return lot_step
-        
+
         # Размер лота исходя из риска
         lot_risk = risk_usd / loss_per_lot
-        
+
         # Максимальный лот по марже
         position_value = entry_price * self.contract_size
         lot_max = (deposit * leverage) / position_value if position_value > 0 else max_lot
-        
+
         # Выбираем минимум
         lot = min(lot_risk, lot_max, max_lot)
-        
+
         # Округляем до lot_step (вниз)
         lot = (int(lot / lot_step)) * lot_step
-        
+
         # Минимум lot_step
         lot = max(lot, lot_step)
-        
+
         return lot
 
 
@@ -286,7 +288,7 @@ def calculate_position_size(
         tuple: (lot, position_size_usd, deposit, leverage) - для крипты position_size_usd содержит размер в USDT
     """
     import os
-    
+
     # Defaults из ENV
     if deposit is None:
         deposit = float(os.getenv("ACCOUNT_DEPOSIT_USD", "100"))
@@ -302,7 +304,7 @@ def calculate_position_size(
     max_margin_percent = float(os.getenv("MAX_MARGIN_PERCENT", str(risk_percent)))
     if 0 < max_margin_percent < 0.5:
         max_margin_percent *= 100.0
-    
+
     # Получаем spec для символа
     try:
         if redis_client:
@@ -315,30 +317,30 @@ def calculate_position_size(
             lot_step = float(info["lot_step"])
     except Exception:
         spec = SymbolSpec()
-    
+
     # Определяем тип инструмента (крипта или нет)
     is_crypto = symbol.upper().endswith(('USDT', 'USDC', 'BUSD')) and not symbol.upper().startswith('XAU')
-    
+
     # Риск в USD
     risk_usd = deposit * (risk_percent / 100.0)
-    
+
     # Для крипты работаем с фьючерсами: считаем номинал, возвращаем маржу
     if is_crypto:
         # Расстояние до SL в пунктах цены
         sl_distance = abs(entry_price - sl_price)
         if sl_distance <= 0:
             return lot_step, risk_usd, deposit, leverage
-        
+
         # Номинал, чтобы риск по SL был <= risk_usd
         # notional = risk_usd * (entry_price / sl_distance)
         notional_usd = risk_usd * (entry_price / sl_distance)
-        
+
         # Ограничения по депозиту и плечу
         max_notional_by_margin = deposit * leverage  # весь депозит под плечо
         max_notional_by_risk_leverage = risk_usd * leverage  # риск * плечо
         max_notional_by_margin_cap = deposit * (max_margin_percent / 100.0) * leverage  # потолок по марже
         notional_usd = min(notional_usd, max_notional_by_margin, max_notional_by_risk_leverage, max_notional_by_margin_cap)
-        
+
         # Маржа = номинал / плечо — то, что реально резервируется
         position_size_usd = notional_usd / leverage if leverage > 1 else notional_usd
         # Кэп маржи на max_margin_percent от депозита
@@ -346,16 +348,16 @@ def calculate_position_size(
         position_size_usd = min(position_size_usd, margin_cap)
         # Пересчитаем номинал после кэпа маржи
         notional_usd = min(notional_usd, margin_cap * leverage)
-        
+
         # Lot для крипты = номинал / entry_price (количество монет)
         lot = notional_usd / entry_price if entry_price > 0 else lot_step
-        
+
         # Округляем lot
         lot = (int(lot / lot_step)) * lot_step
         lot = max(lot, lot_step)
-        
+
         return lot, position_size_usd, deposit, leverage
-    
+
     # Для остальных инструментов (XAUUSD, Forex)
     lot = spec.calculate_risk_lot(
         entry_price=entry_price,
@@ -367,10 +369,10 @@ def calculate_position_size(
         lot_step=lot_step,
         max_lot=max_lot,
     )
-    
+
     # position_size_usd для не-крипты = lot * entry_price * contract_size
     position_size_usd = lot * entry_price * spec.contract_size
-    
+
     return lot, position_size_usd, deposit, leverage
 
 
@@ -388,14 +390,14 @@ def spec_from_symbol_info(info: Mapping[str, Any]) -> SymbolSpec:
     """
     # Тики
     tick_size = _to_float(
-        info.get("tick_size") or 
-        info.get("tickSize") or 
+        info.get("tick_size") or
+        info.get("tickSize") or
         info.get("ticks_size") or
         info.get("point")  # point часто используется как tick_size
     )
     tick_value = _to_float(
-        info.get("tick_value") or 
-        info.get("tickValue") or 
+        info.get("tick_value") or
+        info.get("tickValue") or
         info.get("ticks_value") or
         info.get("tick_value_per_lot") or
         info.get("pip_value")  # pip_value может быть эквивалентом tick_value
@@ -403,24 +405,24 @@ def spec_from_symbol_info(info: Mapping[str, Any]) -> SymbolSpec:
 
     # Линейная модель
     contract_size = _to_float(
-        info.get("contract_size") or 
-        info.get("contractSize") or 
-        info.get("multiplier") or 
+        info.get("contract_size") or
+        info.get("contractSize") or
+        info.get("multiplier") or
         1.0
     )
 
     point_size = _to_float(
-        info.get("point_size") or 
-        info.get("pointSize") or 
-        info.get("point") or 
+        info.get("point_size") or
+        info.get("pointSize") or
+        info.get("point") or
         info.get("pip_size")
     )
-    
+
     legacy_multiplier = _to_float(
-        info.get("legacy_multiplier") or 
+        info.get("legacy_multiplier") or
         info.get("pnl_multiplier")
     )
-    
+
     # ✅ Комиссии
     commission_rate = _to_float(
         info.get("commission_rate") or
@@ -442,12 +444,12 @@ def spec_from_symbol_info(info: Mapping[str, Any]) -> SymbolSpec:
         info.get("swapShort") or
         info.get("swap_sell")
     )
-    
+
     # ✅ Трейлинг конфиг (из Redis symbol_specs или прямые поля)
     trailing_cfg = info.get("trailing", {}) or {}
     if not isinstance(trailing_cfg, dict):
         trailing_cfg = {}
-    
+
     trailing_enabled = bool(
         trailing_cfg.get("enabled", info.get("trailing_enabled", False))
     )
@@ -504,7 +506,7 @@ def spec_from_symbol_info(info: Mapping[str, Any]) -> SymbolSpec:
     )
 
 
-def _to_float(x: Any) -> Optional[float]:
+def _to_float(x: Any) -> float | None:
     """Безопасное преобразование в float."""
     try:
         if x is None:
@@ -553,7 +555,7 @@ def get_symbol_info(symbol: str, redis_client=None) -> dict:
         Словарь с информацией о символе для использования в spec_from_symbol_info()
     """
     import json
-    
+
     # Пытаемся получить из Redis
     if redis_client is None:
         try:
@@ -561,7 +563,7 @@ def get_symbol_info(symbol: str, redis_client=None) -> dict:
             redis_client = get_redis()
         except Exception:
             redis_client = None
-    
+
     if redis_client:
         try:
             key = f"symbol_specs:{symbol}"
@@ -594,9 +596,9 @@ def _get_default_symbol_info(symbol: str) -> dict:
     3. Дефолтные значения для типа инструмента
     """
     symbol_upper = symbol.upper()
-    
+
     # ✅ Читаем ENV конфигурацию для комиссий
-    def _env_float(key: str, default: Optional[float] = None) -> Optional[float]:
+    def _env_float(key: str, default: float | None = None) -> float | None:
         val = os.getenv(key)
         if val is None:
             return default
@@ -604,7 +606,7 @@ def _get_default_symbol_info(symbol: str) -> dict:
             return float(val)
         except Exception:
             return default
-    
+
     # XAUUSD (золото)
     if symbol_upper == "XAUUSD" or symbol_upper.startswith("XAU"):
         return {
@@ -619,7 +621,7 @@ def _get_default_symbol_info(symbol: str) -> dict:
             "swap_long": _env_float("FOREX_SWAP_LONG", -0.0001),
             "swap_short": _env_float("FOREX_SWAP_SHORT", 0.00005),
         }
-    
+
     # Криптовалюты (BTCUSDT, ETHUSDT и т.д.)
     if "BTC" in symbol_upper or "ETH" in symbol_upper or "USDT" in symbol_upper:
         # ✅ Для BTC используем шаг 0.001 (Binance standard), для остальных 0.01
@@ -633,7 +635,7 @@ def _get_default_symbol_info(symbol: str) -> dict:
             "tick_value": 1.0,
             "lot_step": lot_step,
             # ✅ Комиссии (ENV или defaults)
-            # Binance Futures taker ~0.04% (0.0004), maker ~0.02%. 
+            # Binance Futures taker ~0.04% (0.0004), maker ~0.02%.
             # We use 0.0005 (0.05%) as the global baseline.
             "commission_rate": _env_float("CRYPTO_COMMISSION_RATE", 0.0005),
             "commission_per_lot": _env_float("CRYPTO_COMMISSION_PER_LOT"),
@@ -645,7 +647,7 @@ def _get_default_symbol_info(symbol: str) -> dict:
             "trailing_tp1_offset_atr": 0.6,
             "trailing_min_lock_r": 0.25,
         }
-    
+
     # Общие defaults
     return {
         "point": 0.01,

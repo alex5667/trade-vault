@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """A8 — Smoke-check for new derived microstructure features.
 
 Goal
@@ -27,21 +28,20 @@ Exit code
 The script always prints a single JSON line to stdout for the timer worker.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import math
 import os
 import sys
-import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import redis
 
+from utils.time_utils import get_ny_time_millis
 
-KEY_FIELDS: Tuple[str, ...] = (
+KEY_FIELDS: tuple[str, ...] = (
     # A8 gauges / stream fields
     "depth_total_10",
     "gini_depth_10",
@@ -69,7 +69,7 @@ def _as_str(v: Any) -> str:
     return str(v)
 
 
-def _parse_float(v: Any) -> Optional[float]:
+def _parse_float(v: Any) -> float | None:
     if v is None:
         return None
     try:
@@ -81,7 +81,7 @@ def _parse_float(v: Any) -> Optional[float]:
         return None
 
 
-def _parse_int(v: Any) -> Optional[int]:
+def _parse_int(v: Any) -> int | None:
     if v is None:
         return None
     try:
@@ -93,7 +93,7 @@ def _parse_int(v: Any) -> Optional[int]:
         return None
 
 
-def _is_bad_number(x: Optional[float]) -> bool:
+def _is_bad_number(x: float | None) -> bool:
     if x is None:
         return True
     return not math.isfinite(x)
@@ -102,7 +102,7 @@ def _is_bad_number(x: Optional[float]) -> bool:
 @dataclass
 class RecentRow:
     ts_ms: int
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
 
 def _read_recent_rows(
@@ -111,7 +111,7 @@ def _read_recent_rows(
     *,
     recent_s: int,
     limit: int,
-) -> Tuple[List[RecentRow], Dict[str, Any]]:
+) -> tuple[list[RecentRow], dict[str, Any]]:
     """Read tail of a Redis stream and keep only rows within `recent_s` window."""
 
     now_ms = _now_ms()
@@ -121,7 +121,7 @@ def _read_recent_rows(
     raw = r.xrevrange(stream, max="+", min="-", count=limit)
 
     n_total = len(raw)
-    recent: List[RecentRow] = []
+    recent: list[RecentRow] = []
     max_ts_ms = 0
 
     for _id, fields in raw:
@@ -146,10 +146,10 @@ def _read_recent_rows(
     return recent, meta
 
 
-def _compute_nan_rate(rows: Iterable[RecentRow]) -> Tuple[float, int, int, Dict[str, int]]:
+def _compute_nan_rate(rows: Iterable[RecentRow]) -> tuple[float, int, int, dict[str, int]]:
     bad = 0
     total = 0
-    per_key_bad: Dict[str, int] = {k: 0 for k in KEY_FIELDS}
+    per_key_bad: dict[str, int] = dict.fromkeys(KEY_FIELDS, 0)
 
     for rr in rows:
         fields = rr.data
@@ -172,7 +172,7 @@ def _compute_realized_vol_stuck(
     *,
     min_ready: int,
     eps_bps: float,
-) -> Tuple[bool, Dict[str, Any]]:
+) -> tuple[bool, dict[str, Any]]:
     """Return (stuck, details)."""
 
     ready = 0
@@ -210,7 +210,7 @@ def _compute_realized_vol_stuck(
     return stuck, details
 
 
-def _compute_ready_counts(rows: Iterable[RecentRow]) -> Dict[str, int]:
+def _compute_ready_counts(rows: Iterable[RecentRow]) -> dict[str, int]:
     """Count how often rolling trackers report ready (no_data==0).
 
     These counters help detect a different class of wiring regressions where a feature
@@ -239,7 +239,7 @@ def _compute_ready_counts(rows: Iterable[RecentRow]) -> Dict[str, int]:
     return {"rv_ready": rv_ready, "vwap_ready": vwap_ready}
 
 
-def main(argv: Optional[List[str]] = None) -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
 
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
@@ -259,7 +259,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     args = ap.parse_args(argv)
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ts_ms": _now_ms(),
         "stream": args.stream,
         "out_stream": args.out_stream,
@@ -269,7 +269,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     }
 
     alert = False
-    issues: List[str] = []
+    issues: list[str] = []
 
     try:
         r = redis.Redis.from_url(args.redis_url, decode_responses=False)

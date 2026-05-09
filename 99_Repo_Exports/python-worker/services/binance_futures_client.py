@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Binance USDT-M Futures REST client (minimal, stdlib-only).
@@ -40,15 +41,16 @@ Endpoints used:
 import hashlib
 import hmac
 import json
+import logging as _logging
 import os
 import socket
-import logging as _logging
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
+import contextlib
 
 try:
     from services.execution_metrics import (
@@ -132,22 +134,22 @@ class PlainOrderRef:
     identifier family for conditional orders after the Algo Service migration.
     """
 
-    order_id: Optional[int]
-    client_order_id: Optional[str]
+    order_id: int | None
+    client_order_id: str | None
     type: str
     side: str
-    position_side: Optional[str] = None
+    position_side: str | None = None
 
 
 @dataclass(frozen=True)
 class AlgoOrderRef:
     """Reference to a conditional /fapi/v1/algoOrder order."""
 
-    algo_id: Optional[int]
-    client_algo_id: Optional[str]
+    algo_id: int | None
+    client_algo_id: str | None
     type: str
     working_type: str
-    trigger_price: Optional[float] = None
+    trigger_price: float | None = None
     close_position: bool = False
     reduce_only: bool = False
 
@@ -176,7 +178,7 @@ def _safe_json_loads(raw: bytes) -> Any:
         return {"_raw": raw[:4096].decode("utf-8", errors="replace")}
 
 
-def _encode_params_stable(params: Dict[str, Any]) -> str:
+def _encode_params_stable(params: dict[str, Any]) -> str:
     """Stable query-string encoding: sorted keys, no None values."""
     items = []
     for k in sorted(params.keys()):
@@ -198,7 +200,7 @@ def _truthy(v: Any) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _float_or_none(v: Any) -> Optional[float]:
+def _float_or_none(v: Any) -> float | None:
     """Parse v as float; return None on missing / unparseable input."""
     if v in (None, ""):
         return None
@@ -218,13 +220,13 @@ def _require_positive(name: str, value: Any) -> float:
 
 def _validate_working_type(value: Any) -> str:
     """Normalise and validate workingType; raise ValueError on unknown value."""
-    wt = str(value or "MARK_PRICE").strip().upper()
+    wt = (value or "MARK_PRICE").strip().upper()
     if wt not in {"MARK_PRICE", "CONTRACT_PRICE"}:
         raise ValueError("invalid_workingType")
     return wt
 
 
-def _validate_plain_order_contract(params: Dict[str, Any], *, position_mode: str) -> None:
+def _validate_plain_order_contract(params: dict[str, Any], *, position_mode: str) -> None:
     """Validate plain order params before sending to /fapi/v1/order.
 
     Checks:
@@ -236,13 +238,13 @@ def _validate_plain_order_contract(params: Dict[str, Any], *, position_mode: str
     - LIMIT requires price and timeInForce
     """
     p = dict(params or {})
-    pm = str(position_mode or "oneway").strip().lower()
-    ot = str(p.get("type") or "").strip().upper()
+    pm = (position_mode or "oneway").strip().lower()
+    ot = (p.get("type") or "").strip().upper()
     if not ot:
         raise ValueError("missing_order_type")
     if _truthy(p.get("closePosition")):
         raise ValueError("plain_order_closePosition_not_supported")
-    if pm == "hedge" and str(p.get("positionSide") or "").strip().upper() not in {"LONG", "SHORT"}:
+    if pm == "hedge" and (p.get("positionSide") or "").strip().upper() not in {"LONG", "SHORT"}:
         raise ValueError("positionSide_required_in_hedge")
     if pm == "hedge" and _truthy(p.get("reduceOnly")):
         raise ValueError("reduceOnly_forbidden_in_hedge_plain_order")
@@ -251,12 +253,12 @@ def _validate_plain_order_contract(params: Dict[str, Any], *, position_mode: str
         raise ValueError("quantity_required")
     if ot == "LIMIT":
         _require_positive("price", p.get("price"))
-        tif = str(p.get("timeInForce") or "").strip().upper()
+        tif = (p.get("timeInForce") or "").strip().upper()
         if not tif:
             raise ValueError("limit_requires_timeInForce")
 
 
-def _validate_algo_order_contract(params: Dict[str, Any], *, position_mode: str) -> Dict[str, Any]:
+def _validate_algo_order_contract(params: dict[str, Any], *, position_mode: str) -> dict[str, Any]:
     """Validate and normalise algo order params before sending to /fapi/v1/algoOrder.
 
     Checks:
@@ -270,11 +272,11 @@ def _validate_algo_order_contract(params: Dict[str, Any], *, position_mode: str)
     Returns mutated copy with normalised workingType.
     """
     p = dict(params or {})
-    pm = str(position_mode or "oneway").strip().lower()
+    pm = (position_mode or "oneway").strip().lower()
     ot = str(p.get("type") or p.get("algoType") or "").strip().upper()
     if not ot:
         raise ValueError("missing_order_type")
-    if pm == "hedge" and str(p.get("positionSide") or "").strip().upper() not in {"LONG", "SHORT"}:
+    if pm == "hedge" and (p.get("positionSide") or "").strip().upper() not in {"LONG", "SHORT"}:
         raise ValueError("positionSide_required_in_hedge")
     reduce_only = _truthy(p.get("reduceOnly"))
     close_position = _truthy(p.get("closePosition"))
@@ -323,11 +325,11 @@ class BinanceFuturesREST:
         *,
         method: str,
         path: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
         signed: bool = False,
     ) -> Any:
         method_u = (method or "GET").upper()
-        p: Dict[str, Any] = dict(params or {})
+        p: dict[str, Any] = dict(params or {})
         if signed:
             p.setdefault("timestamp", _now_ms())
             p.setdefault("recvWindow", int(self.recv_window_ms))
@@ -365,20 +367,20 @@ class BinanceFuturesREST:
 
     # --- Read APIs ---
 
-    def get_account(self) -> Dict[str, Any]:
+    def get_account(self) -> dict[str, Any]:
         return self._request(method="GET", path="/fapi/v2/account", signed=True)
 
     def get_position_risk(self) -> Any:
         return self._request(method="GET", path="/fapi/v2/positionRisk", signed=True)
 
-    def get_open_orders(self, *, symbol: Optional[str] = None) -> Any:
-        params: Dict[str, Any] = {}
+    def get_open_orders(self, *, symbol: str | None = None) -> Any:
+        params: dict[str, Any] = {}
         if symbol:
             params["symbol"] = symbol
         return self._request(method="GET", path="/fapi/v1/openOrders", params=params, signed=True)
 
     @staticmethod
-    def from_env(prefix: str = "BINANCE_") -> "BinanceFuturesREST":
+    def from_env(prefix: str = "BINANCE_") -> BinanceFuturesREST:
         """Construct from ENV vars.
 
         Default prefix ``BINANCE_`` reads BINANCE_API_KEY / BINANCE_API_SECRET.
@@ -425,7 +427,7 @@ class BinanceFuturesPublicREST:
     _max_retries: int = 3
     _retry_base_delay_s: float = 1.0
 
-    def _request(self, *, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+    def _request(self, *, path: str, params: dict[str, Any] | None = None) -> Any:
         import logging as _logging
         _log = _logging.getLogger(__name__)
         qs = urllib.parse.urlencode(sorted((params or {}).items()), doseq=True)
@@ -434,7 +436,7 @@ class BinanceFuturesPublicREST:
             url = url + "?" + qs
         req = urllib.request.Request(url=url, method="GET")
         req.add_header("User-Agent", "scanner_infra/binance_public_v1")
-        last_err: Optional[Exception] = None
+        last_err: Exception | None = None
         for attempt in range(1, self._max_retries + 1):
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
@@ -458,10 +460,10 @@ class BinanceFuturesPublicREST:
         raise urllib.error.URLError(last_err)  # re-raise after all retries exhausted
 
     def get_premium_index(self, symbol: str) -> Any:
-        return self._request(path="/fapi/v1/premiumIndex", params={"symbol": str(symbol).upper()})
+        return self._request(path="/fapi/v1/premiumIndex", params={"symbol": symbol.upper()})
 
     def get_open_interest(self, symbol: str) -> Any:
-        return self._request(path="/fapi/v1/openInterest", params={"symbol": str(symbol).upper()})
+        return self._request(path="/fapi/v1/openInterest", params={"symbol": symbol.upper()})
 
     def get_funding_info(self, symbol: str) -> Any:
         # `/premiumIndex` already carries mark/index/lastFundingRate on Binance.
@@ -498,10 +500,10 @@ class BinanceFuturesClient:
 
     def __post_init__(self) -> None:
         # Per-symbol mark price cache: {symbol: (price, expiry_mono)}
-        self._mark_price_cache: Dict[str, tuple] = {}
+        self._mark_price_cache: dict[str, tuple] = {}
 
     @staticmethod
-    def from_env(prefix: str = "BINANCE_") -> "BinanceFuturesClient":
+    def from_env(prefix: str = "BINANCE_") -> BinanceFuturesClient:
         """Construct from ENV vars.
 
         Default prefix ``BINANCE_`` reads BINANCE_API_KEY / BINANCE_API_SECRET.
@@ -537,23 +539,23 @@ class BinanceFuturesClient:
 
     def _request(
         self, method: str, path: str,
-        *, params: Optional[Dict[str, Any]] = None, signed: bool = False,
+        *, params: dict[str, Any] | None = None, signed: bool = False,
     ) -> Any:
         _log = _logging.getLogger(__name__)
         method = method.upper()
         orig_params = dict(params or {})
-        headers: Dict[str, str] = {
+        headers: dict[str, str] = {
             "X-MBX-APIKEY": self.api_key,
             "User-Agent": "scanner_infra/binance_client_v2",
         }
 
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         _synced_1021 = False  # single auto-resync guard for -1021
         for attempt in range(1, self._max_retries_429 + 1):
             # Re-build signed params each attempt so timestamp stays fresh.
             params = dict(orig_params)
             qs = ""
-            body: Optional[bytes] = None
+            body: bytes | None = None
 
             if signed:
                 # Apply server-time offset to minimise -1021 timestamp errors.
@@ -619,14 +621,12 @@ class BinanceFuturesClient:
                         "BinanceFuturesClient: -1021 timestamp drift on %s %s — running sync_time() and retrying",
                         method, path,
                     )
-                    try:
+                    with contextlib.suppress(Exception):
                         self.sync_time()
-                    except Exception:
-                        pass
                     continue
 
                 raise BinanceAPIError(status_code, payload)
-            except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as e:
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
                 # Classify the error: DNS / connection-refused errors are NOT
                 # ambiguous — the request never left the client.  True transport
                 # timeouts (connection established, response never arrived) ARE
@@ -659,7 +659,7 @@ class BinanceFuturesClient:
         raise BinanceAPIError(0, {"_error": "request_exhausted"})
 
     def _observe_api_error(self, *, path: str, status: int, payload: Any) -> None:
-        endpoint = str(path or "unknown")
+        endpoint = (path or "unknown")
         doc = payload if isinstance(payload, dict) else {}
         code = str(doc.get("code") or status or "unknown")
         msg = str(doc.get("msg") or doc.get("_error") or "").lower()
@@ -683,7 +683,7 @@ class BinanceFuturesClient:
     def _observe_transport_timeout(self, *, path: str) -> None:
         try:
             if BINANCE_API_ERRORS_TOTAL is not None:
-                BINANCE_API_ERRORS_TOTAL.labels(endpoint=str(path or "unknown"), code="transport_timeout").inc()
+                BINANCE_API_ERRORS_TOTAL.labels(endpoint=(path or "unknown"), code="transport_timeout").inc()
         except Exception:
             pass
 
@@ -725,7 +725,7 @@ class BinanceFuturesClient:
 
         Used by trailing arming thread to poll mark price vs TP1.
         """
-        return self._request("GET", "/fapi/v1/premiumIndex", params={"symbol": str(symbol).upper()})
+        return self._request("GET", "/fapi/v1/premiumIndex", params={"symbol": symbol.upper()})
 
     def get_mark_price(self, symbol: str) -> float:
         """Return current mark price for symbol; 0.0 on non-fatal error (fail-open).
@@ -737,7 +737,7 @@ class BinanceFuturesClient:
         Results are cached for ``_mark_price_cache_ttl_s`` seconds to
         deduplicate concurrent requests for the same symbol.
         """
-        sym = str(symbol).upper()
+        sym = symbol.upper()
         now = time.monotonic()
         cached = self._mark_price_cache.get(sym)
         if cached is not None:
@@ -759,14 +759,14 @@ class BinanceFuturesClient:
     def get_ticker_price(self, symbol: str) -> float:
         """Return last / contract price for symbol; 0.0 on any error (fail-open)."""
         try:
-            j = self._request("GET", "/fapi/v1/ticker/price", params={"symbol": str(symbol).upper()})
+            j = self._request("GET", "/fapi/v1/ticker/price", params={"symbol": symbol.upper()})
             return float(j.get("price"))
         except Exception:
             return 0.0
 
     def get_working_price(self, symbol: str, working_type: str) -> float:
         """Resolve the effective trigger price source for watchdog / trigger checks."""
-        wt = str(working_type or "MARK_PRICE").strip().upper()
+        wt = (working_type or "MARK_PRICE").strip().upper()
         if wt == "CONTRACT_PRICE":
             return self.get_ticker_price(symbol)
         return self.get_mark_price(symbol)
@@ -776,7 +776,7 @@ class BinanceFuturesClient:
     def start_user_stream(self) -> str:
         """Start or refresh a listenKey for the USDⓈ-M user stream."""
         j = self._request("POST", "/fapi/v1/listenKey")
-        return str(j.get("listenKey") or "")
+        return (j.get("listenKey") or "")
 
     def keepalive_user_stream(self, listen_key: str) -> Any:
         return self._request("PUT", "/fapi/v1/listenKey", params={"listenKey": str(listen_key)})
@@ -813,48 +813,48 @@ class BinanceFuturesClient:
         self,
         symbol: str,
         *,
-        position_side: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        position_side: str | None = None,
+    ) -> dict[str, Any]:
         """Return the matching positionRisk row for a symbol.
 
         Executor close/flatten paths should size exits from live exchange qty,
         not from local state snapshots. This helper centralises the matching
         logic so all callers use the same source of truth.
         """
-        target_symbol = str(symbol or "").upper().strip()
-        target_side = str(position_side or "").upper().strip()
+        target_symbol = (symbol or "").upper().strip()
+        target_side = (position_side or "").upper().strip()
         for row in self.get_position_risk() or []:
-            if str(row.get("symbol") or "").upper().strip() != target_symbol:
+            if (row.get("symbol") or "").upper().strip() != target_symbol:
                 continue
             if target_side:
-                row_side = str(row.get("positionSide") or "").upper().strip()
+                row_side = (row.get("positionSide") or "").upper().strip()
                 if row_side and row_side != target_side:
                     continue
             return dict(row)
         return {}
 
-    def get_open_orders(self, symbol: Optional[str] = None) -> Any:
+    def get_open_orders(self, symbol: str | None = None) -> Any:
         """List open plain orders. Pass symbol to narrow the result."""
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if symbol:
             params["symbol"] = symbol
         return self._request("GET", "/fapi/v1/openOrders", params=params, signed=True)
 
-    def get_open_algo_orders(self, symbol: Optional[str] = None) -> Any:
+    def get_open_algo_orders(self, symbol: str | None = None) -> Any:
         """List open conditional orders routed via Algo Service.
 
         Binance exposes algo orders through a dedicated endpoint and a dedicated
         identifier family (`algoId` / `clientAlgoId`), so callers must not mix
         the result with plain order refs.
         """
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if symbol:
             params["symbol"] = symbol
         return self._request("GET", "/fapi/v1/openAlgoOrders", params=params, signed=True)
 
     # --- signed trading endpoints ---
 
-    def cancel_all_algo_orders(self, symbol: str) -> Dict[str, Any]:
+    def cancel_all_algo_orders(self, symbol: str) -> dict[str, Any]:
         """Best-effort cancel of all open Algo Service orders for a symbol.
 
         First tries the bulk DELETE endpoint, then iterates the open algo order
@@ -915,9 +915,9 @@ class BinanceFuturesClient:
 
     def position_mode(self) -> str:
         """Return the account's position mode from ENV (oneway or hedge)."""
-        return str(os.getenv("BINANCE_POSITION_MODE") or "oneway").strip().lower()
+        return (os.getenv("BINANCE_POSITION_MODE") or "oneway").strip().lower()
 
-    def post_plain_order(self, params: Dict[str, Any]) -> Any:
+    def post_plain_order(self, params: dict[str, Any]) -> Any:
         """Submit a non-conditional order via /fapi/v1/order.
 
         Runs pre-flight contract validation before sending to Binance.
@@ -926,7 +926,7 @@ class BinanceFuturesClient:
         _validate_plain_order_contract(plain_params, position_mode=self.position_mode())
         return self._request("POST", "/fapi/v1/order", params=plain_params, signed=True)
 
-    def post_algo_order(self, params: Dict[str, Any]) -> Any:
+    def post_algo_order(self, params: dict[str, Any]) -> Any:
         """Submit a conditional order via /fapi/v1/algoOrder.
 
         The Binance Algo API uses `triggerPrice` and `clientAlgoId`. For
@@ -945,7 +945,7 @@ class BinanceFuturesClient:
         algo_params = _validate_algo_order_contract(algo_params, position_mode=self.position_mode())
         return self._request("POST", "/fapi/v1/algoOrder", params=algo_params, signed=True)
 
-    def post_order(self, params: Dict[str, Any]) -> Any:
+    def post_order(self, params: dict[str, Any]) -> Any:
         """Backward-compatible routing wrapper.
 
         New code should explicitly call post_plain_order()/post_algo_order().
@@ -953,17 +953,17 @@ class BinanceFuturesClient:
         the executor and tests.
         """
         algo_types = {"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT", "TRAILING_STOP_MARKET"}
-        order_type = str(params.get("type", "")).upper()
+        order_type = (params.get("type", "")).upper()
         if order_type in algo_types:
             return self.post_algo_order(params)
         return self.post_plain_order(params)
 
     def query_plain_order(
         self, symbol: str, *,
-        order_id: Optional[int] = None,
-        client_order_id: Optional[str] = None,
+        order_id: int | None = None,
+        client_order_id: str | None = None,
     ) -> Any:
-        p: Dict[str, Any] = {"symbol": symbol}
+        p: dict[str, Any] = {"symbol": symbol}
         if order_id is not None:
             p["orderId"] = int(order_id)
         if client_order_id is not None:
@@ -972,10 +972,10 @@ class BinanceFuturesClient:
 
     def query_algo_order(
         self, symbol: str, *,
-        algo_id: Optional[int] = None,
-        client_algo_id: Optional[str] = None,
+        algo_id: int | None = None,
+        client_algo_id: str | None = None,
     ) -> Any:
-        p: Dict[str, Any] = {"symbol": symbol}
+        p: dict[str, Any] = {"symbol": symbol}
         if algo_id is not None:
             p["algoId"] = int(algo_id)
         if client_algo_id is not None:
@@ -984,8 +984,8 @@ class BinanceFuturesClient:
 
     def get_order(
         self, symbol: str, *,
-        order_id: Optional[int] = None,
-        client_order_id: Optional[str] = None,
+        order_id: int | None = None,
+        client_order_id: str | None = None,
         is_algo: bool = False
     ) -> Any:
         """Backward-compatible query wrapper."""
@@ -995,10 +995,10 @@ class BinanceFuturesClient:
 
     def cancel_plain_order(
         self, symbol: str, *,
-        order_id: Optional[int] = None,
-        client_order_id: Optional[str] = None,
+        order_id: int | None = None,
+        client_order_id: str | None = None,
     ) -> Any:
-        p: Dict[str, Any] = {"symbol": symbol}
+        p: dict[str, Any] = {"symbol": symbol}
         if order_id is not None:
             p["orderId"] = int(order_id)
         if client_order_id is not None:
@@ -1007,10 +1007,10 @@ class BinanceFuturesClient:
 
     def cancel_algo_order(
         self, symbol: str, *,
-        algo_id: Optional[int] = None,
-        client_algo_id: Optional[str] = None,
+        algo_id: int | None = None,
+        client_algo_id: str | None = None,
     ) -> Any:
-        p: Dict[str, Any] = {"symbol": symbol}
+        p: dict[str, Any] = {"symbol": symbol}
         if algo_id is not None:
             p["algoId"] = int(algo_id)
         if client_algo_id is not None:
@@ -1021,10 +1021,10 @@ class BinanceFuturesClient:
         self,
         symbol: str,
         *,
-        cancel_algo_id: Optional[int] = None,
-        cancel_client_algo_id: Optional[str] = None,
-        new_params: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        cancel_algo_id: int | None = None,
+        cancel_client_algo_id: str | None = None,
+        new_params: dict[str, Any],
+    ) -> dict[str, Any]:
         """Best-effort cancel+replace helper for untriggered algo orders.
 
         Binance Futures does not expose a native modify endpoint for algo orders
@@ -1039,8 +1039,8 @@ class BinanceFuturesClient:
 
     def delete_order(
         self, symbol: str, *,
-        order_id: Optional[int] = None,
-        client_order_id: Optional[str] = None,
+        order_id: int | None = None,
+        client_order_id: str | None = None,
         is_algo: bool = False
     ) -> Any:
         """Backward-compatible cancel wrapper."""
@@ -1062,15 +1062,13 @@ class BinanceFuturesClient:
             pass
         raise RuntimeError(f'plain order not found for clientOrderId={client_order_id}')
 
-    def _legacy__reconcile_protection_by_sid__dedupe_0(self, symbol: str, refs: Dict[str, Any]) -> Dict[str, Any]:
+    def _legacy__reconcile_protection_by_sid__dedupe_0(self, symbol: str, refs: dict[str, Any]) -> dict[str, Any]:
         """[Legacy] Resolve SL/TP/TRAIL algo refs using query endpoint first, open list second."""
-        out: Dict[str, Any] = {}
-        sl_cid = str(refs.get('sl_client_algo_id') or '').strip()
+        out: dict[str, Any] = {}
+        sl_cid = (refs.get('sl_client_algo_id') or '').strip()
         if sl_cid:
-            try:
+            with contextlib.suppress(Exception):
                 out['sl'] = self.query_algo_order(symbol, client_algo_id=sl_cid)
-            except Exception:
-                pass
         for idx, cid in enumerate(list(refs.get('tp_client_algo_ids') or []), start=1):
             try:
                 out[f'tp{idx}'] = self.query_algo_order(symbol, client_algo_id=str(cid))
@@ -1078,32 +1076,30 @@ class BinanceFuturesClient:
                 continue
         trail_cid = str(refs.get('trail_client_algo_id') or refs.get('trail_client_id') or '').strip()
         if trail_cid:
-            try:
+            with contextlib.suppress(Exception):
                 out['trail'] = self.query_algo_order(symbol, client_algo_id=trail_cid)
-            except Exception:
-                pass
         if out:
             return out
         open_orders = self.get_open_algo_orders(symbol) or []
         for row in open_orders:
-            cid = str(row.get('clientAlgoId') or '')
+            cid = (row.get('clientAlgoId') or '')
             if cid and cid == sl_cid:
                 out['sl'] = row
             elif trail_cid and cid == trail_cid:
                 out['trail'] = row
         return out
 
-    def _legacy__reconcile_protection_by_sid__sha1scan__dedupe_1(self, symbol: str, sid: str) -> Dict[str, Any]:
+    def _legacy__reconcile_protection_by_sid__sha1scan__dedupe_1(self, symbol: str, sid: str) -> dict[str, Any]:
         """[Legacy] sha1-token-based linear scan variant (superseded by inspect_protection_set)."""
         import hashlib as _hl
         token = _hl.sha1(str(sid).encode("utf-8")).hexdigest()[:8]
-        matched: Dict[str, Any] = {"sid": str(sid), "symbol": str(symbol).upper()}
+        matched: dict[str, Any] = {"sid": str(sid), "symbol": symbol.upper()}
         try:
             open_orders = self.get_open_algo_orders(symbol) or []
         except Exception:
             open_orders = []
         for order in open_orders:
-            cid = str(order.get("clientAlgoId") or "")
+            cid = (order.get("clientAlgoId") or "")
             if not cid or f"-{token}-" not in cid:
                 continue
             if cid.endswith("-sl"):
@@ -1115,7 +1111,7 @@ class BinanceFuturesClient:
         return matched
 
     # P4 canonical source-of-truth for protection reconcile via inspect_protection_set.
-    def reconcile_protection_by_sid(self, symbol: str, sid: str) -> Dict[str, Any]:
+    def reconcile_protection_by_sid(self, symbol: str, sid: str) -> dict[str, Any]:
         """Scan open algo orders to reconstruct protection refs for a given sid.
 
         P12/P4 canonical: delegates to inspect_protection_set for a strict, verifiable
@@ -1158,14 +1154,14 @@ class BinanceFuturesClient:
         symbol: str,
         sid: str,
         expected_sl: bool = True,
-        expected_tps: Optional[List[float]] = None,
+        expected_tps: list[float] | None = None,
         trail_expected: bool = False,
         # P4 extended params for price-mismatch detection
-        expect_sl: Optional[bool] = None,
+        expect_sl: bool | None = None,
         expected_tp_count: int = 0,
-        expected_sl_price: Optional[float] = None,
-        expected_tp_prices: Optional[List[float]] = None,
-    ) -> Dict[str, Any]:
+        expected_sl_price: float | None = None,
+        expected_tp_prices: list[float] | None = None,
+    ) -> dict[str, Any]:
         """Strict view of live protective orders on-exchange, keyed by clientAlgoId.
 
         P4: extended with price-mismatch detection. Checks whether on-exchange
@@ -1190,14 +1186,14 @@ class BinanceFuturesClient:
         """
         # P4: resolve expect_sl — new param aliases the old expected_sl
         _expect_sl: bool = expect_sl if expect_sl is not None else expected_sl
-        tps: List[float] = expected_tp_prices or expected_tps or []
+        tps: list[float] = expected_tp_prices or expected_tps or []
         # P4: expected_tp_count overrides len(tps) when tps list is empty
         _tp_count = expected_tp_count if expected_tp_count > 0 else len(tps)
 
         token = self._sid_token(sid)
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "sid": str(sid),
-            "symbol": str(symbol).upper(),
+            "symbol": symbol.upper(),
             "by_client_algo_id": {},
             "sl": None,
             "tp_by_index": {},
@@ -1214,7 +1210,7 @@ class BinanceFuturesClient:
             open_orders = []
 
         # P4: inner helper — uses _float_or_none (no _f() dependency)
-        def _price_matches(row: Dict[str, Any], expected: Optional[float]) -> bool:
+        def _price_matches(row: dict[str, Any], expected: float | None) -> bool:
             if expected in (None, 0, "", "0"):
                 return True
             actual = _float_or_none(row.get("triggerPrice") or row.get("stopPrice") or row.get("activatePrice")) or 0.0
@@ -1225,7 +1221,7 @@ class BinanceFuturesClient:
 
         # Index all orders belonging to this SID by clientAlgoId
         for order in open_orders:
-            cid = str(order.get("clientAlgoId") or "")
+            cid = (order.get("clientAlgoId") or "")
             if not cid or f"-{token}-" not in cid:
                 continue
             result["by_client_algo_id"][cid] = order
@@ -1242,8 +1238,8 @@ class BinanceFuturesClient:
                     result["tp_by_index"].setdefault(0, order)
 
         # Determine missing components
-        missing: List[str] = []
-        mismatched: List[str] = []  # P4: stale prices
+        missing: list[str] = []
+        mismatched: list[str] = []  # P4: stale prices
 
         if _expect_sl:
             if result["sl"] is None:
@@ -1273,10 +1269,10 @@ class BinanceFuturesClient:
         self,
         symbol: str,
         *,
-        new_params: Dict[str, Any],
-        algo_id: Optional[int] = None,
-        client_algo_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        new_params: dict[str, Any],
+        algo_id: int | None = None,
+        client_algo_id: str | None = None,
+    ) -> dict[str, Any]:
         """Cancel an untriggered algo order and submit a replacement.
 
         Binance Futures does not expose a native modify endpoint for all algo

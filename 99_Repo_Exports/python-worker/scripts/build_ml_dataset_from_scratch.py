@@ -16,11 +16,13 @@ ETL V3: trades_closed.ind_* → signal_facts + trade_performance
   docker exec scanner-python-worker python /app/scripts/build_ml_dataset_from_scratch.py
 """
 
-import os
-import sys
 import json
 import logging
+import os
+import sys
+
 import numpy as np
+from core.redis_keys import RedisStreams as RS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("ETL-V3")
@@ -42,7 +44,7 @@ except ImportError:
 # These days poison the training set and invert model predictions.
 TOXIC_MIN_N = int(os.getenv("ML_TOXIC_DAY_MIN_N", "2000"))
 TOXIC_MAX_HR = float(os.getenv("ML_TOXIC_DAY_MAX_HR", "0.01"))  # < 1%
-NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", "notify:telegram")
+NOTIFY_STREAM = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
 
 def _get_redis():

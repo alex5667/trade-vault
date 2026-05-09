@@ -1,8 +1,11 @@
-import pytest
-import time
 import asyncio
-from services.orderflow.signal_pipeline import SignalPipeline
+import time
+
+import pytest
+
 from services.orderflow.runtime import SymbolRuntime
+from services.orderflow.signal_pipeline import SignalPipeline
+
 
 @pytest.mark.asyncio
 async def test_signal_pipeline_hot_path_latency():
@@ -16,7 +19,7 @@ async def test_signal_pipeline_hot_path_latency():
     mock_atr_cache = MagicMock()
     mock_atr_cache.get.return_value = 100.0
     pipeline = SignalPipeline(publisher=mock_publisher, atr_cache=mock_atr_cache)
-    
+
     # Mock SymbolRuntime and a tick payload
     runtime = SymbolRuntime(symbol="BTCUSDT", config=MagicMock())
     runtime.is_active = True
@@ -30,7 +33,7 @@ async def test_signal_pipeline_hot_path_latency():
         "otr_z": 0.1,
         "book_slope": 1.0,
     }
-    setattr(runtime, "indicators", indicators)
+    runtime.indicators = indicators
 
     tick = {
         "symbol": "BTCUSDT",
@@ -40,22 +43,22 @@ async def test_signal_pipeline_hot_path_latency():
 
     # Warm up (force caching, import lazy modules)
     await pipeline.publish_signal(runtime, tick)
-    
+
     # Benchmark
     num_iterations = 1000
     start_time = time.perf_counter()
-    
+
     for _ in range(num_iterations):
         await pipeline.publish_signal(runtime, tick)
-        
+
     end_time = time.perf_counter()
-    
+
     total_time_ms = (end_time - start_time) * 1000
     avg_latency_ms = total_time_ms / num_iterations
-    
+
     print(f"Total time for {num_iterations} iterations: {total_time_ms:.2f} ms")
     print(f"Average latency per signal: {avg_latency_ms:.6f} ms")
-    
+
     # We enforce that the hot path takes less than 1.0 ms per iteration (usually < 0.1ms)
     assert avg_latency_ms < 1.0, f"Hot path is too slow: {avg_latency_ms} ms per tick"
 

@@ -46,16 +46,18 @@ Output:
 - Auto-escalates (if enabled and PAGE triggered)
 """
 
+import argparse
+import json
+import logging
 import os
 import sys
 import time
-import json
-import logging
 import uuid
+
 import redis
-import argparse
 
 from common.redis_errors import retry_redis_operation
+import contextlib
 
 # Configure logging
 logging.basicConfig(
@@ -148,15 +150,15 @@ def fetch_window_stats(r, now_ts, window_min):
         "PAGE": {"ok": 0, "err": 0},
         "TOTAL": {"ok": 0, "err": 0}
     }
-    
+
     current_bucket = int(now_ts / 60)
-    
+
     # We scan back `window_min` buckets
     # Note: current bucket might be partial, but usually included in rolling windows
     for i in range(window_min):
         bucket = current_bucket - i
         key = f"notify:win1m:{bucket}"
-        
+
         try:
             data = retry_redis_operation(
                 lambda: r.hgetall(key),
@@ -165,10 +167,10 @@ def fetch_window_stats(r, now_ts, window_min):
             )
         except Exception:
             data = {}
-        
+
         if not data:
             continue
-            
+
         for field, val_str in data.items():
             # field format: "ok:INFO", "err:CRIT"
             try:
@@ -176,40 +178,40 @@ def fetch_window_stats(r, now_ts, window_min):
                 kind = parts[0] # ok/err
                 sev = parts[1] # INFO/CRIT/PAGE
                 val = int(val_str)
-                
+
                 if sev in stats:
                     stats[sev][kind] += val
-                
+
                 stats["TOTAL"][kind] += val
-                
+
             except Exception:
                 pass
-                
+
     return stats
 
 def calculate_burn_rate(stats, slo_target):
     ok = stats["ok"]
     err = stats["err"]
     total = ok + err
-    
+
     if total < MIN_SAMPLES:
         return 0.0, total
-        
+
     error_ratio = err / total
     error_budget = 1.0 - slo_target
-    
+
     if error_budget <= 0:
         return 0.0, total # Should not happen with valid SLO < 1.0
-        
+
     burn_rate = error_ratio / error_budget
     return burn_rate, total
 
 def check_staleness(r, now_ms):
     # Check global and per-severity last OK
     stale_status = {}
-    
+
     keys = ["notify:last_ok_ts_ms", "notify:last_ok_ts_ms:CRIT", "notify:last_ok_ts_ms:PAGE"]
-    
+
     for k in keys:
         try:
             last_ts = retry_redis_operation(lambda: r.get(k), operation_name=f"get:{k}", max_retries=3)
@@ -221,7 +223,7 @@ def check_staleness(r, now_ms):
             stale_status[k] = ago
         else:
             stale_status[k] = -1 # Never?
-            
+
     return stale_status
 
 def emit_suggestion(r, kind, scope, ops_json_str, meta, cooldown_sec, dedup_key_suffix, dry_run=False):
@@ -266,7 +268,7 @@ def emit_suggestion(r, kind, scope, ops_json_str, meta, cooldown_sec, dedup_key_
 
     # Helper for pretty print or log
     log_msg = f"Emitting suggestion {kind} sid={sid} scope={scope} ops={len(ops)}"
-    
+
     if dry_run:
         print(f"[DRY-RUN] {log_msg}")
         return sid
@@ -276,12 +278,12 @@ def emit_suggestion(r, kind, scope, ops_json_str, meta, cooldown_sec, dedup_key_
         def _write_suggestion():
             # 1. Set Cooldown
             r.setex(cooldown_key, cooldown_sec, "1")
-            
+
             # 2. Push Suggestion
             key = f"cfg:suggestions:entry_policy:meta:{sid}"
             r.setex(key, NOTIFY_SLO_SUGGESTION_TTL_SEC, json.dumps(suggestion))
             return key
-            
+
         key = retry_redis_operation(_write_suggestion, operation_name="emit_suggestion_tx", max_retries=3)
         logger.info(f"{log_msg} -> {key}")
         return sid
@@ -299,12 +301,12 @@ def handle_trade_pause(r, scope, meta, dry_run=False):
         return
 
     sid = emit_suggestion(
-        r, 
-        NOTIFY_SLO_TRADE_PAUSE_KIND, 
-        scope, 
-        NOTIFY_SLO_TRADE_PAUSE_OPS_JSON, 
-        meta, 
-        NOTIFY_SLO_TRADE_PAUSE_COOLDOWN_SEC, 
+        r,
+        NOTIFY_SLO_TRADE_PAUSE_KIND,
+        scope,
+        NOTIFY_SLO_TRADE_PAUSE_OPS_JSON,
+        meta,
+        NOTIFY_SLO_TRADE_PAUSE_COOLDOWN_SEC,
         "trade_pause",
         dry_run=dry_run
     )
@@ -312,10 +314,8 @@ def handle_trade_pause(r, scope, meta, dry_run=False):
     if sid and not dry_run:
         # Mark as paused state by this tool
         state_key = f"sre:notify_slo:trade_pause_sid:{scope}"
-        try:
+        with contextlib.suppress(Exception):
             retry_redis_operation(lambda: r.set(state_key, sid), operation_name=f"set:{state_key}", max_retries=3)
-        except Exception:
-            pass
 
 def handle_trade_unpause(r, scope, meta, dry_run=False):
     """
@@ -333,15 +333,15 @@ def handle_trade_unpause(r, scope, meta, dry_run=False):
         pause_sid = retry_redis_operation(lambda: r.get(state_key), operation_name=f"get:{state_key}", max_retries=3)
     except Exception:
         pause_sid = None
-    
+
     if not pause_sid:
         return # No active pause initiated by us
-        
+
     # Check if applied
-    # applied key: CFG_SUGGESTIONS_PREFIX:applied:{sid} 
+    # applied key: CFG_SUGGESTIONS_PREFIX:applied:{sid}
     # e.g. "cfg:suggestions:entry_policy:applied:<sid>"
     applied_key = f"{CFG_SUGGESTIONS_PREFIX}:applied:{pause_sid}"
-    
+
     if not dry_run:
         try:
             if not retry_redis_operation(lambda: r.exists(applied_key), operation_name=f"exists:{applied_key}", max_retries=3):
@@ -351,22 +351,20 @@ def handle_trade_unpause(r, scope, meta, dry_run=False):
 
     # Emit Unpause
     sid = emit_suggestion(
-        r, 
-        NOTIFY_SLO_TRADE_UNPAUSE_KIND, 
-        scope, 
-        NOTIFY_SLO_TRADE_UNPAUSE_OPS_JSON, 
-        meta, 
-        NOTIFY_SLO_TRADE_UNPAUSE_COOLDOWN_SEC, 
+        r,
+        NOTIFY_SLO_TRADE_UNPAUSE_KIND,
+        scope,
+        NOTIFY_SLO_TRADE_UNPAUSE_OPS_JSON,
+        meta,
+        NOTIFY_SLO_TRADE_UNPAUSE_COOLDOWN_SEC,
         "trade_unpause",
         dry_run=dry_run
     )
-    
+
     if sid and not dry_run:
         # Clear the state so we don't unpause again
-        try:
+        with contextlib.suppress(Exception):
             retry_redis_operation(lambda: r.delete(state_key), operation_name=f"del:{state_key}", max_retries=3)
-        except Exception:
-            pass
 
 
 def handle_apply_freeze(r, scope, meta, dry_run=False):
@@ -399,10 +397,8 @@ def handle_apply_freeze(r, scope, meta, dry_run=False):
     )
 
     if sid and not dry_run:
-        try:
+        with contextlib.suppress(Exception):
             retry_redis_operation(lambda: r.set(state_key, sid), operation_name=f"set:{state_key}", max_retries=3)
-        except Exception:
-            pass
 
 def handle_apply_unfreeze(r, scope, meta, dry_run=False):
     """
@@ -445,10 +441,8 @@ def handle_apply_unfreeze(r, scope, meta, dry_run=False):
     )
 
     if sid and not dry_run:
-        try:
+        with contextlib.suppress(Exception):
             retry_redis_operation(lambda: r.delete(state_key), operation_name=f"del:{state_key}", max_retries=3)
-        except Exception:
-            pass
 
 
 def main():
@@ -460,18 +454,18 @@ def main():
     parser.add_argument("--emit-metrics", action="store_true", help="Emit Prometheus metrics (ignored for now)")
     args = parser.parse_args()
 
-    # Override env if generic flag is present? 
+    # Override env if generic flag is present?
     # The flag `--emit_suggestions` explicitly enables it even if ENV is 0?
     # Let's trust ENV but use flag as gatekeeper if needed.
     # Actually, logic: if args.emit_suggestions is True, we proceed.
-    
+
     # We update global var based on args if verified
     global NOTIFY_SLO_EMIT_SUGGESTIONS
     if args.emit_suggestions:
         NOTIFY_SLO_EMIT_SUGGESTIONS = 1
-        
+
     r = get_redis_client()
-    
+
     # Verify Redis is UP and responsive before proceeding
     if not args.dry_run:
         try:
@@ -490,18 +484,18 @@ def main():
     # 1. Fetch Windows
     stats_fast = fetch_window_stats(r, now_ts, WINDOW_FAST_MIN)
     stats_slow = fetch_window_stats(r, now_ts, WINDOW_SLOW_MIN)
-    
+
     # 2. Check Staleness & Lag
     stale_map = check_staleness(r, now_ms)
     try:
         queue_lag_str = retry_redis_operation(lambda: r.get("notify:last_queue_lag_ms"), operation_name="get:queue_lag", max_retries=3)
     except Exception:
         queue_lag_str = None
-        
+
     queue_lag = int(queue_lag_str) if queue_lag_str else 0
-    
+
     # 3. Analyze Burn Rates
-    
+
     report = {
         "timestamp": now_ts,
         "status": "OK",
@@ -509,21 +503,21 @@ def main():
         "burn_rates": {},
         "decision": {"actions": []}
     }
-    
+
     rules = [
-        ("WARN", SLO_TARGET_WARN, "INFO"), 
+        ("WARN", SLO_TARGET_WARN, "INFO"),
         ("CRIT", SLO_TARGET_CRIT, "CRIT"),
         ("PAGE", SLO_TARGET_PAGE, "PAGE")
     ]
-    
+
     max_severity_level = 0 # 0=OK, 1=WARN, 2=CRIT, 3=PAGE
-    
+
     for rule_name, slo, lookup in rules:
         # Fast Window
         br_fast, sample_fast = calculate_burn_rate(stats_fast[lookup], slo)
         # Slow Window
         br_slow, sample_slow = calculate_burn_rate(stats_slow[lookup], slo)
-        
+
         report["burn_rates"][rule_name] = {
             "fast": br_fast,
             "slow": br_slow,
@@ -531,18 +525,18 @@ def main():
             "samples_slow": sample_slow,
             "slo": slo
         }
-        
+
         # Evaluation
         is_page = (br_fast > BURN_THRESHOLD_FAST_HI) and (br_slow > BURN_THRESHOLD_SLOW_HI)
         is_ticket = (br_fast > BURN_THRESHOLD_FAST_LO) and (br_slow > BURN_THRESHOLD_SLOW_LO)
-        
+
         if is_page:
             report["alerts"].append(f"HighBurnRate:{rule_name} (Fast={br_fast:.1f}x, Slow={br_slow:.1f}x)")
             if rule_name in ["CRIT", "PAGE"]:
                 max_severity_level = max(max_severity_level, 3)
             else:
                 max_severity_level = max(max_severity_level, 2)
-                
+
         elif is_ticket:
              report["alerts"].append(f"ElevatedBurnRate:{rule_name} (Fast={br_fast:.1f}x, Slow={br_slow:.1f}x)")
              if rule_name in ["CRIT", "PAGE"]:
@@ -557,7 +551,7 @@ def main():
     # if stale_crit > MAX_STALE_MS:
     #     report["alerts"].append(f"Stale:CRIT ({stale_crit/1000:.0f}s > {MAX_STALE_MS/1000}s)")
     #     max_severity_level = max(max_severity_level, 3)
-    
+
     stale_global = stale_map.get("notify:last_ok_ts_ms", 0)
     if stale_global > MAX_STALE_MS:
          report["alerts"].append(f"Stale:Global ({stale_global/1000:.0f}s)")
@@ -585,16 +579,16 @@ def main():
         # Action 1: Emergency Suggestion (CRIT or PAGE)
         if max_severity_level >= 2:
             sid = emit_suggestion(
-                r, 
-                NOTIFY_SLO_EMERGENCY_KIND, 
-                NOTIFY_SLO_SUGGESTIONS_SCOPE, 
-                NOTIFY_SLO_EMERGENCY_OPS_JSON, 
-                meta_data, 
-                NOTIFY_SLO_EMERGENCY_COOLDOWN_SEC, 
+                r,
+                NOTIFY_SLO_EMERGENCY_KIND,
+                NOTIFY_SLO_SUGGESTIONS_SCOPE,
+                NOTIFY_SLO_EMERGENCY_OPS_JSON,
+                meta_data,
+                NOTIFY_SLO_EMERGENCY_COOLDOWN_SEC,
                 "emergency_notify",
                 dry_run=args.dry_run
             )
-            if sid: 
+            if sid:
                 report["decision"]["actions"].append(f"emergency:{sid}")
 
         # Action 2: Trade Pause (PAGE only)
@@ -602,7 +596,7 @@ def main():
              # Use predefined scope for pause
              handle_trade_pause(r, NOTIFY_SLO_TRADE_PAUSE_SCOPE, meta_data, dry_run=args.dry_run)
              report["decision"]["actions"].append(f"check_pause:{NOTIFY_SLO_TRADE_PAUSE_SCOPE}")
-        
+
         # Action 3: Apply Freeze (CRIT or PAGE) (P6.10)
         if max_severity_level >= 2:
             handle_apply_freeze(r, NOTIFY_SLO_APPLY_FREEZE_SCOPE, meta_data, dry_run=args.dry_run)
@@ -615,14 +609,14 @@ def main():
         if max_severity_level == 0:
             handle_trade_unpause(r, NOTIFY_SLO_TRADE_PAUSE_SCOPE, meta_data, dry_run=args.dry_run)
             report["decision"]["actions"].append(f"check_unpause:{NOTIFY_SLO_TRADE_PAUSE_SCOPE}")
-            
+
             handle_apply_unfreeze(r, NOTIFY_SLO_APPLY_FREEZE_SCOPE, meta_data, dry_run=args.dry_run)
             report["decision"]["actions"].append(f"check_apply_unfreeze:{NOTIFY_SLO_APPLY_FREEZE_SCOPE}")
 
-        
+
     if args.print_json:
         print(json.dumps(report, indent=2))
-        
+
     if max_severity_level >= 3:
         sys.exit(2)
     elif max_severity_level == 2:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, Tuple
-
+from collections.abc import Iterable
 
 # СТАБИЛЬНОЕ соответствие tag -> bit.
 # Важно: не менять существующие биты, только добавлять новые.

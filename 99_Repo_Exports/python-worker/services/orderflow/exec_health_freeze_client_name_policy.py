@@ -11,7 +11,8 @@ alerts, and rollout blockers do not diverge.
 """
 
 from collections import defaultdict
-from typing import Any, Dict, List, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from services.orderflow.exec_health_freeze_acl_contract import AUDIT_USER, BOOTSTRAP_USER, WRITER_USER
 from services.orderflow.exec_health_freeze_service_identity import (
@@ -24,9 +25,9 @@ TRUSTED_USERS = {WRITER_USER, AUDIT_USER, BOOTSTRAP_USER}
 
 def _s(x: Any, d: str = '') -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
 def _entry_addr(ent: Mapping[str, Any]) -> str:
@@ -36,23 +37,23 @@ def _entry_addr(ent: Mapping[str, Any]) -> str:
     return _s(ent.get('laddr'))
 
 
-def _service_by_name() -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _service_by_name() -> dict[str, str]:
+    out: dict[str, str] = {}
     for svc, exp in build_service_identity_contract().items():
         out[exp.client_name] = svc
     return out
 
 
-def evaluate_client_name_policy(raw_client_list: Any, *, required_services: Sequence[str] | None = None) -> Dict[str, Any]:
+def evaluate_client_name_policy(raw_client_list: Any, *, required_services: Sequence[str] | None = None) -> dict[str, Any]:
     contract = build_service_identity_contract()
     service_by_name = _service_by_name()
     known_names = set(service_by_name.keys())
     required = list(required_services or contract.keys())
     entries = parse_client_list(raw_client_list)
     trusted_entries = [e for e in entries if _s(e.get('user')) in TRUSTED_USERS or _s(e.get('name')).startswith('exec-health-freeze-')]
-    by_name: Dict[str, List[Dict[str, str]]] = defaultdict(list)
-    violations: List[Dict[str, str]] = []
-    services: Dict[str, Dict[str, Any]] = {}
+    by_name: dict[str, list[dict[str, str]]] = defaultdict(list)
+    violations: list[dict[str, str]] = []
+    services: dict[str, dict[str, Any]] = {}
 
     for ent in trusted_entries:
         name = _s(ent.get('name'))

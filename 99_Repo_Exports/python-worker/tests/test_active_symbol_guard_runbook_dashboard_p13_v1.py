@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P13: Tests for ActiveSymbolGuardRunbookExecutor dashboard features:
 - runbook_dashboard
 - active_holds  
@@ -6,23 +7,19 @@ from __future__ import annotations
 - audit_history (filtered)
 - linked_tickets
 """
+import json
+from unittest.mock import MagicMock
+
 from utils.time_utils import get_ny_time_millis
 
-import json
-import time
-from collections import namedtuple
-from unittest.mock import MagicMock, patch, PropertyMock
-
-import pytest
-
 try:
-    from services.active_symbol_guard_runbook import ActiveSymbolGuardRunbookExecutor
     from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
     from services.active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine
+    from services.active_symbol_guard_runbook import ActiveSymbolGuardRunbookExecutor
 except Exception:
-    from active_symbol_guard_runbook import ActiveSymbolGuardRunbookExecutor  # type: ignore
     from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
     from active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine  # type: ignore
+    from active_symbol_guard_runbook import ActiveSymbolGuardRunbookExecutor  # type: ignore
 
 
 def _ms_now() -> int:

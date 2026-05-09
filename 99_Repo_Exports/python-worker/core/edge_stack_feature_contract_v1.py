@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Edge Stack Feature Contract v1.
 
 This defines the *interface* between:
@@ -19,17 +20,17 @@ contract file, it can be compared out-of-band.
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass(frozen=True)
 class EdgeStackFeatureContractV1:
     schema_version: int
     kind: str
-    feature_cols: List[str]
+    feature_cols: list[str]
     scenario_prefix: str = "scenario_v4_"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": int(self.schema_version),
             "kind": str(self.kind),
@@ -38,7 +39,7 @@ class EdgeStackFeatureContractV1:
         }
 
     @staticmethod
-    def from_feature_cols(feature_cols: List[str]) -> "EdgeStackFeatureContractV1":
+    def from_feature_cols(feature_cols: list[str]) -> EdgeStackFeatureContractV1:
         cols = [str(x) for x in (feature_cols or [])]
         return EdgeStackFeatureContractV1(schema_version=1, kind="edge_stack_v1", feature_cols=cols)
 
@@ -56,7 +57,7 @@ class EdgeStackFeatureContractV1:
             raise ValueError("feature_cols is empty/too small")
 
 
-def write_contract(path: str, feature_cols: List[str]) -> str:
+def write_contract(path: str, feature_cols: list[str]) -> str:
     c = EdgeStackFeatureContractV1.from_feature_cols(feature_cols)
     c.validate()
     payload = c.to_dict()
@@ -66,12 +67,12 @@ def write_contract(path: str, feature_cols: List[str]) -> str:
 
 
 def load_contract(path: str) -> EdgeStackFeatureContractV1:
-    data = json.loads(open(path, "r", encoding="utf-8").read())
+    data = json.loads(open(path, encoding="utf-8").read())
     c = EdgeStackFeatureContractV1(
         schema_version=int(data.get("schema_version", 0)),
-        kind=str(data.get("kind", "")),
+        kind=(data.get("kind", "")),
         feature_cols=[str(x) for x in (data.get("feature_cols") or [])],
-        scenario_prefix=str(data.get("scenario_prefix", "scenario_v4_")),
+        scenario_prefix=(data.get("scenario_prefix", "scenario_v4_")),
     )
     c.validate()
     return c

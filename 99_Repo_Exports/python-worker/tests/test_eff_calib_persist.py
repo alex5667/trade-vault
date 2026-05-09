@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+
 from core.eff_quote_calibrator import EffQuoteCalibrator
 
 

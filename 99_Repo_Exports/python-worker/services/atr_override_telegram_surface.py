@@ -1,8 +1,11 @@
 import json
 import logging
-from typing import Dict, Any, List
+from typing import Any
+
+from core.redis_keys import STREAM_RETENTION
+from core.redis_keys import RedisStreams as RS
+from services.atr_change_control_telegram_surface import _ops_chat_id, _redis
 from services.atr_override_governance_service import ATROverrideGovernanceService
-from services.atr_change_control_telegram_surface import _redis, _ops_chat_id
 
 logger = logging.getLogger("atr_override_telegram")
 
@@ -10,10 +13,10 @@ class ATROverrideTelegramSurface:
     def __init__(self, override_service: ATROverrideGovernanceService):
         self.override_service = override_service
 
-    def publish_override_request(self, req: Dict[str, Any]) -> bool:
+    def publish_override_request(self, req: dict[str, Any]) -> bool:
         override_id = req.get("override_id")
         scope = req.get("request_json", {}).get("scope", {})
-        
+
         txt = (
             f"ATR Safe-State Override\n"
             f"Override: {override_id}\n"
@@ -23,7 +26,7 @@ class ATROverrideTelegramSurface:
             f"Target: {req.get('requested_target_state')}\n"
             f"TTL: {req.get('ttl_sec', 0) // 60}m\n\n"
         )
-        
+
         # In a real impl, constraints & rollback conditions would be dynamically formatted
         txt += (
             "Allowed:\n"
@@ -36,7 +39,7 @@ class ATROverrideTelegramSurface:
             "- burn exhausted again\n"
             "- post-override cert fail\n"
         )
-        
+
         buttons = [
             [
                 {"text": "✅ Approve", "callback": f"atrovr:approve:{override_id}"},
@@ -46,18 +49,18 @@ class ATROverrideTelegramSurface:
                 {"text": "⏹ Revoke", "callback": f"atrovr:revoke:{override_id}"},
             ]
         ]
-        
+
         payload = {
             "text": txt,
             "buttons": json.dumps(buttons, ensure_ascii=False)
         }
-        
+
         chat_id = _ops_chat_id()
         if chat_id:
             payload["chat_id"] = chat_id
-            
+
         try:
-            _redis().xadd("notify:telegram", payload, maxlen=10000, approximate=True)
+            _redis().xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=STREAM_RETENTION[RS.NOTIFY_TELEGRAM], approximate=True)
             return True
         except Exception as e:
             logger.error(f"Failed to publish TG: {e}")
@@ -87,7 +90,7 @@ class ATROverrideTelegramSurface:
         if chat_id:
             payload["chat_id"] = chat_id
         try:
-            _redis().xadd("notify:telegram", payload, maxlen=5000, approximate=True)
+            _redis().xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=STREAM_RETENTION[RS.NOTIFY_TELEGRAM], approximate=True)
             return True
         except Exception:
             return False

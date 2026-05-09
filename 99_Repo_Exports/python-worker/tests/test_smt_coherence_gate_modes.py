@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 
-from tests.fake_redis import FakeRedis
 from handlers.crypto_orderflow.utils.smt_coherence_gate import SmtLeaderCoherenceGate
+from tests.fake_redis import FakeRedis
 
 
 def _mk_ctx() -> SimpleNamespace:
@@ -35,7 +34,7 @@ def test_smt_gate_observe_never_veto_even_countertrend(monkeypatch):
     assert dec.apply is True
     assert dec.veto is False
     # audit fields must exist
-    assert getattr(ctx, "smt_bundle_id") == "btc_eth_sol"
+    assert ctx.smt_bundle_id == "btc_eth_sol"
     assert getattr(ctx, "smt_leader_confirm", 0) == 1
     assert float(getattr(ctx, "smt_coh", 0.0)) >= 0.79
 

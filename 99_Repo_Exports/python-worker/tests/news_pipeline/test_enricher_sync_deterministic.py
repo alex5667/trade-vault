@@ -1,9 +1,9 @@
 """
 Unit tests for NewsEnricherSync deterministic time handling
 """
-import pytest
 from unittest.mock import Mock, patch
-from contexts import OrderflowSignalContext, NewsFeatures
+
+from contexts import OrderflowSignalContext
 from news_pipeline.enricher_sync import NewsEnricherSync
 
 
@@ -44,7 +44,6 @@ class TestNewsEnricherSyncDeterministic:
 
     def test_attach_without_tick_time_fallback_to_wall_clock(self):
         """Test fallback to wall clock when now_ts_ms not provided"""
-        import time
 
         tick_ts_ms = 1000000
         event_ts_ms = 1300000

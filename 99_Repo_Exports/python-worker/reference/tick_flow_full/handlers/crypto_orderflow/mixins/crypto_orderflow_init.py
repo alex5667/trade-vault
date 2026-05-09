@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Initialization logic for CryptoOrderFlowHandler.
 
@@ -8,8 +9,20 @@ configuration setup, and initialization helpers.
 
 
 import os
-from typing import Dict, Optional, Any
-from handlers.handler_dependencies import HandlerDependencies
+from typing import Any
+
+from common.log_sampling import TimeSampler
+from core.instrument_config import get_config
+from handlers.base_orderflow_handler import OrderFlowConfig
+from handlers.confidence_pct_provider import build_confidence_pct_fn
+from handlers.crypto_orderflow.components.gates import CryptoSignalGates
+from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
+from handlers.crypto_orderflow.components.market_state import CryptoMarketState
+from handlers.crypto_orderflow.components.observability import CryptoObservability
+from handlers.crypto_orderflow.components.sampler import _SampleEveryMs
+
+# New Components
+from handlers.crypto_orderflow.config.handler_config import CryptoOrderFlowConfigManager
 
 # NOTE (важно):
 # В проекте есть две реализации cost-edge gate:
@@ -22,46 +35,31 @@ from handlers.handler_dependencies import HandlerDependencies
 # Это ломает контракт (evaluate/config/result) и приводит к нерабочему гейту или runtime-ошибкам.
 #
 # Фикс: использовать ОДИН источник правды -> utils.EdgeCostGate.
-
 from handlers.crypto_orderflow.config.runtime_config import _RuntimeCfg
-from handlers.crypto_orderflow.logging.logging_utils import _ctx_quality_flags
-from handlers.crypto_orderflow.components.sampler import _SampleEveryMs
-from handlers.crypto_orderflow.utils.risk_cfg_resolver import RiskCfgResolver
-from handlers.crypto_orderflow.utils.trail_conditional import TrailConditionalEvaluator
-from signals.empirical_levels_dyn import EmpiricalLevelsConfig, RedisEmpiricalLevelsProvider
-from signals.empirical_levels import EmpiricalLevels, RedisEmpiricalStatsProvider
-from handlers.base_orderflow_handler import OrderFlowConfig
-from core.instrument_config import get_config
-from handlers.confidence_pct_provider import build_confidence_pct_fn
-from common.log_sampling import TimeSampler
-from signal_scoring.reason_registry import normalize_reason
+from handlers.crypto_orderflow.core.confidence_threshold import ConfidenceThresholdFilter
+from handlers.crypto_orderflow.pipeline.orchestrator import SignalOrchestrator
 
 # Import new filters for cost edge gate and confidence thresholds
 # Cost-edge gate: ДОЛЖЕН быть единым по коду - используем utils.EdgeCostGate
 # Он читает ctx.* поля (entry/tp1/sl/atr) и возвращает детерминированный decision
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
-from handlers.crypto_orderflow.core.confidence_threshold import ConfidenceThresholdFilter
+from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
 
 # NEW: Quality gates (regime/session/liquidity + consistency + data-quality)
-from handlers.crypto_orderflow.utils.pre_publish_gates import (
-    HardDataQualityGate, RegimeSessionGate, ConsistencyGate
-)
-from handlers.crypto_orderflow.utils.smt_coherence_gate import SmtLeaderCoherenceGate
-from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
-from services.feature_drift_alarm import FeatureDriftAlarm
+from handlers.crypto_orderflow.utils.pre_publish_gates import ConsistencyGate, HardDataQualityGate, RegimeSessionGate
 from handlers.crypto_orderflow.utils.quality_gates import (
     DataQualityGate,
     RegimeSessionLiquidityGate,
     SignalConsistencyGate,
 )
-
-# New Components
-from handlers.crypto_orderflow.config.handler_config import CryptoOrderFlowConfigManager
-from handlers.crypto_orderflow.components.market_state import CryptoMarketState
-from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
-from handlers.crypto_orderflow.components.observability import CryptoObservability
-from handlers.crypto_orderflow.components.gates import CryptoSignalGates
-from handlers.crypto_orderflow.pipeline.orchestrator import SignalOrchestrator
+from handlers.crypto_orderflow.utils.risk_cfg_resolver import RiskCfgResolver
+from handlers.crypto_orderflow.utils.smt_coherence_gate import SmtLeaderCoherenceGate
+from handlers.crypto_orderflow.utils.trail_conditional import TrailConditionalEvaluator
+from handlers.handler_dependencies import HandlerDependencies
+from services.feature_drift_alarm import FeatureDriftAlarm
+from signal_scoring.reason_registry import normalize_reason
+from signals.empirical_levels import EmpiricalLevels, RedisEmpiricalStatsProvider
+from signals.empirical_levels_dyn import EmpiricalLevelsConfig, RedisEmpiricalLevelsProvider
 
 
 class CryptoOrderFlowInitMixin:
@@ -73,11 +71,11 @@ class CryptoOrderFlowInitMixin:
     def __init__(
         self,
         symbol: str,
-        config: Optional[OrderFlowConfig] = None,
+        config: OrderFlowConfig | None = None,
         *,
-        health_metrics: Optional[object] = None,
+        health_metrics: object | None = None,
         calibrator: Any = None,
-        dependencies: Optional[HandlerDependencies] = None,
+        dependencies: HandlerDependencies | None = None,
         **kwargs: Any,
     ):
         config = config or get_config(symbol, use_env=True)
@@ -153,7 +151,7 @@ class CryptoOrderFlowInitMixin:
         #   Поэтому здесь тоже используем utils.EdgeCostGate, чтобы исключить runtime mismatch.
         self._cost_edge_gate = EdgeCostGate.from_env()
         self._cost_edge_enabled = bool(self._cost_edge_gate.enabled)
-        
+
         # Логирование veto (так как у utils.EdgeCostGate нет config.log_veto).
         # Поддерживаем два имени ENV:
         #   EDGE_COST_LOG_VETO=1/0 (предпочтительно)
@@ -308,11 +306,11 @@ class CryptoOrderFlowInitMixin:
 
         # State for out-of-order / time sanity checks (per handler instance).
         # NOTE: if you run multiple containers/instances per symbol, each has its own state.
-        self._last_event_ts_ms: Optional[int] = None
+        self._last_event_ts_ms: int | None = None
 
         # Counters for observability (so you can see where quality is lost).
         self._veto_quality_total: int = 0
-        self._veto_quality_by_reason: Dict[str, int] = {}
+        self._veto_quality_by_reason: dict[str, int] = {}
 
         # ----------------------------------------------------------------------
         # Refactored Components Initialization
@@ -342,8 +340,8 @@ class CryptoOrderFlowInitMixin:
         )
 
         # 6. Orchestrator
-        # Note: emitter and confirmations might be lazy or init in base. 
-        # We pass self (acting as legacy container) if needed, 
+        # Note: emitter and confirmations might be lazy or init in base.
+        # We pass self (acting as legacy container) if needed,
         # but better to pass specific attributes if they exist.
         # Assuming self._emitter and self._confirmations exist after super init.
         self._orchestrator = SignalOrchestrator(
@@ -364,13 +362,13 @@ class CryptoOrderFlowInitMixin:
         gate = getattr(self, "_consistency_gate", None)
         if gate is None or not callable(getattr(gate, "evaluate", None)):
             return None
-        k = ("consistency", str(kind or ""), str(side or ""))
+        k = ("consistency", (kind or ""), (side or ""))
         try:
             cache = getattr(ctx, "_gate_cache", None)
             if not isinstance(cache, dict):
                 cache = {}
                 try:
-                    setattr(ctx, "_gate_cache", cache)
+                    ctx._gate_cache = cache
                 except Exception:
                     cache = None
             if isinstance(cache, dict) and k in cache:
@@ -378,7 +376,7 @@ class CryptoOrderFlowInitMixin:
         except Exception:
             cache = None
         try:
-            d = gate.evaluate(ctx=ctx, symbol=str(symbol), kind=str(kind), side=str(side))
+            d = gate.evaluate(ctx=ctx, symbol=symbol, kind=str(kind), side=side)
         except Exception:
             d = None
         try:
@@ -406,9 +404,9 @@ class CryptoOrderFlowInitMixin:
             ts_ms_i = int(ts_ms) if ts_ms is not None else 0
         except Exception:
             ts_ms_i = 0
-        return float(self._conf_pct_fn(str(kind or ""), sym, float(final_score), int(ts_ms_i)))
+        return float(self._conf_pct_fn((kind or ""), sym, float(final_score), int(ts_ms_i)))
 
-    def _metrics_observe(self, name: str, value: float, tags: Optional[dict[str, str]] = None) -> None:
+    def _metrics_observe(self, name: str, value: float, tags: dict[str, str] | None = None) -> None:
         """
         Optional histogram/summary hook.
         Supports different sinks:
@@ -426,7 +424,7 @@ class CryptoOrderFlowInitMixin:
         except Exception:
             return
 
-    def _get_ctx_l2_snapshot(self, ctx: Any) -> Optional[Any]:
+    def _get_ctx_l2_snapshot(self, ctx: Any) -> Any | None:
         # Мягкая совместимость: разные участки кода могли назвать поле по-разному.
         return (
             getattr(ctx, "l2_snapshot", None)
@@ -448,9 +446,9 @@ class CryptoOrderFlowInitMixin:
             rc = normalize_reason(reason_code or "VETO_UNKNOWN")
             # gauge-style metric: current total vetoes by reason/kind/symbol
             if hasattr(m, "gauge"):
-                m.gauge(f"signals_veto_total", 1, tags={"reason_code": rc, "kind": str(kind or ""), "symbol": sym})
+                m.gauge("signals_veto_total", 1, tags={"reason_code": rc, "kind": (kind or ""), "symbol": sym})
             elif hasattr(m, "inc"):
                 # if gauge not available, use counter-style
-                m.inc(f"signals_veto_total", tags={"reason_code": rc, "kind": str(kind or ""), "symbol": sym})
+                m.inc("signals_veto_total", tags={"reason_code": rc, "kind": (kind or ""), "symbol": sym})
         except Exception:
             return

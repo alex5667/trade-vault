@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 news_pipeline/p6_dto.py — P6 contract DTOs and idempotency helpers.
 
@@ -13,8 +14,6 @@ Design:
 """
 
 import uuid
-from typing import List, Optional
-
 from dataclasses import dataclass, field
 
 # Fixed namespace for news event UUIDs.
@@ -56,7 +55,7 @@ class NewsEventContractDTO:
     doc_id: str = ""
 
     event_type: str = ""
-    symbols: List[str] = field(default_factory=list)
+    symbols: list[str] = field(default_factory=list)
     impact: float = 0.0
 
     # bias: simplified as dict for portability (avoids sub-schema import cycle)
@@ -66,7 +65,7 @@ class NewsEventContractDTO:
     credibility_hint: float = 0.5
 
     # citations: list of dicts {text, source, url} — optional
-    citations: List[dict] = field(default_factory=list)
+    citations: list[dict] = field(default_factory=list)
 
     event_ts_ms: int = 0
 
@@ -82,7 +81,7 @@ class NewsPriorDTO:
     schema_ver: str = "v1"
     event_id: str = ""
     event_type: str = ""
-    symbols: List[str] = field(default_factory=list)
+    symbols: list[str] = field(default_factory=list)
     impact: float = 0.0
     bias: dict = field(default_factory=dict)
     confidence: float = 0.0

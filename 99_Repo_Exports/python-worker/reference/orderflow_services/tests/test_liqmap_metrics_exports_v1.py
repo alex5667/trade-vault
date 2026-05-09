@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Provide standard mirror pathing. 
+# Provide standard mirror pathing.
 # We don't prepend tick_flow_full because we are validating mirror.
 _PROJ_ROOT = str(Path(__file__).resolve().parents[3]) # python-worker root
 if _PROJ_ROOT not in sys.path:

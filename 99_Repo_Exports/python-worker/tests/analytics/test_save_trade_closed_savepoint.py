@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 P0-3 regression: trades_closed_p0 failure must NOT abort the main trades_closed insert.
 
@@ -7,10 +8,8 @@ to confirm that the SAVEPOINT mechanism prevents the main transaction from
 being rolled back.
 """
 
-import sys
-import types
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 def _make_closed_trade():

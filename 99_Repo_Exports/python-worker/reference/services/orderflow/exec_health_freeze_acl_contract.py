@@ -22,12 +22,11 @@ Redis ACL background:
 """
 
 import re
-from typing import Dict, List, Tuple
 
 # ─── Canonical user list ────────────────────────────────────────────────────
 
 # These are the users that MUST exist.  The order is the rollout order.
-EXPECTED_USERS: Tuple[str, ...] = (
+EXPECTED_USERS: tuple[str, ...] = (
     "exec_health_freeze_reader",
     "exec_health_freeze_writer",
     "exec_health_freeze_audit",
@@ -64,7 +63,7 @@ GO_GATEWAY_USER = "go_gateway"
 #   nopass          — allow without password (dangerous; used only for off users)
 #   allkeys         — unrestricted key access (bootstrap only, for Function LOAD)
 
-EXPECTED_ACL_PROFILES: Dict[str, List[str]] = {
+EXPECTED_ACL_PROFILES: dict[str, list[str]] = {
     # default must be disabled — no password auth via default user allowed
     "default": [
         "reset", "off", "nopass", "nocommands",
@@ -186,14 +185,14 @@ EXPECTED_ACL_PROFILES: Dict[str, List[str]] = {
 
 # ─── Rendering ───────────────────────────────────────────────────────────────
 
-def render_setuser(user: str, rules: List[str]) -> str:
+def render_setuser(user: str, rules: list[str]) -> str:
     """Return the full `ACL SETUSER <user> <rules...>` command string."""
     return "ACL SETUSER " + user + " " + " ".join(rules)
 
 
-def render_all_setuser_commands() -> List[str]:
+def render_all_setuser_commands() -> list[str]:
     """Return one ACL SETUSER command per expected user, in rollout order."""
-    out: List[str] = []
+    out: list[str] = []
     for user in EXPECTED_USERS:
         rules = EXPECTED_ACL_PROFILES.get(user, [])
         if rules:
@@ -213,7 +212,7 @@ def render_all_setuser_commands() -> List[str]:
 _ACL_LIST_RE = re.compile(r'^user\s+(\S+)\s+(.*)')
 
 
-def normalise_acl_line(line: str) -> Tuple[str, List[str]]:
+def normalise_acl_line(line: str) -> tuple[str, list[str]]:
     """Parse an ACL LIST line into (username, sorted_token_list).
 
     Returns ('', []) if the line does not match the expected format.
@@ -226,12 +225,12 @@ def normalise_acl_line(line: str) -> Tuple[str, List[str]]:
     return (user, tokens)
 
 
-def normalise_setuser_rules(rules: List[str]) -> List[str]:
+def normalise_setuser_rules(rules: list[str]) -> list[str]:
     """Sort ACL SETUSER rule tokens for canonical comparison.
 
     Password tokens (>..., #...) are stripped — we never compare secrets.
     """
-    cleaned: List[str] = []
+    cleaned: list[str] = []
     for t in rules:
         t = t.strip()
         if not t:
@@ -242,7 +241,7 @@ def normalise_setuser_rules(rules: List[str]) -> List[str]:
     return sorted(cleaned)
 
 
-def compare_acl(actual_list_line: str, expected_rules: List[str]) -> bool:
+def compare_acl(actual_list_line: str, expected_rules: list[str]) -> bool:
     """Return True if actual ACL LIST line matches expected rules (ignoring passwords).
 
     Both sides are normalised and sorted before comparison.
@@ -265,7 +264,7 @@ def is_default_user_disabled(acl_list_output: str) -> bool:
 
 # ─── CLIENT LIST parsing ──────────────────────────────────────────────────────
 
-def parse_client_list(output: str) -> List[Dict[str, str]]:
+def parse_client_list(output: str) -> list[dict[str, str]]:
     """Parse Redis CLIENT LIST output into a list of field dicts.
 
     Redis CLIENT LIST format (one client per line):
@@ -273,12 +272,12 @@ def parse_client_list(output: str) -> List[Dict[str, str]]:
 
     Returns list of dicts with all key=value pairs.
     """
-    clients: List[Dict[str, str]] = []
+    clients: list[dict[str, str]] = []
     for raw_line in output.splitlines():
         line = raw_line.strip()
         if not line:
             continue
-        rec: Dict[str, str] = {}
+        rec: dict[str, str] = {}
         for part in line.split():
             if "=" in part:
                 k, _, v = part.partition("=")
@@ -288,16 +287,16 @@ def parse_client_list(output: str) -> List[Dict[str, str]]:
     return clients
 
 
-def count_connections_by_user(client_list_output: str) -> Dict[str, int]:
+def count_connections_by_user(client_list_output: str) -> dict[str, int]:
     """Return {username: connection_count} from CLIENT LIST output."""
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for client in parse_client_list(client_list_output):
         user = client.get("user", "unknown")
         counts[user] = counts.get(user, 0) + 1
     return counts
 
 
-def unknown_user_connections(client_list_output: str) -> Dict[str, int]:
+def unknown_user_connections(client_list_output: str) -> dict[str, int]:
     """Return connections under users not in EXPECTED_USERS set."""
     known = set(EXPECTED_USERS)
     counts = count_connections_by_user(client_list_output)

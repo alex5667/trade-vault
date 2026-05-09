@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import json
+from pathlib import Path
 
 
 def test_exec_health_freeze_acl_dashboard_json_title_and_queries() -> None:

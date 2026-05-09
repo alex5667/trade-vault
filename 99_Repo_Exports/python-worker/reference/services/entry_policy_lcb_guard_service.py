@@ -1,17 +1,17 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import math
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
-import redis.asyncio as aioredis # type: ignore
+import redis.asyncio as aioredis  # type: ignore
+
 from common.log import setup_logger
 from core.entry_policy_freeze import EntryPolicyFreezeV1
+from utils.time_utils import get_ny_time_millis
 
 log = setup_logger("EntryPolicyLcbGuard")
 
@@ -53,7 +53,7 @@ class EntryPolicyLcbGuardService:
         self.cfg = LcbConfig.from_env()
         self.stats_prefix = "lcb:stats:v1"
 
-    async def _update_stats(self, key: str, r_mult: float) -> Tuple[int, float, float]:
+    async def _update_stats(self, key: str, r_mult: float) -> tuple[int, float, float]:
         """
         Welford's algorithm for online variance.
         returns (n, mean, std)
@@ -86,23 +86,23 @@ class EntryPolicyLcbGuardService:
 
         return n, mean, std
 
-    async def _process_event(self, event_type: str, payload: Dict[str, Any]) -> None:
+    async def _process_event(self, event_type: str, payload: dict[str, Any]) -> None:
         if event_type != "POSITION_CLOSED":
             return
 
         # Core fields for LCB segmentation
-        sym = str(payload.get("symbol", "")).upper()
-        sid = str(payload.get("sid", ""))
-        ab_arm = str(payload.get("ab_arm", "A")).upper()
-        ab_group = str(payload.get("ab_group", "default")).lower()
-        scenario = str(payload.get("scenario", "na")).lower()
-        regime = str(payload.get("regime", "na")).lower()
+        sym = (payload.get("symbol", "")).upper()
+        sid = (payload.get("sid", ""))
+        ab_arm = (payload.get("ab_arm", "A")).upper()
+        ab_group = (payload.get("ab_group", "default")).lower()
+        scenario = (payload.get("scenario", "na")).lower()
+        regime = (payload.get("regime", "na")).lower()
         arm_ver = int(payload.get("arm_ver", 0))
-        
+
         # Performance data
         r_mult = float(payload.get("r_mult", 0.0))
         pnl_net = float(payload.get("pnl", 0.0))
-        
+
         # We only use Arm A to unfreeze, as it's the only one executing during shadow freeze.
         if ab_arm != "A":
             return
@@ -113,14 +113,14 @@ class EntryPolicyLcbGuardService:
         # 1) Update stats for this specific slice
         stats_key = f"{sym}:{regime}:{ab_group}:{scenario}:{ab_arm}:{arm_ver}"
         n, mean, std = await self._update_stats(stats_key, r_mult)
-        
+
         # 2) Calculate LCB
         lcb = -10.0 # safe fallback
         if n >= self.cfg.min_samples:
             # LCB = mean - Z * (std / sqrt(n))
             sem = std / math.sqrt(n)
             lcb = mean - (self.cfg.z_score * sem)
-        
+
         log.info(f"📊 [{sym}:{scenario}] R={r_mult:.2f} | N={n} Mean={mean:.2f} Std={std:.2f} LCB={lcb:.3f}")
 
         # 3) Check for active freeze
@@ -149,7 +149,7 @@ class EntryPolicyLcbGuardService:
         # 4) Update streak
         is_good = (lcb >= self.cfg.lcb_threshold)
         streak = int(await self.r.hget(f"{self.stats_prefix}:{stats_key}", "streak") or 0)
-        
+
         if is_good:
             streak += 1
             await self.r.hset(f"{self.stats_prefix}:{stats_key}", "streak", streak)
@@ -164,7 +164,7 @@ class EntryPolicyLcbGuardService:
             await self.r.delete(freeze_key)
             # Reset streak after unfreeze
             await self.r.hset(f"{self.stats_prefix}:{stats_key}", "streak", 0)
-            
+
             # Emit audit event for unfreeze?
             audit_payload = {
                 "ts_ms": now,
@@ -182,7 +182,7 @@ class EntryPolicyLcbGuardService:
 
     async def run_forever(self) -> None:
         log.info(f"🚀 LCB Guard Service starting | in={self.cfg.in_stream} group={self.cfg.group}")
-        
+
     async def _ensure_group(self) -> None:
         while True:
             try:
@@ -200,7 +200,7 @@ class EntryPolicyLcbGuardService:
 
     async def run_forever(self) -> None:
         log.info(f"🚀 LCB Guard Service starting | in={self.cfg.in_stream} group={self.cfg.group}")
-        
+
         # Ensure group exists at startup
         await self._ensure_group()
 
@@ -217,7 +217,7 @@ class EntryPolicyLcbGuardService:
                             # Stream contains flattened fields if expanded by TradeEventsLogger
                             # or it might have a 'payload' field if it's a different event.
                             event_type = fields.get("event_type")
-                            
+
                             # Reconstruct payload if JSON strings detected
                             payload = {}
                             for k, v in fields.items():
@@ -228,7 +228,7 @@ class EntryPolicyLcbGuardService:
                                         payload[k] = v
                                 except Exception:
                                     payload[k] = v
-                            
+
                             await self._process_event(event_type, payload)
                         except Exception as e:
                             log.error(f"Error processing message {msg_id}: {e}")
@@ -238,7 +238,7 @@ class EntryPolicyLcbGuardService:
             except Exception as e:
                 err_str = str(e)
                 if "NOGROUP" in err_str:
-                    log.warning(f"Consumer group missing (stream key likely expired). Re-creating...")
+                    log.warning("Consumer group missing (stream key likely expired). Re-creating...")
                     await self._ensure_group()
                 else:
                     log.error(f"Stream error: {e}")

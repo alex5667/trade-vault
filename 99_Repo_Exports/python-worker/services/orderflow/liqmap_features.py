@@ -1,24 +1,24 @@
-# -*- coding: utf-8 -*-
 """services/orderflow/liqmap_features.py
 
 Модуль извлечения фичей из снапшота (liquidation heatmap).
 Считает анкоры для TP1/SL (в bps) на основе пиков ликвидаций.
 """
 
-import orjson
-import logging
 import bisect
-from typing import Optional, Dict, Any, Tuple
+import logging
+from typing import Any
+
+import orjson
 
 logger = logging.getLogger(__name__)
 
-def try_parse_liqmap_snapshot_json(raw: Optional[bytes | str]) -> Optional[Dict]:
+def try_parse_liqmap_snapshot_json(raw: bytes | str | None) -> dict | None:
     """Parse JSON payload securely."""
     if not raw:
         return None
     try:
         obj = orjson.loads(raw)
-        
+
         # Pre-process levels to numbers to save time on every tick
         levels = obj.get("levels", [])
         num_levels = []
@@ -34,9 +34,9 @@ def try_parse_liqmap_snapshot_json(raw: Optional[bytes | str]) -> Optional[Dict]
                 tot_s += s_usd
             except (ValueError, TypeError):
                 continue
-        
+
         num_levels.sort(key=lambda x: x[0])
-        
+
         obj["_num_levels"] = num_levels
         obj["_tot_long_usd"] = tot_l
         obj["_tot_short_usd"] = tot_s
@@ -46,14 +46,14 @@ def try_parse_liqmap_snapshot_json(raw: Optional[bytes | str]) -> Optional[Dict]
         return None
 
 def compute_liqmap_features_from_snapshot(
-    payload: Dict,
+    payload: dict,
     mid_px: float,
     now_ms: int,
     max_stale_ms: int,
     peak_range_bps: float,
     front_run_bps: float,
     sl_buffer_bps: float,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Извлекает пики ликвидаций (long/short USD) и возвращает словарь метрик.
 
@@ -141,7 +141,7 @@ def compute_liqmap_features_from_snapshot(
         # TP до пика шортов (забираем ликвидность до них)
         dist_bps = ((best_short_liq_px - mid_px) / mid_px) * 10000.0
         feats["tp1_anchor_bps_long"] = max(0.0, dist_bps - front_run_bps)
-    
+
     if best_long_liq_px > 0 and best_long_liq_px < mid_px:
         # SL ставим за скоплением лонгистов, которых будут ликвидировать вниз
         dist_bps = ((mid_px - best_long_liq_px) / mid_px) * 10000.0
@@ -167,20 +167,20 @@ def apply_liqmap_tp_sl_adjustment(
     # Backward-compatible parameter aliases:
     #   - old callers: direction + entry_price
     #   - new callers/tests: side + entry
-    direction: Optional[str] = None,
-    entry_price: Optional[float] = None,
-    side: Optional[str] = None,
-    entry: Optional[float] = None,
+    direction: str | None = None,
+    entry_price: float | None = None,
+    side: str | None = None,
+    entry: float | None = None,
     base_sl: float,
     base_tp1: float,
-    indicators: Dict[str, Any],  # already contains liqmap_{w}_* keys from injection
+    indicators: dict[str, Any],  # already contains liqmap_{w}_* keys from injection
     window: str = "1h",
     min_usd: float = 250_000.0,
     buffer_bps: float = 5.0,
     max_sl_widen_bps: float = 25.0,
     enable_tp1: bool = True,
     enable_sl: bool = True,
-) -> Tuple[float, float, Dict[str, Any]]:
+) -> tuple[float, float, dict[str, Any]]:
     """Apply liquidation-map TP1/SL overlay (safe v1).
 
     Deterministic, side-effect-minimal helper for _calculate_levels().
@@ -224,10 +224,10 @@ def apply_liqmap_tp_sl_adjustment(
             v = float(x)
             # avoid NaN/inf silently contaminating levels
             if v != v or v == float("inf") or v == float("-inf"):
-                return float(default)
+                return default
             return v
         except Exception:
-            return float(default)
+            return default
 
     def _norm_side(s: str) -> str:
         ss = (s or "").strip().upper()
@@ -259,7 +259,7 @@ def apply_liqmap_tp_sl_adjustment(
     base_tp1_px = _f(base_tp1, 0.0)
     s_side = _norm_side(side)
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "liqmap_levels_applied": 0.0,
         "liqmap_tp1_adj_bps": 0.0,
         "liqmap_sl_adj_bps": 0.0,
@@ -282,7 +282,7 @@ def apply_liqmap_tp_sl_adjustment(
     max_widen = max(0.0, float(max_sl_widen_bps))
 
     # Helper: fetch peak meta; derive price from dist if not provided.
-    def _get_peak(direction: str) -> Tuple[float, float, float]:
+    def _get_peak(direction: str) -> tuple[float, float, float]:
         # price, usd, dist_bps
         dir_up = direction == "up"
         # explicit keys (preferred if present)

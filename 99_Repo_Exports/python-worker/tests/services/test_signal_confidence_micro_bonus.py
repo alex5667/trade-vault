@@ -1,5 +1,6 @@
 from types import SimpleNamespace
-from services.signal_confidence import ConfidenceScorer, ConfidenceConfig
+
+from services.signal_confidence import ConfidenceConfig, ConfidenceScorer
 
 
 def _mk_ctx(confirmations):

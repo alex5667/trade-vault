@@ -9,7 +9,7 @@ def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -33,7 +33,7 @@ class EvGateConfig:
     log_veto: bool
 
     @classmethod
-    def from_env(cls) -> "EvGateConfig":
+    def from_env(cls) -> EvGateConfig:
         return cls(
             enabled=_env_bool("EV_GATE_ENABLED", False),
             p_min=max(0.0, min(1.0, _env_float("EV_GATE_P_MIN", 0.55))),

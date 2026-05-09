@@ -8,6 +8,7 @@ Tests for spread_bps reliability fixes:
            during the first SPREAD_MISSING_COLD_START_MS after worker restart.
 """
 import types
+
 import pytest
 
 SENTINEL_NEVER_SEEN = int(10**9)   # book_ts_gap sentinel when no book arrived yet
@@ -93,11 +94,11 @@ def _resolve_spread_strategy(indicators: dict, runtime, cfg2: dict, tick_ts: int
         if not _in_cold_start:
             dh = float(indicators.get("data_health", 1.0) or 1.0)
             indicators["data_health"] = min(dh, float(cfg2.get("data_health_on_spread_missing", DATA_HEALTH_ON_SPREAD_MISSING)))
-            r_str = str(indicators.get("data_health_reasons", ""))
+            r_str = (indicators.get("data_health_reasons", ""))
             indicators["data_health_reasons"] = (r_str + ",spread_missing") if r_str else "spread_missing"
             indicators["book_health_ok"] = 0
         else:
-            r_str = str(indicators.get("data_health_reasons", ""))
+            r_str = (indicators.get("data_health_reasons", ""))
             indicators["data_health_reasons"] = (r_str + ",spread_cold_start") if r_str else "spread_cold_start"
             indicators["spread_bps_cold_start"] = 1
 

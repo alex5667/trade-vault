@@ -13,6 +13,7 @@ Regression pack — RANGE_TP_RR пересчёт TP (2026-04-18 wave).
   - indicators["range_tp_rr_applied"] устанавливается
 """
 import os
+
 import pytest
 
 

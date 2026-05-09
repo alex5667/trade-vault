@@ -1,15 +1,17 @@
-from core.meta_schema_registry import META_SCHEMA_REGISTRY, get_schema_info
-from core.meta_features_v1 import META_FEAT_V1_NAME, META_FEAT_V1_COLS
-from core.meta_features_v3 import META_FEAT_V3_NAME, META_FEAT_V3_COLS
 import pytest
+
+from core.meta_features_v1 import META_FEAT_V1_COLS, META_FEAT_V1_NAME
+from core.meta_features_v3 import META_FEAT_V3_COLS, META_FEAT_V3_NAME
+from core.meta_schema_registry import META_SCHEMA_REGISTRY, get_schema_info
+
 
 def test_registry_contains_known_schemas():
     assert META_FEAT_V1_NAME in META_SCHEMA_REGISTRY
     assert META_FEAT_V3_NAME in META_SCHEMA_REGISTRY
-    
+
     v1_info = META_SCHEMA_REGISTRY[META_FEAT_V1_NAME]
     assert v1_info[1] == META_FEAT_V1_COLS
-    
+
     v3_info = META_SCHEMA_REGISTRY[META_FEAT_V3_NAME]
     assert v3_info[1] == META_FEAT_V3_COLS
 

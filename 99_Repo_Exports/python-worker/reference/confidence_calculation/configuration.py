@@ -1,9 +1,10 @@
 
-from typing import Any, Dict, List
-import os
 import json
 import logging
+import os
 from copy import deepcopy
+from typing import Any
+
 from redis.exceptions import RedisError
 
 from core.instrument_config import OrderFlowConfig, get_config
@@ -34,7 +35,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
     except (TypeError, ValueError):
         return default
 
-def _ensure_list_levels(raw: Any) -> List[List[float]]:
+def _ensure_list_levels(raw: Any) -> list[list[float]]:
     """
     Приводит уровни книги к формату [[price, qty], ...].
     """
@@ -46,7 +47,7 @@ def _ensure_list_levels(raw: Any) -> List[List[float]]:
     if not isinstance(raw, list):
         return []
 
-    result: List[List[float]] = []
+    result: list[list[float]] = []
     for item in raw:
         if isinstance(item, (list, tuple)) and len(item) >= 2:
             price = _safe_float(item[0])
@@ -54,7 +55,7 @@ def _ensure_list_levels(raw: Any) -> List[List[float]]:
             result.append([price, qty])
     return result
 
-DEFAULT_SYMBOLS: List[str] = [
+DEFAULT_SYMBOLS: list[str] = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
     "PEPEUSDT", "DOGEUSDT", "SHIBUSDT", "FLOKIUSDT", "BONKUSDT",
     "WIFUSDT", "SUIUSDT", "APTUSDT", "ARBUSDT", "XAUUSDT"
@@ -67,7 +68,7 @@ if env_symbols:
         if s not in DEFAULT_SYMBOLS:
             DEFAULT_SYMBOLS.append(s)
 
-DEFAULT_CONFIG: Dict[str, Any] = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "delta_window": 120,
     # "delta_z_threshold" purposely omitted to allow fallback to SymbolSpecs
     "delta_abs_min": 0.75,
@@ -121,7 +122,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "strong_gate_shadow": _to_bool(os.getenv("CRYPTO_OF_STRONG_GATE_SHADOW", "false")),
 
     # P61: MLConfirmGate rollout control (shadow/canary/full)
-    "ml_confirm_rollout": str(os.getenv("ML_CONFIRM_ROLLOUT_MODE", "shadow")).lower(),
+    "ml_confirm_rollout": os.getenv("ML_CONFIRM_ROLLOUT_MODE", "shadow").lower(),
     "ml_confirm_canary_rate": float(os.getenv("ML_CONFIRM_CANARY_RATE", "0.05")),
     "ml_deny_allow_rule_strong": _to_bool(os.getenv("ML_DENY_ALLOW_RULE_STRONG", "true")),
     "ml_abstain_allow_rule_strong": _to_bool(os.getenv("ML_ABSTAIN_ALLOW_RULE_STRONG", "true")),
@@ -209,12 +210,12 @@ class OrderFlowConfigLoader:
     def __init__(self, redis_client):
         self.redis = redis_client
 
-    async def build_symbol_config(self, symbol: str) -> Dict[str, Any]:
+    async def build_symbol_config(self, symbol: str) -> dict[str, Any]:
         """
         Берёт базовый OrderFlowConfig и применяет overrides из Redis.
         """
         base_cfg: OrderFlowConfig = get_config(symbol)
-        cfg: Dict[str, Any] = deepcopy(DEFAULT_CONFIG)
+        cfg: dict[str, Any] = deepcopy(DEFAULT_CONFIG)
         cfg.update(
             {
                 "delta_window": base_cfg.delta_window_ticks,
@@ -291,7 +292,7 @@ class OrderFlowConfigLoader:
         self._apply_overrides(cfg, overrides)
         return cfg
 
-    def _apply_overrides(self, cfg: Dict[str, Any], overrides: Dict[str, Any]) -> None:
+    def _apply_overrides(self, cfg: dict[str, Any], overrides: dict[str, Any]) -> None:
         """
         Применяет overrides из Redis hash, если они присутствуют.
         """

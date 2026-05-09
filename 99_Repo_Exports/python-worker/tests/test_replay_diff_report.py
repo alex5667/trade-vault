@@ -1,5 +1,5 @@
-import pytest
 from tools.replay_diff_report import compare, row_key
+
 
 def test_row_key_sid():
     assert row_key({"sid": "123", "symbol": "BTC"}) == "123"
@@ -26,6 +26,6 @@ def test_diff_score_eps():
     cand = [{"sid": "1", "score": 0.5000001}]
     rep = compare(base_rows=base, cand_rows=cand, score_eps=1e-5)
     assert rep["mismatch"] == 0
-    
+
     rep2 = compare(base_rows=base, cand_rows=cand, score_eps=1e-8)
     assert rep2["mismatch"] == 1

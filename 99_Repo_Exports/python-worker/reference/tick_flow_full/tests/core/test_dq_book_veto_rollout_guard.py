@@ -7,7 +7,6 @@ Tests five scenarios:
 4. book bucket, dq_book_veto_enabled=0 → False
 5. book bucket, warmup elapsed vs not elapsed
 """
-import os
 import sys
 from pathlib import Path
 

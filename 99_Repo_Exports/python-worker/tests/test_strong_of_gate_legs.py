@@ -1,5 +1,4 @@
-import pytest
-from core.strong_of_gate import eval_reversal, eval_continuation
+from core.strong_of_gate import eval_continuation, eval_reversal
 
 # --- REVERSAL TESTS ---
 

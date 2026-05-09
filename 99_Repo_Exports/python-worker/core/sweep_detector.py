@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
-import math
+from typing import Any
 
-from core.microbar import MicroBar
 from core.eq_pools import EQPool
+from core.microbar import MicroBar
 
 
 @dataclass
@@ -67,10 +66,10 @@ class SweepDetector:
         self.cooldown_ms = int(cooldown_ms)
         self.valid_ms = int(valid_ms)
 
-        self._pending: Dict[str, _Pending] = {}
-        self._last_emit_ts: Dict[str, int] = {}
+        self._pending: dict[str, _Pending] = {}
+        self._last_emit_ts: dict[str, int] = {}
 
-    def apply_config(self, cfg: Dict[str, Any]) -> None:
+    def apply_config(self, cfg: dict[str, Any]) -> None:
         try:
             self.confirm_bars = int(cfg.get("sweep_confirm_bars", self.confirm_bars))
             if self.confirm_bars < 1:
@@ -99,18 +98,18 @@ class SweepDetector:
     def _mark_emit(self, pool_id: str, now_ts_ms: int) -> None:
         self._last_emit_ts[pool_id] = now_ts_ms
 
-    def update_bar(self, bar: MicroBar, pools: List[EQPool]) -> List[SweepEvent]:
+    def update_bar(self, bar: MicroBar, pools: list[EQPool]) -> list[SweepEvent]:
         """
         Вызывается на каждом bar_close.
         Возвращает 0..k sweep событий.
         """
-        out: List[SweepEvent] = []
+        out: list[SweepEvent] = []
         now_ts = int(bar.end_ts_ms)
         tf_ms = int(bar.tf_ms) if getattr(bar, "tf_ms", 0) else 1000
         expire_add = self.confirm_bars * tf_ms
 
         # 1) Сначала проверяем существующие pending
-        to_drop: List[str] = []
+        to_drop: list[str] = []
         confirmed_this_bar: set[str] = set()
         for pid, pend in self._pending.items():
             if now_ts > pend.expire_ts_ms:

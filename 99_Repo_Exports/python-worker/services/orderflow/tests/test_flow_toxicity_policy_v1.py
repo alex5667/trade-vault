@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Unit tests for FlowToxicity policy decisions (Phase D / P3)."""
 
 

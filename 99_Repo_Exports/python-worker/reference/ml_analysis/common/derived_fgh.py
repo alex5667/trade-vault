@@ -2,21 +2,22 @@ from __future__ import annotations
 
 import bisect
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 
 def _f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
-def _pick(ind: Dict[str, Any], keys: Sequence[str]) -> Tuple[Optional[str], float]:
+def _pick(ind: dict[str, Any], keys: Sequence[str]) -> tuple[str | None, float]:
     for k in keys:
         if k in ind:
             v = _f(ind.get(k), float("nan"))
@@ -34,7 +35,7 @@ class DerivedFGHStats:
     n_replen_ok: int = 0
     n_vel_ok: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "n_rows": int(self.n_rows),
             "n_rel_ok": int(self.n_rel_ok),
@@ -46,14 +47,14 @@ class DerivedFGHStats:
 
 
 def derive_fgh_rows(
-    rows: List[Dict[str, Any]],
+    rows: list[dict[str, Any]],
     *,
     leader_symbol: str = "BTCUSDT",
     leader_max_lag_ms: int = 2000,
     eps: float = 1e-9,
     vel_z_alpha: float = 0.06,
     store_debug_flags: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Derive ROI-dense offline-only features F/G/H.
 
     This is runtime-agnostic: it mutates dataset rows produced by offline builders
@@ -86,9 +87,9 @@ def derive_fgh_rows(
     if not rows:
         return {"ok": True, "stats": stats.to_dict()}
 
-    leader = str(leader_symbol or "BTCUSDT").upper()
-    leader_ts: List[int] = []
-    leader_ind: List[Dict[str, Any]] = []
+    leader = (leader_symbol or "BTCUSDT").upper()
+    leader_ts: list[int] = []
+    leader_ind: list[dict[str, Any]] = []
 
     # Normalize indicators to dict and collect leader index.
     for r in rows:
@@ -125,7 +126,7 @@ def derive_fgh_rows(
     # -----------------------------
     # H) per-symbol velocities
     # -----------------------------
-    by_sym: Dict[str, List[Tuple[int, Dict[str, Any]]]] = {}
+    by_sym: dict[str, list[tuple[int, dict[str, Any]]]] = {}
     for r in rows:
         ind = r.get("indicators") if isinstance(r.get("indicators"), dict) else {}
         sym = str(r.get("symbol") or ind.get("symbol") or "").upper()
@@ -138,9 +139,9 @@ def derive_fgh_rows(
 
     for _, seq in by_sym.items():
         seq.sort(key=lambda x: int(x[0]))
-        prev_ts: Optional[int] = None
-        prev_ofi_wsum: Optional[float] = None
-        prev_micro_shift: Optional[float] = None
+        prev_ts: int | None = None
+        prev_ofi_wsum: float | None = None
+        prev_micro_shift: float | None = None
 
         m_ofi = 0.0
         d_ofi = 0.0
@@ -149,8 +150,8 @@ def derive_fgh_rows(
         a = max(0.001, min(0.5, float(vel_z_alpha)))
 
         for ts_ms, ind in seq:
-            _, cur_ofi_wsum = _pick(ind, ["ofi_ml_wsum", "ofi_wsum", "ofi"]) 
-            _, cur_micro_shift = _pick(ind, ["lob_micro_shift_bps", "mp_shift_bps", "mp_shift", "mp_shift_bps"]) 
+            _, cur_ofi_wsum = _pick(ind, ["ofi_ml_wsum", "ofi_wsum", "ofi"])
+            _, cur_micro_shift = _pick(ind, ["lob_micro_shift_bps", "mp_shift_bps", "mp_shift", "mp_shift_bps"])
 
             if prev_ts is not None:
                 dt_ms = int(ts_ms) - int(prev_ts)
@@ -200,13 +201,13 @@ def derive_fgh_rows(
                 continue
 
             j = bisect.bisect_left(leader_ts, ts_ms)
-            cand: List[int] = []
+            cand: list[int] = []
             if 0 <= j < len(leader_ts):
                 cand.append(j)
             if j - 1 >= 0:
                 cand.append(j - 1)
-            best_i: Optional[int] = None
-            best_lag: Optional[int] = None
+            best_i: int | None = None
+            best_lag: int | None = None
             for i in cand:
                 lag = abs(int(leader_ts[i]) - int(ts_ms))
                 if best_lag is None or lag < best_lag:

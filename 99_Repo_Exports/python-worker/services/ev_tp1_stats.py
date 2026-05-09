@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -41,7 +42,7 @@ class EvTp1StatsConfig:
     ttl_sec: int = int(os.getenv("EV_TP1_STATS_TTL_SEC", str(60 * 60 * 24 * 30)) or (60 * 60 * 24 * 30))
 
     @classmethod
-    def from_env(cls) -> "EvTp1StatsConfig":
+    def from_env(cls) -> EvTp1StatsConfig:
         return cls(
             enabled=_env_bool("EV_TP1_STATS_ENABLED", True),
             alpha=float(os.getenv("EV_TP1_EMA_ALPHA", "0.05") or 0.05),
@@ -101,8 +102,8 @@ def update_tp1_hit_ema(
     tf: str,
     regime: str,
     tp1_hit: int,
-    now_ms: Optional[int] = None,
-) -> Tuple[int, float]:
+    now_ms: int | None = None,
+) -> tuple[int, float]:
     """
     Update TP1 hit-rate stats.
 
@@ -119,7 +120,7 @@ def update_tp1_hit_ema(
     now = int(now_ms or get_ny_time_millis())
     hit = 1 if int(tp1_hit) == 1 else 0
     alpha = _clamp(cfg.alpha, 0.0, 1.0)
-    k = _key(str(kind), str(symbol), str(tf), str(regime))
+    k = _key(str(kind), symbol, tf, str(regime))
 
     # Prefer Lua if available
     try:
@@ -146,10 +147,8 @@ def update_tp1_hit_ema(
         ema = float(hit) if total <= 1 else (prev + alpha * (float(hit) - prev))
         redis_client.hset(k, mapping={"ema_tp1": str(ema), "last_ts_ms": str(now)})
         if int(cfg.ttl_sec or 0) > 0:
-            try:
+            with contextlib.suppress(Exception):
                 redis_client.expire(k, int(cfg.ttl_sec))
-            except Exception:
-                pass
         return (total, float(ema))
     except Exception:
         return (0, 0.0)
@@ -163,7 +162,7 @@ def get_tp1_hit_prob(
     tf: str,
     regime: str,
     cfg: EvTp1StatsConfig,
-) -> Optional[float]:
+) -> float | None:
     """
     Retrieve TP1 hit probability from Redis.
     
@@ -172,9 +171,9 @@ def get_tp1_hit_prob(
     """
     if not cfg.enabled or redis_client is None:
         return None
-    
-    k = _key(str(kind), str(symbol), str(tf), str(regime))
-    
+
+    k = _key(str(kind), symbol, tf, str(regime))
+
     try:
         ema_raw = redis_client.hget(k, "ema_tp1")
         if ema_raw is None:
@@ -228,10 +227,8 @@ def attach_tp1_hit_prob_to_ctx(
         cfg=cfg,
     )
     if p_hit is not None:
-        try:
-            setattr(ctx, "p_hit_tp1", float(p_hit))
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            ctx.p_hit_tp1 = float(p_hit)
 
 
 class RedisEvTp1StatsProvider:
@@ -243,23 +240,23 @@ class RedisEvTp1StatsProvider:
         rg = regime if getattr(self.cfg, "use_regime_dim", True) else "na"
         return _key(kind, symbol, tf, rg)
 
-    def get_p_hit_tp1(self, kind: str, symbol: str, tf: str, regime: str) -> Optional[float]:
+    def get_p_hit_tp1(self, kind: str, symbol: str, tf: str, regime: str) -> float | None:
         try:
             k = self.key(kind, symbol, tf, regime)
             data = self.redis.hgetall(k)
             if not data:
                 return None
-            
+
             # handle possible dict vs bytes-dict
             def _get(f):
                 v = data.get(f) or data.get(f.encode())
                 if v is not None and isinstance(v, bytes): return v.decode()
                 return v
-            
+
             total = int(_get("total_trades") or 0)
             if total < getattr(self.cfg, "min_n", 0):
                 return None
-            
+
             ema = _get("ema_tp1")
             return float(ema) if ema is not None else None
         except Exception:

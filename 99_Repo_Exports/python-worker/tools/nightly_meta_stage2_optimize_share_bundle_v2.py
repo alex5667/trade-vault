@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 """
 nightly_meta_stage2_optimize_share_bundle_v2.py
 
@@ -39,21 +42,20 @@ Usage:
   (reads ENV vars from /etc/trade/of_reports.env or environment)
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import hashlib
+import hmac
 import json
 import os
 import secrets
 import subprocess
 import sys
 import time
-import hmac
-import hashlib
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("NightlyMetaStage2OptimizeShareV2")
 
@@ -74,7 +76,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -82,10 +84,10 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
-def _event_ts_ms(r: Dict[str, Any]) -> int:
+def _event_ts_ms(r: dict[str, Any]) -> int:
     """Extracts event timestamp in milliseconds from trade record."""
     for k in ("exit_ts_ms", "ts_ms", "ts", "event_ts_ms"):
         if k in r:
@@ -101,7 +103,7 @@ def _event_ts_ms(r: Dict[str, Any]) -> int:
     return 0
 
 
-def regime_bucket(t: Dict[str, Any]) -> str:
+def regime_bucket(t: dict[str, Any]) -> str:
     """Maps trade record to regime bucket (trend/range/news/thin/other)."""
     g = str(t.get("regime_group", "") or t.get("regime", "") or t.get("scenario_v4", "") or "")
     s = g.lower()
@@ -124,7 +126,7 @@ def _hash01(s: str) -> float:
     return (x % 10_000_000) / 10_000_000.0
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Computes percentile q (0.0-1.0) from sorted list."""
     if not xs:
         return 0.0
@@ -134,7 +136,7 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def stats(rs: List[float]) -> Dict[str, float]:
+def stats(rs: list[float]) -> dict[str, float]:
     """Computes basic statistics for returns list."""
     n = len(rs)
     if n == 0:
@@ -153,7 +155,7 @@ def stats(rs: List[float]) -> Dict[str, float]:
     }
 
 
-def simulate_share(rows: List[Dict[str, Any]], *, share: float, salt: str) -> Dict[str, Any]:
+def simulate_share(rows: list[dict[str, Any]], *, share: float, salt: str) -> dict[str, Any]:
     """
     Counterfactual sim:
       apply_enforce = hash(salt:key) < share
@@ -168,11 +170,11 @@ def simulate_share(rows: List[Dict[str, Any]], *, share: float, salt: str) -> Di
     used = 0
 
     for r in rows:
-        key = str(r.get("meta_enforce_key", "") or "")
+        key = (r.get(MetaKeys.ENFORCE_KEY, "") or "")
         if not key:
             continue
         used += 1
-        veto = int(r.get("meta_veto", 0) or 0)
+        veto = int(r.get(MetaKeys.VETO, 0) or 0)
         apply_enf = 1 if (_hash01(f"{salt}:{key}") < share) else 0
         if apply_enf == 1 and veto == 1:
             blocked += 1
@@ -194,9 +196,9 @@ def simulate_share(rows: List[Dict[str, Any]], *, share: float, salt: str) -> Di
 
 
 def pick_best_share_multiobjective(
-    rows: List[Dict[str, Any]],
+    rows: list[dict[str, Any]],
     *,
-    grid: List[float],
+    grid: list[float],
     salt: str,
     cur_share: float,
     max_up_step: float,
@@ -208,7 +210,7 @@ def pick_best_share_multiobjective(
     lam_p05: float,
     lam_turn: float,
     lam_step: float,
-) -> Tuple[float, Dict[str, Any]]:
+) -> tuple[float, dict[str, Any]]:
     """
     Constraints:
       share in [cur_share-max_down_step, cur_share+max_up_step]
@@ -281,12 +283,12 @@ def pick_best_share_multiobjective(
     return best_s, best_rep
 
 
-def notify(r: redis.Redis, text: str, buttons: List[List[Dict[str, str]]] | None = None) -> None:
+def notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Sends notification to Telegram stream."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
 def main() -> None:
@@ -373,7 +375,7 @@ def main() -> None:
             sys.executable, "tools/export_trade_closed_ndjson.py",
             "--since-hours", str(opt_hours),
             "--out", trades_out,
-            "--stream", os.getenv("TRADE_EVENTS_STREAM", "events:trades"),
+            "--stream", os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES),
             "--redis-url", redis_url,
             "--max-scan", os.getenv("TRADES_MAX_SCAN", "500000"),
         ])
@@ -385,18 +387,18 @@ def main() -> None:
         return
 
     # Parse trades into compact rows; require meta_enforce_key + meta_veto
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     missing_key = 0
     missing_veto = 0
     total = 0
 
     try:
-        with open(trades_out, "r", encoding="utf-8") as f:
+        with open(trades_out, encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
                     continue
                 t = json.loads(line)
-                sym = str(t.get("symbol", "") or "").upper()
+                sym = (t.get("symbol", "") or "").upper()
                 ts_ms = _event_ts_ms(t)
                 if ts_ms <= 0:
                     continue
@@ -405,8 +407,8 @@ def main() -> None:
                     continue
                 total += 1
 
-                key = t.get("meta_enforce_key", None)
-                veto = t.get("meta_veto", None)
+                key = t.get(MetaKeys.ENFORCE_KEY, None)
+                veto = t.get(MetaKeys.VETO, None)
                 if key is None:
                     missing_key += 1
                 if veto is None:
@@ -418,7 +420,7 @@ def main() -> None:
                     "ts_ms": ts_ms,
                     "r_mult": _f(rm, 0.0),
                     "meta_enforce_key": "" if key is None else str(key),
-                    "meta_enforce_salt": str(t.get("meta_enforce_salt", "enf_v1") or "enf_v1"),
+                    "meta_enforce_salt": (t.get(MetaKeys.ENFORCE_SALT, "enf_v1") or "enf_v1"),
                     "meta_veto": 0 if veto is None else _i(veto, 0),
                 })
     except FileNotFoundError:
@@ -452,7 +454,7 @@ def main() -> None:
         # Salt: most common
         salt_counts = {}
         for x in cell_rows:
-            s = x.get("meta_enforce_salt", "enf_v1")
+            s = x.get(MetaKeys.ENFORCE_SALT, "enf_v1")
             salt_counts[s] = salt_counts.get(s, 0) + 1
         salt = max(salt_counts.items(), key=lambda kv: kv[1])[0] if salt_counts else "enf_v1"
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """
@@ -15,14 +16,14 @@ runtime_snapshot.py
 import os
 import time
 from dataclasses import dataclass
-from typing import Dict
+import contextlib
 
 
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 @dataclass(frozen=True)
@@ -32,38 +33,34 @@ class RuntimeSnapshot:
     # confidence gates
     min_conf_default: float
     min_conf_factor_default: float
-    min_conf_by_symbol: Dict[str, float]
-    min_conf_factor_by_symbol: Dict[str, float]
+    min_conf_by_symbol: dict[str, float]
+    min_conf_factor_by_symbol: dict[str, float]
 
     # trace sampling (optional, но удобно держать рядом)
     trace_log_sample_rate: float
 
     @staticmethod
-    def load() -> "RuntimeSnapshot":
+    def load() -> RuntimeSnapshot:
         now_ms = get_ny_time_millis()
 
         min_conf_default = _env_float("MIN_CONF_DEFAULT", 50.0)
         min_conf_factor_default = _env_float("MIN_CONF_FACTOR_DEFAULT", 0.45)
 
         # Собираем MIN_CONF_{SYM}, MIN_CONF_FACTOR_{SYM}
-        by_sym: Dict[str, float] = {}
-        by_sym_cf: Dict[str, float] = {}
+        by_sym: dict[str, float] = {}
+        by_sym_cf: dict[str, float] = {}
         try:
             for k, v in os.environ.items():
                 if not k:
                     continue
                 if k.startswith("MIN_CONF_") and k not in ("MIN_CONF_DEFAULT",):
                     sym = k[len("MIN_CONF_") :].strip().upper()
-                    try:
+                    with contextlib.suppress(Exception):
                         by_sym[sym] = float(v)
-                    except Exception:
-                        pass
                 if k.startswith("MIN_CONF_FACTOR_") and k not in ("MIN_CONF_FACTOR_DEFAULT",):
                     sym = k[len("MIN_CONF_FACTOR_") :].strip().upper()
-                    try:
+                    with contextlib.suppress(Exception):
                         by_sym_cf[sym] = float(v)
-                    except Exception:
-                        pass
         except Exception:
             pass
 
@@ -119,6 +116,6 @@ class RuntimeSnapshotCache:
     delegating to RuntimeRefresher or just loading once.
     """
     @staticmethod
-    def from_env() -> "RuntimeRefresher":
+    def from_env() -> RuntimeRefresher:
         # Testing expects an object that acts like it has a snapshot or refresher
         return RuntimeRefresher(refresh_every_s=999999)

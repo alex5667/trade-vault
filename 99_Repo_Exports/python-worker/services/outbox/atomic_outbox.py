@@ -19,13 +19,13 @@ P3 additions:
 import os
 
 try:
-    from .time_contract import utc_epoch_ms, monotonic_ms
+    from .time_contract import monotonic_ms, utc_epoch_ms
 except Exception:
-    from time_contract import utc_epoch_ms, monotonic_ms
+    from time_contract import monotonic_ms, utc_epoch_ms
 import json
-from typing import Any, Dict, Optional
-from core.redis_keys import RedisStreams as RS
+from typing import Any
 
+from core.redis_keys import RedisStreams as RS
 
 _LUA_ATOMIC_XADD = r"""
 -- KEYS[1] = dedup_key (signal_id)
@@ -135,8 +135,8 @@ return {1, entry_id}
 
 _CACHED_OUTBOX_DEDUP_PREFIX = os.getenv("OUTBOX_DEDUP_PREFIX", "outbox:dedup:")
 _CACHED_OUTBOX_META_PREFIX = os.getenv("OUTBOX_META_PREFIX", "signal:meta:")
-_CACHED_OUTBOX_EVENT_STREAM_ENABLE = str(os.getenv("OUTBOX_EVENT_STREAM_ENABLE", "1")).strip().lower() in {"1", "true", "yes", "on"}
-_CACHED_OUTBOX_EVENT_STREAM_KEY = str(os.getenv("OUTBOX_EVENT_STREAM_KEY", RS.ORDERS_EXEC)).strip()
+_CACHED_OUTBOX_EVENT_STREAM_ENABLE = os.getenv("OUTBOX_EVENT_STREAM_ENABLE", "1").strip().lower() in {"1", "true", "yes", "on"}
+_CACHED_OUTBOX_EVENT_STREAM_KEY = os.getenv("OUTBOX_EVENT_STREAM_KEY", RS.ORDERS_EXEC).strip()
 
 _CACHED_HOST = os.getenv("HOSTNAME") or os.getenv("COMPUTERNAME") or "unknown-host"
 _CACHED_PRODUCER_ID = str(os.getenv("PRODUCER_INSTANCE_ID") or f"{_CACHED_HOST}:{os.getpid()}")
@@ -146,7 +146,7 @@ _CACHED_OUTBOX_CONTRACT_VER = os.getenv("OUTBOX_CONTRACT_VER", "execution_contra
 _CACHED_EXECUTION_POLICY_DEFAULT = os.getenv("EXECUTION_POLICY_DEFAULT", "SAFETY_FIRST")
 _CACHED_EXIT_POLICY_MODE = os.getenv("EXIT_POLICY_MODE", "SAFETY_FIRST")
 _CACHED_TP_LIMIT_WATCHDOG_TIMEOUT_MS = int(os.getenv("TP_LIMIT_WATCHDOG_TIMEOUT_MS", "4000"))
-_CACHED_TP_LIMIT_WATCHDOG_MARKET_FALLBACK = str(os.getenv("TP_LIMIT_WATCHDOG_MARKET_FALLBACK", "1")).strip().lower() in {"1", "true", "yes", "on"}
+_CACHED_TP_LIMIT_WATCHDOG_MARKET_FALLBACK = os.getenv("TP_LIMIT_WATCHDOG_MARKET_FALLBACK", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 _CACHED_SL_WORKING_TYPE = os.getenv("SL_WORKING_TYPE", "MARK_PRICE")
 _CACHED_TP_MARKET_WORKING_TYPE = os.getenv("TP_MARKET_WORKING_TYPE", "MARK_PRICE")
@@ -189,7 +189,7 @@ def _producer_instance_id() -> str:
     return _CACHED_PRODUCER_ID
 
 
-def _defaults() -> Dict[str, int]:
+def _defaults() -> dict[str, int]:
     """Align dedup/stream defaults with UnifiedSignalEmitter."""
     return _CACHED_DEFAULTS
 
@@ -198,9 +198,9 @@ def _prepare_contract_payload(
     signal_id: str,
     kind: str,
     symbol: str,
-    payload_obj: Dict[str, Any],
-    meta_obj: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
+    payload_obj: dict[str, Any],
+    meta_obj: dict[str, Any] | None,
+) -> dict[str, Any]:
     """Normalize payload into a concrete execution intent before XADD.
 
     Stamps missing contract fields (schema_ver, decision_id, execution_policy,
@@ -260,18 +260,18 @@ def _prepare_contract_payload(
     return payload
 
 
-def _build_exec_event(signal_id: str, stream_key: str, payload_obj: Dict[str, Any]) -> Dict[str, Any]:
+def _build_exec_event(signal_id: str, stream_key: str, payload_obj: dict[str, Any]) -> dict[str, Any]:
     """Build the INTENT_PUBLISHED fact for the orders:exec SoT event log."""
     return {
         "event_type": "INTENT_PUBLISHED",
         "sid": str(payload_obj.get("sid") or signal_id),
         "decision_id": str(payload_obj.get("decision_id") or signal_id),
-        "schema_ver": str(payload_obj.get("schema_ver") or "execution_intent:v1"),
-        "contract_ver": str(payload_obj.get("contract_ver") or "execution_contract:v1"),
+        "schema_ver": (payload_obj.get("schema_ver") or "execution_intent:v1"),
+        "contract_ver": (payload_obj.get("contract_ver") or "execution_contract:v1"),
         "execution_plan_id": str(payload_obj.get("execution_plan_id") or signal_id),
-        "kind": str(payload_obj.get("kind") or ""),
-        "symbol": str(payload_obj.get("symbol") or ""),
-        "execution_policy": str(payload_obj.get("execution_policy") or "SAFETY_FIRST"),
+        "kind": (payload_obj.get("kind") or ""),
+        "symbol": (payload_obj.get("symbol") or ""),
+        "execution_policy": (payload_obj.get("execution_policy") or "SAFETY_FIRST"),
         "stream_key": str(stream_key),
         "ts_event_ms": int(payload_obj.get("ts_event_ms") or utc_epoch_ms()),
         "ts_queue_ms": int(payload_obj.get("ts_queue_ms") or payload_obj.get("ts_event_ms") or utc_epoch_ms()),
@@ -288,12 +288,12 @@ def atomic_xadd_sync(
     *,
     stream_key: str,
     signal_id: str,
-    payload_obj: Dict[str, Any],
+    payload_obj: dict[str, Any],
     kind: str = "",
     symbol="",
     ts: str = "",
-    meta_obj: Optional[Dict[str, Any]] = None,
-) -> Optional[str]:
+    meta_obj: dict[str, Any] | None = None,
+) -> str | None:
     """Sync atomic XADD with P3 execution-intent contract normalization.
 
     Returns entry_id on success, None on dedup hit.
@@ -348,12 +348,12 @@ async def atomic_xadd_async(
     *,
     stream_key: str,
     signal_id: str,
-    payload_obj: Dict[str, Any],
+    payload_obj: dict[str, Any],
     kind: str = "",
     symbol="",
     ts: str = "",
-    meta_obj: Optional[Dict[str, Any]] = None,
-) -> Optional[str]:
+    meta_obj: dict[str, Any] | None = None,
+) -> str | None:
     """Async version (redis.asyncio.Redis) with P3 execution-intent contract normalization.
 
     Returns entry_id on success, None on dedup hit.

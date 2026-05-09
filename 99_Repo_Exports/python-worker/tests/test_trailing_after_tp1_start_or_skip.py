@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 # IMPORTANT:
 # If your pytest runs with python-worker as root, this import is correct:
-from domain.handlers import _should_start_trailing_after_tp1, _arm_trailing_after_tp1
+from domain.handlers import _arm_trailing_after_tp1, _should_start_trailing_after_tp1
 
 
 def _mk_pos(*, trail_after_tp1: bool, profile: str = "rocket_v1"):

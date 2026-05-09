@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """core.telegram_client
 
 Minimal Telegram sender (no extra deps).
@@ -15,11 +16,11 @@ Env expected by services:
 """
 
 
-from dataclasses import dataclass
-from typing import Optional, Dict, Any
 import json
-import urllib.request
 import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -51,11 +52,11 @@ def send_message(
     We trim defensively.
     """
     try:
-        msg = _truncate(str(text or ""), 3900)
+        msg = _truncate((text or ""), 3900)
         if not msg:
             return True
         url = f"{cfg.api_base}/bot{cfg.token}/sendMessage"
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "chat_id": cfg.chat_id,
             "text": msg,
             "disable_web_page_preview": bool(disable_web_preview),

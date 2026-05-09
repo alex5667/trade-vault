@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+
 """
 eval_meta_ramp_outcomes_did.py
 
@@ -21,12 +23,13 @@ Usage:
 import argparse
 import json
 import random
-from typing import Any, Dict, Iterator, List, Tuple
+from collections.abc import Iterator
+from typing import Any
 
 
-def iter_ndjson(path: str) -> Iterator[Dict[str, Any]]:
+def iter_ndjson(path: str) -> Iterator[dict[str, Any]]:
     """Iterate over NDJSON file, yielding parsed JSON objects."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -39,7 +42,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -47,10 +50,10 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
-def _event_ts_ms(r: Dict[str, Any]) -> int:
+def _event_ts_ms(r: dict[str, Any]) -> int:
     """Extract event timestamp in milliseconds (tolerates multiple shapes)."""
     # tolerate multiple shapes
     for k in ("ts_ms", "ts", "exit_ts_ms", "event_ts_ms"):
@@ -68,7 +71,7 @@ def _event_ts_ms(r: Dict[str, Any]) -> int:
     return 0
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Compute percentile (q in [0,1])."""
     if not xs:
         return 0.0
@@ -78,7 +81,7 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def stats(rs: List[float]) -> Dict[str, float]:
+def stats(rs: list[float]) -> dict[str, float]:
     """Compute statistics for return multiples."""
     n = len(rs)
     if n == 0:
@@ -97,7 +100,7 @@ def stats(rs: List[float]) -> Dict[str, float]:
     }
 
 
-def _delta(enf: Dict[str, float], ctl: Dict[str, float]) -> Dict[str, float]:
+def _delta(enf: dict[str, float], ctl: dict[str, float]) -> dict[str, float]:
     """Compute delta: enforce - control."""
     return {
         "mean_delta": float(enf["meanR"] - ctl["meanR"]),
@@ -107,9 +110,9 @@ def _delta(enf: Dict[str, float], ctl: Dict[str, float]) -> Dict[str, float]:
 
 
 def bootstrap_did(
-    eb: List[float], cb: List[float], ea: List[float], ca: List[float],
+    eb: list[float], cb: list[float], ea: list[float], ca: list[float],
     *, iters: int, seed: int
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Bootstrap confidence intervals for DiD (difference-in-differences).
     
@@ -122,13 +125,13 @@ def bootstrap_did(
     if min(len(eb), len(cb), len(ea), len(ca)) < 30:
         return {"ok": 0.0}
 
-    def samp_mean(xs: List[float]) -> float:
+    def samp_mean(xs: list[float]) -> float:
         s = 0.0
         for _ in range(len(xs)):
             s += xs[rng.randrange(0, len(xs))]
         return s / len(xs)
 
-    def samp_tail(xs: List[float]) -> float:
+    def samp_tail(xs: list[float]) -> float:
         c = 0
         for _ in range(len(xs)):
             if xs[rng.randrange(0, len(xs))] <= -1.0:
@@ -190,16 +193,16 @@ def main() -> None:
     after_from = ramp_ts
     after_to = ramp_ts + win_ms  # we'll cap by "now" implicitly by available trades
 
-    eb: List[float] = []  # enforce before
-    cb: List[float] = []  # control before
-    ea: List[float] = []  # enforce after
-    ca: List[float] = []  # control after
+    eb: list[float] = []  # enforce before
+    cb: list[float] = []  # control before
+    ea: list[float] = []  # enforce after
+    ca: list[float] = []  # control after
 
     missing_tag = 0
     total = 0
 
     for r in iter_ndjson(args.trades):
-        sym = str(r.get("symbol", "") or "").upper()
+        sym = (r.get("symbol", "") or "").upper()
         if sym_set and sym not in sym_set:
             continue
 
@@ -213,7 +216,7 @@ def main() -> None:
         rmf = _f(rm, 0.0)
 
         total += 1
-        applied = r.get("meta_enforce_applied", None)
+        applied = r.get(MetaKeys.ENFORCE_APPLIED, None)
         if applied is None:
             missing_tag += 1
             continue
@@ -224,7 +227,7 @@ def main() -> None:
         elif after_from <= ts < after_to:
             (ea if a == 1 else ca).append(rmf)
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "window_hours": args.window_hours,
         "ramp_ts_ms": ramp_ts,
         "before": {"from_ms": before_from, "to_ms": before_to},

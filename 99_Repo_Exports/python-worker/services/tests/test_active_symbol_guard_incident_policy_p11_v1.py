@@ -35,7 +35,7 @@ class DummyDiag:
     def incident_bundle_symbol(self, symbol, include_exchange=False):
         return {
             'summary': {
-                'symbol': str(symbol).upper(),
+                'symbol': symbol.upper(),
                 'sid': 'sid-1',
                 'classification': 'stale_tombstone',
                 'severity': 'warning',
@@ -60,7 +60,7 @@ class DummyDiag:
 
 def _action(payload, name: str):
     for item in list(payload.get('runbook_actions') or []):
-        if str(item.get('action') or '') == name:
+        if (item.get('action') or '') == name:
             return item
     return {}
 

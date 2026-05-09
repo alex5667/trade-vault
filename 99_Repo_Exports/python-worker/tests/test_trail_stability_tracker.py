@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for TrailStabilityTracker — callback CV + confidence trend.
 
@@ -8,14 +9,13 @@ These tests use mock data and do NOT require Redis.
 import pytest
 
 from services.trail_stability_tracker import (
-    _cv_pct,
-    _linear_trend,
-    compute_stability,
     RunSnapshot,
     StabilityReport,
     TrailStabilityTracker,
+    _cv_pct,
+    _linear_trend,
+    compute_stability,
 )
-
 
 # ---------------------------------------------------------------------------
 # _cv_pct (coefficient of variation)

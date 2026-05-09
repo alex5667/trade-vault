@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Fail-open stage metrics.
 
 Several hot-path services emit simple counters/histograms for monitoring.
@@ -8,10 +9,10 @@ This module centralizes best-effort metric emission.
 """
 
 
-from typing import Any, Optional
+from typing import Any
 
 
-def _get_metrics(handler: Any) -> Optional[Any]:
+def _get_metrics(handler: Any) -> Any | None:
     # Try a few common patterns without importing heavy dependencies.
     if handler is None:
         return None
@@ -22,7 +23,7 @@ def _get_metrics(handler: Any) -> Optional[Any]:
     return None
 
 
-def _counter(obj: Any, name: str) -> Optional[Any]:
+def _counter(obj: Any, name: str) -> Any | None:
     for attr in ("counter", "get_counter", "c"):
         fn = getattr(obj, attr, None)
         if fn is None:
@@ -40,7 +41,7 @@ def _counter(obj: Any, name: str) -> Optional[Any]:
         return None
 
 
-def _hist(obj: Any, name: str) -> Optional[Any]:
+def _hist(obj: Any, name: str) -> Any | None:
     for attr in ("hist", "histogram", "get_hist", "h"):
         fn = getattr(obj, attr, None)
         if fn is None:

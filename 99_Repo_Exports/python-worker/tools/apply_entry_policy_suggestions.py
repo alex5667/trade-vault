@@ -1,13 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, List
+from typing import Any
 
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -19,7 +19,7 @@ def _sha1(s: str) -> str:
     return hashlib.sha1(s.encode("utf-8", errors="ignore")).hexdigest()
 
 
-def compute_suggestion_id(sugg: Dict[str, Any]) -> str:
+def compute_suggestion_id(sugg: dict[str, Any]) -> str:
     proposed = sugg.get("proposed", {}) or {}
     items = sorted((str(k), str(v)) for k, v in proposed.items())
     base = json.dumps(items, separators=(",", ":"), ensure_ascii=False)

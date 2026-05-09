@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from enum import IntEnum
-from typing import Iterable, Any
 import base64
 import struct
+from collections.abc import Iterable
+from enum import IntEnum
+from typing import Any
 
 
 class QF(IntEnum):
@@ -107,7 +108,7 @@ def pack_qf_u16(codes: Iterable[int]) -> str:
 
 def unpack_qf_u16(b64: Any) -> list[int]:
     try:
-        s = str(b64 or "")
+        s = (b64 or "")
         if not s:
             return []
         raw = base64.b64decode(s.encode("ascii"), validate=False)

@@ -12,11 +12,11 @@ Usage:
                                --out reports/exec_2025-10-25.parquet
 """
 
+import argparse
 import csv
 import json
 import math
 import os
-import argparse
 import resource
 import time
 from collections import defaultdict
@@ -25,7 +25,9 @@ from datetime import datetime
 import redis
 
 from core.redis_client import get_redis, wait_for_redis
-from core.redis_keys import RedisStreams as RS, RedisKeyPrefixes as RK
+from core.redis_keys import RedisKeyPrefixes as RK
+from core.redis_keys import RedisStreams as RS
+import contextlib
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -123,12 +125,10 @@ def _parse_row(fields: dict, snapshots: dict) -> dict:
 
     j_str = row.pop("json", None)
     if j_str and isinstance(j_str, str) and j_str.startswith("{"):
-        try:
+        with contextlib.suppress(json.JSONDecodeError):
             row.update(json.loads(j_str))
-        except json.JSONDecodeError:
-            pass
 
-    sid = str(row.get("sid", ""))
+    sid = (row.get("sid", ""))
     if sid and sid in snapshots:
         row.update(snapshots[sid])
 
@@ -316,10 +316,8 @@ def stream_and_write(
                 for col in _NUMERIC_COLS:
                     v = row.get(col)
                     if v is not None:
-                        try:
+                        with contextlib.suppress(ValueError, TypeError):
                             row[col] = float(v)
-                        except (ValueError, TypeError):
-                            pass
 
                 rows.append(row)
 

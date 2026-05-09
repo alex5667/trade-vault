@@ -2,9 +2,6 @@
 
 Uses tick_flow_full.core.taker_flow_gate_v1 import path.
 """
-import pytest
-import sys
-import os
 
 # Ensure tick_flow_full is importable when running from python-worker dir
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))

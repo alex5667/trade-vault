@@ -1,15 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 @dataclass
 class BurstCandidate:
     ts_ms: int
     score: float
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
 
 
 @dataclass
@@ -17,7 +16,7 @@ class BurstState:
     active: bool = False
     start_ts_ms: int = 0
     deadline_ts_ms: int = 0
-    best: Optional[BurstCandidate] = None
+    best: BurstCandidate | None = None
 
 
 class BurstCandidateSelector:
@@ -38,7 +37,7 @@ class BurstCandidateSelector:
     def is_active(self) -> bool:
         return bool(self.st.active)
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         return {
             "active": int(self.st.active),
             "start_ts_ms": int(self.st.start_ts_ms),
@@ -67,7 +66,7 @@ class BurstCandidateSelector:
         if self.st.best is None or float(cand.score) > float(self.st.best.score):
             self.st.best = cand
 
-    def maybe_flush(self, *, now_ts_ms: int) -> Optional[Dict[str, Any]]:
+    def maybe_flush(self, *, now_ts_ms: int) -> dict[str, Any] | None:
         """
         If burst deadline reached (or safety max_age hit), emit best and reset.
         """
@@ -113,7 +112,7 @@ class BurstCandidateSelector:
         self.reset()
         return None
 
-    def force_flush(self) -> Optional[Dict[str, Any]]:
+    def force_flush(self) -> dict[str, Any] | None:
         """Force flush best candidate immediately (used by watchdog/error paths).
 
         Stamps burst metadata for audit trail consistency with normal deadline
@@ -129,7 +128,6 @@ class BurstCandidateSelector:
         self.reset()
         if best is None:
             return None
-        import time as _time
         now_ms = int(_get_ny_time_millis())
         out = dict(best.payload)
         out["burst_emitted_at"] = now_ms

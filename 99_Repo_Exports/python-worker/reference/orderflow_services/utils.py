@@ -1,5 +1,7 @@
-from typing import Any, Dict, List, Optional, Callable
 import json
+from collections.abc import Callable
+from typing import Any
+
 # Fast JSON: orjson is 2-10x faster than stdlib + releases GIL during parse.
 # Falls back to stdlib json if not installed (e.g. in legacy test envs).
 try:
@@ -15,11 +17,13 @@ except ImportError:
         """stdlib json fallback."""
         return json.loads(s)
 import zlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from services.orderflow.configuration import _safe_float, _safe_int
 
+
 def hour_of_week_utc(ts_ms: int) -> int:
-    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
     return dt.weekday() * 24 + dt.hour  # 0..167
 
 def session_utc(ts_ms: int) -> str:
@@ -30,7 +34,7 @@ def session_utc(ts_ms: int) -> str:
     NY:   14:00 - 21:00
     OFF:  21:00 - 00:00
     """
-    h = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).hour
+    h = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC).hour
     if 0 <= h < 8:
         return "ASIA"
     if 8 <= h < 14:
@@ -40,11 +44,11 @@ def session_utc(ts_ms: int) -> str:
     return "OFF"
 
 def fmt_utc_dow_hour(ts_ms: int) -> str:
-    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
     return dt.strftime("%a %H:00 UTC")
 
 
-def _fields_to_dict(fields: Any) -> Dict[str, str]:
+def _fields_to_dict(fields: Any) -> dict[str, str]:
     """Fast stream fields normalizer.
 
     Optimized for decode_responses=True Redis clients (common case):
@@ -120,7 +124,7 @@ def redis_stream_id_ts_ms(msg_id: Any) -> int:
     except Exception:
         return 0
 
-def _score_candidate(ind: Dict[str, Any]) -> float:
+def _score_candidate(ind: dict[str, Any]) -> float:
     """
     Score used to pick best signal inside cooldown burst.
     Cheap + monotonic:
@@ -138,7 +142,7 @@ def _score_candidate(ind: Dict[str, Any]) -> float:
     except Exception: ice = 0.0
     return 2.0 * of_sc + 0.30 * dz + 0.15 * min(3.0, obi) + 0.50 * ice
 
-def _calc_pressure_sps(ts_list: List[int], now_ms: int, window_ms: int = 60_000) -> float:
+def _calc_pressure_sps(ts_list: list[int], now_ms: int, window_ms: int = 60_000) -> float:
     """
     Candidates/sec in the last window_ms.
     Deterministic (uses tick_ts).
@@ -215,8 +219,8 @@ def _should_sample(ts_ms: int, rate: float) -> bool:
 
 
 def _compute_tick_uid(
-    *, symbol: str, trade_id: Optional[int], ts_ms: int, price_src: Any, qty_src: Any,
-    side: str, is_buyer_maker: Any, stream_id: Optional[str] = None
+    *, symbol: str, trade_id: int | None, ts_ms: int, price_src: Any, qty_src: Any,
+    side: str, is_buyer_maker: Any, stream_id: str | None = None
 ) -> str:
     """Deterministic tick UID for dedup across retries/replays.
 
@@ -244,7 +248,7 @@ def _compute_tick_uid(
             except Exception:
                 pass
 
-        sid = str(stream_id or "").strip()
+        sid = (stream_id or "").strip()
         if sid:
             return f"{sym}:mid{sid}"
 
@@ -293,8 +297,8 @@ def _dedup_seen_uid(uid: str, ring, uid_set, window: int) -> bool:
 
 
 def _parse_tick_payload(
-    payload: Any, default_symbol="", log: Optional[Callable] = None
-) -> Optional[Dict[str, Any]]:
+    payload: Any, default_symbol="", log: Callable | None = None
+) -> dict[str, Any] | None:
     """Normalize tick payload into a stable schema used across the pipeline.
 
     Key points (schema v2-ish):
@@ -308,7 +312,7 @@ def _parse_tick_payload(
     if payload is None:
         return None
 
-    merged: Dict[str, Any] = {}
+    merged: dict[str, Any] = {}
     try:
         if isinstance(payload, (bytes, bytearray)):
             payload = payload.decode("utf-8", errors="ignore")
@@ -355,7 +359,7 @@ def _parse_tick_payload(
         merged.get("trade_id") or merged.get("tradeId") or merged.get("t") or merged.get("a") or
         merged.get("id") or merged.get("tradeID")
     )
-    trade_id_val: Optional[int] = None
+    trade_id_val: int | None = None
     try:
         if tid_raw is not None:
             tv = int(float(str(tid_raw).strip()))
@@ -365,7 +369,7 @@ def _parse_tick_payload(
         trade_id_val = None
 
     # is_buyer_maker (Binance semantics: True => taker SELL, False => taker BUY)
-    def _coerce_bool_maybe(v: Any) -> Optional[bool]:
+    def _coerce_bool_maybe(v: Any) -> bool | None:
         if v is None:
             return None
         if isinstance(v, bool):
@@ -410,7 +414,7 @@ def _parse_tick_payload(
         side = "UNKNOWN"
         side_conf = "unknown"
 
-    tick: Dict[str, Any] = {
+    tick: dict[str, Any] = {
         "symbol": symbol,
         "ts": int(ts_ms or 0),      # legacy epoch ms (keep)
         "ts_ms": int(ts_ms or 0),   # payload time (may be coerced later)
@@ -426,7 +430,7 @@ def _parse_tick_payload(
         "is_buyer_maker": is_buyer_maker,
         "trade_id": trade_id_val,
         "raw": merged,
-        "written_at": datetime.now(timezone.utc).isoformat(),
+        "written_at": datetime.now(UTC).isoformat(),
         "tick_uid": "",
         "ts_source": "payload" if int(ts_ms or 0) > 0 else "missing",
     }
@@ -444,12 +448,12 @@ def _parse_tick_payload(
 
     # Deterministic UID for dedup (prefer trade_id; consumer may overwrite with stream_id-aware uid)
     tick["tick_uid"] = _compute_tick_uid(
-        symbol=str(tick.get("symbol") or ""),
+        symbol=(tick.get("symbol") or ""),
         trade_id=trade_id_val,
         ts_ms=int(tick.get("ts_ms") or 0),
         price_src=price_src,
         qty_src=qty_src,
-        side=str(tick.get("side") or ""),
+        side=(tick.get("side") or ""),
         is_buyer_maker=tick.get("is_buyer_maker"),
     )
 
@@ -463,7 +467,7 @@ def _parse_tick_payload(
     return tick
 
 
-def _parse_book_payload(payload: Dict[str, Any], symbol: str) -> Dict[str, Any]:
+def _parse_book_payload(payload: dict[str, Any], symbol: str) -> dict[str, Any]:
     if "data" in payload:
         try:
             nested = _orjson_loads(payload["data"])
@@ -489,15 +493,15 @@ def _parse_book_payload(payload: Dict[str, Any], symbol: str) -> Dict[str, Any]:
             asks = []
 
     ts_ms = _normalize_epoch_ms(
-        merged.get("ts_ms") or 
-        merged.get("ts") or 
-        merged.get("E") or 
-        merged.get("event_time") or 
-        merged.get("T") or 
-        merged.get("time") or 
+        merged.get("ts_ms") or
+        merged.get("ts") or
+        merged.get("E") or
+        merged.get("event_time") or
+        merged.get("T") or
+        merged.get("time") or
         merged.get("written_at")
     )
-    
+
     return {
         "symbol": symbol,
         "ts_ms": ts_ms,
@@ -529,14 +533,14 @@ class LogSampler:
 # ---------------------------------------------------------------------------
 def hour_of_week_utc(ts_ms: int) -> int:
     """0..167, UTC hour-of-week."""
-    from datetime import datetime, timezone
-    dt = datetime.fromtimestamp(float(ts_ms) / 1000.0, tz=timezone.utc)
+    from datetime import datetime
+    dt = datetime.fromtimestamp(float(ts_ms) / 1000.0, tz=UTC)
     return int(dt.weekday() * 24 + dt.hour)
 
 def session_utc(ts_ms: int) -> str:
     """Simple UTC sessions (stable, no overlaps)."""
-    from datetime import datetime, timezone
-    h = datetime.fromtimestamp(float(ts_ms) / 1000.0, tz=timezone.utc).hour
+    from datetime import datetime
+    h = datetime.fromtimestamp(float(ts_ms) / 1000.0, tz=UTC).hour
     if 0 <= h < 8:
         return "ASIA"
     if 8 <= h < 14:
@@ -546,8 +550,8 @@ def session_utc(ts_ms: int) -> str:
     return "OFF"
 
 def fmt_utc_dow_hour(ts_ms: int) -> str:
-    from datetime import datetime, timezone
-    dt = datetime.fromtimestamp(float(ts_ms) / 1000.0, tz=timezone.utc)
+    from datetime import datetime
+    dt = datetime.fromtimestamp(float(ts_ms) / 1000.0, tz=UTC)
     return dt.strftime("%a %H:00 UTC")
 
 

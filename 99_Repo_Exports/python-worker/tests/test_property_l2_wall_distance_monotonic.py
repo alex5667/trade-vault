@@ -1,12 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-from dataclasses import dataclass
 import random
-import time
+from dataclasses import dataclass
 
 from handlers.confirmations.l2_confirmations import L2ConfirmBreakout
 from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level
+from utils.time_utils import get_ny_time_millis
+
 
 @dataclass
 class L2Snap:

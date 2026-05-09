@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 Autopilot: scheduled TM report + auto-proposal (overrides_v1) + Telegram report.
@@ -12,23 +13,22 @@ Schedule:
   (timezone: UTC; align with your infra)
 """
 
-import os
-import time
-import json
 import asyncio
-from datetime import datetime, timezone
-from typing import Optional
+import json
+import os
+from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
 
 from tools.export_trade_closed_ndjson import export_ndjson
-from tools.tm_policy_tuner import load_ndjson, tune, render_report, build_overrides_v1_proposal
+from tools.tm_policy_tuner import build_overrides_v1_proposal, load_ndjson, render_report, tune
+
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 def _parse_hhmm(x: str, default: str) -> tuple[int,int]:
     s = (x or default).strip()
@@ -54,7 +54,7 @@ async def _acquire_lock(r: aioredis.Redis, key: str, ttl_sec: int) -> bool:
     except Exception:
         return False
 
-async def _send_telegram_report(r: aioredis.Redis, text_md: str, buttons: Optional[list] = None) -> None:
+async def _send_telegram_report(r: aioredis.Redis, text_md: str, buttons: list | None = None) -> None:
     """
     notify_worker expects: {"type":"report","text":"..."}.
     We publish into stream TELEGRAM_NOTIFY_STREAM (default notify:telegram).
@@ -64,7 +64,7 @@ async def _send_telegram_report(r: aioredis.Redis, text_md: str, buttons: Option
     text = text_md
     if len(text) > 3500:
         text = text[:3500] + "\n\n...(truncated)"
-    
+
     msg = {"type": "report", "text": f"<pre>{text}</pre>"}
     if buttons:
         msg["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
@@ -89,11 +89,11 @@ async def run_once(*, r_sync, r_async: aioredis.Redis, since_hours: float, windo
     rows = load_ndjson(out_path)
     if not rows:
         return f"No trade history found for window {window_days}d", []
-        
+
     tuner_out = tune(out_path, window_days=window_days, min_n=min_n)
     md = render_report(tuner_out["winners"])
     md2 = md + f"\n\nexported_closed={n} window_days={window_days} min_n={min_n} propose={int(propose)}"
-    
+
     sids = []
     if propose:
         proposal = build_overrides_v1_proposal(tuner_out)
@@ -149,7 +149,7 @@ async def main() -> None:
                     r_sync=r_sync, r_async=r_async,
                     since_hours=daily_hours, window_days=1.0, min_n=min_n_daily, propose=propose_daily
                 )
-                
+
                 # build buttons: one row per SID (keep it safe)
                 btns = []
                 for s in sids:
@@ -161,7 +161,7 @@ async def main() -> None:
                     # We need the SID part (suffix).
                     parts = s.split(":")
                     sid_hash = parts[-1]
-                    
+
                     # We want a readable label. But we only have the hash here?
                     # Ideally we would know the symbol from the proposal content.
                     # But propose_overrides just returns keys.
@@ -169,7 +169,7 @@ async def main() -> None:
                     label = f"Proposal {sid_hash[:6]}"
                     btns.append([{"text": f"✅ Approve {label}", "callback_data": f"approve:{sid_hash}"}])
                     # Note: Telegram button key is "callback_data", not "callback". My bad in previous snippet.
-                
+
                 await _send_telegram_report(r_async, txt, btns)
                 last_daily_day = now.day
         # Weekly trigger
@@ -181,7 +181,7 @@ async def main() -> None:
                     r_sync=r_sync, r_async=r_async,
                     since_hours=weekly_hours, window_days=7.0, min_n=min_n_weekly, propose=propose_weekly
                 )
-                
+
                 # build buttons
                 btns = []
                 for s in sids:
@@ -189,7 +189,7 @@ async def main() -> None:
                     sid_hash = parts[-1]
                     label = f"Proposal {sid_hash[:6]}"
                     btns.append([{"text": f"✅ Approve {label}", "callback_data": f"approve:{sid_hash}"}])
-                
+
                 await _send_telegram_report(r_async, txt, btns)
                 last_weekly_week = iso_week
 

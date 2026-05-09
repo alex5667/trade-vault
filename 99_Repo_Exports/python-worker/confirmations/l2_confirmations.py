@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple
+from typing import Any
 
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot, L2Level
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
 
 
 def _is_finite(x: float) -> bool:
@@ -48,7 +49,7 @@ def _bps(a: float, b: float) -> float:
 class ConfirmationResult:
     ok: bool
     reason_code: str
-    parts: Dict[str, Any]
+    parts: dict[str, Any]
 
     @property
     def veto(self) -> bool:
@@ -112,11 +113,11 @@ class L2ConfirmBreakout:
       - never throws on NaN/Inf / malformed books (fail-closed)
     """
 
-    def __init__(self, cfg: Any, now_ms: Optional[Callable[[], int]] = None) -> None:
+    def __init__(self, cfg: Any, now_ms: Callable[[], int] | None = None) -> None:
         self.cfg = cfg
         self.now_ms = now_ms or (lambda: 0)
 
-    def check(self, snap: Optional[L2Snapshot], side: int, price: float) -> ConfirmationResult:
+    def check(self, snap: L2Snapshot | None, side: int, price: float) -> ConfirmationResult:
         # side: +1 bull breakout, -1 bear breakout
         if snap is None:
             return ConfirmationResult(False, "no_l2", {"where": "breakout"})
@@ -178,11 +179,11 @@ class L2ConfirmAbsorption:
       - and *some* near-liquidity on the defensive side (to avoid empty books)
     """
 
-    def __init__(self, cfg: Any, now_ms: Optional[Callable[[], int]] = None) -> None:
+    def __init__(self, cfg: Any, now_ms: Callable[[], int] | None = None) -> None:
         self.cfg = cfg
         self.now_ms = now_ms or (lambda: 0)
 
-    def check(self, snap: Optional[L2Snapshot], side: int, price: float) -> ConfirmationResult:
+    def check(self, snap: L2Snapshot | None, side: int, price: float) -> ConfirmationResult:
         # side: +1 absorption of sellers (bullish), -1 absorption of buyers (bearish)
         if snap is None:
             return ConfirmationResult(False, "no_l2", {"where": "absorption"})

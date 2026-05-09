@@ -6,7 +6,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from tools.tick_gate_metrics_aggregator import _norm_status, _first_token, LabelLimiter, _extract_event
+from tools.tick_gate_metrics_aggregator import LabelLimiter, _extract_event, _first_token, _norm_status
 
 
 class TestTickGateAggregatorHelpers(unittest.TestCase):

@@ -1,9 +1,10 @@
-import time
 import json
-import uuid
 import logging
-from typing import Dict, Any, List
+import time
+import uuid
 from datetime import datetime
+from typing import Any
+
 from services.analytics_db import get_conn
 
 logger = logging.getLogger("atr_invariant_budget")
@@ -11,7 +12,7 @@ logger = logging.getLogger("atr_invariant_budget")
 def _generate_id(prefix: str) -> str:
     return f"{prefix}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
-def evaluate_budgets(time_window_ms: int = None) -> List[Dict[str, Any]]:
+def evaluate_budgets(time_window_ms: int = None) -> list[dict[str, Any]]:
     """
     Evaluates budget consumption for all enabled SLO policies.
     """
@@ -27,7 +28,7 @@ def evaluate_budgets(time_window_ms: int = None) -> List[Dict[str, Any]]:
             for policy in policies:
                 window_sec = policy["window_sec"]
                 window_start_ms = now_ms - (window_sec * 1000)
-                
+
                 # Fetch violations grouped by scope matching this policy
                 class_filter_sql = ""
                 class_filter_args = []
@@ -59,11 +60,11 @@ def evaluate_budgets(time_window_ms: int = None) -> List[Dict[str, Any]]:
                         status = "exhausted"
                     elif burn_rate >= policy["burn_rate_warn"]:
                         status = "warning"
-                    
+
                     # Generate a deterministic state ID based on window to throttle actions
                     # Not strictly unique over time, but good enough to track current state
                     state_id = f"s_{policy['policy_id']}_{group['scope_kind']}_{group['scope_value']}"
-                    
+
                     summary = {
                         "policy_id": policy["policy_id"],
                         "window_sec": window_sec
@@ -97,7 +98,7 @@ def evaluate_budgets(time_window_ms: int = None) -> List[Dict[str, Any]]:
                               AND auto_action = %s
                               AND created_at >= to_timestamp(%s)
                         """, (state_id, policy["auto_action"], action_cutoff / 1000.0))
-                        
+
                         action_exists = cur.fetchone()["c"] > 0
                         if not action_exists:
                             action_id = _generate_id("act")
@@ -106,7 +107,7 @@ def evaluate_budgets(time_window_ms: int = None) -> List[Dict[str, Any]]:
                                     action_id, state_id, auto_action, status, reason_code, action_json
                                 ) VALUES (%s, %s, %s, %s, %s, %s)
                             """, (
-                                action_id, state_id, policy["auto_action"], "requested", 
+                                action_id, state_id, policy["auto_action"], "requested",
                                 "EXHAUSTED_SLO_BUDGET", json.dumps({"burn_rate": burn_rate})
                             ))
                             actions_triggered.append({
@@ -119,7 +120,7 @@ def evaluate_budgets(time_window_ms: int = None) -> List[Dict[str, Any]]:
             conn.commit()
     except Exception as e:
         logger.error(f"Error evaluating budgets: {e}")
-        
+
     return actions_triggered
 
 def record_synthetic_burn(surface: str, severity: str, scope_kind: str, scope_value: str, reason_code: str):
@@ -130,9 +131,9 @@ def record_synthetic_burn(surface: str, severity: str, scope_kind: str, scope_va
     try:
         violation_id = _generate_id("syn_viol")
         now_ms = int(time.time() * 1000)
-        
+
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
-            # First, try to find an invariant ID for the synthetic violation. 
+            # First, try to find an invariant ID for the synthetic violation.
             # We'll grab a dummy or generic governance one, or insert a synthetic invariant.
             synthetic_inv_id = "INV_SYNTHETIC_BUDGET_BURN"
             cur.execute("""
@@ -140,17 +141,17 @@ def record_synthetic_burn(surface: str, severity: str, scope_kind: str, scope_va
                 VALUES (%s, 'governance', %s, %s, 'observe', 'Synthetic Budget Burn', %s, '{}')
                 ON CONFLICT (invariant_id) DO NOTHING
             """, (synthetic_inv_id, scope_kind, severity, reason_code))
-            
+
             cur.execute("""
                 INSERT INTO atr_invariant_violations (
                     violation_id, invariant_id, scope_kind, scope_value, surface, 
                     severity, status, reason_code, violation_json, created_at_ms, check_mode
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
-                violation_id, synthetic_inv_id, scope_kind, scope_value, surface, 
+                violation_id, synthetic_inv_id, scope_kind, scope_value, surface,
                 severity, "open", reason_code, json.dumps({"source": "synthetic_burn"}), now_ms, "enforce"
             ))
             conn.commit()
-            
+
     except Exception as e:
         logger.error(f"Failed to record synthetic burn: {e}")

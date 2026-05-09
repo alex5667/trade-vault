@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Nightly orchestrator: export inputs → engine replay → export trades → build dataset → calibrate → create bundle + Telegram preview.
 
 Why:
@@ -9,21 +11,23 @@ Usage:
   python -m tools.nightly_gate_calibrate_bundle --since-hours 24 --canary-symbols BTCUSDT,ETHUSDT
 """
 
-from utils.time_utils import get_ny_time_millis
 import argparse
 import json
 import os
+import secrets
 import subprocess
 import sys
 import time
-import secrets
+
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def sign(bundle_id: str, secret: str) -> str:
     """Generate HMAC signature for bundle approval callbacks."""
-    import hmac
     import hashlib
+    import hmac
     d = hmac.new(secret.encode("utf-8"), bundle_id.encode("utf-8"), hashlib.sha256).hexdigest()
     return d[:8]
 
@@ -36,9 +40,9 @@ def main() -> None:
     args = ap.parse_args()
 
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-    inputs_stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+    inputs_stream = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
     inputs_field = os.getenv("OF_INPUTS_STREAM_FIELD", "payload")
-    trades_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    trades_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
 
     out_dir = args.out_dir
@@ -70,14 +74,14 @@ def main() -> None:
         # 2) canary filter (simple: keep only listed symbols)
         allow = {s.strip().upper() for s in args.canary_symbols.split(",") if s.strip()}
         n = 0
-        with open(inputs_raw, "r", encoding="utf-8") as f, open(inputs_can, "w", encoding="utf-8") as g:
+        with open(inputs_raw, encoding="utf-8") as f, open(inputs_can, "w", encoding="utf-8") as g:
             for line in f:
                 if not line.strip():
                     continue
                 row = json.loads(line)
                 payload = row.get("payload")
                 p = json.loads(payload) if isinstance(payload, str) else (payload if isinstance(payload, dict) else row)
-                sym = str(p.get("symbol", "")).upper()
+                sym = (p.get("symbol", "")).upper()
                 if sym in allow:
                     g.write(json.dumps(p, ensure_ascii=False) + "\n")
                     n += 1
@@ -106,7 +110,7 @@ def main() -> None:
         # 6) calibrate
         subprocess.run([sys.executable, "-m", "tools.calibrate_gate_params", "--dataset", dataset_out, "--out", calib_out], check=True, capture_output=True, text=True)
 
-        best = json.loads(open(calib_out, "r", encoding="utf-8").read()).get("best") or {}
+        best = json.loads(open(calib_out, encoding="utf-8").read()).get("best") or {}
         if not best:
              raise SystemExit("no_calibration_result")
 
@@ -153,7 +157,7 @@ def main() -> None:
             f"w_exec_risk=<code>{float(w_exec):.3f}</code> exec_ref=<code>{float(ref):.2f}</code> score_min=<code>{float(smin):.3f}</code>\n"
             f"metrics={best.get('metrics')}"
         )
-        r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+        r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
             "type": "report",
             "text": msg,
             "buttons": json.dumps(buttons, ensure_ascii=False, separators=(",", ":")),

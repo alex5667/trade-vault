@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 # -*- coding: utf-8 -*-
 """
@@ -14,16 +15,16 @@ Autopilot runner:
 This script is designed to be called by a container scheduler service.
 """
 
+import hashlib
 import json
 import os
-import time
-import hashlib
-from typing import Dict, Any, Tuple, Optional, List
+from typing import Any
 
 import redis
 
 from tools.export_trade_closed_ndjson import export_ndjson
-from tools.tm_policy_tuner import load_ndjson, compute_stats, choose_winner, render_report
+from tools.tm_policy_tuner import choose_winner, compute_stats, load_ndjson, render_report
+import contextlib
 
 
 def _r() -> redis.Redis:
@@ -45,12 +46,10 @@ def _notify_report(r: redis.Redis, *, html: str) -> None:
       {"type":"report","text":"..."}
     We'll publish it into a configurable Redis stream.
     """
-    stream = os.getenv("TELEGRAM_NOTIFY_STREAM", "notify:telegram")
+    stream = os.getenv("TELEGRAM_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     msg = {"type": "report", "ts_ms": str(_now_ms()), "text": str(html)}
-    try:
+    with contextlib.suppress(Exception):
         r.xadd(stream, msg, maxlen=int(os.getenv("TELEGRAM_NOTIFY_STREAM_MAXLEN", "20000")), approximate=True)
-    except Exception:
-        pass
 
 
 def _acquire_lock(r: redis.Redis, *, key: str, ttl_sec: int) -> bool:
@@ -64,7 +63,7 @@ def _mk_sid(kind: str, ctx: str) -> str:
     return _sha1(f"{kind}|{ctx}|{_now_ms()}")
 
 
-def _write_suggestion_meta(r: redis.Redis, *, sid: str, meta: Dict[str, Any], ttl_sec: int) -> None:
+def _write_suggestion_meta(r: redis.Redis, *, sid: str, meta: dict[str, Any], ttl_sec: int) -> None:
     r.set(f"cfg:suggestions:entry_policy:meta:{sid}", json.dumps(meta, ensure_ascii=False, separators=(",", ":")), ex=int(ttl_sec))
 
 
@@ -72,23 +71,21 @@ def _write_latest_pointer(r: redis.Redis, *, key: str, sid: str, ttl_sec: int) -
     r.set(key, sid, ex=int(ttl_sec))
 
 
-def _auto_approve_and_apply(r: redis.Redis, *, sid: str, appliers: List[str]) -> None:
+def _auto_approve_and_apply(r: redis.Redis, *, sid: str, appliers: list[str]) -> None:
     """
     Minimal auto-approval protocol:
       - approvals key contains list of appliers (stringified)
       - applied key is set by ApplyRunner or by this script (optional)
     """
-    try:
+    with contextlib.suppress(Exception):
         r.set(f"cfg:suggestions:entry_policy:approvals:{sid}", json.dumps(appliers, ensure_ascii=False), ex=int(os.getenv("AUTOPILOT_SUGGEST_TTL_SEC", "604800")))
-    except Exception:
-        pass
     # Optional direct apply (if you run without ApplyRunner)
     if int(os.getenv("AUTOPILOT_DIRECT_APPLY", "0")) == 1:
         # We only mark; actual apply is expected via ApplyRunner.
         r.set(f"cfg:suggestions:entry_policy:applied:{sid}", "0", ex=int(os.getenv("AUTOPILOT_SUGGEST_TTL_SEC", "604800")))
 
 
-def run_once() -> Dict[str, Any]:
+def run_once() -> dict[str, Any]:
     r = _r()
     lock_key = os.getenv("AUTOPILOT_LOCK_KEY", "lock:autopilot:entry_policy")
     if not _acquire_lock(r, key=lock_key, ttl_sec=int(os.getenv("AUTOPILOT_LOCK_TTL_SEC", "3300"))):
@@ -103,7 +100,7 @@ def run_once() -> Dict[str, Any]:
         redis_url=url,
         since_hours=since_hours,
         out_path=tmp_path,
-        stream=os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+        stream=os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     )
     rows = load_ndjson(tmp_path)
     stats = compute_stats(rows)
@@ -136,7 +133,7 @@ def run_once() -> Dict[str, Any]:
         _write_suggestion_meta(r, sid=sid, meta=meta, ttl_sec=suggest_ttl)
         latest_key = f"cfg:suggestions:entry_policy:latest:ab_winner:{sym}:{rg}:{grp}"
         _write_latest_pointer(r, key=latest_key, sid=sid, ttl_sec=suggest_ttl)
-        _auto_approve_and_apply(r, sid=sid, appliers=str(os.getenv("AUTOPILOT_APPROVERS", "auto")).split(","))
+        _auto_approve_and_apply(r, sid=sid, appliers=os.getenv("AUTOPILOT_APPROVERS", "auto").split(","))
         n_suggest += 1
 
     # Optional: overrides_v1 proposal (global knobs: hold-down, hysteresis, evaluator thresholds)
@@ -167,7 +164,7 @@ def run_once() -> Dict[str, Any]:
         }
         _write_suggestion_meta(r, sid=ov_sid, meta=meta2, ttl_sec=suggest_ttl)
         _write_latest_pointer(r, key="cfg:suggestions:entry_policy:latest:overrides_v1:global", sid=ov_sid, ttl_sec=suggest_ttl)
-        _auto_approve_and_apply(r, sid=ov_sid, appliers=str(os.getenv("AUTOPILOT_APPROVERS", "auto")).split(","))
+        _auto_approve_and_apply(r, sid=ov_sid, appliers=os.getenv("AUTOPILOT_APPROVERS", "auto").split(","))
 
     # Telegram report (HTML)
     html = "<pre>" + report_txt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</pre>"

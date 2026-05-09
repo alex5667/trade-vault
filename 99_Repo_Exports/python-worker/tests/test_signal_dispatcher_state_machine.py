@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import pytest
 from hypothesis import strategies as st
-from hypothesis.stateful import RuleBasedStateMachine, rule, precondition, initialize, invariant
+from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
 
 from services.signal_dispatcher import SignalDispatcher
-
 
 # -----------------------------
 # Test doubles (no Redis needed)
@@ -24,9 +23,9 @@ class PermanentError(RuntimeError):
 
 class FakeRedis:
     def __init__(self) -> None:
-        self.set_calls: List[Dict[str, Any]] = []
+        self.set_calls: list[dict[str, Any]] = []
 
-    def set(self, key: str, value: str, ex: Optional[int] = None, nx: Optional[bool] = None) -> bool:
+    def set(self, key: str, value: str, ex: int | None = None, nx: bool | None = None) -> bool:
         self.set_calls.append({"key": key, "value": value, "ex": ex, "nx": nx})
         return True
 
@@ -45,16 +44,16 @@ class TraceStub:
     sid: str = ""
     symbol=""
     kind: str = ""
-    events: List[Dict[str, Any]] = None  # type: ignore[assignment]
+    events: list[dict[str, Any]] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         if self.events is None:
             self.events = []
 
-    def add(self, *, where: str, name: str, ok: bool, metrics: Optional[Dict[str, Any]] = None) -> None:
+    def add(self, *, where: str, name: str, ok: bool, metrics: dict[str, Any] | None = None) -> None:
         self.events.append({"where": where, "name": name, "ok": ok, "metrics": dict(metrics or {})})
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "trace_id": str(self.trace_id),
             "sid": str(self.sid),
@@ -84,8 +83,8 @@ def _mk_dispatcher(monkeypatch: pytest.MonkeyPatch) -> SignalDispatcher:
     d.trace_sidecar_success_sample_rate = 0.0
 
     # storage for assertions
-    d._test_markers = {t: False for t in ALL_TARGETS}      # type: ignore[attr-defined]
-    d._test_outcomes = {t: "ok" for t in ALL_TARGETS}      # type: ignore[attr-defined]
+    d._test_markers = dict.fromkeys(ALL_TARGETS, False)      # type: ignore[attr-defined]
+    d._test_outcomes = dict.fromkeys(ALL_TARGETS, "ok")      # type: ignore[attr-defined]
     d._test_deliver_calls = []                             # type: ignore[attr-defined]
     d._test_retry_calls = []                               # type: ignore[attr-defined]
     d._test_dlq_calls = []                                 # type: ignore[attr-defined]
@@ -117,11 +116,11 @@ def _mk_dispatcher(monkeypatch: pytest.MonkeyPatch) -> SignalDispatcher:
 
     d._deliver_one_target = _deliver_one_target
 
-    def _schedule_target_retry(*, target: str, sid: str, env: Dict[str, Any], attempt: int, last_error: str) -> None:
+    def _schedule_target_retry(*, target: str, sid: str, env: dict[str, Any], attempt: int, last_error: str) -> None:
         d._test_retry_calls.append((str(target), int(attempt), str(last_error), env))
 
-    def _send_target_dlq(target: str, sid: str, env: Dict[str, Any], *, reason: str, err: str) -> None:
-        d._test_dlq_calls.append((str(target), str(reason), str(err), env))
+    def _send_target_dlq(target: str, sid: str, env: dict[str, Any], *, reason: str, err: str) -> None:
+        d._test_dlq_calls.append((str(target), reason, str(err), env))
 
     d._schedule_target_retry = _schedule_target_retry
     d._send_target_dlq = _send_target_dlq
@@ -135,7 +134,7 @@ class DispatcherSM(RuleBasedStateMachine):
         self.monkeypatch = pytest.MonkeyPatch()
         self.d = _mk_dispatcher(self.monkeypatch)
         self.sid = "SID_SM"
-        self.env: Dict[str, Any] = {
+        self.env: dict[str, Any] = {
             "targets": {
                 "notify": {"x": 1},
                 "signal_stream_payload": {"k": 1},
@@ -148,14 +147,14 @@ class DispatcherSM(RuleBasedStateMachine):
         self.trace = TraceStub()
 
         # expected-model state
-        self.model_attempts: Dict[str, int] = {t: 0 for t in ALL_TARGETS}
-        self.model_markers: Dict[str, bool] = {t: False for t in ALL_TARGETS}
+        self.model_attempts: dict[str, int] = dict.fromkeys(ALL_TARGETS, 0)
+        self.model_markers: dict[str, bool] = dict.fromkeys(ALL_TARGETS, False)
 
     @initialize(
         outcomes=st.dictionaries(st.sampled_from(ALL_TARGETS), st.sampled_from(["ok", "transient", "permanent"]), max_size=4),
         markers=st.dictionaries(st.sampled_from(ALL_TARGETS), st.booleans(), max_size=4),
     )
-    def init_state(self, outcomes: Dict[str, str], markers: Dict[str, bool]) -> None:
+    def init_state(self, outcomes: dict[str, str], markers: dict[str, bool]) -> None:
         for t, v in outcomes.items():
             self.d._test_outcomes[t] = v
         for t, v in markers.items():
@@ -166,7 +165,7 @@ class DispatcherSM(RuleBasedStateMachine):
         target_names=st.lists(st.sampled_from(ALL_TARGETS), min_size=1, max_size=4, unique=True),
         forced=st.one_of(st.none(), st.integers(min_value=1, max_value=9)),
     )
-    def run_delivery(self, target_names: List[str], forced: Optional[int]) -> None:
+    def run_delivery(self, target_names: list[str], forced: int | None) -> None:
         targets = target_names
         base_attempts = {"__forced__": int(forced)} if forced is not None else None
 

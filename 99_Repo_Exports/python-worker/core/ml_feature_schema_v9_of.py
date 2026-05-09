@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 v9_of — Feature schema version derived from actual infer_feature_cols() output.
 
@@ -11,7 +12,6 @@ Coverage: 128 numeric indicators (vs v7_of=128 nominal but only 25 matching),
            + direction/bucket/hour/dow one-hots → 168 total feature_cols.
 """
 
-from typing import List
 
 SCHEMA_HASH = "1c813fb2b468"
 
@@ -19,7 +19,7 @@ SCHEMA_HASH = "1c813fb2b468"
 
 # Numeric feature keys (indicator field names, without "f_" prefix)
 # Derived from actual infer_feature_cols() on signals:of:inputs, 2026-03-03
-V9_OF_NUMERIC_KEYS: List[str] = [
+V9_OF_NUMERIC_KEYS: list[str] = [
     "abs_lvl_calib_n",
     "abs_lvl_eff_quote_th",
     "abs_lvl_min_quote_delta",
@@ -151,6 +151,6 @@ V9_OF_NUMERIC_KEYS: List[str] = [
 ]
 
 
-def get_v9_of_numeric_keys() -> List[str]:
+def get_v9_of_numeric_keys() -> list[str]:
     """Return sorted list of numeric indicator keys for v9_of."""
     return list(V9_OF_NUMERIC_KEYS)

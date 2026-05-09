@@ -1,5 +1,6 @@
 from tools.trade_diagnostics.trade_quality_report_v2 import classify_loss
 
+
 def test_cost_dominates():
     b = classify_loss(
         pnl_net=-1.0, cost_bps_val=20.0, mfe_bps_val=5.0,

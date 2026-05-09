@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Unit tests for MLScoringGate — ML Scorer V2 runtime inference.
 
@@ -14,7 +14,6 @@ Tests:
 import math
 import os
 import sys
-import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -64,7 +63,7 @@ class TestMLScoringGateFeatureExtraction:
     """Feature extraction must produce correct-length vector."""
 
     def test_feature_count(self):
-        from services.ml_scoring_gate import MLScoringGate, _NUMERIC_FEATURE_ATTRS
+        from services.ml_scoring_gate import _NUMERIC_FEATURE_ATTRS, MLScoringGate
 
         gate = MLScoringGate(model_path="/nonexistent/path")
 
@@ -97,7 +96,7 @@ class TestMLScoringGateFeatureExtraction:
         assert len(features) == expected_count, f"Expected {expected_count}, got {len(features)}"
 
     def test_direction_encoding(self):
-        from services.ml_scoring_gate import MLScoringGate, _NUMERIC_FEATURE_ATTRS
+        from services.ml_scoring_gate import _NUMERIC_FEATURE_ATTRS, MLScoringGate
 
         gate = MLScoringGate(model_path="/nonexistent/path")
         ctx = SimpleNamespace()

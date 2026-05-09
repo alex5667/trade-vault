@@ -10,11 +10,10 @@ Tests:
   5. Writer.emit_to_redis — mock XADD verification
   6. Writer fail-open — exceptions don't propagate
 """
-import pytest
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
-
+from typing import Any
+from unittest.mock import MagicMock
+from core.redis_keys import RedisStreams as RS
 
 # ---------- Minimal TradeClosed stub for testing ----------
 
@@ -33,12 +32,12 @@ class _FakeTradeClosed:
     entry_ts_ms: int = 1700000000000
     sl: float = 49500.0
     tp1_price: float = 50500.0
-    tp_levels: List[float] = field(default_factory=lambda: [50500.0, 51000.0])
+    tp_levels: list[float] = field(default_factory=lambda: [50500.0, 51000.0])
     atr: float = 120.0
     entry_tag: str = "reversal"
     regime: str = "trending"
     scenario: str = "continuation"
-    signal_payload: Dict[str, Any] = field(default_factory=dict)
+    signal_payload: dict[str, Any] = field(default_factory=dict)
 
     exit_price: float = 50800.0
     exit_ts_ms: int = 1700003600000
@@ -271,8 +270,8 @@ class TestSignalOutcomeWriter:
 
     def test_emit_to_redis_calls_xadd(self):
         """Writer calls XADD on the Redis connection with correct stream key."""
-        from services.signal_outcome_writer import SignalOutcomeWriter
         from domain.signal_outcome import from_trade_closed
+        from services.signal_outcome_writer import SignalOutcomeWriter
 
         writer = SignalOutcomeWriter()
         mock_redis = MagicMock()
@@ -288,7 +287,7 @@ class TestSignalOutcomeWriter:
 
         call_args = mock_redis.xadd.call_args
         stream_key = call_args[0][0]
-        assert stream_key == "signals:outcomes"
+        assert stream_key == RS.SIGNAL_OUTCOMES
 
         data = call_args[0][1]
         assert data["sid"] == "sig-001"
@@ -296,8 +295,8 @@ class TestSignalOutcomeWriter:
 
     def test_emit_to_redis_fail_open(self):
         """If Redis raises, writer returns False (no exception)."""
-        from services.signal_outcome_writer import SignalOutcomeWriter
         from domain.signal_outcome import from_trade_closed
+        from services.signal_outcome_writer import SignalOutcomeWriter
 
         writer = SignalOutcomeWriter()
         mock_redis = MagicMock()
@@ -311,8 +310,8 @@ class TestSignalOutcomeWriter:
 
     def test_emit_full_fail_open(self):
         """Combined emit() catches all exceptions from both Redis and DB."""
-        from services.signal_outcome_writer import SignalOutcomeWriter
         from domain.signal_outcome import from_trade_closed
+        from services.signal_outcome_writer import SignalOutcomeWriter
 
         writer = SignalOutcomeWriter()
         # Mock Redis to fail

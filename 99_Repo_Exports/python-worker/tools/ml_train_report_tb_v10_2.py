@@ -1,17 +1,18 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
+import subprocess
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
 
 from tools.export_stream_payload_ndjson_v1 import export_stream_since
-import subprocess
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def _safe_json(obj: Any) -> str:
@@ -19,18 +20,18 @@ def _safe_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-def _read_json(path: str) -> Dict[str, Any]:
+def _read_json(path: str) -> dict[str, Any]:
     """Read JSON file."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
 
 
-def send_telegram(r: redis.Redis, text: str, buttons: Optional[list] = None) -> None:
+def send_telegram(r: redis.Redis, text: str, buttons: list | None = None) -> None:
     """Send Telegram notification with optional buttons."""
-    stream = os.getenv("TELEGRAM_NOTIFY_STREAM", "notify:telegram")
+    stream = os.getenv("TELEGRAM_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     fields = {"text": text}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
@@ -47,7 +48,7 @@ def main() -> None:
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     r = redis.Redis.from_url(redis_url, decode_responses=True)
 
-    inputs_stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+    inputs_stream = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
     inputs_field = os.getenv("OF_INPUTS_FIELD", "payload")
     tb_stream = os.getenv("TB_LABELS_STREAM", "labels:tb")
     tb_field = os.getenv("TB_LABELS_FIELD", "payload")
@@ -67,17 +68,17 @@ def main() -> None:
         inputs_len = r.xlen(inputs_stream)
     except Exception:
         inputs_len = 0
-    
+
     try:
         tb_len = r.xlen(tb_stream)
     except Exception:
         tb_len = 0
-    
+
     print(f"📊 Stream lengths: {inputs_stream}={inputs_len}, {tb_stream}={tb_len}")
-    
+
     if inputs_len == 0:
         raise SystemExit(f"❌ Stream {inputs_stream} is empty. No data to train on.")
-    
+
     if tb_len == 0:
         # Check if stream exists
         try:
@@ -85,7 +86,7 @@ def main() -> None:
             stream_exists = True
         except Exception:
             stream_exists = False
-        
+
         if not stream_exists:
             raise SystemExit(
                 f"❌ Stream {tb_stream} does not exist.\n"
@@ -105,7 +106,7 @@ def main() -> None:
     w_tb, _ = export_stream_since(r=r, stream=tb_stream, payload_field=tb_field, since_ms=since_ms, out_path=tmp_tb, max_scan=800_000, ts_field_guess="created_ms")
 
     print(f"📥 Exported: {w_in} inputs, {w_tb} TB labels")
-    
+
     if w_in == 0:
         raise SystemExit(f"❌ No inputs exported from {inputs_stream} (since {args.since_hours}h ago)")
     if w_tb == 0:
@@ -127,7 +128,7 @@ def main() -> None:
     ds_summary = _read_json(tmp_ds + ".json")
     joined_rows = ds_summary.get("joined_rows", 0)
     print(f"📊 Dataset summary: {joined_rows} joined rows")
-    
+
     if joined_rows == 0:
         raise SystemExit(f"❌ Dataset is empty after join. Check join_rate in summary: {ds_summary}")
 

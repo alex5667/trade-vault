@@ -1,24 +1,24 @@
 
-import math
-from core.ab_lcb_evaluator import eval_winner_lcb, RegimeThresholds, WinnerDecision
+from core.ab_lcb_evaluator import RegimeThresholds, eval_winner_lcb
+
 
 def test_lcb_evaluator_lists():
     # Setup stats: B is better
     # A: mean 0.1, std 0.5
     # B: mean 0.2, std 0.5
     # Generate fake samples
-    
-    samples_A = [0.1] * 500  # simplified zero-variance for checking logic paths, 
+
+    samples_A = [0.1] * 500  # simplified zero-variance for checking logic paths,
                              # but eval requires variance? _mean_std handles it.
                              # If std is 0, LCB = mean.
     samples_B = [0.2] * 500
-    
+
     # Introduce variance
     samples_A = [0.5, -0.3] * 250 # mean 0.1, std ~0.4, WR 50%
-    # samples_B: Increase WR slightly for high Z test. 
+    # samples_B: Increase WR slightly for high Z test.
     # [0.6, 0.6, -0.2] * 166 -> 498 samples + 2 pad
     samples_B = ([0.6, 0.6, -0.2] * 166) + [0.6, -0.2] # mean > 0.3, WR ~66%
-    
+
     arms = {
         "A": samples_A,
         "B": samples_B,
@@ -47,11 +47,11 @@ def test_lcb_evaluator_lists():
         print(f"LCB A: {res2.baseline_a_lcb_r}")
         print(f"LCB B: {res2.lcb_r.get('B')}")
         print(f"Delta: {res2.delta_lcb_vs_a}")
-        
+
     assert res2.ok
     assert res2.winner == "B"
     print(f"Case 2 OK: Winner {res2.winner}")
-    
+
     # Case 3: Very High Z (super strict)
     thr_map["strict"] = RegimeThresholds(min_n=100, min_lcb_r=0.0, min_lcb_wr=0.4, min_delta_lcb_vs_a=0.0, z=10.0)
     # LCB A: 0.1 - 0.178 = -0.078

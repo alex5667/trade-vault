@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -42,15 +43,15 @@ POLICY_VERSION = os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_POLICY_VERSION", "policy
 RCA_TASK_TYPE = "routing_incident_root_cause_analysis"
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -77,8 +78,8 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -106,7 +107,7 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def compact_timeline(timeline: List[Dict[str, Any]], limit: int = 25) -> List[Dict[str, Any]]:
+def compact_timeline(timeline: list[dict[str, Any]], limit: int = 25) -> list[dict[str, Any]]:
     timeline = sorted(timeline, key=lambda x: int(x.get("ts_ms", 0) or 0))
     if len(timeline) <= limit:
         return timeline
@@ -115,7 +116,7 @@ def compact_timeline(timeline: List[Dict[str, Any]], limit: int = 25) -> List[Di
     return head + tail
 
 
-def build_routing_incident_rca_pack(bundle_row: Dict[str, Any]) -> Dict[str, Any]:
+def build_routing_incident_rca_pack(bundle_row: dict[str, Any]) -> dict[str, Any]:
     bundle = maybe_json(bundle_row.get("bundle_json"), {}) or {}
     route_change_id = str(bundle.get("route_change_id") or bundle_row.get("route_change_id") or "")
     primary_reason_codes = bundle.get("primary_reason_codes") or maybe_json(bundle_row.get("primary_reason_codes_json"), [])

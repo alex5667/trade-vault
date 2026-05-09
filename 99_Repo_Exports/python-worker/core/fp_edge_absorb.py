@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Deque, Dict, Optional, Tuple
-from collections import deque
 import math
+from collections import deque
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -42,13 +42,13 @@ class FPEdgeAbsorbDetector:
             self.window_bars = 200
         if self.refresh_every < 1:
             self.refresh_every = 1
-        self._buf: Deque[float] = deque(maxlen=self.window_bars)
+        self._buf: deque[float] = deque(maxlen=self.window_bars)
         self._p90: float = 0.0
         self._n: int = 0
-        self._prev_low: Optional[float] = None
-        self._prev_high: Optional[float] = None
+        self._prev_low: float | None = None
+        self._prev_high: float | None = None
 
-    def apply_config(self, cfg: Dict[str, Any]) -> None:
+    def apply_config(self, cfg: dict[str, Any]) -> None:
         try:
             self.window_bars = int(cfg.get("fp_edge_window_bars", self.window_bars))
             if self.window_bars < 200:
@@ -76,7 +76,7 @@ class FPEdgeAbsorbDetector:
         k = max(0, min(len(xs2) - 1, k))
         return float(xs2[k])
 
-    def update_bar(self, bar: Any, cfg: Dict[str, Any]) -> Optional[EdgeAbsorbEvent]:
+    def update_bar(self, bar: Any, cfg: dict[str, Any]) -> EdgeAbsorbEvent | None:
         if bar is None:
             return None
         if not bool(getattr(bar, "fp_enabled", False)):

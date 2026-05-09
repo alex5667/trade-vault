@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Regression: XADD MAXLEN enforcement lint check (merge-blocker).
 
@@ -13,8 +13,8 @@ Run:
 
 import os
 import re
-import pytest
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Config
@@ -68,7 +68,7 @@ def _find_unbounded_xadd() -> list[tuple[str, int, str]]:
 
                 try:
                     lines = open(fpath, encoding="utf-8", errors="ignore").readlines()
-                except IOError:
+                except OSError:
                     continue
 
                 for i, line in enumerate(lines, 1):

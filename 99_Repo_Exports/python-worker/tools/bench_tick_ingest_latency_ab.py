@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Step 17: AB-ish benchmark for tick ingest latency histograms.
 
@@ -19,13 +20,12 @@ import os
 import time
 import urllib.request
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 
 @dataclass
 class Hist:
     # bucket upper bound -> cumulative count
-    buckets: Dict[float, float]
+    buckets: dict[float, float]
     count: float
     sum: float
 
@@ -36,9 +36,9 @@ def _http_get(url: str, timeout: float = 5.0) -> str:
         return r.read().decode("utf-8", errors="replace")
 
 
-def _parse_labels(lbl: str) -> Dict[str, str]:
+def _parse_labels(lbl: str) -> dict[str, str]:
     # very small parser for {k="v",...}
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     if not lbl:
         return out
     cur = ""
@@ -67,8 +67,8 @@ def _parse_labels(lbl: str) -> Dict[str, str]:
     return out
 
 
-def parse_histogram(text: str, name: str, symbol: Optional[str] = None) -> Hist:
-    buckets: Dict[float, float] = {}
+def parse_histogram(text: str, name: str, symbol: str | None = None) -> Hist:
+    buckets: dict[float, float] = {}
     count = 0.0
     summ = 0.0
     for line in text.splitlines():
@@ -115,7 +115,7 @@ def hist_delta(a: Hist, b: Hist) -> Hist:
     return Hist(buckets=out_b, count=b.count - a.count, sum=b.sum - a.sum)
 
 
-def quantile_from_buckets(delta: Hist, q: float) -> Optional[float]:
+def quantile_from_buckets(delta: Hist, q: float) -> float | None:
     if delta.count <= 0:
         return None
     items = sorted(delta.buckets.items(), key=lambda x: x[0])
@@ -196,7 +196,7 @@ def main() -> int:
         print(f"process: n={p['count']:.0f} avg={p['avg_ms']:.2f}ms" if p['avg_ms'] else f"process: n={p['count']:.0f} avg=N/A", end=" ")
         if p['p50_ms']: print(f"p50={p['p50_ms']:.2f} p95={p['p95_ms']:.2f} p99={p['p99_ms']:.2f}")
         else: print("p50=N/A p95=N/A p99=N/A")
-        
+
         print(f"e2e:     n={e['count']:.0f} avg={e['avg_ms']:.2f}ms" if e['avg_ms'] else f"e2e:     n={e['count']:.0f} avg=N/A", end=" ")
         if e['p50_ms']: print(f"p50={e['p50_ms']:.2f} p95={e['p95_ms']:.2f} p99={e['p99_ms']:.2f}")
         else: print("p50=N/A p95=N/A p99=N/A")

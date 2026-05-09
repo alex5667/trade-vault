@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 ML Scorer V2 Calibrator.
 
@@ -34,20 +36,19 @@ ENV vars:
   MLS_CAL_CFG_KEY                 cfg:ml_scorer:mode
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
-import hmac
 import hashlib
+import hmac
 import json
 import logging
 import os
 import secrets
 import sys
 import time
-from typing import Dict, List, Optional, Tuple
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 logging.basicConfig(
     level=logging.INFO,
@@ -92,9 +93,9 @@ def _i(v, default: int = 0) -> int:
 
 # ────────────────────────────────────────── stream readers ────────────────── #
 
-def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, str]]:
+def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, str]]:
     """Read stream entries from `since_ms` timestamp onwards."""
-    results: List[Dict[str, str]] = []
+    results: list[dict[str, str]] = []
     start_id = f"{since_ms}-0"
     page = 500
     last_id = start_id
@@ -114,9 +115,9 @@ def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int
     return results
 
 
-def _read_stream_recent(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, str]]:
+def _read_stream_recent(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, str]]:
     """XREVRANGE-based reader for trades:closed (newest first, filtered by ts_ms field)."""
-    results: List[Dict[str, str]] = []
+    results: list[dict[str, str]] = []
     last_id = "+"
     page = 500
 
@@ -140,7 +141,7 @@ def _read_stream_recent(r: redis.Redis, stream: str, since_ms: int, max_scan: in
 
 # ─────────────────────────────────────── metrics collection ───────────────── #
 
-def _extract_shadow_fields(payload_str: str) -> Optional[Dict[str, float]]:
+def _extract_shadow_fields(payload_str: str) -> dict[str, float] | None:
     """Parse decisions:final payload JSON, extract ML scorer shadow fields.
 
     Looks for:
@@ -180,7 +181,7 @@ def _extract_shadow_fields(payload_str: str) -> Optional[Dict[str, float]]:
     rule_conf = _f(indicators.get("confidence_v1") or indicators.get("confidence"), 0.0)
     ml_shadow_veto = _i(indicators.get("ml_shadow_veto"), 0)
 
-    sid = str(rec.get("sid") or "").strip()
+    sid = (rec.get("sid") or "").strip()
 
     # Must have some shadow data to be useful
     if ml_shadow_conf < 0 and ml_shadow_r < -900 and ml_shadow_veto == 0:
@@ -196,13 +197,13 @@ def _extract_shadow_fields(payload_str: str) -> Optional[Dict[str, float]]:
     }
 
 
-def _spearman_rank_corr(x: List[float], y: List[float]) -> float:
+def _spearman_rank_corr(x: list[float], y: list[float]) -> float:
     """Manual Spearman rank correlation (no scipy dependency)."""
     n = len(x)
     if n < 3:
         return 0.0
 
-    def _rank(vals: List[float]) -> List[float]:
+    def _rank(vals: list[float]) -> list[float]:
         indexed = sorted(enumerate(vals), key=lambda t: t[1])
         ranks = [0.0] * n
         i = 0
@@ -233,7 +234,7 @@ def _spearman_rank_corr(x: List[float], y: List[float]) -> float:
     return num / (dx * dy)
 
 
-def _rmse(predictions: List[float], actuals: List[float]) -> float:
+def _rmse(predictions: list[float], actuals: list[float]) -> float:
     """Root Mean Square Error."""
     n = len(predictions)
     if n == 0:
@@ -245,7 +246,7 @@ def _collect_analytics(
     r: redis.Redis,
     hours: float,
     max_scan: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Read decisions:final and trades:closed, join by sid.
 
@@ -279,7 +280,7 @@ def _collect_analytics(
     logger.info(f"  → {len(trades_events)} trades:closed events")
 
     # Build trades lookup by sid
-    trades_by_sid: Dict[str, Dict[str, str]] = {}
+    trades_by_sid: dict[str, dict[str, str]] = {}
     for ev in trades_events:
         sid = str(ev.get("sid") or ev.get("signal_id") or "").strip()
         if sid and sid not in trades_by_sid:
@@ -290,9 +291,9 @@ def _collect_analytics(
     scored_with_outcome = 0
 
     # Vectors for Spearman/RMSE
-    ml_scores: List[float] = []
-    rule_scores: List[float] = []
-    r_mults: List[float] = []
+    ml_scores: list[float] = []
+    rule_scores: list[float] = []
+    r_mults: list[float] = []
 
     # Veto analysis
     shadow_veto_count = 0
@@ -371,7 +372,7 @@ def _collect_analytics(
 
 # ───────────────────────────────────────────── holddown check ─────────────── #
 
-def _holddown_ok(r: redis.Redis, step_ts_key: str, holddown_h: float) -> Tuple[bool, float]:
+def _holddown_ok(r: redis.Redis, step_ts_key: str, holddown_h: float) -> tuple[bool, float]:
     """Returns (ok, hours_since_last_step)."""
     raw = r.get(step_ts_key)
     if not raw:
@@ -401,7 +402,7 @@ def _build_proposal_bundle(
     cfg_key: str,
     secret: str,
     ttl: int = 86400,
-) -> Tuple[str, str, Dict]:
+) -> tuple[str, str, dict]:
     """Create recs bundle that sets ML_SCORER_MODE=enforce."""
     bid = secrets.token_hex(6)
     sig = _sign(bid, secret)
@@ -429,7 +430,7 @@ def _send_telegram_proposal(
     bundle_id: str,
     sig: str,
     hours: float,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     notify_stream: str,
     is_reminder: bool = False,
 ) -> None:
@@ -483,12 +484,12 @@ def _send_telegram_proposal(
 
 def _should_propose(
     *,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     holddown_ok: bool,
     min_scored_trades: int,
     min_spearman: float,
     min_veto_precision: float,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Returns (should_propose, reason).
     All conditions must be satisfied.
@@ -526,7 +527,7 @@ def _wait_for_decision(
     bundle_id: str,
     sig: str,
     hours: float,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     notify_stream: str,
     reminder_sec: int,
     step_ts_key: str,
@@ -666,7 +667,7 @@ def main() -> None:
     holddown_h = float(os.getenv("MLS_CAL_ENFORCE_HOLDDOWN_H", "72"))
     min_spearman = float(os.getenv("MLS_CAL_MIN_SPEARMAN", "0.05"))
     min_veto_precision = float(os.getenv("MLS_CAL_MIN_VETO_PRECISION", "0.55"))
-    notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+    notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_ttl = int(os.getenv("MLS_CAL_BUNDLE_TTL_SEC", "86400"))
     reminder_sec = int(os.getenv("MLS_CAL_REMINDER_SEC", "1800"))

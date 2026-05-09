@@ -1,22 +1,19 @@
 from __future__ import annotations
+
 """P13: Tests for ActiveSymbolGuardIncidentNotifier with hold/ack-aware candidate selection
 and decision field in run_once output.
 """
+from unittest.mock import MagicMock
+
 from utils.time_utils import get_ny_time_millis
 
-import json
-import time
-from unittest.mock import MagicMock, patch
-
-import pytest
-
 try:
-    from services.active_symbol_guard_incident_notifier import ActiveSymbolGuardIncidentNotifier
     from services.active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics
+    from services.active_symbol_guard_incident_notifier import ActiveSymbolGuardIncidentNotifier
     from services.active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine
 except Exception:
-    from active_symbol_guard_incident_notifier import ActiveSymbolGuardIncidentNotifier  # type: ignore
     from active_symbol_guard_diagnostics import ActiveSymbolGuardDiagnostics  # type: ignore
+    from active_symbol_guard_incident_notifier import ActiveSymbolGuardIncidentNotifier  # type: ignore
     from active_symbol_guard_incident_policy import ActiveSymbolGuardIncidentPolicyEngine  # type: ignore
 
 

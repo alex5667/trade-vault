@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """ATR Policy Telegram SRE Digest — Phase 3.7.
 
 Sends a compact, action-oriented health digest to the ops Telegram channel.
@@ -16,7 +18,7 @@ Called from of_timers_worker nightly at 08:20.
 """
 
 import os
-from typing import Any, Dict
+from typing import Any
 
 import redis
 
@@ -31,16 +33,16 @@ def _redis() -> redis.Redis:
 
 
 def _chat_id() -> str:
-    return str(os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
+    return (os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "") or "")
 
 
 def _notify(text: str) -> bool:
-    payload: Dict[str, Any] = {"text": text}
+    payload: dict[str, Any] = {"text": text}
     cid = _chat_id()
     if cid:
         payload["chat_id"] = cid
     try:
-        _redis().xadd("notify:telegram", payload, maxlen=5000, approximate=True)
+        _redis().xadd(RS.NOTIFY_TELEGRAM, payload, maxlen=5000, approximate=True)
         return True
     except Exception:
         return False
@@ -70,7 +72,7 @@ def _badge(key: str, value: float) -> str:
     return "🟢"
 
 
-def build_sre_digest(s: Dict[str, Any] | None = None) -> str:
+def build_sre_digest(s: dict[str, Any] | None = None) -> str:
     """Build compact SRE digest text. Accepts pre-collected stats for testing."""
     if s is None:
         s = collect_once()

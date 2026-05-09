@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
+from typing import Any
 
 
 @dataclass
 class QuarantineDenylistDecision:
     allowed: bool
     matched_sid: str = ''
-    candidates: Optional[List[str]] = None
+    candidates: list[str] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             'allowed': bool(self.allowed),
             'matched_sid': str(self.matched_sid or ''),
@@ -18,8 +19,8 @@ class QuarantineDenylistDecision:
         }
 
 
-def extract_sid_candidates(signal: Mapping[str, Any]) -> List[str]:
-    out: List[str] = []
+def extract_sid_candidates(signal: Mapping[str, Any]) -> list[str]:
+    out: list[str] = []
     for key in ('sid', 'execution_sid', 'parent_sid', 'source_sid', 'signal_sid'):
         value = signal.get(key)
         if value is None:

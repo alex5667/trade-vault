@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Signal Publisher
 
@@ -6,13 +7,12 @@ Signal Publisher
 и возвращает PublishResult (чтобы upstream корректно делал ACK/метрики).
 """
 
+import logging
+from typing import Any
+
 from utils.time_utils import get_ny_time_millis
 
-from typing import Dict, Any, Optional
-import time
-import logging
-
-from .outbox_utils import PublishResult, ensure_ts_ms, normalize_to_bucket
+from .outbox_utils import PublishResult, normalize_to_bucket
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class SignalPublisher:
         source: str = "orderflow",
         strategy: str = "orderflow",
         dedup_bucket_ms: int = 60000,     # бакет дедупа (1 мин по умолчанию)
-        dedup_ttl_ms: Optional[int] = None,
+        dedup_ttl_ms: int | None = None,
     ):
         self.outbox = outbox
         self.source = source
@@ -38,9 +38,9 @@ class SignalPublisher:
         self.dedup_bucket_ms = int(dedup_bucket_ms)
         self.dedup_ttl_ms = int(dedup_ttl_ms) if dedup_ttl_ms is not None else None
 
-    def publish(self, signal: Dict[str, Any]) -> PublishResult:
+    def publish(self, signal: dict[str, Any]) -> PublishResult:
         """Публикует сигнал через outbox с дедупликацией."""
-        symbol = str(signal.get("symbol", "unknown"))
+        symbol = (signal.get("symbol", "unknown"))
 
         # side: LONG/SHORT в upper case
         side = signal.get("side")
@@ -76,7 +76,7 @@ class SignalPublisher:
                 source=self.source,
                 strategy=self.strategy,
                 symbol=symbol,
-                side=str(side).upper(),
+                side=side.upper(),
                 kind=kind,
                 level_key=level_key,
                 ts_ms=ts_norm,
@@ -92,6 +92,6 @@ class SignalPublisher:
             return PublishResult(sent=False, dedup=False, msg_id=None)
 
     # backward-compat: старый интерфейс send() можно оставить
-    def send(self, signal: Dict[str, Any]) -> None:
+    def send(self, signal: dict[str, Any]) -> None:
         """Устаревший интерфейс для совместимости."""
         _ = self.publish(signal)

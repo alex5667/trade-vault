@@ -5,7 +5,6 @@ Creates tables and views for the global release blocker proxy.
 """
 import logging
 import sys
-import os
 
 # [AUTOGRAVITY CLEANUP] sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from services.analytics_db import get_conn
@@ -98,7 +97,7 @@ def bootstrap():
                     cur.execute(q)
             conn.commit()
             logger.info("Successfully bootstrapped Phase 8.7 tables and views.")
-            
+
             # Additional check: Attempt to grant trading user privs
             try:
                 with conn.cursor() as cur:

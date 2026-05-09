@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Слушатель событий TP/SL из Redis streams.
 
@@ -17,21 +16,23 @@
 
 import json
 import os
+import signal
 import sys
 import time
-import signal
-import redis
-from typing import Dict, Any, List, Tuple, Optional
 
 # Добавляем путь к python-worker в PYTHONPATH
 from pathlib import Path
+from typing import Any
+
+import redis
+
 _worker_path = Path(__file__).parent.parent
 if str(_worker_path) not in sys.path:
     sys.path.insert(0, str(_worker_path))
 
-from services.trailing_profiles import TrailingProfilesRegistry
-from services.tp1_trailing_orchestrator import TP1TrailingOrchestrator
 from common.log import setup_logger
+from services.tp1_trailing_orchestrator import TP1TrailingOrchestrator
+from services.trailing_profiles import TrailingProfilesRegistry
 
 log = setup_logger("tp_event_listener")
 
@@ -42,31 +43,31 @@ class TPEventListener:
     
     Обрабатывает события торговых событий и запускает трейлинг после TP1.
     """
-    
+
     def __init__(self):
         # Конфигурация из env
         self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.events_stream = os.getenv("TP_EVENTS_STREAM", "events:trades")
         self.consumer_group = os.getenv("TP_EVENTS_GROUP", "tp1-trailing-group")
         self.consumer_name = os.getenv("TP_EVENTS_CONSUMER", f"tp1-trailing-{int(time.time())}")
-        
+
         # Redis connection
         self.r = redis.from_url(self.redis_url, decode_responses=True)
         log.info("✅ Connected to Redis: %s", self.redis_url)
-        
+
         # Ensure consumer group exists
         self._ensure_group()
-        
+
         # Инициализация компонентов
         self.profiles = TrailingProfilesRegistry()
         self.orchestrator = TP1TrailingOrchestrator(
             redis_client=self.r,
             profiles=self.profiles
         )
-        
+
         # Флаг для graceful shutdown
         self.running = False
-        
+
         # Статистика
         self.stats = {
             "messages_read": 0,
@@ -75,16 +76,16 @@ class TPEventListener:
             "errors": 0,
             "last_message_ts": 0
         }
-        
+
         # Настройка обработчиков сигналов для graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
-        
+
         log.info(
             "✅ TPEventListener initialized | stream=%s group=%s consumer=%s",
             self.events_stream, self.consumer_group, self.consumer_name
         )
-    
+
     def _ensure_group(self):
         """Создать consumer group если не существует."""
         max_retries = 30  # Retry for up to 30 attempts (about 2.5 minutes)
@@ -135,12 +136,12 @@ class TPEventListener:
         # If we exhausted all retries
         log.error("❌ Не удалось создать consumer group после %d попыток: Redis недоступен", max_retries)
         raise RuntimeError(f"Failed to create consumer group after {max_retries} attempts")
-    
+
     def _signal_handler(self, signum, frame):
         """Обработчик сигналов для graceful shutdown."""
         log.info("⛔ Received signal %d, shutting down gracefully...", signum)
         self.running = False
-    
+
     def run(self):
         """
         Основной цикл обработки событий.
@@ -150,17 +151,17 @@ class TPEventListener:
         """
         log.info("🚀 Starting event listener loop...")
         self.running = True
-        
+
         # Параметры чтения
         batch_size = int(os.getenv("TP_EVENTS_BATCH_SIZE", "50"))
         block_ms = int(os.getenv("TP_EVENTS_BLOCK_MS", "5000"))
-        
+
         # Периодическая статистика
         stats_interval = int(os.getenv("STATS_INTERVAL_SEC", "300"))  # 5 минут
         last_stats_log = time.time()
-        
+
         log.info("📊 Batch size: %d | Block timeout: %dms", batch_size, block_ms)
-        
+
         while self.running:
             try:
                 # Читаем сообщения из stream
@@ -172,12 +173,12 @@ class TPEventListener:
                         self._log_stats()
                         last_stats_log = time.time()
                     continue
-                
+
                 # Обрабатываем сообщения
                 for msg_id, fields in messages:
                     try:
                         self.stats["messages_read"] += 1
-                        
+
                         # Парсим событие
                         event = self._parse_event(fields)
                         if not event:
@@ -185,10 +186,10 @@ class TPEventListener:
                             self.r.xack(self.events_stream, self.consumer_group, msg_id)
                             self.stats["messages_acked"] += 1
                             continue
-                        
+
                         # Обрабатываем событие
                         self.orchestrator.handle_event(event)
-                        
+
                         # Подтверждаем обработку
                         try:
                             self.r.xack(self.events_stream, self.consumer_group, msg_id)
@@ -196,11 +197,11 @@ class TPEventListener:
                             log.warning("⚠️ Redis загружает данные, пропускаем XACK для %s", msg_id)
                         except Exception as ack_err:
                             log.warning("⚠️ Failed to XACK message %s: %s", msg_id, ack_err)
-                        
+
                         self.stats["messages_processed"] += 1
                         self.stats["messages_acked"] += 1
                         self.stats["last_message_ts"] = int(time.time())
-                        
+
                     except Exception as e:
                         self.stats["errors"] += 1
                         log.error(
@@ -215,20 +216,20 @@ class TPEventListener:
                             log.warning("⚠️ Redis загружает данные, не удалось подтвердить сообщение %s", msg_id)
                         except Exception as ack_err:
                             log.warning("⚠️ Failed to XACK failed message %s: %s", msg_id, ack_err)
-                
+
                 # Небольшая пауза между батчами
                 time.sleep(0.1)
-                
+
                 # Периодическая статистика
                 if time.time() - last_stats_log >= stats_interval:
                     self._log_stats()
                     last_stats_log = time.time()
-                    
+
             except KeyboardInterrupt:
                 log.info("⛔ Keyboard interrupt, shutting down...")
                 self.running = False
                 break
-                
+
             except redis.ConnectionError as e:
                 self.stats["errors"] += 1
                 log.error("❌ Redis connection error: %s", str(e))
@@ -239,17 +240,17 @@ class TPEventListener:
                 self.stats["errors"] += 1
                 log.error("❌ Loop error: %s", str(e), exc_info=True)
                 time.sleep(1.0)
-        
+
         # Final cleanup
         log.info("🛑 Event listener stopped")
         self._log_stats()
         log.info("✅ Shutdown complete")
-    
+
     def _read_messages(
         self,
         count: int,
         block_ms: int
-    ) -> List[Tuple[str, Dict[str, str]]]:
+    ) -> list[tuple[str, dict[str, str]]]:
         """
         Читает сообщения из Redis stream через consumer group.
 
@@ -295,8 +296,8 @@ class TPEventListener:
                 return []
             log.error("❌ Error reading from stream: %s", msg)
             return []
-    
-    def _parse_event(self, fields: Dict[str, str]) -> Optional[Dict[str, Any]]:
+
+    def _parse_event(self, fields: dict[str, str]) -> dict[str, Any] | None:
         """
         Парсит событие из Redis stream fields.
         
@@ -313,7 +314,7 @@ class TPEventListener:
         """
         if not fields:
             return None
-        
+
         try:
             # Если есть поле 'data' с JSON
             if "data" in fields:
@@ -322,7 +323,7 @@ class TPEventListener:
                 except json.JSONDecodeError:
                     log.warning("Failed to parse JSON from 'data' field")
                     return None
-            
+
             # Иначе возвращаем поля как есть
             event = {}
             for key, value in fields.items():
@@ -337,13 +338,13 @@ class TPEventListener:
                         event[key] = value
                 else:
                     event[key] = value
-            
+
             return event if event else None
-            
+
         except Exception as e:
             log.warning("Failed to parse event: %s", str(e))
             return None
-    
+
     def _log_stats(self):
         """Вывести статистику в лог."""
         log.info(
@@ -354,11 +355,11 @@ class TPEventListener:
             self.stats["errors"],
             int(time.time()) - self.stats["last_message_ts"] if self.stats["last_message_ts"] > 0 else -1
         )
-        
+
         # Статистика оркестратора
         self.orchestrator.log_stats()
-    
-    def health_check(self) -> Dict[str, Any]:
+
+    def health_check(self) -> dict[str, Any]:
         """
         Проверка здоровья сервиса.
 
@@ -374,11 +375,11 @@ class TPEventListener:
             redis_ok = False
         except Exception:
             redis_ok = False
-        
+
         # Проверка активности (последнее сообщение не более 10 минут назад)
         last_msg_age = int(time.time()) - self.stats["last_message_ts"]
         is_active = last_msg_age < 600 if self.stats["last_message_ts"] > 0 else True
-        
+
         return {
             "status": "healthy" if (redis_ok and self.running) else "unhealthy",
             "running": self.running,
@@ -394,16 +395,16 @@ def main():
     log.info("=" * 80)
     log.info("TP Event Listener Service")
     log.info("=" * 80)
-    
+
     listener = TPEventListener()
-    
+
     log.info("Configuration:")
     log.info("  Redis URL: %s", listener.redis_url)
     log.info("  Events stream: %s", listener.events_stream)
     log.info("  Consumer group: %s", listener.consumer_group)
     log.info("  Consumer name: %s", listener.consumer_name)
     log.info("=" * 80)
-    
+
     try:
         listener.run()
     except Exception as e:

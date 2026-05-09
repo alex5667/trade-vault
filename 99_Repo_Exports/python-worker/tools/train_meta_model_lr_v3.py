@@ -5,12 +5,13 @@ import argparse
 import json
 import math
 import os
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
+from core.feature_engineering import apply_transform
 from core.meta_features_v1 import (
     META_FEAT_V1_COLS,
     META_FEAT_V1_HASH,
@@ -20,10 +21,9 @@ from core.meta_features_v1 import (
     build_meta_features_v1,
 )
 from core.meta_model_lr import MetaModelLR
-from core.feature_engineering import apply_transform
 
 
-def robust_center_scale(x: np.ndarray) -> Tuple[float, float]:
+def robust_center_scale(x: np.ndarray) -> tuple[float, float]:
     # median / MAD (scaled)
     med = float(np.nanmedian(x))
     mad = float(np.nanmedian(np.abs(x - med)))
@@ -35,14 +35,14 @@ def robust_center_scale(x: np.ndarray) -> Tuple[float, float]:
     return med, scale
 
 
-def build_row_features(row: Dict[str, Any]) -> Dict[str, float]:
+def build_row_features(row: dict[str, Any]) -> dict[str, float]:
     have = int(row.get("have", 0) or 0)
     need = int(row.get("need", 0) or 0)
     ok_soft = int(row.get("ok_soft", 0) or 0)
     rule_score = float(row.get("score_final_01", row.get("rule_score", 0.0)) or 0.0)
     exec_risk_norm = float(row.get("exec_risk_norm", 0.0) or 0.0)
     exec_risk_bps = float(row.get("exec_risk_bps", 0.0) or 0.0)
-    ml_scenario = str(row.get("scenario_v4", row.get("ml_scenario", "")) or "")
+    ml_scenario = (row.get("scenario_v4", row.get("ml_scenario", "")) or "")
 
     feat, _missing_raw = build_meta_features_v1(
         evidence=row,
@@ -81,7 +81,7 @@ def main() -> int:
     n = len(records)
     m = len(META_FEAT_V1_COLS)
 
-    feat_dicts: List[Dict[str, float]] = []
+    feat_dicts: list[dict[str, float]] = []
     X_raw = np.zeros((n, m), dtype=float)
 
     for i, row in enumerate(records):

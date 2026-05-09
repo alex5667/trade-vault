@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Signal Execution Domain Models for Production Use
 
@@ -9,11 +10,11 @@ in the scanner_infra system. These models integrate with existing SignalContext.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
-from typing import Any, Dict, List, Tuple
+from enum import StrEnum
+from typing import Any
 
 
-class Side(str, Enum):
+class Side(StrEnum):
     LONG = "long"
     SHORT = "short"
 
@@ -52,8 +53,8 @@ class OrderBookSnapshot:
     ts: datetime
     best_bid: float
     best_ask: float
-    bids: List[float] = field(default_factory=list)
-    asks: List[float] = field(default_factory=list)
+    bids: list[float] = field(default_factory=list)
+    asks: list[float] = field(default_factory=list)
 
 
 # 1m-бар для performance-трекера
@@ -81,8 +82,8 @@ class ExecutionPlan:
     entry_zone_high: float
 
     stop_price: float
-    tp_levels: List[float]           # реальные ценовые уровни TP
-    partials: List[float]            # доли объёма для частичных выходов (сумма ≤ 1.0)
+    tp_levels: list[float]           # реальные ценовые уровни TP
+    partials: list[float]            # доли объёма для частичных выходов (сумма ≤ 1.0)
 
     pos_risk_R: float                # риск в R на сделку (до стопа)
     risk_usd: float                  # риск в USD
@@ -91,7 +92,7 @@ class ExecutionPlan:
     expiry_bars: int                 # сколько 1m-баров сигнал живёт
 
     created_at: datetime = field(default_factory=datetime.utcnow)
-    meta: Dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -116,11 +117,11 @@ class SymbolSetupConfig:
     entry_zone_max_R: float = 0.8
 
     # TP уровни в R (если нет явных HTF уровней)
-    default_tp_R: Tuple[float, float, float] = (1.0, 2.0, 3.0)
+    default_tp_R: tuple[float, float, float] = (1.0, 2.0, 3.0)
 
     # Risk sizing по score (ступени)
-    score_buckets: Tuple[float, float, float] = (0.4, 0.7, 0.85)  # границы
-    risk_multipliers: Tuple[float, float, float, float] = (0.5, 1.0, 1.5, 2.0)
+    score_buckets: tuple[float, float, float] = (0.4, 0.7, 0.85)  # границы
+    risk_multipliers: tuple[float, float, float, float] = (0.5, 1.0, 1.5, 2.0)
 
     # Глобальные лимиты
     max_risk_R_per_trade: float = 1.0

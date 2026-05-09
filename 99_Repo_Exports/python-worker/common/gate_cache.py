@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Hashable, TypeVar
+from collections.abc import Callable, Hashable
+from typing import Any, TypeVar
+import contextlib
 
 T = TypeVar("T")
 
-def _get_ctx_cache(ctx: Any) -> Dict[Hashable, Any]:
+def _get_ctx_cache(ctx: Any) -> dict[Hashable, Any]:
     """
     Stable, fail-open per-ctx cache.
     - Stores only small objects (decisions / booleans / tuples).
@@ -15,13 +17,13 @@ def _get_ctx_cache(ctx: Any) -> Dict[Hashable, Any]:
         if isinstance(c, dict):
             return c
         c = {}
-        setattr(ctx, "_gate_cache", c)
+        ctx._gate_cache = c
         return c
     except Exception:
         # If ctx is immutable / slots-only, return ephemeral cache (still safe).
         return {}
 
-def cached_call(ctx: Any, key: Hashable, fn: Callable[[], T]) -> T:
+def cached_call[T](ctx: Any, key: Hashable, fn: Callable[[], T]) -> T:
     """
     Compute-once helper.
     If ctx cache is not writable -> behaves like no-cache, but still correct.
@@ -30,14 +32,12 @@ def cached_call(ctx: Any, key: Hashable, fn: Callable[[], T]) -> T:
     if key in c:
         return c[key]  # type: ignore[return-value]
     v = fn()
-    try:
+    with contextlib.suppress(Exception):
         c[key] = v
-    except Exception:
-        pass
     return v
 
 
-def cached_call_exc(ctx: Any, key: Hashable, fn: Callable[[], T]) -> T:
+def cached_call_exc[T](ctx: Any, key: Hashable, fn: Callable[[], T]) -> T:
     """
     Compute-once helper that also caches exceptions.
 
@@ -54,14 +54,10 @@ def cached_call_exc(ctx: Any, key: Hashable, fn: Callable[[], T]) -> T:
         return v  # type: ignore[return-value]
     try:
         v = fn()
-        try:
+        with contextlib.suppress(Exception):
             c[key] = v
-        except Exception:
-            pass
         return v
     except BaseException as e:
-        try:
+        with contextlib.suppress(Exception):
             c[key] = e
-        except Exception:
-            pass
         raise

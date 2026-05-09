@@ -1,10 +1,10 @@
-# core/fast_linear_util_mh.py
 from __future__ import annotations
 
+# core/fast_linear_util_mh.py
 import json
-from pathlib import Path
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any
 
 from core.feature_engineering import RobustScalerPack
 
@@ -18,7 +18,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _dot(coef: List[float], x: List[float]) -> float:
+def _dot(coef: list[float], x: list[float]) -> float:
     s = 0.0
     for w, v in zip(coef, x):
         s += float(w) * float(v)
@@ -28,7 +28,7 @@ def _dot(coef: List[float], x: List[float]) -> float:
 @dataclass
 class HorizonLinear:
     intercept: float
-    coef: List[float]
+    coef: list[float]
     # uncertainty proxy (e.g., median absolute residual on val); constant is fine for gating.
     unc: float = 0.0
 
@@ -57,25 +57,25 @@ class FastLinearUtilMHModel:
       }
     """
 
-    feature_cols: List[str]
-    horizons_ms: List[int]
-    models: Dict[int, HorizonLinear]
+    feature_cols: list[str]
+    horizons_ms: list[int]
+    models: dict[int, HorizonLinear]
 
     # Optional feature engineering used by ml_confirm_gate._build_feature_row
-    feature_transforms: Dict[str, Any]
-    robust_scaler: Optional[RobustScalerPack] = None
-    spread_bucket_edges: Optional[List[float]] = None
-    session_cfg: Optional[Dict[str, Any]] = None
-    liq_cfg: Optional[Dict[str, Any]] = None
+    feature_transforms: dict[str, Any]
+    robust_scaler: RobustScalerPack | None = None
+    spread_bucket_edges: list[float] | None = None
+    session_cfg: dict[str, Any] | None = None
+    liq_cfg: dict[str, Any] | None = None
 
     @staticmethod
-    def load(path: str) -> "FastLinearUtilMHModel":
+    def load(path: str) -> FastLinearUtilMHModel:
         d = json.loads(Path(path).read_text(encoding="utf-8"))
         fcols = list(d.get("feature_cols") or [])
         h_ms = [int(x) for x in (d.get("horizons_ms") or [])]
         w = d.get("weights") if isinstance(d.get("weights"), dict) else {}
 
-        models: Dict[int, HorizonLinear] = {}
+        models: dict[int, HorizonLinear] = {}
         for hk, hv in w.items():
             if not isinstance(hv, dict):
                 continue
@@ -112,10 +112,10 @@ class FastLinearUtilMHModel:
             liq_cfg=liq_cfg,
         )
 
-    def predict_util(self, X: List[List[float]], horizons_ms: List[int]) -> Dict[int, List[float]]:
+    def predict_util(self, X: list[list[float]], horizons_ms: list[int]) -> dict[int, list[float]]:
         # X: [[x1, x2, ...]]
         x = list((X or [[0.0]])[0])
-        out: Dict[int, List[float]] = {}
+        out: dict[int, list[float]] = {}
         for h in horizons_ms:
             hh = int(h)
             m = self.models.get(hh)
@@ -125,8 +125,8 @@ class FastLinearUtilMHModel:
             out[hh] = [float(m.intercept + _dot(m.coef, x))]
         return out
 
-    def predict_unc(self, X: List[List[float]], horizons_ms: List[int]) -> Dict[int, List[float]]:
-        out: Dict[int, List[float]] = {}
+    def predict_unc(self, X: list[list[float]], horizons_ms: list[int]) -> dict[int, list[float]]:
+        out: dict[int, list[float]] = {}
         for h in horizons_ms:
             hh = int(h)
             m = self.models.get(hh)

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """enforce_bucket_slo_freezer_p80.py
 
 P80: Freeze auto-apply for enforce-bucket promoter if SLO degrades on enforced buckets.
@@ -38,13 +40,13 @@ Audit:
   ENFORCE_FREEZER_EVENTS_STREAM (default events:enforce_bucket_slo_freezer)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import sys
-import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     import psycopg2  # type: ignore
@@ -63,20 +65,20 @@ def _now_ms() -> int:
 
 def _env_int(name: str, default: str) -> int:
     try:
-        return int(str(os.getenv(name, default)).strip())
+        return int(os.getenv(name, default).strip())
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(name: str, default: str) -> float:
     try:
-        return float(str(os.getenv(name, default)).strip())
+        return float(os.getenv(name, default).strip())
     except Exception:
-        return float(default)
+        return default
 
 
-def _env_list(name: str, default: str) -> List[str]:
-    raw = str(os.getenv(name, default) or "").strip()
+def _env_list(name: str, default: str) -> list[str]:
+    raw = (os.getenv(name, default) or "").strip()
     if not raw:
         return []
     out = []
@@ -89,7 +91,7 @@ def _env_list(name: str, default: str) -> List[str]:
 
 def _write_status(path: str, obj: dict) -> None:
     try:
-        p = str(path or "").strip()
+        p = (path or "").strip()
         if not p:
             return
         d = os.path.dirname(p)
@@ -124,16 +126,16 @@ def _read_pref(r: Any, base: str, sym: str) -> str:
     if v:
         return str(v)
     v = r.get(base)
-    return str(v or "")
+    return (v or "")
 
 
-def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int, float, float, float]]:
+def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> dict[str, tuple[int, float, float, float]]:
     mv = os.getenv("ENFORCE_STATS_MV", "mv_exec_slippage_eval_1h_stats").strip() or "mv_exec_slippage_eval_1h_stats"
     view = os.getenv("ENFORCE_STATS_VIEW", "v_exec_slippage_eval").strip() or "v_exec_slippage_eval"
 
     conn = psycopg2.connect(dsn)
     cur = conn.cursor()
-    out: Dict[str, Tuple[int, float, float, float]] = {}
+    out: dict[str, tuple[int, float, float, float]] = {}
     try:
         cur.execute(
             f"""
@@ -171,14 +173,10 @@ def _query_stats(dsn: str, *, sym: str, lookback_h: int) -> Dict[str, Tuple[int,
             out[str(b).upper()] = (int(n or 0), float(p95 or 0.0), float(p99 or 0.0), float(neg or 0.0))
         return out
     finally:
-        try:
+        with contextlib.suppress(Exception):
             cur.close()
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             conn.close()
-        except Exception:
-            pass
 
 
 def _allow_bucket(allow: str, bucket: str, default_bucket: str = "HIGH_VOL_LOW_LIQ") -> bool:
@@ -205,7 +203,7 @@ def _notify_freeze(r: Any, *, text: str) -> None:
     if last and (now - last) < (cooldown * 1000):
         return
 
-    stream = os.getenv("ENFORCE_BUCKET_NOTIFY_STREAM") or os.getenv("NOTIFY_TELEGRAM_STREAM") or "notify:telegram"
+    stream = os.getenv("ENFORCE_BUCKET_NOTIFY_STREAM") or os.getenv("NOTIFY_TELEGRAM_STREAM") or RS.NOTIFY_TELEGRAM
     try:
         r.set(key, str(now))
         r.expire(key, max(60, cooldown))

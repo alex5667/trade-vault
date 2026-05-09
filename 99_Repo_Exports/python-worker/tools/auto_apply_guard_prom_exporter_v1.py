@@ -1,12 +1,11 @@
-import os
-import time
 import logging
+import os
 import signal
-import sys
-import redis
-from prometheus_client import start_http_server, Gauge, REGISTRY
+import time
 from collections import defaultdict
-from typing import List, Dict, Any, Optional
+
+import redis
+from prometheus_client import Gauge, start_http_server
 
 try:
     from common.redis_errors import is_redis_busy_loading_error, is_transient_error
@@ -53,16 +52,16 @@ class AutoApplyGuardExporter:
         t = time.gmtime(ts)
         return time.strftime("%Y%m%d%H%M", t)
 
-    def get_buckets_for_window(self, now_ts: float, window_minutes: int) -> List[str]:
+    def get_buckets_for_window(self, now_ts: float, window_minutes: int) -> list[str]:
         """Returns a list of Redis keys for the last N minutes"""
         buckets = []
-        # We look back window_minutes. 
-        # For a 5m window, we check buckets for t-0, t-1, t-2, t-3, t-4? 
+        # We look back window_minutes.
+        # For a 5m window, we check buckets for t-0, t-1, t-2, t-3, t-4?
         # Or rigorously t-window_minutes to t?
-        # The recommendation implies "rolling windows". 
+        # The recommendation implies "rolling windows".
         # We will collect the last `window_minutes` buckets ending at current minute (inclusive or exclusive? usually inclusive for latest data).
         # Let's include current minute as it builds up.
-        
+
         for i in range(window_minutes):
             ts = now_ts - (i * 60)
             bucket_ts = self.get_time_bucket(ts)
@@ -71,24 +70,24 @@ class AutoApplyGuardExporter:
 
     def collect_metrics(self):
         now = time.time()
-        
-        # Pre-calculate pipe commands might be complex because keys are dynamic. 
+
+        # Pre-calculate pipe commands might be complex because keys are dynamic.
         # But we can iterate windows.
         # Efficient approach: Fetch all unique buckets needed across all windows first?
         # Max window is 60m. So we need last 60 buckets.
-        
+
         max_window = max(WINDOWS_MIN)
         needed_buckets_keys = []
         for i in range(max_window + 1): # +1 buffer
              ts = now - (i * 60)
              bucket_ts = self.get_time_bucket(ts)
              needed_buckets_keys.append(f"{WIN1M_PREFIX}:{bucket_ts}")
-        
+
         # Pipeline fetch all needed buckets
         pipe = self.redis.pipeline()
         for key in needed_buckets_keys:
             pipe.hgetall(key)
-        
+
         try:
             results = pipe.execute()
         except redis.RedisError as e:
@@ -101,7 +100,7 @@ class AutoApplyGuardExporter:
             return
 
         # Map key -> data
-        data_map: Dict[str, Dict[str, str]] = {}
+        data_map: dict[str, dict[str, str]] = {}
         for key, val in zip(needed_buckets_keys, results):
             if val:
                 data_map[key] = val
@@ -111,7 +110,7 @@ class AutoApplyGuardExporter:
         # Aggregate for each window
         for win in WINDOWS_MIN:
             window_str = f"{win}m"
-            
+
             # Determine keys for this window
             # Window 5m = {t, t-1, ..., t-4}
             window_keys = []
@@ -132,7 +131,7 @@ class AutoApplyGuardExporter:
                 blocked_total += int(d.get('blocked_total', 0))
                 run_ok_total += int(d.get('run_ok_total', 0))
                 run_err_total += int(d.get('run_err_total', 0))
-                
+
                 # Reasons are stored as blocked:<reason>
                 for field, val in d.items():
                     if field.startswith('blocked:') and field != 'blocked_total':
@@ -162,34 +161,34 @@ class AutoApplyGuardExporter:
             GAUGE_EXEC_ERR_RATIO.labels(window=window_str).set(exec_err_ratio)
 
             # Top N Reasons
-            # We must clear old reason metrics or they persist? 
-            # Prometheus client doesn't "clear" labels easily. 
+            # We must clear old reason metrics or they persist?
+            # Prometheus client doesn't "clear" labels easily.
             # Ideally we set 0 for reasons not in topN if we want them to disappear, or just update.
             # Best practice for gauges with dynamic labels: use a callback or carefully manage.
-            # Simpler: just set current ones. Old ones remain until restart. 
+            # Simpler: just set current ones. Old ones remain until restart.
             # For this task, we will just set the top N.
-            
+
             sorted_reasons = sorted(reasons_counter.items(), key=lambda x: x[1], reverse=True)
             if REASON_TOPN > 0:
                 sorted_reasons = sorted_reasons[:REASON_TOPN]
-            
+
             for reason, count in sorted_reasons:
                 GAUGE_BLOCKED_REASON.labels(window=window_str, reason=reason).set(count)
 
     def run(self):
         logger.info(f"Starting AutoApplyGuardExporter on port {METRICS_PORT}")
         start_http_server(METRICS_PORT)
-        
+
         while self.running:
             try:
                 self.collect_metrics()
             except Exception as e:
                 logger.error(f"Error in collection loop: {e}", exc_info=True)
-            
-            # Update every 30s ? or 10s? 
+
+            # Update every 30s ? or 10s?
             # Windows are 1m resolution, so 15s or 30s is fine.
             time.sleep(15)
-        
+
         logger.info("Exporter stopped")
 
 if __name__ == "__main__":

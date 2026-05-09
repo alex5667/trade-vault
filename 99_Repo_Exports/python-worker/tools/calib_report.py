@@ -22,13 +22,14 @@ Output:
 import argparse
 import json
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 
-def _load_ndjson(path: Path) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+def _load_ndjson(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     if not path.exists():
         return rows
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -39,7 +40,7 @@ def _load_ndjson(path: Path) -> List[Dict[str, Any]]:
     return rows
 
 
-def _pct(xs: List[float], p: float) -> float:
+def _pct(xs: list[float], p: float) -> float:
     if not xs:
         return 0.0
     ys = sorted(xs)
@@ -58,11 +59,11 @@ def _pct(xs: List[float], p: float) -> float:
     return float(a + (b - a) * w)
 
 
-def _mean(xs: List[float]) -> float:
+def _mean(xs: list[float]) -> float:
     return float(sum(xs) / len(xs)) if xs else 0.0
 
 
-def _std(xs: List[float]) -> float:
+def _std(xs: list[float]) -> float:
     if len(xs) < 2:
         return 0.0
     m = _mean(xs)
@@ -87,11 +88,11 @@ class Key:
         return f"{self.symbol}:{self.regime}"
 
 
-def _group_by(rows: Iterable[Dict[str, Any]]) -> Dict[Key, List[Dict[str, Any]]]:
-    out: Dict[Key, List[Dict[str, Any]]] = {}
+def _group_by(rows: Iterable[dict[str, Any]]) -> dict[Key, list[dict[str, Any]]]:
+    out: dict[Key, list[dict[str, Any]]] = {}
     for r in rows:
-        sym = str(r.get("symbol", "") or "")
-        reg = str(r.get("regime", "na") or "na")
+        sym = (r.get("symbol", "") or "")
+        reg = (r.get("regime", "na") or "na")
         k = Key(sym, reg)
         out.setdefault(k, []).append(r)
     for k in out:
@@ -99,7 +100,7 @@ def _group_by(rows: Iterable[Dict[str, Any]]) -> Dict[Key, List[Dict[str, Any]]]
     return out
 
 
-def _bars_to_ready(audit_rows: List[Dict[str, Any]], tf_ms: int) -> int:
+def _bars_to_ready(audit_rows: list[dict[str, Any]], tf_ms: int) -> int:
     """
     Approx bars until src becomes calib_* from static.
     Uses timestamps; bars ~= dt/tf_ms.
@@ -108,7 +109,7 @@ def _bars_to_ready(audit_rows: List[Dict[str, Any]], tf_ms: int) -> int:
         return -1
     t0 = int(audit_rows[0].get("ts_ms", 0) or 0)
     for r in audit_rows:
-        src = str(r.get("src", "") or "")
+        src = (r.get("src", "") or "")
         if src and src != "static" and src.startswith("calib"):
             t1 = int(r.get("ts_ms", 0) or 0)
             if t0 > 0 and t1 >= t0 and tf_ms > 0:
@@ -117,7 +118,7 @@ def _bars_to_ready(audit_rows: List[Dict[str, Any]], tf_ms: int) -> int:
     return -1
 
 
-def _audit_rate(audit_rows: List[Dict[str, Any]]) -> Tuple[int, float]:
+def _audit_rate(audit_rows: list[dict[str, Any]]) -> tuple[int, float]:
     if not audit_rows:
         return (0, 0.0)
     t0 = int(audit_rows[0].get("ts_ms", 0) or 0)
@@ -127,7 +128,7 @@ def _audit_rate(audit_rows: List[Dict[str, Any]]) -> Tuple[int, float]:
     return (n, float(n / dt_s))
 
 
-def _stability_stats(audit_rows: List[Dict[str, Any]], last_n: int = 200) -> Dict[str, Any]:
+def _stability_stats(audit_rows: list[dict[str, Any]], last_n: int = 200) -> dict[str, Any]:
     """
     volatility: std and (p95-p05)/median on last N points.
     """
@@ -151,7 +152,7 @@ def _stability_stats(audit_rows: List[Dict[str, Any]], last_n: int = 200) -> Dic
     }
 
 
-def _mismatch_count(prod: List[Dict[str, Any]], replay: List[Dict[str, Any]]) -> int:
+def _mismatch_count(prod: list[dict[str, Any]], replay: list[dict[str, Any]]) -> int:
     """
     Compare normalized rows 1:1 by index (ts_ms, symbol, regime ordering assumed).
     """
@@ -172,8 +173,8 @@ def _mismatch_count(prod: List[Dict[str, Any]], replay: List[Dict[str, Any]]) ->
     return int(mis)
 
 
-def _render_md(report: Dict[str, Any]) -> str:
-    lines: List[str] = []
+def _render_md(report: dict[str, Any]) -> str:
+    lines: list[str] = []
     lines.append("# Calibration Passport Report\n")
     lines.append(f"- Generated rows: {report.get('rows_total', 0)}\n")
     lines.append(f"- Keys (symbol:regime): {report.get('keys_total', 0)}\n")
@@ -210,7 +211,7 @@ def main() -> None:
     grouped = _group_by(calib_rows)
     grouped_replay = _group_by(replay_rows) if replay_rows else {}
 
-    by_key: Dict[str, Any] = {}
+    by_key: dict[str, Any] = {}
     mismatch_total = 0
     for key, rows in grouped.items():
         k = key.as_str()

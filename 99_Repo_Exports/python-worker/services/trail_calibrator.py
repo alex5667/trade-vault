@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Trail Calibrator — computes optimal trailing params per symbol × regime.
 
@@ -13,15 +14,12 @@ Mode: shadow (log only) or enforce (executor reads and uses).
 
 Fail-open: never raises.
 """
-from utils.time_utils import get_ny_time_millis
-
-import math
 import os
-import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("TrailCalibrator")
 
@@ -36,19 +34,19 @@ def _env_bool(name: str, default: bool) -> bool:
 def _sf(v: Any, default: float = 0.0) -> float:
     try:
         if v is None:
-            return float(default)
+            return default
         return float(str(v).strip())
     except Exception:
-        return float(default)
+        return default
 
 
 def _si(v: Any, default: int = 0) -> int:
     try:
         if v is None:
-            return int(default)
+            return default
         return int(float(str(v).strip()))
     except Exception:
-        return int(default)
+        return default
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +66,7 @@ class TrailCalibratorConfig:
     analysis_key_prefix: str
 
     @classmethod
-    def from_env(cls) -> "TrailCalibratorConfig":
+    def from_env(cls) -> TrailCalibratorConfig:
         return cls(
             enabled=_env_bool("TRAIL_CALIB_ENABLED", True),
             mode=os.getenv("TRAIL_CALIB_MODE", "shadow") or "shadow",
@@ -100,8 +98,8 @@ class CalibratedTrailParams:
     computed_at_ms: int
     previous_callback_atr_mult: float  # for delta tracking
 
-    def to_redis_mapping(self) -> Dict[str, str]:
-        d: Dict[str, str] = {}
+    def to_redis_mapping(self) -> dict[str, str]:
+        d: dict[str, str] = {}
         for k, v in asdict(self).items():
             d[k] = str(v)
         return d
@@ -119,7 +117,7 @@ class TrailCalibrator:
     """
 
     # Default ATR in BPS for major symbols (fallback)
-    DEFAULT_ATR_BPS: Dict[str, float] = {
+    DEFAULT_ATR_BPS: dict[str, float] = {
         "BTCUSDT": 30.0,
         "ETHUSDT": 45.0,
         "SOLUSDT": 80.0,
@@ -129,11 +127,11 @@ class TrailCalibrator:
     }
     DEFAULT_ATR_BPS_FALLBACK = 50.0
 
-    def __init__(self, redis_client: Any, *, cfg: Optional[TrailCalibratorConfig] = None):
+    def __init__(self, redis_client: Any, *, cfg: TrailCalibratorConfig | None = None):
         self.redis = redis_client
         self.cfg = cfg or TrailCalibratorConfig.from_env()
 
-    def run(self, symbols: Optional[List[str]] = None) -> List[CalibratedTrailParams]:
+    def run(self, symbols: list[str] | None = None) -> list[CalibratedTrailParams]:
         """Main entry point. Returns list of calibrated params."""
         if not self.cfg.enabled:
             logger.info("Trail calibrator disabled (TRAIL_CALIB_ENABLED=0)")
@@ -148,7 +146,7 @@ class TrailCalibrator:
             logger.info("No trail:analysis:* keys found — post-analyzer must run first")
             return []
 
-        results: List[CalibratedTrailParams] = []
+        results: list[CalibratedTrailParams] = []
         for key in analysis_keys:
             params = self._calibrate_from_analysis(key)
             if params:
@@ -161,7 +159,7 @@ class TrailCalibrator:
         )
         return results
 
-    def _scan_analysis_keys(self, symbols: Optional[List[str]] = None) -> List[str]:
+    def _scan_analysis_keys(self, symbols: list[str] | None = None) -> list[str]:
         """Scan Redis for trail:analysis:* keys."""
         try:
             pattern = f"{self.cfg.analysis_key_prefix}:*"
@@ -182,7 +180,7 @@ class TrailCalibrator:
             logger.error("Failed to scan analysis keys: %s", e)
             return []
 
-    def _calibrate_from_analysis(self, analysis_key: str) -> Optional[CalibratedTrailParams]:
+    def _calibrate_from_analysis(self, analysis_key: str) -> CalibratedTrailParams | None:
         """Compute calibrated params from one analysis bucket."""
         try:
             h = self.redis.hgetall(analysis_key)
@@ -190,8 +188,8 @@ class TrailCalibrator:
                 return None
 
             # Parse analysis data
-            symbol = str(h.get("symbol", ""))
-            regime = str(h.get("regime", "na"))
+            symbol = (h.get("symbol", ""))
+            regime = (h.get("regime", "na"))
             n_total = _si(h.get("n_total"), 0)
             confidence = _sf(h.get("confidence"), 0.0)
             optimal_callback_bps = _sf(h.get("optimal_callback_bps"), 0.0)
@@ -287,14 +285,14 @@ class TrailCalibrator:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def format_telegram_report(params_list: List[CalibratedTrailParams]) -> str:
+    def format_telegram_report(params_list: list[CalibratedTrailParams]) -> str:
         """Format calibrated params for Telegram."""
         if not params_list:
             return "🔧 <b>Trail Calibrator</b>\n\nNo calibrations performed."
 
         lines = [f"🔧 <b>Trail Calibrator</b> (mode={params_list[0].mode})\n"]
 
-        by_sym: Dict[str, List[CalibratedTrailParams]] = {}
+        by_sym: dict[str, list[CalibratedTrailParams]] = {}
         for p in params_list:
             by_sym.setdefault(p.symbol, []).append(p)
 

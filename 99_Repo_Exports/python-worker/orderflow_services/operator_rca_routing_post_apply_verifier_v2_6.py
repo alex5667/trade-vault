@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -13,7 +14,7 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
-
+import contextlib
 
 STREAM_APPLY_RESULTS = os.getenv("ML_OPERATOR_RCA_ROUTING_APPLY_RESULTS_STREAM", "stream:ml:operator_rca_routing_apply_results")
 STREAM_VERIFY_RESULTS = os.getenv("ML_OPERATOR_RCA_ROUTING_VERIFY_RESULTS_STREAM", "stream:ml:operator_rca_routing_verify_results")
@@ -66,8 +67,8 @@ class RoutingApplyResult:
     reason_codes_json: str
 
 
-def _decode(fields: Dict[Any, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _decode(fields: dict[Any, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         vv = v.decode() if isinstance(v, (bytes, bytearray)) else str(v)
@@ -82,7 +83,7 @@ def _safe_json(raw: str, default: Any) -> Any:
         return default
 
 
-def _parse_apply_result(fields: Dict[Any, Any]) -> RoutingApplyResult:
+def _parse_apply_result(fields: dict[Any, Any]) -> RoutingApplyResult:
     d = _decode(fields)
     return RoutingApplyResult(
         recommendation_id=d.get("recommendation_id", ""),
@@ -100,7 +101,7 @@ def _parse_apply_result(fields: Dict[Any, Any]) -> RoutingApplyResult:
     )
 
 
-def _score_snapshot(snapshot: Dict[str, Any]) -> Tuple[int, float, float, float]:
+def _score_snapshot(snapshot: dict[str, Any]) -> tuple[int, float, float, float]:
     exposures = int(snapshot.get("exposures_n", 0) or 0)
     usefulness = float(snapshot.get("usefulness_avg", 0.0) or 0.0)
     error_rate = float(snapshot.get("error_rate", 0.0) or 0.0)
@@ -108,8 +109,8 @@ def _score_snapshot(snapshot: Dict[str, Any]) -> Tuple[int, float, float, float]
     return exposures, usefulness, error_rate, parse_fail_rate
 
 
-def evaluate_verification(snapshot: Dict[str, Any]) -> Tuple[str, List[str], bool]:
-    reason_codes: List[str] = []
+def evaluate_verification(snapshot: dict[str, Any]) -> tuple[str, list[str], bool]:
+    reason_codes: list[str] = []
     exposures, usefulness, error_rate, parse_fail_rate = _score_snapshot(snapshot)
     rollback_required = False
     if exposures < MIN_EXPECTED_EXPOSURES:
@@ -129,7 +130,7 @@ def evaluate_verification(snapshot: Dict[str, Any]) -> Tuple[str, List[str], boo
     return "PASS", ["VERIFY_PASS"], False
 
 
-async def _load_current_route(r: Any) -> Dict[str, Any]:
+async def _load_current_route(r: Any) -> dict[str, Any]:
     try:
         current = await r.hgetall(HASH_ROUTE_DEFAULT)
         return {k.decode() if isinstance(k, (bytes, bytearray)) else str(k): v.decode() if isinstance(v, (bytes, bytearray)) else str(v) for k, v in current.items()}
@@ -137,7 +138,7 @@ async def _load_current_route(r: Any) -> Dict[str, Any]:
         return {}
 
 
-async def _build_live_snapshot(r: Any) -> Dict[str, Any]:
+async def _build_live_snapshot(r: Any) -> dict[str, Any]:
     last = await r.hgetall("metrics:ml:operator_rca_feedback:last")
     decoded = _decode(last)
     return {
@@ -153,10 +154,8 @@ async def main() -> None:
         raise RuntimeError("redis.asyncio is required")
     start_http_server(PROM_PORT)
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(STREAM_APPLY_RESULTS, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
 
     while True:
         t0 = time.perf_counter()

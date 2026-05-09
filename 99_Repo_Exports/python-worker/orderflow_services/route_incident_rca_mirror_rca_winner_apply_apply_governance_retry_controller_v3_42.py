@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -59,15 +60,15 @@ BACKOFF_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY
 STATE_TTL_SEC = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_GOVERNANCE_RETRY_STATE_TTL_SEC", "86400"))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -88,8 +89,8 @@ def parse_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -102,7 +103,7 @@ def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-async def xr_recent(client: Any, stream_key: str, count: int) -> list[Dict[str, Any]]:
+async def xr_recent(client: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await client.xrevrange(stream_key, count=count)
     except Exception:
@@ -115,15 +116,15 @@ async def xr_recent(client: Any, stream_key: str, count: int) -> list[Dict[str, 
     return out
 
 
-def actionable_verification(row: Dict[str, Any]) -> bool:
-    return str(row.get("decision") or "") == "ROLLBACK_PREVIOUS_POLICY"
+def actionable_verification(row: dict[str, Any]) -> bool:
+    return (row.get("decision") or "") == "ROLLBACK_PREVIOUS_POLICY"
 
 
-def event_key(row: Dict[str, Any]) -> str:
+def event_key(row: dict[str, Any]) -> str:
     return f"{row.get('reason_code','?')}:{row.get('rollback_mode','?')}:{row.get('rollback_primary_arm','?')}:{row.get('ts_ms','0')}"
 
 
-async def persist_if_configured(db_url: str, result: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, result: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -177,12 +178,12 @@ async def main() -> None:  # pragma: no cover
                 await asyncio.sleep(max(RUN_EVERY_SEC, 5))
                 continue
 
-            rollback_mode = str(target.get("rollback_mode") or "SHADOW")
-            rollback_primary = str(target.get("rollback_primary_arm") or "deterministic")
+            rollback_mode = (target.get("rollback_mode") or "SHADOW")
+            rollback_primary = (target.get("rollback_primary_arm") or "deterministic")
             current_mode_raw = await r.hget(EXPERIMENT_POLICY_KEY, "mode")
             current_primary_raw = await r.hget(EXPERIMENT_POLICY_KEY, "primary_arm")
-            current_mode = current_mode_raw.decode() if isinstance(current_mode_raw, (bytes, bytearray)) else str(current_mode_raw or "SHADOW")
-            current_primary = current_primary_raw.decode() if isinstance(current_primary_raw, (bytes, bytearray)) else str(current_primary_raw or "deterministic")
+            current_mode = current_mode_raw.decode() if isinstance(current_mode_raw, (bytes, bytearray)) else (current_mode_raw or "SHADOW")
+            current_primary = current_primary_raw.decode() if isinstance(current_primary_raw, (bytes, bytearray)) else (current_primary_raw or "deterministic")
 
             ek = event_key(target)
             state_key = f"{STATE_PREFIX}{ek}"

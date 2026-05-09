@@ -1,22 +1,24 @@
 import os
 import sys
-import traceback
 from pathlib import Path
+
 import pytest
 import redis
+import contextlib
+
 
 # --- AGGRESSIVE PATH LOCKDOWN ---
 def _lockdown_path() -> None:
     root = Path(__file__).resolve().parents[1]
     s_root = str(root)
     s_repo = str(root.parent)
-    
+
     # 1. Ensure ROOT is at the start
     if s_root in sys.path:
         while s_root in sys.path:
             sys.path.remove(s_root)
     sys.path.insert(0, s_root)
-    
+
     # 2. Strict prune sys.path
     allowed_substrings = [s_root, "/usr/lib", "/usr/local/lib", ".local/lib", "site-packages", "dist-packages"]
     new_path = []
@@ -24,13 +26,11 @@ def _lockdown_path() -> None:
         # Keep if it matches allowed substrings AND does not contain scanner_infra (unless it's in our root)
         is_allowed = any(a in p for a in allowed_substrings)
         is_shadow = ("scanner_infra" in p) and (s_root not in p)
-        if is_allowed and not is_shadow:
+        if is_allowed and not is_shadow or not p:
             new_path.append(p)
-        elif not p: # Current dir
-            new_path.append(p)
-            
+
     sys.path[:] = new_path
-            
+
     # 3. Filter out redundant sub-directories that were added by hacks
     subdirs = ["services", "tools", "ml_analysis", "tick_flow_full", "infra", "core", "orderflow_services"]
     # 4. Clean up sys.modules to force re-import if shadowed
@@ -50,21 +50,15 @@ def _lockdown_path() -> None:
     if shadowed_keys:
         for k in shadowed_keys:
             del sys.modules[k]
-    
+
     # 5. Diagnostic: where is infra coming from?
-    try:
+    with contextlib.suppress(ImportError):
         import infra
-    except ImportError:
+
+    with contextlib.suppress(Exception):
         pass
 
-    try:
-        import ml_analysis
-    except:
-        pass
-
-    try:
-        import orderflow_services
-    except Exception:
+    with contextlib.suppress(Exception):
         pass
 
 _lockdown_path()
@@ -97,10 +91,8 @@ def r(redis_url):
     except redis.exceptions.ConnectionError:
         pytest.skip("Local Redis is not available")
     yield client
-    try:
+    with contextlib.suppress(Exception):
         client.flushdb()
-    except Exception:
-        pass
 
 @pytest.fixture()
 def redis_client(r):

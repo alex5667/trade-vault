@@ -1,6 +1,12 @@
-from utils.time_utils import get_ny_time_millis
-import os, json, time, hashlib, asyncio
+import asyncio
+import hashlib
+import json
+import os
+import time
+
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
 
 REPORT_KEY = os.getenv("BURST_REPORT_KEY_JSON", "reports:burst:last")
 META_PREFIX = "cfg:suggestions:entry_policy:meta"
@@ -127,7 +133,7 @@ async def main() -> None:
 
         try:
             prev = await r.get(latest_key)
-            if str(prev or "") == sid:
+            if (prev or "") == sid:
                 continue
         except Exception:
             pass

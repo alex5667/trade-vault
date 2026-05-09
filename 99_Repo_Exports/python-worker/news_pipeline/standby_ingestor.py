@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """news_pipeline.standby_ingestor
@@ -33,16 +34,15 @@ If Go is running and holding the leader lock, the standby stays idle.
 
 import hashlib
 import json
+import logging
 import os
 import time
-import random
-import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
-from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
+from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-import requests
 import redis
+import requests
 
 log = logging.getLogger("standby_ingestor")
 
@@ -138,7 +138,7 @@ def write_heartbeat(r: redis.Redis, *, kind: str, ok: bool, err: str = "", added
             "ts_ms": now_ms(),
             "kind": kind,
             "ok": bool(ok),
-            "err": str(err or ""),
+            "err": (err or ""),
             "added": int(added),
             "instance": instance,
         },
@@ -166,7 +166,7 @@ def write_heartbeat(r: redis.Redis, *, kind: str, ok: bool, err: str = "", added
 @dataclass(slots=True)
 class RSSCfg:
     enabled: bool
-    urls: List[str]
+    urls: list[str]
     user_agent: str = ""
 
 
@@ -174,7 +174,7 @@ class RSSCfg:
 class CryptoPanicCfg:
     enabled: bool
     base_url: str = "https://cryptopanic.com"
-    currencies: List[str] = None  # type: ignore
+    currencies: list[str] = None  # type: ignore
     kind: str = ""
     filter: str = ""
     regions: str = ""
@@ -189,7 +189,7 @@ class CryptoPanicCfg:
 class FMPCfg:
     enabled: bool
     base_url: str = "https://financialmodelingprep.com"
-    tickers: List[str] = None  # type: ignore
+    tickers: list[str] = None  # type: ignore
     limit: int = 50
     user_agent: str = ""
 
@@ -197,8 +197,8 @@ class FMPCfg:
     cal_enabled: bool = False
     cal_back_days: int = 1
     cal_lookahead_days: int = 7
-    cal_countries: List[str] = None  # type: ignore
-    cal_importance: List[str] = None  # type: ignore
+    cal_countries: list[str] = None  # type: ignore
+    cal_importance: list[str] = None  # type: ignore
 
     def __post_init__(self) -> None:
         if self.tickers is None:
@@ -219,7 +219,7 @@ class NewsAPICfg:
     user_agent: str = ""
 
 
-def parse_sources_json(raw: str) -> Tuple[RSSCfg, CryptoPanicCfg, FMPCfg, NewsAPICfg]:
+def parse_sources_json(raw: str) -> tuple[RSSCfg, CryptoPanicCfg, FMPCfg, NewsAPICfg]:
     obj = {}
     try:
         obj = json.loads(raw or "{}")
@@ -233,19 +233,19 @@ def parse_sources_json(raw: str) -> Tuple[RSSCfg, CryptoPanicCfg, FMPCfg, NewsAP
     rss = RSSCfg(
         enabled=("rss" in providers) and bool(rss_o.get("enabled", True)),
         urls=list(rss_o.get("urls") or []),
-        user_agent=str(rss_o.get("user_agent") or ""),
+        user_agent=(rss_o.get("user_agent") or ""),
     )
 
     # CryptoPanic
     cp_o = obj.get("cryptopanic") or {}
     cp = CryptoPanicCfg(
         enabled=("cryptopanic" in providers) and bool(cp_o.get("enabled", True)),
-        base_url=str(cp_o.get("base_url") or "https://cryptopanic.com"),
+        base_url=(cp_o.get("base_url") or "https://cryptopanic.com"),
         currencies=list(cp_o.get("currencies") or []),
-        kind=str(cp_o.get("kind") or ""),
-        filter=str(cp_o.get("filter") or ""),
-        regions=str(cp_o.get("regions") or ""),
-        user_agent=str(cp_o.get("user_agent") or ""),
+        kind=(cp_o.get("kind") or ""),
+        filter=(cp_o.get("filter") or ""),
+        regions=(cp_o.get("regions") or ""),
+        user_agent=(cp_o.get("user_agent") or ""),
     )
 
     # FMP
@@ -253,10 +253,10 @@ def parse_sources_json(raw: str) -> Tuple[RSSCfg, CryptoPanicCfg, FMPCfg, NewsAP
     econ_o = fmp_o.get("economic") or {}
     fmp = FMPCfg(
         enabled=("fmp" in providers) and bool(fmp_o.get("enabled", True)),
-        base_url=str(fmp_o.get("base_url") or "https://financialmodelingprep.com"),
+        base_url=(fmp_o.get("base_url") or "https://financialmodelingprep.com"),
         tickers=list(fmp_o.get("tickers") or []),
         limit=int(fmp_o.get("limit") or 50),
-        user_agent=str(fmp_o.get("user_agent") or ""),
+        user_agent=(fmp_o.get("user_agent") or ""),
         cal_enabled=bool(fmp_o.get("calendar_enabled", True)) and bool(fmp_o.get("enabled", True)),
         cal_back_days=int(fmp_o.get("backDays") or 1),
         cal_lookahead_days=int(fmp_o.get("lookaheadDays") or 7),
@@ -268,11 +268,11 @@ def parse_sources_json(raw: str) -> Tuple[RSSCfg, CryptoPanicCfg, FMPCfg, NewsAP
     na_o = obj.get("newsapi") or {}
     na = NewsAPICfg(
         enabled=("newsapi" in providers) and bool(na_o.get("enabled", True)),
-        base_url=str(na_o.get("base_url") or "https://newsapi.org"),
-        q=str(na_o.get("q") or ""),
-        language=str(na_o.get("language") or ""),
+        base_url=(na_o.get("base_url") or "https://newsapi.org"),
+        q=(na_o.get("q") or ""),
+        language=(na_o.get("language") or ""),
         page_size=int(na_o.get("pageSize") or 50),
-        user_agent=str(na_o.get("user_agent") or ""),
+        user_agent=(na_o.get("user_agent") or ""),
     )
 
     return rss, cp, fmp, na
@@ -280,14 +280,14 @@ def parse_sources_json(raw: str) -> Tuple[RSSCfg, CryptoPanicCfg, FMPCfg, NewsAP
 
 # ---------------- fetch helpers ----------------
 
-def _http_get_json(url: str, *, headers: Dict[str, str], timeout: int) -> Any:
+def _http_get_json(url: str, *, headers: dict[str, str], timeout: int) -> Any:
     resp = requests.get(url, headers=headers, timeout=timeout)
     if resp.status_code // 100 != 2:
         raise RuntimeError(f"http {resp.status_code}")
     return resp.json()
 
 
-def _add_query(url: str, params: Dict[str, str]) -> str:
+def _add_query(url: str, params: dict[str, str]) -> str:
     u = urlparse(url)
     q = dict(parse_qsl(u.query, keep_blank_values=True))
     q.update({k: v for k, v in params.items() if v != ""})
@@ -318,7 +318,7 @@ def _parse_fmp_time_ms(s: str) -> int:
         for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
             try:
                 t = _dt.datetime.strptime(s, fmt)
-                t = t.replace(tzinfo=_dt.timezone.utc)
+                t = t.replace(tzinfo=_dt.UTC)
                 return int(t.timestamp() * 1000)
             except Exception:
                 pass
@@ -329,12 +329,12 @@ def _parse_fmp_time_ms(s: str) -> int:
 
 # ---------------- providers ----------------
 
-def fetch_cryptopanic(cfg: CryptoPanicCfg, *, timeout: int) -> List[Dict[str, Any]]:
+def fetch_cryptopanic(cfg: CryptoPanicCfg, *, timeout: int) -> list[dict[str, Any]]:
     token = os.getenv("CRYPTOPANIC_AUTH_TOKEN", "").strip()
     if not cfg.enabled or not token:
         return []
     url = cfg.base_url.rstrip("/") + "/api/v1/posts/"
-    params: Dict[str, str] = {"auth_token": token}
+    params: dict[str, str] = {"auth_token": token}
     if cfg.currencies:
         params["currencies"] = ",".join(cfg.currencies)
     if cfg.kind:
@@ -351,16 +351,16 @@ def fetch_cryptopanic(cfg: CryptoPanicCfg, *, timeout: int) -> List[Dict[str, An
     posts = data.get("results") if isinstance(data, dict) else None
     if not isinstance(posts, list):
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for it in posts:
         if not isinstance(it, dict):
             continue
-        title = str(it.get("title") or "")
+        title = (it.get("title") or "")
         link = str(it.get("url") or it.get("link") or "")
         published = str(it.get("published_at") or it.get("created_at") or "")
         published_ms = _parse_rfc3339_ms(published) or now_ms()
         # symbols: try currencies list
-        symbols: List[str] = []
+        symbols: list[str] = []
         try:
             cur = it.get("currencies") or []
             if isinstance(cur, list):
@@ -371,7 +371,7 @@ def fetch_cryptopanic(cfg: CryptoPanicCfg, *, timeout: int) -> List[Dict[str, An
                         symbols.append(c)
         except Exception:
             pass
-        provider_id = str(it.get("id") or "")
+        provider_id = (it.get("id") or "")
         uid = stable_uid("cryptopanic", provider_id, link, title, str(bucket_start_ms(published_ms, _env_int("NEWS_UID_BUCKET_SEC", 6*3600))))
         out.append(
             {
@@ -380,7 +380,7 @@ def fetch_cryptopanic(cfg: CryptoPanicCfg, *, timeout: int) -> List[Dict[str, An
                 "source": "cryptopanic",
                 "title": title,
                 "url": link,
-                "summary": str(it.get("domain") or ""),
+                "summary": (it.get("domain") or ""),
                 "symbols": symbols,
                 "payload": it,
             }
@@ -388,12 +388,12 @@ def fetch_cryptopanic(cfg: CryptoPanicCfg, *, timeout: int) -> List[Dict[str, An
     return out
 
 
-def fetch_fmp_stock_news(cfg: FMPCfg, *, timeout: int) -> List[Dict[str, Any]]:
+def fetch_fmp_stock_news(cfg: FMPCfg, *, timeout: int) -> list[dict[str, Any]]:
     key = os.getenv("FMP_API_KEY", "").strip()
     if not cfg.enabled or not key:
         return []
     url = cfg.base_url.rstrip("/") + "/api/v3/stock_news"
-    params: Dict[str, str] = {
+    params: dict[str, str] = {
         "apikey": key,
         "limit": str(int(cfg.limit or 50)),
     }
@@ -406,15 +406,15 @@ def fetch_fmp_stock_news(cfg: FMPCfg, *, timeout: int) -> List[Dict[str, Any]]:
     data = _http_get_json(url, headers=headers, timeout=timeout)
     if not isinstance(data, list):
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for it in data:
         if not isinstance(it, dict):
             continue
-        title = str(it.get("title") or "")
-        link = str(it.get("url") or "")
+        title = (it.get("title") or "")
+        link = (it.get("url") or "")
         published = str(it.get("publishedDate") or it.get("published_date") or "")
         published_ms = _parse_fmp_time_ms(published) or now_ms()
-        sym = str(it.get("symbol") or "")
+        sym = (it.get("symbol") or "")
         symbols = [sym] if sym else []
         provider_id = str(it.get("id") or it.get("publishedDate") or "")
         uid = stable_uid("fmp_stock_news", provider_id, link, title, str(bucket_start_ms(published_ms, _env_int("NEWS_UID_BUCKET_SEC", 6*3600))))
@@ -425,7 +425,7 @@ def fetch_fmp_stock_news(cfg: FMPCfg, *, timeout: int) -> List[Dict[str, Any]]:
                 "source": "fmp",
                 "title": title,
                 "url": link,
-                "summary": str(it.get("text") or "")[:512],
+                "summary": (it.get("text") or "")[:512],
                 "symbols": symbols,
                 "payload": it,
             }
@@ -433,12 +433,12 @@ def fetch_fmp_stock_news(cfg: FMPCfg, *, timeout: int) -> List[Dict[str, Any]]:
     return out
 
 
-def fetch_newsapi(cfg: NewsAPICfg, *, timeout: int) -> List[Dict[str, Any]]:
+def fetch_newsapi(cfg: NewsAPICfg, *, timeout: int) -> list[dict[str, Any]]:
     key = os.getenv("NEWSAPI_KEY", "").strip()
     if not cfg.enabled or not key:
         return []
     url = cfg.base_url.rstrip("/") + "/v2/everything"
-    params: Dict[str, str] = {
+    params: dict[str, str] = {
         "q": cfg.q,
         "pageSize": str(int(cfg.page_size or 50)),
     }
@@ -452,13 +452,13 @@ def fetch_newsapi(cfg: NewsAPICfg, *, timeout: int) -> List[Dict[str, Any]]:
     articles = data.get("articles") if isinstance(data, dict) else None
     if not isinstance(articles, list):
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for it in articles:
         if not isinstance(it, dict):
             continue
-        title = str(it.get("title") or "")
-        link = str(it.get("url") or "")
-        published = str(it.get("publishedAt") or "")
+        title = (it.get("title") or "")
+        link = (it.get("url") or "")
+        published = (it.get("publishedAt") or "")
         published_ms = _parse_rfc3339_ms(published) or now_ms()
         # NewsAPI doesn't provide tickers; keep GLOBAL
         provider_id = str(it.get("source", {}).get("id") or it.get("source", {}).get("name") or "")
@@ -470,7 +470,7 @@ def fetch_newsapi(cfg: NewsAPICfg, *, timeout: int) -> List[Dict[str, Any]]:
                 "source": "newsapi",
                 "title": title,
                 "url": link,
-                "summary": str(it.get("description") or "")[:512],
+                "summary": (it.get("description") or "")[:512],
                 "symbols": [],
                 "payload": it,
             }
@@ -484,7 +484,7 @@ def _map_importance(v: Any) -> int:
         i = int(v)
         return max(0, min(3, i))
     except Exception:
-        s = str(v or "").strip().lower()
+        s = (v or "").strip().lower()
         if s in ("high", "3"):
             return 3
         if s in ("medium", "2", "med"):
@@ -494,13 +494,13 @@ def _map_importance(v: Any) -> int:
         return 0
 
 
-def fetch_fmp_calendar(cfg: FMPCfg, *, timeout: int) -> List[Dict[str, Any]]:
+def fetch_fmp_calendar(cfg: FMPCfg, *, timeout: int) -> list[dict[str, Any]]:
     key = os.getenv("FMP_API_KEY", "").strip()
     if not (cfg.enabled and cfg.cal_enabled) or not key:
         return []
     import datetime as _dt
 
-    now = _dt.datetime.utcnow().replace(tzinfo=_dt.timezone.utc)
+    now = _dt.datetime.utcnow().replace(tzinfo=_dt.UTC)
     frm = (now - _dt.timedelta(days=max(0, int(cfg.cal_back_days)))).date().isoformat()
     to = (now + _dt.timedelta(days=max(1, int(cfg.cal_lookahead_days)))).date().isoformat()
 
@@ -520,22 +520,22 @@ def fetch_fmp_calendar(cfg: FMPCfg, *, timeout: int) -> List[Dict[str, Any]]:
     if not isinstance(data, list):
         return []
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for it in data:
         if not isinstance(it, dict):
             continue
         # typical FMP fields: date, country, event, currency, previous, estimate/forecast, impact
         title = str(it.get("event") or it.get("title") or "")
-        date_s = str(it.get("date") or "")
+        date_s = (it.get("date") or "")
         event_ts_ms = _parse_fmp_time_ms(date_s)
         if not event_ts_ms:
             continue
-        country = str(it.get("country") or "").upper()
-        currency = str(it.get("currency") or "").upper()
+        country = (it.get("country") or "").upper()
+        currency = (it.get("currency") or "").upper()
         importance = _map_importance(it.get("impact") or it.get("importance") or 0)
         forecast = str(it.get("estimate") or it.get("forecast") or "")
-        previous = str(it.get("previous") or "")
-        unit = str(it.get("unit") or "")
+        previous = (it.get("previous") or "")
+        unit = (it.get("unit") or "")
         uid = stable_uid("fmp", title, country, currency, date_s)
         out.append(
             {
@@ -555,13 +555,13 @@ def fetch_fmp_calendar(cfg: FMPCfg, *, timeout: int) -> List[Dict[str, Any]]:
     return out
 
 
-def fetch_rss(cfg: RSSCfg) -> List[Dict[str, Any]]:
+def fetch_rss(cfg: RSSCfg) -> list[dict[str, Any]]:
     if not cfg.enabled or not cfg.urls:
         return []
     if feedparser is None:
         log.warning("RSS enabled but feedparser is not installed; install feedparser or disable RSS.")
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     bucket_sec = _env_int("NEWS_UID_BUCKET_SEC", 6 * 3600)
     for feed_url in cfg.urls:
         try:
@@ -605,8 +605,9 @@ def fetch_rss(cfg: RSSCfg) -> List[Dict[str, Any]]:
 
 def _wait_for_redis_ready(redis_url: str) -> redis.Redis:
     """Wait for Redis to be ready, handling BusyLoadingError"""
-    import redis
     import time
+
+    import redis
 
     max_retries = 60  # 10 минут при 10сек задержке
     retry_count = 0
@@ -682,7 +683,7 @@ def run() -> None:
                 if leader:
                     next_renew = now + (ttl_ms / 1000.0) * 0.5
                     log.info("standby became leader: key=%s value=%s", leader_key, lock_value)
-            except Exception as e:
+            except Exception:
                 leader = False
         else:
             if now >= next_renew:
@@ -707,7 +708,7 @@ def run() -> None:
             err = ""
             ok = True
             try:
-                items: List[Dict[str, Any]] = []
+                items: list[dict[str, Any]] = []
                 items.extend(fetch_rss(rss_cfg))
                 items.extend(fetch_cryptopanic(cp_cfg, timeout=http_timeout))
                 items.extend(fetch_fmp_stock_news(fmp_cfg, timeout=http_timeout))
@@ -723,10 +724,10 @@ def run() -> None:
                         "uid": uid,
                         "published_ts_ms": str(int(it.get("published_ts_ms") or ing_ms)),
                         "ingested_ts_ms": str(ing_ms),
-                        "source": str(it.get("source") or ""),
-                        "title": str(it.get("title") or "")[:512],
-                        "url": str(it.get("url") or "")[:1024],
-                        "summary": str(it.get("summary") or "")[:1024],
+                        "source": (it.get("source") or ""),
+                        "title": (it.get("title") or "")[:512],
+                        "url": (it.get("url") or "")[:1024],
+                        "summary": (it.get("summary") or "")[:1024],
                         "symbols": json.dumps(it.get("symbols") or [], separators=(",", ":")),
                         "payload": json.dumps(it.get("payload") or {}, separators=(",", ":"))[:4096],
                     }
@@ -756,14 +757,14 @@ def run() -> None:
                         "uid": uid,
                         "event_ts_ms": str(int(ev.get("event_ts_ms") or 0)),
                         "ingested_ts_ms": str(ing_ms),
-                        "country": str(ev.get("country") or ""),
-                        "currency": str(ev.get("currency") or ""),
-                        "title": str(ev.get("title") or "")[:512],
+                        "country": (ev.get("country") or ""),
+                        "currency": (ev.get("currency") or ""),
+                        "title": (ev.get("title") or "")[:512],
                         "importance": str(int(ev.get("importance") or 0)),
-                        "forecast": str(ev.get("forecast") or "")[:64],
-                        "previous": str(ev.get("previous") or "")[:64],
-                        "unit": str(ev.get("unit") or "")[:16],
-                        "source": str(ev.get("source") or "fmp"),
+                        "forecast": (ev.get("forecast") or "")[:64],
+                        "previous": (ev.get("previous") or "")[:64],
+                        "unit": (ev.get("unit") or "")[:16],
+                        "source": (ev.get("source") or "fmp"),
                         "payload": json.dumps(ev.get("payload") or {}, separators=(",", ":"))[:4096],
                     }
                     r.xadd(cal_stream, fields, maxlen=cal_maxlen, approximate=True)

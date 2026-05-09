@@ -1,7 +1,10 @@
 from __future__ import annotations
+
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
 import orderflow_services.derivatives_context_exporter_v1 as mod
+import contextlib
 
 
 def test_derivatives_context_exporter_reads_snapshot_and_sets_metrics():
@@ -14,10 +17,8 @@ def test_derivatives_context_exporter_reads_snapshot_and_sets_metrics():
     with patch.object(mod, "redis", SimpleNamespace(Redis=mock_redis_cls)), \
          patch("orderflow_services.derivatives_context_exporter_v1.start_http_server"), \
          patch("orderflow_services.derivatives_context_exporter_v1.time.sleep", side_effect=KeyboardInterrupt):
-        try:
+        with contextlib.suppress(KeyboardInterrupt):
             mod.main()
-        except KeyboardInterrupt:
-            pass
 
     assert mod.g_funding_z.labels(symbol="BTCUSDT")._value.get() == 4.0
     assert mod.g_basis_bps.labels(symbol="BTCUSDT")._value.get() == 12.0

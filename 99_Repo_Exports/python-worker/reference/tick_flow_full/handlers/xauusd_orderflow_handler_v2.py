@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Специализированный обработчик Order Flow для XAUUSD (Gold).
 
@@ -8,9 +9,10 @@ from __future__ import annotations
 REFACTORED VERSION - использует унифицированную архитектуру.
 """
 
-from typing import Dict, Optional
-from .base_orderflow_handler import BaseOrderFlowHandler, OrderflowSignalContext
-from core.instrument_config import SymbolSpecs, OrderFlowConfig, get_specs, get_config
+
+from core.instrument_config import OrderFlowConfig, SymbolSpecs, get_config, get_specs
+
+from .base_orderflow_handler import BaseOrderFlowHandler
 from .handler_dependencies import HandlerDependencies
 
 
@@ -21,8 +23,8 @@ class XAUUSDOrderFlowHandlerV2(BaseOrderFlowHandler):
     Использует стандартную логику из BaseOrderFlowHandler.
     Переопределяет только специфику инструмента.
     """
-    
-    def __init__(self, config: OrderFlowConfig = None, *, health_metrics: Optional[object] = None, dependencies: Optional[HandlerDependencies] = None):
+
+    def __init__(self, config: OrderFlowConfig = None, *, health_metrics: object | None = None, dependencies: HandlerDependencies | None = None):
         """
         Инициализация обработчика для XAUUSD.
 
@@ -33,11 +35,11 @@ class XAUUSDOrderFlowHandlerV2(BaseOrderFlowHandler):
         symbol = "XAUUSD"
         config = config or get_config(symbol, use_env=True)
         super().__init__(symbol, config, health_metrics=health_metrics, dependencies=dependencies)
-    
+
     def _get_symbol_specs(self) -> SymbolSpecs:
         """Возвращает спецификацию для XAUUSD"""
         return get_specs("XAUUSD")
-    
+
     def _estimate_atr(self, price: float) -> float:
         """
         Оценка типичного ATR для XAUUSD.
@@ -53,7 +55,7 @@ class XAUUSDOrderFlowHandlerV2(BaseOrderFlowHandler):
         """
         import os
         atf_tf = os.getenv("ATR_TF", "1m")
-        
+
         if atf_tf == "1m":
             return 1.2  # Типичный ATR для 1m XAUUSD
         elif atf_tf == "5m":
@@ -62,8 +64,8 @@ class XAUUSDOrderFlowHandlerV2(BaseOrderFlowHandler):
             return 6.5  # Типичный ATR для 15m XAUUSD
         else:
             return price * 0.0003  # 0.03% от цены для других TF
-    
-    def _get_default_hlc(self) -> Dict[str, float]:
+
+    def _get_default_hlc(self) -> dict[str, float]:
         """
         Default HLC для XAUUSD.
         
@@ -81,7 +83,7 @@ class XAUUSDOrderFlowHandlerV2(BaseOrderFlowHandler):
                 current_price = 3956.0  # Примерная цена XAUUSD
         except Exception:
             current_price = 3956.0
-        
+
         return {
             "H": current_price + 30,  # +30 пипсов
             "L": current_price - 30,  # -30 пипсов

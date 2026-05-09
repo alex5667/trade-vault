@@ -1,14 +1,12 @@
 # news_pipeline/calendar_mapping.py
 from __future__ import annotations
 
-from typing import List
-
 _FIAT_CCY = {
     "USD","EUR","GBP","JPY","CHF","AUD","CAD","NZD","CNY",
     "SEK","NOK","DKK","PLN","CZK","HUF","TRY","MXN","BRL","ZAR","INR","KRW","SGD","HKD",
 }
 
-def map_calendar_asset_classes(*, country: str, currency: str, title: str, importance: int) -> List[str]:
+def map_calendar_asset_classes(*, country: str, currency: str, title: str, importance: int) -> list[str]:
     """
     Стратегия:
       - baseline: forex

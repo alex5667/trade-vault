@@ -20,14 +20,12 @@ import argparse
 import asyncio
 import datetime as dt
 import json
-import math
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import psycopg2
-from psycopg2.extras import execute_values
-
 import redis.asyncio as aioredis
+from psycopg2.extras import execute_values
 
 
 def env(name: str, default: str) -> str:
@@ -45,14 +43,14 @@ def pick_dsn() -> str:
     )
 
 
-def safe_int(x: Any) -> Optional[int]:
+def safe_int(x: Any) -> int | None:
     try:
         return None if x is None else int(x)
     except Exception:
         return None
 
 
-def normalize_ts_ms(x: Any) -> Optional[int]:
+def normalize_ts_ms(x: Any) -> int | None:
     """Normalize any timestamp epoch (ns/us/ms/s) to milliseconds."""
     v = safe_int(x)
     if v is None:
@@ -73,7 +71,7 @@ def ts_ms_from_stream_id(stream_id: str) -> int:
     return int(stream_id.split("-", 1)[0])
 
 
-def coalesce_ts_ms(payload: Dict[str, Any], stream_id: str) -> int:
+def coalesce_ts_ms(payload: dict[str, Any], stream_id: str) -> int:
     for k in ("ts_ms", "ts_event_ms", "ts", "timestamp_ms"):
         v = normalize_ts_ms(payload.get(k))
         if v is not None:
@@ -81,7 +79,7 @@ def coalesce_ts_ms(payload: Dict[str, Any], stream_id: str) -> int:
     return ts_ms_from_stream_id(stream_id)
 
 
-def parse_stream_payload(fields: Dict[str, Any]) -> Dict[str, Any]:
+def parse_stream_payload(fields: dict[str, Any]) -> dict[str, Any]:
     raw = fields.get("data")
     if raw is None:
         raw = fields.get("payload")
@@ -97,7 +95,7 @@ def parse_stream_payload(fields: Dict[str, Any]) -> Dict[str, Any]:
     return dict(fields)
 
 
-def to_jsonb(x: Any) -> Optional[str]:
+def to_jsonb(x: Any) -> str | None:
     if x is None:
         return None
     if isinstance(x, str):
@@ -110,12 +108,12 @@ def to_jsonb(x: Any) -> Optional[str]:
     return json.dumps(x, ensure_ascii=False)
 
 
-def build_of_gate_row(stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
+def build_of_gate_row(stream_id: str, payload: dict[str, Any]) -> tuple[Any, ...]:
     """Build an of_gate_metrics DB row from a stream payload (P3 per-event schema)."""
     ts_ms = coalesce_ts_ms(payload, stream_id)
-    ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
+    ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.UTC)
 
-    symbol = str(payload.get("symbol") or "")
+    symbol = (payload.get("symbol") or "")
     scenario_v4 = str(payload.get("scenario_v4") or payload.get("scenario") or "na")
     schema_version = safe_int(payload.get("schema_version")) or 1
     ok = safe_int(payload.get("ok"))
@@ -149,7 +147,7 @@ def build_of_gate_row(stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...
     )
 
 
-def pg_insert_of_gate_metrics(dsn: str, rows: List[Tuple[Any, ...]]) -> int:
+def pg_insert_of_gate_metrics(dsn: str, rows: list[tuple[Any, ...]]) -> int:
     if not rows:
         return 0
     sql = """
@@ -244,7 +242,7 @@ async def backfill_from_redis(
             if not msgs:
                 break
 
-            rows: List[Tuple[Any, ...]] = []
+            rows: list[tuple[Any, ...]] = []
             for mid, fields in msgs:
                 payload = parse_stream_payload(fields)
                 try:
@@ -287,9 +285,9 @@ def parse_args() -> argparse.Namespace:
 def parse_dt(s: str) -> dt.datetime:
     # Accept ISO date (YYYY-MM-DD) or datetime
     if len(s) == 10:
-        return dt.datetime.fromisoformat(s).replace(tzinfo=dt.timezone.utc)
+        return dt.datetime.fromisoformat(s).replace(tzinfo=dt.UTC)
     d = dt.datetime.fromisoformat(s)
-    return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+    return d if d.tzinfo else d.replace(tzinfo=dt.UTC)
 
 
 def main() -> None:
@@ -303,11 +301,11 @@ def main() -> None:
             start = parse_dt(args.start)
             end = parse_dt(args.end)
         else:
-            end = dt.datetime.now(tz=dt.timezone.utc)
+            end = dt.datetime.now(tz=dt.UTC)
             start = end - dt.timedelta(days=int(args.days))
 
         ok = refresh_rollups(dsn, start, end)
-        now_ms = int(dt.datetime.now(tz=dt.timezone.utc).timestamp() * 1000)
+        now_ms = int(dt.datetime.now(tz=dt.UTC).timestamp() * 1000)
         key = env("OF_GATE_ROLLUPS_REFRESH_METRICS_KEY", "metrics:of_gate_rollups_refresh")
         if ok == 0:
             # P78: report failure to Redis hash before exiting
@@ -330,11 +328,11 @@ def main() -> None:
             )
         )
         # Optional refresh after backfill (last 30 days to catch newly inserted rows)
-        end = dt.datetime.now(tz=dt.timezone.utc)
+        end = dt.datetime.now(tz=dt.UTC)
         start = end - dt.timedelta(days=30)
         refresh_rollups(dsn, start, end)
         print(f"inserted={inserted}")
-        now_ms = int(dt.datetime.now(tz=dt.timezone.utc).timestamp() * 1000)
+        now_ms = int(dt.datetime.now(tz=dt.UTC).timestamp() * 1000)
         key = env("OF_GATE_ROLLUPS_REFRESH_METRICS_KEY", "metrics:of_gate_rollups_refresh")
         # P78: report backfill result to Redis hash
         asyncio.run(_update_metrics_hash(key, {"last_run_ts_ms": now_ms, "last_cmd": "backfill", "inserted": int(inserted), "start_id": str(args.start_id)}, incr_error=0))

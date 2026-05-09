@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Operator acknowledgement layer for Binance dust cleanup admin reminders.
@@ -28,9 +29,8 @@ BINANCE_DUST_ADMIN_AUDIT_STREAM_MAXLEN     default: 10000
 
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def _now_ms() -> int:
@@ -43,7 +43,7 @@ def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
-def _safe_json_loads(value: Any) -> Dict[str, Any]:
+def _safe_json_loads(value: Any) -> dict[str, Any]:
     """Safely parse bytes/str to dict; returns {} on any failure."""
     if value is None:
         return {}
@@ -96,7 +96,7 @@ def ack_key(kind: str, symbol: str) -> str:
     return f"{ack_keys_from_env().ack_prefix}{kind}:{symbol.upper()}"
 
 
-def _xadd_audit(redis_client: Any, payload: Dict[str, Any]) -> None:
+def _xadd_audit(redis_client: Any, payload: dict[str, Any]) -> None:
     """Append an audit event to the configured Redis stream.
 
     Errors are silently swallowed — audit must never block the control path.
@@ -114,7 +114,7 @@ def _xadd_audit(redis_client: Any, payload: Dict[str, Any]) -> None:
         pass
 
 
-def _set_json(redis_client: Any, key: str, value: Dict[str, Any], ttl_sec: int) -> None:
+def _set_json(redis_client: Any, key: str, value: dict[str, Any], ttl_sec: int) -> None:
     """Persist a dict as JSON to Redis with optional TTL."""
     payload = _json_dumps(value)
     if ttl_sec > 0:
@@ -132,7 +132,7 @@ def _ttl_seconds(redis_client: Any, key: str) -> int:
     return ttl
 
 
-def reminder_ack_state(redis_client: Any, kind: str, symbol: str) -> Dict[str, Any]:
+def reminder_ack_state(redis_client: Any, kind: str, symbol: str) -> dict[str, Any]:
     """Read the current ACK state for a given kind/symbol pair.
 
     Returns an empty dict if no ACK is present. Augments with live ttl_sec
@@ -157,7 +157,7 @@ def ack_reminder(
     ticket: str,
     ttl_sec: int,
     fingerprint: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create or overwrite an ACK for a dust reminder.
 
     Args:
@@ -220,7 +220,7 @@ def renew_reminder_ack(
     reason: str,
     ticket: str,
     ttl_sec: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Extend the TTL of an existing ACK document.
 
     Fails with ok=False if no ACK is currently present for the kind/symbol.
@@ -276,7 +276,7 @@ def revoke_reminder_ack(
     operator: str,
     reason: str,
     ticket: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Delete an ACK, re-enabling reminder notifications for the symbol.
 
     Idempotent: if no ACK exists, result="noop" is returned (not an error).
@@ -315,7 +315,7 @@ def should_suppress_reminder(
     kind: str,
     symbol: str,
     fingerprint: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Decide whether a reminder notification should be suppressed.
 
     Decision logic:
@@ -342,7 +342,7 @@ def should_suppress_reminder(
     return {"suppressed": False, "reason": "ack_expired", "ack_state": state}
 
 
-def recent_ack_audit(redis_client: Any, *, symbol="", limit: int = 50) -> List[Dict[str, Any]]:
+def recent_ack_audit(redis_client: Any, *, symbol="", limit: int = 50) -> list[dict[str, Any]]:
     """Read the most recent ACK audit events from the audit stream.
 
     Args:
@@ -354,20 +354,20 @@ def recent_ack_audit(redis_client: Any, *, symbol="", limit: int = 50) -> List[D
         List of audit event dicts in reverse-chronological order.
     """
     stream = ack_keys_from_env().audit_stream
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     try:
         rows = redis_client.xrevrange(stream, count=max(limit, 1))
     except Exception:
         return out
     symbol_u = symbol.upper() if symbol else ""
     for row_id, fields in rows:
-        event: Dict[str, Any] = {"id": row_id.decode() if isinstance(row_id, bytes) else str(row_id)}
+        event: dict[str, Any] = {"id": row_id.decode() if isinstance(row_id, bytes) else str(row_id)}
         for k, v in fields.items():
             key = k.decode() if isinstance(k, bytes) else str(k)
             raw = v.decode() if isinstance(v, bytes) else v
             parsed = _safe_json_loads(raw)
             event[key] = parsed if parsed else raw
-        if symbol_u and str(event.get("symbol", "")).upper() != symbol_u:
+        if symbol_u and (event.get("symbol", "")).upper() != symbol_u:
             continue
         if event.get("area") != "dust_cleanup_ack":
             continue
@@ -377,7 +377,7 @@ def recent_ack_audit(redis_client: Any, *, symbol="", limit: int = 50) -> List[D
     return out
 
 
-def ack_dashboard(redis_client: Any, *, limit: int = 200) -> Dict[str, Any]:
+def ack_dashboard(redis_client: Any, *, limit: int = 200) -> dict[str, Any]:
     """Return all active ACK states scanned from Redis.
 
     Walks the ack key namespace with SCAN so it is safe on large keyspaces.
@@ -385,7 +385,7 @@ def ack_dashboard(redis_client: Any, *, limit: int = 200) -> Dict[str, Any]:
     """
     now_ms = _now_ms()
     prefix = ack_keys_from_env().ack_prefix
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for key in redis_client.scan_iter(match=f"{prefix}*", count=max(limit, 50)):
         key_s = key.decode() if isinstance(key, bytes) else str(key)
         doc = _safe_json_loads(redis_client.get(key_s))
@@ -396,7 +396,7 @@ def ack_dashboard(redis_client: Any, *, limit: int = 200) -> Dict[str, Any]:
         doc["ack_key"] = key_s
         doc["age_sec"] = max(0, (now_ms - int(doc.get("acked_at_ms", now_ms))) // 1000)
         rows.append(doc)
-    rows.sort(key=lambda x: (str(x.get("kind", "")), str(x.get("symbol", ""))))
+    rows.sort(key=lambda x: ((x.get("kind", "")), (x.get("symbol", ""))))
     without_ack = {
         "denylist_old_without_ack": 0,
         "cooldown_loop_without_ack": 0,
@@ -420,9 +420,9 @@ def ack_dashboard(redis_client: Any, *, limit: int = 200) -> Dict[str, Any]:
 def dashboard_with_unacked(
     redis_client: Any,
     *,
-    stale_denylist: List[Dict[str, Any]],
-    cooldown_loops: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    stale_denylist: list[dict[str, Any]],
+    cooldown_loops: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Merge live scan results with ACK state to highlight unacknowledged items.
 
     Args:
@@ -436,15 +436,15 @@ def dashboard_with_unacked(
     acked_deny = set()
     acked_cd = set()
     for item in ack_dashboard(redis_client).get("items", []):
-        symbol = str(item.get("symbol", "")).upper()
-        kind = str(item.get("kind", ""))
+        symbol = (item.get("symbol", "")).upper()
+        kind = (item.get("kind", ""))
         if kind == "old_denylist":
             acked_deny.add(symbol)
         elif kind == "cooldown_loop":
             acked_cd.add(symbol)
 
-    deny_without_ack = [x for x in stale_denylist if str(x.get("symbol", "")).upper() not in acked_deny]
-    cooldown_without_ack = [x for x in cooldown_loops if str(x.get("symbol", "")).upper() not in acked_cd]
+    deny_without_ack = [x for x in stale_denylist if (x.get("symbol", "")).upper() not in acked_deny]
+    cooldown_without_ack = [x for x in cooldown_loops if (x.get("symbol", "")).upper() not in acked_cd]
     return {
         "ok": True,
         "generated_at_ms": now_ms,

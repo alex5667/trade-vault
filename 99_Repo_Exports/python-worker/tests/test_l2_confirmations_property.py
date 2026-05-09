@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import pytest
 import math
 from dataclasses import dataclass
 
-hypothesis = pytest.importorskip("hypothesis")
-from hypothesis import given, strategies as st
+import pytest
 
-from handlers.confirmations.l2_confirmations import L2ConfirmBreakout, L2ConfirmAbsorption
+hypothesis = pytest.importorskip("hypothesis")
+from hypothesis import given
+from hypothesis import strategies as st
+
+from handlers.confirmations.l2_confirmations import L2ConfirmAbsorption, L2ConfirmBreakout
 from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level
 
 

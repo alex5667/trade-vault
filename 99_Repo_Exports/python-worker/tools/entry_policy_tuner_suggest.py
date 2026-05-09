@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -37,7 +37,7 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 
-def _quantile(xs: List[float], q: float) -> float:
+def _quantile(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     ys = sorted(float(x) for x in xs)
@@ -72,14 +72,14 @@ class TunerCfg:
     step_leader_conf: float = 0.03
     step_obi: float = 0.30
     # hard bounds
-    coh_bounds: Tuple[float, float] = (0.55, 0.90)
-    leader_conf_bounds: Tuple[float, float] = (0.55, 0.90)
-    zone_bp_bounds: Tuple[float, float] = (6.0, 30.0)
-    zone_bp_thin_bounds: Tuple[float, float] = (6.0, 25.0)
-    obi_bounds: Tuple[float, float] = (0.5, 5.0)
+    coh_bounds: tuple[float, float] = (0.55, 0.90)
+    leader_conf_bounds: tuple[float, float] = (0.55, 0.90)
+    zone_bp_bounds: tuple[float, float] = (6.0, 30.0)
+    zone_bp_thin_bounds: tuple[float, float] = (6.0, 25.0)
+    obi_bounds: tuple[float, float] = (0.5, 5.0)
 
     @staticmethod
-    def from_env() -> "TunerCfg":
+    def from_env() -> TunerCfg:
         return TunerCfg(
             enable=bool(int(os.getenv("EP_TUNER_ENABLE", "1"))),
             tighten_only=bool(int(os.getenv("EP_TUNER_TIGHTEN_ONLY", "1"))),
@@ -98,7 +98,7 @@ class TunerCfg:
         )
 
 
-def _read_current_env() -> Dict[str, float]:
+def _read_current_env() -> dict[str, float]:
     return {
         "SMT_COH_THRESHOLD": float(os.getenv("SMT_COH_THRESHOLD", "0.65")),
         "SMT_LEADER_CONF_MIN_SCORE": float(os.getenv("SMT_LEADER_CONF_MIN_SCORE", "0.65")),
@@ -138,10 +138,10 @@ def _apply_step(current: float, target: float, step: float, tighten_only: bool, 
 
 def suggest_from_records(
     *,
-    records: List[Dict[str, Any]],
-    tuner: Optional[TunerCfg] = None,
-    current_env: Optional[Dict[str, float]] = None,
-) -> Dict[str, Any]:
+    records: list[dict[str, Any]],
+    tuner: TunerCfg | None = None,
+    current_env: dict[str, float] | None = None,
+) -> dict[str, Any]:
     """
     records: output of entry_policy_daily_job capture_and_replay (or replay ndjson list)
     Must include fields:
@@ -150,7 +150,7 @@ def suggest_from_records(
     tcfg = tuner or TunerCfg.from_env()
     cur = current_env or _read_current_env()
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ts_ms": _now_ms(),
         "enable": int(tcfg.enable),
         "safe_to_apply": 0,
@@ -182,8 +182,8 @@ def suggest_from_records(
         rg0 = (rg or "na").lower()
         return rg0 in ("thin", "news", "illiquid")
 
-    allow_thin = [r for r in allow if _is_thin(str(r.get("regime", "na")))]
-    allow_norm = [r for r in allow if not _is_thin(str(r.get("regime", "na")))]
+    allow_thin = [r for r in allow if _is_thin((r.get("regime", "na")))]
+    allow_norm = [r for r in allow if not _is_thin((r.get("regime", "na")))]
 
     # Distributions
     coh_vals = [_f(r.get("coh", 0.0), 0.0) for r in allow if _f(r.get("coh", 0.0), 0.0) > 0]
@@ -261,8 +261,8 @@ def main() -> None:
     inp = os.getenv("IN", "")
     if not inp:
         raise SystemExit("IN=... ndjson required")
-    records: List[Dict[str, Any]] = []
-    with open(inp, "r", encoding="utf-8") as f:
+    records: list[dict[str, Any]] = []
+    with open(inp, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:

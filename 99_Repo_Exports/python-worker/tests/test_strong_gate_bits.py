@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from core.strong_of_gate import eval_continuation
 from core.of_confirm_contract import BIT_A, BIT_B, BIT_C, BIT_D
+from core.strong_of_gate import eval_continuation
 
 
 def test_gate_bits_continuation_sets_bits():

@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """,
 P66: Policy mode exporter
 
@@ -21,7 +22,7 @@ Design:
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server
 
@@ -91,7 +92,7 @@ REGIMES = ("ok", "warn", "block", "unknown")
 MODES = ("active", "shadow", "block", "unknown")
 
 
-def _read_hash(r, key: str) -> Dict[str, str]:
+def _read_hash(r, key: str) -> dict[str, str]:
     """Read entire Redis hash, return empty dict on error.""",
     try:
         return r.hgetall(key) or {}

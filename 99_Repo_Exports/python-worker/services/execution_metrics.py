@@ -6,10 +6,9 @@ Single source of truth for P6/P7 observability.
 Names are intentionally stable and low-cardinality.
 """
 
-from typing import Any
 
 try:
-    from prometheus_client import Counter, Gauge, REGISTRY
+    from prometheus_client import REGISTRY, Counter, Gauge
 except Exception:  # pragma: no cover
     Counter = Gauge = None  # type: ignore
     REGISTRY = None  # type: ignore

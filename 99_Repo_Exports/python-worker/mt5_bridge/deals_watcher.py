@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 MT5 Deals Watcher - отслеживание реальных сделок
 
@@ -12,13 +13,12 @@ MT5 Deals Watcher - отслеживание реальных сделок
 """
 
 
-from datetime import datetime, timedelta, timezone
-from typing import Set, Optional
+from datetime import UTC, datetime, timedelta
 
 import MetaTrader5 as mt5
 
-from .mt5_client import Mt5Client
 from .exec_events import ExecEventsPublisher, ExecutionEvent
+from .mt5_client import Mt5Client
 
 
 class Mt5DealsWatcher:
@@ -48,12 +48,12 @@ class Mt5DealsWatcher:
         self._mt5 = mt5_client
         self._pub = publisher
 
-        self._seen_deals: Set[int] = set()  # уже обработанные deal.ticket
-        now = datetime.now(timezone.utc)
+        self._seen_deals: set[int] = set()  # уже обработанные deal.ticket
+        now = datetime.now(UTC)
         self._from_time = now - timedelta(minutes=history_window_minutes)
 
     @staticmethod
-    def _parse_signal_id(comment: str) -> Optional[str]:
+    def _parse_signal_id(comment: str) -> str | None:
         """
         Парсим signal_id из comment вида:
           "sig=XAU_2025-12-15_12:34:56"
@@ -118,7 +118,7 @@ class Mt5DealsWatcher:
           - history_deals_get(from_time, now)
           - по новым deal.ticket → ExecutionEvent(kind="fill") → XADD в Redis.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # небольшой запас по времени вперёд, чтобы не отсеять пограничные сделки
         to_time = now + timedelta(seconds=5)
 
@@ -145,7 +145,7 @@ class Mt5DealsWatcher:
             side = self._map_side(deal.type)
             event_type = self._map_event_type(deal.entry)
 
-            ts_event = datetime.fromtimestamp(deal.time, tz=timezone.utc)
+            ts_event = datetime.fromtimestamp(deal.time, tz=UTC)
 
             ev = ExecutionEvent(
                 signal_id=signal_id,

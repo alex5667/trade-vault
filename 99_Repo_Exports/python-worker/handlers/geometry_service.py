@@ -1,14 +1,15 @@
 # geometry_service.py
 from __future__ import annotations
+
 """
 Geometry and liquidity analysis functionality extracted from base_orderflow_handler.py
 """
 
 
-from typing import Optional, List, TYPE_CHECKING, Any, Tuple
 import math
+from typing import TYPE_CHECKING, Any
 
-from contexts import GeoZoneHit, LiquidityContext, ZoneType, SimpleL2Snapshot, L2Level, OrderflowSignalContext
+from contexts import GeoZoneHit, L2Level, LiquidityContext, OrderflowSignalContext, SimpleL2Snapshot, ZoneType
 
 if TYPE_CHECKING:
     from contexts import BarSample
@@ -29,13 +30,13 @@ class GeometryLiquidityService:
         max_levels: int = 10,
         max_dist_bps: float = 15.0,
         size_z_thr: float = 1.5,
-    ) -> Tuple[Optional[str], Optional[L2Level], Optional[float], Optional[float]]:
+    ) -> tuple[str | None, L2Level | None, float | None, float | None]:
         """
         Find nearest significant liquidity wall.
         Returns (side, level, distance_bps)
         """
 
-        def process_side(levels: List[L2Level], side: str):
+        def process_side(levels: list[L2Level], side: str):
             """Process one side of the book."""
             mid = float(getattr(l2, "mid", 0.0) or 0.0)
             if mid <= 0.0:
@@ -91,8 +92,8 @@ class GeometryLiquidityService:
     def _build_liquidity_context(
         self,
         *,
-        l2_snapshot: "SimpleL2Snapshot",
-        cluster_vol: Optional[Any] = None,
+        l2_snapshot: SimpleL2Snapshot,
+        cluster_vol: Any | None = None,
     ) -> LiquidityContext:
         """Build liquidity context from L2 snapshot and cluster volume."""
 
@@ -193,9 +194,7 @@ class GeometryLiquidityService:
 
         # Pattern-based scoring
         pattern_multiplier = 1.0
-        if lc.pattern == LiquidityPattern.BUY_AGGR_CLUSTER:
-            pattern_multiplier = 1.2
-        elif lc.pattern == LiquidityPattern.SELL_AGGR_CLUSTER:
+        if lc.pattern == LiquidityPattern.BUY_AGGR_CLUSTER or lc.pattern == LiquidityPattern.SELL_AGGR_CLUSTER:
             pattern_multiplier = 1.2
         elif lc.pattern == LiquidityPattern.BOTH_SIDES_CLUSTER:
             pattern_multiplier = 1.1
@@ -216,7 +215,7 @@ class GeometryLiquidityService:
 
         return min_dist / price * 10000 if min_dist != float('inf') else None  # bps
 
-    def _get_htf_levels(self, symbol: str) -> Optional[Any]:
+    def _get_htf_levels(self, symbol: str) -> Any | None:
         """Get HTF levels for symbol."""
         # Placeholder - would load from Redis or external source
         return None
@@ -269,7 +268,7 @@ class GeometryLiquidityService:
 
         return hits
 
-    def _attach_geometry_context(self, ctx: OrderflowSignalContext, bar: "BarSample") -> None:
+    def _attach_geometry_context(self, ctx: OrderflowSignalContext, bar: BarSample) -> None:
         """Attach geometry context to signal context."""
         # Get HTF levels
         htf_levels = self._get_htf_levels(ctx.symbol)
@@ -291,7 +290,7 @@ class GeometryLiquidityService:
     def _build_liquidity_context_from_ctx(
         self,
         ctx: OrderflowSignalContext,
-        cluster_vol: Optional[Any] = None,
+        cluster_vol: Any | None = None,
     ) -> LiquidityContext:
         """Build liquidity context from existing signal context (preferred method)."""
 
@@ -355,7 +354,7 @@ class GeometryLiquidityService:
         self,
         ctx: OrderflowSignalContext,
         l2: SimpleL2Snapshot | None = None,
-        cluster_vol: Optional[Any] = None,
+        cluster_vol: Any | None = None,
     ) -> None:
         """Attach liquidity context to signal context."""
         # Prefer building from existing context data (more accurate and consistent)

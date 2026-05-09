@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
 import uuid
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -47,13 +48,13 @@ ONLY_SEVERITY = os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_I
 
 POLL_INTERVAL_SEC = 30.0
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_apply_incident_bundles_runs_total", "Runs", ("status", "trigger_type"))
@@ -66,13 +67,13 @@ BUNDLES_TOTAL = _counter("ml_route_incident_rca_mirror_rca_winner_apply_apply_in
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
     }
 
-async def fetch_recent(r: Any, stream: str, count: int) -> List[Dict[str, Any]]:
+async def fetch_recent(r: Any, stream: str, count: int) -> list[dict[str, Any]]:
     try:
         hist = await r.xrevrange(stream, max="+", min="-", count=count)
         return [{"msg_id": msg_id.decode() if isinstance(msg_id, bytes) else msg_id, **decode_dict(fields)} for msg_id, fields in hist] if hist else []
@@ -103,42 +104,42 @@ async def persist_bundle(db_url: str, bundle_id: str, trigger_type: str, severit
             )
             conn.commit()
 
-def determine_trigger(journal: List[Dict], rbs: List[Dict], esc: List[Dict], last_handled_ts: int) -> Tuple[bool, str, str, Dict]:
+def determine_trigger(journal: list[dict], rbs: list[dict], esc: list[dict], last_handled_ts: int) -> tuple[bool, str, str, dict]:
     triggers = []
-    
+
     for j in journal:
         ts = int(j.get("ts_ms", 0))
         if ts > last_handled_ts and j.get("strategy") in TRIGGER_ON_APPLY_DECISIONS:
             triggers.append((ts, "apply", "warning", j))
-            
+
     for rb in rbs:
         ts = int(rb.get("ts_ms", 0))
         if ts > last_handled_ts:
             triggers.append((ts, "rollback", "critical", rb))
-            
+
     for e in esc:
         ts = int(e.get("ts_ms", 0))
         if ts > last_handled_ts and e.get("severity") in ONLY_SEVERITY:
             triggers.append((ts, "escalation", e.get("severity", "warning"), e))
-            
+
     triggers.sort(key=lambda x: x[0])
-    
+
     if not triggers:
         return False, "none", "info", {}
-        
+
     ts, trig_type, sev, meta = triggers[-1]  # Take the most recent
-    
+
     # We don't advance till successful build, but we will return the most recent active trigger
     # Wait, actually to avoid multiple bundles back to back for the same event storm we just process one per run.
     return True, trig_type, sev, meta
 
-def trim_evidence(ev: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]]:
+def trim_evidence(ev: list[dict[str, Any]], count: int) -> list[dict[str, Any]]:
     # Reverse cron -> older first -> last 'count' -> revert again. Just giving last N.
     return ev[:count]
 
-async def build_and_emit_bundle(r: Any, db_url: str, trigger_type: str, severity: str, meta: Dict) -> None:
+async def build_and_emit_bundle(r: Any, db_url: str, trigger_type: str, severity: str, meta: dict) -> None:
     bundle_id = str(uuid.uuid4())
-    
+
     # GATHER ALL EVIDENCE
     ev_journal = await fetch_recent(r, STREAM_CTRL_JOURNAL, LOOKBACK_COUNT)
     ev_rbs = await fetch_recent(r, STREAM_RB_JOURNAL, LOOKBACK_COUNT)
@@ -146,7 +147,7 @@ async def build_and_emit_bundle(r: Any, db_url: str, trigger_type: str, severity
     ev_retry = await fetch_recent(r, STREAM_RETRY_RES, LOOKBACK_COUNT)
     ev_esc = await fetch_recent(r, STREAM_ESCALATIONS, LOOKBACK_COUNT)
     ev_slo = await fetch_recent(r, STREAM_SLO, LOOKBACK_COUNT)
-    
+
     payload = {
         "bundle_id": bundle_id,
         "contour": "route_incident_rca_mirror_rca_winner_apply_apply_governance",
@@ -172,9 +173,9 @@ async def build_and_emit_bundle(r: Any, db_url: str, trigger_type: str, severity
             "escalations_in_window": len(ev_esc)
         }
     }
-    
+
     pj = json.dumps(payload)
-    
+
     await r.xadd(OUT_BUNDLES_STREAM, {
         "bundle_id": bundle_id,
         "trigger_type": trigger_type,
@@ -182,21 +183,21 @@ async def build_and_emit_bundle(r: Any, db_url: str, trigger_type: str, severity
         "payload_json": pj,
         "ts_ms": str(now_ms())
     }, maxlen=MAXLEN, approximate=True)
-    
+
     await r.xadd(OUT_AUDIT_STREAM, {
         "bundle_id": bundle_id,
         "trigger_type": trigger_type,
         "severity": severity,
         "ts_ms": str(now_ms())
     }, maxlen=MAXLEN, approximate=True)
-    
+
     await persist_bundle(db_url, bundle_id, trigger_type, severity, pj)
-    
+
     await r.hset(LAST_METRIC, "bundle_id", bundle_id)
     await r.hset(LAST_METRIC, "trigger_type", trigger_type)
     await r.hset(LAST_METRIC, "severity", severity)
     await r.hset(LAST_METRIC, "ts_ms", str(now_ms()))
-    
+
     if BUNDLES_TOTAL:
         BUNDLES_TOTAL.labels(severity=severity, trigger_type=trigger_type).inc()
 
@@ -206,7 +207,7 @@ async def main() -> None:  # pragma: no cover
     start_http_server(PORT)
     if UP:
         UP.set(1)
-        
+
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     db_url = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
 
@@ -217,30 +218,30 @@ async def main() -> None:  # pragma: no cover
         started = time.perf_counter()
         status = "ok"
         trig_type_tag = "none"
-        
+
         try:
             journal_entries = await fetch_recent(r, STREAM_CTRL_JOURNAL, 100)
             rb_entries = await fetch_recent(r, STREAM_RB_JOURNAL, 100)
             esc_entries = await fetch_recent(r, STREAM_ESCALATIONS, 100)
-            
+
             should_build, trig_type, severity, meta = determine_trigger(journal_entries, rb_entries, esc_entries, last_handled_ts)
             trig_type_tag = trig_type
-            
+
             if should_build:
                 await build_and_emit_bundle(r, db_url, trig_type, severity, meta)
                 last_handled_ts = int(meta.get("ts_ms", now_ms()))
 
             if LAST_RUN:
                 LAST_RUN.set(time.time())
-                
-        except Exception as exc:
+
+        except Exception:
             status = "error"
         finally:
             if RUNS:
                 RUNS.labels(status=status, trigger_type=trig_type_tag).inc()
             if LAT:
                 LAT.observe(max(time.perf_counter() - started, 0.0))
-                
+
             await asyncio.sleep(POLL_INTERVAL_SEC)
 
 if __name__ == "__main__":  # pragma: no cover

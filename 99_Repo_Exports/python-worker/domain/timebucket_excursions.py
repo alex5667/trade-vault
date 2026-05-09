@@ -1,21 +1,20 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
-def _parse_csv_ints(s: str) -> List[int]:
-    out: List[int] = []
+def _parse_csv_ints(s: str) -> list[int]:
+    out: list[int] = []
     for part in (s or "").split(","):
         p = part.strip()
         if not p:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(int(float(p)))
-        except Exception:
-            pass
     return out
 
 
@@ -24,7 +23,7 @@ def _env_bool(name: str, default: bool) -> bool:
     return v in {"1", "true", "yes", "on"}
 
 
-def _buckets_ms_from_env(tf: str) -> List[int]:
+def _buckets_ms_from_env(tf: str) -> list[int]:
     """
     Time buckets for snapshots.
 
@@ -108,14 +107,14 @@ def maybe_snapshot_time_buckets(
 
     # Ensure dict containers exist (pos is assumed mutable and not slots-restricted).
     try:
-        mfe_map: Dict[int, float] = getattr(pos, "mfe_pnl_t", None)  # type: ignore[assignment]
+        mfe_map: dict[int, float] = getattr(pos, "mfe_pnl_t", None)  # type: ignore[assignment]
         if not isinstance(mfe_map, dict):
             mfe_map = {}
-            setattr(pos, "mfe_pnl_t", mfe_map)
-        mae_map: Dict[int, float] = getattr(pos, "mae_pnl_t", None)  # type: ignore[assignment]
+            pos.mfe_pnl_t = mfe_map
+        mae_map: dict[int, float] = getattr(pos, "mae_pnl_t", None)  # type: ignore[assignment]
         if not isinstance(mae_map, dict):
             mae_map = {}
-            setattr(pos, "mae_pnl_t", mae_map)
+            pos.mae_pnl_t = mae_map
     except Exception:
         return
 

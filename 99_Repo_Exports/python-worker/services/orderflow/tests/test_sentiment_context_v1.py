@@ -1,8 +1,10 @@
 import json
-import pytest
 from unittest.mock import AsyncMock
 
+import pytest
+
 from services.orderflow.sentiment_context import aread_sentiment_context
+
 
 @pytest.mark.asyncio
 async def test_aread_sentiment_context_success():

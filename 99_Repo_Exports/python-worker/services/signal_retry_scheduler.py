@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 """
 Optional dedicated retry pump (if you prefer separating concerns).
 
@@ -7,9 +9,8 @@ you can run exactly 1 scheduler instance (or many with leases - safe).
 """
 
 import os
-import time
 import random
-from typing import Optional
+import time
 
 import redis
 
@@ -72,14 +73,14 @@ class SignalRetryScheduler:
         self.redis = redis.from_url(self.redis_url, decode_responses=True, socket_connect_timeout=5, socket_timeout=15)
 
         self.retry_schedule_zset = os.getenv("SIGNAL_OUTBOX_RETRY_ZSET", "signals:outbox:retry:schedule")
-        self.outbox_stream = os.getenv("SIGNAL_OUTBOX_STREAM", "stream:signals:outbox")
+        self.outbox_stream = os.getenv("SIGNAL_OUTBOX_STREAM", RS.SIGNAL_OUTBOX)
         self.outbox_maxlen = int(os.getenv("SIGNAL_OUTBOX_MAXLEN", "20000"))
         self.retry_lease_prefix = os.getenv("SIGNAL_OUTBOX_RETRY_LEASE_PREFIX", "signals:outbox:retry:lease")
         self.lease_ttl_ms = int(os.getenv("SIGNAL_SID_LEASE_TTL_MS", "30000"))
         self.batch = int(os.getenv("SIGNAL_OUTBOX_RETRY_PUMP_BATCH", "500"))
         self.interval_ms = int(os.getenv("SIGNAL_OUTBOX_RETRY_PUMP_EVERY_MS", "200"))
 
-        self._sha: Optional[str] = None
+        self._sha: str | None = None
 
     def _ensure(self) -> str:
         if self._sha:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """services.ab_winner_evaluator_lcb
 
 LCB evaluator upgraded:
@@ -14,18 +15,18 @@ This file is used by ABWinnerSuggesterV2.
 import math
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def _rg(x: Any) -> str:
     try:
-        return str(x or "na").strip().lower() or "na"
+        return (x or "na").strip().lower() or "na"
     except Exception:
         return "na"
 
 
 def _arm(x: Any) -> str:
-    v = str(x or "").strip().upper()
+    v = (x or "").strip().upper()
     return v if v in ("A", "B", "C") else ""
 
 
@@ -88,10 +89,10 @@ class LCBEvaluatorPerRegime:
       - otherwise pick "A" (safe default) and mark reason as "insufficient_evidence".
     """
 
-    def __init__(self, cfg: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, cfg: dict[str, Any] | None = None) -> None:
         self.cfg = cfg or {}
 
-    def _params(self, regime: str) -> Tuple[float, int, float]:
+    def _params(self, regime: str) -> tuple[float, int, float]:
         rg = _rg(regime)
         # Defaults: 80% one-sided (~1.28) for normal regimes,
         #           90% (~1.64) for thin/news where variance and slippage are higher.
@@ -107,7 +108,7 @@ class LCBEvaluatorPerRegime:
         return z_default, min_n_default, min_lcb_default
 
     @staticmethod
-    def _mean_std(xs: List[float]) -> Tuple[float, float]:
+    def _mean_std(xs: list[float]) -> tuple[float, float]:
         if not xs:
             return 0.0, 0.0
         n = len(xs)
@@ -117,7 +118,7 @@ class LCBEvaluatorPerRegime:
         var = sum((x - mu) ** 2 for x in xs) / float(n - 1)
         return mu, math.sqrt(max(0.0, var))
 
-    def pick_winner(self, rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def pick_winner(self, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
         if not rows:
             return None
         # regime is constant per key in suggester, but tolerate mixed input (take majority).
@@ -125,7 +126,7 @@ class LCBEvaluatorPerRegime:
         regime = max(set(regs), key=regs.count) if regs else "na"
         z, min_n, min_lcb_r = self._params(regime)
 
-        by_arm: Dict[str, List[float]] = {"A": [], "B": [], "C": []}
+        by_arm: dict[str, list[float]] = {"A": [], "B": [], "C": []}
         cost_aware = os.getenv("LCB_COST_AWARE_ENABLE", "0") == "1"
         for r in rows:
             arm = _arm(r.get("ab_arm") or r.get("arm") or "")
@@ -140,7 +141,7 @@ class LCBEvaluatorPerRegime:
                 continue
             by_arm[arm].append(float(rr))
 
-        picks: List[LCBPick] = []
+        picks: list[LCBPick] = []
         for arm, xs in by_arm.items():
             n = len(xs)
             mu, sd = self._mean_std(xs)
@@ -199,8 +200,8 @@ class LCBEvaluatorPerRegime:
 
 
 # Backward-compatible alias
-def choose_winner(rows: List[Dict[str, Any]], cfg: Optional[Dict[str, Any]] = None) -> Tuple[str, str]:
+def choose_winner(rows: list[dict[str, Any]], cfg: dict[str, Any] | None = None) -> tuple[str, str]:
     """Legacy interface: returns (winner_arm, reason)."""
     out = LCBEvaluatorPerRegime(cfg=cfg).pick_winner(rows) or {}
-    return str(out.get("winner_arm") or "A"), str(out.get("reason") or "")
+    return (out.get("winner_arm") or "A"), (out.get("reason") or "")
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P59 nightly bundle for edge_stack_v1 (Dataset -> Validate -> Train -> Validate -> Promote).
 
 Design goals:
@@ -25,9 +26,8 @@ import logging
 import os
 import subprocess
 import sys
-import time
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -35,9 +35,11 @@ except Exception:
     redis = None  # type: ignore
 
 try:
-    from tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 except Exception:
-    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from ml_analysis.tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 
 from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import (
     atomic_copy,
@@ -47,7 +49,6 @@ from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import (
     validate_train_report,
     write_train_metrics,
 )
-
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("nightly_edge_stack_v1_bundle_p59")
@@ -62,7 +63,7 @@ def _sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def _run(module: str, args: list, timeout: int = 3600) -> Tuple[bool, str, str]:
+def _run(module: str, args: list, timeout: int = 3600) -> tuple[bool, str, str]:
     """Run a python module via subprocess, return (ok, stdout, stderr)."""
     cmd = [sys.executable, "-m", module] + list(args)
     logger.info("Running: %s", " ".join(cmd))
@@ -73,10 +74,10 @@ def _run(module: str, args: list, timeout: int = 3600) -> Tuple[bool, str, str]:
     return ok, (p.stdout or ""), (p.stderr or "")
 
 
-def _load_json(path: str) -> Dict[str, Any]:
+def _load_json(path: str) -> dict[str, Any]:
     """Load JSON from file; return empty dict on any error."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         return obj if isinstance(obj, dict) else {}
     except Exception:
@@ -90,10 +91,10 @@ def _connect_redis(redis_url: str):
     return redis.Redis.from_url(redis_url, decode_responses=True)
 
 
-def _hset_safe(r, key: str, mapping: Dict[str, Any]) -> None:
+def _hset_safe(r, key: str, mapping: dict[str, Any]) -> None:
     """Best-effort hset - skips None values, never raises."""
     try:
-        flat: Dict[str, str] = {}
+        flat: dict[str, str] = {}
         for k, v in mapping.items():
             if v is None:
                 continue
@@ -104,7 +105,7 @@ def _hset_safe(r, key: str, mapping: Dict[str, Any]) -> None:
         return
 
 
-def main(argv: Optional[list] = None) -> int:
+def main(argv: list | None = None) -> int:
     ap = argparse.ArgumentParser(description="P59 nightly edge_stack_v1 train bundle")
     ap.add_argument("--redis_url", default=os.environ.get("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--cfg_hash_key", default=os.environ.get("ML_CONFIRM_CFG_KEY", "cfg:ml_confirm"))
@@ -199,7 +200,7 @@ def main(argv: Optional[list] = None) -> int:
         "--emit_feature_cols_json", feature_cols_json,
         # v9_of: pinned snapshot covering 100% of actual signal indicators
         # builder writes feature_registry.feature_cols_hash → validated by trainer
-        "--feature_schema_ver", str(feature_schema_ver or "").strip(),
+        "--feature_schema_ver", (feature_schema_ver or "").strip(),
         "--scenario_prefix", str(args.scenario_prefix),
         "--include_time_onehot", str(int(args.include_time_onehot)),
         "--strict_feature_cols", str(int(args.strict_feature_cols)),
@@ -266,7 +267,7 @@ def main(argv: Optional[list] = None) -> int:
         # --feature_cols_json is intentionally NOT passed: when --feature_schema_ver=v9_of
         # is set, trainer derives feature_cols from registry directly.
         # Passing both triggers strict_registry_match check which fails due to session_* one-hots.
-        "--feature_schema_ver", str(feature_schema_ver or "").strip(),
+        "--feature_schema_ver", (feature_schema_ver or "").strip(),
         "--scenario_prefix", str(args.scenario_prefix),
         "--include_time_onehot", str(int(args.include_time_onehot)),
         "--require_feature_registry", "0",
@@ -291,7 +292,7 @@ def main(argv: Optional[list] = None) -> int:
         return 4
 
     # parse train report from stdout (last JSON object on line)
-    tr: Dict[str, Any] = {}
+    tr: dict[str, Any] = {}
     for line in (out or "").splitlines()[::-1]:
         line = line.strip()
         if line.startswith("{") and line.endswith("}"):
@@ -357,7 +358,7 @@ def main(argv: Optional[list] = None) -> int:
         "oof_meta_ece": tv.ece,
         "train_ok": 1 if tv.ok else 0,
         "train_reason": tv.reason,
-        "feature_schema_ver": str(feature_schema_ver or ""),
+        "feature_schema_ver": (feature_schema_ver or ""),
         "candidate_path": candidate_path,
         "champion_path": champion_path if promoted else "",
         "promote_applied": 1 if promoted else 0,
@@ -367,10 +368,10 @@ def main(argv: Optional[list] = None) -> int:
     # Pin hashes from dataset/train reports for Prometheus alerts
     fr = rep.get("feature_registry") if isinstance(rep, dict) else None,
     if isinstance(fr, dict):
-        mapping["feature_cols_hash"] = str(fr.get("feature_cols_hash") or ""),
-        mapping["schema_hash"] = str(fr.get("schema_hash") or ""),
+        mapping["feature_cols_hash"] = (fr.get("feature_cols_hash") or ""),
+        mapping["schema_hash"] = (fr.get("schema_hash") or ""),
     if isinstance(tr, dict):
-        mapping["train_feature_cols_hash"] = str(tr.get("feature_cols_hash") or ""),
+        mapping["train_feature_cols_hash"] = (tr.get("feature_cols_hash") or ""),
     try:
         write_train_metrics(str(args.redis_url), str(args.metrics_key), mapping),
     except Exception:

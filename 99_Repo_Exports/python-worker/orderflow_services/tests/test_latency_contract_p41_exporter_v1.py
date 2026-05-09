@@ -1,15 +1,15 @@
 from __future__ import annotations
+
 """Tests for P4.1 additions to latency_contract_exporter_v1:
   - _parse_key roundtrips for NestJS stage names
   - P4.1 alerts YAML is valid
 """
 
 import os
-import sys
+
 import yaml
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
 from orderflow_services.latency_contract_exporter_v1 import _parse_key
 
 PREFIX = 'metrics:latency_contract:last'
@@ -37,7 +37,7 @@ def test_p41_alerts_yaml_valid():
     path = os.path.abspath(
         os.path.join(os.path.dirname(__file__), '..', 'prometheus_alerts_latency_contract_p41_v1.yml')
     )
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         data = yaml.safe_load(f)
     assert 'groups' in data and data['groups']
     rules = data['groups'][0]['rules']

@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Exec slippage eval rowcount probe (P77).
 
 Purpose
@@ -19,15 +21,14 @@ Exit codes
 """,
 import asyncio
 import os
-import time
-from typing import Dict, List, Tuple
 
 import asyncpg
+import contextlib
 
 
-def _buckets() -> List[str]:
+def _buckets() -> list[str]:
     raw = os.getenv("ENFORCE_STATE_EXPORTER_BUCKETS", "NORMAL,LOW_LIQ,HIGH_VOL,HIGH_VOL_LOW_LIQ")
-    xs: List[str] = []
+    xs: list[str] = []
     for p in str(raw).replace(";", ",").split(","):
         s = p.strip().upper()
         if s and s not in xs:
@@ -56,7 +57,7 @@ async def _connect_redis():
         return None
 
 
-async def run() -> Tuple[int, str]:
+async def run() -> tuple[int, str]:
     r = await _connect_redis()
     if r is None:
         return 1, "redis.asyncio unavailable"
@@ -84,21 +85,17 @@ async def run() -> Tuple[int, str]:
             await r.set("state:exec_slippage_eval:probe_last_msg", f"db_error:{e}"[:500])
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             await r.aclose()
-        except Exception:
-            pass
         if conn is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await conn.close()
-            except Exception:
-                pass
         return 1, f"db_error:{e}"
 
-    counts: Dict[str, int] = {b: 0 for b in buckets}
+    counts: dict[str, int] = dict.fromkeys(buckets, 0)
     total = 0
     for row in rows:
-        b = str(row.get("exec_regime_bucket") or "NORMAL").strip().upper() or "NORMAL"
+        b = (row.get("exec_regime_bucket") or "NORMAL").strip().upper() or "NORMAL"
         n = int(row.get("n") or 0)
         if b not in counts:
             counts[b] = 0
@@ -132,14 +129,10 @@ async def run() -> Tuple[int, str]:
     except Exception:
         pass
 
-    try:
+    with contextlib.suppress(Exception):
         await r.aclose()
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         await conn.close()
-    except Exception:
-        pass
 
     return rc, msg
 

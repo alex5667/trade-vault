@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Entry Policy Freeze Schema V1
 
@@ -18,12 +19,11 @@ Expert review:
   - DevOps/SRE: Redis-based state, no DB dependency, observable via keys
   - Professor Statistics: Freeze triggers on 2-of-4 metrics (reduces false positives)
 """
-from utils.time_utils import get_ny_time_millis
-
-from dataclasses import dataclass, asdict, field
-from typing import Any, Dict, Optional, Tuple
 import json
-import time
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -84,12 +84,12 @@ class EntryPolicyFreezeV1:
     notes: str = ""
     src: str = "cb_v1"
     created_ts_ms: int = 0
-    metrics: Dict[str, Any] = field(default_factory=dict)
+    metrics: dict[str, Any] = field(default_factory=dict)
     # Promotion tracking (shadow→hard auto-promotion)
     promoted_ts_ms: int = 0   # epoch ms when promoted; 0 = not promoted
     promoted_reason: str = "" # e.g. "blocked_8_seen_15_bad_cnt_2"
 
-    def is_active(self, now_ms: Optional[int] = None) -> bool:
+    def is_active(self, now_ms: int | None = None) -> bool:
         """Check if freeze is currently active"""
         now = int(now_ms or _now_ms())
         return int(self.until_ts_ms or 0) > now
@@ -99,7 +99,7 @@ class EntryPolicyFreezeV1:
         return json.dumps(asdict(self), ensure_ascii=False, separators=(",", ":"))
 
     @staticmethod
-    def from_json(raw: str) -> Tuple[Optional["EntryPolicyFreezeV1"], str]:
+    def from_json(raw: str) -> tuple[EntryPolicyFreezeV1 | None, str]:
         """
         Deserialize from Redis JSON (fail-safe).
         
@@ -128,11 +128,11 @@ class EntryPolicyFreezeV1:
             promoted_ts_ms=_i(d.get("promoted_ts_ms", 0), 0),
             promoted_reason=_s(d.get("promoted_reason", ""), ""),
         )
-        
+
         ok, err = fz.validate()
         return (fz if ok else None), err
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         """
         Validate freeze object.
         

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ATR Policy Disaster SLO Analytics — Phase 3.8 (Disaster Layer).
 
 Extends Phase 3.7 SRE exporter with disaster-specific SLOs:
@@ -22,9 +23,10 @@ ENV:
 import logging
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
+
 try:
     from core.redis_client import get_atr_redis
 except Exception:
@@ -87,9 +89,9 @@ def _rconn() -> redis.Redis:
     return redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
 
 
-def _scan_keys(r: redis.Redis, pattern: str, count: int = 500) -> List[str]:
+def _scan_keys(r: redis.Redis, pattern: str, count: int = 500) -> list[str]:
     cur: int = 0
-    out: List[str] = []
+    out: list[str] = []
     while True:
         cur, keys = r.scan(cur, match=pattern, count=count)
         out.extend(keys)
@@ -123,7 +125,7 @@ def _collect_kill_switch_count(r: redis.Redis) -> int:
     return active
 
 
-def _collect_last_good_coverage(r: redis.Redis) -> Dict[str, Any]:
+def _collect_last_good_coverage(r: redis.Redis) -> dict[str, Any]:
     """
     For each cfg:atr_policy:active:* key, check if matching last_good exists.
     Returns coverage percentage and raw counts.
@@ -147,7 +149,7 @@ def _collect_last_good_coverage(r: redis.Redis) -> Dict[str, Any]:
     }
 
 
-def _collect_verify_ok_fail(r: redis.Redis) -> Dict[str, int]:
+def _collect_verify_ok_fail(r: redis.Redis) -> dict[str, int]:
     """
     Read last 200 entries from verify_results stream, count ok/fail.
     """
@@ -193,9 +195,9 @@ def _collect_callback_silence_pending(r: redis.Redis) -> int:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def collect_once() -> Dict[str, Any]:
+def collect_once() -> dict[str, Any]:
     r = _rconn()
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
 
     stages = [
         ("kill_switch", lambda: {"kill_switch_active_count": _collect_kill_switch_count(r)}),
@@ -221,7 +223,7 @@ def collect_once() -> Dict[str, Any]:
     return out
 
 
-def export_once() -> Dict[str, Any]:
+def export_once() -> dict[str, Any]:
     s = collect_once()
     g_kill_switch_active_count.set(s.get("kill_switch_active_count", 0))
     g_last_good_coverage_pct.set(s.get("coverage_pct", 0.0))

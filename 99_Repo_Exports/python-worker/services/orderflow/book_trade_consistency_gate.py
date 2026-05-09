@@ -18,9 +18,10 @@ Design:
 import math
 import os
 from dataclasses import dataclass
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 from services.orderflow.book_sanity import trade_outside_bbo
+import contextlib
 
 try:
     from services.orderflow.metrics_stream_integrity_p5 import (
@@ -37,7 +38,7 @@ class BookTradeConsistencyDecision:
     apply: bool
     veto: bool
     reason_code: str
-    flags: List[str]
+    flags: list[str]
     book_staleness_ms: float = 0.0
     adverse_cross_bps: float = 0.0
     stream: str = "tick"
@@ -62,15 +63,15 @@ def _env_float(name: str, default: float) -> float:
         v = float(os.getenv(name, str(default)) or default)
     except Exception:
         v = float(default)
-    return float(v) if math.isfinite(v) else float(default)
+    return float(v) if math.isfinite(v) else default
 
 
 def _profile() -> str:
-    return str(os.getenv("GATE_PROFILE", os.getenv("BOOK_TRADE_CONSISTENCY_PROFILE", "default")) or "default").strip().lower()
+    return os.getenv("GATE_PROFILE", os.getenv("BOOK_TRADE_CONSISTENCY_PROFILE", "default") or "default").strip().lower()
 
 
 def _effective_mode(raw: str) -> str:
-    mode = str(raw or "auto").strip().lower()
+    mode = (raw or "auto").strip().lower()
     if mode in {"monitor", "tighten", "veto"}:
         return mode
     p = _profile()
@@ -85,20 +86,20 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
-def _safe_int(x: Any) -> Optional[int]:
+def _safe_int(x: Any) -> int | None:
     try:
         return int(x)
     except Exception:
         return None
 
 
-def _get_attr_any(obj: Any, names: Tuple[str, ...]) -> Any:
+def _get_attr_any(obj: Any, names: tuple[str, ...]) -> Any:
     for n in names:
         try:
             if hasattr(obj, n):
@@ -108,7 +109,7 @@ def _get_attr_any(obj: Any, names: Tuple[str, ...]) -> Any:
     return None
 
 
-def _metric(ctx: Any, names: Tuple[str, ...]) -> Any:
+def _metric(ctx: Any, names: tuple[str, ...]) -> Any:
     v = _get_attr_any(ctx, names)
     if v is not None:
         return v
@@ -152,10 +153,10 @@ class BookTradeConsistencyGate:
     veto_on_adverse_cross: bool
 
     @classmethod
-    def from_env(cls) -> 'BookTradeConsistencyGate':
+    def from_env(cls) -> BookTradeConsistencyGate:
         return cls(
             enabled=_env_bool('BOOK_TRADE_CONSISTENCY_ENABLED', True),
-            mode=str(os.getenv('BOOK_TRADE_CONSISTENCY_MODE', 'auto') or 'auto'),
+            mode=(os.getenv('BOOK_TRADE_CONSISTENCY_MODE', 'auto') or 'auto'),
             max_book_staleness_ms=_env_float('BOOK_TRADE_CONSISTENCY_MAX_BOOK_STALENESS_MS', 1200.0),
             outside_bbo_eps_bps=_env_float('BOOK_TRADE_CONSISTENCY_OUTSIDE_BBO_EPS_BPS', 1.0),
             adverse_cross_bps=_env_float('BOOK_TRADE_CONSISTENCY_ADVERSE_CROSS_BPS', 1.5),
@@ -167,7 +168,7 @@ class BookTradeConsistencyGate:
         if not self.enabled:
             return BookTradeConsistencyDecision(False, False, 'OK', [], stream=_stream_name(ctx))
 
-        flags: List[str] = []
+        flags: list[str] = []
         stream = _stream_name(ctx)
         trade_px = _safe_float(_metric(ctx, ('trade_px', 'last_trade_px', 'last_price', 'price')), 0.0)
         best_bid = _safe_float(_metric(ctx, ('best_bid_px', 'best_bid', 'bid', 'b')), 0.0)
@@ -193,10 +194,8 @@ class BookTradeConsistencyGate:
             flags.append('missing_book_ts')
 
         if book_staleness_ms > 0 and emit_book_staleness_metrics is not None:
-            try:
-                emit_book_staleness_metrics(symbol=str(symbol), staleness_ms=book_staleness_ms)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                emit_book_staleness_metrics(symbol=symbol, staleness_ms=book_staleness_ms)
 
         stale_book = bool(book_staleness_ms >= float(self.max_book_staleness_ms) > 0)
         if stale_book:
@@ -237,9 +236,9 @@ class BookTradeConsistencyGate:
                 reason = 'VETO_TRADE_ADVERSE_CROSS'
 
         if emit_trade_to_book_metrics is not None:
-            try:
+            with contextlib.suppress(Exception):
                 emit_trade_to_book_metrics(
-                    symbol=str(symbol),
+                    symbol=symbol,
                     stream=stream,
                     book_staleness_ms=float(book_staleness_ms),
                     adverse_cross_bps=float(max(0.0, adverse_cross_bps)),
@@ -247,21 +246,19 @@ class BookTradeConsistencyGate:
                     adverse_cross=adverse,
                     veto_reason=reason if veto else '',
                 )
-            except Exception:
-                pass
 
         notes = ''
         if flags:
             notes = (
                 f"mode={mode} book_staleness_ms={book_staleness_ms:.0f} "
                 f"cross_bps={float(max(0.0, adverse_cross_bps)):.4f} trade_px={trade_px:.8f} "
-                f"bb={best_bid:.8f} ba={best_ask:.8f} kind={str(kind or '')}"
+                f"bb={best_bid:.8f} ba={best_ask:.8f} kind={(kind or '')}"
             )[:256]
 
         return BookTradeConsistencyDecision(
             apply=bool(flags),
             veto=veto,
-            reason_code=str(reason),
+            reason_code=reason,
             flags=list(flags),
             book_staleness_ms=float(book_staleness_ms),
             adverse_cross_bps=float(max(0.0, adverse_cross_bps)),

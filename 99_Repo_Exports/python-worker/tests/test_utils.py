@@ -1,7 +1,12 @@
-import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from handlers.utils import normalize_epoch_ms, compute_daily_pivots, _parse_bool, minutes_of_day_from_epoch_ms, normalize_pivots_bundle
+from handlers.utils import (
+    _parse_bool,
+    compute_daily_pivots,
+    minutes_of_day_from_epoch_ms,
+    normalize_epoch_ms,
+    normalize_pivots_bundle,
+)
 
 
 def test_normalize_epoch_ms_seconds_to_ms():
@@ -28,7 +33,7 @@ def test_normalize_epoch_ms_string_iso():
 
 def test_normalize_epoch_ms_datetime():
     now = 1700000000000
-    dt = datetime(2025, 12, 23, 10, 0, 0, tzinfo=timezone.utc)
+    dt = datetime(2025, 12, 23, 10, 0, 0, tzinfo=UTC)
     assert normalize_epoch_ms(dt, now_ms=now) == int(dt.timestamp() * 1000)
 
 
@@ -52,7 +57,7 @@ def test_normalize_epoch_ms_rejects_intraday_values():
 
 
 def test_minutes_of_day_from_epoch_ms():
-    dt = datetime(2025, 12, 23, 10, 15, 0, tzinfo=timezone.utc)
+    dt = datetime(2025, 12, 23, 10, 15, 0, tzinfo=UTC)
     ms = int(dt.timestamp() * 1000)
     assert minutes_of_day_from_epoch_ms(ms) == 10 * 60 + 15
 

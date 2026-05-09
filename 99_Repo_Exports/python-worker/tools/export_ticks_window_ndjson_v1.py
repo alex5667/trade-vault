@@ -1,10 +1,9 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
 
@@ -34,7 +33,7 @@ def _stream_id_ms(msg_id: str) -> int:
         return 0
 
 
-def _parse_payload(fields: Dict[str, Any], payload_field: str) -> Dict[str, Any]:
+def _parse_payload(fields: dict[str, Any], payload_field: str) -> dict[str, Any]:
     """Parse payload from Redis stream fields.
     
     Supports:
@@ -50,25 +49,25 @@ def _parse_payload(fields: Dict[str, Any], payload_field: str) -> Dict[str, Any]
     if not raw:
         # Fallback to flat fields
         return dict(fields)
-    
+
     if isinstance(raw, bytes):
         try:
             raw = raw.decode("utf-8", "ignore")
         except Exception:
             return dict(fields)
-    
+
     s = str(raw)
     if not s.strip().startswith("{"):
         # Not JSON, return flat fields
         return dict(fields)
-    
+
     try:
         obj = json.loads(s)
         if isinstance(obj, dict):
             return obj
     except Exception:
         pass
-    
+
     # Fallback to flat fields
     return dict(fields)
 
@@ -78,16 +77,16 @@ def export(
     r: redis.Redis,
     stream: str,
     since_ms: int,
-    symbols: Optional[List[str]],
+    symbols: list[str] | None,
     out_path: str,
     max_scan: int,
     payload_field: str,
     ts_field: str,
     price_field: str,
     symbol_field: str,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     scanned = 0
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
 
     symset = set([s.upper() for s in symbols]) if symbols else None
@@ -119,7 +118,7 @@ def export(
                 scanned = max_scan
                 break
 
-            sym = str(obj.get(symbol_field, "") or "").upper()
+            sym = (obj.get(symbol_field, "") or "").upper()
             if symset is not None and sym not in symset:
                 continue
 
@@ -138,7 +137,7 @@ def export(
                 ask = _f(obj.get("ask", 0.0), 0.0)
                 if bid > 0.0 and ask > 0.0:
                     px = (bid + ask) / 2.0
-            
+
             if px <= 0.0:
                 continue
 
@@ -170,7 +169,6 @@ def main() -> None:
 
     r = redis.Redis.from_url(args.redis_url, decode_responses=False)
 
-    import time as _time
     since_ms = int(_get_ny_time_millis()) - int(args.since_hours * 3600_000)
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
 
@@ -191,7 +189,7 @@ def main() -> None:
         print(_safe_json({"written": written, "scanned": scanned, "out": args.out}))
     elif symbols:
         # Multi-stream export: export from stream:tick_<SYMBOL> for each symbol
-        all_rows: List[Dict[str, Any]] = []
+        all_rows: list[dict[str, Any]] = []
         total_scanned = 0
         for sym in symbols:
             stream_name = f"stream:tick_{sym}"
@@ -212,7 +210,7 @@ def main() -> None:
             total_scanned += scanned
             # Read and merge rows, ensuring symbol is set
             if os.path.exists(temp_out):
-                with open(temp_out, "r", encoding="utf-8") as f:
+                with open(temp_out, encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if not line:
@@ -226,7 +224,7 @@ def main() -> None:
                         except Exception:
                             pass
                 os.remove(temp_out)
-        
+
         # Sort by timestamp and write merged output
         all_rows.sort(key=lambda x: x.get("ingest_time_ms", 0))
         os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)

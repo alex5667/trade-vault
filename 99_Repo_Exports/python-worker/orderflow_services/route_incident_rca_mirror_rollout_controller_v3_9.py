@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -87,15 +88,15 @@ ROLLOUT_STATES = {
 },
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -148,8 +149,8 @@ def parse_int(value: Any, default: int = 0) -> int:
         return default
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -162,7 +163,7 @@ def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "advisory_only": parse_int(raw.get("advisory_only"), DEFAULT_ADVISORY_ONLY),
         "executor_mode": str(raw.get("executor_mode") or DEFAULT_EXECUTOR_MODE).upper(),
@@ -172,12 +173,12 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def shadow_mode_from_hash(raw: Dict[str, Any]) -> str:
-    return str(raw.get("mode") or "AUDIT_ONLY").upper()
+def shadow_mode_from_hash(raw: dict[str, Any]) -> str:
+    return (raw.get("mode") or "AUDIT_ONLY").upper()
 
 
-def rollout_state_from_hash(raw: Dict[str, Any], current_mode: str) -> str:
-    state = str(raw.get("rollout_state") or "").upper()
+def rollout_state_from_hash(raw: dict[str, Any], current_mode: str) -> str:
+    state = (raw.get("rollout_state") or "").upper()
     if state in ROLLOUT_STATES:
         return state
     if current_mode == "AUDIT_ONLY":
@@ -194,10 +195,10 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-def normalize_event(source: str, row: Dict[str, Any]) -> Dict[str, Any]:
-    decision = str(row.get("decision") or "").upper()
-    reason_code = str(row.get("reason_code") or "UNKNOWN")
-    current_mode = str(row.get("current_mode") or "").upper()
+def normalize_event(source: str, row: dict[str, Any]) -> dict[str, Any]:
+    decision = (row.get("decision") or "").upper()
+    reason_code = (row.get("reason_code") or "UNKNOWN")
+    current_mode = (row.get("current_mode") or "").upper()
     target_mode = str(row.get("target_mode") or current_mode).upper()
     return {
         "source": source,
@@ -211,13 +212,13 @@ def normalize_event(source: str, row: Dict[str, Any]) -> Dict[str, Any]:
 
 def evaluate_event(
     *,
-    event: Dict[str, Any],
+    event: dict[str, Any],
     current_mode: str,
     rollout_state: str,
     last_transition_ts_ms: int,
-    policy: Dict[str, Any],
+    policy: dict[str, Any],
     now_ts_ms: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     source = event["source"]
     decision = event["decision"]
     reason_code = event["reason_code"]
@@ -280,7 +281,7 @@ def evaluate_event(
 
 async def apply_transition(
     r: Any,
-    evaluation: Dict[str, Any],
+    evaluation: dict[str, Any],
 ) -> None:
     await r.hset(
         SHADOW_POLICY_KEY,
@@ -305,9 +306,9 @@ async def apply_transition(
 
 async def persist_if_configured(
     db_url: str,
-    event: Dict[str, Any],
-    evaluation: Dict[str, Any],
-    snapshot: Dict[str, Any],
+    event: dict[str, Any],
+    evaluation: dict[str, Any],
+    snapshot: dict[str, Any],
 ) -> None:
     if not db_url or psycopg is None:
         return
@@ -416,7 +417,7 @@ async def process_event(
     r: Any,
     db_url: str,
     source: str,
-    row: Dict[str, Any],
+    row: dict[str, Any],
 ) -> None:
     shadow_policy = as_dict(await r.hgetall(SHADOW_POLICY_KEY))
     rollout_state_raw = as_dict(await r.hgetall(ROLLOUT_STATE_KEY))
@@ -425,7 +426,7 @@ async def process_event(
         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
         if exec_kill and exec_kill.decode().strip() == '1':
             policy['kill_switch'] = 1
-    except: pass
+    except Exception: pass
     current_mode = shadow_mode_from_hash(shadow_policy)
     rollout_state = rollout_state_from_hash(rollout_state_raw, current_mode)
     last_transition_ts_ms = parse_int(rollout_state_raw.get("last_transition_ts_ms"), 0)
@@ -550,7 +551,7 @@ async def main() -> None:  # pragma: no cover
                     await process_event(r, db_url, source, row)
                     await r.xack(stream_name, GROUP, msg_id)
                     last_hash = as_dict(await r.hgetall(LAST_HASH))
-                    decision_label = str(last_hash.get("controller_decision") or "HOLD")
+                    decision_label = (last_hash.get("controller_decision") or "HOLD")
                     if LAST_RUN_TS:
                         LAST_RUN_TS.set(time.time())
                 except Exception as exc:

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
-import pytest
-
 from services.signal_dispatcher import SignalDispatcher
+from core.redis_keys import RedisStreams as RS
 
 
 class FakeRedis:
@@ -68,7 +66,7 @@ def test_handle_one_lease_contention_reenqueue_and_ack(monkeypatch):
     r = FakeRedis()
     d = SignalDispatcher(redis_client=r)
     d.redis = r
-    d.outbox_stream = "stream:signals:outbox"
+    d.outbox_stream = RS.SIGNAL_OUTBOX
     d._parse_envelope = lambda fields: {"sid": "S1", "x": 1}
     d._send_dlq = lambda *a, **k: None
     d._try_acquire_sid_lease = lambda sid: None  # contention
@@ -83,7 +81,7 @@ def test_handle_one_lease_contention_reenqueue_fail_keeps_pending(monkeypatch):
     r = FakeRedis()
     d = SignalDispatcher(redis_client=r)
     d.redis = r
-    d.outbox_stream = "stream:signals:outbox"
+    d.outbox_stream = RS.SIGNAL_OUTBOX
     d._parse_envelope = lambda fields: {"sid": "S1", "x": 1}
     d._send_dlq = lambda *a, **k: None
     d._try_acquire_sid_lease = lambda sid: None  # contention

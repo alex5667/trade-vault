@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for binance_dust_cleanup_worker (sequential patch v1).
 
 Covers:
@@ -9,7 +10,6 @@ Covers:
 """
 
 from services.binance_dust_cleanup_worker import BinanceDustCleanupWorker
-
 
 # ---------------------------------------------------------------------------
 # Fake infrastructure
@@ -134,29 +134,29 @@ class FakeClient:
         return out
 
     def get_symbol_position_risk(self, symbol, position_side=None):
-        rows = self.position_rows[str(symbol).upper()]
-        idx = min(self.current_idx.get(str(symbol).upper(), 0), len(rows) - 1)
+        rows = self.position_rows[symbol.upper()]
+        idx = min(self.current_idx.get(symbol.upper(), 0), len(rows) - 1)
         return dict(rows[idx])
 
     def get_open_orders(self, symbol=None):
-        return list(self.plain_orders.get(str(symbol).upper(), []))
+        return list(self.plain_orders.get(symbol.upper(), []))
 
     def get_open_algo_orders(self, symbol=None):
-        return list(self.algo_orders.get(str(symbol).upper(), []))
+        return list(self.algo_orders.get(symbol.upper(), []))
 
     def cancel_all_orders(self, symbol):
-        self.cancel_all_calls.append(str(symbol).upper())
+        self.cancel_all_calls.append(symbol.upper())
         # Clear orders so verify loop sees empty books
-        self.plain_orders[str(symbol).upper()] = []
-        self.algo_orders[str(symbol).upper()] = []
+        self.plain_orders[symbol.upper()] = []
+        self.algo_orders[symbol.upper()] = []
         return {'status': 'ok'}
 
     def cancel_plain_order(self, symbol, order_id=None, client_order_id=None):
-        self.plain_orders[str(symbol).upper()] = []
+        self.plain_orders[symbol.upper()] = []
         return {'status': 'canceled'}
 
     def cancel_algo_order(self, symbol, algo_id=None, client_algo_id=None):
-        self.algo_orders[str(symbol).upper()] = []
+        self.algo_orders[symbol.upper()] = []
         return {'status': 'canceled'}
 
     def post_plain_order(self, params):
@@ -287,7 +287,7 @@ def test_dust_worker_already_flat_skips_close():
         """get_symbol_position_risk always returns a flat row for any symbol."""
         def get_symbol_position_risk(self, symbol, position_side=None):
             return {
-                'symbol': str(symbol).upper(),
+                'symbol': symbol.upper(),
                 'positionAmt': '0.0',
                 'notional': '0.0',
                 'isolatedMargin': '0.0',
@@ -410,7 +410,6 @@ def test_dust_worker_applies_cleanup_cooldown_per_symbol():
 
 def test_is_network_error_detects_dns_payload():
     """_is_network_error returns True for BinanceAPIError with code=dns_resolve_failed."""
-    import socket as _socket
     from services.binance_dust_cleanup_worker import _is_network_error
     from services.binance_futures_client import BinanceAPIError
 
@@ -432,6 +431,7 @@ def test_is_network_error_detects_dns_payload():
 def test_is_network_error_detects_raw_gaierror():
     """_is_network_error returns True when the exception chain includes socket.gaierror."""
     import socket as _socket
+
     from services.binance_dust_cleanup_worker import _is_network_error
 
     gaierror = _socket.gaierror(-3, 'Temporary failure in name resolution')

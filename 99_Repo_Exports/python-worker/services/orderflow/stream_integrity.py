@@ -30,20 +30,21 @@ NOTE:
 
 import hashlib
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Tuple
+from typing import Any
 
-from core.seq_gap_tracker_v1 import GapEmaTracker
 from core.robust_stats import RollingRobustZ
+from core.seq_gap_tracker_v1 import GapEmaTracker
 
 
 def _finite_f(x: Any, d: float = 0.0) -> float:
     try:
         v = float(x)
     except Exception:
-        return float(d)
+        return d
     if not math.isfinite(v):
-        return float(d)
+        return d
     return float(v)
 
 
@@ -104,7 +105,7 @@ class StreamIntegrityTracker:
         self.schema_hash_last: str = ""
         self.schema_changed_last: int = 0
 
-    def update_schema(self, keys: Iterable[str]) -> Tuple[str, int]:
+    def update_schema(self, keys: Iterable[str]) -> tuple[str, int]:
         """Update schema hash. Returns (hash, changed_flag)."""
         h = schema_hash(keys)
         changed = 0

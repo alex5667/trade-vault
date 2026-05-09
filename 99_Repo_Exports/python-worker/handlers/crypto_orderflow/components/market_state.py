@@ -2,29 +2,30 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from typing import Any, Dict, Deque
+from typing import Any
 
 from common.deque_utils import ensure_bounded_deque
 from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import BarSample
+
 
 class CryptoMarketState:
     """
     Manages market state history (bars, regime samples) and basic extreme detection.
     """
     def __init__(self, bar_history_maxlen: int = 512, regime_window_size: int = 240):
-        self._bar_history: Dict[str, Deque[BarSample]] = {}
-        self._regime_history: Dict[str, Deque[Any]] = {}
-        
+        self._bar_history: dict[str, deque[BarSample]] = {}
+        self._regime_history: dict[str, deque[Any]] = {}
+
         # Config params
         self._bar_history_maxlen = bar_history_maxlen
         self._regime_cfg_window_size = regime_window_size
 
-    def get_bar_hist(self, symbol: str) -> Deque[BarSample]:
+    def get_bar_hist(self, symbol: str) -> deque[BarSample]:
         """Get or initialize bounded deque for bar history."""
         # Protection against unlimited growth
         if symbol not in self._bar_history:
             self._bar_history[symbol] = deque(maxlen=self._bar_history_maxlen)
-            
+
         d = self._bar_history[symbol]
         # Ensure correct maxlen if it changed (though usually static)
         d2 = ensure_bounded_deque(d, self._bar_history_maxlen)
@@ -32,11 +33,11 @@ class CryptoMarketState:
             self._bar_history[symbol] = d2
         return d2
 
-    def get_regime_hist(self, symbol: str) -> Deque[Any]:
+    def get_regime_hist(self, symbol: str) -> deque[Any]:
         """Get or initialize bounded deque for regime history."""
         if symbol not in self._regime_history:
             self._regime_history[symbol] = deque(maxlen=self._regime_cfg_window_size)
-            
+
         d = self._regime_history[symbol]
         d2 = ensure_bounded_deque(d, self._regime_cfg_window_size)
         if d2 is not d:
@@ -67,7 +68,7 @@ class CryptoMarketState:
         lows = [b.low for b in hist]
         vols = [b.volume for b in hist]
 
-        # Previous extremes (excluding current bar if not yet appended, 
+        # Previous extremes (excluding current bar if not yet appended,
         # BUT usually this checks 'bar' against 'hist' where 'bar' might be the NEW one.
         # Original code: prev_high = max(highs[:-1]) suggests hist contains current bar?
         # Let's check original usage: _update_bar_history is called distinct from _is_new_local_extreme.
@@ -75,9 +76,9 @@ class CryptoMarketState:
         # Original code used highs[:-1]. If hist HAS the new bar, this makes sense.
         # If hist DOES NOT have new bar, highs[:-1] skips the last OLD bar.
         # Safe approach: pass explicit history or assume policy.
-        # We will assume hist DOES NOT contain 'bar' yet, or if it does, 
+        # We will assume hist DOES NOT contain 'bar' yet, or if it does,
         # we strictly follow original logic which took highs[:-1].
-        
+
         # NOTE: Original code (Step 16/106)
         # highs = [b.high for b in hist]
         # prev_high = max(highs[:-1])
@@ -103,7 +104,7 @@ class CryptoMarketState:
         n_var = max(len(vols) - 2, 1)
         var_vol = sum((v - mu_vol) ** 2 for v in vols[:-1]) / n_var
         std_vol = math.sqrt(max(var_vol, 1e-9))
-        
+
         # bar.volume is from the new bar being checked
         vol_z = (bar.volume - mu_vol) / max(std_vol, 1e-6)
 

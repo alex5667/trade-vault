@@ -1,11 +1,11 @@
 from __future__ import annotations
+
 """
 Unit tests for Phase E / P4: ManipulationTracker (quote stuffing + layering)
 
 test_manip_patterns_p4_v1.py
 """
 
-import pytest
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

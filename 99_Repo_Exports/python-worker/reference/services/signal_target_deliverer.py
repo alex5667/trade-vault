@@ -1,17 +1,17 @@
-from utils.time_utils import get_ny_time_millis
 import json
 import os
-import time
 import random
-from typing import Any, Dict, Optional
+import time
+from typing import Any
 
 import redis
 from redis.exceptions import ConnectionError, TimeoutError
 
 from common.log import setup_logger
-from core.redis_stream_consumer import SyncRedisStreamHelper
 from core.dual_redis_client import get_dual_signals_redis
 from core.redis_client import get_redis
+from core.redis_stream_consumer import SyncRedisStreamHelper
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("SignalTargetDeliverer")
 
@@ -163,10 +163,10 @@ class SignalTargetDeliverer:
         self.notify_counter_key = os.getenv("NOTIFY_SIGNAL_COUNTER_KEY", "notify:telegram:signal_counter")
         self.notify_every_n = max(1, int(os.getenv("NOTIFY_SIGNAL_EVERY_N", "1")))
 
-        self._sha_xadd: Optional[str] = None
-        self._sha_setex: Optional[str] = None
-        self._sha_notify: Optional[str] = None
-        self._sha_pop_retry: Optional[str] = None
+        self._sha_xadd: str | None = None
+        self._sha_setex: str | None = None
+        self._sha_notify: str | None = None
+        self._sha_pop_retry: str | None = None
 
         self._backoff = _Backoff()
         self._start_id = "0-0"
@@ -200,7 +200,7 @@ class SignalTargetDeliverer:
         except Exception as e:
             logger.error("DLQ write failed: %s", e, exc_info=True)
 
-    def _parse_task(self, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_task(self, fields: dict[str, Any]) -> dict[str, Any] | None:
         raw = fields.get("data")
         if not raw:
             return None
@@ -222,13 +222,13 @@ class SignalTargetDeliverer:
         jitter = random.randint(0, max(0, self.retry_jitter_ms))
         return int(raw + jitter)
 
-    def _schedule_retry(self, task: Dict[str, Any], *, attempt: int, err: Exception) -> None:
+    def _schedule_retry(self, task: dict[str, Any], *, attempt: int, err: Exception) -> None:
         """
         Delay-queue retry:
           - store latest task JSON in key signal:task:{target}:{sid} (EX = done_ttl)
           - ZADD retry_zset score=now+delay member=sid
         """
-        sid = str(task.get("sid") or "")
+        sid = (task.get("sid") or "")
         if not sid:
             raise ValueError("missing_sid_for_retry")
         task2 = dict(task)
@@ -244,7 +244,7 @@ class SignalTargetDeliverer:
         pipe.zadd(self.retry_zset, {sid: float(due_ms)})
         pipe.execute()
 
-    def _pop_due_retry(self, now_ms: int) -> Optional[Dict[str, Any]]:
+    def _pop_due_retry(self, now_ms: int) -> dict[str, Any] | None:
         """
         Atomic pop from ZSET (single item):
           ZRANGEBYSCORE ... LIMIT 0 1 + ZREM inside Lua, then GET task key.
@@ -296,7 +296,7 @@ class SignalTargetDeliverer:
             processed += 1
         return processed
 
-    def _deliver_or_schedule(self, task: Dict[str, Any]) -> None:
+    def _deliver_or_schedule(self, task: dict[str, Any]) -> None:
         """
         One delivery attempt for a task dict (from stream or retry-queue).
         On transient error -> schedule via ZSET (no stream spam).
@@ -305,7 +305,7 @@ class SignalTargetDeliverer:
         attempt = int(task.get("attempt", 0))
         if attempt >= self.max_attempts:
             self._send_dlq("max_attempts", task)
-            sid = str(task.get("sid") or "")
+            sid = (task.get("sid") or "")
             if sid:
                 try:
                     self.redis.set(self._done_key(sid), "1", ex=self.done_ttl_sec, nx=True)
@@ -324,7 +324,7 @@ class SignalTargetDeliverer:
                 return
             # non-transient
             self._send_dlq("non_transient", {"task": task, "err": str(e)})
-            sid = str(task.get("sid") or "")
+            sid = (task.get("sid") or "")
             if sid:
                 try:
                     self.redis.set(self._done_key(sid), "1", ex=self.done_ttl_sec, nx=True)
@@ -332,7 +332,7 @@ class SignalTargetDeliverer:
                     pass
             return
 
-    def _deliver(self, task: Dict[str, Any]) -> int:
+    def _deliver(self, task: dict[str, Any]) -> int:
         """
         Returns:
           1 -> delivered
@@ -342,7 +342,7 @@ class SignalTargetDeliverer:
         """
         self._ensure_scripts()
 
-        sid = str(task.get("sid") or "")
+        sid = (task.get("sid") or "")
         if not sid:
             raise ValueError("missing_sid")
         payload = task.get("payload") or {}
@@ -374,7 +374,7 @@ class SignalTargetDeliverer:
             return 1 if code == 1 else 0
 
         if self.target in ("signal_stream", "audit", "manual"):
-            stream = str(payload.get("stream") or "")
+            stream = (payload.get("stream") or "")
             data = payload.get("data")
             if not stream or data is None:
                 raise ValueError("missing_stream_or_data")
@@ -405,7 +405,7 @@ class SignalTargetDeliverer:
             return 1 if code == 1 else 0
 
         if self.target == "snapshot":
-            key = str(payload.get("key") or "")
+            key = (payload.get("key") or "")
             ttl = int(payload.get("ttl") or 21600)
             data = payload.get("data")
             if not key or data is None:
@@ -484,7 +484,7 @@ class SignalTargetDeliverer:
                 logger.error("loop error target=%s err=%s (backoff=%.2fs)", self.target, e, delay, exc_info=True)
                 time.sleep(delay)
 
-    def _handle_one(self, msg_id: str, fields: Dict[str, Any], helper: SyncRedisStreamHelper) -> bool:
+    def _handle_one(self, msg_id: str, fields: dict[str, Any], helper: SyncRedisStreamHelper) -> bool:
         task = self._parse_task(fields)
         if not task:
             self._send_dlq("bad_task", {"msg_id": msg_id, "fields": fields})

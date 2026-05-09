@@ -1,6 +1,8 @@
 import unittest
-from core.weak_progress import compute_weak_progress, WeakProgressSnapshot
 from types import SimpleNamespace
+
+from core.weak_progress import compute_weak_progress
+
 
 class TestWeakProgressConfig(unittest.TestCase):
     def test_dual_thresholds(self):
@@ -8,7 +10,7 @@ class TestWeakProgressConfig(unittest.TestCase):
         # ATR = 1.0
         # Range/ATR = 0.5
         # Body/ATR = 0.1
-        
+
         bar = SimpleNamespace(
             open=100.0,
             high=100.5,
@@ -18,7 +20,7 @@ class TestWeakProgressConfig(unittest.TestCase):
             fp_bucket_px=0.1
         )
         atr = 1.0
-        
+
         # Case 1: Loose Range (0.6), Tight Body (0.05)
         # Range (0.5) < 0.6 -> Weak Range TRUE
         # Body (0.1) > 0.05 -> Weak Body FALSE
@@ -60,12 +62,12 @@ class TestWeakProgressConfig(unittest.TestCase):
         res3 = compute_weak_progress(bar, atr, cfg3)
         self.assertFalse(res3.weak_range)
         self.assertFalse(res3.weak_body)
-        
+
     def test_default_fallback(self):
         # Defaults: Range 0.35, Body 0.25 (as updated in code)
         bar = SimpleNamespace(
             open=100.0, high=100.4, low=100.0, close=100.3, delta_sum=100.0
-        ) 
+        )
         # Range 0.4, Body 0.3
         # Both > defaults (0.4 > 0.35, 0.3 > 0.25) -> Not Weak
         atr = 1.0

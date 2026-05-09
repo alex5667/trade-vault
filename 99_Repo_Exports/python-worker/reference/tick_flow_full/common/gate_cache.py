@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Hashable, TypeVar
+from collections.abc import Callable, Hashable
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
-def _get_ctx_cache(ctx: Any) -> Dict[Hashable, Any]:
+def _get_ctx_cache(ctx: Any) -> dict[Hashable, Any]:
     """
     Stable, fail-open per-ctx cache.
     - Stores only small objects (decisions / booleans / tuples).
@@ -15,7 +16,7 @@ def _get_ctx_cache(ctx: Any) -> Dict[Hashable, Any]:
         if isinstance(c, dict):
             return c
         c = {}
-        setattr(ctx, "_gate_cache", c)
+        ctx._gate_cache = c
         return c
     except Exception:
         # If ctx is immutable / slots-only, return ephemeral cache (still safe).

@@ -1,25 +1,24 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import average_precision_score, log_loss, brier_score_loss
-from sklearn.model_selection import TimeSeriesSplit
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import average_precision_score, brier_score_loss, log_loss
+from sklearn.model_selection import TimeSeriesSplit
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
     """Get current timestamp in milliseconds."""
-    import time
     return get_ny_time_millis()
 
 
@@ -53,17 +52,17 @@ def main() -> None:
     os.makedirs(args.out_dir, exist_ok=True)
 
     df = pd.read_parquet(args.dataset)
-    
+
     if len(df) == 0:
-        raise SystemExit(f"❌ Dataset is empty. Check data export and join process.")
-    
+        raise SystemExit("❌ Dataset is empty. Check data export and join process.")
+
     if args.time_col not in df.columns:
         available_cols = ", ".join(df.columns.tolist()[:10])
         raise SystemExit(f"❌ Missing time col '{args.time_col}' in dataset. Available columns: {available_cols}... (total: {len(df.columns)})")
     if args.label_col not in df.columns:
         available_cols = ", ".join(df.columns.tolist()[:10])
         raise SystemExit(f"❌ Missing label col '{args.label_col}' in dataset. Available columns: {available_cols}... (total: {len(df.columns)})")
-    
+
     print(f"📊 Dataset loaded: {len(df)} rows, {len(df.columns)} columns")
 
     # sort by time
@@ -80,7 +79,7 @@ def main() -> None:
     oof_gbdt = np.zeros(len(df), dtype=float)
     oof_meta = np.zeros(len(df), dtype=float)
 
-    fold_metrics: List[Dict[str, Any]] = []
+    fold_metrics: list[dict[str, Any]] = []
 
     # Purge/embargo by time (simple index-based approximation with time gaps)
     ts = df[args.time_col].to_numpy()

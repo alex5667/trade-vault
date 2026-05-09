@@ -1,15 +1,17 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import redis
 
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
-def _safe_loads(s: Any) -> Dict[str, Any]:
+
+def _safe_loads(s: Any) -> dict[str, Any]:
     """Safely parse JSON string or dict."""
     try:
         if s is None:
@@ -39,10 +41,8 @@ def main() -> None:
     processed_ttl_sec = int(os.getenv("ML_PROMO_PROCESSED_TTL_SEC", "604800"))  # 7d
 
     # ensure group exists
-    try:
+    with contextlib.suppress(Exception):
         r.xgroup_create(callbacks_stream, group, id="$", mkstream=True)
-    except Exception:
-        pass
 
     while True:
         resp = None
@@ -59,19 +59,17 @@ def main() -> None:
             for msg_id, fields in msgs:
                 # de-dupe
                 if r.sismember(processed_set, msg_id):
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xack(callbacks_stream, group, msg_id)
-                    except Exception:
-                        pass
                     continue
 
-                cb = str(fields.get("callback", "") or "")
+                cb = (fields.get("callback", "") or "")
                 # expected: approve:ml_tb:<run_id> or reject:ml_tb:<run_id>
                 if cb.startswith("approve:ml_tb:"):
                     run_id = cb.split(":", 2)[2]
                     raw = r.get(challenger_key)
                     chal = _safe_loads(raw)
-                    if chal and str(chal.get("run_id", "")) == run_id:
+                    if chal and (chal.get("run_id", "")) == run_id:
                         # promote to champion
                         r.set(champion_key, json.dumps(chal, ensure_ascii=False, separators=(",", ":")))
                         r.delete(challenger_key)
@@ -79,7 +77,7 @@ def main() -> None:
                     run_id = cb.split(":", 2)[2]
                     raw = r.get(challenger_key)
                     chal = _safe_loads(raw)
-                    if chal and str(chal.get("run_id", "")) == run_id:
+                    if chal and (chal.get("run_id", "")) == run_id:
                         # mark rejected, keep short history
                         chal["rejected_ms"] = get_ny_time_millis()
                         r.set(challenger_key + ":rejected:" + run_id, json.dumps(chal, ensure_ascii=False, separators=(",", ":")), ex=7*24*3600)
@@ -92,10 +90,8 @@ def main() -> None:
                 except Exception:
                     pass
 
-                try:
+                with contextlib.suppress(Exception):
                     r.xack(callbacks_stream, group, msg_id)
-                except Exception:
-                    pass
 
 
 if __name__ == "__main__":

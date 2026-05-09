@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Mirror sync test for D1 (apply_liqmap_tp_sl_adjustment).
 
 We keep the overlay logic 1:1 between:
@@ -9,7 +8,6 @@ This reduces Train!=Serve drift and avoids silent behavioral differences.
 """
 
 from pathlib import Path
-
 
 
 def _extract_block(text: str) -> str:

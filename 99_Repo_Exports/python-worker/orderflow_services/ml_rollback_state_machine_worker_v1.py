@@ -1,27 +1,25 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
+from core.redis_stream_consumer import AsyncRedisStreamHelper
 from orderflow_services.rollback_state_machine_v1 import (
-    EVENT_MANUAL_ESCALATE,
     EVENT_REQUEST_CREATED,
-    EVENT_ROLLBACK_EXECUTED,
     EVENT_ROLLBACK_ERROR,
+    EVENT_ROLLBACK_EXECUTED,
     EVENT_VERIFY_FAIL,
     EVENT_VERIFY_INCONCLUSIVE,
     EVENT_VERIFY_PASS,
-    STATE_MANUAL_REVIEW,
-    STATE_REQUESTED,
     apply_event,
 )
-
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 SM_UP = Gauge("ml_rollback_state_machine_up", "Rollback state machine liveness")
 SM_LAST_RUN_TS = Gauge("ml_rollback_state_machine_last_run_ts_seconds", "Last state machine loop time")
@@ -38,26 +36,26 @@ def _state_key(prefix: str, recommendation_id: str) -> str:
     return f"{prefix}:{recommendation_id}"
 
 
-def _reason_codes(payload: Dict[str, Any]) -> str:
+def _reason_codes(payload: dict[str, Any]) -> str:
     if "reason_codes" in payload:
-        return str(payload.get("reason_codes", "") or "")
+        return (payload.get("reason_codes", "") or "")
     if "reason_codes_json" in payload:
-        return str(payload.get("reason_codes_json", "") or "")
+        return (payload.get("reason_codes_json", "") or "")
     return ""
 
 
-def _event_from_request(_payload: Dict[str, Any]) -> str:
+def _event_from_request(_payload: dict[str, Any]) -> str:
     return EVENT_REQUEST_CREATED
 
 
-def _event_from_result(payload: Dict[str, Any]) -> str:
-    status = str(payload.get("status", "") or "").upper()
+def _event_from_result(payload: dict[str, Any]) -> str:
+    status = (payload.get("status", "") or "").upper()
     if status in {"OK", "SUCCESS", "DONE", "EXECUTED"}:
         return EVENT_ROLLBACK_EXECUTED
     return EVENT_ROLLBACK_ERROR
 
 
-def _event_from_verify(payload: Dict[str, Any]) -> str:
+def _event_from_verify(payload: dict[str, Any]) -> str:
     status = str(payload.get("verification_status", "") or payload.get("status", "")).upper()
     if status in {"PASS", "ROLLBACK_SUCCESS"}:
         return EVENT_VERIFY_PASS
@@ -66,7 +64,7 @@ def _event_from_verify(payload: Dict[str, Any]) -> str:
     return EVENT_VERIFY_INCONCLUSIVE
 
 
-async def _persist_pg(database_url: str, payload: Dict[str, Any]) -> None:
+async def _persist_pg(database_url: str, payload: dict[str, Any]) -> None:
     import asyncpg  # type: ignore
 
     conn = await asyncpg.connect(database_url)
@@ -181,10 +179,8 @@ async def _transition(
 
 
 async def _ensure_group(r: Any, stream_name: str, group: str) -> None:
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(stream_name, group, id="0", mkstream=True)
-    except Exception:
-        pass
 
 
 async def main() -> None:
@@ -209,24 +205,51 @@ async def main() -> None:
     group = os.getenv("ML_ROLLBACK_STATE_GROUP", "cg:ml_rollback_state_machine")
     consumer = os.getenv("ML_ROLLBACK_STATE_CONSUMER", os.getenv("HOSTNAME", "ml-rollback-state-machine-1"))
 
-    for s in (request_stream, result_stream, verify_stream):
-        await _ensure_group(r, s, group)
+    helper = AsyncRedisStreamHelper(client=r, group=group, consumer=consumer)
+    await helper.ensure_groups([request_stream, result_stream, verify_stream], start_id="0")
+
+    pel_state = {request_stream: "0-0", result_stream: "0-0", verify_stream: "0-0"}
 
     while True:
         SM_UP.set(1)
         t0 = time.perf_counter()
         SM_LAST_RUN_TS.set(time.time())
-        rows = await r.xreadgroup(
-            group,
-            consumer,
-            {request_stream: ">", result_stream: ">", verify_stream: ">"},
-            count=100,
-            block=5000,
+
+        # 1. PEL Recovery
+        pending_req_start, pending_req = await helper.claim_pending(
+            request_stream, min_idle_ms=5000, count=100, start_id=pel_state[request_stream]
         )
+        pel_state[request_stream] = pending_req_start
+
+        pending_res_start, pending_res = await helper.claim_pending(
+            result_stream, min_idle_ms=5000, count=100, start_id=pel_state[result_stream]
+        )
+        pel_state[result_stream] = pending_res_start
+
+        pending_ver_start, pending_ver = await helper.claim_pending(
+            verify_stream, min_idle_ms=5000, count=100, start_id=pel_state[verify_stream]
+        )
+        pel_state[verify_stream] = pending_ver_start
+
+        rows = []
+        if pending_req:
+            rows.append([request_stream, [(m.msg_id, m.fields) for m in pending_req]])
+        if pending_res:
+            rows.append([result_stream, [(m.msg_id, m.fields) for m in pending_res]])
+        if pending_ver:
+            rows.append([verify_stream, [(m.msg_id, m.fields) for m in pending_ver]])
+
+        if not rows:
+            rows = await helper.read(
+                {request_stream: ">", result_stream: ">", verify_stream: ">"},
+                count=100,
+                block=5000,
+            ) or []
+
         for stream_name, msgs in rows:
             for msg_id, payload in msgs:
                 try:
-                    recommendation_id = str(payload.get("recommendation_id", "") or "")
+                    recommendation_id = (payload.get("recommendation_id", "") or "")
                     model_id = str(payload.get("target_ref", "") or payload.get("model_id", "") or "")
                     if not recommendation_id:
                         continue
@@ -248,7 +271,7 @@ async def main() -> None:
                         reason_codes=_reason_codes(payload),
                     )
                 finally:
-                    await r.xack(stream_name, group, msg_id)
+                    await helper.ack(stream_name, msg_id)
         SM_LOOP_SECONDS.observe(time.perf_counter() - t0)
         await asyncio.sleep(float(os.getenv("ML_ROLLBACK_STATE_IDLE_SLEEP_SEC", "0.5")))
 

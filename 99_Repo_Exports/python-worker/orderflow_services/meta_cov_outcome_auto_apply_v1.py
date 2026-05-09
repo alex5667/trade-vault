@@ -1,6 +1,10 @@
+from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import annotations
 """meta_cov_outcome_auto_apply_v1.py
 
 P33+P34: Auto-downgrade + quarantine loop for meta ENFORCE per-coverage bucket shares,
@@ -87,16 +91,15 @@ Exit codes
 ----------
 0 : OK / no action,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import hashlib
 import json
 import os
 import subprocess
 import sys
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -148,9 +151,9 @@ def _loads_maybe_json(v: Any) -> Any:
     return v
 
 
-def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
-    payload_obj: Optional[Dict[str, Any]] = None
+def _parse_entry(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    payload_obj: dict[str, Any] | None = None
     for k, v in fields.items():
         ks = k.decode("utf-8", "replace") if isinstance(k, (bytes, bytearray)) else str(k)
         out[ks] = _loads_maybe_json(v)
@@ -165,7 +168,7 @@ def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def _is_position_closed(fields: Dict[str, Any]) -> bool:
+def _is_position_closed(fields: dict[str, Any]) -> bool:
     et = str(fields.get("event_type") or fields.get("event") or "").upper()
     if et in ("POSITION_CLOSED", "CLOSE"):
         return True
@@ -174,7 +177,7 @@ def _is_position_closed(fields: Dict[str, Any]) -> bool:
     return False
 
 
-def _event_ts_ms(fields: Dict[str, Any]) -> int:
+def _event_ts_ms(fields: dict[str, Any]) -> int:
     return _i(fields.get("ts_ms") or fields.get("ts") or fields.get("exit_ts_ms") or fields.get("timestamp") or 0, 0)
 
 
@@ -185,8 +188,8 @@ def _redis() -> Any:
     return redis.Redis.from_url(url, decode_responses=True)
 
 
-def read_closed_trades(*, r: Any, stream: str, since_ms: int, max_scan: int = 500_000) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def read_closed_trades(*, r: Any, stream: str, since_ms: int, max_scan: int = 500_000) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -212,9 +215,9 @@ def read_closed_trades(*, r: Any, stream: str, since_ms: int, max_scan: int = 50
     return out
 
 
-def build_meta_fallback_map(r: Any, stream: str, since_ms: int, max_scan: int) -> Dict[str, tuple[str, int]]:
+def build_meta_fallback_map(r: Any, stream: str, since_ms: int, max_scan: int) -> dict[str, tuple[str, int]]:
     """Builds sid -> (bucket, applied) map from trades:closed for P41 fallback.""",
-    out: Dict[str, tuple[str, int]] = {}
+    out: dict[str, tuple[str, int]] = {}
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -233,32 +236,32 @@ def build_meta_fallback_map(r: Any, stream: str, since_ms: int, max_scan: int) -
             if ts and ts < since_ms:
                 scanned = max_scan
                 break
-            
+
             # Identify signal/trade id
             sid = str(fields.get("sid") or fields.get("signal_id") or "")
             if not sid:
                 continue
-            
-            bucket = str(fields.get("meta_enforce_cov_bucket") or "").strip().lower()
-            applied = _i(fields.get("meta_enforce_applied"), 0)
+
+            bucket = (fields.get(MetaKeys.ENFORCE_COV_BUCKET) or "").strip().lower()
+            applied = _i(fields.get(MetaKeys.ENFORCE_APPLIED), 0)
             if bucket:
                 out[sid] = (bucket, applied)
     return out
 
 
-def tail_rate(rs: List[float]) -> float:
+def tail_rate(rs: list[float]) -> float:
     if not rs:
         return 0.0
     return sum(1 for x in rs if x <= -1.0) / float(len(rs))
 
 
-def mean(rs: List[float]) -> float:
+def mean(rs: list[float]) -> float:
     if not rs:
         return 0.0
     return sum(rs) / float(len(rs))
 
 
-def summarize(rs: List[float]) -> Dict[str, Any]:
+def summarize(rs: list[float]) -> dict[str, Any]:
     return {"n": int(len(rs)), "meanR": float(mean(rs)), "tail_rate": float(tail_rate(rs))}
 
 
@@ -266,7 +269,7 @@ def _qstate_key(prefix: str) -> str:
     return f"{prefix}:qstate:v1"
 
 
-def load_qstate(r: Any, prefix: str) -> Dict[str, Any]:
+def load_qstate(r: Any, prefix: str) -> dict[str, Any]:
     raw = r.get(_qstate_key(prefix))
     if not raw:
         return {"buckets": {}}
@@ -281,14 +284,14 @@ def load_qstate(r: Any, prefix: str) -> Dict[str, Any]:
     return {"buckets": {}}
 
 
-def save_qstate(r: Any, prefix: str, st: Dict[str, Any]) -> None:
+def save_qstate(r: Any, prefix: str, st: dict[str, Any]) -> None:
     try:
         r.set(_qstate_key(prefix), json.dumps(st, ensure_ascii=False, separators=(",", ":")), ex=14 * 24 * 3600)
     except Exception:
         return
 
 
-def bucket_state(st: Dict[str, Any], b: str) -> Dict[str, Any]:
+def bucket_state(st: dict[str, Any], b: str) -> dict[str, Any]:
     buckets = st.setdefault("buckets", {})
     if not isinstance(buckets, dict):
         buckets = {}
@@ -313,7 +316,7 @@ def main() -> int:
 
     prefix = os.environ.get("META_ENFORCE_COV_PREFIX", "cfg:suggestions:meta_enforce_cov")
     dyn_key = os.environ.get("DYN_CFG_KEY", "settings:dynamic_cfg")
-    stream = os.environ.get("TRADE_EVENTS_STREAM", "events:trades")
+    stream = os.environ.get("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
 
     auto_approve = bool(int(os.environ.get("META_ENFORCE_COV_AUTO_APPROVE", "1") or 0))
     auto_approvers = [x.strip() for x in (os.environ.get("META_ENFORCE_COV_AUTO_APPROVERS", "auto_guard_1,auto_guard_2") or "").split(",") if x.strip()]
@@ -358,20 +361,20 @@ def main() -> int:
     rows = read_closed_trades(r=r, stream=stream, since_ms=since_ms, max_scan=args.max_scan)
 
     # P41 Enrichment Fallback
-    fallback_map: Dict[str, tuple[str, int]] = {}
+    fallback_map: dict[str, tuple[str, int]] = {}
     p41_stats = {"rows_total": len(rows), "rows_enriched": 0, "rows_missing_meta": 0, "rows_native_meta": 0}
-    
+
     if _ENRICH_ENABLED:
         fallback_map = build_meta_fallback_map(r, _ENRICH_STREAM, since_ms, _ENRICH_MAX_SCAN)
 
     buckets = ["a", "b", "c", "d"]
-    enf: Dict[str, List[float]] = {b: [] for b in buckets}
-    ctl: Dict[str, List[float]] = {b: [] for b in buckets}
+    enf: dict[str, list[float]] = {b: [] for b in buckets}
+    ctl: dict[str, list[float]] = {b: [] for b in buckets}
 
     for f in rows:
-        b = str(f.get("meta_enforce_cov_bucket") or "").strip().lower()
-        applied = _i(f.get("meta_enforce_applied"), -1)
-        
+        b = (f.get(MetaKeys.ENFORCE_COV_BUCKET) or "").strip().lower()
+        applied = _i(f.get(MetaKeys.ENFORCE_APPLIED), -1)
+
         # Fallback if fields are missing in trade event
         if not b or applied == -1:
             sid = str(f.get("sid") or f.get("signal_id") or "")
@@ -388,7 +391,7 @@ def main() -> int:
 
         if b not in enf:
             continue
-        
+
         if applied == -1: # Still unknown
             applied = 0 # Default to control if unknown
 
@@ -403,18 +406,18 @@ def main() -> int:
         else:
             ctl[b].append(float(r_mult))
 
-    summary: Dict[str, Any] = {"_p41_enrich": p41_stats}
+    summary: dict[str, Any] = {"_p41_enrich": p41_stats}
     for b in buckets:
         summary[b] = {"enf": summarize(enf[b]), "ctl": summarize(ctl[b])}
 
     # Load quarantine streak state (separate from cfg2)
     st = load_qstate(r, prefix)
 
-    decisions: List[Dict[str, Any]] = []
-    patch: Dict[str, Any] = {}
+    decisions: list[dict[str, Any]] = []
+    patch: dict[str, Any] = {}
 
     def cur_share_for(b: str) -> float:
-        v = _f(cfg2.get(f"meta_enforce_share_cov_{b}") or cfg2.get("meta_enforce_share") or 1.0, 1.0)
+        v = _f(cfg2.get(f"meta_enforce_share_cov_{b}") or cfg2.get(MetaKeys.ENFORCE_SHARE) or 1.0, 1.0)
         return max(0.0, min(1.0, float(v)))
 
     def q_active(b: str) -> int:

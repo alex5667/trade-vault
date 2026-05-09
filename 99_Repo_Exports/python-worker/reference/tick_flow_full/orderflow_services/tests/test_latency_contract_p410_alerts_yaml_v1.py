@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 """P4.10 alerts YAML structural tests."""
 
 import os
+
 import yaml
 
 _DIR = os.path.join(os.path.dirname(__file__), '..')

@@ -1,11 +1,10 @@
-import pytest
-import asyncio
 
 from orderflow_services.operator_routing_incident_rca_experiment_router_v2_13 import select_bucket
 from orderflow_services.operator_routing_incident_rca_experiment_winner_selector_v2_13 import (
     calculate_combined_score,
     select_winner,
 )
+
 
 def test_select_bucket():
     # Hash behavior depends on env, but we can verify it returns one of the two

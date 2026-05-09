@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Two-phase callback worker v2 for recs bundles (preview2 -> confirm).
 
 This worker handles:
@@ -10,17 +11,19 @@ This worker handles:
 Reads from bot:callbacks stream, writes to notify:telegram.
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import hashlib
+import hmac
 import json
 import os
 import time
-import hmac
-import hashlib
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis
+
+from core.redis_keys import STREAM_RETENTION
 from core.redis_keys import RedisStreams as RS
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def now_ms() -> int:
@@ -34,15 +37,15 @@ def sign(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def notify(r: redis.Redis, text: str, buttons: Optional[List[List[Dict[str, str]]]] = None) -> None:
+def notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Sends notification to notify:telegram stream."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=STREAM_RETENTION[RS.NOTIFY_TELEGRAM], approximate=True)
 
 
-def parse_cb(cb: str) -> Tuple[str, str, str]:
+def parse_cb(cb: str) -> tuple[str, str, str]:
     """Parse callback: recs:<action>:<bundle_id>:<sig>"""
     parts = cb.split(":")
     if len(parts) < 4:
@@ -55,7 +58,7 @@ def parse_cb(cb: str) -> Tuple[str, str, str]:
     return action, bundle_id, sig
 
 
-def read_bundle(r: redis.Redis, bundle_id: str) -> Optional[Dict[str, Any]]:
+def read_bundle(r: redis.Redis, bundle_id: str) -> dict[str, Any] | None:
     """Read bundle from recs:bundle:<id>."""
     raw = r.get(f"recs:bundle:{bundle_id}")
     if not raw:
@@ -76,13 +79,13 @@ def status(r: redis.Redis, bundle_id: str) -> str:
     return (r.get(f"recs:status:{bundle_id}") or "").strip().upper()
 
 
-def audit_push(r: redis.Redis, bundle_id: str, entry: Dict[str, Any], ttl: int) -> None:
+def audit_push(r: redis.Redis, bundle_id: str, entry: dict[str, Any], ttl: int) -> None:
     """Append entry to recs:audit:<id> list."""
     r.rpush(f"recs:audit:{bundle_id}", json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
     r.expire(f"recs:audit:{bundle_id}", ttl)
 
 
-def get_audit(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
+def get_audit(r: redis.Redis, bundle_id: str) -> list[dict[str, Any]]:
     """Read all entries from recs:audit:<id> list."""
     key = f"recs:audit:{bundle_id}"
     n = r.llen(key)
@@ -91,14 +94,12 @@ def get_audit(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
         s = r.lindex(key, i)
         if not s:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(json.loads(s))
-        except Exception:
-            pass
     return out
 
 
-def op_preview_diff(r: redis.Redis, bundle: Dict[str, Any], max_lines: int = 60) -> str:
+def op_preview_diff(r: redis.Redis, bundle: dict[str, Any], max_lines: int = 60) -> str:
     """Format preview diff for bundle ops."""
     ops = bundle.get("ops") or []
     lines = []
@@ -106,7 +107,7 @@ def op_preview_diff(r: redis.Redis, bundle: Dict[str, Any], max_lines: int = 60)
         typ = op.get("op")
         key = op.get("key")
         field = op.get("field")
-        
+
         # Validations: HSET/HDEL need field; SET does not
         if not typ or not key:
             continue
@@ -117,7 +118,7 @@ def op_preview_diff(r: redis.Redis, bundle: Dict[str, Any], max_lines: int = 60)
         cur_s = "" if cur is None else str(cur)
 
         if typ == "HSET":
-            newv = str(op.get("value", ""))
+            newv = (op.get("value", ""))
             lines.append(f"{key} {field}: {cur_s} -> {newv}")
         elif typ == "HDEL":
             lines.append(f"{key} {field}: {cur_s} -> <DEL>")
@@ -127,7 +128,7 @@ def op_preview_diff(r: redis.Redis, bundle: Dict[str, Any], max_lines: int = 60)
             cur_val_s = "" if cur_val is None else str(cur_val)
             # Truncate for preview
             if len(cur_val_s) > 50: cur_val_s = cur_val_s[:47] + "..."
-            newv = str(op.get("value", ""))
+            newv = (op.get("value", ""))
             if len(newv) > 50: newv = newv[:47] + "..."
             lines.append(f"SET {key}: {cur_val_s} -> {newv}")
 
@@ -141,12 +142,12 @@ def op_preview_diff(r: redis.Redis, bundle: Dict[str, Any], max_lines: int = 60)
     return f"<b>RECS PREVIEW</b>\n<code>{head}</code>\n<pre>{body}</pre>"
 
 
-def apply_ops(r: redis.Redis, bundle: Dict[str, Any], ttl: int, actor: Dict[str, str]) -> int:
+def apply_ops(r: redis.Redis, bundle: dict[str, Any], ttl: int, actor: dict[str, str]) -> int:
     """
     Apply bundle ops, write recs:audit:<id>.
     Returns number of applied ops.
     """
-    bundle_id = str(bundle.get("id", ""))
+    bundle_id = (bundle.get("id", ""))
     ops = bundle.get("ops") or []
     ts = now_ms()
     applied = 0
@@ -156,7 +157,7 @@ def apply_ops(r: redis.Redis, bundle: Dict[str, Any], ttl: int, actor: Dict[str,
         typ = op.get("op")
         key = op.get("key")
         field = op.get("field")
-        
+
         # Validations: HSET/HDEL need field; SET does not
         if not typ or not key:
             continue
@@ -167,7 +168,7 @@ def apply_ops(r: redis.Redis, bundle: Dict[str, Any], ttl: int, actor: Dict[str,
         old_null = 1 if old is None else 0
 
         if typ == "HSET":
-            val = str(op.get("value", ""))
+            val = (op.get("value", ""))
             pipe.hset(key, field, val)
             audit_push(r, bundle_id, {
                 "op": "HSET",
@@ -199,14 +200,14 @@ def apply_ops(r: redis.Redis, bundle: Dict[str, Any], ttl: int, actor: Dict[str,
 
         elif typ == "SET":
             # SET operation (no field)
-            val = str(op.get("value", ""))
-            
+            val = (op.get("value", ""))
+
             # For SET, we need to know the old value to rollback.
             # Unlike HSET which we can read mostly cheaply, SET might be large?
             # We must read it to support rollback.
             old_val = r.get(key)
             old_null = 1 if old_val is None else 0
-            
+
             pipe.set(key, val)
             audit_push(r, bundle_id, {
                 "op": "SET",
@@ -225,7 +226,7 @@ def apply_ops(r: redis.Redis, bundle: Dict[str, Any], ttl: int, actor: Dict[str,
     return applied
 
 
-def rollback_ops(r: redis.Redis, bundle_id: str, ttl: int, actor: Dict[str, str]) -> int:
+def rollback_ops(r: redis.Redis, bundle_id: str, ttl: int, actor: dict[str, str]) -> int:
     """Rollback bundle by reversing audit entries."""
     aud = get_audit(r, bundle_id)
     if not aud:
@@ -241,11 +242,11 @@ def rollback_ops(r: redis.Redis, bundle_id: str, ttl: int, actor: Dict[str, str]
         field = a.get("field")
         # For rollback, key is mandatory. Field is mandatory only for hash ops, but audit doesn't store op type explicitly in accessible way easily?
         # Actually audit stores 'op'. Let's check op if possible, or just relax check if key is present.
-        # But wait, audit entries are just dicts. simpler: 
+        # But wait, audit entries are just dicts. simpler:
         if not key:
             continue
         old_null = int(a.get("old_null", 0) or 0)
-        old = "" if a.get("old") is None else str(a.get("old", ""))
+        old = "" if a.get("old") is None else (a.get("old", ""))
 
         if old_null == 1:
             if field:
@@ -266,7 +267,7 @@ def rollback_ops(r: redis.Redis, bundle_id: str, ttl: int, actor: Dict[str, str]
     return applied
 
 
-def _rich_of_gate_notify(r: redis.Redis, bundle_id: str, action: str, res: str, bundle: Dict[str, Any]) -> bool:
+def _rich_of_gate_notify(r: redis.Redis, bundle_id: str, action: str, res: str, bundle: dict[str, Any]) -> bool:
     """Rich notification for OF Gate config recommendation actions. Returns True if handled."""
     meta = bundle.get("meta") or {}
     if meta.get("kind") != "of_gate_recs":
@@ -279,10 +280,10 @@ def _rich_of_gate_notify(r: redis.Redis, bundle_id: str, action: str, res: str, 
     ops_list = bundle.get("ops") or []
 
     for op in ops_list[:10]:
-        op_type = str(op.get("op", ""))
-        key = str(op.get("key", ""))
+        op_type = (op.get("op", ""))
+        key = (op.get("key", ""))
         field = op.get("field") or ""
-        newv = str(op.get("value", ""))
+        newv = (op.get("value", ""))
         if op_type == "HSET" and field:
             try:
                 old = r.hget(key, field)
@@ -299,7 +300,7 @@ def _rich_of_gate_notify(r: redis.Redis, bundle_id: str, action: str, res: str, 
     ops_block = "\n".join(ops_lines) if ops_lines else "  (нет операций)"
 
     if action == "confirm" and res == "applied":
-        notify(r, 
+        notify(r,
             f"<b>✅ OF Gate Recs — применено</b>\n"
             f"mode=<code>{mode}</code>  ts=<code>{ts}</code>\n"
             f"Изменено: <code>{n_ops}</code> ops\n"
@@ -308,7 +309,7 @@ def _rich_of_gate_notify(r: redis.Redis, bundle_id: str, action: str, res: str, 
         )
         return True
     elif action == "reject" and res == "rejected":
-        notify(r, 
+        notify(r,
             f"<b>❌ OF Gate Recs — отклонено</b>\n"
             f"mode=<code>{mode}</code>  ts=<code>{ts}</code>\n"
             f"Рекомендации <b>не применены</b>. "
@@ -317,7 +318,7 @@ def _rich_of_gate_notify(r: redis.Redis, bundle_id: str, action: str, res: str, 
         )
         return True
     elif action == "rollback" and res == "rolled_back":
-        notify(r, 
+        notify(r,
             f"<b>↩ OF Gate Recs — откат выполнен</b>\n"
             f"mode=<code>{mode}</code>  ts=<code>{ts}</code>\n"
             f"Откачено: <code>{n_ops}</code> ops — значения восстановлены.\n\n"
@@ -325,7 +326,7 @@ def _rich_of_gate_notify(r: redis.Redis, bundle_id: str, action: str, res: str, 
         )
         return True
     elif action == "cancel":
-        notify(r, 
+        notify(r,
             f"<b>⏸ OF Gate Recs — отменено</b>\n"
             f"mode=<code>{mode}</code>  ts=<code>{ts}</code>\n"
             f"Предложение отменено, статус вернулся в PENDING.\n\n"
@@ -399,7 +400,7 @@ def main() -> None:
 
         for _stream, msgs in resp:
             for msg_id, fields in msgs:
-                cb = str(fields.get("callback", "") or "")
+                cb = (fields.get("callback", "") or "")
                 action, bundle_id, sig = parse_cb(cb)
 
                 # ack by default at end
@@ -420,10 +421,10 @@ def main() -> None:
                         continue
 
                     actor = {
-                        "chat_id": str(fields.get("chat_id", "")),
-                        "user_id": str(fields.get("user_id", "")),
-                        "username": str(fields.get("username", "")),
-                        "timestamp": str(fields.get("timestamp", "")),
+                        "chat_id": (fields.get("chat_id", "")),
+                        "user_id": (fields.get("user_id", "")),
+                        "username": (fields.get("username", "")),
+                        "timestamp": (fields.get("timestamp", "")),
                     }
 
                     st = status(r, bundle_id)

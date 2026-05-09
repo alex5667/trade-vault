@@ -1,10 +1,10 @@
 from __future__ import annotations
+
 """P5.7 scheduler smoke tests: verify the scheduler loads the P5.6 checker and can run a single iteration."""
 
 import importlib.util
 import sys
 from pathlib import Path
-
 
 # Locate scheduler relative to this test file (scripts/)
 ROOT = Path(__file__).resolve().parents[1]

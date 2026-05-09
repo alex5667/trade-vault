@@ -1,4 +1,3 @@
-import os
 from types import SimpleNamespace
 
 from orderflow.base_handler_legacy import load_tracker_atr_from_redis_hmget

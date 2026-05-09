@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for P60 Shadow Eval + Exporters integration.
 
 Tests cover:
@@ -10,14 +11,10 @@ Tests cover:
 
 
 import ast
-import json
 import os
 import sys
-import tempfile
-import time
 import types
 import unittest
-from unittest.mock import MagicMock, patch, ANY
 
 # Add project root to path
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,7 +28,7 @@ if _ROOT not in sys.path:
 
 def _read(relpath: str) -> str:
     abs_path = os.path.join(_ROOT, relpath)
-    with open(abs_path, "r", encoding="utf-8") as f:
+    with open(abs_path, encoding="utf-8") as f:
         return f.read()
 
 
@@ -210,7 +207,6 @@ class TestKindDetectionLogic(unittest.TestCase):
 
     def _simulate_kind_detection(self, model_path: str, pack: object) -> str:
         """Replicate the logic from utilities/init_ml_confirm_on_startup.py."""
-        import types
 
         # Simulate joblib
         fake_joblib = types.SimpleNamespace(load=lambda path: pack)
@@ -224,7 +220,7 @@ class TestKindDetectionLogic(unittest.TestCase):
                 if (isinstance(loaded_pack, dict)
                         and isinstance(loaded_pack.get("kind"), str)
                         and loaded_pack.get("kind")):
-                    kind = str(loaded_pack.get("kind"))
+                    kind = (loaded_pack.get("kind"))
             except Exception:
                 pass
         return kind

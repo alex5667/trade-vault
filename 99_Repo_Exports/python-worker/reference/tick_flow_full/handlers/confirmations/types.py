@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional, Dict
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class ConfirmResultBase:
     veto: bool
     score01: float
     reason: str
-    details: Dict[str, Any]
+    details: dict[str, Any]
 
     def as_tuple_legacy(self) -> tuple[bool, dict[str, Any]]:
         """

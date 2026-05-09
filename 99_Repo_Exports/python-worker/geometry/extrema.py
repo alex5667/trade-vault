@@ -1,8 +1,8 @@
 from __future__ import annotations
+
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Literal, Optional
-
+from typing import Literal
 
 ExtremumKind = Literal["high", "low"]
 
@@ -12,8 +12,8 @@ class LocalExtremeEvent:
     ts: int               # timestamp экстремума (из центра окна)
     price: float          # цена экстремума
     kind: ExtremumKind    # "high" или "low"
-    move_from_prev_bps: Optional[float] = None  # ход в bps от предыдущего экстремума
-    bars_since_prev: Optional[int] = None       # сколько баров прошло с прошлого экстремума
+    move_from_prev_bps: float | None = None  # ход в bps от предыдущего экстремума
+    bars_since_prev: int | None = None       # сколько баров прошло с прошлого экстремума
 
 
 class LocalExtremaConfig:
@@ -40,13 +40,13 @@ class LocalExtremaService:
     `lookback_right` баров после самой точки экстремума (симметричное окно).
     """
 
-    def __init__(self, config: Optional[LocalExtremaConfig] = None) -> None:
+    def __init__(self, config: LocalExtremaConfig | None = None) -> None:
         self.cfg = config or LocalExtremaConfig()
-        self._window: Deque[tuple[int, float]] = deque(maxlen=self.cfg.window_size)
+        self._window: deque[tuple[int, float]] = deque(maxlen=self.cfg.window_size)
 
         # состояние последнего принятого экстремума
-        self._last_extreme_price: Optional[float] = None
-        self._last_extreme_ts: Optional[int] = None
+        self._last_extreme_price: float | None = None
+        self._last_extreme_ts: int | None = None
         self._bars_since_last_extreme: int = 10**9  # большое число
 
         # счётчик всех обработанных баров (для отладки/метрик)
@@ -59,7 +59,7 @@ class LocalExtremaService:
         self._bars_since_last_extreme = 10**9
         self._bars_total = 0
 
-    def feed(self, ts_ms: int, price: float) -> Optional[LocalExtremeEvent]:
+    def feed(self, ts_ms: int, price: float) -> LocalExtremeEvent | None:
         """
         Кормим сервис одним баром (бакетом): close-price + ts.
 
@@ -104,7 +104,7 @@ class LocalExtremaService:
             return None
 
         # фильтр по минимальному ходу в bps от предыдущего экстремума
-        move_bps: Optional[float] = None
+        move_bps: float | None = None
         if self._last_extreme_price is not None and self._last_extreme_price > 0:
             rel = (price_mid - self._last_extreme_price) / self._last_extreme_price
             move_bps = abs(rel) * 10_000.0

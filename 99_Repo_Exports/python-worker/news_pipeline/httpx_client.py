@@ -1,11 +1,11 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import json
 import random
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
 import requests
 
 
@@ -27,10 +27,10 @@ def _sleep_backoff(attempt: int, base: float, cap: float) -> None:
 def http_get_json(
     url: str,
     *,
-    params: Optional[Dict[str, Any]] = None,
-    headers: Optional[Dict[str, str]] = None,
+    params: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
     policy: HttpRetryPolicy = HttpRetryPolicy(),
-) -> Tuple[Optional[Any], Optional[str]]:
+) -> tuple[Any | None, str | None]:
     """
     Возвращает (json, error_str).
     Fail-open: если не смогли — json=None и error_str заполнен.

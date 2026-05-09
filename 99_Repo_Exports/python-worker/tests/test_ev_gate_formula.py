@@ -1,4 +1,5 @@
-from signals.ev_gate import evaluate_ev_gate, EvGateConfig
+from signals.ev_gate import EvGateConfig, evaluate_ev_gate
+
 
 def test_ev_gate_formula_pass():
     cfg = EvGateConfig(

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from services.orderflow.exec_health_freeze_acl_contract import (
     EXPECTED_ACL_PROFILES,
     EXPECTED_USERS,
@@ -12,7 +10,6 @@ from services.orderflow.exec_health_freeze_acl_contract import (
     normalise_setuser_rules,
     parse_client_list,
     render_all_setuser_commands,
-    render_setuser,
     unknown_user_connections,
 )
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Auto-apply blocker v2: Tick Gate -> Redis block keys with anti-flap.
 
 This daemon periodically runs tick-quality gate (tools.tick_quality_gate_check)
@@ -10,17 +11,15 @@ Anti-flap:
   - pin fail reason for a window (AUTO_APPLY_BLOCK_REASON_PIN_S)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import subprocess
 import sys
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from common.redis_errors import retry_redis_operation
-
+from utils.time_utils import get_ny_time_millis
 
 DEFAULT_PREFIX = "cfg:suggestions:entry_policy:auto_apply_block"
 
@@ -53,7 +52,7 @@ def _connect_redis(redis_url: str):
     return redis.Redis.from_url(redis_url, decode_responses=True)
 
 
-def _load_json(s: Optional[str]) -> Dict[str, Any]:
+def _load_json(s: str | None) -> dict[str, Any]:
     if not s:
         return {}
     try:
@@ -63,17 +62,17 @@ def _load_json(s: Optional[str]) -> Dict[str, Any]:
         return {}
 
 
-def _dump_json(obj: Dict[str, Any]) -> str:
+def _dump_json(obj: dict[str, Any]) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-def _run_gate(metrics_url: str, window_s: int, symbol: Optional[str]) -> Tuple[int, Dict[str, Any]]:
+def _run_gate(metrics_url: str, window_s: int, symbol: str | None) -> tuple[int, dict[str, Any]]:
     cmd = [sys.executable, "-m", "tools.tick_quality_gate_check", "--metrics-url", metrics_url, "--window-s", str(window_s), "--json"]
     if symbol:
         cmd += ["--symbol", symbol]
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    p = subprocess.run(cmd, capture_output=True, text=True)
     out = (p.stdout or "").strip()
-    data: Dict[str, Any] = {}
+    data: dict[str, Any] = {}
     if out:
         data = _load_json(out)
     data.setdefault("_stderr", (p.stderr or "").strip()[:2000])
@@ -81,16 +80,16 @@ def _run_gate(metrics_url: str, window_s: int, symbol: Optional[str]) -> Tuple[i
     return p.returncode, data
 
 
-def _extract_reason(gate_json: Dict[str, Any]) -> str:
+def _extract_reason(gate_json: dict[str, Any]) -> str:
     # Prefer explicit "failed_checks" list; else fall back to status
     failed = gate_json.get("failed_checks")
     if isinstance(failed, list) and failed:
         # keep it stable and short
         return str(failed[0])[:64]
-    return str(gate_json.get("status") or "unknown")[:64]
+    return (gate_json.get("status") or "unknown")[:64]
 
 
-def _should_pin_reason(prev: Dict[str, Any], now_ms: int, pin_ms: int) -> bool:
+def _should_pin_reason(prev: dict[str, Any], now_ms: int, pin_ms: int) -> bool:
     try:
         t = int(prev.get("pinned_reason_ts_ms") or 0)
         return t > 0 and (now_ms - t) <= pin_ms
@@ -99,21 +98,21 @@ def _should_pin_reason(prev: Dict[str, Any], now_ms: int, pin_ms: int) -> bool:
 
 
 def _apply_state_transition(
-    prev: Dict[str, Any],
+    prev: dict[str, Any],
     *,
     rc: int,
-    gate: Dict[str, Any],
+    gate: dict[str, Any],
     now_ms: int,
     min_hold_ms: int,
     pass_streak_to_unblock: int,
     pin_ms: int,
     insuff_mode: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return next state dict."""
     st = dict(prev or {})
     st["ts_ms"] = now_ms
     st["last_rc"] = int(rc)
-    st["last_gate_status"] = str(gate.get("status") or "")
+    st["last_gate_status"] = (gate.get("status") or "")
     st["last_gate_json"] = gate  # may be truncated by Redis size policies upstream
 
     # Determine status class from return code: 0 PASS, 2 FAIL, 1 INSUFF, else ERROR
@@ -165,7 +164,7 @@ def _apply_state_transition(
     return st
 
 
-def _write_block_keys(cli, prefix: str, state: Dict[str, Any], ttl_s: int) -> None:
+def _write_block_keys(cli, prefix: str, state: dict[str, Any], ttl_s: int) -> None:
     block_key = f"{prefix}:tick_gate"
     meta_key = f"{prefix}:tick_gate:meta"
     ts_key = f"{prefix}:tick_gate:ts_ms"
@@ -173,8 +172,8 @@ def _write_block_keys(cli, prefix: str, state: Dict[str, Any], ttl_s: int) -> No
 
     meta = {
         "blocked": bool(state.get("blocked")),
-        "status_class": str(state.get("status_class") or ""),
-        "pinned_reason": str(state.get("pinned_reason") or ""),
+        "status_class": (state.get("status_class") or ""),
+        "pinned_reason": (state.get("pinned_reason") or ""),
         "pass_streak": int(state.get("pass_streak") or 0),
         "hold_until_ms": int(state.get("hold_until_ms") or 0),
         "ts_ms": now_ms,
@@ -193,13 +192,13 @@ def _write_block_keys(cli, prefix: str, state: Dict[str, Any], ttl_s: int) -> No
     pipe.execute()
 
 
-def _maybe_publish_ops(cli, stream: str, state: Dict[str, Any], maxlen: int = 20000) -> None:
+def _maybe_publish_ops(cli, stream: str, state: dict[str, Any], maxlen: int = 20000) -> None:
     try:
         payload = {
             "ts_ms": str(int(state.get("ts_ms") or _now_ms())),
             "blocked": "1" if state.get("blocked") else "0",
-            "status": str(state.get("status_class") or ""),
-            "reason": str(state.get("pinned_reason") or ""),
+            "status": (state.get("status_class") or ""),
+            "reason": (state.get("pinned_reason") or ""),
             "pass_streak": str(int(state.get("pass_streak") or 0)),
             "hold_until_ms": str(int(state.get("hold_until_ms") or 0)),
             "rc": str(int(state.get("last_rc") or 0)),

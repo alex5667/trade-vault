@@ -1,17 +1,27 @@
 # signal_generator.py
 from __future__ import annotations
+
 """
 Функционал генерации сигналов, извлеченный из base_orderflow_handler.py
 """
 
-from utils.time_utils import get_ny_time_millis
-
-from typing import Optional, Dict, Any, Tuple, cast
-import time
+from typing import Any
 
 from contexts import OrderflowSignalContext
-from signals.outbox_utils import PublishResult, build_level_key_breakout, build_level_key_extreme, build_level_key_sweep, nearest_pivot_key, price_bin_key, normalize_to_bucket
-from .regime_gate import RegimeGateCfg, regime_allows, regime_reject_reason
+from signals.outbox_utils import (
+    PublishResult,
+    build_level_key_breakout,
+    build_level_key_extreme,
+    build_level_key_sweep,
+    nearest_pivot_key,
+    normalize_to_bucket,
+    price_bin_key,
+)
+from utils.time_utils import get_ny_time_millis
+
+from .regime_gate import RegimeGateCfg, regime_allows
+
+
 # from common.log import setup_logger
 def setup_logger(name):
     import logging
@@ -87,7 +97,7 @@ class SignalGenerator:
             return True, redis_key, "no_cooldown"
         return self.cooldown.reserve(family=family, timeframe_s=timeframe_s, kind_lc=kind_lc, level_key=level_key, ts_ms=ts_ms)
 
-    def _nums(self, ctx: OrderflowSignalContext) -> Tuple[float, float, float]:
+    def _nums(self, ctx: OrderflowSignalContext) -> tuple[float, float, float]:
         """Безопасное извлечение числовых значений из контекста."""
         z = float(getattr(ctx, "z_delta", 0.0) or 0.0)
         obi = float(getattr(ctx, "obi", 0.0) or 0.0)
@@ -174,7 +184,7 @@ class SignalGenerator:
 
 
 
-    def _compute_confidence(self, ctx: OrderflowSignalContext) -> Tuple[float, Dict[str, float]]:
+    def _compute_confidence(self, ctx: OrderflowSignalContext) -> tuple[float, dict[str, float]]:
         """Вычисление уверенности сигнала."""
         z, obi, _ = self._nums(ctx)
         c_obi = min(abs(obi) / 0.5, 1.0)
@@ -184,7 +194,7 @@ class SignalGenerator:
         conf = c_obi * w_obi + c_z * w_z + c_burst * w_burst
         return conf, {"obi": c_obi, "delta": c_z, "burst": c_burst}
 
-    def _custom_signal_conditions(self, ctx: OrderflowSignalContext) -> Dict[str, Any]:
+    def _custom_signal_conditions(self, ctx: OrderflowSignalContext) -> dict[str, Any]:
         """Проверка кастомных условий сигнала."""
         # Заглушка для кастомных условий - разрешить по умолчанию
         return {}
@@ -193,8 +203,8 @@ class SignalGenerator:
         """Генерация сигнала из контекста."""
         z0, _, _ = self._nums(ctx)
         reserved = False
-        cooldown_key: Optional[str] = None
-        cooldown_token: Optional[str] = None
+        cooldown_key: str | None = None
+        cooldown_token: str | None = None
 
         # базовый уровень
         if abs(z0) < self.z_enter:

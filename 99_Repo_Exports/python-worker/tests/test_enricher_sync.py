@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import time
-from unittest.mock import patch
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from news_pipeline.enricher_sync import NewsEnricherSync
 from tests.fake_redis import FakeRedis  # type: ignore

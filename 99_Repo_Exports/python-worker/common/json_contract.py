@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
 import math
 import os
+from typing import Any
 
 from common.json_fast import dumps1
 from common.json_safe import to_json_safe
@@ -59,10 +59,10 @@ def json_bytes(obj: Any) -> int:
     return len(s.encode("utf-8", "ignore"))
 
 
-def _truncate_parts_dict(parts: Dict[str, Any], *, max_keys: int) -> Tuple[Dict[str, Any], bool]:
+def _truncate_parts_dict(parts: dict[str, Any], *, max_keys: int) -> tuple[dict[str, Any], bool]:
     if len(parts) <= max_keys:
         return parts, False
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     i = 0
     for k in sorted(parts.keys()):
         if i >= max_keys:
@@ -73,12 +73,12 @@ def _truncate_parts_dict(parts: Dict[str, Any], *, max_keys: int) -> Tuple[Dict[
 
 
 def enforce_payload_budgets(
-    payload: Dict[str, Any],
-    payload_meta: Dict[str, Any],
+    payload: dict[str, Any],
+    payload_meta: dict[str, Any],
     *,
     payload_max_bytes: int,
     meta_max_bytes: int,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """
     "Железный" слой:
       - tradeable payload обязан быть малым (payload_max_bytes)

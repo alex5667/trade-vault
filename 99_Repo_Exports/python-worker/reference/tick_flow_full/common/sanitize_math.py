@@ -9,7 +9,7 @@ from __future__ import annotations
 """
 
 import math
-from typing import Any, Optional
+from typing import Any
 
 
 def is_finite_number(x: Any) -> bool:
@@ -19,7 +19,7 @@ def is_finite_number(x: Any) -> bool:
         return False
 
 
-def finite_float(x: Any, default: Optional[float] = None) -> Optional[float]:
+def finite_float(x: Any, default: float | None = None) -> float | None:
     """
     Приводит к float и отбрасывает NaN/Inf.
     Возвращает default (обычно None) если значение непригодно.
@@ -59,8 +59,8 @@ def safe_div(num: Any, den: Any, default: float = 0.0) -> float:
     n = finite_float(num, default=None)
     d = finite_float(den, default=None)
     if n is None or d is None or d == 0.0:
-        return float(default)
+        return default
     out = n / d
     if not math.isfinite(out):
-        return float(default)
+        return default
     return float(out)

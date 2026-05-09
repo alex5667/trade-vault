@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -23,9 +25,8 @@ import argparse
 import json
 import os
 import sys
-import time
-from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import redis
@@ -37,7 +38,7 @@ except Exception:
     dq_freeze_decision = None
 
 
-def _try_load_cfg2(redis_url: str) -> Dict[str, Any]:
+def _try_load_cfg2(redis_url: str) -> dict[str, Any]:
     if not redis_url:
         return {}
     try:
@@ -56,8 +57,8 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
         return default
 
 
-def _load_json(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def _load_json(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -72,12 +73,12 @@ def main() -> None:
     ap.add_argument("--dataset-parquet", required=True, help="Path to nightly parquet dataset")
     ap.add_argument("--fallback-model-json", default="", help="Optional fallback model if primary missing")
     ap.add_argument("--report-json", default="", help="Optional quality report JSON to apply DQ latch")
-    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), help="Redis stream for fallback notification")
-    
+    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), help="Redis stream for fallback notification")
+
     # Thresholds
     ap.add_argument("--max-miss-mean", type=float, default=float(os.getenv("META_GUARD_MAX_MISS_MEAN", "0.05")))
     ap.add_argument("--max-miss-crit", type=float, default=float(os.getenv("META_GUARD_MAX_MISS_CRIT", "0.20")))
-    
+
     # Critical features (comma-separated or use defaults)
     # Default for v4: qimb_wmean, ofi_ml_norm, mp_mid_bps, obi_dw
     default_crit = "qimb_wmean,ofi_ml_norm,mp_mid_bps,obi_dw"
@@ -96,7 +97,7 @@ def main() -> None:
     ap.add_argument("--dyn-key", default=os.getenv("DYN_CFG_KEY", "settings:dynamic_cfg"))
     ap.add_argument("--freeze-key", default="meta_guard_freeze")
     ap.add_argument("--reason-key", default="meta_guard_reason")
-    
+
     # Prometheus textfile
     ap.add_argument("--prom-textfile", default=os.getenv("META_GUARD_PROM_TEXTFILE", ""))
     ap.add_argument("--ignore-dq", action="store_true", help="Ignore DQ latch (emergency)")
@@ -105,13 +106,13 @@ def main() -> None:
 
     # P30: Initialize control variables
     freeze = False
-    reason: List[str] = []
+    reason: list[str] = []
 
     # 1. Load Artefacts
     r_state = _get_redis_client(args.redis_url)
     state_key = f"{args.dyn_key}:model_state"
     last_state = r_state.get(state_key) or "ok"
-    
+
     model_path = args.model_json
     current_state = "ok"
 
@@ -134,7 +135,7 @@ def main() -> None:
                     }, maxlen=200000, approximate=True)
                 except Exception as ne:
                     print(f"ERROR: Failed to notify fallback: {ne}")
-            
+
             model_path = args.fallback_model_json
         else:
             print(f"FATAL: Model JSON not found: {model_path}")
@@ -156,7 +157,7 @@ def main() -> None:
                 }, maxlen=200000, approximate=True)
             except Exception as ne:
                 print(f"ERROR: Failed to notify recovery: {ne}")
-    
+
     # Update state in Redis
     if current_state != last_state:
         try:
@@ -172,7 +173,7 @@ def main() -> None:
     else:
         try:
             model_meta = _load_json(model_path)
-            
+
             # Identify active features
             features = model_meta.get("features") or model_meta.get("feature_names") or []
             if not features:
@@ -185,11 +186,11 @@ def main() -> None:
             if args.crit_features.strip() == default_crit and str(schema_name).startswith('meta_feat_v6'):
                 print(f"INFO: Detected v6 schema '{schema_name}', switching default critical features to v6 set.")
                 args.crit_features = default_crit_v6
-            
+
             print(f"INFO: Model Schema: {schema_name}")
             print(f"INFO: Active Critical Features: {args.crit_features}")
 
-            cfg2: Dict[str, Any] = _try_load_cfg2(getattr(args, "redis_url", ""))
+            cfg2: dict[str, Any] = _try_load_cfg2(getattr(args, "redis_url", ""))
 
             # --- P16: DQ latch from quality report ---
             if (not args.ignore_dq) and args.report_json and dq_freeze_decision is not None:
@@ -209,7 +210,7 @@ def main() -> None:
             # 2. Schema Check
             model_schema = model_meta.get("schema", "unknown")
             required_schema = args.require_schema if args.require_schema else args.expected_schema
-            
+
             if required_schema and model_schema != required_schema:
                 freeze = True
                 msg = f"Schema mismatch: model={model_schema} required={required_schema}"
@@ -225,10 +226,10 @@ def main() -> None:
                 freeze = True
                 reason.append("Empty dataset")
                 df = pd.DataFrame()
-            
+
             valid_features = [f for f in features if f in df.columns]
             missing_features = [f for f in features if f not in df.columns]
-            
+
             if missing_features and "indicators" in df.columns:
                 print(f"INFO: {len(missing_features)} features missing from top-level. Attempting to unpack 'indicators'...")
                 try:
@@ -242,7 +243,7 @@ def main() -> None:
                         missing_features = [f for f in features if f not in df.columns]
                         print(f"INFO: After unpacking, found {len(valid_features)}/{len(features)} features.")
                 except Exception as e:
-                    print(f"WARNING: Failed to unpack indicators: {e}") 
+                    print(f"WARNING: Failed to unpack indicators: {e}")
 
             miss_map = {}
             if valid_features:
@@ -288,15 +289,15 @@ def main() -> None:
     # 4. Action
     final_decision = 1 if freeze else 0
     final_reason = "; ".join(reason) if reason else "ok"
-    
+
     print(f"DECISION: freeze={final_decision} reason='{final_reason}'")
 
     # Output to Prom
     if args.prom_textfile:
         try:
             with open(args.prom_textfile + ".tmp", "w") as f:
-                f.write(f"# HELP meta_guard_freeze 1 if guardrails triggered freeze\n")
-                f.write(f"# TYPE meta_guard_freeze gauge\n")
+                f.write("# HELP meta_guard_freeze 1 if guardrails triggered freeze\n")
+                f.write("# TYPE meta_guard_freeze gauge\n")
                 f.write(f"meta_guard_freeze {final_decision}\n")
                 f.write(f"meta_guard_missing_mean {avg_miss if 'avg_miss' in locals() else 0.0}\n")
             os.replace(args.prom_textfile + ".tmp", args.prom_textfile)
@@ -311,7 +312,7 @@ def main() -> None:
         # But we might want to ONLY clear if we are sure?
         # Yes, guardrails run nightly, so they authorize the NEXT day.
         # If passed -> freeze=0. If failed -> freeze=1.
-        
+
         updates = {
             args.freeze_key: str(final_decision),
             args.reason_key: final_reason

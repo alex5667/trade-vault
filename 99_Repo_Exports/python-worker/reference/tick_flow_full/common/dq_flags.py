@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any
 
 
-def ensure_dq_flags(ctx: Any) -> List[str]:
+def ensure_dq_flags(ctx: Any) -> list[str]:
     """
     Ensure ctx.data_quality_flags is a mutable list[str].
       - If absent -> create []
@@ -18,7 +18,7 @@ def ensure_dq_flags(ctx: Any) -> List[str]:
     if flags is None:
         flags = []
         try:
-            setattr(ctx, "data_quality_flags", flags)
+            ctx.data_quality_flags = flags
         except Exception:
             return []
         return flags
@@ -26,7 +26,7 @@ def ensure_dq_flags(ctx: Any) -> List[str]:
         return flags
     try:
         lst = list(flags)  # type: ignore[arg-type]
-        setattr(ctx, "data_quality_flags", lst)
+        ctx.data_quality_flags = lst
         return lst
     except Exception:
         return []
@@ -40,7 +40,7 @@ def append_dq_flag(ctx: Any, flag: str) -> None:
     - fail-open (never raises)
     """
     try:
-        f = str(flag or "").strip()
+        f = (flag or "").strip()
         if not f:
             return
         flags = ensure_dq_flags(ctx)

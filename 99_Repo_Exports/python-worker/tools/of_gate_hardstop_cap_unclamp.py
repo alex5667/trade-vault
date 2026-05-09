@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Staged auto-unclamp with hysteresis: relax then fully restore pre-clamp values.
 
 This is the next level above auto-clamp: when hard-stop disappears and health holds,
@@ -25,19 +27,18 @@ Environment Variables:
   - Rec/bot: NOTIFY_TELEGRAM_STREAM, RECS_TTL_SEC, RECS_HMAC_SECRET
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import os
-import time
-import json
-import hmac
 import hashlib
+import hmac
+import json
+import os
 import secrets
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 logger = setup_logger("OfGateHardstopCapUnclamp")
 
@@ -47,7 +48,7 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Computes percentile q (0.0-1.0) from sorted list xs."""
     if not xs:
         return 0.0
@@ -62,7 +63,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -70,7 +71,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def sign(bundle_id: str, secret: str) -> str:
@@ -79,7 +80,7 @@ def sign(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
+def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
     """
     Reads metrics from Redis stream within time window.
     
@@ -92,7 +93,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     Returns:
         List of metric records (dict with fields + _ts_ms)
     """
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -124,7 +125,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     return rows
 
 
-def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+def summarize_health(rows: list[dict[str, Any]]) -> dict[str, float]:
     """
     Summarizes health metrics from metric rows.
     
@@ -158,7 +159,7 @@ def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def hard_stop(health: Dict[str, float]) -> Tuple[bool, List[str]]:
+def hard_stop(health: dict[str, float]) -> tuple[bool, list[str]]:
     """
     Hard-stop = unhealthy. If low_n -> fail-closed (treat as hard-stop).
     
@@ -197,16 +198,16 @@ def hard_stop(health: Dict[str, float]) -> Tuple[bool, List[str]]:
     return (len(reasons) > 0), reasons
 
 
-def _notify(r: redis.Redis, text: str, buttons: List[List[Dict[str, str]]] | None = None) -> None:
+def _notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Sends notification to Telegram stream with optional buttons."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    notify_stream = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    notify_stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     r.xadd(notify_stream, fields, maxlen=200000, approximate=True)
 
 
-def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
+def _read_audit_list(r: redis.Redis, bundle_id: str) -> list[dict[str, Any]]:
     """
     Reads audit log from Redis list.
     
@@ -224,10 +225,8 @@ def _read_audit_list(r: redis.Redis, bundle_id: str) -> List[Dict[str, Any]]:
     for s in entries:
         if not s:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(json.loads(s))
-        except Exception:
-            pass
     return out
 
 
@@ -236,8 +235,8 @@ def _apply_hash_restores(
     *,
     who: str,
     ttl_sec: int,
-    restores: List[Dict[str, Any]],
-) -> Tuple[str, str]:
+    restores: list[dict[str, Any]],
+) -> tuple[str, str]:
     """
     Apply list of {key, field, old, old_null, new} as RESTORE (HSET/HDEL),
     write recs:bundle + recs:audit so rollback works.
@@ -265,7 +264,7 @@ def _apply_hash_restores(
         field = str(x["field"])
         # "target" is old value from clamp audit
         old_null = int(x.get("old_null", 0) or 0)
-        target_old = "" if x.get("old") is None else str(x.get("old", ""))
+        target_old = "" if x.get("old") is None else (x.get("old", ""))
 
         # capture current before writing (for rollback of this action)
         cur = r.hget(key, field)
@@ -386,16 +385,16 @@ def main() -> None:
         return
 
     # helper: build restore list for RELAX using clamp_audit.old capped by relax caps
-    def build_relax_restores() -> List[Dict[str, Any]]:
+    def build_relax_restores() -> list[dict[str, Any]]:
         """Build restore list for RELAX stage: min(old from audit, relax_cap)."""
         out = []
         for a in clamp_audit:
             if a.get("op") != "HSET":
                 continue
-            field = str(a.get("field", ""))
+            field = (a.get("field", ""))
             if field not in relax_caps:
                 continue
-            key = str(a.get("key", ""))
+            key = (a.get("key", ""))
             old_null = int(a.get("old_null", 0) or 0)
             if old_null == 1:
                 # if field didn't exist pre-clamp, don't create it in relax
@@ -410,16 +409,16 @@ def main() -> None:
         return out
 
     # helper: build full restores from clamp audit (restore old/hdel)
-    def build_full_restores() -> List[Dict[str, Any]]:
+    def build_full_restores() -> list[dict[str, Any]]:
         """Build full restore list from clamp audit (restore pre-clamp values)."""
         out = []
         for a in clamp_audit:
-            if str(a.get("op")) != "HSET":
+            if (a.get("op")) != "HSET":
                 continue
             out.append({
-                "key": str(a.get("key", "")),
-                "field": str(a.get("field", "")),
-                "old": ("" if a.get("old") is None else str(a.get("old", ""))),
+                "key": (a.get("key", "")),
+                "field": (a.get("field", "")),
+                "old": ("" if a.get("old") is None else (a.get("old", ""))),
                 "old_null": int(a.get("old_null", 0) or 0),
             })
         return out

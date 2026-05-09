@@ -1,4 +1,5 @@
-from typing import Dict, Any, List
+from typing import Any
+
 
 class ATRFreezeTelegramSurface:
     """
@@ -7,7 +8,7 @@ class ATRFreezeTelegramSurface:
     """
 
     @staticmethod
-    def format_freeze_event(event: Dict[str, Any], advisory_only: bool) -> str:
+    def format_freeze_event(event: dict[str, Any], advisory_only: bool) -> str:
         """
         Format a freeze escalation or creation event.
         Expected keys in event: scope_kind, scope_value, freeze_state, trigger_kind, source_reason_code, expires_at, recovery_not_before
@@ -17,7 +18,7 @@ class ATRFreezeTelegramSurface:
         status = event.get('status', 'created')
 
         header = f"❄️ ATR FREEZE {status.upper()}{mode_str} ❄️"
-        
+
         allowed, blocked = ATRFreezeTelegramSurface._get_effect_matrix(state)
 
         lines = [
@@ -33,7 +34,7 @@ class ATRFreezeTelegramSurface:
         ]
         for a in allowed:
             lines.append(f"- {a}")
-        
+
         lines.append("Blocked:")
         for b in blocked:
             lines.append(f"- {b}")
@@ -41,13 +42,13 @@ class ATRFreezeTelegramSurface:
         return "\n".join(lines)
 
     @staticmethod
-    def format_unfreeze_event(event: Dict[str, Any]) -> str:
+    def format_unfreeze_event(event: dict[str, Any]) -> str:
         """
         Format recovering / released events.
         """
         status = event.get('new_status', 'unknown')
         reason_code = event.get('reason_code', 'unknown')
-        
+
         if status == "recovering":
             header = "🌱 ATR FREEZE RECOVERING 🌱"
             next_step = "Pending cert or staged clip"
@@ -68,7 +69,7 @@ class ATRFreezeTelegramSurface:
         return "\n".join(lines)
 
     @staticmethod
-    def format_board(board_rows: List[Dict[str, Any]]) -> str:
+    def format_board(board_rows: list[dict[str, Any]]) -> str:
         """
         Format the v_governance_freeze_board outputs.
         """
@@ -76,14 +77,14 @@ class ATRFreezeTelegramSurface:
             return "✅ Governance Freeze Board: CLEAR (0 active freezes)"
 
         lines = [f"📊 Governance Freeze Board ({len(board_rows)} Active)"]
-        
+
         for row in board_rows:
             lines.append(
                 f"[{row.get('status', '').upper()}] {row.get('freeze_state')} "
                 f"({row.get('scope_kind')}:{row.get('scope_value')}) "
                 f"| {row.get('trigger_kind')} -> Dwell: {row.get('recovery_not_before', 'N/A')[:16]}"
             )
-        
+
         return "\n".join(lines)
 
     @staticmethod

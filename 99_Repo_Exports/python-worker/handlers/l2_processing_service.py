@@ -1,13 +1,14 @@
 # l2_processing_service.py
 from __future__ import annotations
+
 """
 L2 processing functionality extracted from base_orderflow_handler.py
 """
 
+from typing import TYPE_CHECKING
+
 from utils.time_utils import get_ny_time_millis
 
-from typing import Tuple, TYPE_CHECKING
-import time
 
 # from common.log import setup_logger
 def setup_logger(name):
@@ -45,7 +46,7 @@ class L2ProcessingService:
             return True
         return False
 
-    def _calc_l2_age_ms(self, *, tick_ts: object, book_ts: object) -> Tuple[int, int]:
+    def _calc_l2_age_ms(self, *, tick_ts: object, book_ts: object) -> tuple[int, int]:
         """
         Calculate L2 age metrics.
 
@@ -59,7 +60,7 @@ class L2ProcessingService:
 
         return delta_ms, skew_ms
 
-    def _update_l2_staleness(self, ctx: "OrderflowTickContext", tick_ts_ms: int) -> None:
+    def _update_l2_staleness(self, ctx: OrderflowTickContext, tick_ts_ms: int) -> None:
         """
         Update L2 staleness information in context.
         Consistent with OrderFlowDataProcessor._update_l2_tick_staleness()
@@ -97,7 +98,7 @@ class L2ProcessingService:
                 f"tick_ts={tick_ts_ms}, l2_ts={l2_ts}"
             )
 
-    def is_l2_available(self, ctx: "OrderflowTickContext") -> bool:
+    def is_l2_available(self, ctx: OrderflowTickContext) -> bool:
         """Check if L2 data is available and not stale."""
         l2_ts = getattr(ctx, 'l2_ts', 0)
         return l2_ts > 0 and not getattr(ctx, 'l2_is_stale', True)

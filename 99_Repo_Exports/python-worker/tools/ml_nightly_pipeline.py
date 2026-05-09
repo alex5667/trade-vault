@@ -1,6 +1,4 @@
 from __future__ import annotations
-\
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
@@ -8,9 +6,13 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 
 def now_ms() -> int:
     return get_ny_time_millis()
@@ -22,12 +24,13 @@ def run(cmd: list[str]) -> None:
     if p.stdout:
         print(p.stdout)
 
-def read_json(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def read_json(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 def sign(bundle_id: str, secret: str) -> str:
-    import hmac, hashlib
+    import hashlib
+    import hmac
     d = hmac.new(secret.encode("utf-8"), bundle_id.encode("utf-8"), hashlib.sha256).hexdigest()
     return d[:8]
 
@@ -35,9 +38,9 @@ def notify(r: redis.Redis, text: str, buttons=None) -> None:
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
-def create_rollout_bundle(r: redis.Redis, *, cfg_key: str, model_path: str, meta_path: str, model_ver: str, ttl: int, secret: str) -> Tuple[str,str]:
+def create_rollout_bundle(r: redis.Redis, *, cfg_key: str, model_path: str, meta_path: str, model_ver: str, ttl: int, secret: str) -> tuple[str,str]:
     import secrets
     bundle_id = secrets.token_hex(6)
     sig = sign(bundle_id, secret)
@@ -53,7 +56,7 @@ def create_rollout_bundle(r: redis.Redis, *, cfg_key: str, model_path: str, meta
     r.set(f"recs:status:{bundle_id}", "PENDING", ex=ttl)
     return bundle_id, sig
 
-def gate_candidate(meta_new: Dict[str, Any], meta_base: Dict[str, Any]) -> Tuple[bool, str]:
+def gate_candidate(meta_new: dict[str, Any], meta_base: dict[str, Any]) -> tuple[bool, str]:
     """
     Simple safety gate:
       - candidate logloss not worse by >2%
@@ -82,8 +85,8 @@ def gate_candidate(meta_new: Dict[str, Any], meta_base: Dict[str, Any]) -> Tuple
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
-    ap.add_argument("--inputs-stream", default=os.getenv("OF_INPUTS_STREAM", "signals:of:inputs"))
-    ap.add_argument("--closed-stream", default=os.getenv("TRADE_EVENTS_STREAM", "events:trades"))
+    ap.add_argument("--inputs-stream", default=os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS))
+    ap.add_argument("--closed-stream", default=os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES))
     ap.add_argument("--since-hours-inputs", type=float, default=float(os.getenv("ML_PIPE_INPUTS_HOURS", "24") or 24))
     ap.add_argument("--since-hours-closed", type=float, default=float(os.getenv("ML_PIPE_CLOSED_HOURS", "168") or 168))
     ap.add_argument("--models-dir", default=os.getenv("MODELS_DIR", "/opt/models/ml_confirm"))

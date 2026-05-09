@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -77,15 +78,15 @@ ACTIONABLE_DECISIONS = {"APPLY_PRIMARY_ARM_SHADOW", "APPLY_SINGLE_ARM"}
 ALL_ARMS = ("deterministic", "vertex_candidate", "local_fallback_candidate")
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -147,8 +148,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -161,7 +162,7 @@ def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "enabled": parse_int(raw.get("enabled"), 1),
         "kill_switch": parse_int(raw.get("kill_switch"), 0),
@@ -176,23 +177,23 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
-    mode = str(raw.get("mode") or "SHADOW").upper()
-    primary_arm = str(raw.get("primary_arm") or "deterministic")
+def experiment_policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
+    mode = (raw.get("mode") or "SHADOW").upper()
+    primary_arm = (raw.get("primary_arm") or "deterministic")
     return {
         "mode": mode,
         "primary_arm": primary_arm if primary_arm in ALL_ARMS else "deterministic",
-        "shadow_arms_json": str(raw.get("shadow_arms_json") or "[]"),
+        "shadow_arms_json": (raw.get("shadow_arms_json") or "[]"),
         "last_mode_switch_ts_ms": parse_int(raw.get("last_mode_switch_ts_ms"), 0),
     }
 
 
-async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
+async def xr_recent(client: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await client.xrevrange(stream_key, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -200,26 +201,26 @@ async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, 
     return out
 
 
-def latest_actionable_apply(rows: List[Dict[str, Any]]) -> Dict[str, Any] | None:
+def latest_actionable_apply(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     cutoff = now_ms() - MAX_APPLY_AGE_SEC * 1000
     for row in rows:
-        decision = str(row.get("decision") or "")
+        decision = (row.get("decision") or "")
         ts_ms = parse_int(row.get("ts_ms"), 0)
         if decision in ACTIONABLE_DECISIONS and ts_ms >= cutoff:
             return row
     return None
 
 
-def filter_exposures_after(rows: List[Dict[str, Any]], ts_ms: int) -> List[Dict[str, Any]]:
+def filter_exposures_after(rows: list[dict[str, Any]], ts_ms: int) -> list[dict[str, Any]]:
     return [r for r in rows if parse_int(r.get("ts_ms"), 0) >= ts_ms]
 
 
-def compute_exposure_stats(exposures: List[Dict[str, Any]], target_primary_arm: str) -> Dict[str, Any]:
+def compute_exposure_stats(exposures: list[dict[str, Any]], target_primary_arm: str) -> dict[str, Any]:
     total = len(exposures)
     primary_rows = [r for r in exposures if parse_int(r.get("is_primary"), 0) == 1]
     primary_total = len(primary_rows)
-    target_primary_n = sum(1 for r in primary_rows if str(r.get("arm") or "") == target_primary_arm)
-    unexpected_primary_n = sum(1 for r in primary_rows if str(r.get("arm") or "") != target_primary_arm)
+    target_primary_n = sum(1 for r in primary_rows if (r.get("arm") or "") == target_primary_arm)
+    unexpected_primary_n = sum(1 for r in primary_rows if (r.get("arm") or "") != target_primary_arm)
     shadow_n = sum(1 for r in exposures if parse_int(r.get("is_primary"), 0) == 0)
     primary_match_rate = (target_primary_n / primary_total) if primary_total > 0 else 0.0
     unexpected_primary_rate = (unexpected_primary_n / primary_total) if primary_total > 0 else 0.0
@@ -236,7 +237,7 @@ def compute_exposure_stats(exposures: List[Dict[str, Any]], target_primary_arm: 
     }
 
 
-def reconstruct_shadow_arms(mode: str, primary_arm: str) -> List[str]:
+def reconstruct_shadow_arms(mode: str, primary_arm: str) -> list[str]:
     if mode == "SINGLE_ARM":
         return []
     return [arm for arm in ALL_ARMS if arm != primary_arm]
@@ -244,12 +245,12 @@ def reconstruct_shadow_arms(mode: str, primary_arm: str) -> List[str]:
 
 def evaluate_verification(
     *,
-    apply_event: Dict[str, Any] | None,
-    current_policy: Dict[str, Any],
-    exposure_stats: Dict[str, Any],
-    verify_policy: Dict[str, Any],
+    apply_event: dict[str, Any] | None,
+    current_policy: dict[str, Any],
+    exposure_stats: dict[str, Any],
+    verify_policy: dict[str, Any],
     now_ts_ms: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if apply_event is None:
         return {
             "decision": "HOLD",
@@ -264,8 +265,8 @@ def evaluate_verification(
 
     target_mode = str(apply_event.get("mode_after") or current_policy["mode"]).upper()
     target_primary_arm = str(apply_event.get("primary_arm_after") or current_policy["primary_arm"])
-    rollback_mode = str(apply_event.get("mode_before") or "SHADOW").upper()
-    rollback_primary_arm = str(apply_event.get("primary_arm_before") or "deterministic")
+    rollback_mode = (apply_event.get("mode_before") or "SHADOW").upper()
+    rollback_primary_arm = (apply_event.get("primary_arm_before") or "deterministic")
 
     rollback_cooldown_active = (
         current_policy["last_mode_switch_ts_ms"] > 0
@@ -331,9 +332,9 @@ def evaluate_verification(
 
 async def persist_if_configured(
     db_url: str,
-    apply_event: Dict[str, Any] | None,
-    exposure_stats: Dict[str, Any],
-    evaluation: Dict[str, Any],
+    apply_event: dict[str, Any] | None,
+    exposure_stats: dict[str, Any],
+    evaluation: dict[str, Any],
 ) -> None:
     if not db_url or psycopg is None:
         return

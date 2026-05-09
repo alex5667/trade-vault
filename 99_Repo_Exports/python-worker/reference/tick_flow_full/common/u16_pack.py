@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import base64
 import struct
-from typing import Iterable
+from collections.abc import Iterable
+
 
 def pack_u16_list(xs: Iterable[int]) -> str:
     """

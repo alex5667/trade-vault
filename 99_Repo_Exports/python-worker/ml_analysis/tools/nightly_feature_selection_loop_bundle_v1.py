@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Nightly bundle: minimal feature selection loop (importance + stability by regime/session).
 
 Goal
@@ -31,14 +33,16 @@ import os
 import subprocess
 import sys
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import atomic_write_json, now_ms, write_train_metrics
 
 try:
-    from tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 except Exception:
-    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from ml_analysis.tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 
 
 
@@ -46,7 +50,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("nightly_feature_selection_loop_bundle_v1")
 
 
-def _run(module: str, args: list, timeout: int = 3600) -> Tuple[bool, int]:
+def _run(module: str, args: list, timeout: int = 3600) -> tuple[bool, int]:
     cmd = [sys.executable, "-m", module] + list(args)
     logger.info("Running: %s", " ".join(cmd))
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -55,16 +59,16 @@ def _run(module: str, args: list, timeout: int = 3600) -> Tuple[bool, int]:
     return p.returncode == 0, int(p.returncode)
 
 
-def _load_json(path: str) -> Dict[str, Any]:
+def _load_json(path: str) -> dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         return obj if isinstance(obj, dict) else {}
     except Exception:
         return {}
 
 
-def _write_metrics(redis_url: str, metrics_key: str, mapping: Dict[str, Any]) -> None:
+def _write_metrics(redis_url: str, metrics_key: str, mapping: dict[str, Any]) -> None:
     try:
         write_train_metrics(str(redis_url), str(metrics_key), mapping)
     except Exception:
@@ -84,7 +88,7 @@ def _fail(
     latest_json: str,
     version_json: str,
 ) -> int:
-    mapping: Dict[str, Any] = {
+    mapping: dict[str, Any] = {
         "status": status,
         "reason": reason,
         "success": 0,
@@ -100,13 +104,13 @@ def _fail(
     return 2
 
 
-def main(argv: Optional[list] = None) -> int:
+def main(argv: list | None = None) -> int:
     ap = argparse.ArgumentParser(description="Nightly minimal feature selection loop bundle")
     ap.add_argument("--redis_url", default=os.environ.get("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--metrics_key", default=os.environ.get("FEATURE_SELECTION_LOOP_METRICS_KEY", "metrics:feature_selection_loop:last"))
 
     ap.add_argument("--out_dir", default=os.environ.get("FEATURE_SELECTION_LOOP_OUT_DIR", "/var/lib/trade/ml_models/feature_selection_loop_v1"))
-    ap.add_argument("--signals_stream", default=os.environ.get("EDGE_STACK_SIGNALS_STREAM", "signals:of:inputs"))
+    ap.add_argument("--signals_stream", default=os.environ.get("EDGE_STACK_SIGNALS_STREAM", RS.OF_INPUTS))
     ap.add_argument("--closed_stream", default=os.environ.get("EDGE_STACK_CLOSED_STREAM", "trades:closed"))
     ap.add_argument("--window_hours", type=int, default=int(os.environ.get("FEATURE_SELECTION_LOOP_WINDOW_HOURS", "168")))
     ap.add_argument("--signals_count", type=int, default=int(os.environ.get("FEATURE_SELECTION_LOOP_SIGNALS_COUNT", "250000")))
@@ -186,7 +190,7 @@ def main(argv: Optional[list] = None) -> int:
         "--emit_feature_cols_json",
         feature_cols_json,
         "--feature_schema_ver",
-        str(feature_schema_ver or "").strip(),
+        (feature_schema_ver or "").strip(),
         "--scenario_prefix",
         str(args.scenario_prefix),
         "--include_time_onehot",
@@ -266,7 +270,7 @@ def main(argv: Optional[list] = None) -> int:
     noise_n = int(len(summary.get("noise_examples") or []))
 
     drift_report_path = os.path.join(fs_dir, "feature_drift_batch.json")
-    drift_summary: Dict[str, Any] = {}
+    drift_summary: dict[str, Any] = {}
     if int(args.feature_drift_enable) == 1 and str(args.feature_drift_reference_path or "").strip():
         drift_args = [
             "--reference_path",
@@ -288,11 +292,11 @@ def main(argv: Optional[list] = None) -> int:
         if ok_drift and os.path.exists(drift_report_path):
             drift_rep = _load_json(drift_report_path)
             drift_summary = dict(drift_rep.get("summary") or {})
-            drift_summary["status"] = str(drift_summary.get("status") or "ok")
+            drift_summary["status"] = (drift_summary.get("status") or "ok")
         else:
             drift_summary = {"status": f"error_rc_{int(rc_drift)}"}  # noqa: PLE0606 rc_drift is always assigned
 
-    mapping: Dict[str, Any] = {
+    mapping: dict[str, Any] = {
         "status": "ok",
         "reason": "",
         "success": 1,
@@ -300,7 +304,7 @@ def main(argv: Optional[list] = None) -> int:
         "exit_code": 0,
         "updated_ts_ms": now_ms(),
         "schema_ver": str(summary.get("schema_ver") or str(feature_schema_ver)),
-        "schema_hash": str(summary.get("schema_hash") or ""),
+        "schema_hash": (summary.get("schema_hash") or ""),
         "n_rows": int(summary.get("n_rows", 0) or 0),
         "n_features": int(summary.get("n_features", 0) or 0),
         "auc_val": float(summary.get("auc_val", 0.0) or 0.0),
@@ -310,7 +314,7 @@ def main(argv: Optional[list] = None) -> int:
         "run_dir": str(run_dir),
         "summary_path": str(summary_path),
         "report_path": str(os.path.join(fs_dir, "report.md")),
-        "drift_status": str(drift_summary.get("status", "")),
+        "drift_status": (drift_summary.get("status", "")),
         "drift_warn_n": int(drift_summary.get("warn_n", 0) or 0),
         "drift_crit_n": int(drift_summary.get("crit_n", 0) or 0),
         "drift_report_path": str(drift_report_path if drift_summary else ""),

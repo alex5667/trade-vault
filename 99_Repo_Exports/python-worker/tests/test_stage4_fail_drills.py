@@ -1,8 +1,9 @@
-import pytest
-import os
+from unittest.mock import MagicMock
+
 import redis
-from unittest.mock import MagicMock, patch
-from services.ml_confirm_gate import MLConfirmGate, MLConfirmDecision
+
+from services.ml_confirm_gate import MLConfirmGate
+
 
 class MockRedis:
     def __init__(self, fail=False):
@@ -22,12 +23,12 @@ def test_missing_model_file_fail_open():
         champion_key="cfg:champ",
         challenger_key="cfg:chall"
     )
-    
+
     # Force model path to non-existent and set kind
     gate._cfg = {"kind": "edge_stack_v1", "model_path": "/non/existent/model.json"}
     gate._model = None
     gate._model_load_error = "file_not_found"
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1700000000000,
@@ -40,7 +41,7 @@ def test_missing_model_file_fail_open():
         cancel_spike_veto=0,
         ok_rule=1
     )
-    
+
     assert dec.allow is True
     assert "file_not_found" in dec.reason
 
@@ -53,11 +54,11 @@ def test_missing_model_file_fail_closed():
         champion_key="cfg:champ",
         challenger_key="cfg:chall"
     )
-    
+
     gate._cfg = {"kind": "edge_stack_v1", "model_path": "/non/existent/model.json"}
     gate._model = None
     gate._model_load_error = "file_not_found"
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1700000000000,
@@ -70,7 +71,7 @@ def test_missing_model_file_fail_closed():
         cancel_spike_veto=0,
         ok_rule=1
     )
-    
+
     assert dec.allow is False
     assert "file_not_found" in dec.reason
 
@@ -83,10 +84,10 @@ def test_redis_connection_error_handling():
         champion_key="cfg:champ",
         challenger_key="cfg:chall"
     )
-    
+
     gate._cfg = {"kind": "edge_stack_v1"}
     gate._model = None # ensure it uses fail_allow logic
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1700000000000,
@@ -99,14 +100,14 @@ def test_redis_connection_error_handling():
         cancel_spike_veto=0,
         ok_rule=1
     )
-    
-    assert dec.allow is True 
+
+    assert dec.allow is True
 
 def test_bad_json_config():
     """Scenario C: Bad JSON in Redis -> handle gracefully."""
     mr = MagicMock()
     mr.get.return_value = "invalid { json"
-    
+
     gate = MLConfirmGate(
         r=mr,
         mode="ENFORCE",
@@ -114,11 +115,11 @@ def test_bad_json_config():
         champion_key="cfg:champ",
         challenger_key="cfg:chall"
     )
-    
+
     gate._cfg = {"kind": "edge_stack_v1"}
     gate._model = None
     gate._model_load_error = "no_model"
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1700000000000,
@@ -131,5 +132,5 @@ def test_bad_json_config():
         cancel_spike_veto=0,
         ok_rule=1
     )
-    
+
     assert dec.allow is True # fail-policy OPEN

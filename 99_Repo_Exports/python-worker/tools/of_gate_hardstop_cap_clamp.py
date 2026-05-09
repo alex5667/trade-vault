@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """Emergency cap-clamp: auto-apply upper bounds on meta_enforce_share per-regime when hard-stop persists N cycles.
 
 Reads metrics:of_gate for a time window, detects hard-stop conditions (latency, exec_risk, soft_rate, ok_rate),
@@ -26,23 +28,21 @@ Environment Variables:
   - Rec/bot: NOTIFY_TELEGRAM_STREAM, RECS_TTL_SEC, RECS_HMAC_SECRET, CFG_HASH_PREFIX
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import os
-import time
-import json
-import html
-import hmac
 import hashlib
+import hmac
+import html
+import json
+import os
 import secrets
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
 
 from common.log import setup_logger
 from common.redis_errors import retry_redis_operation
+from core.ok_fields import get_ts_ms, parse_ok_fields
 from core.redis_client import get_redis, wait_for_redis
-from core.ok_fields import parse_ok_fields, get_ts_ms
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("OfGateHardstopCapClamp")
 
@@ -52,7 +52,7 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Computes percentile q (0.0-1.0) from sorted list xs."""
     if not xs:
         return 0.0
@@ -67,7 +67,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -75,7 +75,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def sign(bundle_id: str, secret: str) -> str:
@@ -84,7 +84,7 @@ def sign(bundle_id: str, secret: str) -> str:
     return d[:8]
 
 
-def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
+def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
     """
     Reads metrics from Redis stream within time window.
     
@@ -97,7 +97,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     Returns:
         List of metric records (dict with fields + _ts_ms)
     """
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -132,7 +132,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     return rows
 
 
-def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+def summarize_health(rows: list[dict[str, Any]]) -> dict[str, float]:
     """
     Summarizes health metrics from metric rows.
     
@@ -167,7 +167,7 @@ def summarize_health(rows: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def hard_stop(health: Dict[str, float]) -> Tuple[bool, List[str]]:
+def hard_stop(health: dict[str, float]) -> tuple[bool, list[str]]:
     """
     Determines if hard-stop conditions are met (fail-closed by default).
     
@@ -209,12 +209,12 @@ def hard_stop(health: Dict[str, float]) -> Tuple[bool, List[str]]:
 def apply_emergency_bundle(
     r: redis.Redis,
     *,
-    symbols: List[str],
+    symbols: list[str],
     cfg_prefix: str,
     secret: str,
     ttl_sec: int,
-    caps: Dict[str, float],
-) -> Tuple[str, str]:
+    caps: dict[str, float],
+) -> tuple[str, str]:
     """
     Auto-apply HSET changes, write audit, mark bundle APPLIED, return (bundle_id, sig).
     
@@ -236,8 +236,8 @@ def apply_emergency_bundle(
     ts = now_ms()
 
     # Build ops: per-regime shares clamp (never increase)
-    ops: List[Dict[str, str]] = []
-    audit: List[Dict[str, Any]] = []
+    ops: list[dict[str, str]] = []
+    audit: list[dict[str, Any]] = []
 
     for sym in symbols:
         hk = f"{cfg_prefix}{sym}"
@@ -331,7 +331,7 @@ def main() -> None:
     cfg_prefix = os.getenv("CFG_HASH_PREFIX", "config:orderflow:")
     ttl = int(os.getenv("RECS_TTL_SEC", "86400") or 86400)
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
-    notify_stream = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    notify_stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
 
     # Caps (upper bounds)
     cap_trend = float(os.getenv("META_CLAMP_CAP_TREND", "0.10") or 0.10)
@@ -412,7 +412,7 @@ def main() -> None:
     reasons_str = html.escape(json.dumps(reasons, ensure_ascii=False, separators=(",", ":")))
     health_str = html.escape(json.dumps(health, ensure_ascii=False, separators=(",", ":")))
     symbols_str = html.escape(",".join(symbols))
-    
+
     txt = (
         "<b>HARD-STOP CAP CLAMP APPLIED</b>\n"
         f"id=<code>{html.escape(bundle_id)}</code>\n"

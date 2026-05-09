@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import time
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Dict, Any, Tuple, List
-from collections import deque
-from collections import defaultdict
-import time
+from typing import Any
 
 from common.log import setup_logger
 
@@ -42,7 +41,7 @@ class BarSample:
     open: float
     high: float
     low: float
-    close: Optional[float]
+    close: float | None
     volume: float
 
 
@@ -119,7 +118,7 @@ class RegimeConfig:
     regime_window_size: int = 60
 
     # Session biases (example values)
-    session_bias_default: Dict[str, float] = None
+    session_bias_default: dict[str, float] = None
 
     def __post_init__(self):
         if self.session_bias_default is None:
@@ -130,7 +129,7 @@ class RegimeConfig:
             }
 
     @classmethod
-    def from_env(cls) -> "RegimeConfig":
+    def from_env(cls) -> RegimeConfig:
         """Create config from environment variables"""
         import os
         return cls(
@@ -147,20 +146,20 @@ class MarketRegimeService:
     and regime guards for signal emission.
     """
 
-    def __init__(self, atr_window: int = 14, regime_config: Optional[RegimeConfig] = None):
+    def __init__(self, atr_window: int = 14, regime_config: RegimeConfig | None = None):
         self._atr_window = atr_window
         self._cfg = regime_config or RegimeConfig.from_env()
-        self._state_by_symbol: Dict[str, RegimeSnapshot] = {}
+        self._state_by_symbol: dict[str, RegimeSnapshot] = {}
 
         # ATR and bar history
-        self._atr_history: Dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=atr_window))
-        self._bar_history: Dict[str, deque[BarSample]] = defaultdict(lambda: deque(maxlen=240))  # ~4 hours at 1m
+        self._atr_history: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=atr_window))
+        self._bar_history: dict[str, deque[BarSample]] = defaultdict(lambda: deque(maxlen=240))  # ~4 hours at 1m
 
         # Legacy regime state for compatibility
-        self._last_state: Dict[str, RegimeState] = {}
+        self._last_state: dict[str, RegimeState] = {}
 
         # Regime history for cross-bias calculations
-        self._regime_history: Dict[str, deque[RegimeSample]] = defaultdict(
+        self._regime_history: dict[str, deque[RegimeSample]] = defaultdict(
             lambda: deque(maxlen=self._cfg.regime_window_size)
         )
 
@@ -265,7 +264,7 @@ class MarketRegimeService:
         else:
             return "normal"
 
-    def _classify_regime(self, symbol: str, atr_quantile: float) -> Tuple[RegimeType, float, float]:
+    def _classify_regime(self, symbol: str, atr_quantile: float) -> tuple[RegimeType, float, float]:
         """
         Classify market regime based on ATR and other factors.
         Returns (regime, trend_score, range_score)
@@ -285,7 +284,7 @@ class MarketRegimeService:
         # Medium volatility - analyze price movement direction
         return self._analyze_trend_vs_range(bars)
 
-    def _analyze_trend_vs_range(self, bars: List[BarSample]) -> Tuple[RegimeType, float, float]:
+    def _analyze_trend_vs_range(self, bars: list[BarSample]) -> tuple[RegimeType, float, float]:
         """Analyze recent bars to determine trend vs range"""
         if len(bars) < 10:
             return RegimeType.RANGE, 0.5, 0.5
@@ -306,7 +305,7 @@ class MarketRegimeService:
 
         return RegimeType.RANGE, 0.4, 0.6
 
-    def get_regime(self, symbol: str) -> Optional[RegimeSnapshot]:
+    def get_regime(self, symbol: str) -> RegimeSnapshot | None:
         """Get current regime snapshot for symbol"""
         return self._state_by_symbol.get(symbol)
 
@@ -335,7 +334,7 @@ class MarketRegimeService:
 
     # Legacy methods for compatibility with existing BaseOrderFlowHandler
 
-    def last_state(self, symbol: str) -> Optional[RegimeState]:
+    def last_state(self, symbol: str) -> RegimeState | None:
         """Legacy method for compatibility"""
         return self._last_state.get(symbol)
 

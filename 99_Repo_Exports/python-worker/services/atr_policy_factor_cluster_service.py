@@ -1,8 +1,10 @@
 import os
 import time
+
 import psycopg2
 import psycopg2.extras
 import redis
+
 from common.log import setup_logger
 
 logger = setup_logger("factor_cluster_service")
@@ -39,7 +41,7 @@ def run_once() -> bool:
         # But for rule-based, we can just insert the explicit rules + any symbol currently having an atr_rollout_stage or open positions.
         # An easy way is to scan DB for distinct symbols in v_atr_policy_allocator_inputs or atr_policy_execution_budgets
         conn = psycopg2.connect(_dsn(), connect_timeout=5, application_name="atr_policy_factor_cluster_service")
-        
+
         with conn, conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             # Let's collect symbols from closed trades and current allocator inputs to capture everything active
             cur.execute("""
@@ -50,7 +52,7 @@ def run_once() -> bool:
                 ) sub WHERE symbol IS NOT NULL AND symbol != ''
             """)
             symbols = [row['symbol'] for row in cur.fetchall()]
-        
+
         with conn, conn.cursor() as cur:
             for s in symbols:
                 cluster = rule_based_cluster(s)
@@ -65,27 +67,27 @@ def run_once() -> bool:
                         factor_cluster = EXCLUDED.factor_cluster,
                         updated_at_ms = EXCLUDED.updated_at_ms
                 """, (s, cluster, int(time.time() * 1000)))
-            
+
             conn.commit()
-            
+
         # Optional: Set defaults if requested in env
         cluster_cap = float(os.getenv("ATR_PORTFOLIO_CLUSTER_DEFAULT_CAP_PCT", "1.50"))
         venue_cap = float(os.getenv("ATR_PORTFOLIO_VENUE_DEFAULT_CAP_PCT", "2.00"))
         policy_cap = float(os.getenv("ATR_PORTFOLIO_POLICY_DEFAULT_CAP_PCT", "0.75"))
-        
+
         # Apply defaults to redis only if not set, or maybe just hard set it
         # Actually, configuration of caps should be done via tooling. We'll set default just to help bootstrap.
         for cluster in ["majors_L1", "meme_high_beta", "ai_beta", "unclassified"]:
             if not r.exists(f"cfg:atr_portfolio:max_factor_cluster_risk_pct:factor:{cluster}"):
                 r.set(f"cfg:atr_portfolio:max_factor_cluster_risk_pct:factor:{cluster}", cluster_cap)
-        
+
         if not r.exists("cfg:atr_portfolio:max_venue_risk_pct:venue:binance_futures"):
             r.set("cfg:atr_portfolio:max_venue_risk_pct:venue:binance_futures", venue_cap)
-        
+
         logger.info(f"Updated factor clusters for {len(symbols)} symbols.")
         conn.close()
         return True
-    
+
     except Exception as e:
         logger.error(f"Error in factor cluster service: {e}", exc_info=True)
         return False

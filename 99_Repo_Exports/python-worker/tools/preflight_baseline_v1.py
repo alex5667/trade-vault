@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """preflight_baseline_v1.py — Step 0: capture system baseline.
 
 Usage:
@@ -18,32 +19,30 @@ What it does (fail-open: network / parse errors produce partial output):
 The output file is machine-readable and suitable for diffing across deployments.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
 import sys
-import time
-import urllib.request
 import urllib.error
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+import urllib.request
+from datetime import UTC, datetime
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # --- Prometheus text parser (no dependencies) ---
 # ---------------------------------------------------------------------------
 
-def parse_prometheus_text(text: str) -> Dict[str, List[Dict[str, Any]]]:
+def parse_prometheus_text(text: str) -> dict[str, list[dict[str, Any]]]:
     """Parse Prometheus /metrics text exposition format into a dict of metric families.
 
     Returns:
         {metric_name: [{"labels": {...}, "value": float, "help": str, "type": str}]}
     """
-    families: Dict[str, List[Dict[str, Any]]] = {}
-    help_map: Dict[str, str] = {}
-    type_map: Dict[str, str] = {}
+    families: dict[str, list[dict[str, Any]]] = {}
+    help_map: dict[str, str] = {}
+    type_map: dict[str, str] = {}
 
     for raw_line in text.splitlines():
         line = raw_line.strip()
@@ -108,7 +107,7 @@ def parse_prometheus_text(text: str) -> Dict[str, List[Dict[str, Any]]]:
                     continue
 
             # Parse labels
-            labels: Dict[str, str] = {}
+            labels: dict[str, str] = {}
             if labels_str:
                 # Naive: split by comma that is not inside quotes
                 cur_key = ""
@@ -152,7 +151,7 @@ def parse_prometheus_text(text: str) -> Dict[str, List[Dict[str, Any]]]:
 # --- Prometheus rules parser ---
 # ---------------------------------------------------------------------------
 
-def parse_prom_rules(rules_json: str) -> Dict[str, Any]:
+def parse_prom_rules(rules_json: str) -> dict[str, Any]:
     """Parse /api/v1/rules JSON response.
 
     Returns a simplified dict with:
@@ -172,22 +171,22 @@ def parse_prom_rules(rules_json: str) -> Dict[str, Any]:
     data = raw.get("data", {}) or {}
     groups_raw = data.get("groups", []) or []
 
-    groups: List[Dict[str, Any]] = []
+    groups: list[dict[str, Any]] = []
     alert_count = 0
     recording_count = 0
 
     for g in groups_raw:
-        rules_out: List[Dict[str, Any]] = []
+        rules_out: list[dict[str, Any]] = []
         for r in (g.get("rules", []) or []):
-            rtype = str(r.get("type", "") or "")
+            rtype = (r.get("type", "") or "")
             rules_out.append({
                 "name": str(r.get("name", "") or r.get("alert", "") or ""),
                 "type": rtype,
-                "query": str(r.get("query", "") or ""),
+                "query": (r.get("query", "") or ""),
                 "labels": r.get("labels", {}),
                 "annotations": r.get("annotations", {}),
                 "duration": r.get("duration", 0),
-                "state": str(r.get("state", "") or ""),
+                "state": (r.get("state", "") or ""),
             })
             if rtype == "alerting":
                 alert_count += 1
@@ -195,8 +194,8 @@ def parse_prom_rules(rules_json: str) -> Dict[str, Any]:
                 recording_count += 1
 
         groups.append({
-            "name": str(g.get("name", "")),
-            "file": str(g.get("file", "")),
+            "name": (g.get("name", "")),
+            "file": (g.get("file", "")),
             "interval": g.get("interval", 0),
             "rules": rules_out,
         })
@@ -221,7 +220,7 @@ BOOK_STREAM_KEYS = (
 )
 
 
-def parse_compose_book_env(compose_path: str) -> Dict[str, Any]:
+def parse_compose_book_env(compose_path: str) -> dict[str, Any]:
     """Parse docker-compose.yml and return book-stream relevant env vars.
 
     Returns:
@@ -232,7 +231,7 @@ def parse_compose_book_env(compose_path: str) -> Dict[str, Any]:
           "error": str | None
         }
     """
-    result: Dict[str, Any] = {"services": {}, "error": None}
+    result: dict[str, Any] = {"services": {}, "error": None}
 
     if not compose_path:
         result["error"] = "no compose path specified"
@@ -241,7 +240,7 @@ def parse_compose_book_env(compose_path: str) -> Dict[str, Any]:
     try:
         try:
             import yaml  # type: ignore
-            with open(compose_path, "r") as f:
+            with open(compose_path) as f:
                 doc = yaml.safe_load(f)
         except ImportError:
             # Fallback: very naive key=value line-by-line search (no YAML dep required)
@@ -262,7 +261,7 @@ def parse_compose_book_env(compose_path: str) -> Dict[str, Any]:
         if not isinstance(svc, dict):
             continue
         env_section = svc.get("environment", {}) or {}
-        env: Dict[str, str] = {}
+        env: dict[str, str] = {}
 
         if isinstance(env_section, list):
             # YAML list form: ["KEY=VALUE", ...]
@@ -282,13 +281,13 @@ def parse_compose_book_env(compose_path: str) -> Dict[str, Any]:
     return result
 
 
-def _parse_compose_naive(path: str) -> Dict[str, Any]:
+def _parse_compose_naive(path: str) -> dict[str, Any]:
     """Ultra-minimal YAML-subset parser (key-value environment lines only)."""
-    doc: Dict[str, Any] = {"services": {}}
-    current_service: Optional[str] = None
+    doc: dict[str, Any] = {"services": {}}
+    current_service: str | None = None
     in_environment = False
 
-    with open(path, "r") as f:
+    with open(path) as f:
         for line in f:
             stripped = line.rstrip()
             indent = len(stripped) - len(stripped.lstrip())
@@ -314,7 +313,7 @@ def _parse_compose_naive(path: str) -> Dict[str, Any]:
 # --- Network helpers ---
 # ---------------------------------------------------------------------------
 
-def fetch_url(url: str, timeout: int = 10) -> Optional[str]:
+def fetch_url(url: str, timeout: int = 10) -> str | None:
     """Fetch URL text. Returns None on any error."""
     try:
         req = urllib.request.Request(url, headers={"Accept": "text/plain,application/json"})
@@ -334,12 +333,12 @@ def run(
     compose: str = "docker-compose.yml",
     out: str = "/tmp/preflight_baseline.json",
     timeout: int = 10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run the preflight snapshot. Always returns a snapshot dict (fail-open)."""
     ts_ms = get_ny_time_millis()
-    ts_iso = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).isoformat()
+    ts_iso = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC).isoformat()
 
-    snapshot: Dict[str, Any] = {
+    snapshot: dict[str, Any] = {
         "version": 1,
         "step": 0,
         "snapshot_ts_ms": ts_ms,

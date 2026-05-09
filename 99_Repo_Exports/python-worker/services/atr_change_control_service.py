@@ -3,20 +3,20 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from services.analytics_db import get_conn
 from services.atr_release_gate_service import build_scorecard
 
 logger = logging.getLogger("atr_change_control")
 
-def get_change(change_id: str) -> Optional[Dict[str, Any]]:
+def get_change(change_id: str) -> dict[str, Any] | None:
     sql = "SELECT * FROM atr_change_requests WHERE change_id = %s"
     with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
         cur.execute(sql, (change_id,))
         return cur.fetchone()
 
-def _record_transition(cur, change_id: str, old_status: str, new_status: str, reason_code: str, meta: Dict[str, Any]):
+def _record_transition(cur, change_id: str, old_status: str, new_status: str, reason_code: str, meta: dict[str, Any]):
     cur.execute("""
         INSERT INTO atr_change_transitions (change_id, old_status, new_status, reason_code, transition_json)
         VALUES (%s, %s, %s, %s, %s)
@@ -31,7 +31,7 @@ def submit_change(
     owner: str,
     risk_level: str,
     reason_code: str,
-    request_data: Dict[str, Any],
+    request_data: dict[str, Any],
     source: str = "",
     venue: str = "",
     symbol="",
@@ -44,7 +44,7 @@ def submit_change(
     """Submit a new formal change request."""
     now_ms = int(time.time() * 1000)
     initial_status = "DRAFT"
-    
+
     sql = """
         INSERT INTO atr_change_requests (
             change_id, change_type, scope_kind, source, venue, symbol,
@@ -62,7 +62,7 @@ def submit_change(
         initial_status, title, author, owner, risk_level, reason_code,
         json.dumps(request_data), now_ms, now_ms
     )
-    
+
     try:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(sql, params)
@@ -74,12 +74,12 @@ def submit_change(
         logger.error(f"Failed to submit change {change_id}: {e}")
         return False
 
-def attach_replay_report(change_id: str, report: Dict[str, Any]) -> bool:
+def attach_replay_report(change_id: str, report: dict[str, Any]) -> bool:
     """Attach replay report and advance state to REPLAY_PASSED or REPLAY_FAILED."""
     now_ms = int(time.time() * 1000)
     status_passed = report.get("status") == "passed"
     new_status = "REPLAY_PASSED" if status_passed else "REPLAY_FAILED"
-    
+
     try:
         with get_conn() as conn, conn.cursor() as cur:
             # check current state
@@ -87,20 +87,20 @@ def attach_replay_report(change_id: str, report: Dict[str, Any]) -> bool:
             row = cur.fetchone()
             if not row:
                 return False
-                
+
             old_status = row[0]
-            
+
             cur.execute("""
                 INSERT INTO atr_change_artifacts (change_id, artifact_kind, artifact_json)
                 VALUES (%s, 'replay_report', %s)
             """, (change_id, json.dumps(report)))
-            
+
             cur.execute("""
                 UPDATE atr_change_requests
                 SET status = %s, updated_at_ms = %s
                 WHERE change_id = %s
             """, (new_status, now_ms, change_id))
-            
+
             _record_transition(cur, change_id, old_status, new_status, "REPLAY_EVALUATED", report)
             conn.commit()
             return True
@@ -117,7 +117,7 @@ def approve_change(change_id: str, actor: str, note: str = "") -> bool:
             chg = cur.fetchone()
             if not chg:
                 return False
-                
+
             old_status = chg["status"]
             # Enforce prerequisites via Release Gate Scorecard
             try:
@@ -136,7 +136,7 @@ def approve_change(change_id: str, actor: str, note: str = "") -> bool:
                 INSERT INTO atr_change_approvals (change_id, actor, action, note, action_json)
                 VALUES (%s, %s, 'approve', %s, %s)
             """, (change_id, actor, note, '{}'))
-            
+
             # Simple policy check for now: assuming 1 approval is enough to set APPROVED
             # Could be more complex
             new_status = "APPROVED"
@@ -145,7 +145,7 @@ def approve_change(change_id: str, actor: str, note: str = "") -> bool:
                 SET status = %s, updated_at_ms = %s
                 WHERE change_id = %s
             """, (new_status, now_ms, change_id))
-            
+
             if new_status != old_status:
                 _record_transition(cur, change_id, old_status, new_status, "APPROVED_BY_POLICY", {"actor": actor})
             conn.commit()
@@ -154,7 +154,7 @@ def approve_change(change_id: str, actor: str, note: str = "") -> bool:
         logger.error(f"Failed to approve {change_id}: {e}")
         return False
 
-def start_rollout(change_id: str, manifest: Dict[str, Any]) -> bool:
+def start_rollout(change_id: str, manifest: dict[str, Any]) -> bool:
     """Apply rollout manifest and set to ROLLOUT_PENDING/ROLLED_OUT."""
     now_ms = int(time.time() * 1000)
     try:
@@ -167,12 +167,12 @@ def start_rollout(change_id: str, manifest: Dict[str, Any]) -> bool:
             if old_status != "APPROVED":
                 logger.warning(f"Cannot rollout {change_id} from {old_status}")
                 return False
-            
+
             cur.execute("""
                 INSERT INTO atr_change_artifacts (change_id, artifact_kind, artifact_json)
                 VALUES (%s, 'rollout_manifest', %s)
             """, (change_id, json.dumps(manifest)))
-            
+
             new_status = "ROLLED_OUT" # or MONITORING
             cur.execute("UPDATE atr_change_requests SET status = %s, updated_at_ms = %s WHERE change_id = %s",
                         (new_status, now_ms, change_id))
@@ -193,12 +193,12 @@ def pause_change(change_id: str, actor: str, note: str = "") -> bool:
             if not row:
                 return False
             old_status = row[0]
-            
+
             cur.execute("""
                 INSERT INTO atr_change_approvals (change_id, actor, action, note, action_json)
                 VALUES (%s, %s, 'pause', %s, %s)
             """, (change_id, actor, note, '{}'))
-            
+
             new_status = "PAUSED"
             cur.execute("UPDATE atr_change_requests SET status = %s, updated_at_ms = %s WHERE change_id = %s",
                         (new_status, now_ms, change_id))
@@ -209,7 +209,7 @@ def pause_change(change_id: str, actor: str, note: str = "") -> bool:
         logger.error(f"Pause failed for {change_id}: {e}")
         return False
 
-def request_rollback(change_id: str, manifest: Dict[str, Any], actor: str = "system") -> bool:
+def request_rollback(change_id: str, manifest: dict[str, Any], actor: str = "system") -> bool:
     """Request rollback and append manifest."""
     now_ms = int(time.time() * 1000)
     try:
@@ -219,17 +219,17 @@ def request_rollback(change_id: str, manifest: Dict[str, Any], actor: str = "sys
             if not row:
                 return False
             old_status = row[0]
-            
+
             cur.execute("""
                 INSERT INTO atr_change_artifacts (change_id, artifact_kind, artifact_json)
                 VALUES (%s, 'rollback_manifest', %s)
             """, (change_id, json.dumps(manifest)))
-            
+
             cur.execute("""
                 INSERT INTO atr_change_approvals (change_id, actor, action, note, action_json)
                 VALUES (%s, %s, 'rollback', 'rollback requested', %s)
             """, (change_id, actor, '{}'))
-            
+
             new_status = "ROLLBACK_PENDING"
             cur.execute("UPDATE atr_change_requests SET status = %s, updated_at_ms = %s WHERE change_id = %s",
                         (new_status, now_ms, change_id))
@@ -240,7 +240,7 @@ def request_rollback(change_id: str, manifest: Dict[str, Any], actor: str = "sys
         logger.error(f"Rollback failed for {change_id}: {e}")
         return False
 
-def complete_change(change_id: str, evidence: Dict[str, Any]) -> bool:
+def complete_change(change_id: str, evidence: dict[str, Any]) -> bool:
     """Complete a change successfully."""
     now_ms = int(time.time() * 1000)
     try:
@@ -250,12 +250,12 @@ def complete_change(change_id: str, evidence: Dict[str, Any]) -> bool:
             if not row:
                 return False
             old_status = row[0]
-            
+
             cur.execute("""
                 INSERT INTO atr_change_artifacts (change_id, artifact_kind, artifact_json)
                 VALUES (%s, 'evidence_pack', %s)
             """, (change_id, json.dumps(evidence)))
-            
+
             new_status = "COMPLETED"
             cur.execute("UPDATE atr_change_requests SET status = %s, updated_at_ms = %s WHERE change_id = %s",
                         (new_status, now_ms, change_id))

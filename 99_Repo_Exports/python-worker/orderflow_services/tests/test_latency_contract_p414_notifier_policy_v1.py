@@ -1,16 +1,15 @@
 from __future__ import annotations
+
 """P4.14 tests: warning-code policy aware notifier route selection."""
 
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 from orderflow_services.latency_contract_deploy_lint_notifier_v1 import (
     Cfg,
-    _warning_policy_for_active,
+    _notify_stream_for_event,
     _route_class_for_event,
     _severity_for_event,
-    _notify_stream_for_event,
+    _warning_policy_for_active,
 )
 
 

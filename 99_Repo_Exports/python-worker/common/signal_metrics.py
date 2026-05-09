@@ -15,7 +15,7 @@ common/signal_metrics.py
  - emitter делает signals_sent и veto причины dedup/publish_failed, а также "labels-driven" защитные.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from common.reason_normalizer import normalize_reason, reason_family
 from common.veto_reason_reporter import VetoTopNReporter
@@ -25,13 +25,13 @@ class SignalMetrics:
     def __init__(self, metrics: Any) -> None:
         self._m = metrics
         # reporter подключается позже (когда доступен emitter)
-        self._veto_reporter: Optional[VetoTopNReporter] = None
+        self._veto_reporter: VetoTopNReporter | None = None
 
     def attach_veto_reporter(self, reporter: VetoTopNReporter) -> None:
         # Одна точка подключения, чтобы не тащить emitter внутрь метрик напрямую.
         self._veto_reporter = reporter
 
-    def _inc(self, name: str, value: int = 1, tags: Optional[dict[str, Any]] = None) -> None:
+    def _inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:
         m = self._m
         if m is None or not hasattr(m, "inc"):
             return
@@ -40,7 +40,7 @@ class SignalMetrics:
         except Exception:
             return
 
-    def _obs(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def _obs(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         m = self._m
         if m is None or not hasattr(m, "observe"):
             return
@@ -51,7 +51,7 @@ class SignalMetrics:
 
     def _base_tags(self, *, ctx: Any, kind: str) -> dict[str, str]:
         # Нормализуем теги так, чтобы дашборды были стабильны.
-        tags: dict[str, str] = {"kind": str(kind or "unknown")}
+        tags: dict[str, str] = {"kind": (kind or "unknown")}
         try:
             sym = getattr(ctx, "symbol", None) or ""
             tf = getattr(ctx, "timeframe", None) or ""
@@ -60,7 +60,7 @@ class SignalMetrics:
             if sym:
                 tags["symbol"] = str(sym)
             if tf:
-                tags["timeframe"] = str(tf)
+                tags["timeframe"] = tf
             if ven:
                 tags["venue"] = str(ven)
             if fam:
@@ -78,8 +78,8 @@ class SignalMetrics:
         reason_norm = normalize_reason(reason, kind=kind)
         fam = reason_family(reason_norm)
         tags = self._base_tags(ctx=ctx, kind=kind)
-        tags["reason"] = str(reason_norm or "unknown_veto")
-        tags["reason_family"] = str(fam or "unknown")
+        tags["reason"] = (reason_norm or "unknown_veto")
+        tags["reason_family"] = (fam or "unknown")
         self._inc("signals_veto", 1, tags)
 
         # Защитные метрики — считаем и на veto-ветке тоже, иначе в дашборде "дыра".
@@ -91,10 +91,10 @@ class SignalMetrics:
             if self._veto_reporter is not None:
                 self._veto_reporter.record(
                     ctx=ctx,
-                    kind=str(kind or "unknown"),
+                    kind=(kind or "unknown"),
                     reason_norm=reason_norm,
-                    reason_family=str(fam or "unknown"),
-                    reason_raw=str(reason or ""),
+                    reason_family=(fam or "unknown"),
+                    reason_raw=(reason or ""),
                 )
         except Exception:
             pass

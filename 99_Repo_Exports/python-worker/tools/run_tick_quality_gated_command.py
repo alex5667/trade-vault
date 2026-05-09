@@ -22,14 +22,14 @@ Exit Codes:
 """
 
 import argparse
-import sys
-import os
-import subprocess
-import time
 import json
 import logging
+import os
 import socket
-from typing import List, Optional, Dict, Any
+import subprocess
+import sys
+import time
+from typing import Any
 
 # Ensure we can import tools.tick_quality_gate_check
 # Assuming this script is run as a module: python -m tools.run_tick_quality_gated_command
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 def publish_redis_event(
     redis_url: str,
     stream_key: str,
-    event_data: Dict[str, Any]
+    event_data: dict[str, Any]
 ) -> None:
     """Publish gate result to Redis Stream (best effort)."""
     try:
@@ -66,7 +66,7 @@ def publish_redis_event(
 def run_gate_check(
     metrics_url: str,
     window_s: int,
-    symbol: Optional[str],
+    symbol: str | None,
     timeout_s: float
 ) -> int:
     """Run the tick quality gate check.
@@ -75,7 +75,7 @@ def run_gate_check(
         Exit code from tick_quality_gate_check (0=PASS, 1=INSUFFICIENT, 2=FAIL)
     """
     logger.info(f"Running tick quality gate check (window={window_s}s)...")
-    
+
     argv = [
         "--metrics-url", metrics_url,
         "--window-s", str(window_s),
@@ -83,13 +83,13 @@ def run_gate_check(
     ]
     if symbol:
         argv.extend(["--symbol", symbol])
-    
+
     # We want to capture the classification logic from the main function.
     # The existing main() prints to stdout/json. We can run it in-process.
     # However, to avoid capturing stdout/stderr messy-ness, we trust its return code.
     try:
         # Running via subprocess to ensure clean isolation of existing tool's output
-        # or we could call main() and catch SystemExit? 
+        # or we could call main() and catch SystemExit?
         # Calling main directly allows us to use the same logic without spawning new python interpreter overhead (though minimal)
         # But main calls sys.stdout.write. We might want to see that output.
         # Let's run it in-process and trust it prints useful info to stdout for the operator.
@@ -102,24 +102,24 @@ def run_gate_check(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Tick Quality Gated Command Runner")
-    
+
     # Gate arguments
     parser.add_argument("--metrics-url", default="http://localhost:8000/metrics", help="Prometheus metrics URL")
     parser.add_argument("--window-s", type=int, default=60, help="Observation window in seconds")
     parser.add_argument("--symbol", default=None, help="Optional symbol to check")
     parser.add_argument("--timeout-s", type=float, default=5.0, help="Scrape timeout")
-    
+
     # Wrapper arguments
     parser.add_argument("--fail-mode", choices=["fail_open", "fail_closed"], default="fail_closed",
                         help="Action when gate returns INSUFFICIENT_DATA (missing metrics)")
-    
+
     # The command to run
     parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to run if gate passes")
-    
+
     args = parser.parse_args()
-    
-    # argparse puts the '--' separation into args.command if used properly, 
-    # but sometimes it might be mixed. 
+
+    # argparse puts the '--' separation into args.command if used properly,
+    # but sometimes it might be mixed.
     # If the user did `... -- command arg`, args.command will be ['command', 'arg']
     # If the user did `... -- command`, args.command will be ['command']
     if not args.command or (len(args.command) == 1 and args.command[0] == "--"):
@@ -130,7 +130,7 @@ def main() -> int:
     cmd_list = args.command
     if cmd_list[0] == "--":
         cmd_list = cmd_list[1:]
-        
+
     if not cmd_list:
         logger.error("No command specified after '--'")
         return 22
@@ -144,11 +144,11 @@ def main() -> int:
         timeout_s=args.timeout_s
     )
     duration = time.time() - start_time
-    
+
     # 2. Evaluate Result
     should_run = False
     status_str = "UNKNOWN"
-    
+
     if gate_exit_code == 0:
         logger.info("Tick Quality Gate: PASS")
         should_run = True
@@ -194,12 +194,12 @@ def main() -> int:
         sys.stdout.flush()
         sys.stderr.flush()
         try:
-            # Replace current process with the command? 
+            # Replace current process with the command?
             # Or run as subprocess?
-            # If we replace, we can't log the outcome. 
+            # If we replace, we can't log the outcome.
             # But normally wrappers might want to just be transparent.
             # However, prompt implies we might want to return specific codes.
-            
+
             # "Exit codes: 0 gate PASS and command successful; 10 gate PASS but command failed"
             proc = subprocess.run(cmd_list)
             if proc.returncode != 0:

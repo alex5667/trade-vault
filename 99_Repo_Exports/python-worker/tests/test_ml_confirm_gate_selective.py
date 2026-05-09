@@ -1,4 +1,5 @@
 import pytest
+
 pytest.importorskip("redis")
 
 from services.ml_confirm_gate import MLConfirmGate

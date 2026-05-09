@@ -1,6 +1,7 @@
-from utils.time_utils import get_ny_time_millis
-import time
+
 import fakeredis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def test_setnx_lock():

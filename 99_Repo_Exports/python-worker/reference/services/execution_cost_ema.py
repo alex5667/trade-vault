@@ -1,13 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import math
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from domain.time_utils import session_from_ts_ms
+from utils.time_utils import get_ny_time_millis
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -18,16 +17,16 @@ def _env_bool(name: str, default: bool) -> bool:
 def _safe_float(v: Any, default: float = 0.0) -> float:
     try:
         x = float(v)
-        return x if math.isfinite(x) else float(default)
+        return x if math.isfinite(x) else default
     except Exception:
-        return float(default)
+        return default
 
 
 def _safe_int(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 @dataclass(frozen=True)
@@ -47,12 +46,12 @@ class ExecCostEmaConfig:
     read_legacy_fallback: bool = True
 
     @classmethod
-    def from_env(cls) -> "ExecCostEmaConfig":
+    def from_env(cls) -> ExecCostEmaConfig:
         enabled = _env_bool("EXEC_COST_EMA_ENABLED", False)
         alpha = _safe_float(os.getenv("EXEC_COST_EMA_ALPHA", "0.05"), 0.05)
         min_samples = _safe_int(os.getenv("EXEC_COST_EMA_MIN_SAMPLES", "20"), 20)
         ttl_sec = _safe_int(os.getenv("EXEC_COST_EMA_TTL_SEC", str(60 * 60 * 24 * 30)), 60 * 60 * 24 * 30)
-        prefix = str(os.getenv("EXEC_COST_EMA_PREFIX", "execost:") or "execost:")
+        prefix = (os.getenv("EXEC_COST_EMA_PREFIX", "execost:") or "execost:")
         return cls(
             enabled=enabled,
             alpha=alpha,
@@ -64,7 +63,7 @@ class ExecCostEmaConfig:
         )
 
 
-def _ema_update(old: Optional[float], x: float, alpha: float) -> float:
+def _ema_update(old: float | None, x: float, alpha: float) -> float:
     if old is None or (not math.isfinite(old)) or old <= 0:
         return float(x)
     return float(alpha) * float(x) + (1.0 - float(alpha)) * float(old)
@@ -77,11 +76,11 @@ def update_exec_cost_ema(
     key: str,
     realized_slippage_bps: float,
     realized_spread_bps: float,
-    now_ms: Optional[int] = None,
+    now_ms: int | None = None,
 ) -> None:
     if not cfg.enabled or redis_client is None:
         return
-    
+
     now = int(now_ms or get_ny_time_millis())
     slip = float(realized_slippage_bps)
     sprd = float(realized_spread_bps)
@@ -114,7 +113,7 @@ def read_exec_cost_ema_bps(
     *,
     cfg: ExecCostEmaConfig,
     key: str,
-) -> Optional[float]:
+) -> float | None:
     if not cfg.enabled or redis_client is None:
         return None
     try:
@@ -122,7 +121,7 @@ def read_exec_cost_ema_bps(
         if not v or len(v) < 2: return None
         samples = _safe_int(v[0], 0)
         ema = _safe_float(v[1], 0.0)
-        
+
         min_n = getattr(cfg, "min_samples_to_trust", cfg.min_samples)
         if samples < min_n:
             return None

@@ -1,8 +1,10 @@
-import redis
 import json
 
+import redis
+from core.redis_keys import RedisStreams as RS
+
 r = redis.Redis(host="localhost", port=6379, db=0)
-messages = r.xrevrange("signals:crypto:raw", "+", "-", count=1000)
+messages = r.xrevrange(RS.CRYPTO_RAW, "+", "-", count=1000)
 found = 0
 for msg_id, payload in messages:
     data_str = payload.get(b"payload")

@@ -18,15 +18,16 @@ Unified Signal Generation Pipeline
 - Получить готовый сигнал или None
 """
 
-from typing import Optional, List, Dict, Any
 from datetime import datetime
+from typing import Optional
+
+from signals.calibration_service import CalibrationService
+from signals.exec_filters import ExecFiltersGroup
+from signals.golden_pattern_service import GoldenPatternService
+from signals.signal_publisher import SignalPublisher
 
 # Импорты сервисов
 from signals.types import OrderflowContext, SignalContext
-from signals.golden_pattern_service import GoldenPatternService
-from signals.calibration_service import CalibrationService
-from signals.exec_filters import ExecFiltersGroup
-from signals.signal_publisher import SignalPublisher
 
 
 class UnifiedSignalPipeline:

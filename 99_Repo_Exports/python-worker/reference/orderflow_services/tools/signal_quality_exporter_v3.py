@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Signal Quality Exporter (v3)
 
@@ -10,15 +11,16 @@ Exports:
 Does NOT export reason breakdown to Prometheus (cardinality).
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import redis
 from prometheus_client import Gauge, start_http_server
+
+from utils.time_utils import get_ny_time_millis
+
 
 def _env(name: str, default: str) -> str:
     v = os.getenv(name)
@@ -28,7 +30,7 @@ def _env_int(name: str, default: str) -> int:
     try:
         return int(_env(name, default))
     except Exception:
-        return int(default)
+        return default
 
 def _as_float(v: Any) -> float:
     try:
@@ -36,7 +38,7 @@ def _as_float(v: Any) -> float:
     except Exception:
         return 0.0
 
-def _loads(s: Any) -> Dict[str, Any]:
+def _loads(s: Any) -> dict[str, Any]:
     if not s:
         return {}
     if isinstance(s, dict):
@@ -80,8 +82,8 @@ g_pe_expectancy_r_delta_24h = Gauge("policy_effectiveness_expectancy_r_delta_24h
 g_pe_precision_top5p_delta_24h = Gauge("policy_effectiveness_precision_top5p_delta_24h", "Precision@top5% delta vs OK baseline in last 24h", ["mode"])
 g_pe_ece_delta_24h = Gauge("policy_effectiveness_ece_delta_24h", "ECE delta vs OK baseline in last 24h (positive = worse calibration)", ["mode"])
 
-def _parse_kv(key: str) -> Dict[str,str]:
-    out: Dict[str,str] = {}
+def _parse_kv(key: str) -> dict[str,str]:
+    out: dict[str,str] = {}
     for part in (key or "").split("|"):
         if "=" in part:
             k,v = part.split("=",1)
@@ -174,7 +176,7 @@ def main() -> None:
                 g_pe_input_age_seconds.set(0.0)
 
             g_pe_total_n_24h.set(int(float(cfg.get("policy_effectiveness_total_n_24h") or 0)))
-            ok_present = str(cfg.get("policy_effectiveness_baseline_ok_present") or "0").lower().strip()
+            ok_present = (cfg.get("policy_effectiveness_baseline_ok_present") or "0").lower().strip()
             g_pe_baseline_ok_present.set(1.0 if ok_present in ("1", "true", "yes", "y") else 0.0)
 
             for mode in ("ok", "warn", "block", "unknown"):

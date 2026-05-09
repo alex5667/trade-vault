@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """
 conf_cal_promotion_manager_v1.py
@@ -19,16 +20,16 @@ Env Vars:
   CONF_CAL_PROMOTION_STATUS_PATH: Path to write promotion status (JSON)
 """
 
-import os
-import sys
-import json
-import time
-import logging
 import argparse
+import json
+import logging
 import math
+import os
 import shutil
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, List, Optional, Tuple
+import sys
+import time
+from datetime import UTC, datetime
+from typing import Any
 
 try:
     import psycopg2
@@ -58,7 +59,7 @@ DEFAULT_MIN_DELTA_ECE = 0.005  # Candidate must be better by this much to promot
 # ---------------------------------------------------------------------------
 # Data Fetching
 # ---------------------------------------------------------------------------
-def fetch_recent_signals(dsn: str, hours: int = 24) -> List[Dict[str, Any]]:
+def fetch_recent_signals(dsn: str, hours: int = 24) -> list[dict[str, Any]]:
     """
     Fetches signals from the last N hours.
     Returns list of dicts with:
@@ -85,7 +86,7 @@ def fetch_recent_signals(dsn: str, hours: int = 24) -> List[Dict[str, Any]]:
         AND config_json ? 'indicators'
         AND r_multiple IS NOT NULL
     """
-    
+
     signals_data = []
 
     if psycopg2 is None:
@@ -93,28 +94,27 @@ def fetch_recent_signals(dsn: str, hours: int = 24) -> List[Dict[str, Any]]:
         return []
 
     try:
-        with psycopg2.connect(dsn) as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(query, (hours,))
-                rows = cur.fetchall()
-                
+        with psycopg2.connect(dsn) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, (hours,))
+            rows = cur.fetchall()
+
         for row in rows:
             config_json = row.get('config_json') or {}
             indicators = config_json.get('indicators') or {}
-            
+
             if not indicators:
                 continue
-                
+
             raw_conf_str = indicators.get('confidence_v1') or indicators.get('confidence')
             if raw_conf_str is None:
                 continue
-            
+
             try:
                 raw_conf = float(raw_conf_str)
                 r_multiple = float(row.get('r_multiple'))
             except (ValueError, TypeError):
                 continue
-            
+
             label = 1 if r_multiple > 0 else 0
 
             # Context for bucketing
@@ -129,7 +129,7 @@ def fetch_recent_signals(dsn: str, hours: int = 24) -> List[Dict[str, Any]]:
                 "label": label,
                 "context": context
             })
-            
+
     except Exception as e:
         logger.error(f"Failed to fetch signals: {e}")
         return []
@@ -140,23 +140,23 @@ def fetch_recent_signals(dsn: str, hours: int = 24) -> List[Dict[str, Any]]:
 # Calibration Runtime (Mini-version of ConfidenceCalibratorBundleRuntime)
 # ---------------------------------------------------------------------------
 class SimpleBundleRuntime:
-    def __init__(self, bundle: Dict[str, Any]):
+    def __init__(self, bundle: dict[str, Any]):
         self.bundle = bundle
         self.meta = bundle.get("meta", {})
         self.buckets = bundle.get("buckets", {})
         self.bucket_by = self.meta.get("bucket_by", "none")
 
-    def predict(self, raw_conf: float, context: Dict[str, Any]) -> float:
+    def predict(self, raw_conf: float, context: dict[str, Any]) -> float:
         # Determine Bucket Key
         bkey = "global"
         if self.bucket_by == "session":
-            bkey = str(context.get("session", "OFF"))
+            bkey = (context.get("session", "OFF"))
         elif self.bucket_by == "regime":
-            bkey = str(context.get("regime", "neutral"))
+            bkey = (context.get("regime", "neutral"))
         elif self.bucket_by == "session_regime":
-            bkey = f"{str(context.get('session', 'OFF'))}_{str(context.get('regime', 'neutral'))}"
+            bkey = f"{(context.get('session', 'OFF'))}_{(context.get('regime', 'neutral'))}"
         elif self.bucket_by == "symbol":
-            bkey = str(context.get("symbol", "unknown"))
+            bkey = (context.get("symbol", "unknown"))
 
         # Find Calibrator
         cal_cfg = self.buckets.get(bkey)
@@ -168,9 +168,9 @@ class SimpleBundleRuntime:
         # Apply Method
         method = cal_cfg.get("method", "identity")
         params = cal_cfg.get("params", {})
-        
+
         val = raw_conf
-        
+
         if method == "platt":
             a = float(params.get("a", 1.0))
             b = float(params.get("b", 0.0))
@@ -203,7 +203,7 @@ class SimpleBundleRuntime:
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
-def compute_metrics(y_true: List[int], y_prob: List[float]) -> Dict[str, float]:
+def compute_metrics(y_true: list[int], y_prob: list[float]) -> dict[str, float]:
     if not y_true:
         return {
             "ece": 1.0,
@@ -245,20 +245,20 @@ def _as_str(x: Any) -> str:
     s = str(x).strip()
     return s if s else "na"
 
-def _cohort_key(ctx: Dict[str, Any]) -> str:
+def _cohort_key(ctx: dict[str, Any]) -> str:
     sym = _as_str(ctx.get("symbol") or ctx.get("sym") or ctx.get("ticker") or "na").upper()
     session = _as_str(ctx.get("session_bucket") or ctx.get("session") or ctx.get("sess") or "na")
     regime = _as_str(ctx.get("regime_bucket") or ctx.get("regime") or "na")
     return f"{sym}|{session}|{regime}"
 
 def compute_cohort_deltas(
-    data: List[Dict[str, Any]],
+    data: list[dict[str, Any]],
     *,
-    champ_probs: List[float],
-    cand_probs: List[float],
+    champ_probs: list[float],
+    cand_probs: list[float],
     min_n_cohort: int,
     top_k: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Matched-cohort evaluation (world practice).
 
     Candidate vs champion on the *same* labeled samples; then aggregate deltas
@@ -268,7 +268,7 @@ def compute_cohort_deltas(
     if n <= 0:
         return {"items": [], "agg": {"cohort_n": 0, "n": 0}, "worst": {}}
 
-    groups: Dict[str, List[int]] = {}
+    groups: dict[str, list[int]] = {}
     for i in range(n):
         ctx = data[i].get("context") or {}
         if not isinstance(ctx, dict):
@@ -276,7 +276,7 @@ def compute_cohort_deltas(
         k = _cohort_key(ctx)
         groups.setdefault(k, []).append(i)
 
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     w_sum = 0.0
     w_ece = 0.0
     w_brier = 0.0
@@ -323,7 +323,7 @@ def compute_cohort_deltas(
     if top_k > 0 and len(items) > int(top_k):
         items = items[: int(top_k)]
 
-    agg: Dict[str, Any] = {
+    agg: dict[str, Any] = {
         "cohort_n": sum(1 for r in items if int(r.get("n", 0)) >= int(min_n_cohort)),
         "n": n,
         "min_n_cohort": int(min_n_cohort),
@@ -332,7 +332,7 @@ def compute_cohort_deltas(
         agg["delta_ece_cal_wmean"] = float(w_ece / w_sum)
         agg["delta_brier_cal_wmean"] = float(w_brier / w_sum)
 
-    worst: Dict[str, Any] = {}
+    worst: dict[str, Any] = {}
     if worst_key is not None:
         worst = {
             "key": str(worst_key),
@@ -363,14 +363,14 @@ def main():
     if not dsn:
         logger.error("Missing SIGNALS_PG_DSN/PG_DSN env var")
         sys.exit(1)
-        
+
     if not cand_path or not os.path.exists(cand_path):
         logger.error(f"Candidate bundle not found: {cand_path}")
         sys.exit(1)
 
     # 1. Load Bundles
     try:
-        with open(cand_path, "r") as f:
+        with open(cand_path) as f:
             cand_bundle = json.load(f)
     except Exception as e:
         logger.error(f"Error loading candidate bundle: {e}")
@@ -379,7 +379,7 @@ def main():
     champ_bundle = None
     if champ_path and os.path.exists(champ_path):
         try:
-            with open(champ_path, "r") as f:
+            with open(champ_path) as f:
                 champ_bundle = json.load(f)
         except Exception as e:
             logger.warning(f"Error loading champion bundle (will treat as missing): {e}")
@@ -397,9 +397,9 @@ def main():
     cand_rt = SimpleBundleRuntime(cand_bundle)
     cand_probs = [cand_rt.predict(d["raw_conf"], d["context"]) for d in data]
     labels = [d["label"] for d in data]
-    
+
     cand_metrics = compute_metrics(labels, cand_probs)
-    
+
     # 4. Evaluate Champion (if exists)
     champ_metrics = None
     if champ_bundle:
@@ -461,7 +461,7 @@ def main():
         reasons.append(f"prob_mass_near_half={cand_metrics['prob_mass_near_half']:.4f} > {thresholds['max_prob_mass_near_half']}")
 
     degrade_review = False
-    degrade_review_reasons: List[str] = []
+    degrade_review_reasons: list[str] = []
 
     # Promotion Decision
     should_promote = False
@@ -511,7 +511,7 @@ def main():
             if os.path.exists(champ_path):
                 backup = champ_path + f".bak.{int(time.time())}"
                 shutil.copy2(champ_path, backup)
-            
+
             # Copy candidate to champion
             shutil.copy2(cand_path, champ_path)
             promoted = True
@@ -590,7 +590,7 @@ def main():
 
     proof_data = {
         "ts_ms": now_ms,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "degrade": 0 if proof_valid else 1,
         "degrade_review": bool(degrade_review),
         "degrade_review_reasons": list(degrade_review_reasons),

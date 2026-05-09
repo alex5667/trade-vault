@@ -1,11 +1,10 @@
-from utils.time_utils import get_ny_time_millis
-import os
-import time
 import types
+
 import pytest
 
 # Подстройте импорт под ваш реальный путь:
 from services.signal_dispatcher import SignalDispatcher
+from utils.time_utils import get_ny_time_millis
 
 
 @pytest.fixture()
@@ -51,7 +50,7 @@ def dispatcher(r, monkeypatch):
 
     # notify flatten
     if not hasattr(d, "_flatten_notify_fields"):
-        monkeypatch.setattr(d, "_flatten_notify_fields", lambda payload: ["sid", str(payload.get("sid",""))], raising=False)
+        monkeypatch.setattr(d, "_flatten_notify_fields", lambda payload: ["sid", (payload.get("sid",""))], raising=False)
 
     # retries/dlq — только логируем вызовы
     d._scheduled = []

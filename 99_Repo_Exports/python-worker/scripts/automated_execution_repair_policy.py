@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Automated repair/quarantine policy for execution mirrors.
 
@@ -17,9 +19,8 @@ import argparse
 import json
 import os
 import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -38,7 +39,7 @@ except Exception:
         QuarantineLedgerSink = None  # type: ignore
 
 
-def run_policy(*, redis_url: str, journal_dsn: str, state_prefix: str, exec_stream: str, stream_count: int, max_auto_repair_critical: int, quarantine_min_severity: str, dry_run: bool = False, ledger_dsn: str = '') -> Dict[str, Any]:
+def run_policy(*, redis_url: str, journal_dsn: str, state_prefix: str, exec_stream: str, stream_count: int, max_auto_repair_critical: int, quarantine_min_severity: str, dry_run: bool = False, ledger_dsn: str = '') -> dict[str, Any]:
     started_at_ms = get_ny_time_millis()
     before = consistency.run_check(redis_url=redis_url, journal_dsn=journal_dsn, state_prefix=state_prefix, exec_stream=exec_stream, stream_count=stream_count)
     repaired = None
@@ -55,7 +56,7 @@ def run_policy(*, redis_url: str, journal_dsn: str, state_prefix: str, exec_stre
     after = consistency.run_check(redis_url=redis_url, journal_dsn=journal_dsn, state_prefix=state_prefix, exec_stream=exec_stream, stream_count=stream_count)
     mismatches = [consistency.ConsistencyMismatch(**m) for m in after.mismatches]
     targets = quarantine_mod.build_quarantine_targets(mismatches, severity=quarantine_min_severity)
-    quarantine_results: List[Dict[str, Any]] = []
+    quarantine_results: list[dict[str, Any]] = []
     if targets:
         import redis  # type: ignore
         r = redis.from_url(redis_url, decode_responses=True)
@@ -91,13 +92,13 @@ def run_policy(*, redis_url: str, journal_dsn: str, state_prefix: str, exec_stre
     return summary
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Run automated repair/quarantine policy for execution mirrors.')
     parser.add_argument('--redis-url', default=os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
     parser.add_argument('--journal-dsn', default=os.getenv('EXECUTION_JOURNAL_DSN', ''))
     parser.add_argument('--ledger-dsn', default=os.getenv('EXECUTION_QUARANTINE_LEDGER_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')))
     parser.add_argument('--state-prefix', default=os.getenv('ORDERS_STATE_KEY_PREFIX', 'orders:state:'))
-    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', 'orders:exec'))
+    parser.add_argument('--exec-stream', default=os.getenv('EXEC_STREAM', RS.ORDERS_EXEC))
     parser.add_argument('--stream-count', type=int, default=int(os.getenv('EXEC_CONSISTENCY_STREAM_COUNT', '20000')))
     parser.add_argument('--max-auto-repair-critical', type=int, default=int(os.getenv('EXEC_AUTO_REPAIR_MAX_CRITICAL', '25')))
     parser.add_argument('--quarantine-min-severity', default=os.getenv('EXEC_QUARANTINE_MIN_SEVERITY', 'critical'))

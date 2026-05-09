@@ -1,47 +1,31 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
+import json
+import logging
+import math
 import os
 import time
-import math
-import uuid
-import json
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
 from enum import Enum
-import logging
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger(__name__)
 
 # --- Common Infrastructure ---
-from common.runtime_snapshot import RuntimeSnapshot
-from common.safe_numbers import safe_float
-from common.math_safe import clamp01
-from common.dq_flags import append_dq_flag as _append_dq_flag
-from common.cost_edge_adapter import decision_to_legacy_tuple
-
-# --- Services ---
-from services.ev_tp1_stats import get_tp1_hit_prob
-
-# --- Handler Components ---
-from handlers.base_orderflow_handler import BaseOrderFlowHandler, ensure_levels
-
-
-
-# Additional typing imports
-from typing import Callable
-from common.cost_edge_codes import cost_edge_reason_codes as _cost_edge_reason_codes
-# decision_to_legacy_tuple already imported above
-from common.decision_trace import ensure_trace, trace_gate, serialize_trace_from_ctx, trace_enabled
-from common.gate_cache import cached_call_exc
-from common.risk_cfg_cache import resolve_risk_cfg_cached
-
 # NOTE: diagnostics stream (НЕ outbox). Никаких tradeable действий отсюда.
-
 # Additional handler imports
 import hashlib
-from typing import Tuple
-from collections import deque, defaultdict
+from collections import deque
+
+# Additional typing imports
+# decision_to_legacy_tuple already imported above
+from common.decision_trace import serialize_trace_from_ctx, trace_enabled
+from common.risk_cfg_cache import resolve_risk_cfg_cached
+
+# --- Services ---
+# --- Handler Components ---
+from handlers.base_orderflow_handler import BaseOrderFlowHandler, ensure_levels
 
 _CDBG_LAST: dict[str, float] = {}
 
@@ -71,105 +55,37 @@ def finite_or(x: Any, default: float) -> float:
     """
     try:
         if isinstance(x, (int, float)):
-            return float(x) if math.isfinite(float(x)) else float(default)
+            return float(x) if math.isfinite(float(x)) else default
         # allow numeric strings
         f = float(x)
-        return float(f) if math.isfinite(f) else float(default)
+        return float(f) if math.isfinite(f) else default
     except Exception:
-        return float(default)
+        return default
 
 
 
 # --- Core / Common ---
-from core.confidence_utils import normalize_confidence_pct
-from core.dependency_policy import dependency_decision_for_kind
-from core.instrument_config import SymbolSpecs, OrderFlowConfig, get_specs, get_config
-from core.unified_signal_formatter import Signal
-from core.htf_levels import RedisHTFLevelsProvider
-from core.signal_context import SignalContext
-
 from common.deque_utils import ensure_bounded_deque
-from common.veto_reason_reporter import VetoTopNReporter
-from common.u16_pack import pack_u16_list
-from common.log_sampling import TimeSampler
-from common.math_safe import safe_float, clamp01, clamp, finite_or
 from common.json_fast import dumps1
-from common.qf_codes import pack_qf_u16
-
-# --- Handlers / Mixins / Components ---
-from handlers.pipeline.pipeline import SignalPipeline
-from handlers.pipeline.candidate import Candidate as CandidateHandler
-from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
-from handlers.crypto_orderflow.utils.entry_policy_gate import write_entry_policy_diag
-from handlers.crypto_orderflow.utils.log_sampler import LogSamplerFactory, sampled_info, sampled_warning
-from handlers.detector.detector import Detector
-from handlers.emitter.unified_signal_emitter import UnifiedSignalEmitter
-from handlers.emitter.label_schema import sys_labels
-from handlers.confidence_pct_provider import build_confidence_pct_fn
-from handlers.scoring.score_model import ScoreModel as ScoreModelHandler
-
-from handlers.crypto_orderflow.logging.logging_utils import (
-    _safe_float,
-    _ctx_quality_flags,
-    log_signal_one_json_unified,
-    log_signal_one_json as log_signal_one_json_local,
-    _log_veto_one_json
-)
-from handlers.crypto_orderflow.config.runtime_config import _RuntimeCfg
-from handlers.crypto_orderflow.mixins.crypto_orderflow_init import CryptoOrderFlowInitMixin
-from handlers.crypto_orderflow.mixins.crypto_orderflow_l2_staleness import CryptoOrderFlowL2StalenessMixin
+from common.math_safe import finite_or
+from core.instrument_config import SymbolSpecs, get_specs
 from handlers.crypto_orderflow.mixins.crypto_orderflow_generate import CryptoOrderFlowGenerateMixin
 from handlers.crypto_orderflow.mixins.crypto_orderflow_geometry import CryptoOrderFlowGeometryMixin
+from handlers.crypto_orderflow.mixins.crypto_orderflow_init import CryptoOrderFlowInitMixin
+from handlers.crypto_orderflow.mixins.crypto_orderflow_l2_staleness import CryptoOrderFlowL2StalenessMixin
 
 # --- Models & Types ---
-from handlers.crypto_orderflow.models.data_models import (
-    RegimeConfig, RegimeSample, RegimeFeatures, HTFLevels,
-    GeometryConfig, LiquidityConfig, ConfScoreConfig, SignalTypeConf, GoldenThresholds
-)
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import (
-    HTFLevel, GeoZoneHit, LiquidityContext, BarSample, L2Snapshot,
-    L2Level, ClusterVol, ZoneType
-)
-from handlers.crypto_orderflow.types.crypto_orderflow_pipeline_types import (
-    SignalKind, Candidate as CandidatePipeline, QualityState
-)
+from handlers.crypto_orderflow.types.crypto_orderflow_pipeline_types import Candidate as CandidatePipeline
 
+# --- Handlers / Mixins / Components ---
 # --- Utils & Gates ---
-from handlers.crypto_orderflow.utils.helpers import (
-    _to_str, _f, _b, _depth_sum, _is_trade_tick, _parse_bool
-)
-from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
-from handlers.crypto_orderflow.utils.risk_cfg_resolver import RiskCfgResolver
-from handlers.crypto_orderflow.utils.pre_publish_gates import (
-    HardDataQualityGate, RegimeSessionGate, ConsistencyGate
-)
-from handlers.crypto_orderflow.utils.smt_coherence_gate import GateDecision as SmtGateDecision
-from handlers.crypto_orderflow.utils.quality_gates import (
-    DataQualityGateDecision, QualityGateDecision
-)
-from handlers.crypto_orderflow.utils.trail_conditional import apply_trailing_policy_to_payload
-from services.ev_tp1_stats import (
-    attach_tp1_hit_prob_to_ctx,
-    extract_regime_label_from_ctx,
-    EvTp1StatsConfig,
-    get_tp1_hit_prob,
-)
-from signals.ev_gate import EvGateConfig, evaluate_ev_gate, estimate_costs_bps
-from signals.empirical_levels_dyn import EmpiricalLevelsConfig, RedisEmpiricalLevelsProvider, apply_empirical_levels_to_ctx
+from orderflow.candidates import ScoredCandidate
+from signal_scoring.reason_registry import normalize_reason, reason_code_to_u16
 
 # --- Signal Logic ---
 from signals.level_enricher import attach_trade_levels_to_ctx
-from signal_scoring.reason_registry import normalize_reason, reason_code_to_u16
-from signal_scoring.wire_u16 import pack_u16
-from orderflow.candidates import ScoredCandidate
-from .base_orderflow_handler import BaseOrderFlowHandler, Tick, PublishResult, SimpleL2Snapshot
 
-
-
-
-
-
-
+from .base_orderflow_handler import BaseOrderFlowHandler
 
 
 class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2StalenessMixin, CryptoOrderFlowGenerateMixin, CryptoOrderFlowGeometryMixin, BaseOrderFlowHandler):
@@ -238,7 +154,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         try:
             return int(v)
         except Exception:
-            return int(default)
+            return default
 
     @staticmethod
     def _safe_reason_u16(code: Any, *, default: int) -> int:
@@ -255,13 +171,13 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         """
         rc = normalize_reason(CryptoOrderFlowHandler._safe_str(code) or "")
         if not rc:
-            return int(default)
+            return default
         try:
             u = reason_code_to_u16(rc, strict=False)
             u16 = CryptoOrderFlowHandler._safe_int(u, default=0)
         except Exception:
             u16 = 0
-        return u16 if u16 > 0 else int(default)
+        return u16 if u16 > 0 else default
 
     # ------------------------------------------------------------
     # Compute-once wrappers ("ещё выше")
@@ -284,7 +200,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             if isinstance(c, dict):
                 return c
             c = {}
-            setattr(ctx, "_gate_cache", c)
+            ctx._gate_cache = c
             return c
         except Exception:
             return None
@@ -307,19 +223,19 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         try:
             fn = getattr(self, "resolve_risk_cfg", None)
             if callable(fn):
-                cfg = fn(symbol=str(symbol), ctx=ctx, cand=cand)
+                cfg = fn(symbol=symbol, ctx=ctx, cand=cand)
             else:
                 # fallback to your existing resolver (seen in snippets)
                 r = getattr(self, "_risk_cfg", None)
                 if r is not None and callable(getattr(r, "resolve", None)):
-                    cfg = r.resolve(str(symbol))
+                    cfg = r.resolve(symbol)
                 else:
                     cfg = None
         except Exception:
             cfg = None
 
         try:
-            setattr(ctx, "risk_cfg", cfg)
+            ctx.risk_cfg = cfg
         except Exception:
             pass  # cache set failed
         return cfg
@@ -336,20 +252,20 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             if not isinstance(cache, dict):
                 cache = {}
                 try:
-                    setattr(self, "_risk_cfg_cache", cache)
+                    self._risk_cfg_cache = cache
                 except Exception:
                     pass  # cache set failed
             cache_ts = getattr(self, "_risk_cfg_cache_ts", None)
             if not isinstance(cache_ts, dict):
                 cache_ts = {}
                 try:
-                    setattr(self, "_risk_cfg_cache_ts", cache_ts)
+                    self._risk_cfg_cache_ts = cache_ts
                 except Exception:
                     cache_ts = None
             ttl = float(getattr(self, "_risk_cfg_cache_ttl_sec", 0.0) or 0.0)
             cfg = resolve_risk_cfg_cached(
                 resolver=getattr(self, "_risk_cfg", None),
-                symbol=str(symbol),
+                symbol=symbol,
                 cache=cache,
                 cache_ts=cache_ts if isinstance(cache_ts, dict) else None,
                 ttl_sec=ttl,
@@ -381,12 +297,12 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         try:
             fn = getattr(self, "resolve_risk_cfg", None)
             if callable(fn):
-                cfg = fn(symbol=str(symbol), ctx=ctx, cand=cand)
+                cfg = fn(symbol=symbol, ctx=ctx, cand=cand)
         except Exception:
             cfg = None
 
         if not isinstance(cfg, dict):
-            cfg = self._resolve_risk_cfg_cached(str(symbol))
+            cfg = self._resolve_risk_cfg_cached(symbol)
 
         try:
             cfgd = dict(cfg or {})
@@ -394,7 +310,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             cfgd = {}
 
         try:
-            setattr(ctx, "risk_cfg", cfgd)
+            ctx.risk_cfg = cfgd
         except Exception:
             pass  # ctx set failed
 
@@ -406,14 +322,13 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         Calls ensure_levels at most once per (side_int) for this ctx.
         Returns True if we attempted to ensure.
         """
-        from handlers.base_orderflow_handler import ensure_levels  # или ваш реальный импорт
 
         # normalize side to int if possible (so cache key is stable)
         side_key = None
         try:
             side_key = int(side)
         except Exception:
-            side_key = str(side)
+            side_key = side
 
         ckey = ("ensure_levels", side_key)
 
@@ -438,16 +353,15 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         empirical: Any = None,
         logger: Any = None,
     ) -> bool:
-        from signals.level_enricher import attach_trade_levels_to_ctx
 
-        ckey = ("attach_levels", str(symbol).upper(), str(kind).lower(), str(side).upper())
+        ckey = ("attach_levels", symbol.upper(), str(kind).lower(), side.upper())
 
         def _do() -> bool:
             try:
                 attach_trade_levels_to_ctx(
                     ctx,
-                    side=str(side),
-                    symbol=str(symbol),
+                    side=side,
+                    symbol=symbol,
                     cfg=dict(cfg),
                     kind=str(kind),
                     regime=regime,
@@ -561,7 +475,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         ts = int(payload.get("ts", 0) or 0)
         bucket_ms = int(os.getenv("OUTBOX_SEM_DEDUP_BUCKET_MS", "1000") or 1000)
         ts_bucket = (ts // max(bucket_ms, 1)) * max(bucket_ms, 1)
-        lvl = payload.get("level_price", None)
+        lvl = payload.get("level_price")
         try:
             lvl_f = float(lvl) if lvl is not None else 0.0
         except Exception:
@@ -569,11 +483,11 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         lvl_dec = int(os.getenv("OUTBOX_SEM_DEDUP_LEVEL_DECIMALS", "8") or 8)
         lvl_r = round(lvl_f, max(0, lvl_dec))
 
-        sym = str(payload.get("symbol", "") or "")
-        kind = str(payload.get("kind", "") or "")
-        side = str(payload.get("side", "") or "")
+        sym = (payload.get("symbol", "") or "")
+        kind = (payload.get("kind", "") or "")
+        side = (payload.get("side", "") or "")
         venue = str(payload.get("venue", "") or payload.get("exchange", "") or "")
-        tf = str(payload.get("timeframe", "") or "")
+        tf = (payload.get("timeframe", "") or "")
         base = f"{sym}|{kind}|{side}|{ts_bucket}|{lvl_r}|{venue}|{tf}"
         return hashlib.sha1(base.encode("utf-8")).hexdigest()
 
@@ -632,7 +546,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
         """
         # Form basic candidate object
         cand = CandidatePipeline(
-            kind=str(signal_kind or "custom"),
+            kind=(signal_kind or "custom"),
             side=side,
             raw_score=float(raw_score),
             level_price=None, # will be attached by orchestrator logic if needed
@@ -640,7 +554,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             reasons=[],
             meta=kwargs
         )
-        
+
         # Delegate to orchestrator
         # detect_fn wraps the single candidate payload we received
         self._orchestrator.process(
@@ -674,7 +588,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
     def _update_regime_history(self, ctx: Any) -> None:
         self._regime_detector.update_history(ctx)
 
-    def _maybe_log_candidate(self, *, ctx: Any, cand: Any, parts: dict[str, Any], now_ms: Optional[int] = None) -> None:
+    def _maybe_log_candidate(self, *, ctx: Any, cand: Any, parts: dict[str, Any], now_ms: int | None = None) -> None:
         """
         Систематическое логирование кандидатов:
           - сэмплирование по времени (каждые N мс)
@@ -731,15 +645,15 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             payload = {
                 "type": "diagnostic",
                 "tradeable": False,
-                "reason": str(reason or ""),
+                "reason": (reason or ""),
                 "trace_id": str(getattr(ctx, "trace_id", "") or tr.get("trace_id") or ""),
                 "sid": str(tr.get("sid") or getattr(ctx, "sid", "") or ""),
                 "symbol": str(tr.get("symbol") or getattr(ctx, "symbol", "") or ""),
-                "kind": str(tr.get("kind") or ""),
+                "kind": (tr.get("kind") or ""),
                 "trace": tr,
                 "ts_ms": get_ny_time_millis(),
             }
-            stream = str(os.getenv("DECISION_TRACE_DIAG_STREAM") or "stream:signals:diagnostics")
+            stream = (os.getenv("DECISION_TRACE_DIAG_STREAM") or "stream:signals:diagnostics")
             redis_client.xadd(stream, {"data": json.dumps(payload, ensure_ascii=False)}, maxlen=50000, approximate=True)
         except Exception:
             logger.debug("publish_trace_diag failed", exc_info=True)
@@ -758,7 +672,7 @@ class CryptoOrderFlowHandler(CryptoOrderFlowInitMixin, CryptoOrderFlowL2Stalenes
             sym = str(getattr(ctx, "symbol", "") or "")
             rc = normalize_reason(reason_code or "VETO_UNKNOWN")
             # Ожидаемый контракт sink: inc(name, value=1, tags={...})
-            m.inc("signals_veto_total", 1, tags={"reason": rc, "kind": str(kind or ""), "symbol": sym})
+            m.inc("signals_veto_total", 1, tags={"reason": rc, "kind": (kind or ""), "symbol": sym})
         except Exception:
             # fail-open: метрики никогда не ломают торговый пайплайн
             logger.debug("emit_veto_metric failed", exc_info=True)

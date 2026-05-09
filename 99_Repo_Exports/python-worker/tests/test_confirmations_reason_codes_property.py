@@ -1,9 +1,9 @@
-import math
 import types
+
 import pytest
 
-from signal_scoring.reason_codes import ReasonCode
 from handlers.confirmations.engine import ConfirmationsEngine
+from signal_scoring.reason_codes import ReasonCode
 
 
 def _mk_ctx(**kw):

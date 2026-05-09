@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import tools.export_of_inputs_ndjson_v2 as ex
+from core.redis_keys import RedisStreams as RS
 
 
 class _FakeRedis:
@@ -23,7 +24,7 @@ def test_iter_stream_payloads_reads_payload_bytes(tmp_path: Path):
         (b"2-0", {b"payload": b'{"v":1,"symbol":"BTCUSDT","ts_ms":2}'}),
     ]
     r = _FakeRedis([rows, []])
-    out = list(ex.iter_stream_payloads(r=r, stream="signals:of:inputs", field="payload", start_id="0-0", end_id="+", batch=100))
+    out = list(ex.iter_stream_payloads(r=r, stream=RS.OF_INPUTS, field="payload", start_id="0-0", end_id="+", batch=100))
     assert out[0][0] == "1-0"
     assert '"symbol":"BTCUSDT"' in out[0][1]
 
@@ -47,7 +48,7 @@ def test_export_of_inputs_resume_writes_state(tmp_path: Path, monkeypatch):
     state = tmp_path / "x.state"
     st = ex.export_of_inputs(
         redis_url="redis://x",
-        stream="signals:of:inputs",
+        stream=RS.OF_INPUTS,
         field="payload",
         out_path=out,
         state_file=state,

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 test_trade_monitor_single_active_guard_v1.py
 
@@ -22,10 +23,7 @@ Scenarios:
 """
 
 import json
-import os
-import sys
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # We need to import _tm_check_single_active_guard from trade_monitor.
@@ -37,11 +35,11 @@ from typing import Any, Dict, Optional
 class _FakeRedis:
     """Minimal fake Redis supporting get()."""
 
-    def __init__(self, kv: Optional[Dict[str, str]] = None):
-        self._kv: Dict[str, str] = dict(kv or {})
+    def __init__(self, kv: dict[str, str] | None = None):
+        self._kv: dict[str, str] = dict(kv or {})
         self._raise_on_get: bool = False
 
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         if self._raise_on_get:
             raise ConnectionError("redis is down")
         return self._kv.get(key)
@@ -53,7 +51,7 @@ class _FakeSig:
     def __init__(self, symbol: str = "BTCUSDT", sid: str = "sid-new"):
         self.symbol = symbol
         self.sid = sid
-        self.payload: Dict[str, Any] = {}
+        self.payload: dict[str, Any] = {}
 
 
 class _GuardHolder:
@@ -103,10 +101,10 @@ class _GuardHolder:
             if not isinstance(doc, dict):
                 return False
             # Skip released / tombstoned guards
-            guard_status = str(doc.get("guard_status") or "active").lower()
+            guard_status = (doc.get("guard_status") or "active").lower()
             if guard_status in ("released", "tombstone"):
                 return False
-            blocked_sid = str(doc.get("sid") or "").strip()
+            blocked_sid = (doc.get("sid") or "").strip()
             if not blocked_sid:
                 return False
             # Don't double-block the same sid (idempotent reprocessing)
@@ -246,9 +244,9 @@ class _InMemoryGuardHolder:
       - open_by_symbol : Dict[str, Set[str]]
     """
 
-    def __init__(self, *, guard_on: bool = True, open_by_symbol: Optional[Dict[str, set]] = None):
+    def __init__(self, *, guard_on: bool = True, open_by_symbol: dict[str, set] | None = None):
         self.exec_single_active_position_per_symbol = guard_on
-        self.open_by_symbol: Dict[str, set] = dict(open_by_symbol or {})
+        self.open_by_symbol: dict[str, set] = dict(open_by_symbol or {})
 
     def check_in_memory_guard(self, sig: _FakeSig) -> bool:
         """

@@ -1,13 +1,13 @@
-from utils.time_utils import get_ny_time_millis
 import os
-import time
-import redis
 
-import pytest
-from hypothesis import settings, HealthCheck, strategies as st
-from hypothesis.stateful import RuleBasedStateMachine, rule, initialize
+import redis
+from hypothesis import HealthCheck, settings
+from hypothesis import strategies as st
+from hypothesis.stateful import RuleBasedStateMachine, initialize, rule
 
 from stream_consumer_impl import StreamConsumer
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _redis_client():
@@ -31,10 +31,8 @@ class CountingHandler:
 
 
 def _ensure_group(r, stream, group):
-    try:
+    with contextlib.suppress(Exception):
         r.xgroup_create(stream, group, id="0-0", mkstream=True)
-    except Exception:
-        pass
 
 
 def _mk_consumer(r, handler, *, group="g", name=None):

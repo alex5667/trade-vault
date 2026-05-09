@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Set, Tuple, Literal
+from typing import Any
 
 # =============================================================================
 # Quality gates for CryptoOrderFlow
@@ -35,7 +35,7 @@ def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 def _env_str(name: str, default: str = "") -> str:
@@ -48,8 +48,8 @@ def _env_str(name: str, default: str = "") -> str:
     return default if v is None else str(v)
 
 
-def _parse_csv_set(v: str) -> Set[str]:
-    out: Set[str] = set()
+def _parse_csv_set(v: str) -> set[str]:
+    out: set[str] = set()
     for x in (v or "").split(","):
         s = x.strip().lower()
         if s:
@@ -80,7 +80,7 @@ def _env_str(name: str, default: str = "") -> str:
     return (os.getenv(name, default) or "").strip()
 
 
-def _safe_int(x: Any) -> Optional[int]:
+def _safe_int(x: Any) -> int | None:
     try:
         i = int(x)
         return i
@@ -88,7 +88,7 @@ def _safe_int(x: Any) -> Optional[int]:
         return None
 
 
-def _get_flags(ctx: Any) -> Set[str]:
+def _get_flags(ctx: Any) -> set[str]:
     """
     Normalize ctx.data_quality_flags -> set[str] lowercase.
     This list is already used in your crypto pipeline (e.g. 'missing_htf', 'l3_missing', 'stale_l2').
@@ -96,7 +96,7 @@ def _get_flags(ctx: Any) -> Set[str]:
     flags = getattr(ctx, "data_quality_flags", None)
     if not isinstance(flags, list):
         return set()
-    out: Set[str] = set()
+    out: set[str] = set()
     for x in flags:
         try:
             s = str(x).strip().lower()
@@ -107,7 +107,7 @@ def _get_flags(ctx: Any) -> Set[str]:
     return out
 
 
-def _flags_intersect(flags: Set[str], veto: Set[str]) -> Set[str]:
+def _flags_intersect(flags: set[str], veto: set[str]) -> set[str]:
     if not flags or not veto:
         return set()
     return set(flags.intersection(veto))
@@ -125,7 +125,7 @@ def _sym_base(symbol: str) -> str:
     return s
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         f = float(x)
         return f if math.isfinite(f) else None
@@ -133,7 +133,7 @@ def _safe_float(x: Any) -> Optional[float]:
         return None
 
 
-def _get_attr_any(obj: Any, names: Tuple[str, ...]) -> Any:
+def _get_attr_any(obj: Any, names: tuple[str, ...]) -> Any:
     """Try multiple attribute names (compat across refactors)."""
     for n in names:
         try:
@@ -144,7 +144,7 @@ def _get_attr_any(obj: Any, names: Tuple[str, ...]) -> Any:
     return None
 
 
-def _get_metric(ctx: Any, names: Tuple[str, ...], *, allow_of: bool = True) -> Any:
+def _get_metric(ctx: Any, names: tuple[str, ...], *, allow_of: bool = True) -> Any:
     """
     Read metric from ctx or ctx.of (raw orderflow), trying several names.
     """
@@ -203,10 +203,10 @@ def _pick_float(
     for name in keys:
         if os.getenv(name) is not None:
             return _env_float(name, default)
-    return float(default)
+    return default
 
 
-def _pick_allow_set(prefix: str, *, kind: str) -> Set[str]:
+def _pick_allow_set(prefix: str, *, kind: str) -> set[str]:
     """
     Parse allow-lists like:
       QUALITY_ALLOW_REGIMES__BREAKOUT=trending_bull,trending_bear,expansion
@@ -233,7 +233,7 @@ class DataQualityGateDecision:
     veto: bool
     reason_code: str
     notes: str = ""
-    updated_last_ts_ms: Optional[int] = None
+    updated_last_ts_ms: int | None = None
 
 
 # =============================================================================
@@ -249,12 +249,12 @@ class DataQualityGate:
     quarantine_veto: bool
     atr_stale_max_ms: int
     strict_missing_atr_ts: bool
-    veto_on_quality_flags: Set[str]
+    veto_on_quality_flags: set[str]
     touch_stale_veto: bool
-    touch_stale_apply_kinds: Set[str]
+    touch_stale_apply_kinds: set[str]
 
     @classmethod
-    def from_env(cls) -> "DataQualityGate":
+    def from_env(cls) -> DataQualityGate:
         return cls(
             enabled=_env_bool("DATA_QUALITY_GATE_ENABLED", True),
             require_epoch_ts=_env_bool("DATA_REQUIRE_EPOCH_TS", True),
@@ -280,7 +280,7 @@ class DataQualityGate:
         symbol: str,
         kind: str,
         now_ms: int,
-        last_ts_ms: Optional[int],
+        last_ts_ms: int | None,
     ) -> DataQualityGateDecision:
         if not self.enabled:
             return DataQualityGateDecision(apply=False, veto=False, reason_code="OK", updated_last_ts_ms=last_ts_ms)
@@ -424,15 +424,15 @@ class DataQualityGate:
 @dataclass
 class RegimeGate:
     enabled: bool
-    apply_kinds: Set[str]
-    deny_breakout_regimes: Set[str]
-    deny_absorption_regimes: Set[str]
-    deny_extreme_regimes: Set[str]
-    deny_obi_spike_regimes: Set[str]
+    apply_kinds: set[str]
+    deny_breakout_regimes: set[str]
+    deny_absorption_regimes: set[str]
+    deny_extreme_regimes: set[str]
+    deny_obi_spike_regimes: set[str]
     require_regime_present: bool
 
     @classmethod
-    def from_env(cls) -> "RegimeGate":
+    def from_env(cls) -> RegimeGate:
         return cls(
             enabled=_env_bool("REGIME_GATE_ENABLED", True),
             apply_kinds=_parse_csv_set(_env_str("REGIME_APPLY_KINDS", "breakout,absorption,extreme,obi_spike")),
@@ -488,7 +488,7 @@ class RegimeGate:
 @dataclass
 class LiquidityGate:
     enabled: bool
-    apply_kinds: Set[str]
+    apply_kinds: set[str]
     # Spread
     max_spread_bps_default: float
     # Depth
@@ -497,7 +497,7 @@ class LiquidityGate:
     max_burst_flip_ratio_default: float
 
     @classmethod
-    def from_env(cls) -> "LiquidityGate":
+    def from_env(cls) -> LiquidityGate:
         return cls(
             enabled=_env_bool("LIQ_GATE_ENABLED", True),
             apply_kinds=_parse_csv_set(_env_str("LIQ_APPLY_KINDS", "breakout,absorption,extreme,obi_spike")),
@@ -560,10 +560,10 @@ class LiquidityGate:
 class RegimeSessionLiquidityGate:
     enabled: bool
     strict_missing_metrics: bool
-    apply_kinds: Set[str]
+    apply_kinds: set[str]
 
     @classmethod
-    def from_env(cls) -> "RegimeSessionLiquidityGate":
+    def from_env(cls) -> RegimeSessionLiquidityGate:
         return cls(
             enabled=_env_bool("QUALITY_GATE_ENABLED", True),
             strict_missing_metrics=_env_bool("QUALITY_STRICT_MISSING_METRICS", False),
@@ -689,7 +689,7 @@ class RegimeSessionLiquidityGate:
 class SignalConsistencyGate:
     enabled: bool
     strict_missing_metrics: bool
-    apply_kinds: Set[str]
+    apply_kinds: set[str]
 
     # breakout rules
     breakout_min_z: float
@@ -723,7 +723,7 @@ class SignalConsistencyGate:
     extreme_max_cancel_to_trade: float
 
     @classmethod
-    def from_env(cls) -> "SignalConsistencyGate":
+    def from_env(cls) -> SignalConsistencyGate:
         enabled = _env_bool("CONSISTENCY_GATE_ENABLED", True)
         strict_missing = _env_bool("CONSISTENCY_STRICT_MISSING_METRICS", False)
         apply_kinds = _parse_csv_set(_env_str("CONSISTENCY_APPLY_KINDS", ""))  # empty => all
@@ -765,7 +765,7 @@ class SignalConsistencyGate:
             extreme_max_cancel_to_trade=extreme_max_cancel_to_trade,
         )
 
-    def _touch_pick(self, ctx: Any, *, kind_l: str, side: str) -> Tuple[Optional[bool], str, Optional[float], Optional[float]]:
+    def _touch_pick(self, ctx: Any, *, kind_l: str, side: str) -> tuple[bool | None, str, float | None, float | None]:
         """
         Map ctx.touch_* fields into a single "hit side" view:
           - breakout/extreme/obi_spike:
@@ -812,7 +812,7 @@ class SignalConsistencyGate:
         weak_progress = _get_metric(ctx, ("weak_progress",), allow_of=True)
 
         # Touch snapshot (real refill/depletion state in your pipeline)
-        touch_is_stale, touch_tag, touch_rho, touch_traded_w = self._touch_pick(ctx, kind_l=kind_l, side=str(side))
+        touch_is_stale, touch_tag, touch_rho, touch_traded_w = self._touch_pick(ctx, kind_l=kind_l, side=side)
 
         # Optional L3 metric for extreme
         cancel_to_trade = _safe_float(_get_metric(ctx, ("cancel_to_trade", "l3_cancel_to_trade", "cancel_to_trade_ratio"), allow_of=True))

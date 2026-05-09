@@ -1,6 +1,6 @@
-import pandas as pd
 import json
-import sys
+
+import pandas as pd
 
 try:
     df = pd.read_parquet("/var/lib/trade/of_reports/datasets/nightly_meta_v4.parquet")
@@ -8,16 +8,16 @@ try:
 
     missing = []
     valid = []
-    
+
     if "indicators" in df.columns and not df.empty and df["indicators"].notna().any():
         sample = df["indicators"].dropna().iloc[-1]
-        
+
         for f in features:
             if f in df.columns or (isinstance(sample, dict) and f in sample.keys()):
                 valid.append(f)
             else:
                 missing.append(f)
-        
+
         print(f"Missing count: {len(missing)} / {len(features)}")
         print(f"Missing features: {missing}")
     else:

@@ -1,13 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:
@@ -25,7 +25,7 @@ def main() -> None:
     r = redis.Redis.from_url(args.redis_url, decode_responses=True)
     ts_train = int(r.get("meta_model:last_train_ts_ms") or 0)
     ts_apply = int(r.get("meta_model:last_apply_ts_ms") or 0)
-    status = str(r.get("meta_model:last_status") or "")
+    status = (r.get("meta_model:last_status") or "")
     report_raw = r.get("meta_model:last_train_report") or "{}"
     try:
         report = json.loads(report_raw)
@@ -33,7 +33,7 @@ def main() -> None:
         report = {"raw": report_raw}
 
     now = now_ms()
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "now_ms": now,
         "train_ts_ms": ts_train,
         "apply_ts_ms": ts_apply,

@@ -1,7 +1,4 @@
-import os
-import math
 
-import pytest
 
 
 class _SpecStub:
@@ -65,13 +62,13 @@ def test_nosl_flags_sl_within_bucket(monkeypatch):
         tp_ratios=[0.33, 0.33, 0.34],
     )
 
-    assert getattr(closed, "nosl_after_tp1_applicable") == 1
-    assert getattr(closed, "tp1_hit_ts_ms") == 1_001_000
-    assert getattr(closed, "sl_after_tp1_elapsed_ms") == 400
-    assert getattr(closed, "sl_within_tp1_t500") == 1
-    assert getattr(closed, "nosl_after_tp1_t500") == 0
-    assert getattr(closed, "sl_within_tp1_t2000") == 1
-    assert getattr(closed, "nosl_after_tp1_t2000") == 0
+    assert closed.nosl_after_tp1_applicable == 1
+    assert closed.tp1_hit_ts_ms == 1_001_000
+    assert closed.sl_after_tp1_elapsed_ms == 400
+    assert closed.sl_within_tp1_t500 == 1
+    assert closed.nosl_after_tp1_t500 == 0
+    assert closed.sl_within_tp1_t2000 == 1
+    assert closed.nosl_after_tp1_t2000 == 0
 
 
 def test_nosl_flags_sl_outside_bucket(monkeypatch):
@@ -97,19 +94,19 @@ def test_nosl_flags_sl_outside_bucket(monkeypatch):
         tp_ratios=[0.33, 0.33, 0.34],
     )
 
-    assert getattr(closed, "nosl_after_tp1_applicable") == 1
-    assert getattr(closed, "sl_after_tp1_elapsed_ms") == 3000
-    assert getattr(closed, "sl_within_tp1_t500") == 0
-    assert getattr(closed, "nosl_after_tp1_t500") == 1
-    assert getattr(closed, "sl_within_tp1_t2000") == 0
-    assert getattr(closed, "nosl_after_tp1_t2000") == 1
+    assert closed.nosl_after_tp1_applicable == 1
+    assert closed.sl_after_tp1_elapsed_ms == 3000
+    assert closed.sl_within_tp1_t500 == 0
+    assert closed.nosl_after_tp1_t500 == 1
+    assert closed.sl_within_tp1_t2000 == 0
+    assert closed.nosl_after_tp1_t2000 == 1
 
 
 def test_nosl_flags_not_applicable_without_tp1(monkeypatch):
     monkeypatch.setenv("NOSL_AFTER_TP1_BUCKETS_MS", "500,2000")
 
-    from domain.models import PositionState
     from domain.handlers import finalize_trade
+    from domain.models import PositionState
 
     pos = PositionState(
         id="p2",
@@ -139,7 +136,7 @@ def test_nosl_flags_not_applicable_without_tp1(monkeypatch):
         tp_ratios=[0.33, 0.33, 0.34],
     )
 
-    assert getattr(closed, "nosl_after_tp1_applicable") == 0
-    assert getattr(closed, "sl_after_tp1_elapsed_ms") == 0
-    assert getattr(closed, "sl_within_tp1_t500") == 0
-    assert getattr(closed, "nosl_after_tp1_t500") == 0
+    assert closed.nosl_after_tp1_applicable == 0
+    assert closed.sl_after_tp1_elapsed_ms == 0
+    assert closed.sl_within_tp1_t500 == 0
+    assert closed.nosl_after_tp1_t500 == 0

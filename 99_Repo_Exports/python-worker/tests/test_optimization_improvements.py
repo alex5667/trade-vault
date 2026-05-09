@@ -3,13 +3,13 @@
 Тесты для оптимизаций обработки Redis streams.
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-import time
+from unittest.mock import Mock, patch
 
-from core.redis_stream_consumer import StreamMsg, SyncRedisStreamHelper
-from handlers.message_handler import MessageHandler
+import pytest
+
+from core.redis_stream_consumer import SyncRedisStreamHelper
 from handlers.main_loop_service import MainLoopService
+from handlers.message_handler import MessageHandler
 
 
 class TestSyncRedisStreamHelper:

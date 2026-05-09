@@ -3,7 +3,7 @@ from __future__ import annotations
 import itertools
 import math
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 # Module-level call counter for DEBUG TRADE log throttling.
 # Using itertools.count avoids GIL-unsafe += on plain int.
@@ -44,7 +44,7 @@ def _sf(v: Any) -> float:
         return 0.0
 
 
-def _median(xs: List[float]) -> float:
+def _median(xs: list[float]) -> float:
     if not xs:
         return 0.0
     ys = sorted(xs)
@@ -55,7 +55,7 @@ def _median(xs: List[float]) -> float:
     return float((ys[mid - 1] + ys[mid]) / 2.0)
 
 
-def _trimmed_mean(xs: List[float], trim_ratio: float) -> float:
+def _trimmed_mean(xs: list[float], trim_ratio: float) -> float:
     if not xs:
         return 0.0
     ys = sorted(xs)
@@ -93,7 +93,7 @@ def _detect_ts_unit(ts_raw: int) -> str:
     return ""
 
 
-def _var_cvar(xs: List[float], alpha: float) -> Tuple[float, float]:
+def _var_cvar(xs: list[float], alpha: float) -> tuple[float, float]:
     """
     VaR/CVaR на левом хвосте:
     - VaR(alpha): квантиль alpha
@@ -128,8 +128,8 @@ class TradeMetricsService:
         self.es_alpha = float(os.getenv("PERIODIC_REPORT_ES_ALPHA", "0.05"))
         self.min_trades_for_es = int(os.getenv("PERIODIC_REPORT_MIN_TRADES_FOR_ES", "20"))
 
-    def new_metrics(self) -> Dict[str, Any]:
-        m: Dict[str, Any] = {
+    def new_metrics(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             # --- existing (как у вас) ---
             "total_trades": 0,
             "wins": 0, "losses": 0, "breakeven": 0,
@@ -228,7 +228,7 @@ class TradeMetricsService:
             "cnt_scenario_reversal": 0, "sum_pnl_scenario_reversal": 0.0,
             "cnt_scenario_continuation": 0, "sum_pnl_scenario_continuation": 0.0,
             "cnt_scenario_none": 0,
-            
+
             "cnt_gate_enforce": 0,
             "cnt_gate_shadow": 0,
             "cnt_gate_shadow_veto": 0,
@@ -276,14 +276,14 @@ class TradeMetricsService:
         }
         return m
 
-    def accumulate_trade(self, m: Dict[str, Any], t: Dict[str, Any]) -> bool:
+    def accumulate_trade(self, m: dict[str, Any], t: dict[str, Any]) -> bool:
         import json
         eps = self.eps
 
         pnl = _sf(t.get("pnl_net") or t.get("pnl") or 0.0)
         pnl_pct = _sf(t.get("pnl_pct") or 0.0)
         fees = _sf(t.get("fees") or 0.0)
-        
+
         # FIX: Robust pnl_gross calculation
         pnl_gross_raw = t.get("pnl_gross")
         if pnl_gross_raw is not None:
@@ -303,12 +303,12 @@ class TradeMetricsService:
         # ts + bad_ts
         entry_ts_raw = _si(t.get("entry_ts_ms") or t.get("open_time") or 0)
         exit_ts_raw = _si(t.get("exit_ts_ms") or t.get("closed_time") or t.get("close_time") or 0)
-        
+
         # Check units for metrics but do not normalize here for logic if using existing helper
         # Actually we need normalized values to compare
         entry_ts = _normalize_ts_ms(entry_ts_raw)
         exit_ts = _normalize_ts_ms(exit_ts_raw)
-        
+
         for ts_raw in (entry_ts_raw, exit_ts_raw):
             u = _detect_ts_unit(ts_raw)
             if u == "sec":
@@ -327,7 +327,7 @@ class TradeMetricsService:
         # duration
         dur_raw = _si(t.get("duration_ms") or (exit_ts - entry_ts) if (exit_ts and entry_ts) else 0)
         # Fix negative duration just in case (e.g. 0 diff)
-        dur = max(0, dur_raw) 
+        dur = max(0, dur_raw)
         if dur_raw < 0:
              # Should be caught by quarantine above usually, but if duration_ms was passed explicitly negative:
              m["negative_duration_count"] += 1
@@ -349,7 +349,7 @@ class TradeMetricsService:
         tp3 = 1 if (tp3_hit > 0 or tp3_touched > 0) else 0
         tp_before_sl = _si(t.get("tp_before_sl") or 0)
         trailing_started = _si(t.get("trailing_started") or 0)
-        
+
         # Get bucket early
         bucket = _to_str(t.get("close_reason") or t.get("bucket_close_reason") or "UNKNOWN")
         close_reason_raw = _to_str(t.get("close_reason_raw") or bucket)
@@ -391,7 +391,7 @@ class TradeMetricsService:
         m["tp3_hits"] += tp3
         if trailing_started > 0:
             m["trailing_started"] += 1
-        
+
         if bucket == "TRAIL_SL":
             m["closed_by_trail"] += 1
             m["trailing_stop_hits"] += 1  # compatibility
@@ -471,9 +471,9 @@ class TradeMetricsService:
         # 6.2 Protection against division by dust
         MIN_RISK_USD = 1.0
         FEES_RISK_MULT = 3.0
-        
+
         one_r_raw = _sf(t.get("one_r_money") or t.get("risk_amount") or 0.0)
-        
+
         # ──────────────────────────────────────────────────────────────
         # Defensive fallback: if one_r_money is below the floor (common
         # for legacy trades sized with lot=0.01 due to the old hardcoded
@@ -488,20 +488,20 @@ class TradeMetricsService:
                 calc_r = lot_size * abs(ent_p - sl_p)
                 if calc_r >= MIN_RISK_USD:
                     one_r_raw = calc_r
-                    
+
         has_real_risk = one_r_raw >= MIN_RISK_USD
-        
+
         if has_real_risk:
             # Clamp Risk to avoid division by dust (fees-based floor)
             risk_floor = max(MIN_RISK_USD, abs(fees) * FEES_RISK_MULT)
             risk_usd_eff = max(one_r_raw, risk_floor)
-            
+
             if risk_usd_eff > (one_r_raw + eps):
                 m["count_clamped_risk"] += 1
-            
+
             # Calculate R using Effective Risk
             r = pnl / risk_usd_eff if risk_usd_eff > eps else 0.0
-            
+
             m["cnt_r"] += 1
             m["sum_r"] += r
             m["sum_r2"] += r * r
@@ -522,7 +522,7 @@ class TradeMetricsService:
         if has_real_risk and abs(pnl_if_fixed_exit) > eps:
             # Baseline also uses Risk Eff for consistency
             r_fixed = pnl_if_fixed_exit / risk_usd_eff if risk_usd_eff > eps else 0.0
-            
+
             m["cnt_r_fixed"] += 1
             m["sum_r_fixed"] += r_fixed
             m["sum_r_fixed2"] += r_fixed * r_fixed
@@ -542,7 +542,7 @@ class TradeMetricsService:
             # pnl_pct is usually in % (e.g. 1.2), ret is ratio (0.012)
             ret = pnl_pct / 100.0
             has_ret = True
-        
+
         if has_ret or abs(pnl) > eps:
             m["cnt_ret"] += 1
             m["sum_ret"] += ret
@@ -570,7 +570,7 @@ class TradeMetricsService:
                  giveback = gv_raw * lot
              else:
                  giveback = gv_raw
-        
+
         # 3. Missed Profit
         missed_profit = _sf(t.get("missed_profit_pnl") or 0.0)
         if abs(missed_profit) <= eps:
@@ -585,10 +585,10 @@ class TradeMetricsService:
             # Only override if the existing value is suspiciously 0 or inconsistent
             if abs(giveback) < eps and calc_diff > eps:
                 giveback = calc_diff
-            
+
             if abs(missed_profit) < eps and calc_diff > eps:
                 missed_profit = calc_diff
-            
+
             # Fix: If missed_profit is negative (garbage) or inconsistent for TRAIL_SL, enforce logic
             if missed_profit < -eps and calc_diff > eps:
                 missed_profit = calc_diff
@@ -626,10 +626,10 @@ class TradeMetricsService:
 
             # Missed profit ratio (для SL_AFTER_TP* или TRAIL_SL)
             # Расширяем условие: если это TRAIL_SL или явно SL_AFTER_TP
-            if (bucket == "TRAIL_SL" or 
-                (close_reason_raw and "SL_AFTER_TP" in close_reason_raw) or 
+            if (bucket == "TRAIL_SL" or
+                (close_reason_raw and "SL_AFTER_TP" in close_reason_raw) or
                 (bucket and "SL_AFTER_TP" in bucket)):
-                
+
                 mp_ratio = missed_profit / max(mfe_pnl, eps)
                 if mp_ratio < 0:
                     mp_ratio = 0.0
@@ -666,7 +666,7 @@ class TradeMetricsService:
         if sl_atr > eps:
             m["sum_sl_atr"] += sl_atr
             m["cnt_sl_atr"] += 1
-        
+
         if tp_atr > eps:
             m["sum_tp_atr"] += tp_atr
             m["cnt_tp_atr"] += 1
@@ -719,21 +719,21 @@ class TradeMetricsService:
                     sp = sp_raw
             else:
                 sp = {}
-            
+
             # Extract indicators
             indicators = sp.get("indicators") or {}
-            
+
             # 1. Scenario
             scenario = str(t.get("scenario") or sp.get("scenario") or "").lower()
             # fallback to indicators if not top-level
             if not scenario:
                  # In crypto_orderflow_service, it's stored as "strong_gate_scn" in indicators
-                 scenario = str(indicators.get("strong_gate_scn") or "").lower()
-            
+                 scenario = (indicators.get("strong_gate_scn") or "").lower()
+
             # fallback: if we have of_confirm dictionary, it often has scenario
             if not scenario and "of_confirm" in indicators:
                  scenario = str(indicators["of_confirm"].get("scenario") or "").lower()
-            
+
             # The signal_payload structure usually mimics OFContext/OFInputs
             if "reversal" in scenario:
                 m["cnt_scenario_reversal"] += 1
@@ -772,8 +772,8 @@ class TradeMetricsService:
             # 2. Gate Mode
             # gate_mode usually comes from config, might be implicitly ENFORCE unless "of_gate_mode" says SHADOW
             # In crypto_orderflow_service, indicators["of_gate_mode"] is populated.
-            gate_mode = str(indicators.get("of_gate_mode") or "ENFORCE").upper()
-            
+            gate_mode = (indicators.get("of_gate_mode") or "ENFORCE").upper()
+
             if gate_mode == "SHADOW":
                 m["cnt_gate_shadow"] += 1
                 # 3. Shadow Veto (strong_gate_shadow_veto=1 in indicators means it WOULD have been filtered)
@@ -782,13 +782,13 @@ class TradeMetricsService:
                     m["sum_pnl_shadow_veto"] += pnl
             else:
                 m["cnt_gate_enforce"] += 1
-                
+
             # 3. Strong Gate OK/Fail (Universal)
             # Logic: strong_gate_ok=1 -> Strong, 0 -> Fail (Weak)
             # If explicit key missing, we might deduce from veto but cleaner to use explicit.
             # Fallback: if shadow_veto=1 -> Fail. if ENFORCE and passed -> OK.
             strong_ok = _si(indicators.get("strong_gate_ok"))
-            
+
             # If key not present (old signals), try backward compat
             if "strong_gate_ok" not in indicators:
                 # Some signals have "strong_gate_ok" at top level of indicators, others might have "of_confirm_ok"
@@ -809,7 +809,7 @@ class TradeMetricsService:
             else:
                 m["cnt_strong_fail"] += 1
                 m["sum_pnl_strong_fail"] += pnl
-                
+
                 # --- Diagnostic: Unmet ok reasons ---
                 missing_str = indicators.get("strong_gate_missing")
                 if missing_str:
@@ -830,7 +830,7 @@ class TradeMetricsService:
                 m["ok_soft_stats"]["pnl"] += pnl
                 if pnl > eps:
                     m["ok_soft_stats"]["wins"] += 1
-                
+
                 soft_reason = _to_str(indicators.get("soft_fail_reason") or indicators.get("of_confirm_soft_reason") or "unknown")
                 m["ok_soft_reasons"][soft_reason] = m["ok_soft_reasons"].get(soft_reason, 0) + 1
 
@@ -848,7 +848,7 @@ class TradeMetricsService:
                     of_confirm = of_confirm_raw
                 else:
                     of_confirm = None
-            
+
             # --- FALLBACK for DecisionRecordV1 (virtual trades) ---
             # If of_confirm is missing but we have "rule" in top-level payload
             if not of_confirm and "rule" in sp:
@@ -864,18 +864,18 @@ class TradeMetricsService:
                     }
                     if "ml" in sp and isinstance(sp["ml"], dict):
                         of_confirm["evidence"]["ml"] = sp["ml"]
-            
+
             if of_confirm and isinstance(of_confirm, dict):
                 # scenario is already normalized above, but let's take it from of_confirm to be precise for this block
-                of_scenario = str(of_confirm.get("scenario") or "none").lower()
+                of_scenario = (of_confirm.get("scenario") or "none").lower()
                 # Clean up scenario name (remove potential suffixes if any, though usually clean)
-                
+
                 have = int(of_confirm.get("have") or 0)
                 need = int(of_confirm.get("need") or 0)
-                
+
                 # Key format: continuation_gate(1/2)
                 key = f"{of_scenario}_gate({have}/{need})"
-                
+
                 stats = m["of_confirm_stats"].setdefault(key, {"count": 0, "wins": 0, "pnl": 0.0})
                 stats["count"] += 1
                 stats["pnl"] += pnl
@@ -896,7 +896,7 @@ class TradeMetricsService:
                     evidence = evidence_raw
                 else:
                     evidence = {}
-                
+
                 ml_dec_raw = evidence.get("ml")
                 # Parse ml_dec if it's a JSON string
                 ml_dec = None
@@ -910,13 +910,13 @@ class TradeMetricsService:
                         ml_dec = ml_dec_raw
                     else:
                         ml_dec = None
-                
+
                 if ml_dec and isinstance(ml_dec, dict):
                     ml_allow = ml_dec.get("allow")
                     p_edge = _sf(ml_dec.get("p_edge", 0.0))
                     p_min = _sf(ml_dec.get("p_min", 0.52))
-                    
-                     
+
+
                      # Existing binary stats
                     ml_key = "pass" if ml_allow else "veto"
                     ml_group = m["ml_stats"][ml_key]
@@ -929,36 +929,36 @@ class TradeMetricsService:
                     ml_cond = m["ml_condition_stats"]
                     ml_cond["total_evaluated"] += 1
                     ml_cond["_p_edge_values"].append(p_edge)
-                    
+
                     # Per-threshold breakdown (test multiple thresholds)
                     thresholds = [0.50, 0.52, 0.55, 0.58, 0.60, 0.65, 0.70]
                     for thr in thresholds:
                         thr_key = f"{thr:.2f}"
                         if thr_key not in ml_cond["by_threshold"]:
                             ml_cond["by_threshold"][thr_key] = {"count": 0, "wins": 0, "pnl": 0.0}
-                        
+
                         if p_edge >= thr:
                             stats = ml_cond["by_threshold"][thr_key]
                             stats["count"] += 1
                             stats["pnl"] += pnl
                             if pnl > eps:
                                 stats["wins"] += 1
-                    
+
                     # Per-scenario breakdown
-                    scenario_key = str(of_scenario or "none").lower()
+                    scenario_key = (of_scenario or "none").lower()
                     if scenario_key not in ml_cond["by_scenario"]:
                         ml_cond["by_scenario"][scenario_key] = {
-                            "count": 0, "wins": 0, "pnl": 0.0, 
+                            "count": 0, "wins": 0, "pnl": 0.0,
                             "sum_p_edge": 0.0, "avg_p_edge": 0.0
                         }
-                    
+
                     scn_stats = ml_cond["by_scenario"][scenario_key]
                     scn_stats["count"] += 1
                     scn_stats["pnl"] += pnl
                     scn_stats["sum_p_edge"] += p_edge
                     if pnl > eps:
                         scn_stats["wins"] += 1
-                    
+
                     # P_edge distribution
                     if p_edge < 0.3:
                         p_edge_bucket = "0.0-0.3"
@@ -988,22 +988,22 @@ class TradeMetricsService:
             score = 0.0
             if of_confirm:
                 score = float(of_confirm.get("score") or 0.0)
-            
+
             score_pct = score * 100.0
             thresholds_high_conf = [70, 75, 80, 85, 90, 95, 100]
-            
+
             shc = m.get("strong_high_conf_stats")
             if shc is None:
                 shc = {}
                 m["strong_high_conf_stats"] = shc
-                
+
             for thr in thresholds_high_conf:
                 # Inclusive check: score >= threshold
                 if score_pct >= (thr - 1e-9):
                     k = str(thr)
                     if k not in shc:
                         shc[k] = {"count": 0, "wins": 0, "pnl": 0.0}
-                    
+
                     st = shc[k]
                     st["count"] += 1
                     st["pnl"] += pnl
@@ -1013,7 +1013,7 @@ class TradeMetricsService:
             # 7. Filtration Stats (NEW)
             is_rejected = _si(t.get("is_rejected_signal") or 0) > 0 or _to_str(t.get("rejection_reason")) == "low_tp1_dist"
             val_status = _to_str(t.get("validation_status")).lower()
-            
+
             if is_rejected:
                 m["cnt_rejected_low_tp"] += 1
             elif val_status == "failed":
@@ -1031,7 +1031,7 @@ class TradeMetricsService:
     # ---------------------------------------------------------------------
     # ФИНАЛИЗАЦИЯ: ВЫЧИСЛЕНИЕ ПРОИЗВОДНЫХ МЕТРИК ПО ОКНУ
     # ---------------------------------------------------------------------
-    def finalize(self, m: Dict[str, Any]) -> None:
+    def finalize(self, m: dict[str, Any]) -> None:
         eps = self.eps
         n = int(m.get("total_trades", 0))
         if n <= 0:
@@ -1040,7 +1040,7 @@ class TradeMetricsService:
             return
 
         # --- MDD + streaks требуют хронологии: сортируем по ts ---
-        series: List[Tuple[int, float]] = list(m.get("_series") or [])
+        series: list[tuple[int, float]] = list(m.get("_series") or [])
         series.sort(key=lambda x: (x[0] if x[0] > 0 else 9_999_999_999_999_999))
 
         equity = 0.0
@@ -1077,7 +1077,7 @@ class TradeMetricsService:
 
         # derived edge metrics
         m["expectancy_usd"] = safe_div(m["total_pnl"], n)
-        
+
         # --- NEW: Edge Split (Entry vs Management) ---
         m["expectancy_entry_usd"] = safe_div(m.get("total_pnl_if_fixed_exit", 0.0), n)
         m["expectancy_mgmt_usd"] = safe_div(m["total_pnl"] - m.get("total_pnl_if_fixed_exit", 0.0), n)
@@ -1105,7 +1105,7 @@ class TradeMetricsService:
 
 
         # Median/Trimmed mean по R (робастнее среднего)
-        r_vals: List[float] = list(m.get("_r_values") or [])
+        r_vals: list[float] = list(m.get("_r_values") or [])
         m["median_r"] = _median(r_vals)
         m["trimmed_mean_r"] = _trimmed_mean(r_vals, self.trim_ratio)
 
@@ -1129,7 +1129,7 @@ class TradeMetricsService:
         avg_win_r_fixed = safe_div(m["sum_win_r_fixed"], m["cnt_win_r_fixed"])
         avg_loss_r_fixed = safe_div(m["sum_loss_r_fixed"], m["cnt_loss_r_fixed"])  # отрицательный
         m["payoff_fixed_r"] = safe_div(avg_win_r_fixed, abs(avg_loss_r_fixed))
-        
+
         # payoff_fixed_usd
         avg_win_usd = safe_div(m["sum_win_net"], m["cnt_win_net"])
         avg_loss_usd = safe_div(m["sum_loss_net"], m["cnt_loss_net"])
@@ -1156,12 +1156,12 @@ class TradeMetricsService:
 
         nret = int(m.get("cnt_ret", 0))
         mean_ret = safe_div(m["sum_ret"], nret)
-        
+
         # Probability check for mean_ret fallback
         notional = float(m.get("total_notional_usd", 0.0))
         if abs(mean_ret) <= eps and notional > eps:
             mean_ret = m["total_pnl"] / notional
-        
+
         var_ret = max(safe_div(m["sum_ret2"], nret) - mean_ret * mean_ret, 0.0)
         std_ret = math.sqrt(var_ret)
         m["mean_ret"] = float(mean_ret)
@@ -1188,9 +1188,9 @@ class TradeMetricsService:
         # --- NEW: tail risk (VaR/CVaR) ---
         alpha = self.es_alpha
         if n >= self.min_trades_for_es:
-            ret_vals: List[float] = list(m.get("_ret_values") or [])
-            r_vals: List[float] = list(m.get("_r_values") or [])
-            pnl_vals: List[float] = list(m.get("_pnl_values") or [])
+            ret_vals: list[float] = list(m.get("_ret_values") or [])
+            r_vals: list[float] = list(m.get("_r_values") or [])
+            pnl_vals: list[float] = list(m.get("_pnl_values") or [])
 
             m["var_ret"], m["cvar_ret"] = _var_cvar(ret_vals, alpha)
             m["var_r"], m["cvar_r"] = _var_cvar(r_vals, alpha)
@@ -1203,10 +1203,10 @@ class TradeMetricsService:
         # ✅ NEW: Safe Denominator Percentages
         # WR = wins / total
         m["win_rate"] = safe_div(m["wins"], n)
-        
+
         # Trailing WR = closed_by_trail / trailing_started
         m["trailing_wr"] = safe_div(m["closed_by_trail"], m["trailing_started"])
-        
+
         # --- NEW: ok-soft stats finalization ---
         ok_soft = m.get("ok_soft_stats", {})
         if ok_soft.get("count", 0) > 0:
@@ -1220,7 +1220,7 @@ class TradeMetricsService:
         if p_edge_vals:
             ml_cond["avg_p_edge"] = float(sum(p_edge_vals) / len(p_edge_vals))
             ml_cond["median_p_edge"] = float(_median(p_edge_vals))
-            
+
             # Finalize per-scenario averages
             for scn_key, scn_stats in ml_cond.get("by_scenario", {}).items():
                 if scn_stats["count"] > 0:

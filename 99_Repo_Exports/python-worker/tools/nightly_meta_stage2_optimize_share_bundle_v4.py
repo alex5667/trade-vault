@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 """
 nightly_meta_stage2_optimize_share_bundle_v4.py
 
@@ -53,21 +56,20 @@ Usage:
   (reads ENV vars from /etc/trade/of_reports.env or environment)
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import hashlib
+import hmac
 import json
 import os
 import secrets
 import subprocess
 import sys
 import time
-import hmac
-import hashlib
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("NightlyMetaStage2OptimizeShareV4")
 
@@ -90,7 +92,7 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -98,10 +100,10 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
-def _event_ts_ms(r: Dict[str, Any]) -> int:
+def _event_ts_ms(r: dict[str, Any]) -> int:
     """Extracts event timestamp in milliseconds from trade record."""
     for k in ("exit_ts_ms", "ts_ms", "ts", "event_ts_ms"):
         if k in r:
@@ -117,7 +119,7 @@ def _event_ts_ms(r: Dict[str, Any]) -> int:
     return 0
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Computes percentile q (0.0-1.0) from sorted list."""
     if not xs:
         return 0.0
@@ -139,15 +141,15 @@ def _hash01(s: str) -> float:
     return (x % 10_000_000) / 10_000_000.0
 
 
-def notify(r: redis.Redis, text: str, buttons: List[List[Dict[str, str]]] | None = None) -> None:
+def notify(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     """Sends notification to Telegram stream."""
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
-def stats(rs: List[float]) -> Dict[str, float]:
+def stats(rs: list[float]) -> dict[str, float]:
     """Computes basic statistics for returns list."""
     n = len(rs)
     if n == 0:
@@ -168,7 +170,7 @@ def stats(rs: List[float]) -> Dict[str, float]:
 
 # -------------------- domain: regime bucket --------------------
 
-def regime_bucket(t: Dict[str, Any]) -> str:
+def regime_bucket(t: dict[str, Any]) -> str:
     """Maps trade record to regime bucket (trend/range/news/thin/other)."""
     g = str(t.get("regime_group", "") or t.get("regime", "") or t.get("scenario_v4", "") or "")
     s = g.lower()
@@ -186,7 +188,7 @@ def regime_bucket(t: Dict[str, Any]) -> str:
 
 # -------------------- counterfactual sim --------------------
 
-def simulate_share(rows: List[Dict[str, Any]], *, share: float, salt: str) -> Dict[str, Any]:
+def simulate_share(rows: list[dict[str, Any]], *, share: float, salt: str) -> dict[str, Any]:
     """
     Counterfactual:
       apply_enforce = hash(salt:key) < share
@@ -201,11 +203,11 @@ def simulate_share(rows: List[Dict[str, Any]], *, share: float, salt: str) -> Di
     used = 0
 
     for r in rows:
-        key = str(r.get("meta_enforce_key", "") or "")
+        key = (r.get(MetaKeys.ENFORCE_KEY, "") or "")
         if not key:
             continue
         used += 1
-        veto = int(r.get("meta_veto", 0) or 0)
+        veto = int(r.get(MetaKeys.VETO, 0) or 0)
         apply_enf = 1 if (_hash01(f"{salt}:{key}") < share) else 0
         if apply_enf == 1 and veto == 1:
             blocked += 1
@@ -226,8 +228,8 @@ def simulate_share(rows: List[Dict[str, Any]], *, share: float, salt: str) -> Di
     }
 
 
-def objective(rep: Dict[str, Any], *, exec_rate_ref: float, cur_share: float, share: float,
-              lam_tail: float, lam_p05: float, lam_turn: float, lam_step: float) -> Tuple[float, float]:
+def objective(rep: dict[str, Any], *, exec_rate_ref: float, cur_share: float, share: float,
+              lam_tail: float, lam_p05: float, lam_turn: float, lam_step: float) -> tuple[float, float]:
     """
     Returns (obj, exec_drop)
     """
@@ -247,11 +249,11 @@ def objective(rep: Dict[str, Any], *, exec_rate_ref: float, cur_share: float, sh
     return obj, drop
 
 
-def build_options(cell_rows: List[Dict[str, Any]],
-                  *, salt: str, cur_share: float, grid: List[float], share_cap: float,
+def build_options(cell_rows: list[dict[str, Any]],
+                  *, salt: str, cur_share: float, grid: list[float], share_cap: float,
                   max_up_step: float, max_down_step: float,
                   min_exec_rate: float, max_exec_rate_drop: float, tail_exec_cap: float,
-                  lam_tail: float, lam_p05: float, lam_turn: float, lam_step: float) -> List[Dict[str, Any]]:
+                  lam_tail: float, lam_p05: float, lam_turn: float, lam_step: float) -> list[dict[str, Any]]:
     """
     Feasible options for a bucket cell.
     """
@@ -263,7 +265,7 @@ def build_options(cell_rows: List[Dict[str, Any]],
     ref = simulate_share(cell_rows, share=cur_share, salt=salt)
     exec_rate_ref = float(ref["exec_rate"])
 
-    opts: List[Dict[str, Any]] = []
+    opts: list[dict[str, Any]] = []
     ref_obj, ref_drop = objective(ref, exec_rate_ref=exec_rate_ref, cur_share=cur_share, share=cur_share,
                                   lam_tail=lam_tail, lam_p05=lam_p05, lam_turn=lam_turn, lam_step=lam_step)
     opts.append({
@@ -321,12 +323,12 @@ def build_options(cell_rows: List[Dict[str, Any]],
     return core
 
 
-def enumerate_symbol_combos(trend_opts: Optional[List[Dict[str, Any]]],
-                            range_opts: Optional[List[Dict[str, Any]]],
+def enumerate_symbol_combos(trend_opts: list[dict[str, Any]] | None,
+                            range_opts: list[dict[str, Any]] | None,
                             *,
                             symbol_budget: float,
-                            coupling_trend_lt: Optional[float],
-                            coupling_range_cap: Optional[float]) -> List[Dict[str, Any]]:
+                            coupling_trend_lt: float | None,
+                            coupling_range_cap: float | None) -> list[dict[str, Any]]:
     """
     Produce feasible combos under per-symbol budget, return sorted by sum_obj desc, then sum_drop asc.
     """
@@ -364,7 +366,7 @@ def enumerate_symbol_combos(trend_opts: Optional[List[Dict[str, Any]]],
 
 # -------------------- metrics health -> adaptive budgets --------------------
 
-def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
+def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
     """Reads metrics from Redis stream within time window."""
     rows = []
     last_id = "+"
@@ -394,7 +396,7 @@ def read_metrics_window(r: redis.Redis, stream: str, since_ms: int, max_scan: in
     return rows
 
 
-def calc_health_factor(st: Dict[str, float], *, exec_target: float, exec_span: float,
+def calc_health_factor(st: dict[str, float], *, exec_target: float, exec_span: float,
                        lat_target_us: float, lat_span_us: float,
                        soft_target: float, soft_span: float,
                        ok_target: float, ok_span: float,
@@ -420,7 +422,7 @@ def calc_health_factor(st: Dict[str, float], *, exec_target: float, exec_span: f
     return max(floor, min(cap, factor))
 
 
-def summarize_metrics(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+def summarize_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
     """Summarizes metrics rows into statistics."""
     from tools.of_gate_metrics_contract import derive_ok_fields, is_gate_row, scenario_key
     gate_rows = [r for r in rows if is_gate_row(r)]
@@ -455,14 +457,14 @@ def summarize_metrics(rows: List[Dict[str, Any]]) -> Dict[str, float]:
 
 # -------------------- global selection under global budget --------------------
 
-def select_under_global_budget(symbol_plans: Dict[str, List[Dict[str, Any]]], global_budget: float) -> Dict[str, Dict[str, Any]]:
+def select_under_global_budget(symbol_plans: dict[str, list[dict[str, Any]]], global_budget: float) -> dict[str, dict[str, Any]]:
     """
     Each symbol has list of combos sorted by best first (sum_obj desc, sum_drop asc).
     Start with best for each symbol, then if sum_drop > global_budget:
       iteratively downgrade the symbol where we reduce drop most cheaply (min loss per drop reduction).
     """
-    chosen_idx = {sym: 0 for sym in symbol_plans.keys()}
-    def total_drop_obj() -> Tuple[float, float]:
+    chosen_idx = dict.fromkeys(symbol_plans.keys(), 0)
+    def total_drop_obj() -> tuple[float, float]:
         td = 0.0
         to = 0.0
         for sym, combos in symbol_plans.items():
@@ -473,7 +475,7 @@ def select_under_global_budget(symbol_plans: Dict[str, List[Dict[str, Any]]], gl
 
     td, _ = total_drop_obj()
     if td <= global_budget + 1e-12:
-        return {sym: symbol_plans[sym][chosen_idx[sym]] for sym in symbol_plans.keys()}
+        return {sym: symbol_plans[sym][chosen_idx[sym]] for sym in symbol_plans}
 
     # Build downgrade candidates until within budget
     for _iter in range(10_000):
@@ -506,7 +508,7 @@ def select_under_global_budget(symbol_plans: Dict[str, List[Dict[str, Any]]], gl
             break
         chosen_idx[best_sym] = best_next
 
-    return {sym: symbol_plans[sym][chosen_idx[sym]] for sym in symbol_plans.keys()}
+    return {sym: symbol_plans[sym][chosen_idx[sym]] for sym in symbol_plans}
 
 
 # -------------------- main --------------------
@@ -531,7 +533,7 @@ def main() -> None:
         return
 
     # group candidates by symbol → buckets
-    cand: Dict[str, Dict[str, Tuple[str, dict]]] = {}
+    cand: dict[str, dict[str, tuple[str, dict]]] = {}
     for ck, raw in unf_map.items():
         try:
             rec = json.loads(raw)
@@ -569,11 +571,11 @@ def main() -> None:
     mrows = read_metrics_window(r, metrics_stream, since_ms, max_scan=max_scan)
 
     # per-symbol metrics if `symbol` present, else global only
-    per_sym: Dict[str, List[Dict[str, Any]]] = {}
-    global_rows: List[Dict[str, Any]] = []
+    per_sym: dict[str, list[dict[str, Any]]] = {}
+    global_rows: list[dict[str, Any]] = []
     for rr in mrows:
         global_rows.append(rr)
-        sym = str(rr.get("symbol", "") or "").upper()
+        sym = (rr.get("symbol", "") or "").upper()
         if sym:
             per_sym.setdefault(sym, []).append(rr)
 
@@ -610,8 +612,8 @@ def main() -> None:
     base_glob_budget = float(os.getenv("META_GLOBAL_EXEC_DROP_BUDGET_BASE", "1.00") or 1.00)
 
     # Adaptive budgets
-    sym_budgets: Dict[str, float] = {}
-    for sym in cand.keys():
+    sym_budgets: dict[str, float] = {}
+    for sym in cand:
         if sym in per_sym and len(per_sym[sym]) >= int(os.getenv("META_BUDGET_SYM_MIN_N", "200") or 200):
             sstat = summarize_metrics(per_sym[sym])
             sfactor = calc_health_factor(
@@ -641,7 +643,7 @@ def main() -> None:
             sys.executable, "tools/export_trade_closed_ndjson.py",
             "--since-hours", str(opt_hours),
             "--out", trades_out,
-            "--stream", os.getenv("TRADE_EVENTS_STREAM", "events:trades"),
+            "--stream", os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES),
             "--redis-url", redis_url,
             "--max-scan", os.getenv("TRADES_MAX_SCAN", "500000"),
         ])
@@ -652,18 +654,18 @@ def main() -> None:
         logger.error("Unexpected error during trade export: %s", e)
         return
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     missing_key = 0
     missing_veto = 0
     total = 0
 
     try:
-        with open(trades_out, "r", encoding="utf-8") as f:
+        with open(trades_out, encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
                     continue
                 t = json.loads(line)
-                sym = str(t.get("symbol", "") or "").upper()
+                sym = (t.get("symbol", "") or "").upper()
                 if sym not in cand:
                     continue
                 ts_ms = _event_ts_ms(t)
@@ -673,8 +675,8 @@ def main() -> None:
                 if rm is None:
                     continue
                 total += 1
-                key = t.get("meta_enforce_key", None)
-                veto = t.get("meta_veto", None)
+                key = t.get(MetaKeys.ENFORCE_KEY, None)
+                veto = t.get(MetaKeys.VETO, None)
                 if key is None:
                     missing_key += 1
                 if veto is None:
@@ -686,7 +688,7 @@ def main() -> None:
                     "ts_ms": ts_ms,
                     "r_mult": _f(rm, 0.0),
                     "meta_enforce_key": "" if key is None else str(key),
-                    "meta_enforce_salt": str(t.get("meta_enforce_salt", "enf_v1") or "enf_v1"),
+                    "meta_enforce_salt": (t.get(MetaKeys.ENFORCE_SALT, "enf_v1") or "enf_v1"),
                     "meta_veto": 0 if veto is None else _i(veto, 0),
                 })
     except FileNotFoundError:
@@ -732,8 +734,8 @@ def main() -> None:
     coupling_range_cap_v = float(coupling_range_cap) if coupling_range_cap.strip() else None
 
     # -------- build per-symbol plan candidates (multiple combos) --------
-    symbol_plans: Dict[str, List[Dict[str, Any]]] = {}
-    details: Dict[str, Any] = {"global_metrics": gstat, "global_factor": gfactor, "global_budget": global_budget, "sym_budget": sym_budgets}
+    symbol_plans: dict[str, list[dict[str, Any]]] = {}
+    details: dict[str, Any] = {"global_metrics": gstat, "global_factor": gfactor, "global_budget": global_budget, "sym_budget": sym_budgets}
 
     for sym, buckets in cand.items():
         # per-bucket option lists
@@ -751,7 +753,7 @@ def main() -> None:
             # salt: most common
             salt_counts = {}
             for x in cell_rows:
-                s = x.get("meta_enforce_salt", "enf_v1")
+                s = x.get(MetaKeys.ENFORCE_SALT, "enf_v1")
                 salt_counts[s] = salt_counts.get(s, 0) + 1
             salt = max(salt_counts.items(), key=lambda kv: kv[1])[0] if salt_counts else "enf_v1"
 
@@ -808,8 +810,8 @@ def main() -> None:
     chosen = select_under_global_budget(symbol_plans, global_budget)
 
     # -------- build ops from chosen combos --------
-    ops: List[Dict[str, str]] = []
-    picked_cells: List[str] = []
+    ops: list[dict[str, str]] = []
+    picked_cells: list[str] = []
     for sym, combo in chosen.items():
         hk = f"{prefix}{sym}"
         buckets = cand[sym]

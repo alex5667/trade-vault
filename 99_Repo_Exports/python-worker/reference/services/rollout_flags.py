@@ -13,9 +13,9 @@ flag names and default semantics so executor / signal publisher / compose
 files all speak the same language.
 """
 
-from dataclasses import dataclass
 import os
-from typing import Dict, Any
+from dataclasses import dataclass
+from typing import Any
 
 
 def _b(name: str, default: bool) -> bool:
@@ -39,7 +39,7 @@ class RolloutFlags:
     exec_degraded_mode_disable_maker: bool = True
 
     @classmethod
-    def from_env(cls) -> "RolloutFlags":
+    def from_env(cls) -> RolloutFlags:
         """Build rollout flags from environment.
 
         Names are intentionally explicit so operators can grep configs and
@@ -58,7 +58,7 @@ class RolloutFlags:
             exec_degraded_mode_disable_maker=_b("EXEC_DEGRADED_MODE_DISABLE_MAKER", True),
         )
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "exec_algo_canonical_v2": self.exec_algo_canonical_v2,
             "exec_reconcile_enable": self.exec_reconcile_enable,

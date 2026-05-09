@@ -13,9 +13,10 @@ The intent is to fail *before* the sensitive compose/systemd job starts if the
 host-side manifest is incomplete or drifted.
 """
 
-from dataclasses import dataclass
 import os
-from typing import Any, Dict, Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
 
 from services.orderflow.exec_health_freeze_acl_contract import AUDIT_USER, BOOTSTRAP_USER
 from services.orderflow.exec_health_freeze_service_identity import (
@@ -59,9 +60,9 @@ class SensitiveDeployManifest:
 def _s(x: Any, d: str = '') -> str:
     """Safe str cast with fallback."""
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
 def _b(x: Any, default: bool = False) -> bool:
@@ -74,7 +75,7 @@ def _b(x: Any, default: bool = False) -> bool:
         return bool(default),
 
 
-def build_sensitive_deploy_manifest_contract() -> Dict[str, SensitiveDeployManifest]:
+def build_sensitive_deploy_manifest_contract() -> dict[str, SensitiveDeployManifest]:
     """Build and return the canonical map of purpose → SensitiveDeployManifest.,
 
     Reads service identities from the SoT (exec_health_freeze_service_identity),
@@ -118,14 +119,14 @@ def _expected_preflight_identity() -> ServiceIdentity:
 
 def render_sensitive_deploy_env_templates(
     host: str = 'redis-worker-1', port: int = 6379, db: int = 0
-) -> Dict[str, Dict[str, str]]:
+) -> dict[str, dict[str, str]]:
     """Return env-template dicts for each sensitive purpose.
 
     Used by ops/bootstrap tooling to generate .env files and by PolicyController.render().
     Password placeholders are left as ``<password>`` — operators must substitute.
     """
     pre = _expected_preflight_identity()
-    out: Dict[str, Dict[str, str]] = {}
+    out: dict[str, dict[str, str]] = {}
     for purpose, row in build_sensitive_deploy_manifest_contract().items():
         out[purpose] = {
             PREFLIGHT_SCHEMA_VERSION_ENV: ROLLOUT_PREFLIGHT_SCHEMA_VERSION,
@@ -146,7 +147,7 @@ def render_sensitive_deploy_env_templates(
 
 def validate_sensitive_deploy_env_contract(
     purpose: str, env: Mapping[str, Any] | None = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Validate env against the deploy contract for the given purpose.
 
     Returns a result dict::
@@ -243,7 +244,7 @@ def validate_sensitive_deploy_env_contract(
 
 def assert_sensitive_deploy_env_contract(
     purpose: str, env: Mapping[str, Any] | None = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Validate env contract and raise RuntimeError on violations if enforcement is active.
 
     Enforcement is controlled by ``EXEC_HEALTH_DEPLOY_CONTRACT_ENFORCE`` (default: 1).
@@ -260,7 +261,7 @@ def assert_sensitive_deploy_env_contract(
 
 def assert_runtime_service_env_contract(
     service: str, env: Mapping[str, Any] | None = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Validate runtime env for a specific service on startup.
 
     Checks:

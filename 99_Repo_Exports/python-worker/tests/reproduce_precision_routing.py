@@ -1,9 +1,7 @@
 
+import json
 import os
 import sys
-import math
-import json
-import logging
 
 # Add current directory to path so we can import orders_router
 # [AUTOGRAVITY CLEANUP] sys.path.append("/home/alex/front/trade/scanner_infra/python-worker/services")
@@ -14,13 +12,13 @@ class MockRedis:
     def __init__(self):
         self.data = {}
         self.lists = {}
-    
+
     def get(self, key):
         return self.data.get(str(key))
-    
+
     def set(self, key, val):
         self.data[str(key)] = val
-        
+
     def lpush(self, key, val):
         if key not in self.lists:
             self.lists[key] = []
@@ -35,7 +33,8 @@ def mock_getenv(key, default=None):
 os.getenv = mock_getenv
 
 try:
-    from orders_router import _decimals_from_point, _round_price, _ensure_min_distance, route_open
+    from orders_router import _decimals_from_point, _ensure_min_distance, _round_price, route_open
+
     from symbol_specs_store import SymbolSpecs, SymbolSpecsStore
 except ImportError as e:
     print(f"Error importing modules: {e}")
@@ -43,7 +42,7 @@ except ImportError as e:
 
 def test_decimal_calculation():
     print("\n--- Testing _decimals_from_point ---")
-    
+
     cases = [
         (0.1, 1),
         (0.01, 2),
@@ -55,7 +54,7 @@ def test_decimal_calculation():
         (1.0, 0),
         (0.0, 2), # Default fallback
     ]
-    
+
     for point, expected in cases:
         result = _decimals_from_point(point)
         print(f"Point: {point} -> Decimals: {result} (Expected: {expected})")
@@ -70,7 +69,7 @@ def test_decimal_calculation():
 def test_pepe_routing():
     print("\n--- Testing PEPE Routing ---")
     mock_redis = MockRedis()
-    
+
     # Setup Symbol Specs for PEPE
     pepe_point = 0.00000001
     mock_redis.data["symbol_specs:1000PEPEUSDT"] = json.dumps({
@@ -79,7 +78,7 @@ def test_pepe_routing():
         "tick_size": pepe_point,
         "min_stop_points": 10
     })
-    
+
     # Setup Signal Snapshot
     sid = "test_pepe_signal"
     mock_redis.data["signal:snap:" + sid] = json.dumps({
@@ -91,33 +90,33 @@ def test_pepe_routing():
             "atr": 0.0000500
         }
     })
-    
+
     # Trigger Route Open
     parts = ["open", "LONG", "100", sid]
-    
+
     # We need to monkeypath redis used inside orders_router or pass it if possible.
     # route_open(r, parts).
     route_open(mock_redis, parts)
-    
+
     # Check Result
     queue = mock_redis.lists.get("orders:queue", [])
     if not queue:
         print("FAIL: No order in queue")
         return
-        
+
     order_json = queue[0]
     order = json.loads(order_json)
-    
+
     print("Order Payload:")
     print(json.dumps(order, indent=2))
-    
+
     # Verify precision
     entry = order.get("entry")
     sl = order.get("sl")
-    
+
     print(f"Entry: {entry}")
     print(f"SL: {sl}")
-    
+
     if entry == 0.01:
         print("FAIL: Entry rounded to 0.01!")
     elif abs(entry - 0.006656) < 1e-9:

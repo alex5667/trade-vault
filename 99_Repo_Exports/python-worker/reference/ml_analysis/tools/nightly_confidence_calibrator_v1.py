@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Nightly confidence calibrator bundle (ROI step).
 
 What it does (daily):
@@ -20,23 +21,22 @@ Outputs:
 Designed to be called from of_timers_worker (single command, deterministic).
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import sys
-import time
 import subprocess
+import sys
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _run(module: str, args: list[str], *, timeout: int = 3600) -> Tuple[bool, str, str]:
+def _run(module: str, args: list[str], *, timeout: int = 3600) -> tuple[bool, str, str]:
     cmd = [sys.executable, "-m", module] + list(args or [])
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     ok = p.returncode == 0
@@ -54,9 +54,9 @@ def _atomic_replace(src: str, dst: str) -> None:
     os.replace(tmp, dst)
 
 
-def _read_train_report(cal_json_path: str) -> Optional[Dict[str, Any]]:
+def _read_train_report(cal_json_path: str) -> dict[str, Any] | None:
     try:
-        with open(cal_json_path, "r", encoding="utf-8") as f:
+        with open(cal_json_path, encoding="utf-8") as f:
             obj = json.load(f)
         rep = obj.get("train_report") or {}
         if not isinstance(rep, dict):
@@ -66,7 +66,7 @@ def _read_train_report(cal_json_path: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _guard_ok(rep: Dict[str, Any], *, min_ece_abs: float, min_brier_abs: float) -> Tuple[bool, Dict[str, Any]]:
+def _guard_ok(rep: dict[str, Any], *, min_ece_abs: float, min_brier_abs: float) -> tuple[bool, dict[str, Any]]:
     raw = rep.get("raw") or {}
     cal = rep.get("cal") or {}
     try:
@@ -88,7 +88,7 @@ def _guard_ok(rep: Dict[str, Any], *, min_ece_abs: float, min_brier_abs: float) 
         return False, {"passed": False}
 
 
-def main(argv: Optional[list[str]] = None) -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", default=os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
     ap.add_argument("--out_dir", default=os.environ.get("CONF_CAL_OUT_DIR", "/var/lib/trade/of_calibrators"))
@@ -124,7 +124,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     calib_report_json = os.path.join(str(args.reports_dir), "confidence_calibration_report.json")
     status_json = os.path.join(str(args.reports_dir), "confidence_calibration_status.json")
 
-    status: Dict[str, Any] = {
+    status: dict[str, Any] = {
         "ts_ms": int(now_ms),
         "stamp": stamp,
         "ok": False,

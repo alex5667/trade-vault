@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from common.qf_codes import QF, pack_qf_u16, unpack_qf_u16, qf_labels_from_codes
+from common.qf_codes import QF, pack_qf_u16, qf_labels_from_codes, unpack_qf_u16
 
 
 def test_pack_unpack_roundtrip_u16():

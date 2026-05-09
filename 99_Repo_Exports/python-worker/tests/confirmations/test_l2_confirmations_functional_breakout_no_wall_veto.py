@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from handlers.confirmations.l2_confirmations import l2_confirm_breakout
-from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Snapshot, L2Level
+from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level, L2Snapshot
 
 
 def test_functional_breakout_near_wall_delegates_to_class_validator():

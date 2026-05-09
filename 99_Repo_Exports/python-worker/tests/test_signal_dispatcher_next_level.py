@@ -1,6 +1,7 @@
-import pytest
-from types import SimpleNamespace
 from collections import defaultdict
+
+import pytest
+from core.redis_keys import RedisStreams as RS
 
 
 class _FakeRedis:
@@ -62,7 +63,7 @@ def _mk_sd():
     sd.dual_redis = sd.redis
 
     sd._ctr = defaultdict(int)
-    sd.outbox_stream = "stream:signals:outbox"
+    sd.outbox_stream = RS.SIGNAL_OUTBOX
     sd.group = "g"
 
     # isolate from external Lua usage in unit tests

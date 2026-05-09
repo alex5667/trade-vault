@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """Prometheus exporter for ExecHealth freeze control state (P7).
 
 Reads cfg:orderflow:exec_health:freeze_control:v1 (the latched control hash)
@@ -24,7 +25,7 @@ python3 -m orderflow_services.exec_health_freeze_control_exporter_v1,
 """,
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -44,7 +45,7 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 # ── Prometheus gauges ─────────────────────────────────────────────────────────
@@ -76,7 +77,7 @@ def main() -> None:
 
     while True:
         try:
-            d: Dict[str, Any] = r.hgetall(key) or {}
+            d: dict[str, Any] = r.hgetall(key) or {}
             st = parse_exec_health_freeze_control(d)
             now_s = _now_s()
 

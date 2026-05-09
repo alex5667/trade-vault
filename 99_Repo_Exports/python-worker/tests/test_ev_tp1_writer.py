@@ -1,4 +1,4 @@
-from services.ev_tp1_stats import EvTp1StatsConfig, update_evstats_on_close, RedisEvTp1StatsProvider
+from services.ev_tp1_stats import EvTp1StatsConfig, RedisEvTp1StatsProvider, update_evstats_on_close
 
 
 class FakeRedis:

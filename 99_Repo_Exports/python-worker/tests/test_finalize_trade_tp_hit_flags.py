@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 tests/test_finalize_trade_tp_hit_flags.py
 ─────────────────────────────────────────
@@ -10,7 +11,6 @@ constructor, so they always defaulted to False/0 — breaking downstream
 stats, calibration, and TP-hit analytics across 170K+ trades.
 """
 
-import pytest
 
 
 class FakeSpec:
@@ -18,7 +18,7 @@ class FakeSpec:
 
     def pnl_money(self, entry_price, price, lot, direction, symbol=""):
         sign = 1.0 if str(direction).upper() == "LONG" else -1.0
-        return (float(price) - float(entry_price)) * sign * float(lot)
+        return (float(price) - float(entry_price)) * sign * lot
 
 
 def _make_pos(**overrides):

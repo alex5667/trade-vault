@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for prometheus_rules_bundle_manifest_v1.yml (v9 patch)
 
@@ -13,9 +14,9 @@ Component: Python (orderflow_services tests)
 
 
 import os
-import re
-import yaml
+
 import pytest
+import yaml
 
 # ---------------------------------------------------------------------------
 # Helpers to resolve paths relative to this test file

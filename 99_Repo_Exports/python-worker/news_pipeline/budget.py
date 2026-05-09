@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 news_pipeline/budget.py — Reserve-based USD budget enforcement via Redis Lua.
 
@@ -11,7 +12,6 @@ Used by: analyzer_worker.py (reasoner).
 import time
 from dataclasses import dataclass
 from typing import Any
-
 
 # ── Lua script ─────────────────────────────────────────────────────────────────
 # KEYS[1] = budget key (e.g. "news:budget:usd:20250310")

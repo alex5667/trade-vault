@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Train MetaModelLR (portable JSON LR) from a Parquet dataset.
 
 Expected input (flexible):
@@ -14,8 +15,7 @@ The output is a JSON file compatible with core.meta_model_lr.MetaModelLR.load().
 import argparse
 import json
 import math
-from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -24,6 +24,7 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
 
 from core.feature_engineering import apply_transform
+import contextlib
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -66,7 +67,7 @@ def _ece(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> float:
     return float(ece)
 
 
-def _scenario_buckets(s: str) -> Dict[str, float]:
+def _scenario_buckets(s: str) -> dict[str, float]:
     s = (s or "").lower()
     from common.market_mode import is_range_regime
     return {
@@ -78,7 +79,7 @@ def _scenario_buckets(s: str) -> Dict[str, float]:
 
 
 # Feature list must match what OFConfirmEngine produces in 'feat' dict.
-FEATURES_V1: List[str] = [
+FEATURES_V1: list[str] = [
     # rule confidence
     "base_score",
     "score_final_raw",
@@ -140,7 +141,7 @@ FEATURES_V1: List[str] = [
 ]
 
 
-def build_meta_features(ind: Dict[str, Any]) -> Dict[str, float]:
+def build_meta_features(ind: dict[str, Any]) -> dict[str, float]:
     # score breakdown (preferred source)
     sb = ind.get("score_breakdown_small") or ind.get("score_breakdown") or {}
     if not isinstance(sb, dict):
@@ -155,18 +156,18 @@ def build_meta_features(ind: Dict[str, Any]) -> Dict[str, float]:
     need = _f(ind.get("need"), _f(ind.get("rule_need"), 1.0))
     ok_soft = _f(ind.get("ok_soft"), 0.0)
 
-    agg = str(sb.get("agg", "") or "")
+    agg = (sb.get("agg", "") or "")
     agg_is_sum = 1.0 if agg == "sum" else 0.0
     agg_is_avg = 1.0 if agg != "sum" else 0.0
 
-    scn = str(ind.get("scenario_v4", "") or "")
+    scn = (ind.get("scenario_v4", "") or "")
     scn_b = _scenario_buckets(scn)
 
     # legs (prefer explicit)
     def _leg(name: str, fallback_key: str) -> float:
         return _f(ind.get(name), _f(ind.get(fallback_key), 0.0))
 
-    out: Dict[str, float] = {
+    out: dict[str, float] = {
         "base_score": float(base_score),
         "score_final_raw": float(score_raw),
         "score_final_01": float(score_01),
@@ -226,8 +227,8 @@ def build_meta_features(ind: Dict[str, Any]) -> Dict[str, float]:
     return out
 
 
-def choose_transforms() -> Dict[str, Any]:
-    tf: Dict[str, Any] = {}
+def choose_transforms() -> dict[str, Any]:
+    tf: dict[str, Any] = {}
     for f in FEATURES_V1:
         if f.endswith("_age_ms") or f.endswith("_duration") or f.endswith("_secs") or f.endswith("_bps") or f.endswith("_volume") or f.endswith("_refresh"):
             tf[f] = {"type": "log1p"}
@@ -242,7 +243,7 @@ def choose_transforms() -> Dict[str, Any]:
     return tf
 
 
-def robust_params(x: np.ndarray) -> Tuple[float, float]:
+def robust_params(x: np.ndarray) -> tuple[float, float]:
     # median / MAD; fall back to IQR; then 1.0
     x = x[np.isfinite(x)]
     if x.size == 0:
@@ -257,7 +258,7 @@ def robust_params(x: np.ndarray) -> Tuple[float, float]:
     return med, float(max(scale, 1e-6))
 
 
-def transform_matrix(feats: List[Dict[str, float]], tf: Dict[str, Any]) -> Tuple[np.ndarray, Dict[str, Dict[str, float]]]:
+def transform_matrix(feats: list[dict[str, float]], tf: dict[str, Any]) -> tuple[np.ndarray, dict[str, dict[str, float]]]:
     # Apply transforms; compute robust scaler on transformed values; return scaled matrix + params
     n = len(feats)
     m = len(FEATURES_V1)
@@ -270,7 +271,7 @@ def transform_matrix(feats: List[Dict[str, float]], tf: Dict[str, Any]) -> Tuple
             v = float(apply_transform(v, tf.get(name)))
             raw[i, j] = v
 
-    rs: Dict[str, Dict[str, float]] = {}
+    rs: dict[str, dict[str, float]] = {}
     for j, name in enumerate(FEATURES_V1):
         center, scale = robust_params(raw[:, j])
         rs[name] = {"center": float(center), "scale": float(scale)}
@@ -334,10 +335,8 @@ def main() -> None:
             m.fit(X[tr], y[tr])
             p = m.predict_proba(X[te])[:, 1]
             ll.append(log_loss(y[te], p, labels=[0, 1]))
-            try:
+            with contextlib.suppress(Exception):
                 auc.append(roc_auc_score(y[te], p))
-            except Exception:
-                pass
         score = float(np.mean(ll))
         auc_m = float(np.mean(auc)) if auc else float("nan")
         if best is None or score < best[0]:

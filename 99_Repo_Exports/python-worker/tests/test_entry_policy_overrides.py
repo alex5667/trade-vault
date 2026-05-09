@@ -62,13 +62,13 @@ def test_overrides_v1_hold_down_logic():
         applied_ts_ms=1000000,
         hold_down_ms=3600000,  # 1 hour
     )
-    
+
     # Within hold-down period
     assert o.is_in_hold_down(1000000 + 1800000) == True  # 30 min later
-    
+
     # After hold-down period
     assert o.is_in_hold_down(1000000 + 3600001) == False  # 1 hour + 1ms later
-    
+
     # No hold-down set
     o2 = EntryPolicyOverridesV1(applied_ts_ms=1000000, hold_down_ms=0)
     assert o2.is_in_hold_down(1000001) == False
@@ -94,10 +94,10 @@ def test_overrides_v1_serialization_roundtrip():
         src="thresh_lcb",
         sid="abc123",
     )
-    
+
     json_str = o1.to_json()
     o2, err = EntryPolicyOverridesV1.from_json(json_str)
-    
+
     assert err == ""
     assert o2.entry_min_of_score == o1.entry_min_of_score
     assert o2.hold_down_ms == o1.hold_down_ms

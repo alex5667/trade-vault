@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Walk-Forward Calibrator — expanding-window out-of-sample validation engine.
 
@@ -23,9 +24,9 @@ Refs:
     - P74 policy calibration suggester (tighten-only)
 """
 
-import math
-from dataclasses import dataclass, field, asdict
-from typing import Any, Callable, Dict, Generic, List, Optional, Sequence, TypeVar
+from collections.abc import Callable, Sequence
+from dataclasses import asdict, dataclass, field
+from typing import Any, TypeVar
 
 import numpy as np
 
@@ -69,7 +70,7 @@ class OOSFoldResult:
     oos_score: float = 0.0
     train_score: float = 0.0     # in-sample score for comparison
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -86,9 +87,9 @@ class WalkForwardResult:
     mean_oos_expectancy: float = 0.0
     mean_train_score: float = 0.0
     overfit_ratio: float = 0.0    # mean(train_score) / mean(oos_score) — >1 = overfit
-    folds: List[OOSFoldResult] = field(default_factory=list)
+    folds: list[OOSFoldResult] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["folds"] = [f.to_dict() for f in self.folds]
         return d
@@ -104,7 +105,7 @@ def make_expanding_folds(
     min_train: int,
     test_size: int,
     step: int,
-) -> List[tuple[int, int, int, int]]:
+) -> list[tuple[int, int, int, int]]:
     """
     Generate expanding-window fold indices.
 
@@ -120,7 +121,7 @@ def make_expanding_folds(
     if n_items < min_train + test_size:
         return []
 
-    folds: List[tuple[int, int, int, int]] = []
+    folds: list[tuple[int, int, int, int]] = []
     train_end = min_train
 
     while train_end + test_size <= n_items:
@@ -137,7 +138,7 @@ def make_sliding_folds(
     train_size: int,
     test_size: int,
     step: int,
-) -> List[tuple[int, int, int, int]]:
+) -> list[tuple[int, int, int, int]]:
     """
     Generate sliding-window fold indices (fixed train size).
 
@@ -146,7 +147,7 @@ def make_sliding_folds(
     if n_items < train_size + test_size:
         return []
 
-    folds: List[tuple[int, int, int, int]] = []
+    folds: list[tuple[int, int, int, int]] = []
     train_start = 0
 
     while train_start + train_size + test_size <= n_items:
@@ -206,7 +207,7 @@ class WalkForwardCalibrator:
     def run(
         self,
         trades: Sequence[Any],
-        param_candidates: List[float],
+        param_candidates: list[float],
         objective_fn: ObjectiveFn,
         evaluate_fn: EvaluateFn,
         symbol="",
@@ -253,7 +254,7 @@ class WalkForwardCalibrator:
             symbol, n, len(folds), len(param_candidates), self.window_mode,
         )
 
-        fold_results: List[OOSFoldResult] = []
+        fold_results: list[OOSFoldResult] = []
 
         for fold_idx, (tr_start, tr_end, ts_start, ts_end) in enumerate(folds):
             train_slice = trades[tr_start:tr_end]
@@ -326,7 +327,7 @@ class WalkForwardCalibrator:
     def _aggregate(
         self,
         symbol: str,
-        folds: List[OOSFoldResult],
+        folds: list[OOSFoldResult],
     ) -> WalkForwardResult:
         """Aggregate fold results into a single WalkForwardResult."""
 

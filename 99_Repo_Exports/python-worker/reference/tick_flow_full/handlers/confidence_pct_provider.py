@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 """
 Confidence pct provider (0..100) — single hot-path callable.
@@ -52,7 +53,7 @@ def _fallback_pct_from_final_score(final_score: float, *, cap_pct: float) -> flo
 
 
 def build_confidence_pct_fn(
-    calibrator: Optional[Any],
+    calibrator: Any | None,
     *,
     cap_pct: float = 95.0,
 ) -> Callable[[str, str, float, int], float]:
@@ -125,7 +126,7 @@ def build_confidence_pct_fn(
     if callable(m):
         def _call_calibrate(kind: str, symbol: str, final_score: float, ts_ms: int) -> float:
             try:
-                v = m(kind=str(kind or ""), symbol=str(symbol or ""), score=float(final_score), ts_ms=int(ts_ms))
+                v = m(kind=(kind or ""), symbol=(symbol or ""), score=float(final_score), ts_ms=int(ts_ms))
                 return _clamp_pct(v, cap_pct=cap_pct)
             except Exception:
                 return _fallback_pct_from_final_score(final_score, cap_pct=cap_pct)

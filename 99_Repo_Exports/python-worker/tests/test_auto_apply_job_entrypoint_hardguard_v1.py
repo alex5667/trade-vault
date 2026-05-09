@@ -70,7 +70,7 @@ class TestAutoApplyJobEntrypointHardGuard(unittest.TestCase):
 
         rc = sut.main()
         self.assertEqual(rc, 0) # Default skip exit code is 0
-        
+
         # Verify no subprocess run
         # We need to spy on _run_cmd or subprocess.run, but here checking audit stream
         self.redis_mock.xadd.assert_called()
@@ -87,13 +87,13 @@ class TestAutoApplyJobEntrypointHardGuard(unittest.TestCase):
     def test_main_run_ok(self):
         # No block keys
         self.redis_mock.scan.return_value = (0, [])
-        
+
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             mock_run.return_value.stdout = "ok"
             rc = sut.main()
             self.assertEqual(rc, 0)
-            mock_run.assert_called_once()    
+            mock_run.assert_called_once()
 
 if __name__ == "__main__":
     unittest.main()

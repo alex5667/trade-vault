@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for TrailShadowSimulator — virtual P&L A/B test.
 
@@ -8,13 +9,12 @@ These tests use mock data and do NOT require Redis.
 import pytest
 
 from services.trail_shadow_simulator import (
-    simulate_shadow_exit_r,
-    compute_shadow_results,
     ShadowSimResult,
     TrailShadowSimulator,
     _TradeForSim,
+    compute_shadow_results,
+    simulate_shadow_exit_r,
 )
-
 
 # ---------------------------------------------------------------------------
 # simulate_shadow_exit_r (pure function)

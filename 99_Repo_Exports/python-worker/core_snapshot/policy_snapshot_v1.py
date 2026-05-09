@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Policy snapshot for Train==Serve determinism.
 
 Why this file exists:
@@ -13,11 +14,11 @@ Design:
 """
 
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Optional, Tuple
 import hashlib
 import json
 import os
+from dataclasses import asdict, dataclass
+from typing import Any
 
 
 def _as_bool(x: Any, default: bool = False) -> bool:
@@ -105,7 +106,7 @@ class DQThresholdsV1:
     dq_book_seq_ema_alpha: float
 
 
-def resolve_dq_thresholds(cfg2: Dict[str, Any]) -> DQThresholdsV1:
+def resolve_dq_thresholds(cfg2: dict[str, Any]) -> DQThresholdsV1:
     """Resolve effective thresholds.
 
     If project already has core_snapshot.dq_thresholds, prefer it.
@@ -116,7 +117,7 @@ def resolve_dq_thresholds(cfg2: Dict[str, Any]) -> DQThresholdsV1:
 
         eff = resolve_effective_thresholds(cfg2)
         return DQThresholdsV1(
-            dq_mode=str(eff.get("dq_mode", "safe")),
+            dq_mode=(eff.get("dq_mode", "safe")),
             book_stream_interval_ms=int(eff.get("book_stream_interval_ms", 100)),
             dq_gap_soft_ms=int(eff.get("dq_gap_soft_ms", 3000)),
             dq_gap_hard_ms=int(eff.get("dq_gap_hard_ms", 10000)),
@@ -131,7 +132,7 @@ def resolve_dq_thresholds(cfg2: Dict[str, Any]) -> DQThresholdsV1:
     except Exception:
         pass
 
-    dq_mode = str(cfg2.get("dq_mode", cfg2.get("DQ_MODE", "safe")) or "safe").lower()
+    dq_mode = (cfg2.get("dq_mode", cfg2.get("DQ_MODE", "safe")) or "safe").lower()
     if dq_mode not in ("safe", "strict"):
         dq_mode = "safe"
 
@@ -199,11 +200,11 @@ class DQPolicySnapshotV1:
     dq_gate_mode: str
 
 
-def build_dq_policy_snapshot(cfg2: Dict[str, Any]) -> Tuple[DQPolicySnapshotV1, str]:
+def build_dq_policy_snapshot(cfg2: dict[str, Any]) -> tuple[DQPolicySnapshotV1, str]:
     thr = resolve_dq_thresholds(cfg2)
     dq_book_veto_enabled = _as_bool(cfg2.get("dq_book_veto_enabled", cfg2.get("DQ_BOOK_VETO_ENABLED", False)), False)
     dq_observe_only_sec = _as_int(cfg2.get("dq_observe_only_sec", cfg2.get("DQ_OBSERVE_ONLY_SEC", 86400)), 86400)
-    dq_gate_mode = str(cfg2.get("dq_gate_mode", cfg2.get("DQ_GATE_MODE", "off")) or "off").lower()
+    dq_gate_mode = (cfg2.get("dq_gate_mode", cfg2.get("DQ_GATE_MODE", "off")) or "off").lower()
 
     snap = DQPolicySnapshotV1(
         snapshot_version=1,
@@ -242,10 +243,10 @@ def build_feature_manifest_v1(
     meta_schema_name: str,
     meta_schema_version: int,
     meta_schema_hash: str,
-    meta_cols: Tuple[str, ...],
+    meta_cols: tuple[str, ...],
     dq_policy_hash: str,
     thr: DQThresholdsV1,
-) -> Tuple[FeatureManifestV1, str]:
+) -> tuple[FeatureManifestV1, str]:
     cols_hash = stable_hash(list(meta_cols))
     man = FeatureManifestV1(
         manifest_version=1,
@@ -262,7 +263,7 @@ def build_feature_manifest_v1(
     return man, stable_hash(asdict(man))
 
 
-def to_public_dict(obj: Any) -> Dict[str, Any]:
+def to_public_dict(obj: Any) -> dict[str, Any]:
     if hasattr(obj, "__dataclass_fields__"):
         return asdict(obj)
     if isinstance(obj, dict):

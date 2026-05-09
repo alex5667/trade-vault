@@ -5,6 +5,7 @@ import unittest
 
 from common.calibration_store import CalibStore
 from handlers.signal_scoring.score_model import ScoreModel
+import contextlib
 
 
 class DummyCtx:
@@ -34,10 +35,8 @@ class TestCalibStoreSide(unittest.TestCase):
             self.assertIsNotNone(g)
             self.assertAlmostEqual(g.calibrator.predict(1.0), 0.9, places=8)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 os.unlink(path)
-            except Exception:
-                pass
 
     def test_legacy_fallback_without_side(self):
         obj = {
@@ -57,10 +56,8 @@ class TestCalibStoreSide(unittest.TestCase):
             self.assertIsNotNone(g)
             self.assertAlmostEqual(g.calibrator.predict(1.0), 0.7, places=8)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 os.unlink(path)
-            except Exception:
-                pass
 
 
 class TestScoreModelUsesSide(unittest.TestCase):
@@ -99,7 +96,5 @@ class TestScoreModelUsesSide(unittest.TestCase):
         finally:
             os.environ.clear()
             os.environ.update(old)
-            try:
+            with contextlib.suppress(Exception):
                 os.unlink(path)
-            except Exception:
-                pass

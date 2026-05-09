@@ -2,7 +2,6 @@
 
 Exercises both offline (confirmations list) and online (indicators["conf_*"]) paths.
 """
-import pytest
 
 from core.meta_features_v7 import (
     META_FEAT_V7_COLS,
@@ -64,7 +63,7 @@ class TestMeta7Schema:
         expected = hashlib.sha1(
             ",".join(META_FEAT_V7_COLS).encode("utf-8")
         ).hexdigest()
-        assert META_FEAT_V7_HASH == expected
+        assert expected == META_FEAT_V7_HASH
 
 
 class TestMeta7FromStrings:

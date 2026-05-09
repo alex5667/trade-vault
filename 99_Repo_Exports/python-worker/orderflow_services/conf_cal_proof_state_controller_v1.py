@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """conf_cal_proof_state_controller_v1.py
 
 Proof-state controller for calibrated confidence gating (P75+).
@@ -26,13 +27,14 @@ ENV:
   CONF_CAL_PROOF_CANARY_MAX              default 1.00
   CONF_CAL_PROOF_CANARY_BUMP_MIN_SEC     default 1800,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+
 
 def _now_ms() -> int:
     return get_ny_time_millis()
@@ -40,38 +42,38 @@ def _now_ms() -> int:
 def _as_int(x: Any, default: int = 0) -> int:
     try:
         if x is None or isinstance(x, bool):
-            return int(default)
+            return default
         if isinstance(x, (int, float)):
             return int(x)
         if isinstance(x, (bytes, bytearray)):
             x = x.decode("utf-8", "ignore")
         s = str(x).strip()
-        return int(float(s)) if s else int(default)
+        return int(float(s)) if s else default
     except Exception:
-        return int(default)
+        return default
 
 def _as_float(x: Any, default: float = float("nan")) -> float:
     try:
         if x is None or isinstance(x, bool):
-            return float(default)
+            return default
         if isinstance(x, (int, float)):
             return float(x)
         if isinstance(x, (bytes, bytearray)):
             x = x.decode("utf-8", "ignore")
         s = str(x).strip()
-        return float(s) if s else float(default)
+        return float(s) if s else default
     except Exception:
-        return float(default)
+        return default
 
-def _load_json(path: str) -> Optional[Dict[str, Any]]:
+def _load_json(path: str) -> dict[str, Any] | None:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         return obj if isinstance(obj, dict) else None
     except Exception:
         return None
 
-def _write_json_atomic(path: str, d: Dict[str, Any]) -> None:
+def _write_json_atomic(path: str, d: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -80,7 +82,7 @@ def _write_json_atomic(path: str, d: Dict[str, Any]) -> None:
         os.fsync(f.fileno())
     os.replace(tmp, path)
 
-def _nested(d: Dict[str, Any], *keys: str) -> Any:
+def _nested(d: dict[str, Any], *keys: str) -> Any:
     cur: Any = d
     for k in keys:
         if not isinstance(cur, dict):
@@ -88,7 +90,7 @@ def _nested(d: Dict[str, Any], *keys: str) -> Any:
         cur = cur.get(k)
     return cur
 
-def _probe_status_path(reports_dir: str) -> Tuple[str, str]:
+def _probe_status_path(reports_dir: str) -> tuple[str, str]:
     env_path = os.getenv("CONF_CAL_LIVE_STATUS_PATH", "").strip()
     if env_path:
         return env_path, "env"
@@ -126,9 +128,9 @@ class ProofStateController:
                  min_good_runs: int, min_bad_runs: int, max_live_age_sec: int,
                  canary_enable: bool, canary_start: float, canary_step: float,
                  canary_max: float, canary_bump_min_sec: int) -> None:
-        self.reports_dir = str(reports_dir)
-        self.proof_path = str(proof_path)
-        self.state_path = str(state_path)
+        self.reports_dir = reports_dir
+        self.proof_path = proof_path
+        self.state_path = state_path
         self.status_path, self.status_path_reason = _probe_status_path(self.reports_dir)
         self.min_good_runs = max(1, int(min_good_runs))
         self.min_bad_runs = max(1, int(min_bad_runs))
@@ -149,26 +151,26 @@ class ProofStateController:
         self.state.bad_streak = _as_int(st.get("bad_streak", 0), 0)
         self.state.valid = bool(st.get("valid", False))
         self.state.evidence_ts = _as_int(st.get("evidence_ts", 0), 0)
-        self.state.canary_share = float(_as_float(st.get("canary_share", 0.0), 0.0))
+        self.state.canary_share = _as_float(st.get("canary_share", 0.0), 0.0)
         self.state.ramp_started_ts = _as_int(st.get("ramp_started_ts", 0), 0)
         self.state.last_bump_ts = _as_int(st.get("last_bump_ts", 0), 0)
 
     def _save_state(self, now_sec: int) -> None:
         _write_json_atomic(self.state_path, {
-            "ts": int(now_sec),
-            "good_streak": int(self.state.good_streak),
-            "bad_streak": int(self.state.bad_streak),
-            "valid": bool(self.state.valid),
-            "evidence_ts": int(self.state.evidence_ts),
-            "canary_share": float(self.state.canary_share),
-            "ramp_started_ts": int(self.state.ramp_started_ts),
-            "last_bump_ts": int(self.state.last_bump_ts),
-            "status_path": str(self.status_path),
-            "status_path_reason": str(self.status_path_reason),
+            "ts": now_sec,
+            "good_streak": self.state.good_streak,
+            "bad_streak": self.state.bad_streak,
+            "valid": self.state.valid,
+            "evidence_ts": self.state.evidence_ts,
+            "canary_share": self.state.canary_share,
+            "ramp_started_ts": self.state.ramp_started_ts,
+            "last_bump_ts": self.state.last_bump_ts,
+            "status_path": self.status_path,
+            "status_path_reason": self.status_path_reason,
         })
 
-    def _extract_guard_passed(self, status: Dict[str, Any]) -> Optional[bool]:
-        gp = status.get("guard_passed", None)
+    def _extract_guard_passed(self, status: dict[str, Any]) -> bool | None:
+        gp = status.get("guard_passed")
         if isinstance(gp, bool):
             return gp
         gp2 = _nested(status, "guard", "passed")
@@ -179,7 +181,7 @@ class ProofStateController:
             return not gf
         return None
 
-    def _extract_guard_fail(self, status: Dict[str, Any]) -> Optional[bool]:
+    def _extract_guard_fail(self, status: dict[str, Any]) -> bool | None:
         gf = _nested(status, "guard", "fail")
         if isinstance(gf, bool):
             return gf
@@ -190,7 +192,7 @@ class ProofStateController:
             return True
         return None
 
-    def _status_age_sec(self, status: Dict[str, Any], now_ms: int) -> float:
+    def _status_age_sec(self, status: dict[str, Any], now_ms: int) -> float:
         ts_ms = _as_int(status.get("ts_ms", 0), 0)
         if ts_ms > 0:
             return max(0.0, float(now_ms - ts_ms) / 1000.0)
@@ -217,7 +219,7 @@ class ProofStateController:
         self.state.canary_share = float(nxt)
         self.state.last_bump_ts = int(now_sec)
 
-    def step(self, *, now_ms: Optional[int] = None) -> Dict[str, Any]:
+    def step(self, *, now_ms: int | None = None) -> dict[str, Any]:
         now_ms = int(now_ms) if now_ms is not None else _now_ms()
         now_sec = int(now_ms // 1000)
         if not os.path.isfile(self.status_path):
@@ -234,7 +236,7 @@ class ProofStateController:
             self._save_state(now_sec)
             return proof
         skipped = bool(status.get("skipped", False))
-        skip_reason = str(status.get("skip_reason", "") or "").strip()
+        skip_reason = (status.get("skip_reason", "") or "").strip()
         guard_fail = self._extract_guard_fail(status)
         guard_passed = self._extract_guard_passed(status)
         outcome = "neutral"
@@ -273,40 +275,40 @@ class ProofStateController:
             g = status.get("guard") if isinstance(status.get("guard"), dict) else {}
             reasons = g.get("reasons") if isinstance(g, dict) else None
             if isinstance(reasons, list) and reasons:
-                reason = "bad:" + ",".join(str(x) for x in reasons[:3])
+                reason = "bad:" + ",".join(x for x in reasons[:3])
         proof = self._emit_proof(now_sec, reason=reason, status=status, status_age_sec=age_sec,
                                  guard_passed=guard_passed, skipped=skipped, skip_reason=skip_reason)
         self._save_state(now_sec)
         return proof
 
-    def _emit_proof(self, now_sec: int, *, reason: str, status: Optional[Dict[str, Any]],
-                    status_age_sec: Optional[float] = None, guard_passed: Optional[bool] = None,
-                    skipped: bool = False, skip_reason: str = "") -> Dict[str, Any]:
+    def _emit_proof(self, now_sec: int, *, reason: str, status: dict[str, Any] | None,
+                    status_age_sec: float | None = None, guard_passed: bool | None = None,
+                    skipped: bool = False, skip_reason: str = "") -> dict[str, Any]:
         status_ts_ms = _as_int(status.get("ts_ms"), 0) if isinstance(status, dict) else 0
         if status_age_sec is None:
             try:
                 status_age_sec = float(self._status_age_sec(status or {}, int(now_sec * 1000))) if isinstance(status, dict) else float("inf")
             except Exception:
                 status_age_sec = float("inf")
-        proof: Dict[str, Any] = {
-            "ts": int(now_sec),
-            "evidence_ts": int(self.state.evidence_ts),
-            "valid": bool(self.state.valid),
-            "reason": str(reason),
+        proof: dict[str, Any] = {
+            "ts": now_sec,
+            "evidence_ts": self.state.evidence_ts,
+            "valid": self.state.valid,
+            "reason": reason,
             "canary_share": float(_clamp01(float(self.state.canary_share))) if self.state.valid else 0.0,
             "source": {
-                "status_path": str(self.status_path),
-                "status_path_reason": str(self.status_path_reason),
+                "status_path": self.status_path,
+                "status_path_reason": self.status_path_reason,
                 "status_ts_ms": int(status_ts_ms),
                 "status_age_sec": float(status_age_sec),
             },
             "streaks": {"good": int(self.state.good_streak), "bad": int(self.state.bad_streak)},
-            "last": {"guard_passed": guard_passed, "skipped": bool(skipped), "skip_reason": str(skip_reason)},
+            "last": {"guard_passed": guard_passed, "skipped": bool(skipped), "skip_reason": skip_reason},
         }
         _write_json_atomic(self.proof_path, proof)
         return proof
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     reports_dir = os.getenv("CONF_CAL_LIVE_REPORTS_DIR", "/var/lib/trade/of_reports/out/confidence_cal_live")
     proof_path = os.getenv("CONF_CAL_PROOF_STATE_PATH", "/tmp/conf_cal_proof_state.json")
     default_state_path = os.path.join(os.path.dirname(os.path.abspath(proof_path)) or ".", "conf_cal_proof_controller_state.json")
@@ -320,7 +322,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     canary_max = float(os.getenv("CONF_CAL_PROOF_CANARY_MAX", "1.0") or 1.0)
     canary_bump = int(os.getenv("CONF_CAL_PROOF_CANARY_BUMP_MIN_SEC", "1800") or 1800)
     ctl = ProofStateController(
-        reports_dir=str(reports_dir), proof_path=str(proof_path), state_path=str(state_path),
+        reports_dir=reports_dir, proof_path=proof_path, state_path=state_path,
         min_good_runs=min_good, min_bad_runs=min_bad, max_live_age_sec=max_live_age_sec,
         canary_enable=canary_enable, canary_start=canary_start, canary_step=canary_step,
         canary_max=canary_max, canary_bump_min_sec=canary_bump,

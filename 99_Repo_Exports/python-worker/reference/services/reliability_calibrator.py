@@ -1,14 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import time
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from domain.time_utils import normalize_ts_ms, session_from_ts_ms
-
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------------
 # Reliability calibration (conf_pct -> realized hit-rate) per dims:
@@ -81,8 +79,8 @@ def _canon_regime(v: Any) -> str:
     return s if s else "na"
 
 
-def _parse_csv(s: str) -> List[str]:
-    out: List[str] = []
+def _parse_csv(s: str) -> list[str]:
+    out: list[str] = []
     for part in (s or "").split(","):
         p = part.strip().lower()
         if p:
@@ -90,7 +88,7 @@ def _parse_csv(s: str) -> List[str]:
     return out
 
 
-def _parse_nosl_t(outcome: str) -> Optional[int]:
+def _parse_nosl_t(outcome: str) -> int | None:
     """
     Parse "nosl_after_tp1_t{T}" where T is milliseconds integer.
     Examples:
@@ -137,7 +135,7 @@ def _bucket_conf_pct(conf_pct: float, step: int) -> int:
 class RelCalConfig:
     enabled: bool
     prefix: str
-    outcomes: List[str]
+    outcomes: list[str]
     bucket_step_pct: int
     ttl_sec: int
 
@@ -149,7 +147,7 @@ class RelCalConfig:
     use_tf_dim: bool
 
     @staticmethod
-    def from_env() -> "RelCalConfig":
+    def from_env() -> RelCalConfig:
         enabled = _env_bool("REL_CAL_ENABLED", True)
         prefix = (os.getenv("REL_CAL_PREFIX", "relcal") or "relcal").strip()
         # Default implements the pipeline recommendation:
@@ -182,7 +180,7 @@ class RelCalConfig:
         )
 
 
-def _extract_confidence_pct(pos: Dict[str, Any], closed: Dict[str, Any]) -> Optional[float]:
+def _extract_confidence_pct(pos: dict[str, Any], closed: dict[str, Any]) -> float | None:
     """
     Confidence is typically in the original signal payload.
     Your emit protocol uses:
@@ -216,7 +214,7 @@ def _extract_confidence_pct(pos: Dict[str, Any], closed: Dict[str, Any]) -> Opti
     return None
 
 
-def _extract_dims(pos: Dict[str, Any], closed: Dict[str, Any]) -> Tuple[str, str, str, str, str, str, int]:
+def _extract_dims(pos: dict[str, Any], closed: dict[str, Any]) -> tuple[str, str, str, str, str, str, int]:
     """
     Returns:
       kind, symbol, venue, session, tf, regime, entry_ts_ms_norm
@@ -267,7 +265,7 @@ def _extract_dims(pos: Dict[str, Any], closed: Dict[str, Any]) -> Tuple[str, str
     return kind, symbol, venue, session, tf, regime, int(entry_ts)
 
 
-def _compute_hit(outcome: str, pos: Dict[str, Any], closed: Dict[str, Any]) -> bool:
+def _compute_hit(outcome: str, pos: dict[str, Any], closed: dict[str, Any]) -> bool:
     """
     Compute boolean hit for a given outcome.
     Must be deterministic and stable under partial/missing fields (fail-open => False).
@@ -286,7 +284,7 @@ def _compute_hit(outcome: str, pos: Dict[str, Any], closed: Dict[str, Any]) -> b
                 return False
             # We treat "SL after TP1" as the final close bucket being SL.
             # This is a practical proxy; a stricter horizon-based definition can be added later.
-            cr = str(closed.get("close_reason") or "").strip().upper()
+            cr = (closed.get("close_reason") or "").strip().upper()
             return cr != "SL"
 
         # Strict-by-horizon proxy:
@@ -304,7 +302,7 @@ def _compute_hit(outcome: str, pos: Dict[str, Any], closed: Dict[str, Any]) -> b
             tp1 = bool(closed.get("tp1_hit") or pos.get("tp1_hit"))
             if not tp1:
                 return False
-            cr = str(closed.get("close_reason") or "").strip().upper()
+            cr = (closed.get("close_reason") or "").strip().upper()
             if cr == "SL":
                 return False
             tp1_ts = closed.get("tp1_hit_ts_ms") or pos.get("tp1_hit_ts_ms")
@@ -341,10 +339,10 @@ def _build_key(cfg: RelCalConfig, *, outcome: str, kind: str, symbol: str, venue
 def update_reliability_curves(
     redis_client: Any,
     *,
-    cfg: Optional[RelCalConfig] = None,
-    pos: Dict[str, Any],
-    trade_closed: Dict[str, Any],
-    now_ms: Optional[int] = None,
+    cfg: RelCalConfig | None = None,
+    pos: dict[str, Any],
+    trade_closed: dict[str, Any],
+    now_ms: int | None = None,
 ) -> None:
     """
     Fail-open writer:

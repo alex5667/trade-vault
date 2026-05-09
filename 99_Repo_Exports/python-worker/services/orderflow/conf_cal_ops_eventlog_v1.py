@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -14,8 +15,7 @@ Fail-open: if redis not installed or connection missing, no crash.
 
 import json
 import logging
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 try:
     import redis
@@ -40,17 +40,17 @@ def write_stream_event(
     *,
     stream_key: str,
     event_type: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     run_id: str = "",
     maxlen: int = 10000,
-) -> Optional[str]:
+) -> str | None:
     if not r:
         return None
     try:
-        fields: Dict[str, Any] = {
+        fields: dict[str, Any] = {
             "ts_ms": now_ms(),
             "event": str(event_type),
-            "run_id": str(run_id or ""),
+            "run_id": (run_id or ""),
         }
         for k, v in (payload or {}).items():
             fields[str(k)] = _encode(v)
@@ -66,13 +66,13 @@ def publish_event(
     *,
     channel: str,
     event_type: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     run_id: str = "",
 ) -> None:
     if not r:
         return
     try:
-        obj = {"ts_ms": now_ms(), "event": str(event_type), "run_id": str(run_id or ""), "payload": payload}
+        obj = {"ts_ms": now_ms(), "event": str(event_type), "run_id": (run_id or ""), "payload": payload}
         r.publish(channel, json.dumps(obj, ensure_ascii=False))
     except Exception as e:
         logger.warning("Failed to publish event %s: %s", event_type, e)

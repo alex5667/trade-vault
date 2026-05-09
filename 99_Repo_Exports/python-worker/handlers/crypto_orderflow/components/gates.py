@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional, Tuple
+from typing import Any
 
-from common.dq_flags import append_dq_flag
 from common.ctx_cache import cached_on_ctx
-from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
+from common.dq_flags import append_dq_flag
 from handlers.crypto_orderflow.utils.edge_cost_gate import EdgeCostGate
+from handlers.crypto_orderflow.utils.entry_policy_gate import EntryPolicyGate
 from handlers.crypto_orderflow.utils.pre_publish_gates import GateDecision
+import contextlib
 
 log = logging.getLogger(__name__)
 
@@ -31,10 +32,8 @@ except Exception:  # pragma: no cover
 def _record_gate_error(gate: str, reason: str) -> None:
     """Increment gates_error_total counter, fail-open if metrics unavailable."""
     if _GATES_METRICS:
-        try:
+        with contextlib.suppress(Exception):
             _GATES_ERROR.labels(gate=gate, reason=reason).inc()
-        except Exception:
-            pass
 
 class CryptoSignalGates:
     """
@@ -47,8 +46,8 @@ class CryptoSignalGates:
 
     def __init__(
         self,
-        entry_policy: Optional[EntryPolicyGate],
-        cost_gate: Optional[EdgeCostGate],
+        entry_policy: EntryPolicyGate | None,
+        cost_gate: EdgeCostGate | None,
         consistency_gate: Any = None,
         regime_liquidity_gate: Any = None,
         smt_gate: Any = None,
@@ -64,7 +63,7 @@ class CryptoSignalGates:
         def _csv(name: str) -> set[str]:
             v = (os.getenv(name, "") or "").strip().lower()
             return {x.strip() for x in v.split(",") if x.strip()}
-        
+
         self._regime_breakout_block = _csv("REGIME_GATE_BREAKOUT_BLOCK")
         self._regime_extreme_block = _csv("REGIME_GATE_EXTREME_BLOCK")
 
@@ -93,7 +92,7 @@ class CryptoSignalGates:
         try:
             # Extract args from ctx or payload
             sym = str(getattr(ctx, "symbol", "") or "").strip().upper()
-            kind = str(payload.get("kind", "") or "custom")
+            kind = (payload.get("kind", "") or "custom")
             return self._entry_policy.evaluate(ctx=ctx, symbol=sym, kind=kind)
         except Exception as e:
             log.exception("check_entry_policy failed, fail-open: %s", e)
@@ -112,11 +111,11 @@ class CryptoSignalGates:
         if not callable(fn):
             return type("QD", (), {"apply": False, "veto": False, "reason_code": "OK", "notes": "no_gate"})()
 
-        key = (str(symbol), str(kind), str(side))
+        key = (symbol, str(kind), side)
 
         def _compute():
             try:
-                return fn(ctx=ctx, symbol=str(symbol), kind=str(kind), side=str(side))
+                return fn(ctx=ctx, symbol=symbol, kind=str(kind), side=side)
             except Exception as exc:
                 # fail-open: explicitly mark as FAIL_OPEN so downstream telemetry
                 # can distinguish real OK from degraded pass-through (P1.3)
@@ -137,7 +136,7 @@ class CryptoSignalGates:
         if gate is None:
             return None
 
-        key = (str(kind), str(symbol), str(side))
+        key = (str(kind), symbol, side)
 
         def _compute():
             try:
@@ -151,13 +150,13 @@ class CryptoSignalGates:
 
         return cached_on_ctx(ctx, slot="_cache_edge_cost", key=key, compute=_compute)
 
-    def _mark_dq(self, ctx: Any, flag: str, exc: Optional[Exception] = None) -> None:
+    def _mark_dq(self, ctx: Any, flag: str, exc: Exception | None = None) -> None:
         """Append a DQ flag to ctx and optionally log the originating exception."""
         if exc is not None:
             log.debug("_mark_dq %s: %s", flag, exc)
         append_dq_flag(ctx, flag)
 
-    def check_regime_gate(self, ctx: Any, kind: str) -> Tuple[bool, str]:
+    def check_regime_gate(self, ctx: Any, kind: str) -> tuple[bool, str]:
         """
         Step 2: Strict regime gate (configured via ENV).
 
@@ -171,7 +170,7 @@ class CryptoSignalGates:
             try:
                 if isinstance(v, str):
                     return v.lower()
-                return str(v or "").lower()
+                return (v or "").lower()
             except Exception:
                 return ""
 
@@ -197,7 +196,7 @@ class CryptoSignalGates:
         # Determine direction from side
         # Side can be int (1/-1) or str ("LONG"/"SHORT"/"BUY"/"SELL")
         try:
-            s = str(side).upper()
+            s = side.upper()
             if s in {"1", "BUY", "LONG"}:
                 direction = "UP"
             elif s in {"-1", "SELL", "SHORT"}:

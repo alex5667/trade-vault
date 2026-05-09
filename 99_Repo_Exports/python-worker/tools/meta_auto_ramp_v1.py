@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Meta auto-ramp / freeze controller (P5).
 
@@ -16,41 +16,40 @@ Safety:
 This script is designed to be run from cron/systemd timer.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 
-def _load_json(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def _load_json(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
 def _safe_float(x: Any, default: float = 0.0) -> float:
     try:
         if x is None:
-            return float(default)
+            return default
         return float(x)
     except Exception:
-        return float(default)
+        return default
 
 
 def _safe_int(x: Any, default: int = 0) -> int:
     try:
         if x is None:
-            return int(default)
+            return default
         return int(x)
     except Exception:
-        return int(default)
+        return default
 
 
 @dataclass
@@ -62,7 +61,7 @@ class RampDecision:
     good_streak: int
     bad_streak: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "decision": self.decision,
             "reason": self.reason,
@@ -73,7 +72,7 @@ class RampDecision:
         }
 
 
-def _pick_bucket(args: argparse.Namespace, report: Dict[str, Any]) -> str:
+def _pick_bucket(args: argparse.Namespace, report: dict[str, Any]) -> str:
     if args.bucket:
         return str(args.bucket)
     # try infer from report meta
@@ -82,7 +81,7 @@ def _pick_bucket(args: argparse.Namespace, report: Dict[str, Any]) -> str:
     return str(b)
 
 
-def _extract_metrics(report: Dict[str, Any]) -> Dict[str, float]:
+def _extract_metrics(report: dict[str, Any]) -> dict[str, float]:
     # Try "metrics" sub-dict first (P4b), else fallback to top-level (legacy P4)
     metrics = report.get("metrics", {}) if isinstance(report.get("metrics"), dict) else report
     return {
@@ -94,7 +93,7 @@ def _extract_metrics(report: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
-def _extract_counts(report: Dict[str, Any]) -> Tuple[int, int, int]:
+def _extract_counts(report: dict[str, Any]) -> tuple[int, int, int]:
     # Try "counts" sub-dict first (P4b), else fallback to top-level (legacy P4)
     counts = report.get("counts", {}) if isinstance(report.get("counts"), dict) else report
     n = _safe_int(counts.get("n"), 0)
@@ -104,7 +103,7 @@ def _extract_counts(report: Dict[str, Any]) -> Tuple[int, int, int]:
 
 
 def decide_ramp(
-    report: Dict[str, Any],
+    report: dict[str, Any],
     prev_share: float,
     good_streak: int,
     bad_streak: int,
@@ -207,7 +206,7 @@ def _redis_connect(redis_url: str):
     return redis.Redis.from_url(redis_url, decode_responses=True)
 
 
-def _dyn_read(r, dyn_key: str) -> Dict[str, str]:
+def _dyn_read(r, dyn_key: str) -> dict[str, str]:
     try:
         d = r.hgetall(dyn_key) or {}
         if not isinstance(d, dict):
@@ -217,7 +216,7 @@ def _dyn_read(r, dyn_key: str) -> Dict[str, str]:
         return {}
 
 
-def _dyn_write(r, dyn_key: str, updates: Dict[str, Any]) -> None:
+def _dyn_write(r, dyn_key: str, updates: dict[str, Any]) -> None:
     # Store as strings (loader in runtime should parse numbers if needed)
     mapping = {str(k): (json.dumps(v) if isinstance(v, (dict, list)) else str(v)) for k, v in updates.items()}
     r.hset(dyn_key, mapping=mapping)
@@ -272,7 +271,7 @@ def main() -> None:
     bad_streak = 0
 
     # If apply, read previous state from Redis
-    dyn: Dict[str, str] = {}
+    dyn: dict[str, str] = {}
     if args.apply:
         r = _redis_connect(args.redis_url)
         dyn = _dyn_read(r, args.dyn_key)
@@ -287,7 +286,7 @@ def main() -> None:
     # We check if meta_guard_freeze is set in dyn cfg (populated by meta_guardrails_v1.py)
     guard_freeze = _safe_int(dyn.get("meta_guard_freeze"), 0)
     guard_reason = dyn.get("meta_guard_reason", "unknown")
-    
+
     # Emergency override
     ignore_guard = int(os.getenv("META_RAMP_IGNORE_GUARD", "0")) or (1 if args.apply and int(dyn.get("meta_ramp_ignore_guard", "0")) else 0)
 

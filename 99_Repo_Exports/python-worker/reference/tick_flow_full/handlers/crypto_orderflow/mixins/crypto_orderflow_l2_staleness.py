@@ -1,18 +1,16 @@
 from __future__ import annotations
+
 """
 L2 Staleness logic for CryptoOrderFlowHandler.
 
 This module contains all L2 staleness detection and quality flag management.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import os
-import time
-from typing import Any, Optional, Tuple
+from typing import Any
 
 # Import L2 staleness helper functions (these would need to be extracted)
-from handlers.crypto_orderflow.logging.logging_utils import _ctx_quality_flags
+from utils.time_utils import get_ny_time_millis
 
 
 class CryptoOrderFlowL2StalenessMixin:
@@ -32,7 +30,7 @@ class CryptoOrderFlowL2StalenessMixin:
         # fail-open: создаём список
         flags: list[str] = []
         try:
-            setattr(ctx, "data_quality_flags", flags)
+            ctx.data_quality_flags = flags
         except Exception:
             pass
         return flags
@@ -53,7 +51,7 @@ class CryptoOrderFlowL2StalenessMixin:
                 pass
         return None
 
-    def _mark_l2_staleness(self, *, ctx: Any, kind: str) -> Tuple[bool, Optional[int]]:
+    def _mark_l2_staleness(self, *, ctx: Any, kind: str) -> tuple[bool, int | None]:
         """
         Возвращает (stale_or_missing, age_ms).
         Также:
@@ -79,7 +77,7 @@ class CryptoOrderFlowL2StalenessMixin:
 
         max_age = self._l2_max_stale_ms()
         stale = False
-        age_ms: Optional[int] = None
+        age_ms: int | None = None
 
         # Use helper functions for staleness detection
         # These would need to be imported or defined
@@ -92,7 +90,7 @@ class CryptoOrderFlowL2StalenessMixin:
                 if ts_ms is not None:
                     age_ms = now_ms - int(ts_ms)
                     try:
-                        setattr(ctx, "l2_age_ms", int(age_ms))
+                        ctx.l2_age_ms = int(age_ms)
                     except Exception:
                         pass
             if _is_stale is not None:

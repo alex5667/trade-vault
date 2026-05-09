@@ -5,8 +5,8 @@
 и возвращает среднее значение диапазона, когда данных достаточно.
 """
 
-from utils.candle_utils import average
 from core.config import RANGE_EVAL_WINDOW
+from utils.candle_utils import average
 
 
 def update_and_check_history(history, value=None, update=True, eval_window=RANGE_EVAL_WINDOW):
@@ -55,4 +55,4 @@ def update_and_check_history(history, value=None, update=True, eval_window=RANGE
 
     # Вычисляем среднее
     avg_range = average(valid)
-    return max(0.00000001, avg_range) 
+    return max(0.00000001, avg_range)

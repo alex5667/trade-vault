@@ -1,4 +1,5 @@
 import math
+
 from common.safe_numbers import safe_float, safe_isfinite
 
 

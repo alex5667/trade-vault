@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P3 — Strict modify/resize protection-replace invariant tests.
 
 Tests:
@@ -13,14 +14,15 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import pytest
+from core.redis_keys import RedisStreams as RS
+
 
 # --- Env setup before module import ---
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
@@ -41,10 +43,10 @@ spec.loader.exec_module(mod)
 
 class FakeRedis:
     def __init__(self):
-        self.store: Dict[str, str] = {}
+        self.store: dict[str, str] = {}
         self.stream: list = []
 
-    def get(self, key: str) -> Optional[bytes]:
+    def get(self, key: str) -> bytes | None:
         v = self.store.get(key)
         return v.encode() if v else None
 
@@ -71,14 +73,14 @@ class FakeClient:
         *,
         position_amt: float = 0.01,
         inspect_complete: bool = True,
-        inspect_missing: Optional[List[str]] = None,
-        inspect_mismatched: Optional[List[str]] = None,
+        inspect_missing: list[str] | None = None,
+        inspect_mismatched: list[str] | None = None,
     ):
         self._position_amt = position_amt
         self._inspect_complete = inspect_complete
         self._inspect_missing = inspect_missing or []
         self._inspect_mismatched = inspect_mismatched or []
-        self.calls: List[tuple] = []
+        self.calls: list[tuple] = []
 
     @staticmethod
     def _build_client_algo_id(sid: str, tag: str) -> str:
@@ -88,13 +90,13 @@ class FakeClient:
         base = base[: max(6, 36 - (len(tag) + len(token) + 2))]
         return f"{base}-{token}-{tag}"[:36]
 
-    def get_position_risk(self) -> List[Dict[str, Any]]:
+    def get_position_risk(self) -> list[dict[str, Any]]:
         self.calls.append(("get_position_risk",))
         return [
             {"symbol": "BTCUSDT", "positionAmt": str(self._position_amt)}
         ]
 
-    def cancel_algo_order(self, symbol: str, **kwargs) -> Dict[str, Any]:
+    def cancel_algo_order(self, symbol: str, **kwargs) -> dict[str, Any]:
         self.calls.append(("cancel_algo_order", symbol, kwargs))
         return {"status": "CANCELED"}
 
@@ -114,12 +116,12 @@ class FakeClient:
         symbol: str,
         sid: str,
         expected_sl: bool = True,
-        expected_tps: Optional[List[float]] = None,
+        expected_tps: list[float] | None = None,
         trail_expected: bool = False,
-        expected_sl_price: Optional[float] = None,
-        expected_tp_prices: Optional[List[float]] = None,
+        expected_sl_price: float | None = None,
+        expected_tp_prices: list[float] | None = None,
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         self.calls.append(("inspect_protection_set", symbol, sid))
         return {
             "is_complete": self._inspect_complete,
@@ -136,7 +138,7 @@ def _mk_executor(*, position_amt: float = 0.01, inspect_complete: bool = True, *
     """Build a minimal BinanceExecutor stub for P3 tests."""
     ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
     ex.r = FakeRedis()
-    ex.exec_stream = "orders:exec"
+    ex.exec_stream = RS.ORDERS_EXEC
     ex.orders_state_prefix = "orders:state:"
     ex.orders_state_ttl = 86400
     ex.allowlist = {"BTCUSDT", "ETHUSDT"}
@@ -281,7 +283,7 @@ def test_handle_modify_uses_state_protection_when_payload_omits_levels():
         "trail_after_tp1_requested": False,
     }
 
-    called_with: Dict[str, Any] = {}
+    called_with: dict[str, Any] = {}
 
     original_replace = ex._replace_position_protection
 

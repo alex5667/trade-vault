@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
 def _safe_inc(metrics: Any, name: str, n: int = 1) -> None:
@@ -22,7 +21,7 @@ def _safe_inc(metrics: Any, name: str, n: int = 1) -> None:
         return
 
 
-def _safe_quarantine_push(quarantine: Any, reason: str, data: Dict[str, Any]) -> None:
+def _safe_quarantine_push(quarantine: Any, reason: str, data: dict[str, Any]) -> None:
     try:
         if quarantine is None:
             return
@@ -45,7 +44,7 @@ def compute_hold_ms_with_quarantine(
     metrics: Any = None,
     max_back_ms: int = 0,
     unit_mismatch_guard: bool = True,
-) -> Tuple[int, bool]:
+) -> tuple[int, bool]:
     """
     Контракт:
       - всегда возвращаем hold_ms >= 0
@@ -131,7 +130,7 @@ def normalize_close_bucket(
     return cr
 
 
-def extract_tp_flags_from_pos(pos: Any) -> Dict[str, Any]:
+def extract_tp_flags_from_pos(pos: Any) -> dict[str, Any]:
     return {
         "tp1_hit": bool(getattr(pos, "tp1_hit", False)),
         "tp2_hit": bool(getattr(pos, "tp2_hit", False)),
@@ -154,7 +153,7 @@ def compute_baseline_pnl_net_usd(
 ) -> float:
     sign = 1.0 if bool(is_long) else -1.0
     cs = float(contract_size) if float(contract_size) != 0.0 else 1.0
-    gross = (float(baseline_exit_price) - float(entry_price)) * sign * float(lot) * cs
+    gross = (float(baseline_exit_price) - float(entry_price)) * sign * lot * cs
     return float(gross) - float(fees_usd)
 
 
@@ -165,7 +164,7 @@ def clamp_one_r_money(
     min_risk_usd: float,
     fees_risk_mult: float,
     metrics: Any = None,
-) -> Tuple[float, bool]:
+) -> tuple[float, bool]:
     """
     one_r_money — ден. риск на 1R. Если он слишком мал, R-метрики становятся мусорными.
     Clamp: one_r_eff >= max(min_risk_usd, fees_usd * fees_risk_mult)

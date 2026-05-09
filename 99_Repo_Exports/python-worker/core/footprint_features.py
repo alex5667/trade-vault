@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Dict, Tuple, Any, List
 import math
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -13,9 +13,9 @@ def _f(x: Any, d: float = 0.0) -> float:
 
 
 def compute_bucket_stats(
-    m: Dict[int, Tuple[float, float]],
+    m: dict[int, tuple[float, float]],
     eps: float,
-) -> Tuple[List[int], Dict[int, Dict[str, float]]]:
+) -> tuple[list[int], dict[int, dict[str, float]]]:
     """
     m: bucket_id -> (buy, sell)
     returns:
@@ -23,8 +23,8 @@ def compute_bucket_stats(
       stats[bucket_id] = {buy, sell, total, delta, imb_frac, imb_ratio, dom}
         dom: +1 if buy>sell, -1 if sell>buy, 0 if equal
     """
-    keys = sorted(int(k) for k in m.keys())
-    st: Dict[int, Dict[str, float]] = {}
+    keys = sorted(int(k) for k in m)
+    st: dict[int, dict[str, float]] = {}
     for k in keys:
         buy = _f(m.get(k, (0.0, 0.0))[0], 0.0)
         sell = _f(m.get(k, (0.0, 0.0))[1], 0.0)
@@ -51,12 +51,12 @@ def compute_bucket_stats(
 
 
 def compute_edge_ladders(
-    keys: List[int],
-    st: Dict[int, Dict[str, float]],
+    keys: list[int],
+    st: dict[int, dict[str, float]],
     *,
     ratio_th: float,
     edge_buckets: int,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """
     Edge ladders:
       low edge: consecutive SELL-dominant buckets from the very low (dom=-1) with imb_ratio>=ratio_th
@@ -100,9 +100,9 @@ def compute_edge_ladders(
 
 
 def compute_poc(
-    keys: List[int],
-    st: Dict[int, Dict[str, float]],
-) -> Tuple[int, float]:
+    keys: list[int],
+    st: dict[int, dict[str, float]],
+) -> tuple[int, float]:
     """
     POC bucket = bucket with max total volume.
     Returns: (poc_bucket_id, poc_total)
@@ -122,9 +122,9 @@ def compute_poc(
 def poc_on_edge(
     *,
     poc_bucket: int,
-    keys: List[int],
+    keys: list[int],
     edge_tol_buckets: int,
-) -> Tuple[int, str]:
+) -> tuple[int, str]:
     """
     Returns: (poc_on_edge(0/1), edge_side "LOW"/"HIGH"/"NONE")
     """

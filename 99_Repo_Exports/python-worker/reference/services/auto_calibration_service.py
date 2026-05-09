@@ -3,19 +3,17 @@ from __future__ import annotations
 import json
 import os
 import threading
-from dataclasses import asdict
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 
 import psycopg2
 import psycopg2.extras
 import redis
 
+from common.log import setup_logger
 from tools.trailing_tp1_calibration import (
     calibrate_trailing_offset,
 )
-from common.log import setup_logger
 
 logger = setup_logger("AutoCalibrationService")
 
@@ -24,16 +22,16 @@ logger = setup_logger("AutoCalibrationService")
 class SymbolConfig:
     source: str
     symbol: str
-    offsets: List[float]
+    offsets: list[float]
     limit_trades: int = 300          # сколько последних сделок брать в калибровку
     min_total_trades: int = 100      # минимум сделок для старта калибровки
     min_new_trades: int = 30         # минимум новых сделок с прошлого запуска
     use_mfe_exit: bool = False       # использовать ли MFE-выход в симуляции
 
 
-def _parse_float_list(s: str, default: List[float]) -> List[float]:
+def _parse_float_list(s: str, default: list[float]) -> list[float]:
     try:
-        out: List[float] = []
+        out: list[float] = []
         for part in (s or "").split(","):
             part = part.strip()
             if not part:
@@ -61,7 +59,7 @@ class AutoCalibrationService:
         self,
         dsn: str,
         redis_url: str,
-        symbols: List[SymbolConfig],
+        symbols: list[SymbolConfig],
     ) -> None:
         self._dsn = dsn
         self._redis = redis.Redis.from_url(redis_url, decode_responses=True)
@@ -93,7 +91,7 @@ class AutoCalibrationService:
         conn,
         cfg: SymbolConfig,
         last_max_trade_id: int,
-    ) -> Tuple[int, int, int]:
+    ) -> tuple[int, int, int]:
         """
         Возвращает (max_id, total_cnt, new_cnt) по сделкам с tp1_hit=TRUE.
         new_cnt — сколько сделок с id > last_max_trade_id.
@@ -243,7 +241,7 @@ class AutoCalibrationService:
         # сохраняем состояние
         new_state = {
             "last_max_trade_id": max_id,
-            "last_run_ts": datetime.now(timezone.utc).isoformat(),
+            "last_run_ts": datetime.now(UTC).isoformat(),
             "last_offset_mult": float(best_stats.offset_mult),
             "total_cnt": total_cnt,
             "new_cnt": new_cnt,
@@ -271,7 +269,7 @@ class AutoCalibrationService:
 
 # ----- Пример настройки и запуска -----
 
-def _build_default_symbols() -> List[SymbolConfig]:
+def _build_default_symbols() -> list[SymbolConfig]:
     """
     Пример: ETH и BTC с разными диапазонами offset_mult.,
     Подправь под свои символы.,
@@ -299,14 +297,14 @@ def _build_default_symbols() -> List[SymbolConfig]:
 
 
 # Global service instance
-_auto_calibration_service: Optional[AutoCalibrationService] = None
+_auto_calibration_service: AutoCalibrationService | None = None
 _auto_calibration_lock = threading.Lock()
 _auto_calibration_inited: bool = False
 _auto_calibration_cfg: dict = {}
 _auto_calibration_lock = threading.Lock()
 
 
-def _normalize_enabled_symbols(items: List[str]) -> Optional[set[str]]:
+def _normalize_enabled_symbols(items: list[str]) -> set[str] | None:
     """
     Returns:
       - None => means "all symbols enabled" (e.g. items empty or contains '*')
@@ -343,7 +341,7 @@ def get_auto_calibration_service() -> AutoCalibrationService:
     return _auto_calibration_service
 
 
-def init_auto_calibration(trades_threshold: int, enabled_symbols: List[str], source: str) -> None:
+def init_auto_calibration(trades_threshold: int, enabled_symbols: list[str], source: str) -> None:
     """
     Initialize auto calibration service for trade monitor runner.
     Creates/configures singleton AutoCalibrationService instance.
@@ -356,7 +354,7 @@ def init_auto_calibration(trades_threshold: int, enabled_symbols: List[str], sou
 
     with _auto_calibration_lock:
         thr = int(trades_threshold or 0)
-        src = str(source or "").strip()
+        src = (source or "").strip()
         enabled = _normalize_enabled_symbols(enabled_symbols)
 
         if thr <= 0:
@@ -376,7 +374,7 @@ def init_auto_calibration(trades_threshold: int, enabled_symbols: List[str], sou
             return
 
         base = _build_default_symbols()
-        selected: List[SymbolConfig] = []
+        selected: list[SymbolConfig] = []
         for cfg in base:
             if src and cfg.source != src:
                 continue

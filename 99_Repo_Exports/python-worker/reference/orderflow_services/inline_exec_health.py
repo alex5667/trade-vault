@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Inline execution-health state for hot/warm path feedback.
@@ -48,9 +49,9 @@ The module is intentionally fail-open: malformed values simply skip updates.
 
 import json
 import math
-import time
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 from services.posttrade.tca_math import implementation_shortfall_bps
 
@@ -63,10 +64,10 @@ def _s(v: Any, default: str = "") -> str:
     try:
         if isinstance(v, (bytes, bytearray)):
             v = v.decode("utf-8", "replace")
-        s = str(v or "").strip()
-        return s if s else str(default)
+        s = (v or "").strip()
+        return s if s else default
     except Exception:
-        return str(default)
+        return default
 
 
 def _f(v: Any, default: float = float("nan")) -> float:
@@ -75,9 +76,9 @@ def _f(v: Any, default: float = float("nan")) -> float:
             v = v.decode("utf-8", "replace")
         x = float(v)
     except Exception:
-        return float(default)
+        return default
     if not math.isfinite(x):
-        return float(default)
+        return default
     return float(x)
 
 
@@ -87,7 +88,7 @@ def _i(v: Any, default: int = 0) -> int:
             v = v.decode("utf-8", "replace")
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _decode(v: Any) -> str:
@@ -125,7 +126,7 @@ class InlineExecDims:
     kind: str
     tf: str
 
-    def norm(self) -> "InlineExecDims":
+    def norm(self) -> InlineExecDims:
         return InlineExecDims(
             symbol=_s(self.symbol).upper(),
             side=_side(self.side),
@@ -178,7 +179,7 @@ def _ema_from_ordered(vals: Sequence[float], *, alpha: float) -> float:
     return float(ema)
 
 
-def _json_load(v: Any) -> Dict[str, Any]:
+def _json_load(v: Any) -> dict[str, Any]:
     try:
         raw = _decode(v)
         obj = json.loads(raw)
@@ -189,11 +190,11 @@ def _json_load(v: Any) -> Dict[str, Any]:
     return {}
 
 
-def _json_dump(v: Dict[str, Any]) -> str:
+def _json_dump(v: dict[str, Any]) -> str:
     return json.dumps(v, separators=(",", ":"), sort_keys=True)
 
 
-def inline_is_from_cumulative_state(*, decision_mid: float, side: str, cum_notional: float, cum_qty: float, cum_fee_usd: float) -> Optional[float]:
+def inline_is_from_cumulative_state(*, decision_mid: float, side: str, cum_notional: float, cum_qty: float, cum_fee_usd: float) -> float | None:
     """Compute cumulative VWAP-based IS from a partially filled entry order.
 
     ``implementation_shortfall_bps`` expects fill VWAP and fee_bps. We derive the
@@ -237,7 +238,7 @@ async def update_inline_exec_from_fill(
     ttl_sec: int = 86_400,
     max_samples: int = 128,
     ema_alpha: float = 0.2,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Update bounded Redis state from one entry fill and return current rollup.
 
     The function is safe to call repeatedly for partial fills of the same sid.
@@ -258,7 +259,7 @@ async def update_inline_exec_from_fill(
 
     sid_key = make_sid_state_key(sid_s)
     state_raw = await redis.hgetall(sid_key)
-    state: Dict[str, Any] = {_decode(k): _decode(v) for k, v in (state_raw or {}).items()}
+    state: dict[str, Any] = {_decode(k): _decode(v) for k, v in (state_raw or {}).items()}
 
     cum_qty = _f(state.get("cum_qty"), 0.0) + float(qty)
     cum_notional = _f(state.get("cum_notional"), 0.0) + (float(px) * float(qty))
@@ -318,7 +319,7 @@ async def update_inline_exec_from_fill(
             await redis.hdel(samples_key, *old)
 
     ids = await redis.zrange(index_key, 0, -1)
-    series: List[Tuple[int, float]] = []
+    series: list[tuple[int, float]] = []
     for raw_sid in ids or []:
         raw = await redis.hget(samples_key, raw_sid)
         obj = _json_load(raw)
@@ -357,7 +358,7 @@ async def update_inline_exec_from_fill(
     return {k: float(v) if isinstance(v, (int, float)) else v for k, v in stats.items()}  # type: ignore[return-value]
 
 
-def _try_hash(redis_client: Any, key: str) -> Dict[str, Any]:
+def _try_hash(redis_client: Any, key: str) -> dict[str, Any]:
     try:
         d = redis_client.hgetall(key) or {}
         return {_decode(k): _decode(v) for k, v in dict(d).items()}
@@ -374,7 +375,7 @@ def read_inline_exec_rollup_sync(
     kind: str,
     tf: str,
     min_count: int = 1,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Read latest inline IS rollup using session-aware key with aggregate fallback."""
     if redis_client is None:
         return {}
@@ -391,7 +392,7 @@ def read_inline_exec_rollup_sync(
         p50 = _f(d.get("p50_bps"))
         ema = _f(d.get("ema_bps"))
         upd = _i(d.get("updated_at_ms"), 0)
-        out: Dict[str, float] = {}
+        out: dict[str, float] = {}
         if math.isfinite(ema):
             out["ema_bps"] = float(ema)
         if math.isfinite(p50):
@@ -415,7 +416,7 @@ def read_perm_impact_rollup_sync(
     tf: str,
     venue: str = "binance",
     delta_sec: int = 1,
-) -> Optional[float]:
+) -> float | None:
     """Read post-trade permanent impact p95 from canonical TCA Redis keys."""
     if redis_client is None:
         return None

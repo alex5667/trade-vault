@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ATR Policy Flip-Storm Guard — Phase 3.8 (Disaster Layer).
 
 Detects when a single cohort receives too many APPROVE/REVOKE state changes
@@ -24,7 +25,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -81,14 +82,14 @@ def _threshold() -> int:
         return 3
 
 
-def _publish(r: redis.Redis, payload: Dict[str, Any]) -> None:
+def _publish(r: redis.Redis, payload: dict[str, Any]) -> None:
     try:
         r.xadd(STREAM_ESC, {k: str(v) for k, v in payload.items()}, maxlen=2000)
     except Exception as exc:
         logger.warning("flip_storm_guard: stream publish failed: %s", exc)
 
 
-def _kill_switch_key(cohort: Dict[str, Any]) -> str:
+def _kill_switch_key(cohort: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:kill_switch:"
         f"{cohort['source']}:{cohort['symbol']}:{cohort['scenario']}:"
@@ -96,7 +97,7 @@ def _kill_switch_key(cohort: Dict[str, Any]) -> str:
     )
 
 
-def _arm_kill_switch(r: redis.Redis, cohort: Dict[str, Any], reason_code: str, now_ms: int) -> None:
+def _arm_kill_switch(r: redis.Redis, cohort: dict[str, Any], reason_code: str, now_ms: int) -> None:
     ks_key = _kill_switch_key(cohort)
     payload = {
         "enabled": True,
@@ -111,7 +112,7 @@ def _arm_kill_switch(r: redis.Redis, cohort: Dict[str, Any], reason_code: str, n
 
 # ── Core ──────────────────────────────────────────────────────────────────────
 
-def detect_storm_cohorts() -> List[Dict[str, Any]]:
+def detect_storm_cohorts() -> list[dict[str, Any]]:
     """
     Query audit table for cohorts with >= threshold flip actions in 24h.
 
@@ -158,7 +159,7 @@ def detect_storm_cohorts() -> List[Dict[str, Any]]:
         conn.close()
 
 
-def run_guard_once(r: Optional[redis.Redis] = None) -> List[Dict[str, Any]]:
+def run_guard_once(r: redis.Redis | None = None) -> list[dict[str, Any]]:
     """
     Detect flip storms and arm kill_switch for each offending cohort.
 
@@ -172,18 +173,18 @@ def run_guard_once(r: Optional[redis.Redis] = None) -> List[Dict[str, Any]]:
     advisory = _advisory_only()
 
     storm_cohorts = detect_storm_cohorts()
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     for cohort in storm_cohorts:
         flip_count = int(cohort.get("flips_24h", 0))
         c_flip_storm_total.labels(action="detected").inc()
 
         cohort_key = {
-            "source": str(cohort.get("source", "")),
-            "symbol": str(cohort.get("symbol", "")),
-            "scenario": str(cohort.get("scenario", "")),
-            "regime": str(cohort.get("regime", "")),
-            "risk_horizon_bucket": str(cohort.get("risk_horizon_bucket", "")),
+            "source": (cohort.get("source", "")),
+            "symbol": (cohort.get("symbol", "")),
+            "scenario": (cohort.get("scenario", "")),
+            "regime": (cohort.get("regime", "")),
+            "risk_horizon_bucket": (cohort.get("risk_horizon_bucket", "")),
         }
 
         reason_code = "FLIP_STORM_KILL_SWITCH"

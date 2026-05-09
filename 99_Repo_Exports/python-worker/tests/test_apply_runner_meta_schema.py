@@ -1,6 +1,4 @@
 
-import json
-from unittest.mock import MagicMock
 
 def test_meta_schema_compatibility():
     # Simulate what ABWinnerSuggesterLCB produces
@@ -15,36 +13,36 @@ def test_meta_schema_compatibility():
         "type": "ab_winner_lcb_v2",
         "decision": {"ok": 1},
     }
-    
+
     # Simulate what ApplyRunner (patch 4) expects
-    sym = str(meta.get("symbol") or "").upper()
-    rg = str(meta.get("regime") or "na").lower()
-    grp = str(meta.get("group") or "default").lower()
+    sym = (meta.get("symbol") or "").upper()
+    rg = (meta.get("regime") or "na").lower()
+    grp = (meta.get("group") or "default").lower()
     # Support both winner and winner_arm fallback
     win = str(meta.get("winner_arm") or meta.get("winner") or "").upper()
-    scn = str(meta.get("scenario") or "").lower()
-    
+    scn = (meta.get("scenario") or "").lower()
+
     assert sym == "BTCUSD"
     assert rg == "trend"
     assert grp == "default"
     assert win == "B"
     assert scn == "continuation"
-    
+
     # Simulate ApplyRunner Logic
     keys_written = {}
-    
+
     # Base key
     key_base = f"cfg:entry_policy:active_arm:{sym}:{rg}:{grp}"
     keys_written[key_base] = win
-    
+
     # Scenario key
     if scn in ("continuation", "reversal"):
         key_scn = f"cfg:entry_policy:active_arm:{sym}:{rg}:{grp}:{scn}"
         keys_written[key_scn] = win
-        
+
     assert keys_written["cfg:entry_policy:active_arm:BTCUSD:trend:default"] == "B"
     assert keys_written["cfg:entry_policy:active_arm:BTCUSD:trend:default:continuation"] == "B"
-    
+
     print("test_meta_schema_compatibility passed")
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from contexts import NewsFeatures, OrderflowSignalContext
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _safe_float(v: Any, default: float = 0.0) -> float:
@@ -59,14 +59,14 @@ class NewsEnricherSync:
         self.r = redis
         self.cache_ms = int(per_symbol_cache_ms)
         # sym -> (cache_bucket, NewsFeatures)
-        self._cache: Dict[str, tuple[int, NewsFeatures]] = {}
+        self._cache: dict[str, tuple[int, NewsFeatures]] = {}
 
     def attach(
         self,
         ctx: OrderflowSignalContext,
         *,
         asset_class: str = "",
-        now_ts_ms: Optional[int] = None,
+        now_ts_ms: int | None = None,
     ) -> None:
         """Populate ctx.news.
 
@@ -113,7 +113,7 @@ class NewsEnricherSync:
 
             # `ref` is expected to be a pointer to heavy JSON, not plain uid.
             # We accept both formats to stay backward compatible.
-            ref = str(news.get("ref", "") or "")
+            ref = (news.get("ref", "") or "")
             if ref and not ref.startswith("news:analysis:"):
                 ref = f"news:analysis:{ref}"
 
@@ -142,8 +142,6 @@ class NewsEnricherSync:
 
         except Exception:
             _append_dq_flag(ctx, "news_enrich_fail_open")
-            try:
+            with contextlib.suppress(Exception):
                 ctx.news = None
-            except Exception:
-                pass
 

@@ -1,35 +1,34 @@
 # runners/trade_monitor_runner.py
 from __future__ import annotations
-from utils.time_utils import get_epoch_ms
 
 import json
 import os
 import signal as signal_mod
 import sys
-import time
 import threading
-from typing import Dict, List, Tuple
+import time
 
 import redis
-from prometheus_client import start_http_server, Gauge, Counter
 
-from common.log import setup_logger, set_trace_id, clear_trace_id
+# Wrap in a registry check to avoid "Duplicated timeseries" during test collection
+from prometheus_client import REGISTRY, Counter, Gauge, start_http_server
+
+from common.log import clear_trace_id, set_trace_id, setup_logger
 from core.redis_client import get_redis
-
-from services.redis_streams_runtime import (
-    ensure_group,
-    discover_streams,
-    xreadgroup_multi,
-    autoclaim_stale,
-    StreamMsg,
-)
-from domain.time_utils import normalize_ts_ms
-
-from services.trade_monitor import TradeMonitorService
 from services.auto_calibration_service import init_auto_calibration
+from services.redis_streams_runtime import (
+    StreamMsg,
+    autoclaim_stale,
+    discover_streams,
+    ensure_group,
+    xreadgroup_multi,
+)
+from services.trade_monitor import TradeMonitorService
+from utils.time_utils import get_epoch_ms
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
-# Wrap in a registry check to avoid "Duplicated timeseries" during test collection 
-from prometheus_client import REGISTRY
+
 def _get_or_create_metric(collector_type, name, documentation, labelnames=()):
     # Check for name or name_total (Prometheus appends _total for Counters)
     for n in [name, name + "_total"]:
@@ -94,7 +93,7 @@ def _retry_key(stream: str, msg_id: str) -> str:
     return f"{RETRY_HASH_PREFIX}:{stream}:{msg_id}"
 
 
-def _parse_signal(fields: Dict[str, str]) -> Dict:
+def _parse_signal(fields: dict[str, str]) -> dict:
     """
     Outbox protocol (fixed by Lua script):
       XADD ... 'data' <envelope_json>
@@ -113,7 +112,7 @@ def _parse_signal(fields: Dict[str, str]) -> Dict:
     """
     try:
         # Redis может вернуть bytes
-        f: Dict[str, str] = {}
+        f: dict[str, str] = {}
         for k, v in dict(fields or {}).items():
             kk = k.decode("utf-8", errors="ignore") if isinstance(k, (bytes, bytearray)) else str(k)
             vv = v.decode("utf-8", errors="ignore") if isinstance(v, (bytes, bytearray)) else str(v)
@@ -155,15 +154,13 @@ def _parse_signal(fields: Dict[str, str]) -> Dict:
         return {}
 
 
-def _parse_tick(fields: Dict[str, str]) -> Dict:
+def _parse_tick(fields: dict[str, str]) -> dict:
     # ожидаем хотя бы symbol и price/bid/ask/last + ts
     out = dict(fields)
     # нормализуем ts
     if "ts" in out:
-        try:
+        with contextlib.suppress(Exception):
             out["ts"] = int(float(out["ts"]))
-        except Exception:
-            pass
     return out
 
 
@@ -171,21 +168,17 @@ def _xack(r: redis.Redis, stream: str, msg_id: str) -> None:
     try:
         r.xack(stream, GROUP, msg_id)
     except Exception as e:
-        try:
+        with contextlib.suppress(Exception):
             XACK_FAIL_REASON_TOTAL.labels(stream=stream, reason=type(e).__name__).inc()
-        except Exception:
-            pass
 
 
-def _to_dlq(r: redis.Redis, msg: Dict) -> None:
+def _to_dlq(r: redis.Redis, msg: dict) -> None:
     try:
         r.xadd(DLQ_STREAM, {k: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v) for k, v in msg.items()}, maxlen=200000)
     except Exception as e:  # Fix #6: was silent
         log.exception("DLQ write failed stream=%s id=%s: %r", msg.get("stream"), msg.get("id"), e)
-        try:
+        with contextlib.suppress(Exception):
             DLQ_WRITE_FAIL_TOTAL.inc()
-        except Exception:
-            pass
 
 
 # ── Platform capability check: signal.alarm() is POSIX-only ─────────────────────
@@ -228,7 +221,7 @@ _stats = {
 }
 
 
-def _should_skip_signal(monitor: TradeMonitorService, raw_sig: Dict) -> str:
+def _should_skip_signal(monitor: TradeMonitorService, raw_sig: dict) -> str:
     """
     Returns skip reason or empty string if signal should be processed.
     Protects against: (1) too many open positions, (2) stale signals at startup.
@@ -261,14 +254,14 @@ def _process_one(r: redis.Redis, monitor: TradeMonitorService, m: StreamMsg, is_
     try:
         if is_tick:
             raw_tick = _parse_tick(m.fields)
-            trace_id = str(raw_tick.get("trace_id", ""))
+            trace_id = (raw_tick.get("trace_id", ""))
             if trace_id:
                 set_trace_id(trace_id)
             monitor.on_tick(raw_tick)
             _stats["ticks_processed"] += 1
         else:
             raw_sig = _parse_signal(m.fields)
-            trace_id = str(raw_sig.get("trace_id", ""))
+            trace_id = (raw_sig.get("trace_id", ""))
             if trace_id:
                 set_trace_id(trace_id)
             if "entry_audit" in m.stream:
@@ -309,10 +302,8 @@ def _process_one(r: redis.Redis, monitor: TradeMonitorService, m: StreamMsg, is_
 
         # ✅ ACK только после успешной обработки
         _xack(r, m.stream, m.msg_id)
-        try:
+        with contextlib.suppress(Exception):
             r.delete(rk)
-        except Exception:
-            pass
 
     except _SignalTimeout:
         log.error("⏰ Signal processing timed out (%ds) for stream=%s id=%s", SIGNAL_TIMEOUT_SEC, m.stream, m.msg_id)
@@ -346,8 +337,8 @@ def _process_one(r: redis.Redis, monitor: TradeMonitorService, m: StreamMsg, is_
                 trace_id_str = m.fields.get(b"trace_id") or m.fields.get("trace_id") or b""
                 trace_id = trace_id_str.decode("utf-8", errors="ignore") if isinstance(trace_id_str, (bytes, bytearray)) else str(trace_id_str)
                 trace_info = f"\nTraceID: <code>{trace_id}</code>" if trace_id else ""
-                
-                r.xadd("notify:telegram", {
+
+                r.xadd(RS.NOTIFY_TELEGRAM, {
                     "payload": json.dumps({
                         "message": f"🚨 <b>Trade Monitor DLQ Escalation</b>\nStream: <code>{m.stream}</code>\nMsgID: <code>{m.msg_id}</code>{trace_info}\nError: <code>{e}</code>\n<i>Check dlq:trade-monitor for details</i>"
                     })
@@ -355,10 +346,8 @@ def _process_one(r: redis.Redis, monitor: TradeMonitorService, m: StreamMsg, is_
             except Exception as notify_err:
                 log.warning("Failed to escalate DLQ alert to telegram: %r", notify_err)
             _xack(r, m.stream, m.msg_id)
-            try:
+            with contextlib.suppress(Exception):
                 r.delete(rk)
-            except Exception:
-                pass
         else:
             # мягкий backoff, чтобы не жечь CPU при "ядовитых" сообщениях
             time.sleep(RETRY_BACKOFF_MS / 1000.0)
@@ -367,7 +356,6 @@ def _process_one(r: redis.Redis, monitor: TradeMonitorService, m: StreamMsg, is_
 
 
 def main():
-    import urllib.parse
     redis_clients = []
     r1 = redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=5.0, socket_connect_timeout=5.0) if REDIS_URL else get_redis()
     redis_clients.append(r1)
@@ -388,7 +376,7 @@ def main():
             # might have a different ACL set (usually default with no pass).
             r_ticks_url = "redis://redis-ticks:6379/0"
             log.info(f"TRACING: derived clean fallback ticks url={r_ticks_url}")
-        
+
         if r_ticks_url:
             r_ticks = redis.from_url(r_ticks_url, decode_responses=True, socket_connect_timeout=2, socket_timeout=2)
             log.info("TRACING: attempting ping to ticks redis...")
@@ -417,7 +405,7 @@ def main():
     last_claim = 0.0
 
     client_states = {rc: {"signals": [], "ticks": []} for rc in redis_clients}
-    
+
     from concurrent.futures import ThreadPoolExecutor
     bg_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tm_bg")
     discover_future = None
@@ -478,7 +466,7 @@ def main():
             except Exception:
                 log.info("💓 HEARTBEAT: alive")
             last_heartbeat = now
-        
+
         # 1) discover streams + ensure groups
         if now - last_rescan >= RESCAN_EVERY_SEC and discover_future is None:
             def _bg_discover():
@@ -494,7 +482,7 @@ def main():
 
             discover_future = bg_executor.submit(_bg_discover)
             last_rescan = now
-            
+
         if discover_future is not None and discover_future.done():
             try:
                 disc_res = discover_future.result()
@@ -547,14 +535,14 @@ def main():
             streams_all = t_streams + s_streams
             if not streams_all:
                 continue
-            
+
             try:
                 # Use higher READ_COUNT for nodes with ticks to allow faster catch-up during backlog
                 eff_count = READ_COUNT_TICKS if t_streams else READ_COUNT
                 msgs = xreadgroup_multi(rc, GROUP, CONSUMER, streams_all, count=eff_count, block_ms=multi_block_ms)
                 if not msgs:
                     continue
-                
+
                 processed_any = True
                 tick_set = set(client_states[rc]["ticks"])
                 # Record loop age frequently to avoid AIOps marking TM as hung during massive tick processing
@@ -567,7 +555,7 @@ def main():
                     rc.connection_pool.connection_kwargs.get("host", "unknown"), conn_err,
                 )
                 continue
-                
+
         if not processed_any and multi_block_ms == 0:
             time.sleep(0.01)
 

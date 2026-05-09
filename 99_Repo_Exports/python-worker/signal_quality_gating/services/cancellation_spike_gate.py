@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from collections import deque
-from typing import Any, Deque, Dict, Optional
 import math
 import os
 import statistics
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Any
 
 
 def _f(x: Any, default: float = 0.0) -> float:
@@ -50,7 +50,7 @@ def _ema(prev: float, x: float, alpha: float) -> float:
     return prev + alpha * (x - prev)
 
 
-def _robust_z(x: float, hist: Deque[float], eps: float = 1e-9) -> float:
+def _robust_z(x: float, hist: deque[float], eps: float = 1e-9) -> float:
     """
     Robust z-score via median/MAD. Cheap enough for small windows.
     Caller should pass hist WITHOUT current x (we do that in check()).
@@ -93,7 +93,7 @@ class CancelSpikeParams:
     min_taker_rate: float = 0.0
 
     @staticmethod
-    def from_env() -> "CancelSpikeParams":
+    def from_env() -> CancelSpikeParams:
         def g(name: str, d: Any) -> Any:
             v = os.getenv(name)
             return d if v is None else v
@@ -112,7 +112,7 @@ class CancelSpikeParams:
         p.min_taker_rate = _f(g("OF_CANCEL_SPIKE_MIN_TAKER_RATE", p.min_taker_rate), p.min_taker_rate)
         return p
 
-    def merged_with_cfg(self, cfg: Dict[str, Any]) -> "CancelSpikeParams":
+    def merged_with_cfg(self, cfg: dict[str, Any]) -> CancelSpikeParams:
         """
         Per-symbol overrides from cfg2 (dynamic cfg already merged by caller).
         """
@@ -124,7 +124,7 @@ class CancelSpikeParams:
             pass
         try:
             if "cancel_spike_mode" in cfg:
-                out.mode = str(cfg.get("cancel_spike_mode", out.mode))
+                out.mode = (cfg.get("cancel_spike_mode", out.mode))
         except Exception:
             pass
         # floats/ints fail-open
@@ -149,16 +149,16 @@ class CancelSpikeParams:
 class GateDecision:
     allow: bool
     reason: str
-    meta: Dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class _SymState:
     base_bid: float = 0.0
     base_ask: float = 0.0
-    hist_bid: Deque[float] = field(default_factory=lambda: deque(maxlen=120))
-    hist_ask: Deque[float] = field(default_factory=lambda: deque(maxlen=120))
-    last_bucket_id: Optional[int] = None
+    hist_bid: deque[float] = field(default_factory=lambda: deque(maxlen=120))
+    hist_ask: deque[float] = field(default_factory=lambda: deque(maxlen=120))
+    last_bucket_id: int | None = None
 
 
 class CancellationSpikeGate:
@@ -171,9 +171,9 @@ class CancellationSpikeGate:
     - Warmup-aware: no veto until baseline and enough samples exist.
     """
 
-    def __init__(self, params: Optional[CancelSpikeParams] = None):
+    def __init__(self, params: CancelSpikeParams | None = None):
         self._defaults = params or CancelSpikeParams.from_env()
-        self._st: Dict[str, _SymState] = {}
+        self._st: dict[str, _SymState] = {}
 
     def check(
         self,
@@ -184,8 +184,8 @@ class CancellationSpikeGate:
         cancel_ask_rate_ema: float,
         taker_buy_rate_ema: float,
         taker_sell_rate_ema: float,
-        bucket_id: Optional[int],
-        cfg2: Optional[Dict[str, Any]] = None,
+        bucket_id: int | None,
+        cfg2: dict[str, Any] | None = None,
     ) -> GateDecision:
         """
         Returns GateDecision:
@@ -336,17 +336,17 @@ class CancellationSpikeGate:
     # Deterministic replay helpers
     # ------------------------------------------------------------------
 
-    def export_state(self, *, symbol: Optional[str] = None) -> Dict[str, Any]:
+    def export_state(self, *, symbol: str | None = None) -> dict[str, Any]:
         """Export gate state as JSON-serializable dict (fail-open)."""
         try:
             if symbol is not None:
-                st = self._st.get(str(symbol))
+                st = self._st.get(symbol)
                 if st is None:
                     return {"version": 1, "symbols": {}}
                 return {
                     "version": 1,
                     "symbols": {
-                        str(symbol): {
+                        symbol: {
                             "base_bid": float(st.base_bid),
                             "base_ask": float(st.base_ask),
                             "hist_bid": list(st.hist_bid),
@@ -357,7 +357,7 @@ class CancellationSpikeGate:
                     },
                 }
             # all symbols
-            symbols: Dict[str, Any] = {}
+            symbols: dict[str, Any] = {}
             for sym, st in (self._st or {}).items():
                 try:
                     symbols[str(sym)] = {
@@ -374,7 +374,7 @@ class CancellationSpikeGate:
         except Exception:
             return {"version": 1, "symbols": {}}
 
-    def import_state(self, state: Dict[str, Any], *, replace: bool = False) -> None:
+    def import_state(self, state: dict[str, Any], *, replace: bool = False) -> None:
         """Restore state previously exported by export_state() (fail-open)."""
         try:
             if not isinstance(state, dict):
@@ -411,7 +411,7 @@ class CancellationSpikeGate:
 
     def reset_symbol_state(self, symbol: str) -> None:
         try:
-            self._st.pop(str(symbol), None)
+            self._st.pop(symbol, None)
         except Exception:
             return
 
@@ -419,7 +419,7 @@ class CancellationSpikeGate:
     # Snapshot/restore API (compatible with diff, wraps export_state/import_state)
     # ------------------------------------------------------------------
 
-    def snapshot(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+    def snapshot(self, symbol: str | None = None) -> dict[str, Any]:
         """Serialize state (compatible with diff API).
 
         Shape:
@@ -429,7 +429,7 @@ class CancellationSpikeGate:
         """
         try:
             if symbol:
-                sym = str(symbol).upper()
+                sym = symbol.upper()
                 st = self._st.get(sym)
                 if not st:
                     return {"symbol": sym, "present": False}
@@ -454,7 +454,7 @@ class CancellationSpikeGate:
         except Exception:
             return {"version": 1, "symbols": {}}
 
-    def restore(self, snap: Dict[str, Any], symbol: Optional[str] = None) -> None:
+    def restore(self, snap: dict[str, Any], symbol: str | None = None) -> None:
         """Restore state from snapshot (compatible with diff API)."""
         try:
             if not isinstance(snap, dict):
@@ -464,7 +464,7 @@ class CancellationSpikeGate:
                 payload = snap
                 # allow passing the full container snapshot too
                 if "symbols" in snap and isinstance(snap.get("symbols"), dict):
-                    payload = snap["symbols"].get(str(symbol).upper(), {})
+                    payload = snap["symbols"].get(symbol.upper(), {})
                 self._restore_one(payload)
                 return
 
@@ -478,11 +478,11 @@ class CancellationSpikeGate:
         except Exception:
             return
 
-    def _restore_one(self, payload: Dict[str, Any]) -> None:
+    def _restore_one(self, payload: dict[str, Any]) -> None:
         """Restore one symbol from payload (internal helper)."""
         if not isinstance(payload, dict):
             return
-        sym = str(payload.get("symbol", "") or "").upper()
+        sym = (payload.get("symbol", "") or "").upper()
         if not sym:
             return
         if payload.get("present") is False:
@@ -490,7 +490,7 @@ class CancellationSpikeGate:
             return
 
         st = _SymState()
-        st.last_bucket_id = payload.get("last_bucket_id", None)
+        st.last_bucket_id = payload.get("last_bucket_id")
         try:
             if st.last_bucket_id is not None:
                 st.last_bucket_id = int(st.last_bucket_id)
@@ -542,11 +542,11 @@ class CancellationSpikeGate:
 
         self._st[sym] = st
 
-    def reset(self, symbol: Optional[str] = None) -> None:
+    def reset(self, symbol: str | None = None) -> None:
         """Clear state (per symbol or all)."""
         try:
             if symbol:
-                self._st.pop(str(symbol).upper(), None)
+                self._st.pop(symbol.upper(), None)
             else:
                 self._st.clear()
         except Exception:
@@ -555,7 +555,7 @@ class CancellationSpikeGate:
     # ------------------------------------------------------------------
     # Diff-compatible API (snapshot_state/restore_state)
     # ------------------------------------------------------------------
-    def snapshot_state(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+    def snapshot_state(self, symbol: str | None = None) -> dict[str, Any]:
         """Snapshot state for golden replay (diff-compatible API).
         
         Args:
@@ -566,14 +566,14 @@ class CancellationSpikeGate:
             For single symbol, returns the same format but only for that symbol.
         """
         try:
-            out: Dict[str, Any] = {"ver": 1, "symbols": {}}
+            out: dict[str, Any] = {"ver": 1, "symbols": {}}
             items = [(symbol, self._st.get(symbol))] if symbol else list(self._st.items())
             for sym, st in items:
                 if not sym or not isinstance(st, _SymState):
                     continue
                 # For compatibility with diff format, we need to track per-direction stats
                 # Since current implementation doesn't track per-direction, we use a simplified format
-                out_st: Dict[str, Any] = {"last_bucket": int(st.last_bucket_id) if st.last_bucket_id is not None else -1}
+                out_st: dict[str, Any] = {"last_bucket": int(st.last_bucket_id) if st.last_bucket_id is not None else -1}
 
                 # Create Welford-like stats for ratio tracking (simplified)
                 # We'll use bid side as proxy for LONG, ask side for SHORT
@@ -598,7 +598,7 @@ class CancellationSpikeGate:
         except Exception:
             return {"ver": 1, "symbols": {}}
 
-    def restore_state(self, snapshot: Dict[str, Any]) -> None:
+    def restore_state(self, snapshot: dict[str, Any]) -> None:
         """Restore state from snapshot (diff-compatible API).
         
         Args:
@@ -606,7 +606,7 @@ class CancellationSpikeGate:
         """
         if not isinstance(snapshot, dict):
             return
-        symbols = snapshot.get("symbols", None)
+        symbols = snapshot.get("symbols")
         if not isinstance(symbols, dict):
             return
         for sym, st in symbols.items():
@@ -642,7 +642,7 @@ class CancellationSpikeGate:
         # Legacy compatibility: also support old format
         if "symbol" in snapshot and "state" in snapshot:
             # Old format: restore single symbol
-            sym = str(snapshot.get("symbol", ""))
+            sym = (snapshot.get("symbol", ""))
             if sym and not snapshot.get("empty", False):
                 d = snapshot.get("state", {})
                 if isinstance(d, dict):

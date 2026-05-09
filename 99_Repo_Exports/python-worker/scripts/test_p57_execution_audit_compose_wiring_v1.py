@@ -1,8 +1,8 @@
 from __future__ import annotations
+
 """P5.7 compose wiring tests: verify that docker-compose-timers.yml contains the audit services."""
 
 from pathlib import Path
-
 
 # Root of the python-worker subtree (two levels up from scripts/)
 ROOT = Path(__file__).resolve().parents[1]

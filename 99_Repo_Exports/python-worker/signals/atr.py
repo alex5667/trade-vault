@@ -14,7 +14,6 @@ ATR (Average True Range) расчет для анализа волатильно
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -34,7 +33,7 @@ class ATR:
     Принимает тиковые данные, агрегирует их в минутные бары
     и вычисляет ATR на основе этих баров.
     """
-    
+
     def __init__(self, period: int = 14):
         """
         Инициализация ATR.
@@ -46,10 +45,10 @@ class ATR:
         self.prev_close = None
         self.window = deque(maxlen=period)
         self._value = None
-        
+
         # Для агрегации тиков в минутные бары
         self._current_bar = None
-    
+
     def feed_tick(self, price: float, ts: int) -> None:
         """
         Обработка тика для расчета ATR.
@@ -60,12 +59,12 @@ class ATR:
         """
         # Определяем минуту текущего тика
         minute = ts // 60_000
-        
+
         if self._current_bar is None or minute != self._current_bar.t_open // 60_000:
             # Новая минута - закрываем предыдущий бар и создаем новый
             if self._current_bar is not None:
                 self._on_close_bar(self._current_bar)
-            
+
             self._current_bar = Bar(
                 t_open=minute * 60_000,
                 o=price,
@@ -79,7 +78,7 @@ class ATR:
             self._current_bar.l = min(self._current_bar.l, price)
             self._current_bar.c = price
 
-    def update(self, high: float, low: float, close: float) -> Optional[float]:
+    def update(self, high: float, low: float, close: float) -> float | None:
         """
         Обновление ATR данными закрытого бара.
         Compatible with data_processor usage.
@@ -87,8 +86,8 @@ class ATR:
         bar = Bar(t_open=0, o=0.0, h=high, l=low, c=close)
         self._on_close_bar(bar)
         return self._value
-    
-    
+
+
     def _on_close_bar(self, bar: Bar) -> None:
         """
         Обработка закрытого бара для расчета True Range.
@@ -107,14 +106,14 @@ class ATR:
                 abs(bar.h - self.prev_close),
                 abs(bar.l - self.prev_close)
             )
-        
+
         self.prev_close = bar.c
         self.window.append(tr)
-        
+
         # Вычисляем ATR когда накопилось достаточно данных
         if len(self.window) == self.window.maxlen:
             self._value = sum(self.window) / len(self.window)
-    
+
     def value(self) -> float:
         """
         Получить текущее значение ATR.
@@ -123,7 +122,7 @@ class ATR:
             Значение ATR или None, если недостаточно данных
         """
         return self._value
-    
+
     def is_ready(self) -> bool:
         """
         Проверка готовности ATR (достаточно ли данных).
@@ -132,7 +131,7 @@ class ATR:
             True, если ATR готов к использованию
         """
         return self._value is not None
-    
+
     def reset(self) -> None:
         """Сброс всех данных ATR."""
         self.prev_close = None

@@ -10,7 +10,7 @@ database schema changes).
 """
 import os
 import time
-from typing import Dict, Any
+from typing import Any
 
 import pytest
 
@@ -19,7 +19,6 @@ try:
 except ImportError:
     psycopg = None
 
-import sys
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from services.risk.risk_audit_sql import RiskAuditSqlSink
@@ -38,7 +37,7 @@ class MockRiskDecision:
     effective_execution_policy = "SAFETY_FIRST"
     leverage_cap = 10.0
     risk_multiplier = 0.8
-    snapshot: Dict[str, Any] = {"decision_latency_ms": 100, "clamp_ratio": 0.5}
+    snapshot: dict[str, Any] = {"decision_latency_ms": 100, "clamp_ratio": 0.5}
     reasons = ["Notional limits applied"]
 
 @pytest.fixture
@@ -73,16 +72,16 @@ def test_record_decision_on_conflict_semantics(pg_connection, cleanup_postgres):
     includes both (decision_id, ts).
     """
     sink = RiskAuditSqlSink(dsn=PG_DSN, enabled=True)
-    
+
     decision_id = "test_on_conflict_001"
     ts1 = int(time.time() * 1000)
     ts2 = ts1 + 1000  # +1 second
-    
+
     signal1 = {"ts_event_ms": ts1, "symbol": "BTCUSDT", "risk_cluster": "cls"}
     signal2 = {"ts_event_ms": ts2, "symbol": "BTCUSDT", "risk_cluster": "cls"}
     risk_input = MockRiskInput()
     risk_decision = MockRiskDecision()
-    
+
     # First write
     success1 = sink.record_decision(
         decision_id=decision_id,
@@ -91,7 +90,7 @@ def test_record_decision_on_conflict_semantics(pg_connection, cleanup_postgres):
         risk_decision=risk_decision
     )
     assert success1 is True, "First write failed"
-    
+
     # Second write with same decision_id but different ts
     success2 = sink.record_decision(
         decision_id=decision_id,
@@ -100,20 +99,20 @@ def test_record_decision_on_conflict_semantics(pg_connection, cleanup_postgres):
         risk_decision=risk_decision
     )
     assert success2 is True, "Second write failed"
-    
+
     # Verify the database state
     with pg_connection.cursor() as cur:
         # Check risk_decisions
         cur.execute("SELECT ts FROM risk_decisions WHERE decision_id = %s ORDER BY ts", (decision_id,))
         rows_decisions = cur.fetchall()
-        
+
         # Checking contract: Currently, it results in 2 rows.
         assert len(rows_decisions) == 2, "Contract violation: Expected exactly 2 rows in risk_decisions for different timestamps"
-        
+
         # Check risk_snapshot
         cur.execute("SELECT ts FROM risk_snapshot WHERE decision_id = %s ORDER BY ts", (decision_id,))
         rows_snapshot = cur.fetchall()
-        
+
         assert len(rows_snapshot) == 2, "Contract violation: Expected exactly 2 rows in risk_snapshot for different timestamps"
 
 def test_record_decision_idempotent(pg_connection, cleanup_postgres):
@@ -122,14 +121,14 @@ def test_record_decision_idempotent(pg_connection, cleanup_postgres):
     Contract: This MUST update an existing row (1 row total).
     """
     sink = RiskAuditSqlSink(dsn=PG_DSN, enabled=True)
-    
+
     decision_id = "test_on_conflict_001"
     ts1 = int(time.time() * 1000)
-    
+
     signal1 = {"ts_event_ms": ts1, "symbol": "BTCUSDT", "risk_cluster": "cls"}
     risk_input = MockRiskInput()
     risk_decision = MockRiskDecision()
-    
+
     # First write
     success1 = sink.record_decision(
         decision_id=decision_id,
@@ -138,7 +137,7 @@ def test_record_decision_idempotent(pg_connection, cleanup_postgres):
         risk_decision=risk_decision
     )
     assert success1 is True, "First write failed"
-    
+
     # Second write with SAME decision_id and SAME ts
     success2 = sink.record_decision(
         decision_id=decision_id,
@@ -147,13 +146,13 @@ def test_record_decision_idempotent(pg_connection, cleanup_postgres):
         risk_decision=risk_decision
     )
     assert success2 is True, "Second write failed"
-    
+
     # Verify the database state
     with pg_connection.cursor() as cur:
         cur.execute("SELECT ts FROM risk_decisions WHERE decision_id = %s ORDER BY ts", (decision_id,))
         rows_decisions = cur.fetchall()
         assert len(rows_decisions) == 1, "Idempotent write should result in 1 row in risk_decisions"
-        
+
         cur.execute("SELECT ts FROM risk_snapshot WHERE decision_id = %s ORDER BY ts", (decision_id,))
         rows_snapshot = cur.fetchall()
         assert len(rows_snapshot) == 1, "Idempotent write should result in 1 row in risk_snapshot"

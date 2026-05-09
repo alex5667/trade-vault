@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import os
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol, List, Dict
+from typing import Any, Protocol
+import contextlib
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -15,14 +16,14 @@ def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)) or default)
     except Exception:
-        return int(default)
+        return default
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -47,7 +48,7 @@ def _norm_regime(reg: Any) -> str:
     return s if s else "na"
 
 
-def _quantile(sorted_xs: List[float], q: float) -> Optional[float]:
+def _quantile(sorted_xs: list[float], q: float) -> float | None:
     """
     Квантиль ближайшего ранга (nearest-rank) на уже отсортированных значениях.
     q в [0,1]. Возвращает None, если пусто.
@@ -62,20 +63,18 @@ def _quantile(sorted_xs: List[float], q: float) -> Optional[float]:
     return float(sorted_xs[idx])
 
 
-def _parse_csv_ints(s: str) -> List[int]:
-    out: List[int] = []
+def _parse_csv_ints(s: str) -> list[int]:
+    out: list[int] = []
     for part in (s or "").split(","):
         p = part.strip()
         if not p:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(int(p))
-        except Exception:
-            pass
     return out
 
 
-def _time_buckets_ms_from_env() -> List[int]:
+def _time_buckets_ms_from_env() -> list[int]:
     """
     Buckets used by writer (StatsAggregator) and reader (this module).
     ENV is minutes to keep it readable for operators.
@@ -86,7 +85,7 @@ def _time_buckets_ms_from_env() -> List[int]:
     return ms
 
 
-def _select_bucket_ceil(target_ms: int, buckets_ms: List[int]) -> Optional[int]:
+def _select_bucket_ceil(target_ms: int, buckets_ms: list[int]) -> int | None:
     """
     Pick the smallest bucket >= target (ceil).
     Rationale:
@@ -125,12 +124,12 @@ def _clamp_bps(v: float, vmin: float, vmax: float) -> float:
         return float(vmin)
     return float(max(vmin, min(vmax, x)))
 
-def to_floats(xs: List[Any]) -> List[float]:
+def to_floats(xs: list[Any]) -> list[float]:
     """
     Convert list of values to floats, handling bytes decoding.
     Reused from existing code (no duplicates).
     """
-    out: List[float] = []
+    out: list[float] = []
     for x in xs or []:
         try:
             if isinstance(x, (bytes, bytearray)):
@@ -140,12 +139,12 @@ def to_floats(xs: List[Any]) -> List[float]:
             pass
     return out
 
-def _decode_hgetall(h: Dict[Any, Any]) -> Dict[str, str]:
+def _decode_hgetall(h: dict[Any, Any]) -> dict[str, str]:
     """
     Redis may return bytes keys/values. Normalize to {str: str}.
     Fail-open: best-effort decoding.
     """
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for k, v in (h or {}).items():
         try:
             if isinstance(k, (bytes, bytearray)):
@@ -168,7 +167,7 @@ class EmpiricalLevelStats:
 
 
 class EmpiricalStatsProvider(Protocol):
-    def get_level_stats(self, *, symbol: str, kind: str, regime: str, samples: int = 0) -> Optional[EmpiricalLevelStats]:
+    def get_level_stats(self, *, symbol: str, kind: str, regime: str, samples: int = 0) -> EmpiricalLevelStats | None:
         ...
 
 
@@ -191,7 +190,7 @@ class EmpiricalLevelsConfig:
     stop_bps_max: float
 
     @classmethod
-    def from_env(cls) -> "EmpiricalLevelsConfig":
+    def from_env(cls) -> EmpiricalLevelsConfig:
         return cls(
             enabled=_env_bool("LEVELS_EMPIRICAL_ENABLED", False),
             min_samples=_env_int("LEVELS_EMPIRICAL_MIN_SAMPLES", 80),
@@ -229,12 +228,12 @@ class EmpiricalLevels:
       - ограничивает по ATR-мультипликаторам и лимитам bps
       - принуждает к минимальному RR для TP1
     """
-    def __init__(self, cfg: EmpiricalLevelsConfig, provider: Optional[EmpiricalStatsProvider]):
+    def __init__(self, cfg: EmpiricalLevelsConfig, provider: EmpiricalStatsProvider | None):
         self.cfg = cfg
         self.provider = provider
 
     @classmethod
-    def from_env(cls, provider: Optional[EmpiricalStatsProvider]) -> "EmpiricalLevels":
+    def from_env(cls, provider: EmpiricalStatsProvider | None) -> EmpiricalLevels:
         return cls(EmpiricalLevelsConfig.from_env(), provider)
 
     def suggest(
@@ -247,7 +246,7 @@ class EmpiricalLevels:
         atr: float,
         baseline_stop_dist: float,
         baseline_tp1_dist: float,
-    ) -> Optional[EmpiricalSuggestion]:
+    ) -> EmpiricalSuggestion | None:
         if not self.cfg.enabled or self.provider is None:
             return None
         if entry <= 0.0 or not math.isfinite(entry):
@@ -267,7 +266,7 @@ class EmpiricalLevels:
         tp1_dist_emp = entry * tp1_bps / 10_000.0
         stop_dist_emp = entry * stop_bps / 10_000.0
 
-        atr_f = float(atr) if atr and atr > 0 and math.isfinite(float(atr)) else 0.0
+        atr_f = atr if atr and atr > 0 and math.isfinite(atr) else 0.0
         if atr_f > 0:
             tp1_dist_emp = _clamp(tp1_dist_emp, self.cfg.tp1_atr_min * atr_f, self.cfg.tp1_atr_max * atr_f)
             stop_dist_emp = _clamp(stop_dist_emp, self.cfg.stop_atr_min * atr_f, self.cfg.stop_atr_max * atr_f)
@@ -287,7 +286,7 @@ class EmpiricalLevels:
             return None
 
         return EmpiricalSuggestion(
-            stop_dist=float(stop_dist),
+            stop_dist=stop_dist,
             tp1_dist=float(tp1_dist),
             source="empirical_blend",
             samples=int(st.samples),
@@ -305,7 +304,7 @@ def read_empirical_level_stats(
     use_regime_dim: bool,
     buf_max: int,
     samples: int,
-) -> Optional[EmpiricalLevelStats]:
+) -> EmpiricalLevelStats | None:
     """
     Reader that supports BOTH:
       A) legacy buffers:
@@ -319,10 +318,10 @@ def read_empirical_level_stats(
       - if time-bucket data missing/insufficient -> fallback to legacy buffers
       - if everything missing -> return None (caller should fallback to compute_levels/RR/ATR)
     """
-    sym = str(symbol or "").strip().upper()
-    kd = str(kind or "").strip().lower()
-    rg = (str(regime or "").strip().lower() or "na") if use_regime_dim else "na"
-    tf_s = str(tf or "").strip().lower() or "1m"
+    sym = (symbol or "").strip().upper()
+    kd = (kind or "").strip().lower()
+    rg = ((regime or "").strip().lower() or "na") if use_regime_dim else "na"
+    tf_s = (tf or "").strip().lower() or "1m"
 
     def buf_key(metric: str) -> str:
         return f"statsbuf:{kd}:{sym}:{tf_s}:{rg}:{metric}"
@@ -367,7 +366,7 @@ def read_empirical_level_stats(
         except Exception:
             return False
         # decode bytes -> str (redis-py often returns bytes)
-        hh: Dict[str, str] = {}
+        hh: dict[str, str] = {}
         for k, v in (h or {}).items():
             try:
                 if isinstance(k, (bytes, bytearray)):
@@ -387,7 +386,7 @@ def read_empirical_level_stats(
         p = float(alive) / float(total)
         return p >= float(survive_min)
 
-    def _read_quantiles_from(metric_mfe: str, metric_mae: str) -> Optional[EmpiricalLevelStats]:
+    def _read_quantiles_from(metric_mfe: str, metric_mae: str) -> EmpiricalLevelStats | None:
         try:
             mfe_raw = redis.lrange(buf_key(metric_mfe), 0, max(int(buf_max), 1) - 1) or []
             mae_raw = redis.lrange(buf_key(metric_mae), 0, max(int(buf_max), 1) - 1) or []
@@ -441,7 +440,7 @@ class RedisEmpiricalStatsProvider:
         self.buf_max = int(buf_max)
         self.use_regime_dim = bool(use_regime_dim)
         self.cache_ttl_sec = float(cache_ttl_sec)
-        self._cache: Dict[str, Tuple[float, Optional[EmpiricalLevelStats]]] = {}
+        self._cache: dict[str, Tuple[float, EmpiricalLevelStats | None]] = {}
 
     def _stats_key(self, symbol: str, kind: str, regime: str) -> str:
         # Существующий хеш итогов (уже в вашем проекте):
@@ -456,10 +455,10 @@ class RedisEmpiricalStatsProvider:
         rg = regime if self.use_regime_dim else "na"
         return f"statsbuf:{kind}:{symbol}:{self.tf}:{rg}:{metric}"
 
-    def get_level_stats(self, symbol: str, kind: str, regime: str, samples: int = 0) -> Optional["EmpiricalLevelStats"]:
-        sym = str(symbol or "").strip().upper()
-        kd = str(kind or "").strip().lower()
-        rg = str(regime or "").strip().lower()
+    def get_level_stats(self, symbol: str, kind: str, regime: str, samples: int = 0) -> EmpiricalLevelStats | None:
+        sym = (symbol or "").strip().upper()
+        kd = (kind or "").strip().lower()
+        rg = (regime or "").strip().lower()
         if not sym or not kd:
             return None
 
@@ -490,7 +489,7 @@ class RedisEmpiricalStatsProvider:
             ttd_med = _quantile([float(x) for x in ttd_vals], 0.50) if ttd_vals else 0.0
             ttd_q25 = _quantile([float(x) for x in ttd_vals], 0.25) if ttd_vals else 0.0
 
-            def _read_quantiles(mfe_metric: str, mae_metric: str) -> Optional["EmpiricalLevelStats"]:
+            def _read_quantiles(mfe_metric: str, mae_metric: str) -> EmpiricalLevelStats | None:
                 mfe_raw = self.redis.lrange(self._buf_key(sym, kd, rg, mfe_metric), 0, self.buf_max - 1) or []
                 mae_raw = self.redis.lrange(self._buf_key(sym, kd, rg, mae_metric), 0, self.buf_max - 1) or []
 
@@ -529,7 +528,7 @@ class RedisEmpiricalStatsProvider:
                         survive_min = float(os.getenv("EMP_SURVIVE_MIN", "0") or "0")
                     except Exception:
                         survive_min = 0.0
-                    
+
                     survival_ok = True
                     if survive_min > 0.0:
                         rg_seg = rg if self.use_regime_dim else "na"
@@ -543,7 +542,7 @@ class RedisEmpiricalStatsProvider:
                             p_survive = 0.0
                         if p_survive < float(survive_min):
                             survival_ok = False
-                    
+
                     if survival_ok:
                         st = _read_quantiles(f"mfe_bps_t{int(bucket_ms)}", f"mae_bps_t{int(bucket_ms)}")
                         if st is not None:
@@ -554,13 +553,13 @@ class RedisEmpiricalStatsProvider:
             # ---------------------------------------------------------------
             if result is None:
                 result = _read_quantiles("mfe_bps", "mae_bps")
-            
+
             # --- Update Cache ---
             if self.cache_ttl_sec > 0:
                 self._cache[cache_key] = (time.time(), result)
-            
+
             return result
-            
+
         except Exception:
             return None
 

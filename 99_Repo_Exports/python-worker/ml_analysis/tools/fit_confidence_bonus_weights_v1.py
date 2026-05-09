@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Fit ConfidenceScorer confirmation bonus weights from closed trades.
 
 Goal:
@@ -26,7 +27,7 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -34,10 +35,10 @@ import numpy as np
 @dataclass
 class Row:
     y: int
-    feats: Dict[str, float]
+    feats: dict[str, float]
 
 
-FEATURES: Tuple[str, ...] = (
+FEATURES: tuple[str, ...] = (
     # base confirmations
     "reclaim",
     "obi_stable",
@@ -108,7 +109,7 @@ def _brier(y: np.ndarray, p: np.ndarray) -> float:
     return float(np.mean((p - y) ** 2))
 
 
-def _extract_conf_keys(evidence: Dict[str, Any] | None, confirmations: List[Any] | None) -> set[str]:
+def _extract_conf_keys(evidence: dict[str, Any] | None, confirmations: list[Any] | None) -> set[str]:
     keys: set[str] = set()
     if isinstance(evidence, dict):
         for k in evidence.keys():
@@ -123,7 +124,7 @@ def _extract_conf_keys(evidence: Dict[str, Any] | None, confirmations: List[Any]
     return keys
 
 
-def _extract_row(config_json: Dict[str, Any], y: int) -> Row | None:
+def _extract_row(config_json: dict[str, Any], y: int) -> Row | None:
     sp = config_json.get("signal_payload") or config_json.get("signal") or {}
     of = sp.get("of") or {}
 
@@ -132,7 +133,7 @@ def _extract_row(config_json: Dict[str, Any], y: int) -> Row | None:
 
     keys = _extract_conf_keys(evidence if isinstance(evidence, dict) else None, confirmations if isinstance(confirmations, list) else None)
 
-    feats: Dict[str, float] = {k: 0.0 for k in FEATURES}
+    feats: dict[str, float] = dict.fromkeys(FEATURES, 0.0)
 
     def has(k: str) -> bool:
         return k in keys
@@ -173,7 +174,7 @@ def _extract_row(config_json: Dict[str, Any], y: int) -> Row | None:
     if isinstance(ind, dict):
         regime_s = str(ind.get("market_regime") or ind.get("regime") or "").lower()
     if not regime_s:
-        regime_s = str(config_json.get("regime") or "").lower()
+        regime_s = (config_json.get("regime") or "").lower()
 
     feats["regime_trend"] = 1.0 if "trend" in regime_s else 0.0
     feats["regime_range"] = 1.0 if "range" in regime_s else 0.0
@@ -182,7 +183,7 @@ def _extract_row(config_json: Dict[str, Any], y: int) -> Row | None:
     return Row(y=y, feats=feats)
 
 
-def _fetch_rows(dsn: str, table: str, symbol: str, source: str, limit: int) -> List[Tuple[float, float, Dict[str, Any]]]:
+def _fetch_rows(dsn: str, table: str, symbol: str, source: str, limit: int) -> list[tuple[float, float, dict[str, Any]]]:
     import psycopg2
 
     q = f"""
@@ -196,12 +197,11 @@ def _fetch_rows(dsn: str, table: str, symbol: str, source: str, limit: int) -> L
         LIMIT %s
     """
 
-    with psycopg2.connect(dsn) as conn:
-        with conn.cursor() as cur:
-            cur.execute(q, (symbol, source, limit))
-            rows = cur.fetchall()
+    with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
+        cur.execute(q, (symbol, source, limit))
+        rows = cur.fetchall()
 
-    out: List[Tuple[float, float, Dict[str, Any]]] = []
+    out: list[tuple[float, float, dict[str, Any]]] = []
     for r_mul, pnl_net, cfg in rows:
         if isinstance(cfg, str):
             try:
@@ -212,7 +212,7 @@ def _fetch_rows(dsn: str, table: str, symbol: str, source: str, limit: int) -> L
     return out
 
 
-def _fit_logreg(X: np.ndarray, y: np.ndarray, l2: float = 1.0, steps: int = 2000, lr: float = 0.05) -> Tuple[np.ndarray, float]:
+def _fit_logreg(X: np.ndarray, y: np.ndarray, l2: float = 1.0, steps: int = 2000, lr: float = 0.05) -> tuple[np.ndarray, float]:
     # Simple logistic regression with L2, gradient descent.
     n, d = X.shape
     w = np.zeros(d, dtype=float)
@@ -247,7 +247,7 @@ def main() -> int:
 
     raw = _fetch_rows(args.dsn, args.table, args.symbol, args.source, args.limit)
 
-    rows: List[Row] = []
+    rows: list[Row] = []
     for r_mul, pnl_net, cfg in raw:
         if args.label == "pnlpos":
             y = 1 if pnl_net > 0 else 0
@@ -291,7 +291,7 @@ def main() -> int:
 
     # Map coefficients to scorer config keys (roughly in bonus-space).
     # We keep only positive coefficients for bonuses; interactions are separate keys.
-    cfg_out: Dict[str, Any] = {
+    cfg_out: dict[str, Any] = {
         "symbol": args.symbol,
         "source": args.source,
         "metrics": metrics,

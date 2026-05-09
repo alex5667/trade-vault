@@ -1,8 +1,7 @@
-import time
-import pytest
 from types import SimpleNamespace
 
 from handlers.crypto_orderflow.utils.quality_gates import SignalConsistencyGate
+
 
 def _of(**kwargs):
     of = SimpleNamespace()
@@ -17,7 +16,7 @@ def test_absorption_integration_pipeline(monkeypatch):
     """
     monkeypatch.setenv("CONSISTENCY_GATE_ENABLED", "1")
     monkeypatch.setenv("CONSISTENCY_APPLY_KINDS", "absorption")
-    
+
     # Let's set the specific ENV variables to match defaults from the docs
     monkeypatch.setenv("CONS_ABSORPTION_MIN_Z", "2.0")
     monkeypatch.setenv("CONS_ABSORPTION_REQUIRE_WEAK_PROGRESS", "1")

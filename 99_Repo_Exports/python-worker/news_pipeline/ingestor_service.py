@@ -1,23 +1,21 @@
 from __future__ import annotations
 
 import logging
-import json
 import time
-from typing import Iterable, List, Protocol, Dict, Any, Optional
+from typing import Any, Protocol
 
 import redis
 
-from .models import NewsRawItem, CalendarEvent
-from .utils import make_news_uid, now_ms
-from .redis_streams import xadd_trim
 from . import config
-
+from .models import CalendarEvent, NewsRawItem
+from .redis_streams import xadd_trim
+from .utils import make_news_uid, now_ms
 
 log = logging.getLogger("news-ingestor")
 
 
 class NewsSource(Protocol):
-    def fetch(self) -> List[Dict[str, Any]]:
+    def fetch(self) -> list[dict[str, Any]]:
         """
         Вернуть список сырья (dict), где минимум:
         - source, url, title, ts_ms (или published)
@@ -28,7 +26,7 @@ class NewsSource(Protocol):
 
 
 class CalendarSource(Protocol):
-    def fetch(self) -> List[Dict[str, Any]]:
+    def fetch(self) -> list[dict[str, Any]]:
         """
         Вернуть список событий (dict):
         - event_id, title, ts_ms, grade_id, currency, region
@@ -50,11 +48,11 @@ def _dedup_pass(r: redis.Redis, uid: str, ttl_sec: int) -> bool:
         return True
 
 
-def normalize_news_item(raw: Dict[str, Any]) -> Optional[NewsRawItem]:
+def normalize_news_item(raw: dict[str, Any]) -> NewsRawItem | None:
     try:
-        source = str(raw.get("source") or "unknown")
-        url = str(raw.get("url") or "")
-        title = str(raw.get("title") or "")
+        source = (raw.get("source") or "unknown")
+        url = (raw.get("url") or "")
+        title = (raw.get("title") or "")
         if not title or not url:
             return None
 
@@ -96,14 +94,14 @@ def normalize_news_item(raw: Dict[str, Any]) -> Optional[NewsRawItem]:
         return None
 
 
-def normalize_calendar_event(raw: Dict[str, Any]) -> Optional[CalendarEvent]:
+def normalize_calendar_event(raw: dict[str, Any]) -> CalendarEvent | None:
     try:
         event_id = str(raw.get("event_id") or raw.get("uid") or "")
-        title = str(raw.get("title") or "")
+        title = (raw.get("title") or "")
         ts_ms = int(raw.get("ts_ms") or 0)
         grade_id = int(raw.get("grade_id") or 0)
-        currency = str(raw.get("currency") or "").upper()
-        region = str(raw.get("region") or "").upper()
+        currency = (raw.get("currency") or "").upper()
+        region = (raw.get("region") or "").upper()
         if not event_id or not title or ts_ms <= 0:
             return None
 
@@ -147,8 +145,8 @@ class NewsIngestorService:
     def __init__(
         self,
         r: redis.Redis,
-        news_sources: List[NewsSource],
-        calendar_sources: List[CalendarSource],
+        news_sources: list[NewsSource],
+        calendar_sources: list[CalendarSource],
         poll_sec: float = 10.0,
     ) -> None:
         self.r = r

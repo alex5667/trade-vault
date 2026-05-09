@@ -3,12 +3,13 @@ from __future__ import annotations
 import pytest
 
 hypothesis = pytest.importorskip("hypothesis")
-from hypothesis import given, strategies as st, assume
-
 from dataclasses import dataclass
 
+from hypothesis import assume, given
+from hypothesis import strategies as st
+
 from handlers.confirmations.l3_quality import L3QualityPolicy
-from handlers.geometry.geometry_quality import GeometryQualityPolicy, GeoHit, geometry_score_from_hit
+from handlers.geometry.geometry_quality import GeoHit, GeometryQualityPolicy, geometry_score_from_hit
 
 
 @dataclass

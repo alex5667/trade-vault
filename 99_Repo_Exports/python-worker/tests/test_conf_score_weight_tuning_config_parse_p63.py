@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
+
 pytest.importorskip('redis')
 
 from services.orderflow.configuration import OrderFlowConfigLoader

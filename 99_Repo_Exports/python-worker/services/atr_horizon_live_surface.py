@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """atr_horizon_live_surface.py — Phase 2.4B: live risk surface builder from selected ATR.
 
 Computes live sl_price / tp1_price / max_signal_age_ms from meta.atr_profile.
@@ -10,7 +11,7 @@ Fail-open: missing/invalid fields → reason_code=LIVE_SURFACE_INCOMPLETE, zero 
 import math
 import os
 from dataclasses import asdict, dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 def _safe_int(v: Any, default: int = 0) -> int:
@@ -28,7 +29,7 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
         return default
 
 
-def _ensure_dict(v: Any) -> Dict[str, Any]:
+def _ensure_dict(v: Any) -> dict[str, Any]:
     return dict(v) if isinstance(v, dict) else {}
 
 
@@ -48,7 +49,7 @@ class LiveRiskSurface:
     reason_code: str
 
 
-def build_live_risk_surface(signal: Dict[str, Any]) -> Dict[str, Any]:
+def build_live_risk_surface(signal: dict[str, Any]) -> dict[str, Any]:
     """Phase 2.4B: compute live stop/entry/TTL surface from selected ATR (meta.atr_profile).
 
     Side aliases: LONG → BUY, SHORT → SELL.
@@ -63,7 +64,7 @@ def build_live_risk_surface(signal: Dict[str, Any]) -> Dict[str, Any]:
     atr_profile = _ensure_dict(meta.get("atr_profile"))
 
     # Side normalisation (support LONG/SHORT aliases)
-    side = str(signal.get("side") or "").upper()
+    side = (signal.get("side") or "").upper()
     if side == "LONG":
         side = "BUY"
     elif side == "SHORT":

@@ -1,21 +1,20 @@
 import sys
-import os
 
 # Adjust path to include python-worker
 # [AUTOGRAVITY CLEANUP] sys.path.append("/home/alex/front/trade/scanner_infra/python-worker")
-
 from core.crypto_signal_formatter import CryptoSignal, CryptoSignalFormatter
+
 
 def test_formatter_dynamic_tp1():
     # Setup a mock signal using rocket_v1 profile
     # Entry: 100, ATR: 1.0
     # TP1: 101.58 (should trigger 1.58 ATR)
-    
+
     entry = 100.0
     atr = 1.0
     # 1.58 ATR distance
-    tp1 = entry + (atr * 1.58) 
-    
+    tp1 = entry + (atr * 1.58)
+
     signal = CryptoSignal(
         sid="test:123",
         symbol="BTCUSDT",
@@ -32,7 +31,7 @@ def test_formatter_dynamic_tp1():
     )
 
     message = CryptoSignalFormatter.format_telegram_message(signal)
-    
+
     print("\n--- Formatted Message ---")
     print(message)
     print("-------------------------\n")

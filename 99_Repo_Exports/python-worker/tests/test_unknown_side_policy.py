@@ -8,9 +8,9 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from services.orderflow.side_policy import (
-    normalize_unknown_side_policy,
-    is_unknown_side_tick,
     deterministic_sample,
+    is_unknown_side_tick,
+    normalize_unknown_side_policy,
 )
 from services.orderflow.utils import _parse_tick_payload
 

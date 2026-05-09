@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Compile-time test: verifies nightly_slippage_calibrator_v1 can be parsed by Python."""
 
 import py_compile

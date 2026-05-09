@@ -1,10 +1,10 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
-import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -35,7 +35,7 @@ def _f(x: Any, d: float = 0.0) -> float:
 DEFAULT_OVERRIDES_KEY = os.getenv("CFG_ENTRY_POLICY_OVERRIDES_KEY", "cfg:entry_policy:overrides")
 
 
-def parse_overrides_json(raw: str) -> Tuple[int, Dict[str, str]]:
+def parse_overrides_json(raw: str) -> tuple[int, dict[str, str]]:
     """
     Format:
       {"version": 3, "updated_ts_ms": 123, "overrides": {"SMT_COH_THRESHOLD":"0.67","ENTRY_POLICY_SHADOW":"1"}}
@@ -49,7 +49,7 @@ def parse_overrides_json(raw: str) -> Tuple[int, Dict[str, str]]:
         ov = d.get("overrides", {})
         if not isinstance(ov, dict):
             return ver, {}
-        out: Dict[str, str] = {}
+        out: dict[str, str] = {}
         for k, v in ov.items():
             if k is None:
                 continue
@@ -59,7 +59,7 @@ def parse_overrides_json(raw: str) -> Tuple[int, Dict[str, str]]:
         return 0, {}
 
 
-async def fetch_overrides(*, r, key: Optional[str] = None) -> Tuple[int, Dict[str, str]]:
+async def fetch_overrides(*, r, key: str | None = None) -> tuple[int, dict[str, str]]:
     k = key or DEFAULT_OVERRIDES_KEY
     try:
         raw = await r.get(k)
@@ -70,7 +70,7 @@ async def fetch_overrides(*, r, key: Optional[str] = None) -> Tuple[int, Dict[st
         return 0, {}
 
 
-def apply_overrides_to_env(base: Dict[str, str], overrides: Dict[str, str]) -> Dict[str, str]:
+def apply_overrides_to_env(base: dict[str, str], overrides: dict[str, str]) -> dict[str, str]:
     """
     Returns merged env map (strings). Does not mutate base.
     """
@@ -80,12 +80,12 @@ def apply_overrides_to_env(base: Dict[str, str], overrides: Dict[str, str]) -> D
     return out
 
 
-def get_effective_numeric(*, env: Dict[str, str], key: str, kind: str, default: float) -> float:
+def get_effective_numeric(*, env: dict[str, str], key: str, kind: str, default: float) -> float:
     """
     kind: "f" or "i"
     """
     if key not in env:
-        return float(default)
+        return default
     if kind == "i":
         return float(_i(env.get(key), int(default)))
     return float(_f(env.get(key), float(default)))

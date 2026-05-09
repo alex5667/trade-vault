@@ -1,8 +1,10 @@
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any
+
 from common.enums import VetoReason
 
-class ReasonCode(str, Enum):
+
+class ReasonCode(StrEnum):
     """
     Reason code for signal generation pipeline gates.
     Maps to VetoReason for backward compatibility.

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Scale-in integration tests for BinanceExecutor.
 
 Tests:
@@ -13,12 +14,14 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from core.redis_keys import RedisStreams as RS
 
 import pytest
 
@@ -41,10 +44,10 @@ spec.loader.exec_module(mod)
 
 class FakeRedis:
     def __init__(self):
-        self.store: Dict[str, str] = {}
+        self.store: dict[str, str] = {}
         self.stream: list = []
 
-    def get(self, key: str) -> Optional[bytes]:
+    def get(self, key: str) -> bytes | None:
         v = self.store.get(key)
         return v.encode() if v else None
 
@@ -64,7 +67,7 @@ class FakeClient:
         self._position_amt = position_amt
         self.calls: list = []
 
-    def get_position_risk(self) -> List[Dict[str, Any]]:
+    def get_position_risk(self) -> list[dict[str, Any]]:
         self.calls.append(("get_position_risk",))
         return [{"symbol": "BTCUSDT", "positionAmt": str(self._position_amt)}]
 
@@ -102,7 +105,7 @@ def _mk_executor(*, position_amt=0.01, **overrides):
     """Build a minimal BinanceExecutor stub for scale-in tests."""
     ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
     ex.r = FakeRedis()
-    ex.exec_stream = "orders:exec"
+    ex.exec_stream = RS.ORDERS_EXEC
     ex.orders_state_prefix = "orders:state:"
     ex.orders_state_ttl = 86400
     ex.allowlist = {"BTCUSDT", "ETHUSDT"}

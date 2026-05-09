@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import pytest
 from dataclasses import dataclass
 
-from handlers.quality.quality_gate import QualityGate
 from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level
+from handlers.quality.quality_gate import QualityGate
 
 
 @dataclass

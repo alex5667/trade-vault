@@ -1,7 +1,8 @@
-from utils.time_utils import get_ny_time_millis
 import json
+
 import redis
-import time
+
+from utils.time_utils import get_ny_time_millis
 
 cfg = {
     "kind": "util_mh_fastlinear_v1",

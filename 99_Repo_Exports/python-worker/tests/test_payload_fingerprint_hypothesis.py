@@ -3,7 +3,8 @@ from __future__ import annotations
 import pytest
 
 try:
-    from hypothesis import given, strategies as st
+    from hypothesis import given
+    from hypothesis import strategies as st
     HYPOTHESIS_AVAILABLE = True
 except Exception:  # pragma: no cover
     HYPOTHESIS_AVAILABLE = False
@@ -11,9 +12,9 @@ except Exception:  # pragma: no cover
     class DummySt:
         def __getattr__(self, name):
             return lambda *args, **kwargs: None
-            
+
     st = DummySt()
-    
+
     def given(*args, **kwargs):
         def decorator(f):
             return f

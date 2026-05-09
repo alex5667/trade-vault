@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Redis/Lua atomicity verification for notify gate.
 
@@ -10,8 +11,6 @@ Tests the contract that Lua _LUA_NOTIFY_GATE_XADD_THEN_MARK maintains atomicity:
 
 
 import pytest
-
-from common.json_contract import assert_json_safe
 
 
 @pytest.mark.redis

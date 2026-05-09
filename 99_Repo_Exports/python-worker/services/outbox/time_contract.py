@@ -1,8 +1,9 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import time
 from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def utc_epoch_ms(value: Any = None) -> int:

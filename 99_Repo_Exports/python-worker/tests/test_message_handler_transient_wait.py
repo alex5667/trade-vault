@@ -1,6 +1,6 @@
+import importlib.util
 import types
 from pathlib import Path
-import importlib.util
 
 
 def _load_module(rel_path: str, name: str):

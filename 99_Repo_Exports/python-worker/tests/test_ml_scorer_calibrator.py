@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Unit tests for tools/ml_scorer_calibrator.py
 """
@@ -17,15 +18,14 @@ if str(tools_path) not in sys.path:
 
 # ── Import module under test ──────────────────────────────────────────────── #
 from ml_scorer_calibrator import (
-    _should_propose,
     _build_proposal_bundle,
+    _extract_shadow_fields,
     _holddown_ok,
     _load_current_mode,
-    _extract_shadow_fields,
+    _should_propose,
     _spearman_rank_corr,
     main,
 )
-
 
 # ─────────────────────────────── _spearman_rank_corr tests ───────────────── #
 
@@ -277,7 +277,7 @@ def _make_decision_event(sid: str, ml_shadow_conf: float, ml_shadow_veto: int = 
 
 
 def _make_trade(sid: str, r_mult: float) -> dict:
-    return {"sid": sid, "r_mult": str(r_mult), "ts_ms": str(int(1700000000000))}
+    return {"sid": sid, "r_mult": str(r_mult), "ts_ms": str(1700000000000)}
 
 
 class TestMainDryRun:
@@ -316,9 +316,8 @@ class TestMainDryRun:
         mock_r.xrevrange.side_effect = xrevrange_side
         mock_get_redis.return_value = mock_r
 
-        with patch("sys.argv", ["cal.py", "--dry-run", "--hours", "168"]):
-            with pytest.raises(SystemExit) as exc:
-                main()
+        with patch("sys.argv", ["cal.py", "--dry-run", "--hours", "168"]), pytest.raises(SystemExit) as exc:
+            main()
         assert exc.value.code == 0
 
         # Must NOT write bundle in dry-run
@@ -335,9 +334,8 @@ class TestMainPendingGuard:
 
         mock_get_redis.return_value = mock_r
 
-        with patch("sys.argv", ["cal.py", "--hours", "168"]):
-            with pytest.raises(SystemExit) as exc:
-                main()
+        with patch("sys.argv", ["cal.py", "--hours", "168"]), pytest.raises(SystemExit) as exc:
+            main()
         assert exc.value.code == 0
         # Should not have read any streams
         mock_r.xrange.assert_not_called()
@@ -351,7 +349,6 @@ class TestMainAlreadyEnforce:
         mock_r.exists.return_value = 0
         mock_get_redis.return_value = mock_r
 
-        with patch("sys.argv", ["cal.py", "--dry-run"]):
-            with pytest.raises(SystemExit) as exc:
-                main()
+        with patch("sys.argv", ["cal.py", "--dry-run"]), pytest.raises(SystemExit) as exc:
+            main()
         assert exc.value.code == 0

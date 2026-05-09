@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """services.orderflow.evidence_contract
 
 P0 deliverable: a versioned, numeric-only evidence payload for "on-the-wire" exchange
@@ -12,17 +13,17 @@ Contract guarantees:
   - detect -> sanitize -> quarantine -> metrics on unknown/bad keys
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import math
 import os
 import re
-import time
 import uuid
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 from pydantic import BaseModel, Field
+
+from utils.time_utils import get_ny_time_millis
 
 EVIDENCE_SCHEMA_VERSION: int = 1
 
@@ -64,7 +65,7 @@ EVIDENCE_ALLOWLIST: set[str] = {
     "conf_weak_progress",
 }
 
-EVIDENCE_ALIASES: Dict[str, str] = {
+EVIDENCE_ALIASES: dict[str, str] = {
     "ice_strict": "iceberg_strict",
     "iceberg": "iceberg_strict",
     "iceberg_confirm": "iceberg_strict",
@@ -86,7 +87,7 @@ def env_int(name: str, default: int) -> int:
     v = os.getenv(name)
     return int(v) if v not in (None, "") else default
 
-def _to_float(v: Any) -> Tuple[Optional[float], Optional[str]]:
+def _to_float(v: Any) -> tuple[float | None, str | None]:
     if v is None:
         return None, "none"
     if isinstance(v, bool):
@@ -111,7 +112,7 @@ def _to_float(v: Any) -> Tuple[Optional[float], Optional[str]]:
         return f, None
     return None, "unsupported_type"
 
-def _norm_key(k: Any) -> Tuple[Optional[str], Optional[str]]:
+def _norm_key(k: Any) -> tuple[str | None, str | None]:
     if k is None:
         return None, "none"
     s = str(k).strip().lower()
@@ -126,8 +127,8 @@ def _norm_key(k: Any) -> Tuple[Optional[str], Optional[str]]:
 def _apply_alias(k: str) -> str:
     return EVIDENCE_ALIASES.get(k, k)
 
-def parse_legacy_confirmations(items: Sequence[Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def parse_legacy_confirmations(items: Sequence[Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for it in items:
         if it is None:
             continue
@@ -141,7 +142,7 @@ def parse_legacy_confirmations(items: Sequence[Any]) -> Dict[str, Any]:
         out[_apply_alias(k0)] = v
     return out
 
-def market_mode_to_id(m: Any) -> Tuple[Optional[float], Optional[str]]:
+def market_mode_to_id(m: Any) -> tuple[float | None, str | None]:
     if m is None:
         return None, None
     if isinstance(m, (int, float)):
@@ -162,17 +163,17 @@ def market_mode_to_id(m: Any) -> Tuple[Optional[float], Optional[str]]:
         return 0.0, None
     return None, "unknown_mode"
 
-def derive_sid(*, sid: Optional[str], symbol: Optional[str], ts_event_ms: Optional[int], direction: Optional[str], entry: Optional[float]) -> str:
+def derive_sid(*, sid: str | None, symbol: str | None, ts_event_ms: int | None, direction: str | None, entry: float | None) -> str:
     if sid:
         return str(sid)
     sym = symbol or "?"
     ts = int(ts_event_ms or 0)
     d = (direction or "?").upper()
-    e = 0.0 if entry is None else float(entry)
+    e = 0.0 if entry is None else entry
     key = f"of:{sym}:{ts}:{d}:{e:.8f}"
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, key))
 
-def validate_ts_event_ms(ts_event_ms: int) -> Optional[str]:
+def validate_ts_event_ms(ts_event_ms: int) -> str | None:
     now = get_ny_time_millis()
     if ts_event_ms < now - 10 * 24 * 3600 * 1000:
         return "too_old"
@@ -185,32 +186,32 @@ class EvidencePayload(BaseModel):
     producer: str = Field(min_length=1, max_length=64)
     sid: str = Field(min_length=1, max_length=128)
     ts_event_ms: int = Field(ge=0)
-    evidence_map: Dict[str, float] = Field(default_factory=dict)
-    symbol: Optional[str] = None
-    tf: Optional[str] = None
-    market_mode: Optional[str] = None
+    evidence_map: dict[str, float] = Field(default_factory=dict)
+    symbol: str | None = None
+    tf: str | None = None
+    market_mode: str | None = None
 
 @dataclass
 class EvidenceNormalizeResult:
     payload: EvidencePayload
-    unknown_keys: List[str]
-    dropped: Dict[str, str]
-    warnings: List[str]
+    unknown_keys: list[str]
+    dropped: dict[str, str]
+    warnings: list[str]
 
 def normalize_evidence_payload(
     *,
     producer: str,
-    sid: Optional[str],
+    sid: str | None,
     ts_event_ms: int,
-    symbol: Optional[str],
-    tf: Optional[str],
-    direction: Optional[str],
-    entry: Optional[float],
-    evidence_raw: Optional[Mapping[str, Any]] = None,
-    confirmations_legacy: Optional[Sequence[Any]] = None,
-    market_mode: Optional[Any] = None,
-    strict_unknown: Optional[bool] = None,
-    accepted_schema_versions: Optional[Iterable[int]] = None,
+    symbol: str | None,
+    tf: str | None,
+    direction: str | None,
+    entry: float | None,
+    evidence_raw: Mapping[str, Any] | None = None,
+    confirmations_legacy: Sequence[Any] | None = None,
+    market_mode: Any | None = None,
+    strict_unknown: bool | None = None,
+    accepted_schema_versions: Iterable[int] | None = None,
 ) -> EvidenceNormalizeResult:
     strict = strict_unknown
     if strict is None:
@@ -221,15 +222,15 @@ def normalize_evidence_payload(
         accepted = {0, EVIDENCE_SCHEMA_VERSION}
 
     sid2 = derive_sid(sid=sid, symbol=symbol, ts_event_ms=ts_event_ms, direction=direction, entry=entry)
-    unknown_keys: List[str] = []
-    dropped: Dict[str, str] = {}
-    warnings: List[str] = []
+    unknown_keys: list[str] = []
+    dropped: dict[str, str] = {}
+    warnings: list[str] = []
 
     ts_reason = validate_ts_event_ms(int(ts_event_ms))
     if ts_reason:
         warnings.append(f"bad_ts:{ts_reason}")
 
-    work: Dict[str, Any] = {}
+    work: dict[str, Any] = {}
     if evidence_raw:
         for k, v in evidence_raw.items():
             k0, ek = _norm_key(k)
@@ -253,7 +254,7 @@ def normalize_evidence_payload(
     if mm_id is not None:
         work["market_mode_id"] = mm_id
 
-    evidence_map: Dict[str, float] = {}
+    evidence_map: dict[str, float] = {}
     for k, v in work.items():
         if k in ("schema_version", "producer", "sid", "ts_event_ms"):
             dropped[k] = "reserved_key"
@@ -287,10 +288,10 @@ def normalize_evidence_payload(
 def make_scores_row(
     *,
     evidence_payload: EvidencePayload,
-    confidence_raw: Optional[float],
-    confidence_final: Optional[float],
-    context: Optional[Mapping[str, Any]] = None,
-) -> Dict[str, Any]:
+    confidence_raw: float | None,
+    confidence_final: float | None,
+    context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "ts_event_ms": evidence_payload.ts_event_ms,
         "sid": evidence_payload.sid,

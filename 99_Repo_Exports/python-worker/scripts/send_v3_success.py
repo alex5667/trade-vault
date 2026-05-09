@@ -1,6 +1,8 @@
 import os
+
 import redis
-import json
+from core.redis_keys import RedisStreams as RS
+
 
 def main():
     redis_url = os.environ.get("REDIS_URL")
@@ -18,14 +20,14 @@ def main():
 
 💡 Причина: <code>no_champion_yet</code>
   • Samples: <code>27297</code>"""
-    
+
     fields = {
         "type": "report",
         "text": text,
         "parse_mode": "HTML",
         "source": "ml_scorer_v3"
     }
-    r.xadd("notify:telegram", fields, maxlen=50000)
+    r.xadd(RS.NOTIFY_TELEGRAM, fields, maxlen=50000)
     print("Message sent to notify:telegram")
 
 if __name__ == "__main__":

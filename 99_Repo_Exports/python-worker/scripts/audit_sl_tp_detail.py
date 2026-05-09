@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Detail audit on problematic position 0fefb75f (LONG but SL > entry)"""
-import redis, json
+import json
+
+import redis
 
 r = redis.from_url('redis://127.0.0.1:63791/0', decode_responses=True)
 pid = "0fefb75f-859c-49dc-8884-9651ec3e2b2f"

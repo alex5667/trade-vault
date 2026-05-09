@@ -2,8 +2,9 @@
 """
 Check all closed trades in PostgreSQL scanner_analytics database
 """
+
 import psycopg2
-from datetime import datetime, timezone
+
 
 def main():
     try:
@@ -36,7 +37,7 @@ def main():
 
             total, profitable, losing, avg_pnl, total_pnl, oldest, newest = stats
 
-            print(f"\n📊 СТАТИСТИКА:")
+            print("\n📊 СТАТИСТИКА:")
             print(f"   Всего сделок: {total}")
             print(f"   Прибыльных: {profitable} ({100*profitable/total:.1f}%)")
             print(f"   Убыточных: {losing} ({100*losing/total:.1f}%)")
@@ -46,7 +47,7 @@ def main():
             print(f"   Последняя сделка: {newest}")
 
             # Show last 5 trades
-            print(f"\n🔍 ПОСЛЕДНИЕ 5 СДЕЛОК:")
+            print("\n🔍 ПОСЛЕДНИЕ 5 СДЕЛОК:")
             cursor.execute("""
                 SELECT
                     symbol,

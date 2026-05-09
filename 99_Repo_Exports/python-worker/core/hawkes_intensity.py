@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """Hawkes-like online intensity features.
 
 Deterministic low-latency burst proxies:
@@ -17,7 +18,6 @@ All timestamps are epoch milliseconds.
 
 import math
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 
 def _decay(beta: float, dt_s: float) -> float:
@@ -94,12 +94,12 @@ class MultiIntensity:
         mu: float = 0.0,
         alpha: float = 1.0,
         beta: float = 2.0,
-        event_types: Optional[list[str]] = None,
+        event_types: list[str] | None = None,
     ) -> None:
         self.mu = float(mu)
         self.alpha = float(alpha)
         self.beta = float(beta)
-        self._m: Dict[str, OnlineIntensity] = {}
+        self._m: dict[str, OnlineIntensity] = {}
         for et in (event_types or []):
             self._m[str(et)] = OnlineIntensity(mu=mu, alpha=alpha, beta=beta)
 
@@ -117,8 +117,8 @@ class MultiIntensity:
     def update_rate(self, event_type: str, ts_ms: int, rate_per_s: float) -> IntensitySnapshot:
         return self._get(event_type).update_rate(ts_ms, rate_per_s)
 
-    def snapshot(self) -> Dict[str, Dict[str, float]]:
-        out: Dict[str, Dict[str, float]] = {}
+    def snapshot(self) -> dict[str, dict[str, float]]:
+        out: dict[str, dict[str, float]] = {}
         for k, st in self._m.items():
             out[k] = {"s": float(st.s), "lam": float(st.lam)}
         return out

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
 
 def _i(x: Any, d: int = 0) -> int:
@@ -52,11 +52,11 @@ class EntryPolicyDecision:
     emit: bool = False
 
 
-def desired_side_from_candidate(cand: Dict[str, Any]) -> str:
+def desired_side_from_candidate(cand: dict[str, Any]) -> str:
     return _s(cand.get("side", "NONE"), "NONE").upper()
 
 
-def bundle_ok(bundle: Dict[str, Any], symbol: str, cfg: EntryPolicyCfg) -> Tuple[bool, str]:
+def bundle_ok(bundle: dict[str, Any], symbol: str, cfg: EntryPolicyCfg) -> tuple[bool, str]:
     if not bundle:
         return False, "no_bundle_state"
     decision = _s(bundle.get("decision", "none")).lower()
@@ -78,25 +78,25 @@ def bundle_ok(bundle: Dict[str, Any], symbol: str, cfg: EntryPolicyCfg) -> Tuple
     return True, "bundle_ok"
 
 
-def need_extra_confirm(snap: Dict[str, Any]) -> bool:
+def need_extra_confirm(snap: dict[str, Any]) -> bool:
     regime = _s(snap.get("regime", "na")).lower()
     unstable = _i(snap.get("abs_lvl_th_unstable", 0), 0)
     return bool(regime in ("thin", "news", "illiquid") or unstable == 1)
 
 
-def extra_confirm_ok(snap: Dict[str, Any], cfg: EntryPolicyCfg) -> bool:
+def extra_confirm_ok(snap: dict[str, Any], cfg: EntryPolicyCfg) -> bool:
     obi = _f(snap.get("obi_stable_sec", 0.0), 0.0)
     ice = _i(snap.get("iceberg_strict", 0), 0)
     return bool(obi >= float(cfg.obi_min_sec) or ice == 1)
 
 
-def zone_bp_thr(snap: Dict[str, Any], cfg: EntryPolicyCfg) -> float:
+def zone_bp_thr(snap: dict[str, Any], cfg: EntryPolicyCfg) -> float:
     if need_extra_confirm(snap):
         return float(cfg.max_zone_bp_thin)
     return float(cfg.max_zone_bp)
 
 
-def zone_side_ok(snap: Dict[str, Any], side: str) -> bool:
+def zone_side_ok(snap: dict[str, Any], side: str) -> bool:
     zs = _s(snap.get("zone_side", "NA")).upper()
     if zs in ("MID", "NA", ""):
         return True
@@ -107,7 +107,7 @@ def zone_side_ok(snap: Dict[str, Any], side: str) -> bool:
     return True
 
 
-def of_ok(snap: Dict[str, Any], side: str, cfg: EntryPolicyCfg) -> Tuple[bool, str]:
+def of_ok(snap: dict[str, Any], side: str, cfg: EntryPolicyCfg) -> tuple[bool, str]:
     if not _b(snap.get("of_strong", 0)):
         return False, "of_strong=0"
     of_score = _f(snap.get("of_confirm_score", 0.0), 0.0)
@@ -119,7 +119,7 @@ def of_ok(snap: Dict[str, Any], side: str, cfg: EntryPolicyCfg) -> Tuple[bool, s
     return True, "of_ok"
 
 
-def zone_ok(cand_zone_id: str, snap: Dict[str, Any], cfg: EntryPolicyCfg) -> Tuple[bool, str]:
+def zone_ok(cand_zone_id: str, snap: dict[str, Any], cfg: EntryPolicyCfg) -> tuple[bool, str]:
     zid = _s(snap.get("zone_id", ""))
     if cand_zone_id and zid and cand_zone_id != zid and (not cfg.allow_zone_id_change_if_near):
         return False, "zone_id_changed"
@@ -137,7 +137,7 @@ def dedup_key(symbol: str, zone_id: str, side: str) -> str:
     return f"{symbol}:{zone_id}:{side}"
 
 
-def dedup_ok(now_ms: int, *, symbol: str, zone_id: str, side: str, cfg: EntryPolicyCfg, state: Dict[str, int]) -> bool:
+def dedup_ok(now_ms: int, *, symbol: str, zone_id: str, side: str, cfg: EntryPolicyCfg, state: dict[str, int]) -> bool:
     k = dedup_key(symbol, zone_id, side)
     last = int(state.get(k, 0) or 0)
     if last > 0 and (now_ms - last) < int(cfg.dedup_ms):
@@ -149,11 +149,11 @@ def dedup_ok(now_ms: int, *, symbol: str, zone_id: str, side: str, cfg: EntryPol
 def evaluate_entry_policy(
     *,
     now_ms: int,
-    cand: Dict[str, Any],
-    snap: Dict[str, Any],
-    bundle: Dict[str, Any],
+    cand: dict[str, Any],
+    snap: dict[str, Any],
+    bundle: dict[str, Any],
     cfg: EntryPolicyCfg,
-    dedup_state: Dict[str, int],
+    dedup_state: dict[str, int],
 ) -> EntryPolicyDecision:
     """
     Pure decision engine for EntryPolicyService and replay/golden.
@@ -177,7 +177,7 @@ def evaluate_entry_policy(
     # If missing, it's fail-open.
     try:
         if int(snap.get("exec_health_veto", 0) or 0) == 1:
-            return EntryPolicyDecision(ok=False, emit=False, reason_code="DENY_EXEC_HEALTH", notes=str(snap.get("exec_health_flags", "")))
+            return EntryPolicyDecision(ok=False, emit=False, reason_code="DENY_EXEC_HEALTH", notes=(snap.get("exec_health_flags", "")))
     except Exception:
         pass
 

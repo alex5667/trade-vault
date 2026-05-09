@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests: SL fallback and placement failure alerting.
 
 Tests:
@@ -14,14 +15,14 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import pytest
+from core.redis_keys import RedisStreams as RS
+
 
 # --- Env setup before module import ---
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
@@ -39,10 +40,10 @@ spec.loader.exec_module(mod)
 
 class FakeRedis:
     def __init__(self):
-        self.store: Dict[str, str] = {}
+        self.store: dict[str, str] = {}
         self.stream: list = []
 
-    def get(self, key: str) -> Optional[bytes]:
+    def get(self, key: str) -> bytes | None:
         v = self.store.get(key)
         return v.encode() if v else None
 
@@ -96,12 +97,12 @@ class FakeClient:
         return []
 
 
-def _mk_executor(**overrides) -> "mod.BinanceExecutor":
+def _mk_executor(**overrides) -> mod.BinanceExecutor:
     """Build a BinanceExecutor stub with minimal wiring."""
     ex = mod.BinanceExecutor.__new__(mod.BinanceExecutor)
     ex.r = FakeRedis()
     ex.redis = ex.r
-    ex.exec_stream = "orders:exec"
+    ex.exec_stream = RS.ORDERS_EXEC
     ex.orders_state_prefix = "orders:state:"
     ex.orders_state_ttl = 86400
     ex.state_key_prefix = "orders:state:"
@@ -333,7 +334,7 @@ def test_tp_placement_failure_sends_telegram():
     assert result.get("tp1_algo_id") in (None, "", 0)
 
     # TP failure exec event
-    tp_fail_events = [e for e in ex._exec_events if "place_tp" in str(e.get("action", "")) and e.get("status") == "error"]
+    tp_fail_events = [e for e in ex._exec_events if "place_tp" in (e.get("action", "")) and e.get("status") == "error"]
     assert len(tp_fail_events) == 1
     assert tp_fail_events[0]["severity"] == "critical"
 

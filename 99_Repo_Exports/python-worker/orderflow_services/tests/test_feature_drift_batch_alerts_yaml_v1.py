@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-import yaml
+
 import pytest
+import yaml
 
 
 def _alerts_path(tick_flow_full: bool = False) -> str:
@@ -19,7 +20,7 @@ def _alerts_path(tick_flow_full: bool = False) -> str:
 @pytest.mark.parametrize('tick_flow_full', [False, True])
 def test_feature_drift_batch_alerts_yaml_parses(tick_flow_full: bool) -> None:
     path = _alerts_path(tick_flow_full)
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         doc = yaml.safe_load(f)
     assert 'groups' in doc and doc['groups']
     rules = doc['groups'][0].get('rules', [])

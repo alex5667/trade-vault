@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Phase E / P4: Message Rate Tracker (OTR / Quote Stuffing proxy)
 
@@ -20,10 +21,8 @@ Design:
 """
 
 
-import os
-import time
 import logging
-from typing import Optional
+import os
 
 # Reuse existing robust stats from core
 from core.robust_stats import RollingRobustZ

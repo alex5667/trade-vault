@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -78,15 +79,15 @@ DEFAULT_MAX_PROMPT_CHARS = int(
 ALLOWED_MODES = {"AUTO", "VERTEX_ONLY", "LOCAL_ONLY", "DISABLED"}
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -129,8 +130,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -154,7 +155,7 @@ def maybe_json(value: Any, default: Any = None) -> Any:
         return default
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     mode = str(raw.get("mode") or DEFAULT_MODE).upper()
     if mode not in ALLOWED_MODES:
         mode = DEFAULT_MODE
@@ -175,8 +176,8 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def vertex_degraded_from_hash(raw: Dict[str, Any]) -> bool:
-    status = str(raw.get("status") or "").lower()
+def vertex_degraded_from_hash(raw: dict[str, Any]) -> bool:
+    status = (raw.get("status") or "").lower()
     degraded = parse_int(raw.get("degraded"), 0)
     if degraded == 1:
         return True
@@ -192,7 +193,7 @@ def vertex_degraded_from_hash(raw: Dict[str, Any]) -> bool:
     return False
 
 
-def build_vertex_prompt(bundle: Dict[str, Any]) -> str:
+def build_vertex_prompt(bundle: dict[str, Any]) -> str:
     return (
         "Analyze this route_incident_rca mirror RCA winner-apply apply governance incident bundle. "
         "Focus on apply-controller decisions, verification failures, rollback causes, retry outcomes, "
@@ -200,7 +201,7 @@ def build_vertex_prompt(bundle: Dict[str, Any]) -> str:
     )
 
 
-def build_local_prompt(bundle: Dict[str, Any]) -> str:
+def build_local_prompt(bundle: dict[str, Any]) -> str:
     return (
         "Vertex primary path is unavailable or degraded. "
         "Perform bounded RCA summarization for this route_incident_rca mirror RCA winner-apply apply governance incident bundle. "
@@ -209,8 +210,8 @@ def build_local_prompt(bundle: Dict[str, Any]) -> str:
     )
 
 
-def evaluate_route(bundle: Dict[str, Any], policy: Dict[str, Any], vertex_degraded: bool) -> Dict[str, Any]:
-    severity = str(bundle.get("trigger_severity") or "").lower()
+def evaluate_route(bundle: dict[str, Any], policy: dict[str, Any], vertex_degraded: bool) -> dict[str, Any]:
+    severity = (bundle.get("trigger_severity") or "").lower()
     bundle_json = stable_json(bundle)
     out = {
         "decision": "REJECT",
@@ -264,13 +265,13 @@ def evaluate_route(bundle: Dict[str, Any], policy: Dict[str, Any], vertex_degrad
     return out
 
 
-def build_vertex_request(bundle: Dict[str, Any]) -> Dict[str, Any]:
+def build_vertex_request(bundle: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": 1,
-        "request_id": str(bundle.get("bundle_id") or ""),
+        "request_id": (bundle.get("bundle_id") or ""),
         "task_family": "route_incident_rca_mirror_rca_winner_apply_apply_governance_rca",
         "task_type": "route_incident_rca_mirror_rca_winner_apply_apply_governance_rca",
-        "severity": str(bundle.get("trigger_severity") or "warning"),
+        "severity": (bundle.get("trigger_severity") or "warning"),
         "source": APP_NAME,
         "prompt": build_vertex_prompt(bundle),
         "bundle_json": stable_json(bundle),
@@ -278,13 +279,13 @@ def build_vertex_request(bundle: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_local_request(bundle: Dict[str, Any]) -> Dict[str, Any]:
+def build_local_request(bundle: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": 1,
-        "request_id": str(bundle.get("bundle_id") or ""),
+        "request_id": (bundle.get("bundle_id") or ""),
         "task_family": "route_incident_rca_mirror_rca_winner_apply_apply_governance_rca",
         "task_type": "vertex_unavailable_fallback",
-        "severity": str(bundle.get("trigger_severity") or "warning"),
+        "severity": (bundle.get("trigger_severity") or "warning"),
         "source": APP_NAME,
         "vertex_unavailable": "1",
         "force_local": "1",
@@ -301,15 +302,15 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_hash(r: Any, key: str) -> Dict[str, Any]:
+async def read_hash(r: Any, key: str) -> dict[str, Any]:
     raw = await r.hgetall(key)
     return as_dict(raw)
 
 
 async def persist_if_configured(
     db_url: str,
-    bundle: Dict[str, Any],
-    decision: Dict[str, Any],
+    bundle: dict[str, Any],
+    decision: dict[str, Any],
     destination_stream: str,
 ) -> None:
     if not db_url or psycopg is None:
@@ -391,7 +392,7 @@ async def main() -> None:  # pragma: no cover
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     vertex_health = await read_hash(r, VERTEX_HEALTH_HASH)
                     vertex_degraded = vertex_degraded_from_hash(vertex_health)
                     decision = evaluate_route(bundle, policy, vertex_degraded)
@@ -419,9 +420,9 @@ async def main() -> None:  # pragma: no cover
 
                     out = {
                         "schema_version": 1,
-                        "bundle_id": str(bundle.get("bundle_id") or ""),
-                        "trigger_type": str(bundle.get("trigger_type") or ""),
-                        "trigger_severity": str(bundle.get("trigger_severity") or ""),
+                        "bundle_id": (bundle.get("bundle_id") or ""),
+                        "trigger_type": (bundle.get("trigger_type") or ""),
+                        "trigger_severity": (bundle.get("trigger_severity") or ""),
                         "decision": decision["decision"],
                         "reason_code": decision["reason_code"],
                         "route": decision["route"],
@@ -441,7 +442,7 @@ async def main() -> None:  # pragma: no cover
                     await r.hset(
                         LAST_HASH,
                         mapping={
-                            "bundle_id": str(bundle.get("bundle_id") or ""),
+                            "bundle_id": (bundle.get("bundle_id") or ""),
                             "decision": decision["decision"],
                             "reason_code": decision["reason_code"],
                             "route": decision["route"],

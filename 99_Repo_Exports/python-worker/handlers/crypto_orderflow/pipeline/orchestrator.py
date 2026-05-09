@@ -1,28 +1,37 @@
 from __future__ import annotations
-from utils.time_utils import get_epoch_ms
 
-from typing import Any, List, Callable
-
-from common.dq_flags import append_dq_flag, ensure_dq_flags
-from common.math_safe import safe_float
+import json
+import logging
 
 # Import our components
 import math
 import os
-import time
-import json
 import random
-import logging
-from prometheus_client import Counter, Histogram, Summary
+import time
+from collections.abc import Callable
+from typing import Any
+
+from prometheus_client import Counter, Histogram
+
+from common.dq_flags import append_dq_flag, ensure_dq_flags
+from common.enums import VetoReason
+from common.math_safe import safe_float
+from common.metrics_stage import emit_ok_total, stage_ms_hist
+from domain.reasons import normalize_reason
 from services.observability.metrics_registry import (
-    ts_rejected_total as _TS_REJECTED_TOTAL,
-    signal_dq_flag_total as _DQ_FLAG_TOTAL,
     dlq_xadd_errors_total as _DLQ_XADD_ERRORS_TOTAL,
+)
+from services.observability.metrics_registry import (
     schema_version_fallback_total as _SCHEMA_VERSION_FALLBACK_TOTAL,
 )
-from common.enums import VetoReason
-from domain.reasons import ReasonCode, normalize_reason
-from common.metrics_stage import stage_ms_hist, emit_ok_total
+from services.observability.metrics_registry import (
+    signal_dq_flag_total as _DQ_FLAG_TOTAL,
+)
+from services.observability.metrics_registry import (
+    ts_rejected_total as _TS_REJECTED_TOTAL,
+)
+from utils.time_utils import get_epoch_ms
+import contextlib
 
 logger = logging.getLogger(__name__)
 SIGNAL_BUILD_FAILED_TOTAL = Counter(
@@ -127,7 +136,7 @@ def _resolve_side(cand: Any) -> str:
         if direction == -1:
             return "SHORT"
     # fall back to whatever str() gives — may be empty
-    return str(side or "").strip()
+    return (side or "").strip()
 
 
 def _emit_dq_flag(ctx: Any, flag: str, symbol="") -> None:
@@ -144,7 +153,7 @@ def _emit_dq_flag(ctx: Any, flag: str, symbol="") -> None:
     try:
         # Dedup-aware: only count if flag is actually new on this ctx
         _existing = ensure_dq_flags(ctx)
-        _f = str(flag or "").strip()
+        _f = (flag or "").strip()
         if not _f:
             return
         _is_new = _f not in _existing
@@ -186,26 +195,25 @@ def _normalize_ts_ms(raw_ts: Any, now_ms: int, source: str = "orchestrator") -> 
                 "orchestrator ts out of valid range raw=%r normalized=%d source=%s reason=%s; returning 0",
                 raw_ts, ts_val, source, reason,
             )
-            try:
+            with contextlib.suppress(Exception):
                 _TS_REJECTED_TOTAL.labels(source=source, reason=reason).inc()
-            except Exception:
-                pass
             return 0
         return ts_val
     except Exception:
         logger.warning("orchestrator ts parse failed raw=%r source=%s", raw_ts, source)
-        try:
+        with contextlib.suppress(Exception):
             _TS_REJECTED_TOTAL.labels(source=source, reason="parse_error").inc()
-        except Exception:
-            pass
         return 0
 
-from handlers.crypto_orderflow.config.handler_config import CryptoOrderFlowConfigManager
+from core.redis_keys import RS
+from core.redis_keys import STREAM_RETENTION as _STREAM_RETENTION
+from core.retention import MAXLEN_GLOBAL
 from handlers.crypto_orderflow.components.gates import CryptoSignalGates
 from handlers.crypto_orderflow.components.liquidity import CryptoLiquidity
 from handlers.crypto_orderflow.components.observability import CryptoObservability
-from core.retention import MAXLEN_GLOBAL
-from core.redis_keys import RS, STREAM_RETENTION as _STREAM_RETENTION
+from handlers.crypto_orderflow.config.handler_config import CryptoOrderFlowConfigManager
+import contextlib
+
 _MAXLEN_DLQ: int = _STREAM_RETENTION.get(RS.SIGNAL_DLQ, 2_000)
 
 
@@ -237,10 +245,8 @@ class PipelineAuditWriter:
 
     @staticmethod
     def safe_inc(counter, **labels):
-        try:
+        with contextlib.suppress(Exception):
             counter.labels(**labels).inc()
-        except Exception:
-            pass
 
 class SignalOrchestrator:
     """
@@ -269,10 +275,8 @@ class SignalOrchestrator:
 
     def _emit_build_failed(self, kind: str, e: Exception, symbol: str = "unknown") -> None:
         logger.warning("orchestrator build failed kind=%s: %r", kind, e)
-        try:
+        with contextlib.suppress(Exception):
             SIGNAL_BUILD_FAILED_TOTAL.labels(symbol=symbol).inc()
-        except Exception:
-            pass
         try:
             m = getattr(self.observability, "_metrics", None)
             if m:
@@ -316,19 +320,17 @@ class SignalOrchestrator:
                 try:
                     redis_client.xadd(RS.SIGNAL_DLQ, clean_payload, maxlen=_MAXLEN_DLQ, approximate=True)
                 except Exception as e:
-                    _sym = str(dlq_payload.get("symbol", "unknown"))
+                    _sym = (dlq_payload.get("symbol", "unknown"))
                     logger.error("❌ orchestrator dlq xadd failed symbol=%s kind=%s: %r", _sym, kind, e)
-                    try:
+                    with contextlib.suppress(Exception):
                         _DLQ_XADD_ERRORS_TOTAL.labels(symbol=_sym, kind=kind).inc()
-                    except Exception:
-                        pass
         except Exception as e:
             logger.warning("orchestrator dlq publish payload build failed kind=%s: %r", kind, e)
 
     def process(
         self,
         ctx: Any,
-        detect_fn: Callable[[Any], List[Any]],
+        detect_fn: Callable[[Any], list[Any]],
     ) -> bool:
         """
         Main processing loop.
@@ -340,7 +342,7 @@ class SignalOrchestrator:
             return False
 
         any_sent = False
-        
+
         # Snapshot config (hot-path)
         rt = self.cfg.get_runtime_snapshot()
 
@@ -349,8 +351,8 @@ class SignalOrchestrator:
         _ts_raw = getattr(ctx, "ts_ms", None) or getattr(ctx, "ts", None) or 0
         _ts_ms = _normalize_ts_ms(_ts_raw, _now_ms, source="orchestrator")
         try:
-            setattr(ctx, "ts_ms", _ts_ms)
-            setattr(ctx, "ts", _ts_ms)
+            ctx.ts_ms = _ts_ms
+            ctx.ts = _ts_ms
         except Exception:
             pass
 
@@ -374,7 +376,7 @@ class SignalOrchestrator:
                     self._last_ts_ms.popitem(last=False)
 
         for cand in candidates:
-            # Stage ordering tracking 
+            # Stage ordering tracking
 
             # We assume cand has 'kind' and 'side' attributes
             # safe_lower logic
@@ -432,7 +434,7 @@ class SignalOrchestrator:
             try:
                 # Resolve risk config
                 risk_cfg = self.cfg.resolve_risk_cfg()
-                
+
                 # SLQ dynamic stop override (fail-open, idempotent)
                 try:
                     from services.slq_risk_adjust import maybe_apply_slq_to_risk_cfg
@@ -444,10 +446,8 @@ class SignalOrchestrator:
                         side=side_val,
                         cfg=dict(risk_cfg or {}),
                     )
-                    try:
-                        setattr(ctx, "risk_cfg", dict(risk_cfg or {}))
-                    except Exception:
-                        pass
+                    with contextlib.suppress(Exception):
+                        ctx.risk_cfg = dict(risk_cfg or {})
                 except Exception:
                     logger.exception(
                         "orchestrator slq_risk_adjust failed symbol=%s kind=%s",
@@ -583,7 +583,7 @@ class SignalOrchestrator:
         event_id is generated automatically by OutboxEnvelope.make_envelope().
         """
         # Safe string helpers
-        def _ss(v): return str(v or "")
+        def _ss(v): return (v or "")
 
         reasons = list(getattr(cand, "reasons", None) or [])
         reasons = [_ss(x) for x in reasons][:16]
@@ -591,15 +591,13 @@ class SignalOrchestrator:
         # ── Timestamp (event_time_ms) ─────────────────────────────────────────
         # Note: ts_ms is normalized at the start of process()
         _ts_ms = getattr(ctx, "ts_ms", 0)
-        
+
         if _ts_ms == 0:
             _sym_for_metric = str(
                 getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")) or "unknown"
             )
-            try:
+            with contextlib.suppress(Exception):
                 PAYLOAD_TS_ANOMALY_TOTAL.labels(symbol=_sym_for_metric).inc()
-            except Exception:
-                pass
             _emit_dq_flag(ctx, "payload_ts_anomaly", symbol=_sym_for_metric)
             logger.warning(
                 "orchestrator _build_payload: ts anomaly symbol=%s raw_ts=%r; payload.ts=0",
@@ -633,14 +631,12 @@ class SignalOrchestrator:
         # Propagated from ConfirmationsEngine (meta_schema_version field).
         _raw_schema_v = getattr(res, "meta_schema_version", None) or getattr(res, "schema_version", None)
         _schema_version: int = int(_raw_schema_v) if _raw_schema_v else 1
-        
+
         if not _raw_schema_v:
             _sym_sch = _ss(getattr(ctx, "symbol", ""))
             logger.warning("⚠️ schema_version fallback to 1 for %s (kind=%s)", _sym_sch, payload.get("kind"))
-            try:
+            with contextlib.suppress(Exception):
                 _SCHEMA_VERSION_FALLBACK_TOTAL.labels(symbol=_sym_sch, kind=payload.get("kind")).inc()
-            except Exception:
-                pass
 
         # ── source ───────────────────────────────────────────────────────────
         _source: str = (
@@ -667,7 +663,7 @@ class SignalOrchestrator:
                 _quality_flags.append("confidence_missing")
                 _sym_conf = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")) or "unknown")
                 _emit_dq_flag(ctx, "confidence_missing", symbol=_sym_conf)
-        
+
         payload = {
             "kind": _ss(getattr(cand, "kind", "")),
             "side": _ss(getattr(cand, "side", "")),
@@ -729,10 +725,8 @@ class SignalOrchestrator:
                 )
                 if _qty > _cap:
                     payload["qty"] = _cap
-                    try:
-                        setattr(ctx, "qty", _cap)
-                    except Exception:
-                        pass
+                    with contextlib.suppress(Exception):
+                        ctx.qty = _cap
                     try:
                         from services.observability.metrics_registry import notional_clamped_total
                         notional_clamped_total.labels(symbol=str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")))).inc()
@@ -741,8 +735,7 @@ class SignalOrchestrator:
         except Exception as e:
             logger.error("orchestrator notional clamp failed! Zeroing qty. Error: %r", e)
             payload["qty"] = 0.0
-            try: setattr(ctx, "qty", 0.0)
-            except Exception: pass
+            with contextlib.suppress(Exception): ctx.qty = 0.0
 
         # ── Phase 0: Horizon-aware contract enrichment ────────────────────────
         # Attach ATRProfileV1 / HorizonProfileV1 to ctx and enrich payload meta.
@@ -753,7 +746,6 @@ class SignalOrchestrator:
             from core.horizon_contract import (
                 attach_phase0_profiles_to_ctx,
                 build_horizon_meta_for_payload,
-                build_horizon_trace_fragment,
             )
             from core.horizon_metrics import emit_horizon_contract_metrics
 
@@ -789,7 +781,7 @@ class SignalOrchestrator:
                 _existing_meta = dict(payload.get("meta") or {})
                 # Merge in existing risk_cfg meta fields
                 if not _existing_meta.get("sl_mode"):
-                    _existing_meta["sl_mode"] = str(_rc.get("sl_mode") or "ATR")
+                    _existing_meta["sl_mode"] = (_rc.get("sl_mode") or "ATR")
                 if not _existing_meta.get("sl_atr_mult"):
                     _existing_meta["sl_atr_mult"] = _sl_atr_mult
                 _enriched_meta = build_horizon_meta_for_payload(
@@ -921,7 +913,7 @@ class SignalOrchestrator:
         # EdgeCostGateDecision: veto + passed property
         veto = bool(getattr(cost_decision, "veto", False))
         passed = not veto
-        
+
         # Sampling
         if not passed:
             # VETO: 100% sample by default
@@ -929,7 +921,7 @@ class SignalOrchestrator:
         else:
             # PASS: 1-5% sample by default
             sample_rate = float(os.getenv("EDGE_GATE_SAMPLE_PASS", "0.02"))
-            
+
         if sample_rate < 1.0 and random.random() > sample_rate:
             return
 
@@ -938,7 +930,7 @@ class SignalOrchestrator:
             return
 
         stream_key = os.getenv("EDGE_GATE_EVENTS_STREAM", "stream:diag:edge_gate_events")
-        
+
         # Build event with robust field mapping
         try:
             # Normalize ts_ms (handle seconds, missing values)
@@ -948,7 +940,7 @@ class SignalOrchestrator:
             exp_bps = float(getattr(cost_decision, "expected_move_bps", 0.0))
             req_bps = float(getattr(cost_decision, "threshold_bps", 0.0))
             k = float(getattr(cost_decision, "k", 0.0))
-            
+
             fees_bps = float(getattr(cost_decision, "fees_bps", 0.0))
             slip_bps = float(getattr(cost_decision, "slippage_bps", 0.0))
             buf_bps = float(getattr(cost_decision, "buffer_bps", 0.0))
@@ -957,18 +949,18 @@ class SignalOrchestrator:
             # Recompute only as fallback if the field is missing (e.g. older gate version).
             _tcd = getattr(cost_decision, "total_costs_bps", None)
             total_costs_bps = float(_tcd) if _tcd is not None else fees_bps + slip_bps + buf_bps
-            
-            edge_source = str(getattr(cost_decision, "edge_source", 
+
+            edge_source = str(getattr(cost_decision, "edge_source",
                             getattr(cost_decision, "mode", "none")) or "none")
-            
+
             # Short veto code (reason_code)
             veto_code = None
             if not passed:
                 veto_code = str(getattr(cost_decision, "reason_code", "edge_cost:veto") or "edge_cost:veto")
-            
+
             # Compute margin and edge_ratio
             margin_bps = exp_bps - req_bps
-            
+
             # Edge ratio with safe division
             if req_bps > 0:
                 edge_ratio = exp_bps / req_bps
@@ -985,29 +977,29 @@ class SignalOrchestrator:
                 "passed": 1 if passed else 0,
                 "veto_code": veto_code,
                 "edge_source": edge_source,
-                
+
                 # Metrics
                 "exp_bps": exp_bps,
                 "req_bps": req_bps,
                 "margin_bps": margin_bps,
                 "edge_ratio": edge_ratio,
-                
+
                 "k": k,
                 "fees_bps": fees_bps,
                 "slip_bps": slip_bps,
                 "buf_bps": buf_bps,
                 "total_costs_bps": total_costs_bps,
-                
-                "ctx": json.dumps({"kind": kind}) 
+
+                "ctx": json.dumps({"kind": kind})
             }
-            
+
             # Fire and forget
             try:
                 redis_client.xadd(stream_key, {k: str(v) if v is not None else "" for k, v in evt.items()}, maxlen=MAXLEN_GLOBAL, approximate=True)
             except Exception as e:
                 sym = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")))
                 logger.warning("orchestrator edge gate event xadd failed symbol=%s kind=%s: %r", sym, kind, e)
-            
+
         except Exception as e:
             sym = str(getattr(ctx, "symbol", getattr(self.cfg, "symbol", "unknown")))
             self._emit_build_failed(kind, e, symbol=sym)

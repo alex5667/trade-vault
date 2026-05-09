@@ -1,7 +1,4 @@
 import json
-import os
-
-import pytest
 
 from handlers.emitter.outbox_writer import OutboxWriter  # поправьте импорт если нужно
 
@@ -62,7 +59,7 @@ def test_outbox_writer_fallback_success_saves_meta(monkeypatch):
     )
     assert ok is True
 
-    meta_key = f"signal:meta:s1"
+    meta_key = "signal:meta:s1"
     assert meta_key in r.kv
     # meta json must be valid
     obj = json.loads(r.kv[meta_key])

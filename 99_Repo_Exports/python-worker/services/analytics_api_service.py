@@ -18,14 +18,12 @@ Usage:
 """
 
 import os
-from typing import List, Optional
-from datetime import datetime, date
+from dataclasses import dataclass
+from datetime import date, datetime
 
 from fastapi import FastAPI, HTTPException, Query
-from dataclasses import dataclass
 
 from services import analytics_db
-
 
 # ═══════════════════════════════════════════════════════════════
 # Configuration
@@ -98,10 +96,10 @@ async def health_check():
         raise HTTPException(status_code=503, detail=f"Database unhealthy: {e}")
 
 
-@app.get("/metrics/trades", response_model=List[TradeResponse])
+@app.get("/metrics/trades", response_model=list[TradeResponse])
 async def get_trades(
-    symbol: Optional[str] = Query(None, description="Filter by symbol"),
-    source: Optional[str] = Query(None, description="Filter by source"),
+    symbol: str | None = Query(None, description="Filter by symbol"),
+    source: str | None = Query(None, description="Filter by source"),
     limit: int = Query(100, description="Max number of trades to return", ge=1, le=1000)
 ):
     """
@@ -139,10 +137,10 @@ async def get_trades(
         raise HTTPException(status_code=500, detail=f"Failed to fetch trades: {e}")
 
 
-@app.get("/metrics/daily", response_model=List[DailyMetricsResponse])
+@app.get("/metrics/daily", response_model=list[DailyMetricsResponse])
 async def get_daily_metrics(
-    symbol: Optional[str] = Query(None, description="Filter by symbol"),
-    source: Optional[str] = Query(None, description="Filter by source"),
+    symbol: str | None = Query(None, description="Filter by symbol"),
+    source: str | None = Query(None, description="Filter by source"),
     limit: int = Query(30, description="Max number of days to return", ge=1, le=365)
 ):
     """
@@ -181,11 +179,11 @@ async def get_daily_metrics(
         raise HTTPException(status_code=500, detail=f"Failed to fetch daily metrics: {e}")
 
 
-@app.get("/metrics/entry-tags", response_model=List[EntryTagMetricsResponse])
+@app.get("/metrics/entry-tags", response_model=list[EntryTagMetricsResponse])
 async def get_entry_tag_metrics(
-    symbol: Optional[str] = Query(None, description="Filter by symbol"),
-    source: Optional[str] = Query(None, description="Filter by source"),
-    entry_tag: Optional[str] = Query(None, description="Filter by entry tag"),
+    symbol: str | None = Query(None, description="Filter by symbol"),
+    source: str | None = Query(None, description="Filter by source"),
+    entry_tag: str | None = Query(None, description="Filter by entry tag"),
     limit: int = Query(30, description="Max number of entries to return", ge=1, le=365)
 ):
     """
@@ -230,8 +228,8 @@ async def get_entry_tag_metrics(
 
 @app.get("/metrics/summary")
 async def get_summary_metrics(
-    symbol: Optional[str] = Query(None, description="Filter by symbol"),
-    source: Optional[str] = Query(None, description="Filter by source")
+    symbol: str | None = Query(None, description="Filter by symbol"),
+    source: str | None = Query(None, description="Filter by source")
 ):
     """
     Get summary metrics across all trades.
@@ -286,12 +284,12 @@ if __name__ == "__main__":
     import uvicorn
     print("🚀 Starting Analytics API Service...")
     print(f"📡 Listening on http://{DEFAULT_HOST}:{DEFAULT_PORT}")
-    print(f"📊 Analytics endpoints:")
-    print(f"  GET /healthz - Health check")
-    print(f"  GET /metrics/trades - Recent trades")
-    print(f"  GET /metrics/daily - Daily metrics")
-    print(f"  GET /metrics/entry-tags - Entry tag performance")
-    print(f"  GET /metrics/summary - Summary overview")
+    print("📊 Analytics endpoints:")
+    print("  GET /healthz - Health check")
+    print("  GET /metrics/trades - Recent trades")
+    print("  GET /metrics/daily - Daily metrics")
+    print("  GET /metrics/entry-tags - Entry tag performance")
+    print("  GET /metrics/summary - Summary overview")
 
     uvicorn.run(
         "services.analytics_api_service:app",

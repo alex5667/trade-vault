@@ -21,9 +21,13 @@ Summary key (written every interval):
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
-from services.observability.latency_semconv import required_stage_owners, external_required_stage_owners, default_symbol_allowlist
+from services.observability.latency_semconv import (
+    default_symbol_allowlist,
+    external_required_stage_owners,
+    required_stage_owners,
+)
 
 
 def _env(name: str, default: str = '') -> str:
@@ -84,7 +88,7 @@ def _state_key(prefix: str, service: str, stage: str, symbol: str) -> str:
     return f"{prefix}:{service}:{stage}:{symbol}"
 
 
-def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
+def evaluate_once(r: Any, cfg: Cfg) -> dict[str, str]:
     """Evaluate all required stage owners and return the summary mapping."""
     now = time.time()
     missing_total = 0
@@ -96,7 +100,7 @@ def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
     external_missing_total = 0
     external_stale_total = 0
     external_required = set(external_required_stage_owners())
-    per_stage: Dict[str, str] = {}
+    per_stage: dict[str, str] = {}
 
     for service, stage in required_stage_owners():
         for symbol in cfg.symbols:
@@ -131,7 +135,7 @@ def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
             )
 
     gate_ok = 1 if (missing_total == 0 and stale_total == 0) else 0
-    mapping: Dict[str, str] = {
+    mapping: dict[str, str] = {
         'schema_version': '1',
         'last_ts_ms': str(int(now * 1000)),
         'required_total': str(required_total),

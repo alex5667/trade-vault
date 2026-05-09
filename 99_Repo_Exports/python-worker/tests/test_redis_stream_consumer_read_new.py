@@ -1,4 +1,3 @@
-import pytest
 
 from core.redis_stream_consumer import SyncRedisStreamHelper
 

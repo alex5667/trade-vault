@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
 from enum import Enum
+from typing import Any
 
 
 class SignalQualityLabel(Enum):
@@ -18,7 +18,7 @@ class SignalQualityLabel(Enum):
 class QualityResult:
     confidence: float                 # [0..1], возможно скорректированная
     label: SignalQualityLabel
-    reasons: List[str]
+    reasons: list[str]
     force_reject: bool = False        # если True, то сигнал запрещён независимо от score
 
 
@@ -27,7 +27,7 @@ class ScoringResult:
     score: float                    # базовый score (raw)
     final_score: float              # после pattern_weight и golden
     confidence: float               # [0..1]
-    quality_label: Optional[SignalQualityLabel]
-    reasons: List[str] = field(default_factory=list)
+    quality_label: SignalQualityLabel | None
+    reasons: list[str] = field(default_factory=list)
     should_emit: bool = False
-    debug: Dict[str, Any] = field(default_factory=dict)
+    debug: dict[str, Any] = field(default_factory=dict)

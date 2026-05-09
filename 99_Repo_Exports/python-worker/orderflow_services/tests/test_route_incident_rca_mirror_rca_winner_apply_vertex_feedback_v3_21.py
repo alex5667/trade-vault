@@ -1,6 +1,13 @@
 import pytest
-from orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_rca_consumer_v3_21 import generate_deterministic_result
-from orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_feedback_governor_v3_21 import calculate_rollups, decide_governance
+
+from orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_feedback_governor_v3_21 import (
+    calculate_rollups,
+    decide_governance,
+)
+from orderflow_services.route_incident_rca_mirror_rca_winner_apply_vertex_rca_consumer_v3_21 import (
+    generate_deterministic_result,
+)
+
 
 @pytest.mark.asyncio
 async def test_generate_deterministic_result():
@@ -8,7 +15,7 @@ async def test_generate_deterministic_result():
     assert res["request_id"] == "req_123"
     assert res["severity"] == "critical"
     assert res["rca_payload"]["dominant_findings"][0] == "system_lag_or_persistence_issue"
-    
+
 @pytest.mark.asyncio
 async def test_generate_deterministic_result_keep_rate():
     res = await generate_deterministic_result("req_124", '{"trigger":{"description":"verify_keep_rate drop", "severity":"warning"}}')
@@ -43,7 +50,7 @@ def test_decide_governance_prefer_local():
     ]
     res = calculate_rollups(feedbacks)
     # Set n higher so it doesn't HOLD
-    res["n"] = 10 
+    res["n"] = 10
     assert decide_governance(res, min_n=10, min_q=0.6, min_u=0.5, min_a=0.5, max_lq=1.0) == "PREFER_LOCAL_ONLY"
 
 def test_decide_governance_keep_auto():

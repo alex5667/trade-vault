@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 train_edge_stack_v1.py
 
@@ -26,21 +26,18 @@ OOF rule:
   meta обучается только на OOF предиктах base моделей.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
-import math
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
-
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score, brier_score_loss, average_precision_score, log_loss
-from sklearn.preprocessing import RobustScaler
+from sklearn.metrics import average_precision_score, brier_score_loss, log_loss, roc_auc_score
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import RobustScaler
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     from sklearn.ensemble import HistGradientBoostingClassifier
@@ -53,13 +50,13 @@ except Exception:
     CatBoostClassifier = None
 
 # Import calibration utilities
-from services.ml_calibration import fit_platt_logit, PlattLogitCalibrator
+from services.ml_calibration import fit_platt_logit
 
 
 def read_ndjson(path: str) -> pd.DataFrame:
     """Читает NDJSON файл в DataFrame."""
     rows = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -68,7 +65,7 @@ def read_ndjson(path: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def pick_feature_cols(df: pd.DataFrame, drop: set) -> List[str]:
+def pick_feature_cols(df: pd.DataFrame, drop: set) -> list[str]:
     """Выбирает числовые колонки, исключая drop."""
     cols = []
     for c in df.columns:
@@ -85,7 +82,7 @@ def day_group(ts_ms: np.ndarray) -> np.ndarray:
     return (ts_ms // 86_400_000).astype(np.int64)
 
 
-def walk_forward_splits(groups: np.ndarray, n_splits: int) -> List[Tuple[np.ndarray, np.ndarray]]:
+def walk_forward_splits(groups: np.ndarray, n_splits: int) -> list[tuple[np.ndarray, np.ndarray]]:
     """Walk-forward split по дням."""
     # unique days sorted
     ug = np.unique(groups)
@@ -203,7 +200,7 @@ def main():
     ap.add_argument("--n-splits", type=int, default=5, help="number of time-based splits for OOF")
     ap.add_argument("--seed", type=int, default=42, help="random seed")
     args = ap.parse_args()
-    
+
     # Set random seed
     np.random.seed(args.seed)
 
@@ -314,13 +311,13 @@ def main():
         "report": report,
     }
 
+
     import joblib
-    import time
-    
+
     model_path = out_dir / "model.joblib"
     joblib.dump(pack, model_path, compress=3)
     (out_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    
+
     # Generate suggested cfg snippet
     cfg_suggested = {
         "schema_version": 1,
@@ -336,7 +333,7 @@ def main():
         # Calibrator is embedded in model pack, but can also be set explicitly:
         # "calibrator": cal.to_dict(),
     }
-    
+
     print(json.dumps({
         "model_path": str(model_path),
         "metrics": report,

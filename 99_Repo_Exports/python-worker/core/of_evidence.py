@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
 import math
+from typing import Any
+import contextlib
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -39,8 +40,8 @@ def compute_sweep_recent(
     *,
     now_ts_ms: int,
     last_sweep: Any,
-    cfg: Dict[str, Any],
-    indicators: Dict[str, Any],
+    cfg: dict[str, Any],
+    indicators: dict[str, Any],
 ) -> bool:
     """
     sweep_recent must be time-bounded. Otherwise reversal branch becomes "sticky".
@@ -62,14 +63,10 @@ def compute_sweep_recent(
     if not (0 <= age <= valid_ms):
         return False
 
-    try:
+    with contextlib.suppress(Exception):
         indicators["sweep_kind"] = _s(_get(last_sweep, "kind", ""), "")
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         indicators["sweep_dir_bias"] = _s(_get(last_sweep, "direction_bias", ""), "")
-    except Exception:
-        pass
     return True
 
 
@@ -78,9 +75,9 @@ def compute_reclaim_recent(
     direction: str,
     now_ts_ms: int,
     last_reclaim: Any,
-    cfg: Dict[str, Any],
-    indicators: Dict[str, Any],
-) -> Tuple[bool, int]:
+    cfg: dict[str, Any],
+    indicators: dict[str, Any],
+) -> tuple[bool, int]:
     """
     Reclaim evidence: fresh + direction match.
 
@@ -111,14 +108,10 @@ def compute_reclaim_recent(
         hold_bars = _i(cfg.get("reclaim_hold_bars", 2), 2)
 
     # Optional diagnostic fields
-    try:
+    with contextlib.suppress(Exception):
         indicators["reclaim_level"] = float(_get(last_reclaim, "level", 0.0) or 0.0)
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         indicators["reclaim_pool_id"] = _s(_get(last_reclaim, "pool_id", ""), "")
-    except Exception:
-        pass
 
     return True, hold_bars
 
@@ -126,10 +119,10 @@ def compute_reclaim_recent(
 def compute_absorption_flags(
     *,
     direction: str,
-    absorption: Optional[Dict[str, Any]],
-    cfg: Dict[str, Any],
-    indicators: Dict[str, Any],
-) -> Tuple[bool, float]:
+    absorption: dict[str, Any] | None,
+    cfg: dict[str, Any],
+    indicators: dict[str, Any],
+) -> tuple[bool, float]:
     """
     Absorption evidence is tick-local (no staleness needed).
 

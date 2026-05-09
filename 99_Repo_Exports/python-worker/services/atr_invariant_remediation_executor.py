@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import Dict, Any
+from typing import Any
+
 
 class InvariantRemediationExecutor:
     """
@@ -10,11 +11,11 @@ class InvariantRemediationExecutor:
     No payload auto-fixes. No silent control-plane mutation.
     """
 
-    def execute(self, violation: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
-        kind = str(policy.get("remediation_kind", "unknown"))
-        inv = str(violation.get("invariant_id", "unknown"))
-        scope_kind = str(violation.get("scope_kind", "global"))
-        scope_value = str(violation.get("scope_value", "none"))
+    def execute(self, violation: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+        kind = (policy.get("remediation_kind", "unknown"))
+        inv = (violation.get("invariant_id", "unknown"))
+        scope_kind = (violation.get("scope_kind", "global"))
+        scope_value = (violation.get("scope_value", "none"))
         action_id = hashlib.sha1(f"{inv}|{scope_kind}|{scope_value}|{int(time.time()*1000)}".encode()).hexdigest()[:20]
 
         if kind == "deny_only":

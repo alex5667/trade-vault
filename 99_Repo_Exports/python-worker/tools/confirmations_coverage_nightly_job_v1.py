@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Confirmations coverage nightly job (v1).
 
 Goal: ensure confirmations (conf_*) are actually present and non-zero in the
@@ -15,16 +16,14 @@ Exit codes:
   2 => invalid args / unrecoverable IO (still tries to write report if possible)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import time
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-CONF_COLS: List[str] = [
+from utils.time_utils import get_ny_time_millis
+
+CONF_COLS: list[str] = [
     "conf_rsi_agree",
     "conf_div_match",
     "conf_sweep_eqh",
@@ -36,7 +35,7 @@ CONF_COLS: List[str] = [
     "conf_weak_progress",
 ]
 
-RAW_COLS: List[str] = [
+RAW_COLS: list[str] = [
     "rsi_agree",
     "div_match",
     "sweep_eqh",
@@ -53,7 +52,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _write_json_atomic(path: str, obj: Dict[str, Any]) -> None:
+def _write_json_atomic(path: str, obj: dict[str, Any]) -> None:
     tmp = path + ".tmp"
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(tmp, "w", encoding="utf-8") as f:
@@ -81,7 +80,7 @@ def _load_parquet(path: str):
         return pd.read_parquet(path)
 
 
-def _col_stats(df, col: str) -> Dict[str, Any]:
+def _col_stats(df, col: str) -> dict[str, Any]:
     s = df[col]
     n = int(len(s))
     if n <= 0:
@@ -112,8 +111,8 @@ def build_report(
     dataset_path: str,
     min_rows: int,
     conf_min_nonzero_rate_warn: float,
-) -> Dict[str, Any]:
-    rep: Dict[str, Any] = {
+) -> dict[str, Any]:
+    rep: dict[str, Any] = {
         "ts_ms": _now_ms(),
         "dataset_path": dataset_path,
         "counts": {"n_rows": 0},
@@ -143,7 +142,7 @@ def build_report(
     # stats for conf and raw cols (if exist)
     conf_present = 0
     conf_min_nonzero = 1.0
-    conf_nonzero_rates: Dict[str, float] = {}
+    conf_nonzero_rates: dict[str, float] = {}
 
     for col in CONF_COLS + RAW_COLS:
         if col in cols:

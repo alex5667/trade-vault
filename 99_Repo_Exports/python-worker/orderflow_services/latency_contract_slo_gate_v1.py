@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 """Cross-service latency contract SLO gate (P4.1).
 
 Reads latency contract Redis hashes from Python + external writers (Go/NestJS),
@@ -16,14 +17,18 @@ Required stage-owner matrix:
 Summary key (written every interval):
   metrics:latency_contract:slo:last,
 """,
+import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
-from services.observability.latency_semconv import required_stage_owners, external_required_stage_owners, default_symbol_allowlist
 from handlers.crypto_orderflow.utils.log_sampler import LogSamplerFactory, sampled_info
-import logging
+from services.observability.latency_semconv import (
+    default_symbol_allowlist,
+    external_required_stage_owners,
+    required_stage_owners,
+)
 
 logger = logging.getLogger("latency_slo_gate")
 LogSamplerFactory.get_sampler("LATENCY_SLO_BREACH", 100) # log every 100th breach per type
@@ -87,7 +92,7 @@ def _state_key(prefix: str, service: str, stage: str, symbol: str) -> str:
     return f"{prefix}:{service}:{stage}:{symbol}"
 
 
-def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
+def evaluate_once(r: Any, cfg: Cfg) -> dict[str, str]:
     """Evaluate all required stage owners and return the summary mapping.""",
     now = time.time()
     missing_total = 0
@@ -99,7 +104,7 @@ def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
     external_missing_total = 0
     external_stale_total = 0
     external_required = set(external_required_stage_owners())
-    per_stage: Dict[str, str] = {}
+    per_stage: dict[str, str] = {}
 
     for service, stage in required_stage_owners():
         for symbol in cfg.symbols:
@@ -132,23 +137,23 @@ def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
             per_stage[f"{service}|{stage}|{symbol}"] = (
                 f"{present}:{stale}:{budget_breach}:{last_duration_ms:.3f}"
             )
-            
+
             # Expanded logging for breaches (sampled)
             if budget_breach:
                 sampled_info(
-                    logger, "LATENCY_SLO_BREACH", 
+                    logger, "LATENCY_SLO_BREACH",
                     "⚠️ [SLO-BREACH] %s stage %s for %s: %.2f ms (budget %.2f ms)",
                     service, stage, symbol, last_duration_ms, budget
                 )
             elif stale:
                  sampled_info(
-                    logger, "LATENCY_SLO_STALE", 
+                    logger, "LATENCY_SLO_STALE",
                     "⚠️ [SLO-STALE] %s stage %s for %s: age %.1f s (max %d s)",
                     service, stage, symbol, age_s, cfg.stale_s
                 )
 
     gate_ok = 1 if (missing_total == 0 and stale_total == 0) else 0
-    mapping: Dict[str, str] = {
+    mapping: dict[str, str] = {
         'schema_version': '1',
         'last_ts_ms': str(int(now * 1000)),
         'required_total': str(required_total),

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Fail-open contract tests (Hypothesis).
 
 Goals (per request 5.2):
@@ -16,10 +17,9 @@ Notes:
 
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Tuple
+from typing import Any
 
 import pytest
-
 
 hypothesis = pytest.importorskip("hypothesis")
 strategies = pytest.importorskip("hypothesis.strategies")
@@ -149,7 +149,7 @@ class _Ctx:
     symbol: str = "TEST"
 
 
-def _normalize_gate_result(res: Any) -> Tuple[bool, str]:
+def _normalize_gate_result(res: Any) -> tuple[bool, str]:
     """Accept multiple gate return shapes and normalize to (ok, reason_code)."""
     # common pattern: (ok, rc)
     if isinstance(res, tuple) and len(res) >= 2:
@@ -158,7 +158,7 @@ def _normalize_gate_result(res: Any) -> Tuple[bool, str]:
         return ok, rc
     # object pattern: res.veto / res.reason_code
     if hasattr(res, "veto"):
-        ok = not bool(getattr(res, "veto"))
+        ok = not bool(res.veto)
         rc = str(getattr(res, "reason_code", "") or "")
         return ok, rc
     # bool only

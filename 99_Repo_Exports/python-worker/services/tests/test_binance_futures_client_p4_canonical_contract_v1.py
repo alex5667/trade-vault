@@ -6,9 +6,9 @@ Tests:
   2. reconcile_protection_by_sid returns the richer P12/P4 contract shape
      with sid, symbol, by_client_algo_id, missing, expect_sl, expected_tp_count.
 """
-from pathlib import Path
 import importlib.util
 import sys
+from pathlib import Path
 
 _root = Path(__file__).resolve()
 for _p in _root.parents:

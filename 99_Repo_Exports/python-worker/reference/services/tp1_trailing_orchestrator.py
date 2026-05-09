@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 Оркестратор трейлинга после TP1.
@@ -15,14 +16,15 @@ from utils.time_utils import get_ny_time_millis
 import json
 import math
 import os
-import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, List, Iterable, Sequence, Tuple
+from typing import Any
+
 import redis
 
-from services.trailing_profiles import TrailingProfilesRegistry
-from services.order_trailing_dispatcher import OrderTrailingDispatcher
 from common.log import setup_logger
+from services.order_trailing_dispatcher import OrderTrailingDispatcher
+from services.trailing_profiles import TrailingProfilesRegistry
 
 try:
     from services.trailing_metrics import TrailingMetrics
@@ -45,14 +47,14 @@ log = setup_logger("tp1_trailing_orchestrator")
 class TrailingResult:
     success: bool
     skipped: bool = False
-    new_sl: Optional[float] = None
-    profile_name: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    reason: Optional[str] = None
+    new_sl: float | None = None
+    profile_name: str | None = None
+    metadata: dict[str, Any] | None = None
+    error: str | None = None
+    reason: str | None = None
 
 
-def _parse_csv_env(name: str, default: Optional[Sequence[str]] = None) -> List[str]:
+def _parse_csv_env(name: str, default: Sequence[str] | None = None) -> list[str]:
     """Parse comma-separated env into list of non-empty strings."""
     raw = os.getenv(name)
     if raw is None:
@@ -63,22 +65,22 @@ def _parse_csv_env(name: str, default: Optional[Sequence[str]] = None) -> List[s
     return items
 
 
-def _normalize_symbol(symbol: Optional[str]) -> Optional[str]:
+def _normalize_symbol(symbol: str | None) -> str | None:
     if symbol is None:
         return None
     result = symbol.strip().upper()
     return result or None
 
 
-def _normalize_source(source: Optional[str]) -> Optional[str]:
+def _normalize_source(source: str | None) -> str | None:
     if source is None:
         return None
     result = source.strip().lower()
     return result or None
 
 
-def _normalize_prefixes(prefixes: Iterable[str]) -> List[str]:
-    cleaned: List[str] = []
+def _normalize_prefixes(prefixes: Iterable[str]) -> list[str]:
+    cleaned: list[str] = []
     for item in prefixes:
         if not item:
             continue
@@ -89,7 +91,7 @@ def _normalize_prefixes(prefixes: Iterable[str]) -> List[str]:
             normalized = f"{normalized}:"
         cleaned.append(normalized)
     seen = set()
-    unique: List[str] = []
+    unique: list[str] = []
     for prefix in cleaned:
         if prefix not in seen:
             unique.append(prefix)
@@ -110,7 +112,7 @@ def _to_bool(value: Any) -> bool:
     return False
 
 
-def _to_float(value: Any) -> Optional[float]:
+def _to_float(value: Any) -> float | None:
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -131,10 +133,10 @@ class TP1TrailingOrchestrator:
     """
 
     def __init__(
-        self, 
-        redis_client: Optional[redis.Redis] = None,
-        profiles: Optional[TrailingProfilesRegistry] = None,
-        gateway_url: Optional[str] = None
+        self,
+        redis_client: redis.Redis | None = None,
+        profiles: TrailingProfilesRegistry | None = None,
+        gateway_url: str | None = None
     ):
         """
         Args:
@@ -150,17 +152,17 @@ class TP1TrailingOrchestrator:
         else:
             self.r = redis_client
             log.debug("Using provided Redis client")
-        
+
         # Profiles registry
         if profiles is None:
             self.profiles = TrailingProfilesRegistry()
         else:
             self.profiles = profiles
-        
+
         # Dispatcher to gateway
         gateway_url = gateway_url or os.getenv("GATEWAY_URL", "http://scanner-go-gateway:8090")
         self.dispatcher = OrderTrailingDispatcher(gateway_url)
-        
+
         # Events logger для trade_back
         if HAS_EVENTS_LOGGER:
             self.events_logger = TradeEventsLogger()
@@ -168,13 +170,13 @@ class TP1TrailingOrchestrator:
         else:
             self.events_logger = None
             log.warning("⚠️  Trade events logger not available")
-        
+
         # Конфигурация
         self.signal_key_prefix = os.getenv("SIGNAL_KEY_PREFIX", "signals:")
         self.default_profile = os.getenv("DEFAULT_TRAIL_PROFILE", "rocket_v1")
         trailing_symbols_env = _parse_csv_env("TRAILING_SYMBOLS")
         if trailing_symbols_env and any(sym.strip() == "*" for sym in trailing_symbols_env):
-            symbol_list: List[str] = []
+            symbol_list: list[str] = []
             self.symbol_filter_enabled = False
         else:
             if trailing_symbols_env:
@@ -198,7 +200,7 @@ class TP1TrailingOrchestrator:
             _normalize_source(src) for src in source_list if _normalize_source(src)
         }
 
-        default_prefixes: List[str] = [
+        default_prefixes: list[str] = [
             self.signal_key_prefix,
             "signals:audit:",
             "signals:crypto:",
@@ -208,7 +210,7 @@ class TP1TrailingOrchestrator:
         custom_prefixes = _parse_csv_env("SIGNAL_KEY_PREFIXES")
         prefixes = custom_prefixes if custom_prefixes else default_prefixes
         self.signal_key_prefixes = _normalize_prefixes(prefixes)
-        
+
         # Статистика
         self.stats = {
             "events_processed": 0,
@@ -218,7 +220,7 @@ class TP1TrailingOrchestrator:
             "signals_not_found": 0,
             "no_trail_flag": 0,
         }
-        
+
         log.info(
             "✅ TP1TrailingOrchestrator initialized | default_profile=%s profiles=%d",
             self.default_profile, len(self.profiles.list_names())
@@ -233,7 +235,7 @@ class TP1TrailingOrchestrator:
             log.info("🎯 Trailing sources: ALL")
         log.info("🗝️ Signal key prefixes: %s", ", ".join(self.signal_key_prefixes))
 
-    def handle_event(self, event: Dict[str, Any]) -> bool:
+    def handle_event(self, event: dict[str, Any]) -> bool:
         """
         Обработать событие из Redis stream.
         
@@ -263,16 +265,16 @@ class TP1TrailingOrchestrator:
         sid: str,
         symbol: str,
         price: float,
-        position_id: Optional[str] = None,
+        position_id: str | None = None,
         source: str = "signal_performance_tracker",
-        event_ts: Optional[Any] = None,
-        signal_payload: Optional[Dict[str, Any]] = None,
-        signal_key: Optional[str] = None,
+        event_ts: Any | None = None,
+        signal_payload: dict[str, Any] | None = None,
+        signal_key: str | None = None,
     ) -> TrailingResult:
         """
         Прямой запуск расчёта трейлинга из приложений (без внешнего события).
         """
-        event: Dict[str, Any] = {
+        event: dict[str, Any] = {
             "event_type": "TP1_HIT",
             "sid": sid,
             "symbol": symbol,
@@ -287,7 +289,7 @@ class TP1TrailingOrchestrator:
             event["_signal_key"] = signal_key
         return self._process_tp1_event(event, record_stats=True)
 
-    def _process_tp1_event(self, event: Dict[str, Any], record_stats: bool) -> TrailingResult:
+    def _process_tp1_event(self, event: dict[str, Any], record_stats: bool) -> TrailingResult:
         # Recommendation D: deduplication to prevent double processing of TP1_HIT
         sid = event.get("sid")
         if sid:
@@ -297,24 +299,24 @@ class TP1TrailingOrchestrator:
                 return TrailingResult(success=True, skipped=True, reason="dedup_hit")
 
         self.stats["events_processed"] += 1
-        
+
         event_type = event.get("event_type")
         symbol_raw = event.get("symbol", "UNKNOWN")
         symbol = _normalize_symbol(symbol_raw) or "UNKNOWN"
-        
+
         if HAS_METRICS:
             TrailingMetrics.record_event(event_type, symbol)
-        
+
         if event_type != "TP1_HIT":
             return TrailingResult(success=False, skipped=True, error="unsupported_event")
-        
+
         if self.symbol_filter_enabled and symbol not in self.trailing_symbols:
             log.debug("Skipping event for symbol %s (not in trailing list)", symbol)
             return TrailingResult(success=False, skipped=True, error="symbol_filtered")
-        
+
         if record_stats:
             self.stats["tp1_hits"] += 1
-        
+
         sid = event.get("sid")
         symbol = symbol or "XAUUSD"
         position_id = event.get("position_id") or event.get("ticket")
@@ -324,7 +326,7 @@ class TP1TrailingOrchestrator:
         if not sid:
             log.warning("⚠️  Event missing sid, skip: %s", event)
             return TrailingResult(success=False, skipped=False, error="sid_missing")
-        
+
         log.info(
             "🎯 TP1_HIT event: sid=%s symbol=%s price=%.2f position=%s source=%s",
             sid, symbol, price, position_id, source
@@ -344,7 +346,7 @@ class TP1TrailingOrchestrator:
                 log.warning("⚠️  Signal not found in Redis: %s", sid)
                 return TrailingResult(success=False, skipped=False, error="signal_not_found")
             signal, signal_key = signal_data
-        
+
         signal_source = _normalize_source(signal.get("source"))
         if self.source_filter_enabled and signal_source not in self.trailing_sources:
             log.debug(
@@ -353,7 +355,7 @@ class TP1TrailingOrchestrator:
                 signal_source,
             )
             return TrailingResult(success=False, skipped=True, error="source_filtered")
-        
+
         if not _to_bool(signal.get("trail_after_tp1")):
             if record_stats:
                 self.stats["no_trail_flag"] += 1
@@ -364,17 +366,17 @@ class TP1TrailingOrchestrator:
                 sid,
             )
             return TrailingResult(success=False, skipped=True, error="trail_flag_disabled")
-        
+
         profile_name = signal.get("trail_profile", self.default_profile)
         profile = self.profiles.get(profile_name)
-        
+
         if not profile:
             log.warning(
                 "⚠️  Trailing profile not found: %s (sid=%s), using default: %s",
                 profile_name, sid, self.default_profile
             )
             profile = self.profiles.get(self.default_profile)
-            
+
             if not profile:
                 log.error(
                     "❌ Default profile not found: %s, cannot start trailing",
@@ -383,8 +385,8 @@ class TP1TrailingOrchestrator:
                 if record_stats:
                     self.stats["trailing_failed"] += 1
                 return TrailingResult(success=False, skipped=False, error="profile_not_found")
-        
-        side = str(signal.get("side", "LONG")).upper()
+
+        side = (signal.get("side", "LONG")).upper()
         if side not in ("LONG", "SHORT"):
             side = "LONG"
 
@@ -493,7 +495,7 @@ class TP1TrailingOrchestrator:
 
         # Ограничиваем очистку TP2/TP3 только для профиля rocket_v1
         is_rocket = (profile.name == "rocket_v1")
-        
+
         modify_metadata = dict(metadata)
         modify_metadata["stage"] = "set_initial_sl"
         modify_metadata["tp_levels_before"] = list(tp_levels) if tp_levels else []
@@ -530,7 +532,7 @@ class TP1TrailingOrchestrator:
             self.stats["trailing_started"] += 1
         if HAS_METRICS:
             TrailingMetrics.record_trailing_started(symbol, profile.name)
-        
+
         log.info(
             "✅ Trailing modify sent: sid=%s side=%s new_sl=%.5f (profile=%s)",
             sid, side, new_sl if new_sl is not None else float('nan'), profile.name
@@ -550,7 +552,7 @@ class TP1TrailingOrchestrator:
                 "clear_tp_levels": is_rocket,
             }
         )
-        
+
         if self.events_logger:
             self.events_logger.log_trailing_started(
                 sid=sid,
@@ -573,11 +575,11 @@ class TP1TrailingOrchestrator:
             profile_name=profile.name,
             metadata=metadata
         )
-    
+
     def _persist_signal_sl_update(
         self,
-        key: Optional[str],
-        signal: Dict[str, Any],
+        key: str | None,
+        signal: dict[str, Any],
         new_sl: float,
         clear_tp_levels: bool = False
     ) -> None:
@@ -607,7 +609,7 @@ class TP1TrailingOrchestrator:
         except Exception as exc:
             log.warning("⚠️ Failed to persist updated SL for %s: %s", key, exc)
 
-    def _get_signal(self, sid: str) -> Optional[Tuple[Dict[str, Any], str]]:
+    def _get_signal(self, sid: str) -> tuple[dict[str, Any], str] | None:
         """
         Получить сигнал из Redis.
         
@@ -634,16 +636,16 @@ class TP1TrailingOrchestrator:
                 log.warning("Failed to parse signal JSON from %s: %s", key, e)
             except Exception as e:
                 log.debug("Error reading signal from %s: %s", key, e)
-        
+
         return None
-    
+
     def _write_trailing_event(
         self,
         sid: str,
         symbol: str,
         profile_name: str,
         event_type: str = "TRAILING_STARTED",
-        metadata: Optional[Dict] = None
+        metadata: dict | None = None
     ):
         """
         Записать событие трейлинга в Redis.
@@ -667,7 +669,7 @@ class TP1TrailingOrchestrator:
             "ts": get_ny_time_millis(),
             "source": "tp1_trailing_orchestrator"
         }
-        
+
         if metadata:
             event.update(metadata)
             # Дублируем clear_tp_levels для слушателей, конвертируем в int
@@ -691,20 +693,20 @@ class TP1TrailingOrchestrator:
             # Пишем в stream
             stream_name = "events:trades"
             self.r.xadd(stream_name, serializable_event, maxlen=10000, approximate=True)
-            
+
             # Пишем в hash для истории
             hash_key = f"trade:events:{sid}"
             self.r.rpush(hash_key, json.dumps(event))
             self.r.expire(hash_key, 86400 * 7)  # TTL 7 дней
-            
+
             log.debug("Trailing event written: %s", event_type)
-            
+
         except Exception as e:
             log.warning("Failed to write trailing event: %s", e)
-    
+
     @staticmethod
-    def _normalize_tp_levels(raw_levels: Optional[Any]) -> List[float]:
-        levels: List[float] = []
+    def _normalize_tp_levels(raw_levels: Any | None) -> list[float]:
+        levels: list[float] = []
         if not raw_levels:
             return levels
         if isinstance(raw_levels, str):
@@ -730,9 +732,9 @@ class TP1TrailingOrchestrator:
         side: str,
         tp1_price: float,
         trail_distance: float,
-        original_sl: Optional[float],
+        original_sl: float | None,
         point: float
-    ) -> Optional[float]:
+    ) -> float | None:
         if trail_distance <= 0 or tp1_price <= 0:
             return None
 
@@ -766,10 +768,10 @@ class TP1TrailingOrchestrator:
 
         return candidate
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Получить статистику работы оркестратора."""
         return self.stats.copy()
-    
+
     def log_stats(self):
         """Вывести статистику в лог."""
         log.info(
@@ -786,7 +788,7 @@ class TP1TrailingOrchestrator:
 if __name__ == "__main__":
     # Тестирование
     orchestrator = TP1TrailingOrchestrator()
-    
+
     # Тестовое событие
     test_event = {
         "event_type": "TP1_HIT",
@@ -797,14 +799,14 @@ if __name__ == "__main__":
         "ts": "1730222790",
         "source": "test"
     }
-    
+
     print("\n=== Testing TP1TrailingOrchestrator ===")
     print(f"Test event: {test_event}")
-    
+
     # Обработка события
     success = orchestrator.handle_event(test_event)
     print(f"\n{'✅' if success else '❌'} Event handled: {success}")
-    
+
     # Статистика
     orchestrator.log_stats()
 

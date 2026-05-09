@@ -1,13 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
+
+from domain.evidence_keys import MetaKeys
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -29,7 +31,7 @@ def safe_int(x: Any, d: int = 0) -> int:
         return d
 
 
-def _loads_maybe_json(x: Any) -> Dict[str, Any]:
+def _loads_maybe_json(x: Any) -> dict[str, Any]:
     if x is None:
         return {}
     if isinstance(x, dict):
@@ -51,7 +53,7 @@ def _loads_maybe_json(x: Any) -> Dict[str, Any]:
     return {}
 
 
-def _extract_meta(fields: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_meta(fields: dict[str, Any]) -> dict[str, Any]:
     meta = _loads_maybe_json(fields.get("meta") or fields.get("metadata"))
     if meta:
         return meta
@@ -63,7 +65,7 @@ def _extract_meta(fields: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
-def _extract_evidence(meta: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_evidence(meta: dict[str, Any]) -> dict[str, Any]:
     if isinstance(meta.get("of_confirm"), dict):
         oc = meta.get("of_confirm") or {}
         if isinstance(oc.get("evidence"), dict):
@@ -97,12 +99,12 @@ def read_trades_closed(r: redis.Redis, stream: str, since_ms: int, max_scan: int
 
 
 def notify(r: redis.Redis, text: str) -> None:
-    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     r.xadd(stream, {"type": "report", "text": text, "ts": str(now_ms())}, maxlen=200000, approximate=True)
 
 
-def _read_freeze_state(r: redis.Redis, cfg_prefix: str, symbols: List[str]) -> Tuple[bool, Dict[str, int]]:
-    states: Dict[str, int] = {}
+def _read_freeze_state(r: redis.Redis, cfg_prefix: str, symbols: list[str]) -> Tuple[bool, dict[str, int]]:
+    states: dict[str, int] = {}
     any_frozen = False
     for sym in symbols:
         hk = f"{cfg_prefix}{sym}"
@@ -163,8 +165,8 @@ def main() -> None:
     r = redis.Redis.from_url(args.redis_url, decode_responses=True)
     since_ms = now_ms() - args.since_min * 60_000
 
-    p: List[float] = []
-    covs: List[float] = []
+    p: list[float] = []
+    covs: list[float] = []
     cov_bad = 0
     miss = 0
     n_total = 0
@@ -172,9 +174,9 @@ def main() -> None:
         n_total += 1
         meta = _extract_meta(x)
         ev = _extract_evidence(meta)
-        pv = ev.get("meta_p", meta.get("meta_p", None))
-        
-        cv = ev.get("meta_model_feature_coverage", ev.get("meta_feature_coverage", meta.get("meta_model_feature_coverage", None)))
+        pv = ev.get(MetaKeys.P, meta.get(MetaKeys.P, None))
+
+        cv = ev.get("meta_model_feature_coverage", ev.get(MetaKeys.FEATURE_COVERAGE, meta.get("meta_model_feature_coverage", None)))
         if cv is not None:
             c = safe_float(cv, -1.0)
             if c >= 0.0:

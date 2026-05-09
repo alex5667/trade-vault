@@ -1,12 +1,11 @@
 import redis
 
 from common.redis_errors import (
-    is_redis_connection_error,
-    is_redis_timeout_error,
-    is_redis_busy_loading_error,
-    is_redis_stream_error,
-    is_redis_key_error,
     get_redis_error_category,
+    is_redis_busy_loading_error,
+    is_redis_key_error,
+    is_redis_stream_error,
+    is_redis_timeout_error,
     is_transient_error,
 )
 

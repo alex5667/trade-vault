@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
 
 def stable_bucket_0_99(key: str) -> int:
@@ -40,12 +40,12 @@ class ABCConfig:
     enabled: bool = True
     version: int = 1
     salt: str = "smt-entry-v1"
-    splits: Dict[str, Dict[str, int]] = None  # type: ignore
+    splits: dict[str, dict[str, int]] = None  # type: ignore
     poll_ms: int = 2000
-    overrides: Dict[str, str] = None  # type: ignore
+    overrides: dict[str, str] = None  # type: ignore
 
     @staticmethod
-    def from_dict(d: Dict[str, Any]) -> "ABCConfig":
+    def from_dict(d: dict[str, Any]) -> ABCConfig:
         splits = d.get("splits")
         if not isinstance(splits, dict):
             splits = {"default": {"b": 10, "c": 10}, "thin": {"b": 15, "c": 15}}
@@ -55,13 +55,13 @@ class ABCConfig:
         return ABCConfig(
             enabled=bool(int(d.get("enabled", 1) or 0)),
             version=int(d.get("version", 1) or 1),
-            salt=str(d.get("salt") or "smt-entry-v1"),
+            salt=(d.get("salt") or "smt-entry-v1"),
             splits=splits,
             poll_ms=int(d.get("poll_ms", 2000) or 2000),
             overrides=overrides,
         )
 
-    def get_splits(self, group: str) -> Tuple[int, int]:
+    def get_splits(self, group: str) -> tuple[int, int]:
         s = self.splits or {}
         g = group if group in s else "default"
         d = s.get(g) or s.get("default") or {}

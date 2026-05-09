@@ -1,14 +1,11 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from news_pipeline.httpx_client import http_get_json
 from news_pipeline.models import NewsRawItem
-
+from utils.time_utils import get_ny_time_millis
 
 CRYPTOPANIC_BASE_URL = os.getenv("CRYPTOPANIC_BASE_URL", "https://cryptopanic.com/api/v1/posts/")
 
@@ -17,7 +14,7 @@ def _ts_ms() -> int:
     return get_ny_time_millis()
 
 
-def fetch_cryptopanic(cfg: Dict[str, Any]) -> List[NewsRawItem]:
+def fetch_cryptopanic(cfg: dict[str, Any]) -> list[NewsRawItem]:
     """
     CryptoPanic → NewsRawItem list.
     Fail-open: вернёт пусто при любой ошибке.
@@ -30,7 +27,7 @@ def fetch_cryptopanic(cfg: Dict[str, Any]) -> List[NewsRawItem]:
         return []
 
     # типовые параметры (если API изменится — вы поправите тут)
-    params: Dict[str, Any] = {
+    params: dict[str, Any] = {
         "auth_token": token,
     }
 
@@ -54,19 +51,19 @@ def fetch_cryptopanic(cfg: Dict[str, Any]) -> List[NewsRawItem]:
     if not isinstance(results, list):
         return []
 
-    out: List[NewsRawItem] = []
+    out: list[NewsRawItem] = []
     now = _ts_ms()
 
     for it in results:
         if not isinstance(it, dict):
             continue
-        title = str(it.get("title") or "").strip()
+        title = (it.get("title") or "").strip()
         url = str(it.get("url") or it.get("source", {}).get("url") or "").strip()
         if not title or not url:
             continue
 
         # currencies field can be list[{"code":"BTC"}]
-        syms: List[str] = []
+        syms: list[str] = []
         cur = it.get("currencies")
         if isinstance(cur, list):
             for c in cur:
@@ -80,7 +77,7 @@ def fetch_cryptopanic(cfg: Dict[str, Any]) -> List[NewsRawItem]:
         published = it.get("published_at") or it.get("created_at")
         # если не можем распарсить — оставим now
         # (LLM/feature-store всё равно работает по относительному времени)
-        uid = str(it.get("id") or "") or f"cp:{hash(url)}"
+        uid = (it.get("id") or "") or f"cp:{hash(url)}"
 
         out.append(
             NewsRawItem(

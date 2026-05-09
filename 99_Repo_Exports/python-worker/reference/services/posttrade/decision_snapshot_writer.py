@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """DecisionSnapshotWriter (A3/A4)
 
 Consumes Redis Stream `events:decision_snapshot` (A2) and writes rows into
@@ -61,18 +62,17 @@ ENV (main):
   DECISION_SNAPSHOT_FAIL_SLEEP_SEC=1.0
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import asyncio
-from utils.task_manager import safe_create_task
-
 import json
 import logging
 import os
 import socket
-import time
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
+
+from utils.task_manager import safe_create_task
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as aioredis  # type: ignore
@@ -86,8 +86,8 @@ except Exception:  # pragma: no cover
 from services.posttrade.decision_snapshot_db import (
     PostgresDecisionSnapshotDB,
     SQLiteDecisionSnapshotDB,
-    _to_int,
     _to_float,
+    _to_int,
     _to_text_array,
 )
 from services.posttrade.decision_snapshot_writer_metrics import build_metrics, start_metrics_server
@@ -108,7 +108,7 @@ def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -185,7 +185,7 @@ def _decode_bytes(v: Any) -> Any:
     return v
 
 
-def _parse_payload(raw: Any) -> Optional[Dict[str, Any]]:
+def _parse_payload(raw: Any) -> dict[str, Any] | None:
     """Parse Redis Stream entry field `payload` into dict."""
     if raw is None:
         return None
@@ -203,22 +203,22 @@ def _parse_payload(raw: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _normalize_row(evt: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_row(evt: dict[str, Any]) -> dict[str, Any]:
     """Map event dict to DB row dict (best-effort)."""
     ts_decision_ms = _to_int(evt.get("decision_ts_ms") or evt.get("ts_emit_ms") or evt.get("ts_event_ms"), 0)
     sid = str(evt.get("sid") or evt.get("signal_id") or "").strip()
     symbol = str(evt.get("symbol") or evt.get("sym") or "").strip()
 
-    row: Dict[str, Any] = {
+    row: dict[str, Any] = {
         "ts_decision_ms": int(ts_decision_ms),
         "sid": sid,
         "symbol": symbol or "UNKNOWN",
-        "venue": str(evt.get("venue") or "binance"),
-        "session": str(evt.get("session") or ""),
-        "tf": str(evt.get("tf") or ""),
-        "kind": str(evt.get("kind") or ""),
+        "venue": (evt.get("venue") or "binance"),
+        "session": (evt.get("session") or ""),
+        "tf": (evt.get("tf") or ""),
+        "kind": (evt.get("kind") or ""),
         "side": str(evt.get("side") or evt.get("direction") or ""),
-        "direction": str(evt.get("direction") or ""),
+        "direction": (evt.get("direction") or ""),
         "decision_bid": _to_float(evt.get("decision_bid")),
         "decision_ask": _to_float(evt.get("decision_ask")),
         "decision_mid": _to_float(evt.get("decision_mid")),
@@ -266,8 +266,8 @@ class DecisionSnapshotStreamWorker:
         self._metrics = build_metrics()
         # SQLite connections are thread-bound by default; avoid to_thread in tests/dev.
         self._db_threadsafe = not isinstance(db, SQLiteDecisionSnapshotDB)
-        self._pel_task: Optional[asyncio.Task] = None
-        self._pending_task: Optional[asyncio.Task] = None  # A5: pending gauge poll loop
+        self._pel_task: asyncio.Task | None = None
+        self._pending_task: asyncio.Task | None = None  # A5: pending gauge poll loop
 
     async def ensure_group(self) -> None:
         """Create consumer group if missing (MKSTREAM)."""
@@ -307,7 +307,7 @@ class DecisionSnapshotStreamWorker:
                     "group": self.cfg.group,
                     "consumer": self.cfg.consumer,
                     "entry_id": str(entry_id),
-                    "reason": str(reason),
+                    "reason": reason,
                     "error": self._truncate_bytes(str(err)),
                     "payload": raw_s,
                 },
@@ -316,7 +316,7 @@ class DecisionSnapshotStreamWorker:
             self._metrics.dlq_total.inc()
             # A5: Low-cardinality breakdown (top reasons in Grafana).
             try:
-                self._metrics.dlq_by_reason_total.labels(reason=str(reason)).inc()
+                self._metrics.dlq_by_reason_total.labels(reason=reason).inc()
             except Exception:
                 # No-op metrics backend or label init race; never break DLQ path.
                 pass
@@ -331,7 +331,7 @@ class DecisionSnapshotStreamWorker:
         except Exception as e:
             logger.warning("xack failed: %s", e)
 
-    def _observe_lag(self, payload: Dict[str, Any]) -> None:
+    def _observe_lag(self, payload: dict[str, Any]) -> None:
         """Observe end-to-end lag from decision_ts_ms to now for Prometheus histogram."""
         try:
             ts = _to_int(payload.get("decision_ts_ms") or payload.get("ts_emit_ms") or payload.get("ts_event_ms"), 0)
@@ -344,7 +344,7 @@ class DecisionSnapshotStreamWorker:
         except Exception:
             return
 
-    async def _db_upsert(self, rows: Sequence[Dict[str, Any]]) -> int:
+    async def _db_upsert(self, rows: Sequence[dict[str, Any]]) -> int:
         """Upsert rows to DB.
 
         Postgres adapter is safe to execute in a thread.
@@ -356,7 +356,7 @@ class DecisionSnapshotStreamWorker:
             return await asyncio.to_thread(self.db.upsert_decision_snapshots, rows)
         return int(self.db.upsert_decision_snapshots(rows))
 
-    async def _process_entries(self, entries: Sequence[Tuple[str, Any]], *, allow_db: bool) -> Tuple[List[Dict[str, Any]], List[str]]:
+    async def _process_entries(self, entries: Sequence[tuple[str, Any]], *, allow_db: bool) -> tuple[list[dict[str, Any]], list[str]]:
         """Parse/normalize entries into rows.
 
         Returns: (rows_to_write, ack_ids_for_immediate_ack)
@@ -364,8 +364,8 @@ class DecisionSnapshotStreamWorker:
         - Bad payloads/rows are DLQ'ed and returned in ack_ids.
         - Good rows are returned in rows_to_write (ACK after DB commit).
         """
-        rows: List[Dict[str, Any]] = []
-        ack_ids: List[str] = []
+        rows: list[dict[str, Any]] = []
+        ack_ids: list[str] = []
 
         for entry_id, fields in entries:
             self._metrics.processed_total.inc()
@@ -404,7 +404,7 @@ class DecisionSnapshotStreamWorker:
             return 0
 
         total = 0
-        all_entries: List[Tuple[str, Any]] = []
+        all_entries: list[tuple[str, Any]] = []
         for _, entries in resp:
             for entry_id, fields in entries:
                 total += 1
@@ -582,7 +582,7 @@ class DecisionSnapshotStreamWorker:
 
         return claimed_total
 
-    async def _fetch_pending_count(self) -> Optional[int]:
+    async def _fetch_pending_count(self) -> int | None:
         """Return current pending count for the consumer group (best-effort).
 
         We try multiple Redis commands because redis-py APIs differ by version:
@@ -622,7 +622,7 @@ class DecisionSnapshotStreamWorker:
 
         return None
 
-    async def _pending_poll_once(self) -> Optional[int]:
+    async def _pending_poll_once(self) -> int | None:
         """Poll XPENDING and update pending_count gauge. Returns count or None."""
         n = await self._fetch_pending_count()
         if n is None:

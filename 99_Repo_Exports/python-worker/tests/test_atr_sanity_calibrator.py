@@ -1,6 +1,5 @@
+
 from utils.time_utils import get_ny_time_millis
-# -*- coding: utf-8 -*-
-import time
 
 
 def test_atr_sanity_calibrator_picks_fresh_and_matches_tf():

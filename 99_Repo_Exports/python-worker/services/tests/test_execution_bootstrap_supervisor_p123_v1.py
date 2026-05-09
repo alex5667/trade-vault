@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """P1.2.3 Bootstrap Supervisor unit tests.
 
 Tests exercise the combined readiness gate that the executor must pass
@@ -8,15 +9,13 @@ before starting. Three scenarios:
   2. User-stream stale — supervisor reports unready (boot is blocked)
   3. HTTP health endpoint — combined readiness visible via /readyz
 """
-from pathlib import Path
 import importlib.util
 import json
 import socket
 import sys
 import threading
-import time
 import urllib.request
-
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Dynamic module loading so tests work without installing the package

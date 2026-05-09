@@ -1,7 +1,9 @@
-import types
 import math
+import types
+
 from contexts import BucketState, OrderflowSignalContext
 from handlers.data_processor import OrderFlowDataProcessor
+
 
 def test_orderflow_signal_context_accepts_bar_and_pivots_fields():
     """Test that OrderflowSignalContext accepts all bar-range and pivots meta fields without errors"""
@@ -258,10 +260,10 @@ def test_bar_snapshot_sanitization_functions():
     def _f_attr(name: str, default: float = 0.0) -> float:
         try:
             v = getattr(st, name, default)
-            fv = float(v) if v is not None else float(default)
-            return fv if math.isfinite(fv) else float(default)
+            fv = float(v) if v is not None else default
+            return fv if math.isfinite(fv) else default
         except Exception:
-            return float(default)
+            return default
 
     def _i_attr(name: str, default: int = 0, *, nonneg: bool = True) -> int:
         try:
@@ -270,7 +272,7 @@ def test_bar_snapshot_sanitization_functions():
                 return 0
             return v
         except Exception:
-            return 0 if nonneg else int(default)
+            return 0 if nonneg else default
 
     # Test that NaN/inf are converted to finite values
     assert _f_attr("bar_range_z", 0.0) == 0.0  # nan -> 0.0

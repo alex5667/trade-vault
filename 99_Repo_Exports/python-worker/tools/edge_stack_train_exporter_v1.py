@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P59: Prometheus exporter for edge_stack_v1 training status.
 
 Reads Redis hash: metrics:edge_stack_train:last
@@ -21,7 +22,7 @@ Exports:
 
 import os
 import time
-from typing import Dict, Any
+from typing import Any
 
 from prometheus_client import Gauge, start_http_server
 
@@ -70,8 +71,8 @@ def main() -> None:
 
     while True:
         try:
-            m: Dict[str, Any] = r.hgetall(KEY) or {}
-            status = str(m.get("status", ""))
+            m: dict[str, Any] = r.hgetall(KEY) or {}
+            status = (m.get("status", ""))
 
             g_success.set(1.0 if status == "ok" else 0.0)
             g_updated.set(_safe_float(m.get("updated_ts_ms")))

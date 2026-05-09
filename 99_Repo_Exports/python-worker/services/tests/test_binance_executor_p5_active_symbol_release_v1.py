@@ -7,10 +7,10 @@ Scenarios:
   P5-4: guard stays and annotates exchange_check_error when API fails
   P5-5: no exchange check when exchange_truth_release disabled (legacy path)
 """
-from pathlib import Path
 import importlib.util
 import json
 import sys
+from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
 if str(root) not in sys.path:

@@ -7,7 +7,6 @@ from services.orderflow.exec_health_freeze_hook import (
     aread_exec_health_auto_freeze,
     build_exec_health_auto_freeze_decision,
     parse_exec_health_auto_freeze,
-    ExecHealthFreezeState,
 )
 
 

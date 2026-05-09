@@ -1,26 +1,24 @@
 from __future__ import annotations
+
 """
 Tests for LCB alerts in alerts_worker_v2.
 """
 
-import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
-
-from services.observability.alerts_worker_v2 import _sscan_all, _cooldown_ok
+from services.observability.alerts_worker_v2 import _cooldown_ok, _sscan_all
 
 
 def test_lcb_alerts_threshold():
     """Test that LCB winner changes alerts are triggered above threshold."""
     mock_redis = MagicMock()
-    
+
     # Mock sscan to return test keys
     mock_redis.sscan = MagicMock(side_effect=lambda key, cursor, count: (0, [
         b"BTCUSDT|trend|continuation",
         b"ETHUSDT|range|reversal"
     ]))
-    
+
     # Mock get to return high change counts
     def mock_get(key):
         if "BTCUSDT|trend|continuation" in key:
@@ -28,10 +26,10 @@ def test_lcb_alerts_threshold():
         if "ETHUSDT|range|reversal" in key:
             return b"5"  # Below threshold
         return None
-    
+
     mock_redis.get = MagicMock(side_effect=mock_get)
     mock_redis.set = MagicMock(return_value=True)
-    
+
     # Get offenders
     lcb_keys = _sscan_all(mock_redis, "metrics:lcb:keys", limit=2000)
     offenders = []
@@ -43,7 +41,7 @@ def test_lcb_alerts_threshold():
                 offenders.append((k, c))
         except Exception:
             pass
-    
+
     # Verify BTCUSDT is in offenders (15 >= 10)
     assert len(offenders) > 0
     btc_offender = next((o for o in offenders if "BTCUSDT" in o[0]), None)
@@ -56,10 +54,10 @@ def test_lcb_alerts_cooldown():
     mock_redis = MagicMock()
     mock_redis.get = MagicMock(return_value=None)  # No cooldown active
     mock_redis.set = MagicMock(return_value=True)
-    
+
     # First call should pass cooldown
     assert _cooldown_ok(mock_redis, "alerts:cooldown:lcb_changes", 600) is True
-    
+
     # Second call should fail (cooldown active)
     mock_redis.get = MagicMock(return_value=b"1")
     assert _cooldown_ok(mock_redis, "alerts:cooldown:lcb_changes", 600) is False

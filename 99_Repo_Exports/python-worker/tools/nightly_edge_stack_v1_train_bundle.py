@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """P59: Nightly edge_stack_v1 training bundle (dataset build + OOF train + publish).
 
 This bundle:
@@ -24,8 +26,9 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any
 
 from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import (
     atomic_copy,
@@ -41,12 +44,12 @@ except Exception:
     redis = None  # type: ignore
 
 
-def _run(cmd: Sequence[str], timeout_s: int) -> Tuple[int, str, str]:
+def _run(cmd: Sequence[str], timeout_s: int) -> tuple[int, str, str]:
     p = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout_s)
     return int(p.returncode), str(p.stdout or ""), str(p.stderr or "")
 
 
-def _last_json_line(stdout: str) -> Dict[str, Any]:
+def _last_json_line(stdout: str) -> dict[str, Any]:
     lines = [ln.strip() for ln in (stdout or "").splitlines() if ln.strip()]
     if not lines:
         return {}
@@ -57,7 +60,7 @@ def _last_json_line(stdout: str) -> Dict[str, Any]:
         return {}
 
 
-def _redis_set_json(redis_url: str, key: str, obj: Dict[str, Any], ttl_s: int = 0) -> None:
+def _redis_set_json(redis_url: str, key: str, obj: dict[str, Any], ttl_s: int = 0) -> None:
     if redis is None:
         return
     try:
@@ -69,7 +72,7 @@ def _redis_set_json(redis_url: str, key: str, obj: Dict[str, Any], ttl_s: int = 
         return
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--window_hours", type=int, default=int(os.getenv("EDGE_STACK_WINDOW_HOURS", "72")))
     ap.add_argument("--run_id", default="")
@@ -85,7 +88,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--train_p_min", type=float, default=float(os.getenv("EDGE_STACK_P_MIN", "0.55")))
 
     ap.add_argument("--redis_url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    ap.add_argument("--signal_stream", default=os.getenv("SIGNAL_STREAM", "signals:of:inputs"))
+    ap.add_argument("--signal_stream", default=os.getenv("SIGNAL_STREAM", RS.OF_INPUTS))
     ap.add_argument("--closed_stream", default=os.getenv("CLOSED_STREAM", "trades:closed"))
 
     ap.add_argument("--signals_count", type=int, default=int(os.getenv("SIGNALS_COUNT", "200000")))
@@ -126,7 +129,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     since_ms = int(now - int(args.window_hours) * 3600 * 1000)
     until_ms = int(now)
 
-    bundle: Dict[str, Any] = {
+    bundle: dict[str, Any] = {
         "run_id": run_id,
         "started_ts_ms": now,
         "window_hours": int(args.window_hours),
@@ -200,7 +203,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     try:
-        dataset_report = json.loads(open(out_dataset_report, "r", encoding="utf-8").read())
+        dataset_report = json.loads(open(out_dataset_report, encoding="utf-8").read())
     except Exception:
         dataset_report = {}
     bundle["dataset_report"] = dataset_report

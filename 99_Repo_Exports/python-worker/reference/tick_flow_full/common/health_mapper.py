@@ -1,5 +1,6 @@
-from typing import Any, Dict, Optional
 import math
+from typing import Any
+
 
 class HealthMetricsMapper:
     """
@@ -15,7 +16,7 @@ class HealthMetricsMapper:
             return float("nan")
 
     @staticmethod
-    def _to_opt_float(x: Any) -> Optional[float]:
+    def _to_opt_float(x: Any) -> float | None:
         if x is None:
             return None
         try:
@@ -27,7 +28,7 @@ class HealthMetricsMapper:
             return None
 
     @classmethod
-    def extract(cls, symbol: str, ctx: Any) -> Dict[str, Any]:
+    def extract(cls, symbol: str, ctx: Any) -> dict[str, Any]:
         """
         Safely extract metrics from context, handling missing attributes gracefully.
         """
@@ -40,11 +41,11 @@ class HealthMetricsMapper:
 
         # Optional/Complex fields
         spread_bps = cls._to_float_or_nan(getattr(ctx, "spread_bps", None))
-        
+
         eta_fill_ms = cls._to_opt_float(getattr(ctx, "eta_fill_ms", None))
         burst_ratio = cls._to_opt_float(getattr(ctx, "burst_ratio", None))
         imbalance_min = cls._to_opt_float(getattr(ctx, "imbalance_min", None))
-        
+
         # L2 staleness
         l2_is_stale = bool(getattr(ctx, "l2_is_stale", True))
 

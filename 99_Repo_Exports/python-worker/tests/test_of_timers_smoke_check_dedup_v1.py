@@ -6,8 +6,6 @@ Covers:
   - run_of_gate_contract_smoke_check: disabled flag, rc=0 ok, rc=2 alert, dedup suppression
 """
 import importlib
-import json
-import os
 import time
 from unittest.mock import MagicMock, patch
 

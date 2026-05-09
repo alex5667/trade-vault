@@ -1,11 +1,11 @@
 from __future__ import annotations
+
 """Tests for core.hawkes_like_intensity.update_hawkes_like."""
 
 
 import math
-import pytest
-from core.hawkes_like_intensity import update_hawkes_like, _decay
 
+from core.hawkes_like_intensity import _decay, update_hawkes_like
 
 # ---------------------------------------------------------------------------
 # Tests: _decay

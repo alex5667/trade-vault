@@ -1,5 +1,7 @@
 import math
+
 import pytest
+
 from core.skew_stats import calculate_proportion_skew, normal_cdf
 
 
@@ -40,7 +42,7 @@ def test_calculate_proportion_skew_zero_variance():
     res = calculate_proportion_skew(100, 0.0, 100, 0.0)
     assert res.z_score == 0.0
     assert res.p_value == 1.0
-    
+
     res = calculate_proportion_skew(100, 1.0, 100, 1.0)
     assert res.z_score == 0.0
     assert res.p_value == 1.0

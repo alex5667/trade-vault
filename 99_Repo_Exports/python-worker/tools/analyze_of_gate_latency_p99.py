@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Пересчет p99 latency для metrics:of_gate (build vs ml).
 
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import redis
@@ -40,7 +41,7 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def pctl(a: List[float], q: float) -> float:
+def pctl(a: list[float], q: float) -> float:
     """Вычисление перцентиля."""
     if not a:
         return 0.0
@@ -99,8 +100,8 @@ def main() -> None:
     print(f"Всего событий: {len(items)}\n")
 
     # Сбор данных о латентности
-    lat_build: List[float] = []
-    lat_ml: List[float] = []
+    lat_build: list[float] = []
+    lat_ml: list[float] = []
 
     for msg_id, fields in items:
         # Build latency (latency_us)
@@ -179,13 +180,13 @@ def main() -> None:
         if p99_ml > p99_build:
             diff = p99_ml - p99_build
             print(f"  ⚠️  ML latency выше на {diff:.2f} мкс ({diff/1000:.2f} мс)")
-            print(f"     ML может быть причиной EMERGENCY")
+            print("     ML может быть причиной EMERGENCY")
         elif p99_build > p99_ml:
             diff = p99_build - p99_ml
             print(f"  ⚠️  Build latency выше на {diff:.2f} мкс ({diff/1000:.2f} мс)")
-            print(f"     Build может быть причиной EMERGENCY")
+            print("     Build может быть причиной EMERGENCY")
         else:
-            print(f"  ✅ Build и ML latency примерно равны")
+            print("  ✅ Build и ML latency примерно равны")
 
     print()
     print(f"{'='*80}\n")

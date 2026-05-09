@@ -1,9 +1,8 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import time
 from dataclasses import dataclass
-from typing import Optional
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -36,7 +35,7 @@ class TimeSampler:
     def force(self) -> None:
         self._force = True
 
-    def maybe(self, now_ms: Optional[int] = None) -> bool:
+    def maybe(self, now_ms: int | None = None) -> bool:
         n = int(now_ms) if now_ms is not None else _now_ms()
         if self._force:
             self._force = False

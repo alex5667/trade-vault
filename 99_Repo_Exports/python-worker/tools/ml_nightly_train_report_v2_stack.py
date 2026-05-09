@@ -1,19 +1,22 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
+import hashlib
+import hmac
 import json
 import os
-import sys
-import time
-import hmac
-import hashlib
 import secrets
 import subprocess
+import sys
+import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -42,8 +45,8 @@ def _mkdirp(p: str) -> None:
     os.makedirs(p, exist_ok=True)
 
 
-def _read_json(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def _read_json(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         return json.loads(f.read())
 
 
@@ -54,21 +57,21 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def notify_telegram(r: redis.Redis, text: str, buttons: Optional[List[List[Dict[str, str]]]] = None) -> None:
-    fields: Dict[str, str] = {"type": "report", "text": text, "ts": str(now_ms())}
+def notify_telegram(r: redis.Redis, text: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
+    fields: dict[str, str] = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = _safe_json_dumps(buttons)
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
 @dataclass
 class RecsBundle:
     bundle_id: str
     sig: str
-    bundle: Dict[str, Any]
+    bundle: dict[str, Any]
 
 
-def make_hset_bundle(*, cfg_key: str, changes: Dict[str, str], who: str, ttl_sec: int) -> RecsBundle:
+def make_hset_bundle(*, cfg_key: str, changes: dict[str, str], who: str, ttl_sec: int) -> RecsBundle:
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_id = secrets.token_hex(6)
     sig = hmac.new(secret.encode(), bundle_id.encode(), hashlib.sha256).hexdigest()[:8]
@@ -84,9 +87,9 @@ def write_bundle(r: redis.Redis, b: RecsBundle, ttl_sec: int) -> None:
 
 
 def export_stream_payload_ndjson(*, r: redis.Redis, stream: str, out_path: str, since_ms: int, max_scan: int,
-                                 payload_field: str = "payload") -> Tuple[int, int]:
+                                 payload_field: str = "payload") -> tuple[int, int]:
     scanned = 0
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     while scanned < max_scan:
         batch = r.xrevrange(stream, max=last_id, min="-", count=2000)
@@ -141,8 +144,8 @@ class CmdResult:
     err: str
 
 
-def run_cmd(cmd: List[str], env: Optional[Dict[str, str]] = None, cwd: Optional[str] = None) -> CmdResult:
-    p = subprocess.run(cmd, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+def run_cmd(cmd: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> CmdResult:
+    p = subprocess.run(cmd, env=env, cwd=cwd, capture_output=True, text=True)
     return CmdResult(code=p.returncode, out=p.stdout[-8000:], err=p.stderr[-8000:])
 
 
@@ -150,8 +153,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--workdir", default=os.getenv("ML_RUN_DIR", "/var/lib/trade/ml_runs"))
     ap.add_argument("--since-hours", type=float, default=float(os.getenv("ML_SINCE_HOURS", "168") or 168))
-    ap.add_argument("--inputs-stream", default=os.getenv("OF_INPUTS_STREAM", "signals:of:inputs"))
-    ap.add_argument("--events-stream", default=os.getenv("TRADE_EVENTS_STREAM", "events:trades"))
+    ap.add_argument("--inputs-stream", default=os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS))
+    ap.add_argument("--events-stream", default=os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES))
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--max-scan", type=int, default=int(os.getenv("ML_EXPORT_MAX_SCAN", "600000") or 600000))
     ap.add_argument("--project-root", default=os.getenv("TRADE_PROJECT_ROOT", "/home/alex/front/trade/scanner_infra/python-worker"))
@@ -207,7 +210,7 @@ def main() -> None:
     text.append(f"export inputs: written={w_in} scanned={s_in}")
     text.append(f"export closed: written={w_cl} scanned={s_cl}")
     if ds_summary:
-        try:
+        with contextlib.suppress(Exception):
             text.append(
                 "dataset_v3: joined=<code>{}</code> pos_rate=<code>{:.4f}</code> util_mean=<code>{:.4f}</code> missing_closed=<code>{}</code>".format(
                     ds_summary.get("joined_rows"),
@@ -216,8 +219,6 @@ def main() -> None:
                     ds_summary.get("missing_closed"),
                 )
             )
-        except Exception:
-            pass
     text.append("")
     text.append("<b>STACK eval (last split, purged+embargo)</b>")
     text.append("<code>pr_auc={:.4f} logloss={:.4f} brier={:.4f} ece={:.4f}</code>".format(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from domain.handlers import create_position, _arm_trailing_after_tp1
+from domain.handlers import _arm_trailing_after_tp1, create_position
 
 
 def _parse_signal(fields: dict) -> dict:
@@ -51,7 +51,7 @@ class _SpecStub:
     trailing_profile_default = "rocket_v1"
 
     def risk_money(self, entry, sl, lot, direction):
-        return abs(float(entry) - float(sl)) * float(lot)
+        return abs(entry - sl) * lot
 
 
 

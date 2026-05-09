@@ -6,10 +6,10 @@ We keep this small and low-cardinality.
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 try:
-    from prometheus_client import Counter, Histogram, Gauge, start_http_server
+    from prometheus_client import Counter, Gauge, Histogram, start_http_server
 except Exception:  # pragma: no cover
     Counter = Histogram = Gauge = None  # type: ignore
     start_http_server = None  # type: ignore
@@ -18,7 +18,7 @@ except Exception:  # pragma: no cover
 logger = logging.getLogger("bbo_ts_writer.metrics")
 
 
-def build_metrics() -> Dict[str, Any]:
+def build_metrics() -> dict[str, Any]:
     if Counter is None:
         return {}
 

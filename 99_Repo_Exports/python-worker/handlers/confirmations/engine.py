@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
-from common.qf_codes import QF
-from signal_scoring.reason_registry import normalize_reason, reason_code_to_u16 as reason_u16, reason_code_to_u16, reason_codes_to_u16s, legacy_reason_to_code as normalize_reason_code
-from common.u16_pack import pack_u16_list
-from common.math_safe import safe_float, clamp01
+from common.math_safe import clamp01, safe_float
 from common.metrics import METRICS
+from common.qf_codes import QF
+from common.u16_pack import pack_u16_list
+from signal_scoring.reason_registry import legacy_reason_to_code as normalize_reason_code
+from signal_scoring.reason_registry import normalize_reason, reason_code_to_u16, reason_codes_to_u16s
+from signal_scoring.reason_registry import reason_code_to_u16 as reason_u16
+import contextlib
 
 
 @dataclass(frozen=True)
@@ -118,13 +121,11 @@ class ConfirmationsEngine:
         """
         if METRICS is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             METRICS.inc(
                 "signals_veto_total",
-                labels={"kind": str(kind or "unknown"), "reason_code": str(reason_code), "ff_mask": str(int(ff_mask))},
+                labels={"kind": (kind or "unknown"), "reason_code": str(reason_code), "ff_mask": str(int(ff_mask))},
             )
-        except Exception:
-            pass
 
     @staticmethod
     def _clamp01(x: float) -> float:
@@ -208,7 +209,7 @@ class ConfirmationsEngine:
         ctx: Any,
         l2: Any,
         l3: Any,
-        level_price: Optional[float],
+        level_price: float | None,
     ) -> Validation:
         k = (kind or "").lower()
         # ---- вывод стороны без изменения сигнатуры validate() ----
@@ -244,17 +245,15 @@ class ConfirmationsEngine:
         flags: list[int] = []
         parts: dict[str, float] = {}
 
-        k = str(kind or "").strip().lower()
+        k = (kind or "").strip().lower()
 
         ff = getattr(ctx, "ff", None)
         ff_mask = getattr(ctx, "ff_mask", 0)
 
         # total counters для rate-графиков (denominator)
         if self._metrics is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._metrics.inc("confirm_validate_total", tags={"kind": k, "ff_mask": str(ff_mask)})
-            except Exception:
-                pass
 
         # ---- защита: NaN/Inf на критических входах ----
         # spread_bps частый вход для вето; если он не-finite, вето как bad numeric.
@@ -331,7 +330,7 @@ class ConfirmationsEngine:
             parts.update(dict(getattr(r, "parts", {}) or {}))
             # Если валидатор предоставляет доп. словарь флагов, вмерживаем в parts (для логов/отладки)
             if isinstance(getattr(r, "flags", None), dict):
-                parts.update(dict(getattr(r, "flags") or {}))
+                parts.update(dict(r.flags or {}))
             if bool(getattr(r, "veto", False)):
                 # "super-hard" уровень:
                 #   Всегда нормализуем в structured reason_code и вычисляем стабильный uint16.
@@ -465,7 +464,7 @@ class ConfirmationsEngine:
                 side=str(getattr(ctx, "side", "buy")),
                 require_2ofn=require_2ofn,
             )
-            
+
             # Вмерживаем результаты валидатора
             if hasattr(r, "flags"):
                 if isinstance(r.flags, dict):
@@ -510,10 +509,8 @@ class ConfirmationsEngine:
                 )
 
             if METRICS is not None:
-                try:
+                with contextlib.suppress(Exception):
                     METRICS.inc("candidates_total", labels={"kind": k, "ff_mask": str(ff_mask)})
-                except Exception:
-                    pass
             ok_rc = normalize_reason_code("OK")
             _, _, dcode, du16 = _finalize_decision(veto=False, veto_reason="", veto_reason_code="", soft_code="")
             return Validation(
@@ -581,10 +578,8 @@ class ConfirmationsEngine:
 
         # OK / SOFT результат
         if METRICS is not None:
-            try:
+            with contextlib.suppress(Exception):
                 METRICS.inc("candidates_total", labels={"kind": k, "ff_mask": str(ff_mask)})
-            except Exception:
-                pass
         ok_rc = normalize_reason_code("OK")
         _, _, dcode, du16 = _finalize_decision(veto=False, veto_reason="", veto_reason_code="", soft_code="")
         return Validation(

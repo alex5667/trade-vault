@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 
 from regime.detector import RegimeDetector
-from regime.types import RegimeFeatures, RegimeSample
+from regime.types import RegimeFeatures
 
 
 @dataclass
@@ -26,12 +25,12 @@ class _HTF:
 class _Ctx:
     symbol: str = "BTCUSDT"
     price: float = 100.0
-    last_price: Optional[float] = None
-    vwap: Optional[float] = 100.0
-    daily_open: Optional[float] = 100.0
-    atr_14_bps: Optional[float] = 60.0
-    weak_progress_raw: Optional[float] = 0.7
-    ts_utc: Optional[float] = 123.0
+    last_price: float | None = None
+    vwap: float | None = 100.0
+    daily_open: float | None = 100.0
+    atr_14_bps: float | None = 60.0
+    weak_progress_raw: float | None = 0.7
+    ts_utc: float | None = 123.0
 
 
 def test_compute_features_default_on_missing_symbol_or_price():

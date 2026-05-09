@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from collections import deque
-from typing import Deque, List, Literal, Tuple
 import math
-
+from collections import deque
+from dataclasses import dataclass
+from typing import Literal
 
 Bias = Literal["LONG", "SHORT"]
 
 
-def _median(xs: List[float]) -> float:
+def _median(xs: list[float]) -> float:
     """
     Robust median calculation.
     
@@ -70,7 +69,7 @@ class CVDReclaimTracker:
         Args:
             maxlen: Maximum number of bars to retain (default: 7200 = ~2h @ 1s)
         """
-        self.buf: Deque[Tuple[int, float]] = deque(maxlen=max(128, int(maxlen)))
+        self.buf: deque[tuple[int, float]] = deque(maxlen=max(128, int(maxlen)))
         self.last_ts: int = 0
 
     def push(self, *, ts_ms: int, delta: float) -> None:
@@ -110,7 +109,7 @@ class CVDReclaimTracker:
         xs = [abs(d) for _, d in tail]
         return _median(xs)
 
-    def sum_range(self, *, ts_from: int, ts_to: int, exclude_first_bar: bool) -> Tuple[float, int]:
+    def sum_range(self, *, ts_from: int, ts_to: int, exclude_first_bar: bool) -> tuple[float, int]:
         """
         Sum deltas in [ts_from, ts_to] inclusive.
         
@@ -201,7 +200,7 @@ class CVDReclaimDetector:
             - Applies directional sign (LONG expects positive, SHORT negative)
             - Requires ratio >= ratio_min and n >= 2 bars
         """
-        bias_u = str(bias or "").upper()
+        bias_u = (bias or "").upper()
         if bias_u not in ("LONG", "SHORT"):
             return CVDReclaimResult(False, 0.0, 0.0, 0, 0.0, 0)
 

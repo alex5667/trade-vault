@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """ML rollout guard: automatic freeze/unfreeze proposals based on metrics.
 
 Reads metrics:ml_confirm stream and proposes enforce_share changes:
@@ -8,18 +10,17 @@ Reads metrics:ml_confirm stream and proposes enforce_share changes:
 Uses two-phase proposal system (preview2 -> confirm -> reject) via recs_callback_worker_v2.
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
+import hashlib
+import hmac
 import json
 import os
-import time
-import hmac
-import hashlib
 import secrets
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def now_ms() -> int:
@@ -38,10 +39,10 @@ def notify(r: redis.Redis, text: str, buttons=None) -> None:
     fields = {"type": "report", "text": text, "ts": str(now_ms())}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), fields, maxlen=200000, approximate=True)
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), fields, maxlen=200000, approximate=True)
 
 
-def read_metrics(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
+def read_metrics(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
     """Read metrics from Redis stream since timestamp.
     
     Args:
@@ -79,7 +80,7 @@ def read_metrics(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> L
     return rows
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     """Calculate percentile.
     
     Args:
@@ -97,7 +98,7 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def summarize(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+def summarize(rows: list[dict[str, Any]]) -> dict[str, float]:
     """Summarize metrics rows.
     
     Args:
@@ -117,7 +118,7 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, float]:
         pedge.append(float(r.get("p_edge", 0.0) or 0.0))
         # latency: prefer latency_ms; fallback latency_us
         try:
-            if r.get("latency_ms") is not None and str(r.get("latency_ms")).strip() != "":
+            if r.get("latency_ms") is not None and (r.get("latency_ms")).strip() != "":
                 lat.append(float(r.get("latency_ms", 0.0) or 0.0))
             else:
                 lat_us = float(r.get("latency_us", 0.0) or 0.0)
@@ -126,7 +127,7 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, float]:
             lat.append(0.0)
 
         # err: in stream it's usually a non-empty string
-        err_s = str(r.get("err", "") or "").strip()
+        err_s = (r.get("err", "") or "").strip()
         err += 1 if err_s != "" else 0
 
         # missing: either missing flag or status starts with MISSING
@@ -134,7 +135,7 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, float]:
             miss_flag = int(float(r.get("missing", r.get("missing_n", 0)) or 0)) > 0
         except Exception:
             miss_flag = False
-        st = str(r.get("status", "") or "").upper()
+        st = (r.get("status", "") or "").upper()
         miss += 1 if (miss_flag or st.startswith("MISSING")) else 0
     return {
         "n": float(n),
@@ -146,7 +147,7 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def mk_bundle_ops(cfg_key: str, updates: Dict[str, str]) -> List[Dict[str, Any]]:
+def mk_bundle_ops(cfg_key: str, updates: dict[str, str]) -> list[dict[str, Any]]:
     """Create bundle operations list.
     
     Args:
@@ -162,7 +163,7 @@ def mk_bundle_ops(cfg_key: str, updates: Dict[str, str]) -> List[Dict[str, Any]]
     return ops
 
 
-def propose(r: redis.Redis, *, cfg_key: str, updates: Dict[str, str], title: str, details: Dict[str, Any]) -> None:
+def propose(r: redis.Redis, *, cfg_key: str, updates: dict[str, str], title: str, details: dict[str, Any]) -> None:
     """Propose configuration changes via two-phase system.
     
     Args:

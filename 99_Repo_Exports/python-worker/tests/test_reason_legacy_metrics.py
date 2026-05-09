@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from common.qf_codes import QF
 from signal_scoring.reason_codes import ReasonCode
 from signal_scoring.reason_policy import (
-    ReasonMismatchMonitor,
     LegacyMapAlertConfig,
+    ReasonMismatchMonitor,
     patch_validation_reason_for_kind,
 )
-from common.qf_codes import QF
 
 
 class FakeMetrics:

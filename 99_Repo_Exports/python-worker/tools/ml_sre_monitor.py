@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 SRE мониторинг ML метрик (metrics:ml_confirm) и Triple Barrier Labeler (tb:last_ts_ms).
 
@@ -13,19 +15,18 @@ SRE мониторинг ML метрик (metrics:ml_confirm) и Triple Barrier 
 - TB: input_lag, label_stale, pending, group_lag
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import html
 import json
 import os
-import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
 
-from tools.cfg_suggestions_lifecycle import check_suggestions_health
 from common.redis_errors import retry_redis_operation
+from tools.cfg_suggestions_lifecycle import check_suggestions_health
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def now_ms() -> int:
@@ -46,7 +47,7 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     xs = sorted(xs)
@@ -55,10 +56,10 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def _read_stream_window(r, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 200000) -> List[Dict[str, Any]]:
+def _read_stream_window(r, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 200000) -> list[dict[str, Any]]:
     """Read stream items in [start_ms, start_ms+window_ms] by ts_ms field, return chronological with _ts_ms."""
     end_ms = start_ms + window_ms
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -97,13 +98,13 @@ def _read_stream_window(r, stream: str, start_ms: int, window_ms: int, *, max_sc
 
 
 def _notify(r, text: str) -> None:
-    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
+    stream = os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
     lock_key = "sre:alert:lock:ml_confirm:_notify"
     # Deduplicate: only one process sends per 60s
     if not r.set(lock_key, "1", nx=True, ex=60):
         return
 
-    try:
+    with contextlib.suppress(Exception):
         retry_redis_operation(
             operation=lambda: r.xadd(stream, {"type": "report", "text": text, "ts": str(now_ms())}, maxlen=200000, approximate=True),
             operation_name="xadd_notify",
@@ -112,8 +113,6 @@ def _notify(r, text: str) -> None:
             max_delay=10.0,
             on_final_failure=lambda e: None,
         )
-    except Exception:
-        pass
 
 
 def _tb_health(
@@ -125,9 +124,9 @@ def _tb_health(
     max_input_lag_ms: int,
     max_label_stale_ms: int,
     max_pending: int,
-) -> Tuple[Dict[str, Any], List[str]]:
+) -> tuple[dict[str, Any], list[str]]:
     now = now_ms()
-    alerts: List[str] = []
+    alerts: list[str] = []
 
     last_ts_ms = _i(r.get("tb:last_ts_ms"), 0)
     last_label_ts_ms = _i(r.get("tb:last_label_ts_ms"), 0)
@@ -158,7 +157,7 @@ def _tb_health(
             try:
                 groups = r.xinfo_groups(input_stream)
                 for g in groups or []:
-                    if str(g.get("name", "")) == group:
+                    if (g.get("name", "")) == group:
                         pending = _i(g.get("pending", 0), 0)
                         break
             except Exception:
@@ -171,11 +170,11 @@ def _tb_health(
             groups = r.xinfo_groups(input_stream)
             last_delivered = None
             for g in groups or []:
-                if str(g.get("name", "")) == group:
-                    last_delivered = str(g.get("last-delivered-id", "") or "")
+                if (g.get("name", "")) == group:
+                    last_delivered = (g.get("last-delivered-id", "") or "")
                     break
             stream_info = r.xinfo_stream(input_stream)
-            last_id = str(stream_info.get("last-generated-id", "") or "")
+            last_id = (stream_info.get("last-generated-id", "") or "")
             if last_id and last_delivered and last_delivered != "0-0":
                 try:
                     last_ms_val = int(last_id.split("-")[0])
@@ -256,14 +255,14 @@ def main() -> None:
     max_stale_ms = int(float(os.getenv("ML_SRE_MAX_STALE_MS", str(window_ms)) or window_ms))
 
     # meta-model training health (optional)
-    meta_enable = str(os.getenv("META_SRE_ENABLE", "1")).lower() not in ("0", "false", "no")
-    meta_alerts: List[str] = []
+    meta_enable = os.getenv("META_SRE_ENABLE", "1").lower() not in ("0", "false", "no")
+    meta_alerts: list[str] = []
     meta_status = ""
     meta_train_stale_ms = None
     if meta_enable:
         try:
             meta_status = retry_redis_operation(
-                operation=lambda: str(r.get("meta_model:last_status") or ""),
+                operation=lambda: (r.get("meta_model:last_status") or ""),
                 operation_name="get_meta_status"
             )
             meta_train_ts = retry_redis_operation(
@@ -298,7 +297,7 @@ def main() -> None:
                 meta_alerts.append("ab_stale")
             else:
                 rep_ab_j = json.loads(rep_ab) if rep_ab else {}
-                win = str(rep_ab_j.get("winner", "") or "")
+                win = (rep_ab_j.get("winner", "") or "")
                 if win == "challenger" and _f(rep_ab_j.get("delta_mean_r", 0.0)) > _f(os.getenv("META_AB_WIN_DELTA_R_MIN", "0.05")):
                     meta_alerts.append("ab_chal_win")
 
@@ -321,7 +320,7 @@ def main() -> None:
     # cfg:suggestions lifecycle health (P6.2)
     cfg_sugg_enable = os.getenv("CFG_SUGGESTIONS_SRE_ENABLE", "1") == "1"
     cfg_sugg_summary = None
-    cfg_sugg_alerts: List[str] = []
+    cfg_sugg_alerts: list[str] = []
     if cfg_sugg_enable:
         try:
             cfg_sugg_prefix = os.getenv("CFG_SUGGESTIONS_PREFIX", "cfg:suggestions:entry_policy")
@@ -354,31 +353,31 @@ def main() -> None:
     err = 0
     abst = 0
     conf = []
-    err_counts: Dict[str, int] = {}
+    err_counts: dict[str, int] = {}
     allow_count = 0
     mode = "UNKNOWN"
 
     for d in rows:
-        mode = str(d.get("mode", mode)).upper()
-        kind = str(d.get("kind", "")).lower()
+        mode = (d.get("mode", mode)).upper()
+        kind = (d.get("kind", "")).lower()
         if mode != "OFF" and kind != "none":
             pedge.append(_f(d.get("p_edge", 0.0), 0.0))
-        if str(d.get("latency_ms", "") or "").strip() != "":
+        if (d.get("latency_ms", "") or "").strip() != "":
             lat_ms.append(_f(d.get("latency_ms", 0.0), 0.0))
         else:
             lat_ms.append(_f(d.get("latency_us", 0.0), 0.0) / 1000.0)
 
-        st = str(d.get("status", "") or "").upper()
+        st = (d.get("status", "") or "").upper()
         miss_flag = _i(d.get("missing", d.get("missing_n", 0)), 0) > 0 or st.startswith("MISSING")
         miss += 1 if miss_flag else 0
 
-        err_s = str(d.get("err", "") or "").strip()
+        err_s = (d.get("err", "") or "").strip()
         if err_s != "":
             err += 1
             err_counts[err_s] = err_counts.get(err_s, 0) + 1
 
         abst += 1 if _i(d.get("abstain", 0), 0) == 1 else 0
-        if str(d.get("allow", "")).lower() in ("1", "true", "yes"):
+        if (d.get("allow", "")).lower() in ("1", "true", "yes"):
             allow_count += 1
 
         conf_val = d.get("conf", None)
@@ -454,8 +453,8 @@ def main() -> None:
                     stale_ms = now_ms() - last_ts
         except Exception:
             pass
-        
-        # Do not append stream_stale_ms alert when n=0 to prevent false-positives 
+
+        # Do not append stream_stale_ms alert when n=0 to prevent false-positives
         # during quiet market hours. Pipeline stuckness is handled by TB_LABELER.
 
         pedge_p50 = 0
@@ -466,12 +465,12 @@ def main() -> None:
         p0_rate = 0
         req_miss_rate = 0
 
-    tb_alerts: List[str] = []
+    tb_alerts: list[str] = []
     tb = None
     if os.getenv("TB_SRE_ENABLE", "1") != "0":
         tb, tb_alerts = _tb_health(
             r,
-            input_stream=os.getenv("TB_INPUT_STREAM", os.getenv("OF_INPUT_STREAM", "signals:of:inputs")),
+            input_stream=os.getenv("TB_INPUT_STREAM", os.getenv("OF_INPUT_STREAM", RS.OF_INPUTS)),
             labels_stream=os.getenv("TB_LABELS_STREAM", "labels:tb"),
             group=os.getenv("OF_INPUTS_GROUP", os.getenv("TB_INPUT_GROUP", "")),
             max_input_lag_ms=_i(os.getenv("TB_SRE_MAX_INPUT_LAG_MS", "120000"), 120000),
@@ -528,9 +527,9 @@ def main() -> None:
             txt += f"tb_alerts=<code>{tb_alerts_str}</code>\n"
 
     if cfg_sugg_summary:
-        scopes_esc = html.escape(str(cfg_sugg_summary.get('scopes', [])), quote=True)
+        scopes_esc = html.escape((cfg_sugg_summary.get('scopes', [])), quote=True)
         txt += (
-            f"\n<b>CFG_SUGGESTIONS</b> {html.escape(str(cfg_sugg_summary.get('kind', '')), quote=True)} "
+            f"\n<b>CFG_SUGGESTIONS</b> {html.escape((cfg_sugg_summary.get('kind', '')), quote=True)} "
             f"scopes=<code>{scopes_esc}</code>\n"
             f"pending=<code>{cfg_sugg_summary.get('n_pending', 0)}</code> "
             f"approved=<code>{cfg_sugg_summary.get('n_approved', 0)}</code> "

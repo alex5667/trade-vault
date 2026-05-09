@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tradeable-payload fingerprinting.
 
 Why this exists:
@@ -16,8 +17,8 @@ Contract:
 
 import hashlib
 import json
-from typing import Any, Dict, Iterable
-
+from collections.abc import Iterable
+from typing import Any
 
 _DEFAULT_IGNORE_KEYS = {
     "published_at_ms",
@@ -35,7 +36,7 @@ _DEFAULT_IGNORE_KEYS = {
     "outbox_trace_id",
     # some payloads embed a thin trace summary; do not let it affect tradeable fingerprint
     "trace",
-    # The detection reason is essentially metadata about how the signal fired, 
+    # The detection reason is essentially metadata about how the signal fired,
     # and changing it shouldn't create a false duplicate
     "detection_reason",
 }
@@ -45,7 +46,7 @@ def _stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _strip_keys(d: Dict[str, Any], ignore: Iterable[str]) -> Dict[str, Any]:
+def _strip_keys(d: dict[str, Any], ignore: Iterable[str]) -> dict[str, Any]:
     ignore_set = set(ignore)
     return {k: v for k, v in d.items() if k not in ignore_set}
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 """Periodic Binance orphan-order cleanup worker.
 
@@ -44,13 +46,12 @@ ENV — telegram (optional):
 
 import json
 import logging
-import math
 import os
-import socket
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -93,17 +94,17 @@ def _bool_env(name: str, default: bool = False) -> bool:
 
 def _f(v: Any, default: float = 0.0) -> float:
     try:
-        return float(v) if v is not None else float(default)
+        return float(v) if v is not None else default
     except Exception:
-        return float(default)
+        return default
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _load_symbol_set(raw: str) -> Set[str]:
-    return {part.strip().upper() for part in str(raw or '').split(',') if part.strip()}
+def _load_symbol_set(raw: str) -> set[str]:
+    return {part.strip().upper() for part in (raw or '').split(',') if part.strip()}
 
 
 @dataclass
@@ -119,7 +120,7 @@ class SymbolOrphanState:
     symbol: str
     sightings: int = 0
     order_count: int = 0
-    order_ids: List[str] = field(default_factory=list)
+    order_ids: list[str] = field(default_factory=list)
     first_seen_s: float = 0.0  # monotonic time of first sighting
 
 
@@ -138,14 +139,14 @@ class BinanceOrphanOrderCleanupWorker:
     def __init__(
         self,
         *,
-        prod_client: Optional[BinanceFuturesClient] = None,
-        demo_client: Optional[BinanceFuturesClient] = None,
+        prod_client: BinanceFuturesClient | None = None,
+        demo_client: BinanceFuturesClient | None = None,
         redis_client: Any = None,
         telegram_client: Any = None,
     ) -> None:
         # Clients
         if prod_client is not None:
-            self.prod_client: Optional[BinanceFuturesClient] = prod_client
+            self.prod_client: BinanceFuturesClient | None = prod_client
         else:
             _prod_key = (os.getenv("BINANCE_API_KEY") or "").strip()
             if _prod_key:
@@ -154,7 +155,7 @@ class BinanceOrphanOrderCleanupWorker:
                 self.prod_client = None
 
         if demo_client is not None:
-            self.demo_client: Optional[BinanceFuturesClient] = demo_client
+            self.demo_client: BinanceFuturesClient | None = demo_client
         else:
             _demo_key = (os.getenv("BINANCE_DEMO_API_KEY") or "").strip()
             if _demo_key:
@@ -196,25 +197,25 @@ class BinanceOrphanOrderCleanupWorker:
         self.allowlist = _load_symbol_set(os.getenv('BINANCE_SYMBOL_ALLOWLIST', ''))
 
         # Stream
-        self.exec_stream = os.getenv('EXEC_STREAM', 'orders:exec')
+        self.exec_stream = os.getenv('EXEC_STREAM', RS.ORDERS_EXEC)
         _maxlen = int(os.getenv('EXEC_STREAM_MAXLEN', '0') or '0')
-        self.exec_stream_maxlen: Optional[int] = _maxlen if _maxlen > 0 else None
+        self.exec_stream_maxlen: int | None = _maxlen if _maxlen > 0 else None
 
         # State tracking
-        self._orphan_candidates: Dict[str, SymbolOrphanState] = {}
-        self._unprotected_alerted: Set[str] = set()
+        self._orphan_candidates: dict[str, SymbolOrphanState] = {}
+        self._unprotected_alerted: set[str] = set()
 
     # -----------------------------------------------------------------------
     # Helpers
     # -----------------------------------------------------------------------
 
     def _emit_exec_event(self, *, symbol: str, event_type: str, status: str,
-                         payload: Dict[str, Any]) -> None:
+                         payload: dict[str, Any]) -> None:
         if self.r is None:
             return
         fields = {
             'sid': '',
-            'symbol': str(symbol),
+            'symbol': symbol,
             'action': 'orphan_cleanup',
             'event_type': str(event_type),
             'status': str(status),
@@ -223,7 +224,7 @@ class BinanceOrphanOrderCleanupWorker:
             'payload_json': json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         }
         try:
-            kwargs: Dict[str, Any] = {}
+            kwargs: dict[str, Any] = {}
             if self.exec_stream_maxlen:
                 kwargs = {'maxlen': self.exec_stream_maxlen, 'approximate': True}
             self.r.xadd(self.exec_stream, fields, **kwargs, maxlen=50000)
@@ -238,7 +239,7 @@ class BinanceOrphanOrderCleanupWorker:
         except Exception as e:
             log.warning("Telegram send failed: %s", e)
 
-    def _get_positions(self, client: BinanceFuturesClient) -> Optional[Dict[str, Dict[str, Any]]]:
+    def _get_positions(self, client: BinanceFuturesClient) -> dict[str, dict[str, Any]] | None:
         """Fetch positionRisk and return dict keyed by symbol with position info.
 
         Returns None on fetch failure (DNS / timeout / API error) so callers
@@ -250,9 +251,9 @@ class BinanceOrphanOrderCleanupWorker:
             log.error("Failed to fetch positionRisk: %s", e)
             return None  # signal failure to caller
 
-        positions: Dict[str, Dict[str, Any]] = {}
+        positions: dict[str, dict[str, Any]] = {}
         for p in risks:
-            symbol = str(p.get('symbol') or '').upper().strip()
+            symbol = (p.get('symbol') or '').upper().strip()
             if not symbol:
                 continue
             if self.allowlist and symbol not in self.allowlist:
@@ -272,20 +273,20 @@ class BinanceOrphanOrderCleanupWorker:
 
     def _get_all_open_orders(
         self, client: BinanceFuturesClient
-    ) -> Optional[Dict[str, Dict[str, Any]]]:
+    ) -> dict[str, dict[str, Any]] | None:
         """Fetch all open plain and algo orders, grouped by symbol.
 
         Returns None if plain-orders fetch fails (DNS / timeout / API error)
         so callers can skip the sweep without wiping candidate state.
         Algo-order fetch failures per-symbol are tolerated (partial result).
         """
-        result: Dict[str, Dict[str, Any]] = {}
+        result: dict[str, dict[str, Any]] = {}
 
         # Plain orders (all symbols at once)
         try:
             plain_orders = client.get_open_orders() or []
             for o in plain_orders:
-                sym = str(o.get('symbol') or '').upper().strip()
+                sym = (o.get('symbol') or '').upper().strip()
                 if not sym:
                     continue
                 if self.allowlist and sym not in self.allowlist:
@@ -315,8 +316,8 @@ class BinanceOrphanOrderCleanupWorker:
         return result
 
     def _cancel_all_symbol_orders(
-        self, symbol: str, orders: Dict[str, Any], *, client: BinanceFuturesClient
-    ) -> Dict[str, Any]:
+        self, symbol: str, orders: dict[str, Any], *, client: BinanceFuturesClient
+    ) -> dict[str, Any]:
         """Cancel all plain + algo orders for a symbol."""
         plain_list = list(orders.get('plain') or [])
         algo_list = list(orders.get('algo') or [])
@@ -324,10 +325,8 @@ class BinanceOrphanOrderCleanupWorker:
         canceled_algo = 0
 
         # Bulk cancel first
-        try:
+        with contextlib.suppress(Exception):
             client.cancel_all_orders(symbol)
-        except Exception:
-            pass
 
         # Individual fallback
         for o in plain_list:
@@ -356,9 +355,9 @@ class BinanceOrphanOrderCleanupWorker:
         }
 
     def _check_protection(
-        self, symbol: str, position: Dict[str, Any],
-        orders: Dict[str, Any], *, client_label: str,
-    ) -> Optional[str]:
+        self, symbol: str, position: dict[str, Any],
+        orders: dict[str, Any], *, client_label: str,
+    ) -> str | None:
         """Check if position has at least one protective order. Returns alert msg or None."""
         abs_qty = position.get('abs_qty', 0.0)
         if abs_qty <= 0:
@@ -381,7 +380,7 @@ class BinanceOrphanOrderCleanupWorker:
             if 'TAKE_PROFIT' in otype:
                 has_tp = True
         for o in algo_orders:
-            otype = str(o.get('type') or '').upper()
+            otype = (o.get('type') or '').upper()
             if 'STOP' in otype and 'TAKE_PROFIT' not in otype:
                 has_sl = True
             if 'TAKE_PROFIT' in otype:
@@ -415,17 +414,15 @@ class BinanceOrphanOrderCleanupWorker:
     # Main sweep
     # -----------------------------------------------------------------------
 
-    def _sweep_client(self, client: BinanceFuturesClient, label: str) -> Dict[str, Any]:
+    def _sweep_client(self, client: BinanceFuturesClient, label: str) -> dict[str, Any]:
         """Single sweep for one client (prod or demo).
 
         If either positions or orders fetch fails (DNS / timeout), the sweep
         returns early WITHOUT modifying orphan candidate state.  This prevents
         the vicious cycle where failed sweeps wipe candidate counters.
         """
-        try:
+        with contextlib.suppress(Exception):
             client.sync_time()
-        except Exception:
-            pass
 
         positions = self._get_positions(client)
         if positions is None:
@@ -445,9 +442,9 @@ class BinanceOrphanOrderCleanupWorker:
                 'pending': [], 'sweep_failed': True,
             }
 
-        orphan_cleaned: List[Dict[str, Any]] = []
-        protection_alerts: List[str] = []
-        still_pending: List[str] = []
+        orphan_cleaned: list[dict[str, Any]] = []
+        protection_alerts: list[str] = []
+        still_pending: list[str] = []
         now_mono = time.monotonic()
 
         # 1. Find orphan orders (orders with no position)
@@ -480,8 +477,8 @@ class BinanceOrphanOrderCleanupWorker:
             state.sightings += 1
             state.order_count = total_orders
 
-            plain_ids = [str(o.get('orderId', '?')) for o in orders.get('plain', [])]
-            algo_ids = [str(o.get('algoId', '?')) for o in orders.get('algo', [])]
+            plain_ids = [(o.get('orderId', '?')) for o in orders.get('plain', [])]
+            algo_ids = [(o.get('algoId', '?')) for o in orders.get('algo', [])]
             state.order_ids = plain_ids + algo_ids
 
             if state.sightings < self.confirm_passes:
@@ -571,9 +568,9 @@ class BinanceOrphanOrderCleanupWorker:
             'pending': still_pending,
         }
 
-    def sweep_once(self) -> Dict[str, Any]:
+    def sweep_once(self) -> dict[str, Any]:
         """Run one full sweep cycle across all configured clients."""
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
 
         if self.prod_client is not None:
             try:

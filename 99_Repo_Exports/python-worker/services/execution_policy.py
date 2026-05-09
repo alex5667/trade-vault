@@ -10,9 +10,9 @@ The resolver is intentionally simple and deterministic so it can be used in
 both executor runtime and unit tests without extra dependencies.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Optional, Set
-
+from typing import Any
 
 SAFETY_FIRST = "SAFETY_FIRST"
 MAKER_FIRST = "MAKER_FIRST"
@@ -24,7 +24,7 @@ class ExecutionPolicyDecision:
     reason: str
     tp_order_type: str
     tp_working_type: str
-    tp_limit_time_in_force: Optional[str]
+    tp_limit_time_in_force: str | None
     tp_watchdog_enabled: bool
     tp_watchdog_timeout_ms: int
     trailing_requires_confirmed_tp: bool = True
@@ -42,7 +42,7 @@ def _truthy(v: Any) -> bool:
 
 
 
-def _normalise_policy_name(v: Optional[str]) -> Optional[str]:
+def _normalise_policy_name(v: str | None) -> str | None:
     if not v:
         return None
     s = str(v).strip().replace("-", "_").replace(" ", "_").upper()
@@ -56,7 +56,7 @@ def _normalise_policy_name(v: Optional[str]) -> Optional[str]:
 
 def resolve_execution_policy(
     *,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     symbol: str,
     default_policy: str,
     maker_allowed_symbols: Iterable[str],
@@ -74,8 +74,8 @@ def resolve_execution_policy(
     3. maker-first only for allowlisted symbols under healthy conditions
     4. executor default
     """
-    symbol_u = str(symbol or "").upper()
-    maker_allow: Set[str] = {str(x).upper() for x in maker_allowed_symbols if str(x).strip()}
+    symbol_u = (symbol or "").upper()
+    maker_allow: set[str] = {str(x).upper() for x in maker_allowed_symbols if str(x).strip()}
 
     explicit = _normalise_policy_name(payload.get("execution_policy") or payload.get("exit_policy"))
     if explicit == SAFETY_FIRST:

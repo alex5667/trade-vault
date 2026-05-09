@@ -24,7 +24,6 @@ Guard / determinism rules:
 """
 
 import math
-from typing import Tuple
 
 
 def compute_liquidity_pressure_and_info_flow(
@@ -35,7 +34,7 @@ def compute_liquidity_pressure_and_info_flow(
     eps_depth: float = 1e-6,
     eps_rate: float = 1e-12,
     clip_liquidity_pressure: float = 1e6,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Return (liquidity_pressure, info_flow)."""
     try:
         buy = float(taker_buy_rate_ema or 0.0)

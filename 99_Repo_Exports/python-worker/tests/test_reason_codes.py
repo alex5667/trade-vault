@@ -1,7 +1,7 @@
 import pytest
 
-from signal_scoring.reason_codes import ReasonCode, legacy_reason_to_code
 from handlers.confirmations.engine import Validation
+from signal_scoring.reason_codes import ReasonCode, legacy_reason_to_code
 
 
 @pytest.mark.parametrize(

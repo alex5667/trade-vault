@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from orderflow_services.ml_inventory_exporter_v1 import (
-    Cfg,
+    _discover_meta_lr_records,
     _discover_ml_confirm_records,
     _discover_ml_scorer_records,
-    _discover_meta_lr_records,
 )
 
 
@@ -24,7 +23,7 @@ def test_discover_ml_confirm_records_from_json_keys(tmp_path, monkeypatch):
     model = tmp_path / "edge.joblib"
     model.write_text("x")
     r = DummyRedis(strings={
-        "cfg:ml_confirm:champion": '{"kind":"edge_stack_v1","model_path":"%s","model_ver":"run123","feature_schema_ver":"v12_of","feature_cols_hash":"abc"}' % model,
+        "cfg:ml_confirm:champion": f'{{"kind":"edge_stack_v1","model_path":"{model}","model_ver":"run123","feature_schema_ver":"v12_of","feature_cols_hash":"abc"}}',
     })
     rows = _discover_ml_confirm_records(r, "svc")
     assert len(rows) == 1

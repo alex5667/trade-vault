@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """tick_gate_group_reaper
 
 Purpose
@@ -26,7 +27,6 @@ TICK_GATE_REAPER_METRICS_PORT (default: 9113)
 
 import os
 import time
-from typing import Any, Dict, List, Tuple
 
 import redis  # type: ignore
 from prometheus_client import Counter, Gauge, start_http_server
@@ -34,14 +34,14 @@ from prometheus_client import Counter, Gauge, start_http_server
 
 def _env_int(name: str, default: int) -> int:
     try:
-        return int(str(os.getenv(name, str(default))).strip())
+        return int(os.getenv(name, str(default)).strip())
     except Exception:
         return default
 
 
 def _env_float(name: str, default: float) -> float:
     try:
-        return float(str(os.getenv(name, str(default))).strip())
+        return float(os.getenv(name, str(default)).strip())
     except Exception:
         return default
 
@@ -86,12 +86,12 @@ reaper_last_success_age = Gauge(
 )
 
 
-def _redis() -> "redis.Redis":
+def _redis() -> redis.Redis:
     url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     return redis.Redis.from_url(url, decode_responses=True, socket_timeout=5, socket_connect_timeout=5)
 
 
-def _group_exists(r: "redis.Redis") -> bool:
+def _group_exists(r: redis.Redis) -> bool:
     try:
         groups = r.xinfo_groups(STREAM)
         return any(g.get("name") == GROUP for g in groups)
@@ -99,7 +99,7 @@ def _group_exists(r: "redis.Redis") -> bool:
         return False
 
 
-def _ensure_group(r: "redis.Redis") -> None:
+def _ensure_group(r: redis.Redis) -> None:
     if _group_exists(r):
         return
     try:
@@ -110,19 +110,19 @@ def _ensure_group(r: "redis.Redis") -> None:
         return
 
 
-def _pending_info(r: "redis.Redis") -> Tuple[int, str]:
+def _pending_info(r: redis.Redis) -> tuple[int, str]:
     """Return (pending_count, smallest_id)"""
     try:
         info = r.xpending(STREAM, GROUP)
         # redis-py returns dict: {'pending': N, 'min': '...', 'max': '...', 'consumers': [...]}
         pending = int(info.get("pending") or 0)
-        min_id = str(info.get("min") or "0-0")
+        min_id = (info.get("min") or "0-0")
         return pending, min_id
     except Exception:
         return 0, "0-0"
 
 
-def _xautoclaim(r: "redis.Redis", start_id: str) -> Tuple[str, List[str]]:
+def _xautoclaim(r: redis.Redis, start_id: str) -> tuple[str, list[str]]:
     """Return (next_start_id, claimed_ids)."""
     # redis-py exposes xautoclaim since 4.3+. Fallback to execute_command.
     try:
@@ -143,7 +143,7 @@ def _xautoclaim(r: "redis.Redis", start_id: str) -> Tuple[str, List[str]]:
             return start_id, []
 
 
-def _ack_ids(r: "redis.Redis", ids: List[str]) -> int:
+def _ack_ids(r: redis.Redis, ids: list[str]) -> int:
     if not ids:
         return 0
     try:

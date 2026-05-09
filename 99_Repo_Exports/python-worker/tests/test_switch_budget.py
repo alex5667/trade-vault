@@ -6,7 +6,7 @@ Expert review:
   - Professor Statistics: Validates deterministic UTC day bucketing
   - DevOps/SRE: Tests fail-safe defaults and state reset logic
 """
-from core.switch_budget import SwitchState, can_switch, apply_switch, utc_day_id, DAY_MS
+from core.switch_budget import DAY_MS, SwitchState, apply_switch, can_switch, utc_day_id
 
 
 def test_budget_blocks_after_max():
@@ -75,7 +75,7 @@ def test_utc_day_id_deterministic():
     d1 = utc_day_id(DAY_MS * 100 + 1000)
     d2 = utc_day_id(DAY_MS * 100 + 50000)
     assert d1 == d2 == 100
-    
+
     # Different days
     d3 = utc_day_id(DAY_MS * 101)
     assert d3 == 101
@@ -107,7 +107,7 @@ def test_utc_day_id_deterministic():
     d1 = utc_day_id(DAY_MS * 100 + 1000)
     d2 = utc_day_id(DAY_MS * 100 + 50000)
     assert d1 == d2 == 100
-    
+
     # Different days
     d3 = utc_day_id(DAY_MS * 101)
     assert d3 == 101

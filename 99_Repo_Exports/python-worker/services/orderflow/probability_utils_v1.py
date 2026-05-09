@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 ProbSource = str
 
 
-def extract_prob_with_source(decision: Dict[str, Any]) -> Tuple[Optional[float], ProbSource]:
+def extract_prob_with_source(decision: dict[str, Any]) -> tuple[float | None, ProbSource]:
     """Extract a probability-like value from decision['ml'].
 
     Priority:
@@ -35,7 +35,7 @@ def extract_prob_with_source(decision: Dict[str, Any]) -> Tuple[Optional[float],
     return None, "none"
 
 
-def extract_prob(decision: Dict[str, Any]) -> Optional[float]:
+def extract_prob(decision: dict[str, Any]) -> float | None:
     """Backward-compatible wrapper returning only probability."""
     p, _ = extract_prob_with_source(decision)
     return p

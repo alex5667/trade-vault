@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 _LUA_POP_DUE_TO_INFLIGHT = r"""
 -- KEYS[1] = ready_zset
@@ -80,8 +80,8 @@ class OutboxRetryQueue:
     def __init__(self, redis_client: Any, *, settings: RetryQueueSettings) -> None:
         self.redis = redis_client
         self.settings = settings
-        self._sha_pop_to_inflight: Optional[str] = None
-        self._sha_requeue_expired: Optional[str] = None
+        self._sha_pop_to_inflight: str | None = None
+        self._sha_requeue_expired: str | None = None
 
     def _ensure_pop_to_inflight_sha(self) -> str:
         if self._sha_pop_to_inflight:
@@ -103,8 +103,8 @@ class OutboxRetryQueue:
         msg_id: str,
         *,
         due_ms: int,
-        owner: Optional[str] = None,
-        meta: Optional[Dict[str, Any]] = None,
+        owner: str | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> None:
         """
         Schedules retry to READY and clears any INFLIGHT lease for this msg_id.
@@ -113,21 +113,15 @@ class OutboxRetryQueue:
         mid = str(msg_id)
         due = int(due_ms)
         # ensure it's not stuck in inflight
-        try:
+        with contextlib.suppress(Exception):
             self.redis.zrem(self.settings.inflight_zset, mid)
-        except Exception:
-            pass
         self.redis.zadd(self.settings.ready_zset, {mid: due})
         # persist due/owner for requeue and observability
-        try:
+        with contextlib.suppress(Exception):
             self.redis.hset(self.settings.due_hash, mid, str(due))
-        except Exception:
-            pass
         if owner is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.redis.hset(self.settings.owner_hash, mid, str(owner))
-            except Exception:
-                pass
         if meta is not None:
             try:
                 payload = json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
@@ -156,10 +150,10 @@ class OutboxRetryQueue:
     def pop_due_to_inflight(
         self,
         *,
-        now_ms: Optional[int] = None,
+        now_ms: int | None = None,
         limit: int = 200,
         lease_ms: int = 60000,
-    ) -> List[str]:
+    ) -> list[str]:
         now_ms = int(now_ms or get_ny_time_millis())
         limit = max(1, int(limit))
         lease_ms = max(1000, int(lease_ms))
@@ -191,9 +185,9 @@ class OutboxRetryQueue:
     def requeue_expired_inflight(
         self,
         *,
-        now_ms: Optional[int] = None,
+        now_ms: int | None = None,
         limit: int = 200,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Moves expired inflight leases back to READY using persisted due_hash score.
         """
@@ -224,7 +218,7 @@ class OutboxRetryQueue:
             return []
         return [str(x) for x in res]
 
-    def sizes(self) -> Tuple[int, int]:
+    def sizes(self) -> tuple[int, int]:
         """(ready, inflight) best-effort"""
         try:
             r = int(self.redis.zcard(self.settings.ready_zset) or 0)

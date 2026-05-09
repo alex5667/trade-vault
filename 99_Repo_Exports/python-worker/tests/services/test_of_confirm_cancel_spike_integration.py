@@ -1,7 +1,5 @@
 import types
 
-import pytest
-
 
 def test_build_vetoed_by_cancel_spike(monkeypatch):
     import core.of_confirm_engine as m

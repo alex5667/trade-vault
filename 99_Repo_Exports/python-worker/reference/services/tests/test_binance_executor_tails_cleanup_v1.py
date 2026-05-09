@@ -1,9 +1,7 @@
-from pathlib import Path
 import importlib.util
 import sys
-import os
-import time
-from unittest.mock import Mock, MagicMock, patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 # Mock imports for binance_executor
 mod_dir = Path(__file__).parent.parent
@@ -34,13 +32,13 @@ def _make_exec():
 def test_monitor_trade_lifecycle_cleanup_on_zero_position():
     ex = _make_exec()
     client = MagicMock()
-    
+
     # Seq: 1.0 -> 0.0
     client.get_position_risk.side_effect = [
         [{"symbol": "BTCUSDT", "positionAmt": "1.0"}],
         [{"symbol": "BTCUSDT", "positionAmt": "0.0"}]
     ]
-    
+
     # We want to exit after the second iteration
     # time.sleep will be called once between iterations
     with patch("time.sleep") as mock_sleep:
@@ -52,7 +50,7 @@ def test_monitor_trade_lifecycle_cleanup_on_zero_position():
                 logical_side="LONG",
                 client=client
             )
-            
+
     # Verify _cancel_by_token was called
     ex._cancel_by_token.assert_called_once_with("BTCUSDT", "sid-test", client=client)
     # verify event was emitted
@@ -64,22 +62,21 @@ def test_monitor_trade_lifecycle_cleanup_on_zero_position():
 def test_monitor_trade_lifecycle_cleanup_on_reversal():
     ex = _make_exec()
     client = MagicMock()
-    
+
     # Seq: LONG -> SHORT (reversed)
     client.get_position_risk.side_effect = [
         [{"symbol": "BTCUSDT", "positionAmt": "1.0"}], # LONG
         [{"symbol": "BTCUSDT", "positionAmt": "-1.0"}] # SHORT (reversed for LONG sid)
     ]
-    
-    with patch("time.sleep"):
-        with patch("time.time", side_effect=[100, 101, 102, 103]):
-            ex._monitor_trade_lifecycle_thread(
-                sid="sid-rev",
-                symbol="BTCUSDT",
-                logical_side="LONG",
-                client=client
-            )
-            
+
+    with patch("time.sleep"), patch("time.time", side_effect=[100, 101, 102, 103]):
+        ex._monitor_trade_lifecycle_thread(
+            sid="sid-rev",
+            symbol="BTCUSDT",
+            logical_side="LONG",
+            client=client
+        )
+
     ex._cancel_by_token.assert_called_once_with("BTCUSDT", "sid-rev", client=client)
     args, _ = ex._exec_event.call_args
     event = args[0]

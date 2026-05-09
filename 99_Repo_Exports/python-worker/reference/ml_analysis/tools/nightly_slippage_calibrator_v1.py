@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """nightly_slippage_calibrator_v1.py
 
 Nightly calibrator for slippage decomposition impact coefficient.
@@ -33,16 +34,17 @@ Exit codes:
   2 soft-fail (missing deps / missing DSN)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import math
 import os
 import re
 import time
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -51,23 +53,23 @@ def _now_ms() -> int:
 
 def _env_int(name: str, default: str) -> int:
     try:
-        return int(str(os.getenv(name, default)).strip())
+        return int(os.getenv(name, default).strip())
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(name: str, default: str) -> float:
     try:
-        return float(str(os.getenv(name, default)).strip())
+        return float(os.getenv(name, default).strip())
     except Exception:
-        return float(default)
+        return default
 
 
-def _parse_list(raw: str) -> List[str]:
-    s = str(raw or "").strip()
+def _parse_list(raw: str) -> list[str]:
+    s = (raw or "").strip()
     if not s:
         return []
-    out: List[str] = []
+    out: list[str] = []
     for p in s.replace(";", ",").split(","):
         x = p.strip().upper()
         if x and x not in out:
@@ -76,7 +78,7 @@ def _parse_list(raw: str) -> List[str]:
 
 
 def _safe_ident(name: str, default: str) -> str:
-    s = str(name or "").strip()
+    s = (name or "").strip()
     if not s:
         return default
     # allow schema-qualified view names: public.v_exec_slippage_eval
@@ -85,9 +87,9 @@ def _safe_ident(name: str, default: str) -> str:
     return s
 
 
-def _write_json_atomic(path: str, obj: Dict[str, Any]) -> None:
+def _write_json_atomic(path: str, obj: dict[str, Any]) -> None:
     try:
-        p = str(path or "").strip()
+        p = (path or "").strip()
         if not p:
             return
         d = os.path.dirname(os.path.abspath(p))
@@ -132,7 +134,7 @@ def _percentile(xs: Sequence[float], q: float) -> float:
 
 
 def _connect_redis(url: str):
-    u = str(url or "").strip()
+    u = (url or "").strip()
     if not u:
         return None
     try:
@@ -152,7 +154,7 @@ def _pg_connect(dsn: str):
         return None
 
 
-def _select_symbols(cur, *, view: str, lookback_days: int, max_syms: int) -> List[str]:
+def _select_symbols(cur, *, view: str, lookback_days: int, max_syms: int) -> list[str]:
     q = f"""
       select sym,
              sum(size_usd) as usd,
@@ -164,7 +166,7 @@ def _select_symbols(cur, *, view: str, lookback_days: int, max_syms: int) -> Lis
       limit %s
     """
     cur.execute(q, (int(lookback_days), int(max_syms)))
-    out: List[str] = []
+    out: list[str] = []
     for row in cur.fetchall() or []:
         try:
             s = str(row[0] or "").strip().upper()
@@ -175,7 +177,7 @@ def _select_symbols(cur, *, view: str, lookback_days: int, max_syms: int) -> Lis
     return out
 
 
-def _fetch_rows(cur, *, view: str, sym: str, bucket: str, lookback_days: int, min_impact_proxy: float) -> List[Tuple[float, float, float]]:
+def _fetch_rows(cur, *, view: str, sym: str, bucket: str, lookback_days: int, min_impact_proxy: float) -> list[tuple[float, float, float]]:
     q = f"""
       select spread_bps, impact_proxy, realized_slip_worse_bps
       from {view}
@@ -186,7 +188,7 @@ def _fetch_rows(cur, *, view: str, sym: str, bucket: str, lookback_days: int, mi
     """
     cur.execute(q, (int(lookback_days), str(sym), str(bucket), float(min_impact_proxy)))
     rows = cur.fetchall() or []
-    out: List[Tuple[float, float, float]] = []
+    out: list[tuple[float, float, float]] = []
     for r in rows:
         try:
             spread = float(r[0] or 0.0)
@@ -199,12 +201,12 @@ def _fetch_rows(cur, *, view: str, sym: str, bucket: str, lookback_days: int, mi
 
 
 def _fit_k_bps(
-    rows: Sequence[Tuple[float, float, float]],
+    rows: Sequence[tuple[float, float, float]],
     *,
     cap_k_bps: float,
     trim_q: float,
-) -> Dict[str, Any]:
-    ratios: List[float] = []
+) -> dict[str, Any]:
+    ratios: list[float] = []
     for spread, imp, realized in rows:
         if not math.isfinite(spread) or not math.isfinite(imp) or not math.isfinite(realized):
             continue
@@ -222,7 +224,7 @@ def _fit_k_bps(
             r = cap_k_bps
         ratios.append(float(r))
 
-    res: Dict[str, Any] = {
+    res: dict[str, Any] = {
         "n_raw": int(len(rows)),
         "n_used": int(len(ratios)),
         "k_median_bps": None,
@@ -254,7 +256,7 @@ def _fit_k_bps(
     return res
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
 
     ap.add_argument("--dsn", default=os.getenv("ANALYTICS_DB_DSN") or (os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL")) or "")
@@ -303,7 +305,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     t0 = time.time()
 
-    status: Dict[str, Any] = {
+    status: dict[str, Any] = {
         "ts_ms": _now_ms(),
         "stamp": stamp,
         "ok": False,
@@ -367,7 +369,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 pass
             return 0
 
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "ts_ms": status["ts_ms"],
             "stamp": stamp,
             "lookback_days": int(args.lookback_days),
@@ -395,7 +397,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
                 fit = _fit_k_bps(rows, cap_k_bps=float(args.cap_k_bps), trim_q=float(args.trim_q))
 
-                item: Dict[str, Any] = {
+                item: dict[str, Any] = {
                     "sym": sym,
                     "bucket": b,
                     **fit,

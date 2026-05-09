@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 def resolve_risk_cfg_cached(
     *,
     resolver: Any,
     symbol: str,
-    cache: Dict[str, Any],
-    cache_ts: Optional[Dict[str, float]] = None,
+    cache: dict[str, Any],
+    cache_ts: dict[str, float] | None = None,
     ttl_sec: float = 0.0,
 ) -> Any:
     """
@@ -31,7 +31,7 @@ def resolve_risk_cfg_cached(
     """
     sym = (symbol or "").strip().upper()
     if not sym:
-        sym = str(symbol or "")
+        sym = (symbol or "")
 
     try:
         if ttl_sec and ttl_sec > 0.0 and isinstance(cache_ts, dict):
@@ -64,16 +64,16 @@ def resolve_risk_cfg_cached(
 
 def invalidate_risk_cfg_cache(
     *,
-    cache: Dict[str, Any],
-    cache_ts: Optional[Dict[str, float]] = None,
-    symbol: Optional[str] = None,
+    cache: dict[str, Any],
+    cache_ts: dict[str, float] | None = None,
+    symbol: str | None = None,
 ) -> None:
     """
     Explicit invalidation hook (optional, for live tuning).
     """
     try:
         if symbol:
-            sym = str(symbol).strip().upper()
+            sym = symbol.strip().upper()
             cache.pop(sym, None)
             if isinstance(cache_ts, dict):
                 cache_ts.pop(sym, None)

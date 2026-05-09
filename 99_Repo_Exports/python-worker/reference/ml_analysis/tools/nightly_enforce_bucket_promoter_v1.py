@@ -1,15 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import json
-import time
-import logging
 import asyncio
+import json
+import logging
+import os
 import re  # P89: for _safe_ident SQL identifier validation
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as aioredis  # type: ignore
@@ -29,7 +28,8 @@ except Exception:  # pragma: no cover
     assert_auto_apply_not_blocked = None
 
 try:
-    from orderflow_services.redis_lock_v1 import acquire_lock as _acquire_lock, release_lock as _release_lock  # type: ignore
+    from orderflow_services.redis_lock_v1 import acquire_lock as _acquire_lock  # type: ignore
+    from orderflow_services.redis_lock_v1 import release_lock as _release_lock
 except Exception:  # pragma: no cover
     _acquire_lock = None
     _release_lock = None
@@ -39,21 +39,21 @@ except Exception:  # pragma: no cover
 
 def _env_int(name: str, default: str) -> int:
     try:
-        return int(str(os.getenv(name, default)).strip())
+        return int(os.getenv(name, default).strip())
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(name: str, default: str) -> float:
     try:
-        return float(str(os.getenv(name, default)).strip())
+        return float(os.getenv(name, default).strip())
     except Exception:
-        return float(default)
+        return default
 
 
 def _safe_ident(name: str, default: str) -> str:
     """Validate SQL identifier (schema-qualified allowed: letters/digits/_/.) to prevent injection."""
-    s = str(name or "").strip()
+    s = (name or "").strip()
     if not s:
         return default
     # allow schema-qualified identifiers (letters/digits/_/.)
@@ -76,7 +76,7 @@ def _notify_stream_name() -> str:
 
 
 def _notify_enabled() -> bool:
-    return str(os.getenv("ENFORCE_BUCKET_NOTIFY", "1") or "1").strip().lower() in ("1", "true", "yes", "on")
+    return (os.getenv("ENFORCE_BUCKET_NOTIFY", "1") or "1").strip().lower() in ("1", "true", "yes", "on")
 
 
 async def _notify_once(r: Any, text: str, *, cooldown_key: str, cooldown_sec: int) -> None:
@@ -106,26 +106,26 @@ def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _norm_bucket(b: Any) -> str:
-    s = str(b or "").strip().upper()
+    s = (b or "").strip().upper()
     return s or "NORMAL"
 
 
-def _parse_allowlist(raw: str) -> List[str]:
-    raw = str(raw or "").strip()
+def _parse_allowlist(raw: str) -> list[str]:
+    raw = (raw or "").strip()
     if not raw:
         return []
-    parts: List[str] = []
+    parts: list[str] = []
     for p in raw.replace(";", ",").split(","):
         x = p.strip().upper()
         if x and x not in parts:
@@ -133,12 +133,12 @@ def _parse_allowlist(raw: str) -> List[str]:
     return parts
 
 
-def _allowlist_to_str(xs: List[str]) -> str:
+def _allowlist_to_str(xs: list[str]) -> str:
     # stable order, comma-separated
     return ",".join(xs)
 
 
-def _write_json_atomic(path: str, d: Dict[str, Any]) -> None:
+def _write_json_atomic(path: str, d: dict[str, Any]) -> None:
     """Write JSON atomically (tmp + rename) so exporter always reads a complete file."""
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     tmp = path + ".tmp"
@@ -151,14 +151,14 @@ def _write_json_atomic(path: str, d: Dict[str, Any]) -> None:
 
 def _ensure_auto_apply_reason(reason: str) -> None:
     """Ensure AUTO_APPLY_BLOCK_REASONS contains `reason` (process-local)."""
-    cur = str(os.getenv("AUTO_APPLY_BLOCK_REASONS", "tick_gate") or "tick_gate").strip()
+    cur = (os.getenv("AUTO_APPLY_BLOCK_REASONS", "tick_gate") or "tick_gate").strip()
     parts = [p.strip() for p in cur.split(",") if p.strip()]
     if reason not in parts:
         parts.append(reason)
     os.environ["AUTO_APPLY_BLOCK_REASONS"] = ",".join(parts)
 
 
-async def _xadd_event(r: Any, *, stream: str, fields: Dict[str, Any], maxlen: int = 10000) -> None:
+async def _xadd_event(r: Any, *, stream: str, fields: dict[str, Any], maxlen: int = 10000) -> None:
     """Best-effort event log (audit) to Redis stream."""
     try:
         payload = {str(k): ("" if v is None else str(v)) for k, v in (fields or {}).items()}
@@ -185,14 +185,14 @@ class PromotionDecision:
     ok: bool
     new_allowlist: str
     added_bucket: str
-    reasons: List[str]
+    reasons: list[str]
 
 
 def decide_next_allowlist(
     *,
     current_allow: str,
-    health_by_bucket: Dict[str, BucketHealth],
-    promote_order: List[str],
+    health_by_bucket: dict[str, BucketHealth],
+    promote_order: list[str],
     default_bucket: str,
     min_db_n: int,
     max_p95: float,
@@ -205,9 +205,9 @@ def decide_next_allowlist(
     if not cur:
         cur = [_norm_bucket(default_bucket)]
 
-    reasons: List[str] = []
+    reasons: list[str] = []
 
-    def bucket_ok(b: str) -> Tuple[bool, str]:
+    def bucket_ok(b: str) -> tuple[bool, str]:
         h = health_by_bucket.get(_norm_bucket(b))
         if not h:
             return False, "no_health"
@@ -248,7 +248,7 @@ async def _fetch_db_health(
     lookback_h: int,
     mv: str,
     view: str,
-) -> Dict[str, Dict[str, BucketHealth]]:
+) -> dict[str, dict[str, BucketHealth]]:
     """Returns sym -> bucket -> health (DB-side residuals and edge-neg share).
 
     Strategy:
@@ -261,7 +261,7 @@ async def _fetch_db_health(
     mv = _safe_ident(mv, "mv_exec_slippage_eval_1h_stats")
     view = _safe_ident(view, "v_exec_slippage_eval")
 
-    out: Dict[str, Dict[str, BucketHealth]] = {}
+    out: dict[str, dict[str, BucketHealth]] = {}
 
     # Fast path: MV aggregated per hour (P89)
     try:
@@ -280,7 +280,7 @@ async def _fetch_db_health(
 
         rows = await conn.fetch(q)
         for r in rows:
-            sym = str(r.get("sym") or "").upper()
+            sym = (r.get("sym") or "").upper()
             if not sym:
                 continue
             b = _norm_bucket(r.get("exec_regime_bucket") or "NORMAL")
@@ -313,7 +313,7 @@ async def _fetch_db_health(
 
     rows2 = await conn.fetch(q2)
     for r in rows2:
-        sym = str(r.get("sym") or "").upper()
+        sym = (r.get("sym") or "").upper()
         if not sym:
             continue
         b = _norm_bucket(r.get("exec_regime_bucket") or "NORMAL")
@@ -335,8 +335,8 @@ async def _scan_gate_metrics(
     stream: str,
     start_ms: int,
     max_scan: int,
-) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
 
@@ -369,9 +369,9 @@ async def _scan_gate_metrics(
     return rows
 
 
-def _merge_gate_health(db: Dict[str, Dict[str, BucketHealth]], gate_rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, BucketHealth]]:
+def _merge_gate_health(db: dict[str, dict[str, BucketHealth]], gate_rows: list[dict[str, Any]]) -> dict[str, dict[str, BucketHealth]]:
     # Aggregate ok_soft by sym,bucket
-    agg: Dict[Tuple[str, str], Dict[str, int]] = {}
+    agg: dict[tuple[str, str], dict[str, int]] = {}
     for r in gate_rows:
         sym = str(r.get("symbol") or r.get("sym") or "").upper()
         if not sym:
@@ -386,7 +386,7 @@ def _merge_gate_health(db: Dict[str, Dict[str, BucketHealth]], gate_rows: List[D
         a["ok_soft"] += 1 if ok_soft == 1 else 0
 
     # Fill into db health map (or create if missing)
-    out: Dict[str, Dict[str, BucketHealth]] = {}
+    out: dict[str, dict[str, BucketHealth]] = {}
     for sym, buckets in db.items():
         out.setdefault(sym, {})
         for b, h in buckets.items():
@@ -415,9 +415,9 @@ def _merge_gate_health(db: Dict[str, Dict[str, BucketHealth]], gate_rows: List[D
     return out
 
 
-def _aggregate_global_by_bucket(sym_map: Dict[str, Dict[str, BucketHealth]]) -> Dict[str, BucketHealth]:
+def _aggregate_global_by_bucket(sym_map: dict[str, dict[str, BucketHealth]]) -> dict[str, BucketHealth]:
     # Weighted aggregation by db_n (for residuals/edge) and eligible_n (for ok rate)
-    by_b: Dict[str, Dict[str, float]] = {}
+    by_b: dict[str, dict[str, float]] = {}
     for sym, buckets in sym_map.items():
         for b, h in buckets.items():
             b = _norm_bucket(b)
@@ -431,7 +431,7 @@ def _aggregate_global_by_bucket(sym_map: Dict[str, Dict[str, BucketHealth]]) -> 
             a["gate_n"] += float(h.eligible_n)
             a["ok_sum"] += float(h.ok_soft_rate) * float(max(h.eligible_n, 0))
 
-    out: Dict[str, BucketHealth] = {}
+    out: dict[str, BucketHealth] = {}
     for b, a in by_b.items():
         db_n = int(a["db_n"])
         gate_n = int(a["gate_n"])
@@ -469,29 +469,29 @@ async def run() -> bool:
     max_edge_neg_share = _env_float("PROMOTE_MAX_EDGE_NEG_SHARE", "0.40")
     min_gate_n = _env_int("PROMOTE_MIN_ELIGIBLE", "200")
     min_ok_soft = _env_float("PROMOTE_MIN_OK_SOFT", "0.05")
-    default_bucket = str(os.getenv("PROMOTE_DEFAULT_BUCKET", "HIGH_VOL_LOW_LIQ") or "HIGH_VOL_LOW_LIQ").strip().upper()
+    default_bucket = (os.getenv("PROMOTE_DEFAULT_BUCKET", "HIGH_VOL_LOW_LIQ") or "HIGH_VOL_LOW_LIQ").strip().upper()
 
     promote_order = _parse_allowlist(os.getenv("PROMOTE_ADD_ORDER", "HIGH_VOL,LOW_LIQ") or "HIGH_VOL,LOW_LIQ")
     if not promote_order:
         promote_order = ["HIGH_VOL", "LOW_LIQ"]
 
-    promote_symbols_raw = str(os.getenv("PROMOTE_SYMBOLS", "") or "").strip()
+    promote_symbols_raw = (os.getenv("PROMOTE_SYMBOLS", "") or "").strip()
     promote_symbols = [x.strip().upper() for x in promote_symbols_raw.replace(";", ",").split(",") if x.strip()]
-    scope = str(os.getenv("PROMOTE_SCOPE", "per_symbol" if promote_symbols else "global") or "global").strip().lower()
+    scope = (os.getenv("PROMOTE_SCOPE", "per_symbol" if promote_symbols else "global") or "global").strip().lower()
     if scope not in ("global", "per_symbol"):
         scope = "global"
 
-    apply = str(os.getenv("PROMOTE_APPLY", "0") or "0").strip() in ("1", "true", "True", "yes", "YES")
+    apply = (os.getenv("PROMOTE_APPLY", "0") or "0").strip() in ("1", "true", "True", "yes", "YES")
 
     min_apply_gap_sec = _env_int('PROMOTE_MIN_APPLY_GAP_SEC', '21600')
 
     # P89: MV and raw view names (configurable, sanitized to prevent SQL injection)
     stats_mv = _safe_ident(
-        str(os.getenv("PROMOTE_STATS_MV", "mv_exec_slippage_eval_1h_stats") or "mv_exec_slippage_eval_1h_stats"),
+        (os.getenv("PROMOTE_STATS_MV", "mv_exec_slippage_eval_1h_stats") or "mv_exec_slippage_eval_1h_stats"),
         "mv_exec_slippage_eval_1h_stats",
     )
     stats_view = _safe_ident(
-        str(os.getenv("PROMOTE_STATS_VIEW", "v_exec_slippage_eval") or "v_exec_slippage_eval"),
+        (os.getenv("PROMOTE_STATS_VIEW", "v_exec_slippage_eval") or "v_exec_slippage_eval"),
         "v_exec_slippage_eval",
     )
 
@@ -554,16 +554,16 @@ async def run() -> bool:
             if v:
                 return str(v)
         v = await r.get(base)
-        return str(v or "")
+        return (v or "")
 
     apply_blocked_by_gap = False
 
-    cand_syms: List[str] = [""]
+    cand_syms: list[str] = [""]
     if scope == "per_symbol" and promote_symbols:
         cand_syms = promote_symbols[:]
 
-    chosen_dec_slip: Optional[PromotionDecision] = None
-    chosen_dec_taker: Optional[PromotionDecision] = None
+    chosen_dec_slip: PromotionDecision | None = None
+    chosen_dec_taker: PromotionDecision | None = None
 
     for sym in cand_syms:
         hmap = global_by_bucket if not sym else sym_map.get(sym, {})
@@ -699,7 +699,7 @@ async def run() -> bool:
             applied_changes = []
             now_ms = _now_ms()
             pipe = r.pipeline(transaction=False)
-            
+
             # Persist last change for rollback controller (and exporter)
             pipe.set("state:enforce_bucket_promoter:last_apply_ts_ms", str(now_ms))
             pipe.set("state:enforce_bucket_promoter:last_apply_sym", (target_sym or "GLOBAL"))
@@ -710,34 +710,34 @@ async def run() -> bool:
 
             if target_sym:
                 pipe.set(f"state:enforce_bucket_promoter:last_apply_ts_ms:{target_sym}", str(now_ms))
-                pipe.set(f"state:enforce_bucket_promoter:prev_slippage_decomp_enforce_buckets:{target_sym}", str(cur_slip or ""))
-                pipe.set(f"state:enforce_bucket_promoter:prev_taker_flow_gate_enforce_buckets:{target_sym}", str(cur_taker or ""))
-                pipe.set(f"state:enforce_bucket_promoter:applied_slippage_decomp_enforce_buckets:{target_sym}", str(new_slip or ""))
-                pipe.set(f"state:enforce_bucket_promoter:applied_taker_flow_gate_enforce_buckets:{target_sym}", str(new_taker or ""))
+                pipe.set(f"state:enforce_bucket_promoter:prev_slippage_decomp_enforce_buckets:{target_sym}", (cur_slip or ""))
+                pipe.set(f"state:enforce_bucket_promoter:prev_taker_flow_gate_enforce_buckets:{target_sym}", (cur_taker or ""))
+                pipe.set(f"state:enforce_bucket_promoter:applied_slippage_decomp_enforce_buckets:{target_sym}", (new_slip or ""))
+                pipe.set(f"state:enforce_bucket_promoter:applied_taker_flow_gate_enforce_buckets:{target_sym}", (new_taker or ""))
             else:
-                pipe.set("state:enforce_bucket_promoter:prev_slippage_decomp_enforce_buckets", str(cur_slip or ""))
-                pipe.set("state:enforce_bucket_promoter:prev_taker_flow_gate_enforce_buckets", str(cur_taker or ""))
-                pipe.set("state:enforce_bucket_promoter:applied_slippage_decomp_enforce_buckets", str(new_slip or ""))
-                pipe.set("state:enforce_bucket_promoter:applied_taker_flow_gate_enforce_buckets", str(new_taker or ""))
+                pipe.set("state:enforce_bucket_promoter:prev_slippage_decomp_enforce_buckets", (cur_slip or ""))
+                pipe.set("state:enforce_bucket_promoter:prev_taker_flow_gate_enforce_buckets", (cur_taker or ""))
+                pipe.set("state:enforce_bucket_promoter:applied_slippage_decomp_enforce_buckets", (new_slip or ""))
+                pipe.set("state:enforce_bucket_promoter:applied_taker_flow_gate_enforce_buckets", (new_taker or ""))
 
             # Apply cfg (scope-aware; prefer per-symbol keys when target_sym is set)
             if target_sym:
                 if dec_slip.ok and dec_slip.new_allowlist != cur_slip:
-                    pipe.set(f"cfg:slippage_decomp_enforce_buckets:{target_sym}", str(new_slip or ""))
+                    pipe.set(f"cfg:slippage_decomp_enforce_buckets:{target_sym}", (new_slip or ""))
                     applied_changes.append({"component": "slippage_decomp", "old": cur_slip, "new": dec_slip.new_allowlist, "added_bucket": dec_slip.added_bucket})
                 if dec_taker.ok and dec_taker.new_allowlist != cur_taker:
-                    pipe.set(f"cfg:taker_flow_gate_enforce_buckets:{target_sym}", str(new_taker or ""))
+                    pipe.set(f"cfg:taker_flow_gate_enforce_buckets:{target_sym}", (new_taker or ""))
                     applied_changes.append({"component": "taker_flow_gate", "old": cur_taker, "new": dec_taker.new_allowlist, "added_bucket": dec_taker.added_bucket})
             else:
                 if dec_slip.ok and dec_slip.new_allowlist != cur_slip:
-                    pipe.set("cfg:slippage_decomp_enforce_buckets", str(new_slip or ""))
+                    pipe.set("cfg:slippage_decomp_enforce_buckets", (new_slip or ""))
                     applied_changes.append({"component": "slippage_decomp", "old": cur_slip, "new": dec_slip.new_allowlist, "added_bucket": dec_slip.added_bucket})
                 if dec_taker.ok and dec_taker.new_allowlist != cur_taker:
-                    pipe.set("cfg:taker_flow_gate_enforce_buckets", str(new_taker or ""))
+                    pipe.set("cfg:taker_flow_gate_enforce_buckets", (new_taker or ""))
                     applied_changes.append({"component": "taker_flow_gate", "old": cur_taker, "new": dec_taker.new_allowlist, "added_bucket": dec_taker.added_bucket})
-            
+
             await pipe.execute()
-            
+
             if applied_changes:
                 # Push apply event (audit log) to telemetry stream
                 try:

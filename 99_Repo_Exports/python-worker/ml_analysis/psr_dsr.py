@@ -9,12 +9,12 @@ enough for rollout gating, while remaining deterministic and numerically safe.
 """
 
 import math
+from collections.abc import Iterable, Sequence
 from statistics import NormalDist
-from typing import Iterable, List, Sequence
 
 
-def _clean(values: Iterable[float]) -> List[float]:
-    out: List[float] = []
+def _clean(values: Iterable[float]) -> list[float]:
+    out: list[float] = []
     for v in values:
         try:
             f = float(v)

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests: P1.2.2 HA-safe execution projection worker (LeaderLease, fencing, health).
 
 Suite covers:
@@ -14,17 +15,15 @@ Suite covers:
 10. rebuild_all() rebuilds state for multiple SIDs
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import json
-import sys
-import time
-from pathlib import Path
-
 # ---------------------------------------------------------------------------
 # Module loading via importlib (matches pattern of existing p121 tests)
 # ---------------------------------------------------------------------------
 import importlib.util
+import json
+import sys
+from pathlib import Path
+
+from utils.time_utils import get_ny_time_millis
 
 worker_mod_path = Path(__file__).parent.parent / 'execution_projection_worker.py'
 worker_spec = importlib.util.spec_from_file_location('execution_projection_worker_p122', worker_mod_path)
@@ -145,7 +144,7 @@ def _push_event(r: FakeRedis, sid: str, symbol: str = 'BTCUSDT',
     })
 
 
-def _mk_worker(r: FakeRedis, *, lease: 'LeaderLease | None' = None) -> ExecutionProjectionWorker:
+def _mk_worker(r: FakeRedis, *, lease: LeaderLease | None = None) -> ExecutionProjectionWorker:
     return ExecutionProjectionWorker(
         r,
         exec_stream='orders:exec',

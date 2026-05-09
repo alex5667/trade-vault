@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any
 
 import psycopg2
 import psycopg2.extras
 import redis
+
 try:
     from core.redis_client import get_atr_redis
 except Exception:

@@ -1,11 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
-import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -40,7 +40,7 @@ LAT = _hist("ml_operator_routing_incident_route_rca_winner_routing_apply_latency
 LAST_RUN = _gauge("ml_operator_routing_incident_route_rca_winner_routing_apply_last_run_ts_seconds", "Last timestamp")
 
 def now_ms() -> int: return get_ny_time_millis()
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 async def ensure_group(r: Any, stream: str, group: str) -> None:
@@ -67,7 +67,7 @@ async def run_loop(r: Any) -> None:
                     inc_id = row.get("incident_id", "unknown")
                     exp_id = row.get("experiment_id", "unknown")
                     winner_variant = row.get("winner_variant", "unknown")
-                    
+
                     # Logic to apply winner
                     # In a real implementation, we'd check cooldowns and actual uplift metrics
                     # Here we simulate the apply result
@@ -79,7 +79,7 @@ async def run_loop(r: Any) -> None:
                         "mode": "ADVISORY" if advisory_only else "COMMIT",
                         "ts_ms": now_ms()
                     }
-                    
+
                     if not advisory_only:
                         # Update default routing policy in Redis
                         policy_key = "cfg:ml:operator_routing_incident_route_rca_routing:default"
@@ -90,15 +90,15 @@ async def run_loop(r: Any) -> None:
                             "last_winner_variant": winner_variant,
                             "applied_ts_ms": now_ms()
                         })
-                    
+
                     await r.xadd(OUT_STREAM, apply_result, maxlen=MAXLEN, approximate=True)
                     await r.xadd(AUDIT_STREAM, apply_result, maxlen=MAXLEN, approximate=True)
-                    
+
                     await r.xack(IN_STREAM, GROUP, msg_id)
                 except Exception:
                     status = "error"
                     await r.xack(IN_STREAM, GROUP, msg_id)
-                    
+
         if LAST_RUN: LAST_RUN.set(time.time())
     except Exception:
         status = "error"

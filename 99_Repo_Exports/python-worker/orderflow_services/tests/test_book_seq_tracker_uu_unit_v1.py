@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from orderflow_services.tests._repo_import import find_repo_root, load_module_from_candidates
 
 

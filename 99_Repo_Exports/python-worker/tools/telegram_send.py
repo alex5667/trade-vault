@@ -1,14 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 Minimal Telegram sender.
 Env:
   TELEGRAM_BOT_TOKEN
   TELEGRAM_CHAT_ID
 """
-import json
 import os
-import urllib.request
 import urllib.parse
+import urllib.request
+
 
 def send_text(text: str) -> bool:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()

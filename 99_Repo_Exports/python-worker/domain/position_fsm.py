@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 domain/position_fsm.py — P1-9: Explicit FSM for PositionState.
 
@@ -40,8 +41,8 @@ Backward compat:
 import logging
 import time
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Optional, Tuple
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any
 
 from prometheus_client import Counter
 
@@ -73,7 +74,7 @@ _INVALID_TRANSITION_TOTAL = Counter(
 # ---------------------------------------------------------------------------
 
 
-class PositionStatus(str, Enum):
+class PositionStatus(StrEnum):
     """Canonical lifecycle states for a trade position.
 
     Transitions are strictly controlled by ALLOWED_TRANSITIONS below.
@@ -94,7 +95,7 @@ class PositionStatus(str, Enum):
 # ---------------------------------------------------------------------------
 
 # (from_state, to_state) — both as PositionStatus
-ALLOWED_TRANSITIONS: FrozenSet[Tuple[PositionStatus, PositionStatus]] = frozenset(
+ALLOWED_TRANSITIONS: frozenset[tuple[PositionStatus, PositionStatus]] = frozenset(
     {
         (PositionStatus.PENDING, PositionStatus.OPEN),
         # From OPEN
@@ -127,7 +128,7 @@ ALLOWED_TRANSITIONS: FrozenSet[Tuple[PositionStatus, PositionStatus]] = frozense
 )
 
 # Terminal states — no further transitions are allowed.
-TERMINAL_STATES: FrozenSet[PositionStatus] = frozenset(
+TERMINAL_STATES: frozenset[PositionStatus] = frozenset(
     {PositionStatus.CLOSED, PositionStatus.ORPHAN_CLOSED}
 )
 
@@ -147,9 +148,9 @@ class TransitionRecord:
     ts_ms: int         # epoch-ms when the transition occurred
     actor: str         # component that initiated the transition
     reason: str        # human-readable description
-    meta: Dict[str, Any] = field(default_factory=dict)  # price, pnl, ...
+    meta: dict[str, Any] = field(default_factory=dict)  # price, pnl, ...
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "from": self.from_state,
             "to": self.to_state,
@@ -211,7 +212,7 @@ class PositionFSM:
 
     def __init__(
         self,
-        pos: "PositionState",
+        pos: PositionState,
         initial_status: PositionStatus = PositionStatus.PENDING,
     ) -> None:
         self._pos = pos
@@ -238,7 +239,7 @@ class PositionFSM:
         trigger: str,
         actor: str = "trade_monitor",
         reason: str = "",
-        ts_ms: Optional[int] = None,
+        ts_ms: int | None = None,
         **meta: Any,
     ) -> TransitionRecord:
         """Attempt a state transition.
@@ -319,7 +320,7 @@ class PositionFSM:
         trigger: str,
         actor: str = "trade_monitor",
         reason: str = "",
-        ts_ms: Optional[int] = None,
+        ts_ms: int | None = None,
         **meta: Any,
     ) -> TransitionRecord:
         """Transition that skips the allow-list check (use sparingly for recovery).
@@ -370,7 +371,7 @@ class PositionFSM:
         """Return a copy of the audit trail."""
         return list(self._trail)
 
-    def to_redis_payload(self) -> Dict[str, Any]:
+    def to_redis_payload(self) -> dict[str, Any]:
         """Return a flat dict suitable for XADD to the FSM audit stream."""
         pos_id = getattr(self._pos, "id", "")
         symbol = getattr(self._pos, "symbol", "")
@@ -460,7 +461,7 @@ def _safe_set(obj: Any, attr: str, value: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-def fsm_from_position(pos: "PositionState") -> "PositionFSM":
+def fsm_from_position(pos: PositionState) -> PositionFSM:
     """Reconstruct an FSM from an existing PositionState (e.g. after Redis reload).
 
     Derives the status from the boolean flags already stored on the position,

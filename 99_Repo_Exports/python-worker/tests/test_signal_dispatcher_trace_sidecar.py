@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 from services.signal_dispatcher import SignalDispatcher
 
 
 class FakeRedis:
     def __init__(self):
-        self.kv: Dict[str, Any] = {}
-        self.ttls: Dict[str, int] = {}
+        self.kv: dict[str, Any] = {}
+        self.ttls: dict[str, int] = {}
 
     def get(self, k: str):
         return self.kv.get(k)

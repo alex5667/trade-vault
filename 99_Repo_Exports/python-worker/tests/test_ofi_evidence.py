@@ -1,7 +1,9 @@
+
 import pytest
-from typing import Dict, Any, Optional, Tuple
+
 from core.book_evidence import compute_ofi_flags
 from core.of_confirm_engine import OFConfirmEngine
+
 
 # Stub for runtime
 class MockRuntime:
@@ -108,7 +110,7 @@ def test_of_confirm_engine_ofi_integration():
         "book_health_ok": 1,
         "data_health": 1.0
     }
-    
+
     # Setup OFI event in runtime
     runtime.last_ofi_event = {
         "ts_ms": 99000, # 1s ago
@@ -150,11 +152,11 @@ def test_of_confirm_engine_ofi_integration():
     # Z=0 (contrib 0), WP=0, Reclaim=0, OBI=0, Ice=0, Abs=0.
     # Weights active: w_z(0.3) + w_wp(0.15) + w_rec(0.2) + w_obi(0.15) + w_ice(0.15) + w_abs(0.05) + w_ofi_z(0.1) + w_ofi_stab(0.05) = 1.15
     # Score = 0.15 / 1.15 ~= 0.13
-    
+
     assert "ofi_z" in contrib
     assert contrib["ofi_z"] == pytest.approx(0.10)
     assert contrib["ofi_stab"] == pytest.approx(0.05)
-    
+
     # Verify score calculation
     # raw_sum = 0.15
     # w_sum = 0.3+0.15+0.2+0.15+0.15+0.05 + 0.10+0.05 = 1.15
@@ -171,7 +173,7 @@ def test_of_confirm_engine_veto_book_health():
         "book_health_ok": 0, # BAD HEALTH
         "data_health": 1.0
     }
-    
+
     runtime.last_ofi_event = {
         "ts_ms": 99000,
         "direction": "LONG",
@@ -196,6 +198,6 @@ def test_of_confirm_engine_veto_book_health():
     assert confirm.evidence["ofi_dir_ok"] == 0
     assert confirm.evidence["ofi_stable"] == 0
     assert confirm.evidence["ofi_z"] == 0.0
-    
+
     # Contribution should be 0
     assert confirm.contrib["ofi_z"] == 0.0

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Single-writer observability helpers for ExecHealth.
@@ -11,8 +12,8 @@ That keeps observability aligned with the exact data/decision used by:
   - SignalPipeline
 """
 
-import time
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
 from services.orderflow.exec_health_rollups import (
     ExecHealthDecision,
@@ -52,9 +53,9 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         v = float(x)
     except Exception:
-        return float(d)
+        return d
     if v != v or v in (float("inf"), float("-inf")):
-        return float(d)
+        return d
     return float(v)
 
 
@@ -83,7 +84,7 @@ def _safe_observe(metric: Any, *, labels: dict[str, Any], value: float) -> None:
 
 
 def record_exec_health_reader_error(*, scope: str, where: str) -> None:
-    _safe_inc(exec_health_reader_errors_total, labels={"scope": str(scope or "unknown"), "where": str(where or "unknown")})
+    _safe_inc(exec_health_reader_errors_total, labels={"scope": (scope or "unknown"), "where": (where or "unknown")})
 
 
 def record_exec_health_observability(
@@ -91,17 +92,17 @@ def record_exec_health_observability(
     symbol: str,
     scope: str,
     profile: str,
-    rollups: Optional[Mapping[str, Any]] = None,
-    decision: Optional[ExecHealthDecision] = None,
-    now_ms: Optional[int] = None,
+    rollups: Mapping[str, Any] | None = None,
+    decision: ExecHealthDecision | None = None,
+    now_ms: int | None = None,
 ) -> None:
     """Publish a single canonical ExecHealth telemetry sample.
 
     Inputs must come from the already evaluated SoT path. The function only emits
     Prometheus metrics; it does not mutate trading payloads and does not access Redis.
     """
-    sym = str(symbol or "UNKNOWN").upper()
-    sc = str(scope or "unknown")
+    sym = (symbol or "UNKNOWN").upper()
+    sc = (scope or "unknown")
     pol = get_exec_health_policy_from_env(profile=profile, scope=sc)
     thr = pol.thresholds
     ts_ms = int(now_ms or round(get_ny_time_millis()))

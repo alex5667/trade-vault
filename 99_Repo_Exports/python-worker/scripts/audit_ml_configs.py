@@ -1,14 +1,16 @@
 import json
 import os
-import redis
-from typing import Dict, Any
-from pydantic import ValidationError
 
 # Correct path for imports
 import sys
+
+import redis
+from pydantic import ValidationError
+
 sys.path.append(os.getcwd())
 
 from services.ml_confirm_gate import MLConfirmConfig
+
 
 def audit_configs():
     redis_url = os.getenv("ML_REDIS_URL") or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")

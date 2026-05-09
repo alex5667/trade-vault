@@ -43,10 +43,10 @@ class _RuntimeCfg:
         try:
             return int(os.getenv(env, default))
         except Exception:
-            return int(default)
+            return default
 
     @classmethod
-    def from_env(cls) -> "_RuntimeCfg":
+    def from_env(cls) -> _RuntimeCfg:
         # Базовые параметры протухания
         expiry_bars = cls._i("ORDERFLOW_EXPIRY_BARS", "60")
 

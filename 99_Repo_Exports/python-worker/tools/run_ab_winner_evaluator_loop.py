@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 Hourly runner (inside container) with Redis SETNX lock.
@@ -10,14 +11,15 @@ Runs:
 Schedule: aligns to next full hour.
 Lock: prevents double-run if multiple containers started.
 """
-import os
-import time
 import json
+import os
 import subprocess
+import time
+
 import redis
-from typing import Tuple
 
 from tools.telegram_send import send_text
+
 
 def _now_ms() -> int:
     return get_ny_time_millis()
@@ -30,11 +32,11 @@ def _sleep_to_next_hour() -> None:
     print(f"Sleeping {time_to_sleep}s until next hour...")
     time.sleep(time_to_sleep)
 
-def _run(cmd: str) -> Tuple[int, str]:
+def _run(cmd: str) -> tuple[int, str]:
     print(f"Running: {cmd}")
     p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     out, _ = p.communicate()
-    return int(p.returncode or 0), str(out or "")
+    return int(p.returncode or 0), (out or "")
 
 def main() -> None:
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -43,7 +45,7 @@ def main() -> None:
     lock_ttl = int(os.getenv("AB_EVAL_LOCK_TTL_SEC", "3300"))  # ~55 min
     since_h = int(os.getenv("AB_EVAL_SINCE_HOURS", "168"))
     out_path = os.getenv("AB_EVAL_NDJSON_OUT", "/tmp/closed_7d.ndjson")
-    
+
     # Optional start immediately flag
     if os.getenv("AB_EVAL_RUN_NOW", "0") == "1":
         print("AB_EVAL_RUN_NOW=1, skipping first sleep.")
@@ -56,16 +58,16 @@ def main() -> None:
             print("Lock already held, skipping this hour.")
             _sleep_to_next_hour()
             continue
-            
+
         try:
             rc1, o1 = _run(f'PYTHONPATH=".:.." python tools/export_trade_closed_ndjson.py --since-hours {since_h} --out {out_path}')
             rc2, o2 = _run(f'PYTHONPATH=".:.." python tools/tm_policy_tuner.py --input {out_path} --window-days 7 --write-proposals')
-            
+
             # Telegram: compact status
             msg = "AB winner evaluator (hourly)\n"
             msg += f"export rc={rc1}\n"
             msg += f"tuner rc={rc2}\n"
-            
+
             # include winners count if present
             try:
                 # Find the last line that looks like JSON or contains the result
@@ -76,12 +78,12 @@ def main() -> None:
                     j = None
             except Exception:
                 j = None
-                
+
             if isinstance(j, dict) and "proposals_written" in j:
                 msg += f"proposals_written={j['proposals_written']}\n"
             elif isinstance(j, dict) and "winners" in j:
                 msg += f"winners_found={len(j['winners'])}\n"
-                
+
             send_text(msg)
         except Exception as e:
             print(f"Error in evaluator loop: {e}")
@@ -89,7 +91,7 @@ def main() -> None:
         finally:
             # let lock expire naturally (safer under crash)
             pass
-        
+
         _sleep_to_next_hour()
 
 if __name__ == "__main__":

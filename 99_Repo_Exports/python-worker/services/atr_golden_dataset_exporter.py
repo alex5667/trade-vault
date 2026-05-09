@@ -1,10 +1,9 @@
+import hashlib
 import json
 import logging
-import hashlib
 import os
-import uuid
-from typing import Any, Dict, List, Optional
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from services.analytics_db import get_conn
 
@@ -30,12 +29,12 @@ def register_dataset(
     storage_uri: str,
     sha256_hash: str,
     schema_ver: str,
-    tags_json: Dict[str, Any],
+    tags_json: dict[str, Any],
     is_golden: bool = False
 ) -> str:
     """Registers the dataset in the SQL registry and enforces immutability."""
     dataset_id = f"ds_{dataset_type}_{symbol.lower()}_{int(window_from.timestamp())}"
-    
+
     with get_conn() as conn, conn.cursor() as cur:
         # Check if exists (immutable)
         cur.execute("SELECT sha256 FROM atr_replay_datasets WHERE dataset_id = %s", (dataset_id,))
@@ -45,7 +44,7 @@ def register_dataset(
                 raise ValueError(f"Dataset {dataset_id} already exists with different sha256! Immutability violation.")
             logger.info(f"Dataset {dataset_id} already registered.")
             return dataset_id
-            
+
         cur.execute("""
             INSERT INTO atr_replay_datasets (
                 dataset_id, dataset_type, symbol, scenario, regime, venue,
@@ -75,10 +74,10 @@ def export_mixed_bundle(
     For now, this uses placeholder selects. Implement concrete DB lookups per production schema.
     """
     logger.info(f"Exporting mixed bundle for {symbol} to {output_path}")
-    
+
     # Ensure dir exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
+
     row_count = 0
     with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
         with open(output_path, "w") as f:
@@ -88,7 +87,7 @@ def export_mixed_bundle(
                 WHERE symbol = %s AND closed_at >= %s AND closed_at <= %s
                 ORDER BY closed_at ASC
             """, (symbol, window_from, window_to))
-            
+
             for row in cur.fetchall():
                 # Serialize dates
                 for k, v in row.items():
@@ -97,16 +96,16 @@ def export_mixed_bundle(
                 bundle_row = {"_type": "closed_trades", "data": dict(row)}
                 f.write(json.dumps(bundle_row) + "\n")
                 row_count += 1
-                
+
             # Note: For Phase 6.1 production, you also query:
             # - stream_diagnostics (veto reasons, gate outputs)
             # - signal_raw (original payloads)
             # - execution_shadow (risk_pct, tp/sl calculations)
             # using similar append logic.
-    
+
     sha256_hash = _calculate_sha256(output_path)
     storage_uri = f"file://{os.path.abspath(output_path)}"
-    
+
     dataset_id = register_dataset(
         dataset_type="mixed_bundle",
         symbol=symbol,
@@ -123,15 +122,15 @@ def export_mixed_bundle(
         tags_json={"exported_by": "atr_golden_dataset_exporter"},
         is_golden=is_golden
     )
-    
+
     logger.info(f"Exported mixed_bundle {dataset_id} with {row_count} rows. SHA256: {sha256_hash}")
     return dataset_id
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     from datetime import timedelta
-    
-    now = datetime.now(timezone.utc)
+
+    now = datetime.now(UTC)
     # Simple smoke test export
     try:
         ds_id = export_mixed_bundle(

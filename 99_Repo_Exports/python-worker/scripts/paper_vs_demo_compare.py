@@ -20,8 +20,8 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from core.redis_keys import RedisStreams as RS
 
 try:
     import redis
@@ -33,7 +33,7 @@ except ImportError:
 # ── Config ──────────────────────────────────────────────────────────────────
 REDIS_URL = os.getenv("REDIS_URL", os.getenv("REPORTS_REDIS_URL", "redis://scanner-redis-worker-1:6379/0"))
 PAPER_STREAM = os.getenv("TRADES_CLOSED_STREAM_NAME", "trades:closed")
-DEMO_STREAM = os.getenv("EXEC_STREAM", "orders:exec")
+DEMO_STREAM = os.getenv("EXEC_STREAM", RS.ORDERS_EXEC)
 
 
 @dataclass
@@ -84,7 +84,7 @@ def parse_paper_entry(data: dict) -> TradeEntry:
     )
 
 
-def parse_demo_entry(data: dict) -> Optional[TradeEntry]:
+def parse_demo_entry(data: dict) -> TradeEntry | None:
     """Parse an orders:exec stream entry (only CLOSE/FILLED events)."""
     g = lambda k: _s(data.get(k, b""))
     event_type = g("event_type") or g("type") or g("status")
@@ -177,7 +177,7 @@ def main():
 
     # ── Read paper trades ──
     paper_raw = r.xrevrange(PAPER_STREAM.encode(), count=args.count)
-    paper_by_sid: Dict[str, TradeEntry] = {}
+    paper_by_sid: dict[str, TradeEntry] = {}
     for mid, data in paper_raw:
         t = parse_paper_entry(data)
         if t.sid and (not args.symbol or t.symbol.upper() == args.symbol.upper()):
@@ -185,7 +185,7 @@ def main():
 
     # ── Read demo trades ──
     demo_raw = r.xrevrange(DEMO_STREAM.encode(), count=args.count * 5)  # more events, not all are closes
-    demo_by_sid: Dict[str, TradeEntry] = {}
+    demo_by_sid: dict[str, TradeEntry] = {}
     for mid, data in demo_raw:
         t = parse_demo_entry(data)
         if t and t.sid and (not args.symbol or t.symbol.upper() == args.symbol.upper()):
@@ -197,7 +197,7 @@ def main():
     paper_only = set(paper_by_sid.keys()) - set(demo_by_sid.keys())
     demo_only = set(demo_by_sid.keys()) - set(paper_by_sid.keys())
 
-    comparisons: List[Comparison] = []
+    comparisons: list[Comparison] = []
     for sid in sorted(matched_sids):
         comparisons.append(compare(paper_by_sid[sid], demo_by_sid[sid]))
 
@@ -213,7 +213,7 @@ def main():
 
     # ── Text report ──
     print("=" * 100)
-    print(f"  PAPER vs DEMO Trade Comparison Report")
+    print("  PAPER vs DEMO Trade Comparison Report")
     print(f"  Paper stream: {PAPER_STREAM}  ({len(paper_by_sid)} closed trades)")
     print(f"  Demo stream:  {DEMO_STREAM}  ({len(demo_by_sid)} close events)")
     print(f"  Matched by SID: {len(comparisons)}")

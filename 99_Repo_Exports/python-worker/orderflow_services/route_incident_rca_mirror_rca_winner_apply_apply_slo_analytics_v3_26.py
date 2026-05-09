@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -38,13 +39,13 @@ MAXLEN = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_SLO_
 
 POLL_INTERVAL_SEC = 60.0 # Calculate every minute for the last period
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_apply_slo_runs_total", "Runs", ("status",))
@@ -60,20 +61,20 @@ ROLLBACK_MTTR_P95 = _gauge("ml_route_incident_rca_mirror_rca_winner_apply_apply_
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
     }
 
-async def fetch_recent(r: Any, stream: str, count: int) -> List[Dict[str, Any]]:
+async def fetch_recent(r: Any, stream: str, count: int) -> list[dict[str, Any]]:
     try:
         hist = await r.xrevrange(stream, max="+", min="-", count=count)
         return [{"msg_id": msg_id.decode() if isinstance(msg_id, bytes) else msg_id, **decode_dict(fields)} for msg_id, fields in hist] if hist else []
     except Exception:
         return []
 
-async def persist_slo(db_url: str, apply_rate: float, verify_keep_rate: float, 
+async def persist_slo(db_url: str, apply_rate: float, verify_keep_rate: float,
                       rollback_mttr_p50_sec: float, rollback_mttr_p95_sec: float) -> None:
     if not db_url or psycopg is None:
         return
@@ -98,8 +99,8 @@ async def persist_slo(db_url: str, apply_rate: float, verify_keep_rate: float,
             )
             conn.commit()
 
-def calculate_analytics(decisions: List[Dict[str, Any]], journal: List[Dict[str, Any]], 
-                        verify_results: List[Dict[str, Any]], rollback_journal: List[Dict[str, Any]]) -> Tuple[float, float, float, float]:
+def calculate_analytics(decisions: list[dict[str, Any]], journal: list[dict[str, Any]],
+                        verify_results: list[dict[str, Any]], rollback_journal: list[dict[str, Any]]) -> tuple[float, float, float, float]:
     # 1. Apply rate: HOW many "APPLY" decisions turned into actual journal entries
     apply_rate = 1.0
     apply_decisions = [d for d in decisions if d.get("decision", "").startswith("APPLY")]
@@ -109,17 +110,17 @@ def calculate_analytics(decisions: List[Dict[str, Any]], journal: List[Dict[str,
             applied_ids.add(j.get("apply_id"))
         successes = sum(1 for d in apply_decisions if d.get("apply_id") in applied_ids)
         apply_rate = successes / len(apply_decisions)
-        
+
     # 2. Verify Keep Rate: HOW many recent verifications returned KEEP_APPLIED
     verify_keep_rate = 1.0
     if verify_results:
         keeps = sum(1 for v in verify_results if v.get("decision") == "KEEP_APPLIED")
         verify_keep_rate = keeps / len(verify_results)
-        
+
     # 3. Rollback MTTR: time between verification failure (deciding ROLLBACK) and actual rollback_journal entry
     rollback_mttr_p50_sec = 0.0
     rollback_mttr_p95_sec = 0.0
-    
+
     mttrs_sec = []
     # Match Rollback journal to verify results
     for rb in rollback_journal:
@@ -132,14 +133,14 @@ def calculate_analytics(decisions: List[Dict[str, Any]], journal: List[Dict[str,
             mttr_ms = rb_ts - earliest_fail_ts
             if mttr_ms >= 0:
                 mttrs_sec.append(mttr_ms / 1000.0)
-                
+
     if mttrs_sec:
         mttrs_sec.sort()
         idx_50 = int(len(mttrs_sec) * 0.5)
         idx_95 = int(len(mttrs_sec) * 0.95)
         rollback_mttr_p50_sec = mttrs_sec[idx_50]
         rollback_mttr_p95_sec = mttrs_sec[idx_95]
-        
+
     return apply_rate, verify_keep_rate, rollback_mttr_p50_sec, rollback_mttr_p95_sec
 
 async def main() -> None:  # pragma: no cover
@@ -148,28 +149,28 @@ async def main() -> None:  # pragma: no cover
     start_http_server(PORT)
     if UP:
         UP.set(1)
-        
+
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     db_url = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
 
     while True:
         started = time.perf_counter()
         status = "ok"
-        
+
         try:
             # We look at last 100 for slo computation
             decisions = await fetch_recent(r, CTRL_DECISIONS_STREAM, 100)
             journal = await fetch_recent(r, CTRL_JOURNAL_STREAM, 100)
             verify_results = await fetch_recent(r, VERIFY_RESULTS_STREAM, 300)
             rollback_journal = await fetch_recent(r, ROLLBACK_JOURNAL_STREAM, 100)
-            
+
             ar, vkr, rb50, rb95 = calculate_analytics(decisions, journal, verify_results, rollback_journal)
-            
+
             if APPLY_RATE: APPLY_RATE.set(ar)
             if VERIFY_KEEP_RATE: VERIFY_KEEP_RATE.set(vkr)
             if ROLLBACK_MTTR_P50: ROLLBACK_MTTR_P50.set(rb50)
             if ROLLBACK_MTTR_P95: ROLLBACK_MTTR_P95.set(rb95)
-            
+
             await r.xadd(SLO_ROLLUPS_STREAM, {
                 "apply_rate": str(ar),
                 "verify_keep_rate": str(vkr),
@@ -177,24 +178,24 @@ async def main() -> None:  # pragma: no cover
                 "rollback_mttr_p95_sec": str(rb95),
                 "ts_ms": str(now_ms())
             }, maxlen=MAXLEN, approximate=True)
-            
+
             await persist_slo(db_url, ar, vkr, rb50, rb95)
-            
+
             await r.hset(LAST_METRIC, "apply_rate", str(ar))
             await r.hset(LAST_METRIC, "verify_keep_rate", str(vkr))
             await r.hset(LAST_METRIC, "rollback_mttr_p95_sec", str(rb95))
-            
+
             if LAST_RUN:
                 LAST_RUN.set(time.time())
-                
-        except Exception as exc:
+
+        except Exception:
             status = "error"
         finally:
             if RUNS:
                 RUNS.labels(status=status).inc()
             if LAT:
                 LAT.observe(max(time.perf_counter() - started, 0.0))
-                
+
             await asyncio.sleep(POLL_INTERVAL_SEC)
 
 if __name__ == "__main__":  # pragma: no cover

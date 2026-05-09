@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import os
 
-import pytest
-
 from services.orderflow.exec_health_freeze_control import (
     build_autoguard_latch_update,
     build_thaw_approve_update,

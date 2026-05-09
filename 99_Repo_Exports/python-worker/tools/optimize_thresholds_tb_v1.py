@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Any, Dict
+from typing import Any
 
 import joblib
 import numpy as np
@@ -60,7 +60,7 @@ def main() -> None:
     else:
         buckets = np.array(["other"] * len(df))
 
-    out: Dict[str, Any] = {"thresholds": {}, "global": {}}
+    out: dict[str, Any] = {"thresholds": {}, "global": {}}
 
     # global
     g = best_threshold_by_utility(

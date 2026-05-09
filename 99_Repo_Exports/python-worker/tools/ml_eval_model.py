@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Evaluate a trained ML confirm model on a dataset via time split.
 
 Step 5: validation like industry (time split).
@@ -9,15 +9,16 @@ Step 5: validation like industry (time split).
 
 import argparse
 import json
-from typing import Any, Dict, Iterator, List
+from collections.abc import Iterator
+from typing import Any
 
 import joblib
 import numpy as np
-from sklearn.metrics import average_precision_score, log_loss, brier_score_loss
+from sklearn.metrics import average_precision_score, brier_score_loss, log_loss
 
 
-def _read_ndjson(path: str) -> Iterator[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def _read_ndjson(path: str) -> Iterator[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -56,7 +57,7 @@ def main() -> None:
     vec = bundle["vectorizer"]
     clf = bundle["model"]
 
-    rows: List[Dict[str, Any]] = [r for r in _read_ndjson(args.dataset) if isinstance(r, dict) and "X" in r and "y_edge" in r]
+    rows: list[dict[str, Any]] = [r for r in _read_ndjson(args.dataset) if isinstance(r, dict) and "X" in r and "y_edge" in r]
     rows.sort(key=lambda z: int(z.get("ts_ms", 0) or 0))
     n = len(rows)
     n_test = max(1, int(round(args.test_share * n)))

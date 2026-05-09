@@ -1,5 +1,6 @@
 from common.confidence_training import label_outcome
 
+
 def test_label_target_hit():
     assert label_outcome("target_hit", None, eps_r=0.05) == 1
 

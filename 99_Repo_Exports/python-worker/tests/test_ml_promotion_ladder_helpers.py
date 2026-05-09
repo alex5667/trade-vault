@@ -1,7 +1,8 @@
 """Tests for ml_promotion_ladder helper functions."""
 
 import pytest
-from tools.ml_promotion_ladder import pctl, sign, agg_outcomes, agg_health_ml_confirm
+
+from tools.ml_promotion_ladder import agg_health_ml_confirm, agg_outcomes, pctl, sign
 
 
 def test_pctl():
@@ -52,7 +53,7 @@ def test_agg_health_ml_confirm():
     assert result["err_rate"] == pytest.approx(1.0 / 3.0, abs=0.01)
     assert result["lat_p99_ms"] > 0.0
     assert result["p_edge_p50"] > 0.0
-    
+
     # Empty rows
     result_empty = agg_health_ml_confirm([])
     assert result_empty["n"] == 0

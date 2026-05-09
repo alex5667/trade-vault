@@ -1,16 +1,19 @@
 
-import redis
 import json
-import time
 import os
+import time
+
+import redis
+from core.redis_keys import RedisStreams as RS
+
 
 def inject_signals():
     r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    stream = "stream:signals:outbox"
+    stream = RS.SIGNAL_OUTBOX
     sid = "test_verification_sid"
-    
+
     print(f"Injecting 15 signals for SID={sid} into {stream}...")
-    
+
     for i in range(1, 16):
         payload = {
             "sid": sid,
@@ -26,7 +29,7 @@ def inject_signals():
             "payload": payload,
             "ts": time.time()
         }
-        
+
         # SignalDispatcher expects "data" field with JSON
         r.xadd(stream, {"data": json.dumps(envelope)}, maxlen=50000)
         print(f"Injected signal {i}")

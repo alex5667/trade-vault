@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass, asdict
-from typing import Any, Dict
+from dataclasses import asdict, dataclass
+from typing import Any
 
 
 def _safe_int(v: Any, default: int = 0) -> int:
@@ -21,7 +21,7 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
         return default
 
 
-def _ensure_dict(v: Any) -> Dict[str, Any]:
+def _ensure_dict(v: Any) -> dict[str, Any]:
     return dict(v) if isinstance(v, dict) else {}
 
 
@@ -44,7 +44,7 @@ class RiskSurfaceShadow:
     risk_reason_code: str
 
 
-def build_risk_surface_shadow(signal: Dict[str, Any]) -> Dict[str, Any]:
+def build_risk_surface_shadow(signal: dict[str, Any]) -> dict[str, Any]:
     """
     Phase 2.2: compute shadow stop/entry risk surface from selected ATR.
 
@@ -58,7 +58,7 @@ def build_risk_surface_shadow(signal: Dict[str, Any]) -> Dict[str, Any]:
     horizon = _ensure_dict(meta.get("horizon"))
     atr_profile = _ensure_dict(meta.get("atr_profile"))
 
-    side = str(signal.get("side") or "").upper()
+    side = (signal.get("side") or "").upper()
     # Normalise BUY/LONG aliases
     if side in ("LONG",):
         side = "BUY"

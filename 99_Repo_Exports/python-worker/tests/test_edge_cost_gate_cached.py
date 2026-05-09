@@ -1,5 +1,7 @@
 import types
+
 from common.ctx_cache import cached_on_ctx
+
 
 class DummyDecision:
     def __init__(self, *, apply=True, veto=False, reason_code="OK"):
@@ -31,8 +33,8 @@ def test_edge_cost_decision_logic_with_cfg_hash():
             ctx = kwargs["ctx"]
             # Simulate attaching levels
             if not hasattr(ctx, "tp1_price"):
-                setattr(ctx, "tp1_price", 1.0)
-                setattr(ctx, "sl_price", 0.5)
+                ctx.tp1_price = 1.0
+                ctx.sl_price = 0.5
 
     class DummyGate:
         def __init__(self):
@@ -54,7 +56,7 @@ def test_edge_cost_decision_logic_with_cfg_hash():
         except Exception:
             cfgd = {}
 
-        key = (str(symbol), str(kind), str(side), h._cfg_hash(cfgd))
+        key = (symbol, str(kind), side, h._cfg_hash(cfgd))
 
         def _compute():
             # 1) Ensure invariants once
@@ -63,13 +65,13 @@ def test_edge_cost_decision_logic_with_cfg_hash():
             # 2) Ensure deterministic levels once (only if missing, cached)
             try:
                 if getattr(ctx, "tp1_price", None) is None or getattr(ctx, "sl_price", None) is None:
-                    h._ensure_trade_levels_once(ctx=ctx, side=str(side), symbol=str(symbol), kind=str(kind), cfg=cfgd, regime=regime, empirical=empirical, overwrite=False, logger=None)
+                    h._ensure_trade_levels_once(ctx=ctx, side=side, symbol=symbol, kind=str(kind), cfg=cfgd, regime=regime, empirical=empirical, overwrite=False, logger=None)
             except Exception:
                 pass
 
             # 3) Evaluate gate once
             try:
-                return fn(ctx=ctx, kind=str(kind), symbol=str(symbol))
+                return fn(ctx=ctx, kind=str(kind), symbol=symbol)
             except Exception:
                 return None
 

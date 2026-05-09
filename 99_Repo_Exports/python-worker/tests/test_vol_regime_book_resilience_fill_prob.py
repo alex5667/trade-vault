@@ -1,6 +1,6 @@
 # tests/test_vol_regime_book_resilience_fill_prob.py
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Integration tests for:
   - VolRegimeTracker (tick_flow_full/core/vol_regime_tracker.py)
@@ -12,8 +12,9 @@ as specified by the diff integration (Stage 4, commit 3-style recommendations).
 """
 
 import math
-import sys
 import os
+import sys
+
 import pytest
 
 # The adapted tracker modules live in tick_flow_full/core, not python-worker/core.
@@ -22,11 +23,10 @@ _TFF_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 if _TFF_ROOT not in sys.path:
     sys.path.insert(0, _TFF_ROOT)
 
-from core.vol_regime_tracker import VolRegimeTracker       # noqa: E402
-from core.book_resilience import BookResilienceTracker     # noqa: E402
-from core.fill_prob_proxy import compute_fill_prob_proxy   # noqa: E402
+from core.book_resilience import BookResilienceTracker  # noqa: E402
 from core.dyn_cfg_keys import DynCfgKeys as DK
-
+from core.fill_prob_proxy import compute_fill_prob_proxy  # noqa: E402
+from core.vol_regime_tracker import VolRegimeTracker  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # VolRegimeTracker

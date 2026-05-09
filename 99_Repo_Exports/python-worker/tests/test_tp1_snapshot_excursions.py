@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
+
 from domain.calculators import snapshot_tp1_excursions as func_snapshot
+
 
 def test_snapshot_tp1_excursions_first_call():
     # Arrange
@@ -11,15 +13,15 @@ def test_snapshot_tp1_excursions_first_call():
     pos.max_favorable_ts = 100
     pos.max_adverse_price = 9950
     pos.max_adverse_ts = 50
-    
+
     # Crucial for Mock: set them to None/0 so they aren't Mocks
     pos.tp1_hit_ts_ms = 0
     pos.mfe_pnl_at_tp1 = None
     pos.mae_pnl_before_tp1 = None
-    
+
     # Act
     func_snapshot(pos, ts_ms=123456)
-    
+
     # Assert
     assert pos.tp1_hit_ts_ms == 123456
     assert pos.mfe_pnl_at_tp1 == 150.0
@@ -36,10 +38,10 @@ def test_snapshot_tp1_excursions_idempotent():
     pos.tp1_hit_ts_ms = 999
     pos.mfe_pnl_at_tp1 = 100.0
     pos.mae_pnl = -999.0 # changed since then (should be ignored)
-    
+
     # Act
     func_snapshot(pos, ts_ms=2000)
-    
+
     # Assert
     assert pos.tp1_hit_ts_ms == 999  # NOT changed
     assert pos.mfe_pnl_at_tp1 == 100.0 # NOT changed

@@ -1,11 +1,13 @@
 import json
-from orderflow_services.route_incident_rca_mirror_vertex_rca_consumer_v3_13 import build_deterministic_result
+
 from orderflow_services.route_incident_rca_mirror_vertex_feedback_governor_v3_13 import compute_decision
+from orderflow_services.route_incident_rca_mirror_vertex_rca_consumer_v3_13 import build_deterministic_result
+
 
 def test_build_deterministic_result():
     bundle_json = json.dumps({"bundle_id": "test-123", "severity": "warning"})
     result = build_deterministic_result(bundle_json)
-    
+
     assert result["bundle_id"] == "test-123"
     assert result["severity"] == "warning"
     assert "request_id" in result

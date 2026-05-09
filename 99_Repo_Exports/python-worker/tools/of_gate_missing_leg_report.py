@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Report most frequent missing legs directly from metrics:of_gate.
 
 Why:
@@ -15,7 +16,8 @@ import argparse
 import json
 import os
 from collections import Counter
-from typing import Any, Dict, List, Tuple
+from typing import Any
+import contextlib
 
 
 def _decode(x: Any) -> str:
@@ -29,13 +31,13 @@ def _decode(x: Any) -> str:
     return str(x)
 
 
-def _parse_missing_legs(payload: Dict[str, Any]) -> List[str]:
-    ml = payload.get("miss_leg", None)
+def _parse_missing_legs(payload: dict[str, Any]) -> list[str]:
+    ml = payload.get("miss_leg")
     if ml:
         s = _decode(ml).strip()
         if s:
             return [s]
-    raw = payload.get("missing_legs", None)
+    raw = payload.get("missing_legs")
     if not raw:
         return []
     try:
@@ -72,7 +74,7 @@ async def main_async() -> None:
     n_eff = 0
 
     try:
-        entries: List[Tuple[bytes, Dict[bytes, bytes]]] = await r.xrevrange(args.stream, max="+", min="-", count=int(args.limit))
+        entries: list[tuple[bytes, dict[bytes, bytes]]] = await r.xrevrange(args.stream, max="+", min="-", count=int(args.limit))
     except Exception as exc:
         raise SystemExit(f"xrevrange_failed: {exc}")
 
@@ -103,10 +105,8 @@ async def main_async() -> None:
         "top": [{"leg": k, "count": int(v)} for k, v in ctr.most_common(int(args.top))],
     }
     print(json.dumps(rep, ensure_ascii=False))
-    try:
+    with contextlib.suppress(Exception):
         await r.aclose()
-    except Exception:
-        pass
 
 
 def main() -> None:

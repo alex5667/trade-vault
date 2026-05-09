@@ -1,6 +1,5 @@
 import logging
-import json
-from typing import Any, Dict
+from typing import Any
 
 from services.analytics_db import get_conn
 from services.atr_control_plane_graph_service import ControlPlaneGraphService
@@ -13,7 +12,7 @@ class ControlPlaneCertService:
     """
 
     @staticmethod
-    def check_graph_consistency() -> Dict[str, Any]:
+    def check_graph_consistency() -> dict[str, Any]:
         """
         Runs comprehensive consistency checks G1-G7 over the active graph.
         """
@@ -31,7 +30,7 @@ class ControlPlaneCertService:
                 """)
                 for row in cur.fetchall():
                     issues.append(f"G7_ORPHAN_LIVE_NODE_WITHOUT_CERT: {row['node_id']}")
-                
+
                 # G2: Active override without valid TTL
                 cur.execute("""
                     SELECT node_id, node_state_json->>'expires_at_ms' as expires 

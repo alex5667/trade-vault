@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Structured veto/emission reason codes.
 
@@ -13,11 +14,10 @@ IMPORTANT:
 """
 
 
-from enum import Enum
-from typing import Dict, Tuple
+from enum import StrEnum
 
 
-class ReasonCode(str, Enum):
+class ReasonCode(StrEnum):
     # Generic / schema / numeric
     OK = "OK"
     VETO_BAD_NUMERIC = "VETO_BAD_NUMERIC"  # NaN/Inf/invalid inputs
@@ -46,7 +46,7 @@ class ReasonCode(str, Enum):
 
 
 # Stable uint16 ids. Keep them ABI-stable.
-REASON_U16_BY_CODE: Dict[str, int] = {
+REASON_U16_BY_CODE: dict[str, int] = {
     ReasonCode.OK.value: 0,
     ReasonCode.VETO_BAD_NUMERIC.value: 1,
     ReasonCode.VETO_INTERNAL_ERROR.value: 2,
@@ -81,7 +81,7 @@ def ensure_reason_fields(
     reason: str,
     reason_code: str,
     strict: bool,
-) -> Tuple[str, str, int]:
+) -> tuple[str, str, int]:
     """
     Ensures reason/reason_code/reason_u16 are always present and consistent.
     In strict mode, raises ValueError if reason_code is missing/unknown.

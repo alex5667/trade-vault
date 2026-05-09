@@ -6,6 +6,7 @@ Test verifying the Step C string-contracts:
 
 import os
 
+
 def test_book_processor_prom_wiring_v1():
     paths = [
         "services/orderflow/components/book_processor.py",
@@ -13,7 +14,7 @@ def test_book_processor_prom_wiring_v1():
     ]
     for p in paths:
         if os.path.exists(p):
-            with open(p, "r", encoding="utf-8") as f:
+            with open(p, encoding="utf-8") as f:
                 content = f.read()
             assert "book_missing_seq_ema_gauge" in content, f"{p} missing book_missing_seq_ema_gauge"
             assert "book_seq_last_gap_gauge" in content, f"{p} missing book_seq_last_gap_gauge"
@@ -27,7 +28,7 @@ def test_tick_processor_prom_wiring_v1():
     ]
     for p in paths:
         if os.path.exists(p):
-            with open(p, "r", encoding="utf-8") as f:
+            with open(p, encoding="utf-8") as f:
                 content = f.read()
             assert "dq_level_gauge" in content, f"{p} missing dq_level_gauge"
             assert "dq_veto_total" in content, f"{p} missing dq_veto_total"

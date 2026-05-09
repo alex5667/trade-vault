@@ -1,9 +1,10 @@
-import pytest
 import pandas as pd
+
 from tools.trade_diagnostics.report_top_loss_reasons import (
-    fees_bps_roundtrip,
     classify,
+    fees_bps_roundtrip,
 )
+
 
 class TestMetrics:
     def test_fees_bps_roundtrip_normal(self):
@@ -89,10 +90,10 @@ class TestAggregation:
             {"order_id": "4", "pnl_net": 100.0, "bucket": "WIN_OR_BE",      "fees_bps": 2.0,  "mfe_pnl": 50.0, "health_avg_l2_age_ms": 10.0},
         ]
         df = pd.DataFrame(data)
-        
+
         # 1) Top buckets by negative pnl contribution
         neg = df[df["pnl_net"] < 0].copy()
-        
+
         buckets = (neg.groupby("bucket")
                      .agg(trades=("order_id","count"),
                           pnl_sum=("pnl_net","sum"),
@@ -100,15 +101,15 @@ class TestAggregation:
                           fees_med=("fees_bps","median"),
                           l2_age_med=("health_avg_l2_age_ms", "median"))
                      .sort_values("pnl_sum", ascending=True))
-        
+
         # COST_DOMINATES: sum = -100, trades = 2
         # L2_STALE: sum = -20, trades = 1
         # Order: COST_DOMINATES (-100) then L2_STALE (-20)
-        
+
         assert len(buckets) == 2
         assert buckets.index[0] == "COST_DOMINATES"
         assert buckets.iloc[0]["trades"] == 2
         assert buckets.iloc[0]["pnl_sum"] == -100.0
-        
+
         assert buckets.index[1] == "L2_STALE"
         assert buckets.iloc[1]["pnl_sum"] == -20.0

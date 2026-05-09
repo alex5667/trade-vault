@@ -6,12 +6,10 @@ Runs without Redis (all pure Python).
 
 import json
 import time
-import pytest
 
-from stream_statistics import StreamStatistics
 from stream_handlers import StreamMessageHandler
+from stream_statistics import StreamStatistics
 from stream_utils import StreamUtils
-
 
 # ======================================================================
 # StreamStatistics

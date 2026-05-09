@@ -12,11 +12,11 @@ Usage:
         --out labels.parquet
 """
 
-import os
 import argparse
-import redis
+import os
 from datetime import datetime
-from typing import List, Dict
+
+import redis
 
 try:
     import pandas as pd
@@ -44,7 +44,7 @@ def parse_time(s: str) -> str:
         # Try as epoch ms first
         if s.isdigit():
             return f"{int(s)}-0"
-        
+
         # Try ISO format
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         ms = int(dt.timestamp() * 1000)
@@ -57,7 +57,7 @@ def export_labels(
     r: redis.Redis,
     start_id: str,
     end_id: str
-) -> List[Dict]:
+) -> list[dict]:
     """
     Export labels from Redis Stream.
     
@@ -71,28 +71,28 @@ def export_labels(
     """
     rows = []
     last = start_id
-    
+
     print(f"📂 Exporting from {STREAM}...")
     print(f"   Range: {start_id} to {end_id}")
-    
+
     while True:
         chunk = r.xrange(STREAM, min=last, max=end_id, count=1000)
         if not chunk:
             break
-        
+
         for mid, fields in chunk:
             # Convert fields to dict
             d = dict(fields)
             d["stream_id"] = mid
             rows.append(d)
-        
+
         # Advance to avoid reading same message
         ms, seq = last.split("-")
         last = f"{ms}-{int(seq) + 1}"
-        
+
         if len(rows) % 10000 == 0:
             print(f"   Exported {len(rows)} rows...")
-    
+
     print(f"✅ Exported {len(rows)} total labels")
     return rows
 
@@ -121,41 +121,41 @@ Examples:
     ap.add_argument("--end", required=True, help="End time (ms epoch or ISO)")
     ap.add_argument("--out", required=True, help="Output file (.parquet or .csv)")
     args = ap.parse_args()
-    
+
     # Parse timestamps to Redis IDs
     start_id = parse_time(args.start)
     end_id = parse_time(args.end).replace("-0", "-999999")
-    
+
     # Connect to Redis
     print(f"🔌 Connecting to Redis: {REDIS_URL}")
     r = redis.from_url(REDIS_URL, decode_responses=True)
-    
+
     # Export labels
     rows = export_labels(r, start_id, end_id)
-    
+
     if not rows:
         print("⚠️  No labels found in time range")
         return
-    
+
     # Convert to DataFrame
     df = pd.DataFrame(rows)
-    
+
     # Save
     print(f"💾 Saving to {args.out}...")
     if args.out.endswith(".parquet"):
         df.to_parquet(args.out, index=False)
     else:
         df.to_csv(args.out, index=False)
-    
+
     print(f"✅ Wrote {len(df)} rows to {args.out}")
     print(f"   Columns: {', '.join(df.columns)}")
     print(f"   Size: {os.path.getsize(args.out) / 1024:.1f} KB")
-    
+
     # Summary statistics
     if "action" in df.columns:
         print("\n📊 Label Summary:")
         print(df["action"].value_counts())
-    
+
     if "status" in df.columns:
         print("\n📊 Status Summary:")
         print(df["status"].value_counts())

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Side (aggressor) policy helpers.
 
 Unknown-side policy (env: CRYPTO_OF_UNKNOWN_SIDE_POLICY):
@@ -10,13 +11,12 @@ Sampling is deterministic by event-time ms, so retries/replay won't change the s
 """
 
 
-from typing import Any, Dict, Optional
-
+from typing import Any
 
 VALID_UNKNOWN_SIDE_POLICIES = ("ignore_delta", "drop", "quarantine")
 
 
-def normalize_unknown_side_policy(raw: Optional[str]) -> str:
+def normalize_unknown_side_policy(raw: str | None) -> str:
     v = (raw or "ignore_delta").strip().lower()
     aliases = {
         "ignore": "ignore_delta",
@@ -32,14 +32,14 @@ def normalize_unknown_side_policy(raw: Optional[str]) -> str:
     return v
 
 
-def is_unknown_side_tick(tick: Dict[str, Any]) -> bool:
+def is_unknown_side_tick(tick: dict[str, Any]) -> bool:
     """True when tick has no reliable aggressor side."""
     try:
-        side = str(tick.get("side") or "").strip().upper()
+        side = (tick.get("side") or "").strip().upper()
         if side in ("BUY", "SELL"):
             return False
         # If maker flag is present, side can be inferred (Binance semantics).
-        if tick.get("is_buyer_maker", None) is not None:
+        if tick.get("is_buyer_maker") is not None:
             return False
         return True
     except Exception:

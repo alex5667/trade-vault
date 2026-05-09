@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Trail Shadow Simulator — virtual P&L A/B test for calibrated vs actual trailing params.
 
@@ -9,15 +10,13 @@ Compares virtual vs actual to produce a per-symbol recommendation.
 Key pattern: trail:shadow:{symbol}:{regime}
 Fail-open: never raises on Redis/data errors.
 """
-from utils.time_utils import get_ny_time_millis
-
 import math
 import os
-import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional, Sequence
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("TrailShadowSimulator")
 
@@ -30,10 +29,10 @@ EPS = 1e-9
 def _sf(v: Any, default: float = 0.0) -> float:
     try:
         if v is None:
-            return float(default)
+            return default
         return float(str(v).strip())
     except Exception:
-        return float(default)
+        return default
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -54,7 +53,7 @@ class ShadowSimConfig:
     ttl_sec: int
 
     @classmethod
-    def from_env(cls) -> "ShadowSimConfig":
+    def from_env(cls) -> ShadowSimConfig:
         return cls(
             enabled=_env_bool("TRAIL_SHADOW_ENABLED", True),
             atr_fallback_bps=float(os.getenv("TRAIL_SHADOW_ATR_FALLBACK_BPS", "50") or 50),
@@ -68,7 +67,7 @@ class ShadowSimConfig:
 # Default ATR (same as calibrator)
 # ---------------------------------------------------------------------------
 
-DEFAULT_ATR_BPS: Dict[str, float] = {
+DEFAULT_ATR_BPS: dict[str, float] = {
     "BTCUSDT": 30.0,
     "ETHUSDT": 45.0,
     "SOLUSDT": 80.0,
@@ -105,7 +104,7 @@ class ShadowSimResult:
     recommendation: str           # "BETTER" | "WORSE" | "NEUTRAL"
     computed_at_ms: int
 
-    def to_redis_mapping(self) -> Dict[str, str]:
+    def to_redis_mapping(self) -> dict[str, str]:
         return {k: str(v) for k, v in asdict(self).items()}
 
 
@@ -159,12 +158,12 @@ def simulate_shadow_exit_r(
 
 
 def compute_shadow_results(
-    trades: List[_TradeForSim],
+    trades: list[_TradeForSim],
     callback_atr_mult: float,
     activate_offset_bps: float,
     min_profit_lock_r: float,
     atr_bps: float,
-) -> Optional[ShadowSimResult]:
+) -> ShadowSimResult | None:
     """
     Compute shadow simulation for a bucket of trades.
 
@@ -176,8 +175,8 @@ def compute_shadow_results(
     symbol = trades[0].symbol
     regime = trades[0].regime
 
-    actual_pnl_r_list: List[float] = []
-    shadow_pnl_r_list: List[float] = []
+    actual_pnl_r_list: list[float] = []
+    shadow_pnl_r_list: list[float] = []
 
     for t in trades:
         if t.one_r_money < EPS or t.notional < EPS:
@@ -265,14 +264,14 @@ class TrailShadowSimulator:
     Writes results to trail:shadow:{symbol}:{regime}.
     """
 
-    def __init__(self, redis_client: Any, *, cfg: Optional[ShadowSimConfig] = None):
+    def __init__(self, redis_client: Any, *, cfg: ShadowSimConfig | None = None):
         self.redis = redis_client
         self.cfg = cfg or ShadowSimConfig.from_env()
 
     def run(
         self,
-        trades_by_bucket: Dict[str, List[Any]],
-    ) -> List[ShadowSimResult]:
+        trades_by_bucket: dict[str, list[Any]],
+    ) -> list[ShadowSimResult]:
         """
         Run shadow simulation for all buckets.
 
@@ -287,7 +286,7 @@ class TrailShadowSimulator:
             logger.info("Shadow simulator disabled (TRAIL_SHADOW_ENABLED=0)")
             return []
 
-        results: List[ShadowSimResult] = []
+        results: list[ShadowSimResult] = []
 
         for key, raw_trades in trades_by_bucket.items():
             parts = key.rsplit(":", 1)
@@ -333,7 +332,7 @@ class TrailShadowSimulator:
         logger.info("Shadow simulation complete: %d buckets", len(results))
         return results
 
-    def _read_calib_params(self, symbol: str, regime: str) -> Optional[Dict[str, float]]:
+    def _read_calib_params(self, symbol: str, regime: str) -> dict[str, float] | None:
         """Read calibrated params from trail:calib:{symbol}:{regime}."""
         if self.redis is None:
             return None
@@ -374,7 +373,7 @@ class TrailShadowSimulator:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def format_telegram_report(results: List[ShadowSimResult]) -> str:
+    def format_telegram_report(results: list[ShadowSimResult]) -> str:
         """Format shadow simulation results for Telegram."""
         if not results:
             return ""

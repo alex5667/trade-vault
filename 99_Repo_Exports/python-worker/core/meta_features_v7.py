@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 import hashlib
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from core.meta_features_v6 import (
     META_FEAT_V6_COLS,
@@ -11,7 +12,7 @@ from core.meta_features_v6 import (
 META_FEAT_V7_NAME = "meta_feat_v7"
 META_FEAT_V7_VERSION = 7
 
-META_FEAT_V7_NEW_COLS: List[str] = [
+META_FEAT_V7_NEW_COLS: list[str] = [
     "conf_rsi_agree",
     "conf_div_match",
     "conf_div_match_fallback",
@@ -24,7 +25,7 @@ META_FEAT_V7_NEW_COLS: List[str] = [
     "conf_weak_progress",
 ]
 
-META_FEAT_V7_COLS: List[str] = list(META_FEAT_V6_COLS) + META_FEAT_V7_NEW_COLS
+META_FEAT_V7_COLS: list[str] = list(META_FEAT_V6_COLS) + META_FEAT_V7_NEW_COLS
 META_FEAT_V7_HASH: str = hashlib.sha1(",".join(META_FEAT_V7_COLS).encode("utf-8")).hexdigest()
 
 META_FEAT_V7_TRANSFORMS = dict(META_FEAT_V6_TRANSFORMS)
@@ -33,10 +34,10 @@ for k in META_FEAT_V7_NEW_COLS:
 
 
 def build_meta_features_v7(
-    evidence: Dict[str, Any],
-    indicators: Dict[str, Any],
+    evidence: dict[str, Any],
+    indicators: dict[str, Any],
     **kwargs,
-) -> Tuple[Dict[str, float], List[str]]:
+) -> tuple[dict[str, float], list[str]]:
     feat, missing = build_meta_features_v6(evidence=evidence, indicators=indicators, **kwargs)
 
     for col in META_FEAT_V7_NEW_COLS:
@@ -44,11 +45,11 @@ def build_meta_features_v7(
         if isinstance(indicators, dict) and col in indicators:
             val = indicators.get(col)
             if val is not None: v = max(v, float(val))
-            
+
         if isinstance(evidence, dict) and col in evidence:
             val = evidence.get(col)
             if val is not None: v = max(v, float(val))
-            
+
         if isinstance(evidence, dict) and "confirmations" in evidence:
             # Fallback to string parsing for conf_ features
             conf_str = col.replace("conf_", "") + "=1"

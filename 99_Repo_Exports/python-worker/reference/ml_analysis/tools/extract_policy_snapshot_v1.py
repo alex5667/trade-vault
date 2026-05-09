@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Extract policy snapshot + feature manifest from decision records (NDJSON).
 
 Usage:
@@ -13,7 +14,6 @@ used to create the training dataset.
 import argparse
 import json
 from pathlib import Path
-from typing import Dict
 
 
 def _read_ndjson(path: Path):
@@ -39,8 +39,8 @@ def main() -> int:
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    policy_counts: Dict[str, int] = {}
-    manifest_counts: Dict[str, int] = {}
+    policy_counts: dict[str, int] = {}
+    manifest_counts: dict[str, int] = {}
     any_policy = None
     any_manifest = None
 

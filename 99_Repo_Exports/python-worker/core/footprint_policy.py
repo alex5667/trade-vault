@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(d)
+        return d
 
 
 def is_soft_confirmation(conf: str) -> bool:
@@ -26,7 +26,7 @@ def is_soft_confirmation(conf: str) -> bool:
     return k in ("fp_imb",)
 
 
-def fp_confirmations_from_microbar(last_bar: Any, direction: str, cfg: Dict[str, Any]) -> List[str]:
+def fp_confirmations_from_microbar(last_bar: Any, direction: str, cfg: dict[str, Any]) -> list[str]:
     """
     Генерирует fp_* confirmations из last_bar (микро-бара), без тяжёлых расчётов.
     Все признаки уже вычислены на bar_close и лежат в last_bar.fp_*.
@@ -35,7 +35,7 @@ def fp_confirmations_from_microbar(last_bar: Any, direction: str, cfg: Dict[str,
     - fp_imb: чистый дисбаланс (оперативный контроль, может быть полезен для импульсных входов)
     - fp_absorb: "low progress + high imbalance + high absorb_score" (абсорбция/разворот)
     """
-    out: List[str] = []
+    out: list[str] = []
     if last_bar is None:
         return out
 
@@ -68,7 +68,7 @@ def fp_confirmations_from_microbar(last_bar: Any, direction: str, cfg: Dict[str,
     fp_abs_max_prog = _f(cfg.get("fp_absorb_max_progress", 0.35), 0.35)
     fp_abs_require_bias = bool(cfg.get("fp_absorb_require_bias_match", True))
 
-    dir_u = str(direction or "").upper()
+    dir_u = (direction or "").upper()
     bias_ok = (bias in ("LONG", "SHORT") and bias == dir_u) if fp_abs_require_bias else (bias in ("LONG", "SHORT"))
 
     if (score >= fp_abs_min_score) and (imb >= fp_abs_min_imb) and (prog <= fp_abs_max_prog) and bias_ok:

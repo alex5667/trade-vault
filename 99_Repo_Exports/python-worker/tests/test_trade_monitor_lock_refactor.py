@@ -4,7 +4,6 @@ Verifies that I/O operations happen outside self._lock.
 """
 
 import types
-import pytest
 
 
 def test_on_tick_structure_basic():

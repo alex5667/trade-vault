@@ -1,26 +1,29 @@
 from __future__ import annotations
 
-import logging
 import json
+import logging
 import time
-from typing import Dict, Tuple, List, Optional, Any
+from typing import Any
 
 import redis
 
-from .models import NewsAnalysisCompact
-from .redis_streams import ensure_group, xreadgroup_block, xack
-from .utils import now_ms, safe_float, safe_int
+from common.redis_errors import (
+    get_redis_error_category,
+)
+from common.redis_errors import (
+    is_transient_error as is_transient_redis_error,
+)
+
 from . import config
 from .grade import (
     compute_grade_id,
     compute_horizon_sec,
     compute_horizon_sec_with_grade,
 )
-
-from common.redis_errors import (
-    is_transient_error as is_transient_redis_error,
-    get_redis_error_category,
-)
+from .models import NewsAnalysisCompact
+from .redis_streams import ensure_group, xack, xreadgroup_block
+from .utils import now_ms, safe_float, safe_int
+import contextlib
 
 try:
     from common.metrics2 import NoopMetrics
@@ -45,7 +48,7 @@ def _agg_key_symbol(symbol: str) -> str:
     return f"news:agg:{symbol}"
 
 
-def _safe_json_dumps(d: Dict[str, Any], limit: int = 4096) -> str:
+def _safe_json_dumps(d: dict[str, Any], limit: int = 4096) -> str:
     try:
         s = json.dumps(d, ensure_ascii=False, separators=(",", ":"))
         return s[:limit]
@@ -61,7 +64,7 @@ def _update_ewma(prev: float, x: float, alpha: float) -> float:
     return (1.0 - alpha) * prev + alpha * x
 
 
-def _read_prev_state(prev: Dict[str, Any]) -> Tuple[int, float, float, int]:
+def _read_prev_state(prev: dict[str, Any]) -> tuple[int, float, float, int]:
     """
     Read previous EWMA state from Redis HASH.
     We keep compatibility with both *_ema and *_ewma field names.
@@ -73,7 +76,7 @@ def _read_prev_state(prev: Dict[str, Any]) -> Tuple[int, float, float, int]:
     return prev_ts, prev_risk, prev_sur, prev_grade
 
 
-def _read_prev_grade_change_ts(prev: Dict[str, Any], *, prev_ts_ms: int) -> int:
+def _read_prev_grade_change_ts(prev: dict[str, Any], *, prev_ts_ms: int) -> int:
     """
     grade_change_ts_ms is used for cooldown anti-flap.
     If missing, fall back to prev_ts_ms.
@@ -92,7 +95,7 @@ def _apply_grade_cooldown(
     now_ts_ms: int,
     cooldown_up_sec: int,
     cooldown_down_sec: int,
-) -> Tuple[int, int, bool]:
+) -> tuple[int, int, bool]:
     """
     Store-level hysteresis:
       - upgrades need cooldown_up_sec since last change
@@ -128,15 +131,15 @@ def _apply_grade_cooldown(
 def _read_int(v: Any, default: int = 0) -> int:
     try:
         if v is None:
-            return int(default)
+            return default
         if isinstance(v, (int, float)):
             return int(v)
         s = str(v).strip()
         if not s:
-            return int(default)
+            return default
         return int(float(s))
     except Exception:
-        return int(default)
+        return default
 
 
 def _analysis_ts_ms(a: Any) -> int:
@@ -174,7 +177,7 @@ def _update_ewma(prev: float, x: float, alpha: float) -> float:
     return (1.0 - alpha) * prev + alpha * x
 
 
-def _read_prev_state(prev: Dict[str, Any]) -> Tuple[int, float, float, int]:
+def _read_prev_state(prev: dict[str, Any]) -> tuple[int, float, float, int]:
     """
     Read previous EWMA state from Redis HASH.
     Compatibility: support both *_ema and *_ewma.
@@ -186,7 +189,7 @@ def _read_prev_state(prev: Dict[str, Any]) -> Tuple[int, float, float, int]:
     return prev_ts, prev_risk, prev_sur, prev_grade
 
 
-def _read_prev_grade_change_ts(prev: Dict[str, Any], *, prev_ts_ms: int) -> int:
+def _read_prev_grade_change_ts(prev: dict[str, Any], *, prev_ts_ms: int) -> int:
     gts = safe_int(prev.get("grade_change_ts_ms"), 0)
     if gts > 0:
         return gts
@@ -201,7 +204,7 @@ def _apply_grade_cooldown(
     now_ts_ms: int,
     cooldown_up_sec: int,
     cooldown_down_sec: int,
-) -> Tuple[int, int, bool]:
+) -> tuple[int, int, bool]:
     """
     Store-level anti-flap:
       - grade up requires cooldown_up_sec since last change
@@ -230,7 +233,7 @@ def _apply_grade_cooldown(
         return int(new_grade_id), int(now_ts_ms), False
 
 
-def _read_prev_grade_change_ts(prev: Dict[str, Any], prev_ts_ms: int) -> int:
+def _read_prev_grade_change_ts(prev: dict[str, Any], prev_ts_ms: int) -> int:
     # New canonical field
     t = safe_int(prev.get("grade_change_ts_ms"), 0)
     if t <= 0:
@@ -247,7 +250,7 @@ def _apply_grade_cooldown(
     now_ts_ms: int,
     cooldown_up_sec: int,
     cooldown_down_sec: int,
-) -> Tuple[int, int, bool]:
+) -> tuple[int, int, bool]:
     """
     Anti-flap for discrete grade.
 
@@ -292,7 +295,7 @@ def _apply_grade_cooldown(
     return pg, int(prev_change_ts_ms), True
 
 
-def _safe_preview_fields(fields: Dict[str, Any], *, limit: int = 2048) -> str:
+def _safe_preview_fields(fields: dict[str, Any], *, limit: int = 2048) -> str:
     """
     Best-effort compact snapshot for DLQ debugging.
     Avoid large payloads; keep deterministic & decode_responses-safe.
@@ -306,7 +309,7 @@ def _safe_preview_fields(fields: Dict[str, Any], *, limit: int = 2048) -> str:
         return "<unserializable>"
 
 
-def _safe_json(fields: Dict[str, Any], *, limit: int = 4096) -> str:
+def _safe_json(fields: dict[str, Any], *, limit: int = 4096) -> str:
     try:
         s = json.dumps(fields, ensure_ascii=False, separators=(",", ":"))
         return s[:limit]
@@ -329,7 +332,7 @@ def _compute_grade_and_horizon(
     confidence: float,
     primary_tag_id: int,
     tags_mask: int,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """
     grade_id: 0..4
     horizon_sec: 0..(72h cap inside compute_horizon_sec_with_grade)
@@ -377,7 +380,7 @@ def _as_text(v: Any) -> str:
         return ""
 
 
-def _prev_ts_ms(prev: Dict[str, Any]) -> int:
+def _prev_ts_ms(prev: dict[str, Any]) -> int:
     """
     Backward/forward compatible timestamp getter.
 
@@ -396,7 +399,7 @@ def _prev_ts_ms(prev: Dict[str, Any]) -> int:
     return 0
 
 
-def _prev_ema(prev: Dict[str, Any], key_new: str, key_old: str) -> float:
+def _prev_ema(prev: dict[str, Any], key_new: str, key_old: str) -> float:
     """
     Backward compatible EMA getter (risk_ema/surprise_ema vs legacy *_ewma).
     """
@@ -423,9 +426,9 @@ class NewsFeatureStoreService:
         block_ms: int = 5000,
         batch: int = 50,
         *,
-        retry_attempts: Optional[int] = None,
-        retry_sleep_ms: Optional[int] = None,
-        metrics: Optional[Any] = None,
+        retry_attempts: int | None = None,
+        retry_sleep_ms: int | None = None,
+        metrics: Any | None = None,
     ) -> None:
         self.r = r
         self.consumer = consumer
@@ -440,7 +443,7 @@ class NewsFeatureStoreService:
         else:
             self._metrics = NoopMetrics() if NoopMetrics is not None else None
 
-    def _m_inc(self, name: str, value: int = 1, tags: Optional[dict[str, Any]] = None) -> None:
+    def _m_inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:
         m = self._metrics
         if not m:
             return
@@ -449,7 +452,7 @@ class NewsFeatureStoreService:
         except Exception:
             return
 
-    def _m_observe(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def _m_observe(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         m = self._metrics
         if not m:
             return
@@ -458,15 +461,15 @@ class NewsFeatureStoreService:
         except Exception:
             return
 
-    def _target_keys(self, a: NewsAnalysisCompact) -> List[Tuple[str, str]]:
+    def _target_keys(self, a: NewsAnalysisCompact) -> list[tuple[str, str]]:
         # Scope tag is low-cardinality: global|symbol
-        targets: List[Tuple[str, str]] = [("global", _agg_key_global())]
+        targets: list[tuple[str, str]] = [("global", _agg_key_global())]
         for s in (a.symbols or []):
             if s:
                 targets.append(("symbol", _agg_key_symbol(str(s))))
         return targets
 
-    def _dlq_allow(self, *, now_ts_ms: Optional[int] = None) -> bool:
+    def _dlq_allow(self, *, now_ts_ms: int | None = None) -> bool:
         """
         Rate-limit DLQ: NEWS_FEATURE_DLQ_MAX_PER_MIN per consumer.
         Implementation: INCR key with EXPIRE 70s.
@@ -485,7 +488,7 @@ class NewsFeatureStoreService:
         except Exception:
             return True  # fail-open
 
-    def _dlq_add(self, *, src_msg_id: str, a: Optional[NewsAnalysisCompact], fields: Dict[str, Any], err: BaseException) -> None:
+    def _dlq_add(self, *, src_msg_id: str, a: NewsAnalysisCompact | None, fields: dict[str, Any], err: BaseException) -> None:
         try:
             if not self._dlq_allow():
                 self._m_inc("news_feature_store_dlq_dropped_total", 1, tags=None)
@@ -505,7 +508,7 @@ class NewsFeatureStoreService:
                 if a is not None:
                     uid = str(getattr(a, "uid", "") or "")
                 if not uid:
-                    uid = str(fields.get("uid") or "")
+                    uid = (fields.get("uid") or "")
             except Exception:
                 uid = ""
             self.r.xadd(
@@ -528,14 +531,14 @@ class NewsFeatureStoreService:
         except Exception:
             return  # fail-open
 
-    def _target_keys(self, a: NewsAnalysisCompact) -> List[Tuple[str, str]]:
-        targets: List[Tuple[str, str]] = [("global", _agg_key_global())]
+    def _target_keys(self, a: NewsAnalysisCompact) -> list[tuple[str, str]]:
+        targets: list[tuple[str, str]] = [("global", _agg_key_global())]
         for s in (a.symbols or []):
             if s:
                 targets.append(("symbol", _agg_key_symbol(str(s))))
         return targets
 
-    def _dlq_add(self, *, src_msg_id: str, uid: str, fields: Dict[str, Any], err: BaseException) -> None:
+    def _dlq_add(self, *, src_msg_id: str, uid: str, fields: dict[str, Any], err: BaseException) -> None:
         if not self._dlq_allow(now_ts_ms=now_ms()):
             self._m_inc("news_feature_store_dlq_dropped_total", 1, tags=None)
             return
@@ -557,7 +560,7 @@ class NewsFeatureStoreService:
                     "src_stream": str(getattr(config, "NEWS_ANALYSIS_STREAM", "news:analysis")),
                     "src_msg_id": str(src_msg_id),
                     "consumer": str(self.consumer),
-                    "uid": str(uid or ""),
+                    "uid": (uid or ""),
                     "err_category": str(cat),
                     "err_type": str(type(err).__name__),
                     "err": str(err)[:512],
@@ -570,7 +573,7 @@ class NewsFeatureStoreService:
         except Exception:
             return
 
-    def _inc(self, name: str, value: int = 1, tags: Optional[dict[str, Any]] = None) -> None:
+    def _inc(self, name: str, value: int = 1, tags: dict[str, Any] | None = None) -> None:
         """
         Fail-open metrics increment.
         Low-cardinality tags only (grade 0..4, result, category, scope, dir).
@@ -583,7 +586,7 @@ class NewsFeatureStoreService:
         except Exception:
             return
 
-    def _observe(self, name: str, value: float, tags: Optional[dict[str, Any]] = None) -> None:
+    def _observe(self, name: str, value: float, tags: dict[str, Any] | None = None) -> None:
         """
         Fail-open metrics observe.
         Low-cardinality tags only.
@@ -603,11 +606,11 @@ class NewsFeatureStoreService:
         self,
         *,
         src_msg_id: str,
-        fields: Dict[str, Any],
+        fields: dict[str, Any],
         uid: str,
         err: BaseException,
-        category: Optional[str] = None,
-        now_ts_ms: Optional[int] = None,
+        category: str | None = None,
+        now_ts_ms: int | None = None,
     ) -> None:
         """
         Best-effort DLQ (fail-open).
@@ -632,7 +635,7 @@ class NewsFeatureStoreService:
                     "src_stream": str(config.NEWS_ANALYSIS_STREAM),
                     "src_msg_id": str(src_msg_id),
                     "consumer": str(self.consumer),
-                    "uid": str(uid or ""),
+                    "uid": (uid or ""),
                     "err_category": str(cat),
                     "err_type": type(err).__name__,
                     "err": err_s,
@@ -646,19 +649,19 @@ class NewsFeatureStoreService:
             # Fail-open: DLQ push must not break main loop
             log.exception("dlq push failed src_msg_id=%s", src_msg_id)
 
-    def _target_keys(self, a: NewsAnalysisCompact) -> List[Tuple[str, str]]:
+    def _target_keys(self, a: NewsAnalysisCompact) -> list[tuple[str, str]]:
         """
         Returns list of (name, redis_key) targets:
           - always global
           - per symbol for a.symbols (if any)
         """
-        targets: List[Tuple[str, str]] = [("global", _agg_key_global())]
+        targets: list[tuple[str, str]] = [("global", _agg_key_global())]
         for s in (a.symbols or []):
             if s:
                 targets.append((str(s), _agg_key_symbol(str(s))))
         return targets
 
-    def process_compact(self, a: NewsAnalysisCompact, *, grade_id: Optional[int] = None, horizon_sec: Optional[int] = None, now: Optional[int] = None) -> None:
+    def process_compact(self, a: NewsAnalysisCompact, *, grade_id: int | None = None, horizon_sec: int | None = None, now: int | None = None) -> None:
         """
         Process single NewsAnalysisCompact and update Redis aggregates.
         This method is intentionally separated from stream reading to enable unit testing.
@@ -760,7 +763,7 @@ class NewsFeatureStoreService:
             pipe.expire(key, int(config.NEWS_AGG_TTL_SEC))
 
         # --- execute with small transient retry ---
-        last_err: Optional[Exception] = None
+        last_err: Exception | None = None
         for attempt in range(max(1, self._retry_attempts)):
             try:
                 pipe.execute()
@@ -773,7 +776,7 @@ class NewsFeatureStoreService:
                     continue
                 raise
 
-    def _process_compact(self, a: Any, *, msg_id: str, raw_fields: Dict[str, Any]) -> None:
+    def _process_compact(self, a: Any, *, msg_id: str, raw_fields: dict[str, Any]) -> None:
         """
         Core logic extracted for unit testing:
           - updates global + per-symbol agg hashes
@@ -786,10 +789,10 @@ class NewsFeatureStoreService:
         t0 = time.time()
 
         # update global + per symbol (если symbols пусты — только global)
-        targets: List[Tuple[str, str]] = [("global", _agg_key_global())]
+        targets: list[tuple[str, str]] = [("global", _agg_key_global())]
         for s in (getattr(a, "symbols", None) or []):
             try:
-                ss = str(s or "").strip()
+                ss = (s or "").strip()
                 if ss:
                     targets.append(("symbol", _agg_key_symbol(ss)))
             except Exception:
@@ -888,7 +891,7 @@ class NewsFeatureStoreService:
             pipe.expire(key, int(config.NEWS_AGG_TTL_SEC))
 
         # --- execute with small transient retry + metrics ---
-        last_err: Optional[Exception] = None
+        last_err: Exception | None = None
         for attempt in range(max(1, self._retry_attempts)):
             try:
                 pipe.execute()
@@ -930,11 +933,11 @@ class NewsFeatureStoreService:
         except Exception:
             return False
 
-    def process_stream_fields(self, msg_id: str, fields: Dict[str, Any]) -> None:
+    def process_stream_fields(self, msg_id: str, fields: dict[str, Any]) -> None:
         """
         One-message handler with retry + DLQ (no xack here).
         """
-        a: Optional[NewsAnalysisCompact] = None
+        a: NewsAnalysisCompact | None = None
         uid = ""
         try:
             a = NewsAnalysisCompact.from_stream_fields(fields)
@@ -949,7 +952,7 @@ class NewsFeatureStoreService:
             if base_ms < 0:
                 base_ms = 0
 
-            last_err: Optional[BaseException] = None
+            last_err: BaseException | None = None
             for attempt in range(retries):
                 try:
                     self.process_compact(a)
@@ -994,7 +997,7 @@ class NewsFeatureStoreService:
             except Exception:
                 pass
 
-            def _dlq_add(*, src_msg_id: str, uid: str, fields: Dict[str, Any], err: Exception) -> None:
+            def _dlq_add(*, src_msg_id: str, uid: str, fields: dict[str, Any], err: Exception) -> None:
                 try:
                     # category is low-cardinality
                     try:
@@ -1013,7 +1016,7 @@ class NewsFeatureStoreService:
                             "src_stream": str(config.NEWS_ANALYSIS_STREAM),
                             "src_msg_id": str(src_msg_id),
                             "consumer": str(self.consumer),
-                            "uid": str(uid or ""),
+                            "uid": (uid or ""),
                             "err_category": str(cat),
                             "err_type": type(err).__name__,
                             "err": err_s,
@@ -1030,7 +1033,7 @@ class NewsFeatureStoreService:
                 try:
                     xack(self.r, config.NEWS_ANALYSIS_STREAM, config.NEWS_FEATURE_GROUP, msg_id)
                     self._inc("news_feature_store_ack_total", 1, tags={"result": "ok"})
-                except Exception as e:
+                except Exception:
                     self._inc("news_feature_store_ack_total", 1, tags={"result": "err"})
 
             for _stream, msgs in items:
@@ -1113,7 +1116,5 @@ class NewsFeatureStoreService:
                     except Exception as e:
                         log.exception("feature update failed msg_id=%s err=%s", msg_id, e)
                         # fail-open: ack, чтобы не забить pending
-                        try:
+                        with contextlib.suppress(Exception):
                             xack(self.r, config.NEWS_ANALYSIS_STREAM, config.NEWS_FEATURE_GROUP, msg_id)
-                        except Exception:
-                            pass

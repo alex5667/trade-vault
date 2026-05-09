@@ -1,7 +1,7 @@
-import time
 
-from hypothesis import settings, strategies as st
-from hypothesis.stateful import RuleBasedStateMachine, rule, invariant, initialize
+from hypothesis import settings
+from hypothesis import strategies as st
+from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
 
 from services.signal_dispatcher import SignalDispatcher
 from tests.fake_redis import FakeRedis

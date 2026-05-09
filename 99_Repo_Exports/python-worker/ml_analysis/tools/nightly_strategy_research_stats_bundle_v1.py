@@ -1,22 +1,21 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import math
 import os
-import sys
-import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
 except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
-from ml_analysis.psr_dsr import probabilistic_sharpe_ratio, deflated_sharpe_ratio
 from ml_analysis.pbo_cscv import compute_pbo
+from ml_analysis.psr_dsr import deflated_sharpe_ratio, probabilistic_sharpe_ratio
 from ml_analysis.reality_check import evaluate_rows, load_jsonl
 
 
@@ -28,16 +27,16 @@ def _to_int(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
 def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         f = float(v)
     except Exception:
-        return float(default)
+        return default
     if not math.isfinite(f):
-        return float(default)
+        return default
     return float(f)
 
 
@@ -68,7 +67,7 @@ def _select_dataset_path(explicit: str) -> str:
 
 
 def _reason_from_metrics(
-    metrics: Dict[str, Any],
+    metrics: dict[str, Any],
     *,
     min_psr: float,
     min_dsr: float,
@@ -101,7 +100,7 @@ def _reason_from_metrics(
     return ','.join(problems) if problems else 'ok'
 
 
-def _hset_mapping(client: Any, key: str, mapping: Dict[str, Any]) -> None:
+def _hset_mapping(client: Any, key: str, mapping: dict[str, Any]) -> None:
     """Serialize and write a flat mapping to a Redis hash."""
     if client is None or not key:
         return

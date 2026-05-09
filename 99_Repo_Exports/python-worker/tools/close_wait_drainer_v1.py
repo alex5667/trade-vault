@@ -1,4 +1,3 @@
-from utils.time_utils import get_ny_time_millis
 #!/usr/bin/env python3
 # P54: Drain/retry for trades:close_wait -> trades:closed (enriched) once decision:{sid} appears.
 #
@@ -16,15 +15,18 @@ from utils.time_utils import get_ny_time_millis
 # Run modes:
 #   --loop-s 2          (default) continuous drain
 #   --batch 500         process up to N messages and exit (timer-friendly)
-
 import argparse
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import redis
+
+from domain.evidence_keys import MetaKeys
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def now_ms() -> int:
@@ -54,7 +56,7 @@ def env_bool(name: str, default: str = "0") -> bool:
     return env_str(name, default).strip().lower() in ("1", "true", "yes", "on")
 
 
-def json_loads_safe(s: Any) -> Optional[Dict[str, Any]]:
+def json_loads_safe(s: Any) -> dict[str, Any] | None:
     if s is None:
         return None
     if isinstance(s, (bytes, bytearray)):
@@ -72,7 +74,7 @@ def json_loads_safe(s: Any) -> Optional[Dict[str, Any]]:
         return None
 
 
-def pick(d: Dict[str, Any], *keys: str) -> Any:
+def pick(d: dict[str, Any], *keys: str) -> Any:
     for k in keys:
         if k in d and d[k] is not None:
             return d[k]
@@ -171,7 +173,7 @@ def xinfo_pending_count(r: redis.Redis, stream: str, group: str) -> int:
         return 0
 
 
-def read_decision_json(r: redis.Redis, cfg: Cfg, sid: str) -> Optional[Dict[str, Any]]:
+def read_decision_json(r: redis.Redis, cfg: Cfg, sid: str) -> dict[str, Any] | None:
     key = f"{cfg.decision_key_prefix}{sid}"
     raw = r.get(key)
     if raw is not None:
@@ -185,7 +187,7 @@ def read_decision_json(r: redis.Redis, cfg: Cfg, sid: str) -> Optional[Dict[str,
     return None
 
 
-def parse_close_wait_payload(fields: Dict[bytes, bytes]) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+def parse_close_wait_payload(fields: dict[bytes, bytes]) -> tuple[str | None, dict[str, Any] | None]:
     payload = None
     if b"payload" in fields:
         payload = json_loads_safe(fields.get(b"payload"))
@@ -206,7 +208,7 @@ def parse_close_wait_payload(fields: Dict[bytes, bytes]) -> Tuple[Optional[str],
     return str(sid), close_ev or {}
 
 
-def extract_close_fields(close_ev: Dict[str, Any]) -> Dict[str, Any]:
+def extract_close_fields(close_ev: dict[str, Any]) -> dict[str, Any]:
     event_type = pick(close_ev, "event_type", "type") or "POSITION_CLOSED"
     ts_ms = pick(close_ev, "close_ts_ms", "ts_ms", "ts", "timestamp_ms", "timestamp")
     if isinstance(ts_ms, (int, float)) and ts_ms < 10_000_000_000:
@@ -232,7 +234,7 @@ def extract_close_fields(close_ev: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def compute_drift_mode(decision: Dict[str, Any]) -> str:
+def compute_drift_mode(decision: dict[str, Any]) -> str:
     drift_state = norm_state(pick(decision, "drift_state"))
     actual_action = str(pick(decision, "actual_action", "action") or "")
     actual_reason = str(pick(decision, "actual_reason_code", "reason_code") or "")
@@ -241,7 +243,7 @@ def compute_drift_mode(decision: Dict[str, Any]) -> str:
     return drift_state
 
 
-def build_trades_closed_payload(cfg: Cfg, sid: str, close_ev: Dict[str, Any], decision: Dict[str, Any]) -> Dict[str, Any]:
+def build_trades_closed_payload(cfg: Cfg, sid: str, close_ev: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any]:
     c = extract_close_fields(close_ev)
     decision_ts_ms = pick(decision, "decision_ts_ms", "ts_ms", "timestamp_ms")
     if isinstance(decision_ts_ms, str) and decision_ts_ms.isdigit():
@@ -274,7 +276,7 @@ def build_trades_closed_payload(cfg: Cfg, sid: str, close_ev: Dict[str, Any], de
     if y is not None and p_cal is not None:
         brier = (p_cal - float(y)) ** 2
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ver": "p54",
         "sid": sid,
         "symbol": c.get("symbol") or pick(decision, "symbol"),
@@ -297,8 +299,8 @@ def build_trades_closed_payload(cfg: Cfg, sid: str, close_ev: Dict[str, Any], de
         "dq_state": dq_state,
         "drift_state": drift_state,
         "drift_mode": drift_mode,
-        "meta_enforce_cov_bucket": c.get("meta_enforce_cov_bucket") or pick(decision, "meta_enforce_cov_bucket"),
-        "meta_enforce_applied": bool(int(c.get("meta_enforce_applied"))) if str(c.get("meta_enforce_applied")).isdigit() else bool(c.get("meta_enforce_applied", False)),
+        "meta_enforce_cov_bucket": c.get(MetaKeys.ENFORCE_COV_BUCKET) or pick(decision, "meta_enforce_cov_bucket"),
+        "meta_enforce_applied": bool(int(c.get(MetaKeys.ENFORCE_APPLIED))) if (c.get(MetaKeys.ENFORCE_APPLIED)).isdigit() else bool(c.get(MetaKeys.ENFORCE_APPLIED, False)),
         "actual_action": pick(decision, "actual_action"),
         "actual_reason_code": pick(decision, "actual_reason_code"),
         "source": "close_wait_drainer",
@@ -310,10 +312,8 @@ def build_trades_closed_payload(cfg: Cfg, sid: str, close_ev: Dict[str, Any], de
 
 
 def metrics_hincrby(r: redis.Redis, key: str, field: str, inc: int = 1) -> None:
-    try:
+    with contextlib.suppress(Exception):
         r.hincrby(key, field, inc)
-    except Exception:
-        pass
 
 
 def metrics_hset(r: redis.Redis, key: str, field: str, value: Any) -> None:
@@ -328,13 +328,13 @@ def metrics_hset(r: redis.Redis, key: str, field: str, value: Any) -> None:
         pass
 
 
-def dead_letter(r: redis.Redis, cfg: Cfg, sid: str, close_ev: Dict[str, Any], reason: str) -> None:
+def dead_letter(r: redis.Redis, cfg: Cfg, sid: str, close_ev: dict[str, Any], reason: str) -> None:
     payload = {"ver": "p54", "sid": sid, "reason": reason, "ts_ms": now_ms(), "close_event": close_ev}
     r.xadd("trades:close_dead", {"payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}, maxlen=50000)
     metrics_hincrby(r, cfg.metrics_hash, "dead_letter_total", 1)
 
 
-def should_dead_letter(r: redis.Redis, cfg: Cfg, sid: str, close_ts_ms: Optional[int]) -> Tuple[bool, str]:
+def should_dead_letter(r: redis.Redis, cfg: Cfg, sid: str, close_ts_ms: int | None) -> tuple[bool, str]:
     attempt_key = f"join:close_wait_attempt:{sid}"
     try:
         n = r.incr(attempt_key)
@@ -353,13 +353,11 @@ def should_dead_letter(r: redis.Redis, cfg: Cfg, sid: str, close_ts_ms: Optional
 def ack_and_optionally_delete(r: redis.Redis, cfg: Cfg, stream: str, group: str, msg_id: bytes) -> None:
     r.xack(stream, group, msg_id)
     if cfg.delete_after_ack:
-        try:
+        with contextlib.suppress(Exception):
             r.xdel(stream, msg_id)
-        except Exception:
-            pass
 
 
-def process_one(r: redis.Redis, cfg: Cfg, msg_id: bytes, fields: Dict[bytes, bytes]) -> None:
+def process_one(r: redis.Redis, cfg: Cfg, msg_id: bytes, fields: dict[bytes, bytes]) -> None:
     sid, close_ev = parse_close_wait_payload(fields)
     if not sid:
         dead_letter(r, cfg, "na", {}, "bad_payload_no_sid")
@@ -412,15 +410,11 @@ def process_one(r: redis.Redis, cfg: Cfg, msg_id: bytes, fields: Dict[bytes, byt
     except Exception as e:
         metrics_hincrby(r, cfg.metrics_hash, "error_total", 1)
         dead_letter(r, cfg, sid, close_ev or {}, f"exception {type(e).__name__}")
-        try:
+        with contextlib.suppress(Exception):
             ack_and_optionally_delete(r, cfg, cfg.close_wait_stream, cfg.close_wait_group, msg_id)
-        except Exception:
-            pass
     finally:
-        try:
+        with contextlib.suppress(Exception):
             r.delete(lock_key)
-        except Exception:
-            pass
 
 
 def drain(r: redis.Redis, cfg: Cfg, batch: int, block_ms: int, read_new: bool, read_pending: bool) -> int:
@@ -478,7 +472,7 @@ def main() -> None:
         except (redis.exceptions.BusyLoadingError, redis.exceptions.ConnectionError):
             time.sleep(2.0)
         except Exception as e:
-            # For other exceptions, log and maybe crash? 
+            # For other exceptions, log and maybe crash?
             # The original code just crashed. Failsafe: print and sleep?
             # Better to crash for visibility unless it's a transient network issue.
             # But let's stick to fixing the Loading error.

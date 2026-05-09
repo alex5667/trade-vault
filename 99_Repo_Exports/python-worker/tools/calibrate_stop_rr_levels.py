@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Калибровка stop_atr_mult и rr_levels под волатильность символа.
 
@@ -17,10 +17,9 @@ from __future__ import annotations
 import argparse
 import statistics as stats
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 import psycopg2
-
 
 EPS = 1e-9
 
@@ -66,7 +65,7 @@ def load_calibration_data(
     source: str,
     symbol: str,
     limit: int = 500,
-) -> List[TradeRow]:
+) -> list[TradeRow]:
     """
     Загружает данные для калибровки из trades_closed.
     """
@@ -101,7 +100,7 @@ def load_calibration_data(
         )
         rows = cur.fetchall()
 
-    result: List[TradeRow] = []
+    result: list[TradeRow] = []
     for r in rows:
         result.append(
             TradeRow(
@@ -139,18 +138,18 @@ def calculate_mae_price(entry_price: float, direction: str, min_price: float, ma
         return entry_price
 
 
-def quantile(values: List[float], q: float) -> float:
+def quantile(values: list[float], q: float) -> float:
     """Вычисляет квантиль (0.0-1.0) для списка значений."""
     if not values:
         return 0.0
     return float(stats.quantiles(values, n=100)[int(q * 99)])
 
 
-def calibrate_stop_atr_mult(trades: List[TradeRow]) -> Dict[str, Any]:
+def calibrate_stop_atr_mult(trades: list[TradeRow]) -> dict[str, Any]:
     """
     Калибровка stop_atr_mult на основе mae_atr_ratio.
     """
-    mae_atr_ratios: List[float] = []
+    mae_atr_ratios: list[float] = []
 
     for t in trades:
         if t.atr <= 0 or t.one_r_money <= 0:
@@ -187,11 +186,11 @@ def calibrate_stop_atr_mult(trades: List[TradeRow]) -> Dict[str, Any]:
     }
 
 
-def calibrate_rr_levels(trades: List[TradeRow]) -> Dict[str, Any]:
+def calibrate_rr_levels(trades: list[TradeRow]) -> dict[str, Any]:
     """
     Калибровка rr_levels на основе распределения mfe_r.
     """
-    mfe_r_values: List[float] = []
+    mfe_r_values: list[float] = []
 
     for t in trades:
         if t.one_r_money <= 0:
@@ -240,7 +239,7 @@ def calibrate_rr_levels(trades: List[TradeRow]) -> Dict[str, Any]:
     }
 
 
-def print_calibration_report(symbol: str, source: str, stop_cal: Dict[str, Any], rr_cal: Dict[str, Any]) -> None:
+def print_calibration_report(symbol: str, source: str, stop_cal: dict[str, Any], rr_cal: dict[str, Any]) -> None:
     print(f"=== Калибровка параметров для {symbol} ({source}) ===")
     print()
 
@@ -269,7 +268,7 @@ def print_calibration_report(symbol: str, source: str, stop_cal: Dict[str, Any],
 
     print("💡 Redis-конфиг для symbol_specs:")
     print(f"  {symbol}:")
-    print(f"    trailing:")
+    print("    trailing:")
     print(f"      stop_atr_mult: {stop_cal['stop_atr_mult']:.3f}")
     print(f"      rr_levels: {rr_levels}")
 

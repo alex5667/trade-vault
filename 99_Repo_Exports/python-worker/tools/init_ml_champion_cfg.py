@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 init_ml_champion_cfg.py
 
@@ -12,14 +13,13 @@ Usage:
 
 Exits 0 on success, 1 on error.
 """
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import glob
 import json
 import os
 import sys
-import time
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore

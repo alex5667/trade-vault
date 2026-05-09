@@ -4,13 +4,13 @@ import hashlib
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import redis
 
 from services.atr_policy_operator_state_store import (
-    get_conn,
     expire_pending_confirms_on_boot,
+    get_conn,
     load_current_active_snapshots,
 )
 
@@ -19,7 +19,7 @@ def _redis():
     return redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
 
 
-def _active_key(obj: Dict[str, Any]) -> str:
+def _active_key(obj: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:active:{obj['source']}:{obj['symbol']}:"
         f"{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
@@ -47,7 +47,7 @@ def _clear_redis_confirm_tokens(r) -> int:
     return deleted
 
 
-def run_once() -> Dict[str, Any]:
+def run_once() -> dict[str, Any]:
     r = _redis()
     rebuilt_refs = 0
     expired_confirms = 0

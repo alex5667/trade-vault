@@ -1,17 +1,15 @@
-# core/local_calibration.py
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import List, Dict, Tuple, Optional, Any
-from collections import defaultdict
-import math
+
 import json
-from datetime import datetime
+from collections import defaultdict
+
+# core/local_calibration.py
+from dataclasses import dataclass
 
 from .sessions import get_session_from_ts
-from .regime import classify_regime
 
 # Типы данных
-ClusterKey = Tuple[str, str, str]  # (symbol, session, regime)
+ClusterKey = tuple[str, str, str]  # (symbol, session, regime)
 MetricName = str  # "delta_spike_z", "obi", "weak_progress", etc.
 
 @dataclass
@@ -21,12 +19,12 @@ class SignalRow:
     session: str
     regime: str
     ts_utc: float
-    delta_spike_z: Optional[float] = None
-    obi: Optional[float] = None
-    weak_progress: Optional[float] = None
-    atr_quantile: Optional[float] = None
-    pnl_r: Optional[float] = None
-    hit_tp: Optional[bool] = None
+    delta_spike_z: float | None = None
+    obi: float | None = None
+    weak_progress: float | None = None
+    atr_quantile: float | None = None
+    pnl_r: float | None = None
+    hit_tp: bool | None = None
 
 @dataclass
 class MetricCalibration:
@@ -35,13 +33,13 @@ class MetricCalibration:
     q95: float
     q98: float
     chosen_threshold: float
-    cdf_points: List[Dict[str, float]]  # [{"value": float, "q": float}, ...]
+    cdf_points: list[dict[str, float]]  # [{"value": float, "q": float}, ...]
     bucket_count: int
 
 @dataclass
 class ClusterCalibration:
     """Калибровка для одного кластера (symbol, session, regime)"""
-    metrics: Dict[MetricName, MetricCalibration]
+    metrics: dict[MetricName, MetricCalibration]
     sample_count: int
 
 class LocalCalibrationManager:
@@ -50,7 +48,7 @@ class LocalCalibrationManager:
     """
 
     def __init__(self):
-        self.calibrations: Dict[ClusterKey, ClusterCalibration] = {}
+        self.calibrations: dict[ClusterKey, ClusterCalibration] = {}
         self.min_cluster_samples = 300  # минимальное количество сигналов в кластере
         self.min_bucket_samples = 30    # минимальное количество сигналов в бакете
 
@@ -75,13 +73,13 @@ class LocalCalibrationManager:
             calibration = self._calibrate_cluster(train_rows)
             self.calibrations[cluster_key] = calibration
 
-    def _load_signal_rows(self, conn, lookback_days: int) -> List[SignalRow]:
+    def _load_signal_rows(self, conn, lookback_days: int) -> list[SignalRow]:
         """
         Загружает строки сигналов из базы данных.
         Это упрощенная реализация - в реальности нужно использовать SQLAlchemy или psycopg2.
         """
         # Пример SQL запроса (адаптируйте под вашу схему)
-        query = """
+        query = f"""
         SELECT
             symbol,
             ts as ts_utc,
@@ -94,10 +92,10 @@ class LocalCalibrationManager:
             pnl_r,
             hit_tp
         FROM signals
-        WHERE ts >= NOW() - INTERVAL '%s days'
+        WHERE ts >= NOW() - INTERVAL '{lookback_days} days'
         AND pnl_r IS NOT NULL  -- только завершенные сделки
         ORDER BY ts
-        """ % lookback_days
+        """
 
         # В реальности используйте ваш ORM/соединение
         # cursor = conn.cursor()
@@ -108,9 +106,9 @@ class LocalCalibrationManager:
         # В реальной реализации здесь будет разбор результатов запроса
         return []
 
-    def _build_clusters(self, rows: List[SignalRow]) -> Dict[ClusterKey, List[SignalRow]]:
+    def _build_clusters(self, rows: list[SignalRow]) -> dict[ClusterKey, list[SignalRow]]:
         """Группирует сигналы по кластерам (symbol, session, regime)"""
-        clusters: Dict[ClusterKey, List[SignalRow]] = defaultdict(list)
+        clusters: dict[ClusterKey, list[SignalRow]] = defaultdict(list)
 
         for row in rows:
             # Если session/regime не заполнены, вычисляем
@@ -127,7 +125,7 @@ class LocalCalibrationManager:
 
         return clusters
 
-    def _calibrate_cluster(self, rows: List[SignalRow]) -> ClusterCalibration:
+    def _calibrate_cluster(self, rows: list[SignalRow]) -> ClusterCalibration:
         """Выполняет калибровку для одного кластера"""
         metrics = {}
 
@@ -147,7 +145,7 @@ class LocalCalibrationManager:
             sample_count=len(rows)
         )
 
-    def _calibrate_metric(self, metric_values: List[float], pnl_values: List[float]) -> MetricCalibration:
+    def _calibrate_metric(self, metric_values: list[float], pnl_values: list[float]) -> MetricCalibration:
         """Калибрует одну метрику"""
         if not metric_values:
             return MetricCalibration(0, 0, 0, 0, [], 0)
@@ -175,7 +173,7 @@ class LocalCalibrationManager:
             bucket_count=len(buckets)
         )
 
-    def _quantile(self, xs: List[float], q: float) -> float:
+    def _quantile(self, xs: list[float], q: float) -> float:
         """Вычисляет квантиль"""
         if not xs:
             return 0.0
@@ -183,7 +181,7 @@ class LocalCalibrationManager:
         k = int(q * (len(xs_sorted) - 1))
         return xs_sorted[k]
 
-    def _bucket_by_performance(self, xs: List[float], ys: List[float], num_buckets: int = 5) -> List[Dict]:
+    def _bucket_by_performance(self, xs: list[float], ys: list[float], num_buckets: int = 5) -> list[dict]:
         """
         Разбивает на бакеты по значению метрики и считает средний результат в каждом бакете.
         """
@@ -212,7 +210,7 @@ class LocalCalibrationManager:
 
         return buckets
 
-    def _choose_threshold_from_buckets(self, buckets: List[Dict]) -> float:
+    def _choose_threshold_from_buckets(self, buckets: list[dict]) -> float:
         """Выбирает оптимальный порог из бакетов по performance"""
         if not buckets:
             return 0.0
@@ -231,7 +229,7 @@ class LocalCalibrationManager:
         best = max(candidates, key=lambda b: b["q_low"])
         return best["q_low"]
 
-    def _build_empirical_cdf(self, xs: List[float], num_points: int = 101) -> List[Dict[str, float]]:
+    def _build_empirical_cdf(self, xs: list[float], num_points: int = 101) -> list[dict[str, float]]:
         """Строит эмпирическую CDF для вычисления локальных квантилей"""
         if not xs:
             return []
@@ -250,19 +248,19 @@ class LocalCalibrationManager:
 
         return points
 
-    def get_calibration(self, symbol: str, session: str, regime: str) -> Optional[ClusterCalibration]:
+    def get_calibration(self, symbol: str, session: str, regime: str) -> ClusterCalibration | None:
         """Получает калибровку для конкретного кластера"""
         key = (symbol, session, regime)
         return self.calibrations.get(key)
 
-    def get_metric_calibration(self, symbol: str, session: str, regime: str, metric: str) -> Optional[MetricCalibration]:
+    def get_metric_calibration(self, symbol: str, session: str, regime: str, metric: str) -> MetricCalibration | None:
         """Получает калибровку для конкретной метрики в кластере"""
         cluster = self.get_calibration(symbol, session, regime)
         if cluster:
             return cluster.metrics.get(metric)
         return None
 
-    def eval_local_quantile(self, cdf_points: List[Dict[str, float]], x: float) -> float:
+    def eval_local_quantile(self, cdf_points: list[dict[str, float]], x: float) -> float:
         """
         Вычисляет локальный квантиль для значения x используя CDF.
         """
@@ -317,7 +315,7 @@ class LocalCalibrationManager:
 
     def load_from_json(self, filepath: str) -> None:
         """Загружает калибровки из JSON файла"""
-        with open(filepath, 'r') as f:
+        with open(filepath) as f:
             data = json.load(f)
 
         for key_str, cal_data in data.items():

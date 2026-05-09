@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """conf_cal_live_status_exporter_v1.py
 
 Prometheus exporter for confidence calibration live-health status.
@@ -20,16 +21,16 @@ Requested gauges:
   live_ece_raw, live_ece_cal, live_brier_raw, live_brier_cal, bad_streak, rollback_total
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import signal
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from prometheus_client import Counter, Gauge, start_http_server  # type: ignore
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -39,41 +40,41 @@ def _now_ms() -> int:
 def _as_int(x: Any, default: int = 0) -> int:
     try:
         if x is None or isinstance(x, bool):
-            return int(default)
+            return default
         if isinstance(x, (int, float)):
             return int(x)
         if isinstance(x, (bytes, bytearray)):
             x = x.decode("utf-8", "ignore")
         s = str(x).strip()
-        return int(float(s)) if s else int(default)
+        return int(float(s)) if s else default
     except Exception:
-        return int(default)
+        return default
 
 
 def _as_float(x: Any, default: float = float("nan")) -> float:
     try:
         if x is None or isinstance(x, bool):
-            return float(default)
+            return default
         if isinstance(x, (int, float)):
             return float(x)
         if isinstance(x, (bytes, bytearray)):
             x = x.decode("utf-8", "ignore")
         s = str(x).strip()
-        return float(s) if s else float(default)
+        return float(s) if s else default
     except Exception:
-        return float(default)
+        return default
 
 
-def _load_json(path: str) -> Optional[Dict[str, Any]]:
+def _load_json(path: str) -> dict[str, Any] | None:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         return obj if isinstance(obj, dict) else None
     except Exception:
         return None
 
 
-def _write_json_atomic(path: str, d: Dict[str, Any]) -> None:
+def _write_json_atomic(path: str, d: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -83,7 +84,7 @@ def _write_json_atomic(path: str, d: Dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
-def _nested(d: Dict[str, Any], *keys: str) -> Any:
+def _nested(d: dict[str, Any], *keys: str) -> Any:
     cur: Any = d
     for k in keys:
         if not isinstance(cur, dict):
@@ -92,7 +93,7 @@ def _nested(d: Dict[str, Any], *keys: str) -> Any:
     return cur
 
 
-def _probe_status_path(reports_dir: str) -> Tuple[str, str]:
+def _probe_status_path(reports_dir: str) -> tuple[str, str]:
     env_path = os.getenv("CONF_CAL_LIVE_STATUS_PATH", "").strip()
     if env_path:
         return env_path, "env"
@@ -173,7 +174,7 @@ class Exporter:
         self.status_path, self.status_path_reason = _probe_status_path(reports_dir)
         self.state_path = os.getenv(
             "CONF_CAL_LIVE_EXPORTER_STATE_PATH",
-            os.path.join(str(reports_dir), "conf_cal_live_exporter_state.json"),
+            os.path.join(reports_dir, "conf_cal_live_exporter_state.json"),
         )
         self.proof_path = os.getenv(
             "CONF_CAL_PROOF_STATE_PATH",
@@ -207,14 +208,14 @@ class Exporter:
                 self.state_path,
                 {
                     "ts_ms": int(now_ms),
-                    "rollback_total": int(self.state.rollback_total),
-                    "last_rb_event_ts_ms": int(self.state.last_rb_event_ts_ms),
+                    "rollback_total": self.state.rollback_total,
+                    "last_rb_event_ts_ms": self.state.last_rb_event_ts_ms,
                 },
             )
         except Exception:
             pass
 
-    def _extract_metrics(self, status: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def _extract_metrics(self, status: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         raw = status.get("raw") if isinstance(status.get("raw"), dict) else None
         cal = status.get("cal") if isinstance(status.get("cal"), dict) else None
         if raw is None and isinstance(status.get("metrics_raw_v1"), dict):
@@ -227,7 +228,7 @@ class Exporter:
             cal = status.get("metrics_cal")
         return (raw or {}), (cal or {})
 
-    def _extract_degrade(self, status: Dict[str, Any]) -> bool:
+    def _extract_degrade(self, status: dict[str, Any]) -> bool:
         if "degrade" in status:
             return bool(status.get("degrade", False))
         guard = status.get("guard") if isinstance(status.get("guard"), dict) else {}
@@ -237,7 +238,7 @@ class Exporter:
             return True
         return False
 
-    def _extract_rollback_event_ts(self, status: Dict[str, Any]) -> Tuple[bool, int]:
+    def _extract_rollback_event_ts(self, status: dict[str, Any]) -> tuple[bool, int]:
         rb = status.get("rollback") if isinstance(status.get("rollback"), dict) else {}
         performed = bool(rb.get("performed", False)) if isinstance(rb, dict) else False
         ev_ts = _as_int(status.get("ts_ms", 0), 0)
@@ -272,11 +273,11 @@ class Exporter:
             conf_cal_proof_evidence_age_sec.set(float(e_age))
 
             conf_cal_proof_valid.set(1.0 if bool(proof.get("valid", False)) else 0.0)
-            conf_cal_proof_canary_share.set(float(_as_float(proof.get("canary_share", 0.0), 0.0)))
+            conf_cal_proof_canary_share.set(_as_float(proof.get("canary_share", 0.0), 0.0))
 
             src = proof.get("source") if isinstance(proof.get("source"), dict) else {}
             if isinstance(src, dict) and "status_age_sec" in src:
-                conf_cal_proof_status_age_sec.set(float(_as_float(src.get("status_age_sec"), float("nan"))))
+                conf_cal_proof_status_age_sec.set(_as_float(src.get("status_age_sec"), float("nan")))
         except Exception:
             try:
                 conf_cal_proof_parse_errors_total.inc()
@@ -320,7 +321,7 @@ class Exporter:
             conf_cal_live_rows.set(float(_as_int(status.get("rows_raw", status.get("rows", 0)), 0)))
             conf_cal_live_rows_cal.set(float(_as_int(status.get("rows_cal", 0), 0)))
 
-            skip_reason = str(status.get("skip_reason", "") or "").strip()
+            skip_reason = (status.get("skip_reason", "") or "").strip()
             conf_cal_live_skip.set(1.0 if skip_reason else 0.0)
             if skip_reason:
                 conf_cal_live_skip_reason_total.labels(reason=skip_reason).inc()
@@ -365,7 +366,7 @@ def main() -> int:
     port = int(os.getenv("CONF_CAL_LIVE_EXPORTER_PORT", "9134") or 9134)
     refresh_sec = float(os.getenv("CONF_CAL_LIVE_EXPORTER_REFRESH_SEC", "5") or 5)
 
-    exp = Exporter(reports_dir=str(reports_dir))
+    exp = Exporter(reports_dir=reports_dir)
     start_http_server(port)
     conf_cal_live_exporter_up.set(1.0)
     print(json.dumps({"ok": True, "port": port, "reports_dir": reports_dir, "status_path": exp.status_path}, ensure_ascii=False))

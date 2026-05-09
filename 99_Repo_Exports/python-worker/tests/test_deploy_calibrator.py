@@ -1,8 +1,11 @@
-import pytest
-from unittest.mock import MagicMock, patch
 import json
+from unittest.mock import MagicMock, patch
+
+import pytest
 import redis
+
 from tools.deploy_calibrator_v1 import main
+
 
 class TestDeployCalibrator:
     # mock redis connection
@@ -23,7 +26,7 @@ class TestDeployCalibrator:
     def test_apply_redis(self, mock_redis):
         with patch("sys.argv", ["deploy_calibrator_v1.py", "--a", "3.0", "--b", "1.0", "--apply", "--key", "cfg:test"]):
             main()
-        
+
         # Verify hset call
         # args: key, field, value
         mock_redis.hset.assert_any_call("cfg:test", "calibrator", json.dumps({"type": "platt_logit", "a": 3.0, "b": 1.0}))

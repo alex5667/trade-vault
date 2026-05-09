@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ATR Policy Disaster Escalation Summarizer — Phase 3.8 (Disaster Layer).
 
 Reads stream:atr_policy:escalations and stream:atr_policy:rollback_results,
@@ -26,7 +27,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
 from prometheus_client import Counter
@@ -52,7 +53,7 @@ SEVERITY_ICONS = {
     "INFO": "ℹ️",
 }
 
-EVENT_ICONS: Dict[str, str] = {
+EVENT_ICONS: dict[str, str] = {
     "KILL_SWITCH": "🚫",
     "ROLLBACK": "↩️",
     "FLIP_STORM": "⚡",
@@ -97,7 +98,7 @@ def _icon_for_event(event_str: str) -> str:
 
 def _read_stream_since(
     r: redis.Redis, stream: str, since_ms: int, max_count: int = 200
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Read stream entries newer than since_ms (epoch_ms)."""
     try:
         entries = r.xrange(stream, min=f"{since_ms}-0", count=max_count)
@@ -109,7 +110,7 @@ def _read_stream_since(
 
 # ── Summary builder ───────────────────────────────────────────────────────────
 
-def build_summary(r: Optional[redis.Redis] = None) -> Dict[str, Any]:
+def build_summary(r: redis.Redis | None = None) -> dict[str, Any]:
     """
     Collect escalation events from the last lookback window.
 
@@ -132,7 +133,7 @@ def build_summary(r: Optional[redis.Redis] = None) -> Dict[str, Any]:
 
     all_events = esc_events + rb_events
 
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     rollback_ok = 0
     rollback_fail = 0
     callback_warn = 0
@@ -141,11 +142,11 @@ def build_summary(r: Optional[redis.Redis] = None) -> Dict[str, Any]:
     corruption = 0
 
     for ev in all_events:
-        event_type = str(ev.get("event", "UNKNOWN"))
+        event_type = (ev.get("event", "UNKNOWN"))
         counts[event_type] = counts.get(event_type, 0) + 1
 
         if "ROLLBACK" in event_type.upper():
-            if str(ev.get("rollback_ok", "")) == "True":
+            if (ev.get("rollback_ok", "")) == "True":
                 rollback_ok += 1
             else:
                 rollback_fail += 1
@@ -196,12 +197,12 @@ def build_summary(r: Optional[redis.Redis] = None) -> Dict[str, Any]:
     }
 
 
-def format_telegram_message(summary: Dict[str, Any]) -> str:
+def format_telegram_message(summary: dict[str, Any]) -> str:
     """Format the summary as a Telegram HTML message."""
     now_str = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())
     lb_h = summary["lookback_sec"] // 3600
 
-    lines: List[str] = [
+    lines: list[str] = [
         f"<b>🛡️ ATR Policy Disaster SLO — {now_str}</b>",
         f"Window: last {lb_h}h | Total events: {summary['total_events']}",
         "",
@@ -262,8 +263,8 @@ def format_telegram_message(summary: Dict[str, Any]) -> str:
 
 
 async def send_telegram_digest(
-    r: Optional[redis.Redis] = None,
-) -> Dict[str, Any]:
+    r: redis.Redis | None = None,
+) -> dict[str, Any]:
     """
     Build and send the disaster escalation digest to the Telegram ops channel.
     Returns summary dict.
@@ -310,7 +311,7 @@ async def send_telegram_digest(
         return {**summary, "sent": False, "error": str(exc)}
 
 
-def run_sync_digest() -> Dict[str, Any]:
+def run_sync_digest() -> dict[str, Any]:
     """Synchronous wrapper (for of_timers_worker integration)."""
     import asyncio
     return asyncio.run(send_telegram_digest())

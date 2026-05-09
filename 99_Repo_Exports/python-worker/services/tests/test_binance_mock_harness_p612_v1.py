@@ -17,6 +17,7 @@ from services.binance_futures_client import BinanceFuturesClient
 from services.binance_user_stream_worker import BinanceUserStreamWorker
 from services.testing.binance_mock_harness import InMemoryRedis, running_binance_mock
 
+from core.redis_keys import RedisStreams as RS
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,7 +48,7 @@ def _configure_env(monkeypatch, *, base_url: str, maker: bool = False, fill_time
         "EXECUTION_JOURNAL_DSN": "",
         "EXECUTION_QUARANTINE_LEDGER_DSN": "",
         "REDIS_URL": "redis://mock/0",
-        "EXEC_STREAM": "orders:exec",
+        "EXEC_STREAM": RS.ORDERS_EXEC,
         "ORDERS_QUEUE_BINANCE": "orders:queue:binance",
         "ORDERS_QUEUE_BINANCE_PROCESSING": "orders:queue:binance:processing",
         "ORDERS_QUEUE_BINANCE_DLQ": "orders:queue:binance:dlq",
@@ -82,7 +83,7 @@ def _queue_open(redis_client: InMemoryRedis, payload: dict) -> None:
     redis_client.lpush("orders:queue:binance", json.dumps(payload))
 
 
-def _stream_events(redis_client: InMemoryRedis, key: str = "orders:exec"):
+def _stream_events(redis_client: InMemoryRedis, key: str = RS.ORDERS_EXEC):
     """Return all fields dicts from a Redis stream key."""
     return [fields for _id, fields in redis_client.xrange(key)]
 

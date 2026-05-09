@@ -1,6 +1,7 @@
 import asyncio
-import pytest
+
 from services.position_sizer import KellyPositionSizer
+
 
 class MockDbRow(dict):
     pass

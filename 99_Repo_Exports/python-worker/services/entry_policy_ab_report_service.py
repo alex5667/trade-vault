@@ -1,14 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _now_ms() -> int:
@@ -26,14 +27,14 @@ def _f(x: Any, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(d)
+        return d
 
 
 def _price_key(symbol: str) -> str:
@@ -42,7 +43,7 @@ def _price_key(symbol: str) -> str:
     return fmt.format(symbol=symbol)
 
 
-async def _read_mid_ts(r: Any, symbol: str) -> Tuple[float, int]:
+async def _read_mid_ts(r: Any, symbol: str) -> tuple[float, int]:
     """
     Best-effort read of latest price.
     Supports:
@@ -95,7 +96,7 @@ class Agg:
             self.win += 1
         self.sum_ret_bps += float(ret_bps)
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         n = max(1, int(self.n))
         return {
             "n": int(self.n),
@@ -130,18 +131,16 @@ class EntryPolicyABReportService:
         self.ttl_sec = int(os.getenv("AB_REPORT_TTL_SEC", "86400"))
         self.min_n = int(os.getenv("AB_MIN_N_PER_ARM", "25"))
 
-        self.pending: Dict[str, Pending] = {}
-        self.agg_60: Dict[Tuple[str, str, str], Agg] = {}   # (group, arm, horizon)
-        self.agg_300: Dict[Tuple[str, str, str], Agg] = {}
+        self.pending: dict[str, Pending] = {}
+        self.agg_60: dict[tuple[str, str, str], Agg] = {}   # (group, arm, horizon)
+        self.agg_300: dict[tuple[str, str, str], Agg] = {}
         self._last_report_ms: int = 0
 
     async def _ensure_group(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             await self.r.xgroup_create(self.audit_stream, self.group, id="0", mkstream=True)
-        except Exception:
-            pass
 
-    def _pid(self, p: Dict[str, Any]) -> str:
+    def _pid(self, p: dict[str, Any]) -> str:
         """Stable unique id for pending map."""
         return f'{p.get("symbol","")}:{p.get("side","")}:{p.get("arm","")}:{p.get("ts_ms",0)}'
 
@@ -158,7 +157,7 @@ class EntryPolicyABReportService:
         for _stream, entries in msgs:
             for msg_id, fields in entries:
                 try:
-                    if str(fields.get("type", "")) != "entry_policy_audit":
+                    if (fields.get("type", "")) != "entry_policy_audit":
                         await self.r.xack(self.audit_stream, self.group, msg_id)
                         continue
                     ok = int(fields.get("ok", 0) or 0)
@@ -185,10 +184,8 @@ class EntryPolicyABReportService:
                     pid = self._pid({"symbol":symbol,"side":side,"arm":arm,"ts_ms":ts_ms})
                     self.pending[pid] = p
                 finally:
-                    try:
+                    with contextlib.suppress(Exception):
                         await self.r.xack(self.audit_stream, self.group, msg_id)
-                    except Exception:
-                        pass
 
     def _ret_bps(self, *, entry_px: float, now_px: float, side: str) -> float:
         """Calculate forward return in basis points."""
@@ -223,7 +220,7 @@ class EntryPolicyABReportService:
         for pid in done_ids:
             self.pending.pop(pid, None)
 
-    def _pick_winner(self, group: str) -> Dict[str, Any]:
+    def _pick_winner(self, group: str) -> dict[str, Any]:
         """
         Winner per group is selected by:
           - prioritize h300 avg_ret_bps

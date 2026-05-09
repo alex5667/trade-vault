@@ -1,5 +1,4 @@
-import math
-from common.isotonic_calibration import fit_isotonic_pav, IsotonicCalibrator
+from common.isotonic_calibration import IsotonicCalibrator, fit_isotonic_pav
 
 
 def test_fit_isotonic_monotone():

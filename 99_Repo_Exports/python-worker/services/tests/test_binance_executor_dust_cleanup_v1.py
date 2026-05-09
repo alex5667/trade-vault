@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests: exact flatten / dust cleanup integration (trade_binance_dust_cleanup_exact_flatten patch).
 
 Covers:
@@ -7,10 +8,8 @@ Covers:
   3. BinanceFuturesClient.get_symbol_position_risk — symbol + positionSide filtering
 """
 
-import math
 import sys
 from pathlib import Path
-from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
@@ -20,6 +19,7 @@ MOD_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(MOD_DIR))
 
 import importlib.util
+
 
 def _load_module(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -120,24 +120,23 @@ def test_force_flatten_symbol_exact_retries_dust_tail():
         return_value={"close_order_id": 9999, "close_client_id": "cid-9999"}
     )
 
-    with patch("time.sleep"):
-        with patch("time.time", side_effect=[
-            0.0,   # verify timeout: deadline
-            0.0,   # while loop first check (attempt 1 verify poll)
-            0.11,  # second while check → beyond dust_verify_timeout... but we want flat
-            # attempt 2 verify
-            0.0,   # deadline
-            0.0,   # while check 1 — last yield is flat
-        ] + [1e9] * 20):
-            result = ex._force_flatten_symbol_exact(
-                sid="sid-test-1",
-                symbol="BTCUSDT",
-                client=client,
-                filters=filters,
-                logical_side="LONG",
-                reason_tag="emerg",
-                max_attempts=3,
-            )
+    with patch("time.sleep"), patch("time.time", side_effect=[
+        0.0,   # verify timeout: deadline
+        0.0,   # while loop first check (attempt 1 verify poll)
+        0.11,  # second while check → beyond dust_verify_timeout... but we want flat
+        # attempt 2 verify
+        0.0,   # deadline
+        0.0,   # while check 1 — last yield is flat
+    ] + [1e9] * 20):
+        result = ex._force_flatten_symbol_exact(
+            sid="sid-test-1",
+            symbol="BTCUSDT",
+            client=client,
+            filters=filters,
+            logical_side="LONG",
+            reason_tag="emerg",
+            max_attempts=3,
+        )
 
     assert result["status"] in {"closed", "dust_remaining", "residual_position"}, result
     assert len(result["attempts"]) >= 1, "Expected at least 1 close attempt"

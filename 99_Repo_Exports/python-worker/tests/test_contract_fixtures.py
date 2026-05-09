@@ -1,8 +1,6 @@
-import json
-import pytest
 
-from core.unified_signal_formatter import UnifiedSignalFormatter, Signal
-from core.crypto_signal_formatter import CryptoSignal, CryptoSignalFormatter
+from core.unified_signal_formatter import UnifiedSignalFormatter
+
 
 def test_legacy_payload_fallback():
     """
@@ -20,10 +18,10 @@ def test_legacy_payload_fallback():
         "ts": "1730000000000",
         "source": "OrderFlow"
     }
-    
+
     # parse_from_redis parses the incoming stream format into a Signal object
     signal = UnifiedSignalFormatter.parse_from_redis(payload_fields)
-    
+
     assert signal.sid == "crypto-of:TEST:123456", "Missing sid fallback failed"
     assert signal.symbol == "BTCUSD"
     assert signal.side == "LONG"

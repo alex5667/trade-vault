@@ -1,8 +1,8 @@
 from orderflow_services.operator_routing_incident_rca_usefulness_governor_v2_11 import (
-    evaluate_score,
     MIN_SAMPLE,
-    SUPPRESS_SCORE_MAX,
     PROMOTE_SCORE_MIN,
+    SUPPRESS_SCORE_MAX,
+    evaluate_score,
 )
 
 

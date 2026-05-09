@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Export Reliability Calibration Data to CSV
 
@@ -11,24 +12,19 @@ Creates separate files for:
 """
 
 
+import csv
 import os
 import sys
-import csv
 from collections import defaultdict
-from typing import Dict, List, Any
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from scripts.analyze_reliability_calibration import (
-    get_all_relcal_keys,
-    parse_relcal_key,
-    get_relcal_data
-)
 from core.redis_client import get_redis
+from scripts.analyze_reliability_calibration import get_all_relcal_keys, get_relcal_data, parse_relcal_key
 
 
-def export_summary_csv(data_by_key: Dict[str, Dict], filename: str):
+def export_summary_csv(data_by_key: dict[str, dict], filename: str):
     """Export summary statistics to CSV."""
     with open(filename, 'w', newline='') as csvfile:
         fieldnames = [
@@ -51,7 +47,7 @@ def export_summary_csv(data_by_key: Dict[str, Dict], filename: str):
     print(f"✅ Exported {len(data_by_key)} configurations to {filename}")
 
 
-def export_bucket_csv(data_by_key: Dict[str, Dict], filename: str):
+def export_bucket_csv(data_by_key: dict[str, dict], filename: str):
     """Export bucket-level data to CSV."""
     with open(filename, 'w', newline='') as csvfile:
         fieldnames = [
@@ -76,7 +72,7 @@ def export_bucket_csv(data_by_key: Dict[str, Dict], filename: str):
     print(f"✅ Exported {total_buckets} bucket data points to {filename}")
 
 
-def export_outcome_analysis(data_by_key: Dict[str, Dict], filename: str):
+def export_outcome_analysis(data_by_key: dict[str, dict], filename: str):
     """Export outcome-level aggregated analysis."""
     from scripts.analyze_reliability_calibration import analyze_outcome_performance
 
@@ -98,7 +94,7 @@ def export_outcome_analysis(data_by_key: Dict[str, Dict], filename: str):
     print(f"✅ Exported {len(outcome_analysis)} outcome analyses to {filename}")
 
 
-def create_calibration_curves(data_by_key: Dict[str, Dict], output_dir: str):
+def create_calibration_curves(data_by_key: dict[str, dict], output_dir: str):
     """Create calibration curve data for plotting."""
     outcome_curves = defaultdict(lambda: defaultdict(list))
 

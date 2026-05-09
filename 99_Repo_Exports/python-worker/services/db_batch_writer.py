@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Async in-memory batch writer for PostgreSQL.
 
@@ -42,10 +43,12 @@ import os
 import queue
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
+import contextlib
 
 try:
-    from prometheus_client import Counter, Histogram, REGISTRY
+    from prometheus_client import REGISTRY, Counter, Histogram
 
     def _metric(factory, name, *args, **kwargs):
         try:
@@ -121,10 +124,10 @@ class AsyncBatchWriter:
         max_retries: int = 3,
         pool_minconn: int = 1,
         pool_maxconn: int = 5,
-        extra_adapter: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        extra_adapter: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
         self.table = table
-        self.columns: List[str] = list(columns)
+        self.columns: list[str] = list(columns)
         self.dsn = dsn
         self.batch_size = max(1, batch_size)
         self.flush_interval_s = max(0.1, flush_interval_s)
@@ -135,10 +138,10 @@ class AsyncBatchWriter:
         self.extra_adapter = extra_adapter
 
         # Internal state
-        self._queue: queue.Queue[Optional[Dict[str, Any]]] = queue.Queue()
+        self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
         self._pool = None  # lazy init on first use
         self._pool_lock = threading.Lock()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._shutdown_event = threading.Event()
         self._started = False
 
@@ -155,7 +158,7 @@ class AsyncBatchWriter:
     # Public API
     # ------------------------------------------------------------------
 
-    def start(self) -> "AsyncBatchWriter":
+    def start(self) -> AsyncBatchWriter:
         """Start the background flush thread. Idempotent."""
         if self._started:
             return self
@@ -171,7 +174,7 @@ class AsyncBatchWriter:
                   self.table, self.batch_size, self.flush_interval_s)
         return self
 
-    def enqueue(self, row: Dict[str, Any]) -> None:
+    def enqueue(self, row: dict[str, Any]) -> None:
         """Non-blocking. Add a row dict to the queue.
 
         Triggers an immediate flush if queue size >= batch_size.
@@ -188,7 +191,7 @@ class AsyncBatchWriter:
 
     def flush_now(self) -> int:
         """Drain queue and flush synchronously. Returns number of rows flushed."""
-        batch: List[Dict[str, Any]] = []
+        batch: list[dict[str, Any]] = []
         while True:
             try:
                 item = self._queue.get_nowait()
@@ -228,7 +231,6 @@ class AsyncBatchWriter:
             if not self.dsn:
                 return None
             try:
-                import psycopg2
                 from psycopg2 import pool as pgpool
                 self._pool = pgpool.ThreadedConnectionPool(
                     self.pool_minconn,
@@ -244,16 +246,14 @@ class AsyncBatchWriter:
     def _close_pool(self) -> None:
         with self._pool_lock:
             if self._pool is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self._pool.closeall()
-                except Exception:
-                    pass
                 self._pool = None
 
     def _run(self) -> None:
         """Background loop: collect rows and flush on interval or size."""
         last_flush = time.monotonic()
-        batch: List[Dict[str, Any]] = []
+        batch: list[dict[str, Any]] = []
 
         while not self._shutdown_event.is_set():
             deadline = last_flush + self.flush_interval_s
@@ -291,12 +291,12 @@ class AsyncBatchWriter:
             self._flush_direct(batch)
         self.flush_now()
 
-    def _flush_direct(self, batch: List[Dict[str, Any]]) -> None:
+    def _flush_direct(self, batch: list[dict[str, Any]]) -> None:
         """Flush a batch to DB with retry logic."""
         if not batch:
             return
         t0 = time.monotonic()
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
 
         for attempt in range(1, self.max_retries + 1):
             pool = self._get_pool()
@@ -330,10 +330,8 @@ class AsyncBatchWriter:
             except Exception as exc:
                 last_exc = exc
                 if conn:
-                    try:
+                    with contextlib.suppress(Exception):
                         conn.rollback()
-                    except Exception:
-                        pass
                     try:
                         if pool and not own_conn:  # type: ignore[possibly-undefined]
                             pool.putconn(conn, close=True)
@@ -356,7 +354,7 @@ class AsyncBatchWriter:
             _ROWS_DROPPED.labels(table=self.table).inc(len(batch))
         self._write_dlq(batch, last_exc)
 
-    def _write_dlq(self, batch: List[Dict[str, Any]], error: Optional[Exception]) -> None:
+    def _write_dlq(self, batch: list[dict[str, Any]], error: Exception | None) -> None:
         """Persist dropped batch to a durable DLQ so rows can be replayed manually."""
         import json as _json
         dlq_dir = os.getenv("DB_BATCH_DLQ_DIR", "/var/lib/scanner/db_batch_dlq")
@@ -407,7 +405,7 @@ class AsyncBatchWriter:
 # Module-level convenience registry
 # ---------------------------------------------------------------------------
 
-_writers: Dict[str, AsyncBatchWriter] = {}
+_writers: dict[str, AsyncBatchWriter] = {}
 _writers_lock = threading.Lock()
 
 
@@ -434,10 +432,8 @@ def shutdown_all() -> None:
     """Flush and close all registered writers (called on process exit)."""
     with _writers_lock:
         for w in _writers.values():
-            try:
+            with contextlib.suppress(Exception):
                 w.shutdown()
-            except Exception:
-                pass
         _writers.clear()
 
 

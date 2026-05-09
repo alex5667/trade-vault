@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Stream Archiver Service - Production-grade Redis Streams -> PostgreSQL archival
 
@@ -35,20 +36,18 @@ P78 ENV keys:
 """
 
 import asyncio
-from utils.task_manager import safe_create_task
-
 import datetime as dt
 import json
 import math
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 import psycopg2
+import redis.asyncio as aioredis
 from psycopg2.extras import execute_values
 
-import redis.asyncio as aioredis
+from utils.task_manager import safe_create_task
 
 
 def env(name: str, default: str) -> str:
@@ -70,10 +69,10 @@ def env_bool(name: str, default: bool = False) -> bool:
     return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
 
 
-def parse_int_set(csv: str, default: Set[int]) -> Set[int]:
+def parse_int_set(csv: str, default: set[int]) -> set[int]:
     if not csv:
         return set(default)
-    out: Set[int] = set()
+    out: set[int] = set()
     for part in str(csv).split(","):
         part = part.strip()
         if not part:
@@ -102,7 +101,7 @@ def pick_dsn() -> str:
     )
 
 
-def safe_float(x: Any) -> Optional[float]:
+def safe_float(x: Any) -> float | None:
     """Safe float conversion + finite check"""
     try:
         if x is None:
@@ -113,7 +112,7 @@ def safe_float(x: Any) -> Optional[float]:
         return None
 
 
-def safe_int(x: Any) -> Optional[int]:
+def safe_int(x: Any) -> int | None:
     """Safe int conversion"""
     try:
         return None if x is None else int(x)
@@ -126,7 +125,7 @@ def ts_ms_from_stream_id(stream_id: str) -> int:
     return int(stream_id.split("-", 1)[0])
 
 
-def coalesce_ts_ms(payload: Dict[str, Any], stream_id: str) -> int:
+def coalesce_ts_ms(payload: dict[str, Any], stream_id: str) -> int:
     """
     Deterministic timestamp extraction:
     1) payload ts_ms/ts_event_ms/ts/timestamp_ms
@@ -139,7 +138,7 @@ def coalesce_ts_ms(payload: Dict[str, Any], stream_id: str) -> int:
     return ts_ms_from_stream_id(stream_id)
 
 
-def parse_meta_json(meta: Any) -> Optional[Dict[str, Any]]:
+def parse_meta_json(meta: Any) -> dict[str, Any] | None:
     """Parse meta field (may be JSON string). Returns dict or None."""
     if meta is None:
         return None
@@ -153,7 +152,7 @@ def parse_meta_json(meta: Any) -> Optional[Dict[str, Any]]:
     return {"_raw": str(meta)[:2000]}
 
 
-def parse_stream_payload(fields: Dict[str, Any]) -> Dict[str, Any]:
+def parse_stream_payload(fields: dict[str, Any]) -> dict[str, Any]:
     """Decode stream message fields to payload dict.
 
     Supports:
@@ -477,7 +476,7 @@ class PgWriter:
                     conn.rollback()
             conn.commit()
 
-    def insert_entry_audit(self, rows: List[Tuple[Any, ...]]) -> int:
+    def insert_entry_audit(self, rows: list[tuple[Any, ...]]) -> int:
         """Batch insert entry_policy_audit with ON CONFLICT (stream_id) DO NOTHING"""
         if not rows:
             return 0
@@ -492,12 +491,11 @@ class PgWriter:
         ) VALUES %s
         ON CONFLICT (stream_id) DO NOTHING
         """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                execute_values(cur, sql, rows, page_size=1000)
+        with self._conn() as conn, conn.cursor() as cur:
+            execute_values(cur, sql, rows, page_size=1000)
         return len(rows)
 
-    def insert_position_events(self, rows: List[Tuple[Any, ...]]) -> int:
+    def insert_position_events(self, rows: list[tuple[Any, ...]]) -> int:
         """Batch insert position_events with ON CONFLICT (stream_id) DO NOTHING"""
         if not rows:
             return 0
@@ -509,12 +507,11 @@ class PgWriter:
         ) VALUES %s
         ON CONFLICT (stream_id) DO NOTHING
         """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                execute_values(cur, sql, rows, page_size=1000)
+        with self._conn() as conn, conn.cursor() as cur:
+            execute_values(cur, sql, rows, page_size=1000)
         return len(rows)
 
-    def insert_signal_confidence_scores(self, rows: List[Tuple[Any, ...]]) -> int:
+    def insert_signal_confidence_scores(self, rows: list[tuple[Any, ...]]) -> int:
         """Batch insert signal_confidence_scores with ON CONFLICT (stream_id, ts) DO NOTHING"""
         if not rows:
             return 0
@@ -528,12 +525,11 @@ class PgWriter:
         ) VALUES %s
         ON CONFLICT (stream_id, ts) DO NOTHING
         """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                execute_values(cur, sql, rows, page_size=5000)
+        with self._conn() as conn, conn.cursor() as cur:
+            execute_values(cur, sql, rows, page_size=5000)
         return len(rows)
 
-    def insert_of_gate_metrics(self, rows: List[Tuple[Any, ...]]) -> int:
+    def insert_of_gate_metrics(self, rows: list[tuple[Any, ...]]) -> int:
         """Batch insert of_gate_metrics per-event rows (idempotent).
 
         Schema: (stream_id, ts_ms, ts, symbol, scenario_v4, schema_version,
@@ -553,12 +549,11 @@ class PgWriter:
         ) VALUES %s
         ON CONFLICT (stream_id, ts) DO NOTHING
         """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                execute_values(cur, sql, rows, page_size=5000)
+        with self._conn() as conn, conn.cursor() as cur:
+            execute_values(cur, sql, rows, page_size=5000)
         return len(rows)
 
-    def insert_of_gate_metrics_quarantine(self, rows: List[Tuple[Any, ...]]) -> int:
+    def insert_of_gate_metrics_quarantine(self, rows: list[tuple[Any, ...]]) -> int:
         """Batch insert of_gate_metrics_quarantine (idempotent).
 
         Schema: (stream_id, ts_ms, ts, source_stream, symbol, scenario_v4,
@@ -579,12 +574,11 @@ class PgWriter:
         ) VALUES %s
         ON CONFLICT (stream_id, ts) DO NOTHING
         """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                execute_values(cur, sql, rows, page_size=5000)
+        with self._conn() as conn, conn.cursor() as cur:
+            execute_values(cur, sql, rows, page_size=5000)
         return len(rows)
 
-    def insert_of_gate_metrics(self, rows: List[Tuple[Any, ...]]) -> int:
+    def insert_of_gate_metrics(self, rows: list[tuple[Any, ...]]) -> int:
         if not rows:
             return 0
         sql = """
@@ -596,12 +590,11 @@ class PgWriter:
         ) VALUES %s
         ON CONFLICT (stream_id, ts) DO NOTHING
         """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                execute_values(cur, sql, rows, page_size=5000)
+        with self._conn() as conn, conn.cursor() as cur:
+            execute_values(cur, sql, rows, page_size=5000)
         return len(rows)
 
-    def insert_of_gate_quarantine(self, rows: List[Tuple[Any, ...]]) -> int:
+    def insert_of_gate_quarantine(self, rows: list[tuple[Any, ...]]) -> int:
         if not rows:
             return 0
         sql = """
@@ -612,9 +605,8 @@ class PgWriter:
         ) VALUES %s
         ON CONFLICT (stream_id, ts) DO NOTHING
         """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                execute_values(cur, sql, rows, page_size=5000)
+        with self._conn() as conn, conn.cursor() as cur:
+            execute_values(cur, sql, rows, page_size=5000)
         return len(rows)
 
 
@@ -670,10 +662,9 @@ class PgWriter:
         ) VALUES %s
         ON CONFLICT (stream_id, ts) DO NOTHING
         """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                from psycopg2.extras import execute_values
-                execute_values(cur, sql, rows, page_size=2000)
+        with self._conn() as conn, conn.cursor() as cur:
+            from psycopg2.extras import execute_values
+            execute_values(cur, sql, rows, page_size=2000)
         return len(rows)
 
 class StreamArchiver:
@@ -829,7 +820,7 @@ class StreamArchiver:
                     continue
                 raise
 
-    async def dlq(self, dlq_stream: str, stream: str, stream_id: str, err: str, payload: Dict[str, Any]) -> None:
+    async def dlq(self, dlq_stream: str, stream: str, stream_id: str, err: str, payload: dict[str, Any]) -> None:
         """Write failed message to Dead Letter Queue"""
         await self.r.xadd(
             dlq_stream,
@@ -863,7 +854,7 @@ class StreamArchiver:
           error_total:    cumulative errors (HINCRBY)
         """
         try:
-            now_ms = int(dt.datetime.now(tz=dt.timezone.utc).timestamp() * 1000)
+            now_ms = int(dt.datetime.now(tz=dt.UTC).timestamp() * 1000)
             pipe = self.r.pipeline()
             pipe.hset(key, mapping={
                 "last_run_ts_ms": now_ms,
@@ -878,10 +869,10 @@ class StreamArchiver:
             # P78: best-effort — never fail the archiver due to metrics reporting
             pass
 
-    def entry_row(self, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
+    def entry_row(self, stream_id: str, payload: dict[str, Any]) -> tuple[Any, ...]:
         """Parse entry_policy_audit payload into DB row"""
         ts_ms = coalesce_ts_ms(payload, stream_id)
-        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
+        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.UTC)
 
         decision = (
             payload.get("decision")
@@ -910,13 +901,13 @@ class StreamArchiver:
             json.dumps(payload, ensure_ascii=False),
         )
 
-    def event_row(self, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
+    def event_row(self, stream_id: str, payload: dict[str, Any]) -> tuple[Any, ...]:
         """Parse position_events payload into DB row."""
         ts_ms = coalesce_ts_ms(payload, stream_id)
-        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
+        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.UTC)
 
         position_id = payload.get("position_id") or payload.get("order_id")
-        event_type = str(payload.get("event_type") or "UNKNOWN")
+        event_type = (payload.get("event_type") or "UNKNOWN")
         meta_json = parse_meta_json(payload.get("meta"))
 
         return (
@@ -929,10 +920,10 @@ class StreamArchiver:
             json.dumps(payload, ensure_ascii=False),
         )
 
-    def conf_score_row(self, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
+    def conf_score_row(self, stream_id: str, payload: dict[str, Any]) -> tuple[Any, ...]:
         """Parse signals:confidence:scores payload into DB row."""
         ts_ms = coalesce_ts_ms(payload, stream_id)
-        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
+        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.UTC)
 
         schema_version = safe_int(payload.get("schema_version")) or 1
         if schema_version not in self.conf_schema_accepted:
@@ -967,7 +958,7 @@ class StreamArchiver:
 
         return (
             stream_id, ts_ms, ts,
-            str(sid), str(symbol),
+            str(sid), symbol,
             int(schema_version), str(producer),
             float(conf_raw), float(conf_final) if conf_final is not None else None,
             json.dumps(evidence_map, ensure_ascii=False) if self.conf_scores_store_evidence else "{}",
@@ -978,16 +969,16 @@ class StreamArchiver:
     # P3: OF-gate per-event row builders
     # ------------------------------------------------------------------
 
-    def of_gate_row(self, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
+    def of_gate_row(self, stream_id: str, payload: dict[str, Any]) -> tuple[Any, ...]:
         """Parse metrics:of_gate payload into of_gate_metrics DB row (per-event archival).
 
         P3 schema: one row per evaluation event (ok/ok_soft/reason_code/missing_legs).
         Deterministic timestamp: payload.ts_ms -> payload.ts_event_ms -> stream_id ms.
         """
         ts_ms = coalesce_ts_ms(payload, stream_id)
-        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
+        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.UTC)
 
-        symbol = str(payload.get("symbol") or "")
+        symbol = (payload.get("symbol") or "")
         scenario_v4 = str(payload.get("scenario_v4") or payload.get("scenario") or "na")
         schema_version = safe_int(payload.get("schema_version")) or 1
 
@@ -1018,14 +1009,14 @@ class StreamArchiver:
             json.dumps(payload, ensure_ascii=False),
         )
 
-    def of_gate_quarantine_row(self, source_stream: str, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
+    def of_gate_quarantine_row(self, source_stream: str, stream_id: str, payload: dict[str, Any]) -> tuple[Any, ...]:
         """Parse quarantine:metrics:of_gate payload into of_gate_metrics_quarantine row.
 
         DQ-flagged (dirty) rows are archived separately to avoid polluting ok_rate rollups.
         The dq_code field identifies why the row was quarantined (schema mismatch, bad timestamp, etc).
         """
         ts_ms = coalesce_ts_ms(payload, stream_id)
-        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
+        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.UTC)
 
         symbol = payload.get("symbol")
         scenario_v4 = payload.get("scenario_v4") or payload.get("scenario")
@@ -1047,7 +1038,7 @@ class StreamArchiver:
         return (
             stream_id, ts_ms, ts,
             source_stream,
-            str(symbol) if symbol is not None else None,
+            symbol if symbol is not None else None,
             str(scenario_v4) if scenario_v4 is not None else None,
             int(schema_version) if schema_version is not None else None,
             int(ok) if ok is not None else None,
@@ -1057,13 +1048,13 @@ class StreamArchiver:
             json.dumps(payload, ensure_ascii=False),
         )
 
-    def _rule_view(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _rule_view(self, payload: dict[str, Any]) -> dict[str, Any]:
         r = payload.get("rule")
         return r if isinstance(r, dict) else payload
 
-    def of_gate_row(self, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
+    def of_gate_row(self, stream_id: str, payload: dict[str, Any]) -> tuple[Any, ...]:
         ts_ms = coalesce_ts_ms(payload, stream_id)
-        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
+        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.UTC)
 
         rule = self._rule_view(payload)
         symbol = str(rule.get("symbol") or payload.get("symbol") or "")
@@ -1086,9 +1077,9 @@ class StreamArchiver:
             json.dumps(payload, ensure_ascii=False),
         )
 
-    def of_gate_quarantine_row(self, stream_id: str, payload: Dict[str, Any]) -> Tuple[Any, ...]:
+    def of_gate_quarantine_row(self, stream_id: str, payload: dict[str, Any]) -> tuple[Any, ...]:
         ts_ms = coalesce_ts_ms(payload, stream_id)
-        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
+        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.UTC)
 
         src_stream = payload.get("stream") or payload.get("src_stream")
         src_stream_id = payload.get("stream_id") or payload.get("src_stream_id")
@@ -1117,7 +1108,7 @@ class StreamArchiver:
             json.dumps(inner_obj, ensure_ascii=False),
         )
 
-    async def _status_bump(self, key: str, inserted_delta: int, last_stream_ts_ms: int, err: Optional[str] = None) -> None:
+    async def _status_bump(self, key: str, inserted_delta: int, last_stream_ts_ms: int, err: str | None = None) -> None:
         try:
             now_ms = get_ny_time_millis()
             p = self.r.pipeline()
@@ -1194,8 +1185,8 @@ class StreamArchiver:
                     continue
                 _, msgs = resp[0]
 
-            rows: List[Tuple[Any, ...]] = []
-            ack_ids: List[str] = []
+            rows: list[tuple[Any, ...]] = []
+            ack_ids: list[str] = []
 
             for mid, fields in msgs:
                 try:
@@ -1242,13 +1233,13 @@ class StreamArchiver:
                     continue
                 _, msgs = resp[0]
 
-            rows: List[Tuple[Any, ...]] = []
-            ack_ids: List[str] = []
+            rows: list[tuple[Any, ...]] = []
+            ack_ids: list[str] = []
 
             for mid, fields in msgs:
                 try:
                     payload = parse_stream_payload(fields)
-                    et = str(payload.get("event_type") or "UNKNOWN")
+                    et = (payload.get("event_type") or "UNKNOWN")
                     if self.events_types and et not in self.events_types:
                         await self.r.xack(self.events_stream, self.events_cg, mid)
                         continue
@@ -1294,8 +1285,8 @@ class StreamArchiver:
                     continue
                 _, msgs = resp[0]
 
-            rows: List[Tuple[Any, ...]] = []
-            ack_ids: List[str] = []
+            rows: list[tuple[Any, ...]] = []
+            ack_ids: list[str] = []
 
             for mid, fields in msgs:
                 try:
@@ -1342,8 +1333,8 @@ class StreamArchiver:
                     continue
                 _, msgs = resp[0]
 
-            rows: List[Tuple[Any, ...]] = []
-            ack_ids: List[str] = []
+            rows: list[tuple[Any, ...]] = []
+            ack_ids: list[str] = []
             last_ts_ms: int = 0
 
             for mid, fields in msgs:
@@ -1394,8 +1385,8 @@ class StreamArchiver:
                     continue
                 _, msgs = resp[0]
 
-            rows: List[Tuple[Any, ...]] = []
-            ack_ids: List[str] = []
+            rows: list[tuple[Any, ...]] = []
+            ack_ids: list[str] = []
             last_ts_ms: int = 0
 
             for mid, fields in msgs:
@@ -1463,8 +1454,8 @@ class StreamArchiver:
                     continue
                 _, msgs = resp[0]
 
-            rows: List[Tuple[Any, ...]] = []
-            ack_ids: List[str] = []
+            rows: list[tuple[Any, ...]] = []
+            ack_ids: list[str] = []
             parse_errors = 0
             last_seen_mid = ""
 
@@ -1543,8 +1534,8 @@ class StreamArchiver:
                     continue
                 _, msgs = resp[0]
 
-            rows: List[Tuple[Any, ...]] = []
-            ack_ids: List[str] = []
+            rows: list[tuple[Any, ...]] = []
+            ack_ids: list[str] = []
             parse_errors = 0
             last_seen_mid = ""
 
@@ -1594,10 +1585,10 @@ class StreamArchiver:
         ts_ms = coalesce_ts_ms(payload, stream_id)
         import datetime as dt
         import json
-        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
+        ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.UTC)
         trade_id = str(payload.get("trade_id") or payload.get("id") or "").strip()
-        symbol = str(payload.get("symbol") or "").strip().upper()
-        side = str(payload.get("side") or "").strip().upper()
+        symbol = (payload.get("symbol") or "").strip().upper()
+        side = (payload.get("side") or "").strip().upper()
         regime = str(payload.get("regime") or payload.get("market_regime") or "unknown").strip().lower()
         if not trade_id or not symbol or not side:
             raise ValueError(f"missing_required_fields trade_id={trade_id} symbol={symbol} side={side}")
@@ -1682,7 +1673,7 @@ class StreamArchiver:
 
                 if self.post_sl_liqmap_enabled and self.post_sl_liqmap_auto_migrate:
                     await loop.run_in_executor(None, self.pg.ensure_trade_kpi_liqmap_v1_table)
-                    
+
                 break # Success
             except Exception as e:
                 err_str = str(e).lower()

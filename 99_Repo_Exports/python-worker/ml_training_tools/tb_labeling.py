@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
 import math
+from dataclasses import dataclass
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -25,7 +25,7 @@ class Barriers:
 
 
 def infer_tp_sl_bps(
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     *,
     tp_k_atr: float,
     sl_k_atr: float,
@@ -75,11 +75,11 @@ def barrier_stats(
     ts0: int,
     direction: str,
     entry_px: float,
-    path: List[Tuple[int, float]],  # (ts, px) ascending
+    path: list[tuple[int, float]],  # (ts, px) ascending
     b: Barriers,
     h_ms: int,
     adv_max: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute triple-barrier outcome + MAE/MFE + adverse_proxy.
 
@@ -158,7 +158,7 @@ def barrier_stats(
     }
 
 
-def exec_cost_r(indicators: Dict[str, Any], scale_bps: float) -> float:
+def exec_cost_r(indicators: dict[str, Any], scale_bps: float) -> float:
     """
     Compute execution cost in R-multiples (spread + slippage normalized by scale).
     

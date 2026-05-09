@@ -1,5 +1,10 @@
-import json
-from orderflow_services.route_incident_rca_mirror_rca_winner_apply_bundle_rca_bridge_v3_20 import vertex_degraded_from_hash, decide_route, build_vertex_payload, build_local_fallback_payload
+from orderflow_services.route_incident_rca_mirror_rca_winner_apply_bundle_rca_bridge_v3_20 import (
+    build_local_fallback_payload,
+    build_vertex_payload,
+    decide_route,
+    vertex_degraded_from_hash,
+)
+
 
 def test_vertex_degraded_from_hash():
     # Deterministic test

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Promote edge_stack_v1 champion → cfg:ml_confirm:champion with CANARY mode.
 
@@ -19,13 +20,12 @@ Usage:
 Rollback:
   python3 tools/promote_edge_stack_to_canary.py --rollback
 """
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
 import sys
-import time
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis
@@ -82,7 +82,7 @@ def cmd_promote(r: redis.Redis, *, dry_run: bool, force: bool) -> int:
         print("  NOT FOUND (will be created)")
 
     # 2) Check edge_stack_v1 champion (source)
-    print(f"\n📋 Step 2: Source model (edge_stack_v1:champion)")
+    print("\n📋 Step 2: Source model (edge_stack_v1:champion)")
     print("-" * 50)
     src = _load_json(r, EDGE_STACK_CHAMPION_KEY)
     if not src:
@@ -105,7 +105,7 @@ def cmd_promote(r: redis.Redis, *, dry_run: bool, force: bool) -> int:
         return 1
 
     # 3) Build new champion config
-    print(f"\n📋 Step 3: New champion config")
+    print("\n📋 Step 3: New champion config")
     print("-" * 50)
     new_cfg = dict(src)
     new_cfg["mode"] = "CANARY"
@@ -116,7 +116,7 @@ def cmd_promote(r: redis.Redis, *, dry_run: bool, force: bool) -> int:
     if "schema_version" not in new_cfg:
         new_cfg["schema_version"] = 1
 
-    print(f"  mode:          CANARY")
+    print("  mode:          CANARY")
     print(f"  enforce_share: {INITIAL_ENFORCE_SHARE}")
     print(f"  run_id:        {new_cfg.get('run_id')}")
 
@@ -126,7 +126,7 @@ def cmd_promote(r: redis.Redis, *, dry_run: bool, force: bool) -> int:
         return 0
 
     # 4) Backup + write
-    print(f"\n📋 Step 4: Applying promotion")
+    print("\n📋 Step 4: Applying promotion")
     print("-" * 50)
 
     # Backup current champion
@@ -144,14 +144,14 @@ def cmd_promote(r: redis.Redis, *, dry_run: bool, force: bool) -> int:
         v = json.loads(verify)
         print(f"  ✅ Verified: mode={v.get('mode')} enforce_share={v.get('enforce_share')}")
     else:
-        print(f"  ❌ VERIFICATION FAILED: champion is empty after write!")
+        print("  ❌ VERIFICATION FAILED: champion is empty after write!")
         return 1
 
     print(f"\n{'='*70}")
     print("✅ PROMOTION COMPLETE — ML Confirm Gate now in CANARY mode (5%)")
     print(f"{'='*70}")
-    print(f"\nNext: Calibrator (daily 03:30 UTC) will propose ladder steps via Telegram.")
-    print(f"Rollback: python3 tools/promote_edge_stack_to_canary.py --rollback\n")
+    print("\nNext: Calibrator (daily 03:30 UTC) will propose ladder steps via Telegram.")
+    print("Rollback: python3 tools/promote_edge_stack_to_canary.py --rollback\n")
     return 0
 
 
@@ -171,7 +171,7 @@ def cmd_rollback(r: redis.Redis) -> int:
     cur["updated_by"] = "rollback_to_shadow"
 
     r.set(CHAMPION_KEY, _dump(cur))
-    print(f"✅ Reverted to SHADOW mode (enforce_share=0.0)")
+    print("✅ Reverted to SHADOW mode (enforce_share=0.0)")
     print(f"   run_id: {cur.get('run_id')}")
     return 0
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Incremental Redis-side rollup for orchestration composite preflight events.
 
 Design intent:
@@ -13,8 +15,9 @@ and persists a cursor. Buckets are safe to read cheaply later by a textfile expo
 import json
 import os
 import re
-import time
-from typing import Any, Iterable, Mapping, Tuple
+from collections.abc import Iterable, Mapping
+from typing import Any
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -135,14 +138,14 @@ def encode_field(*, purpose: str, selected_source: str, decision_status: str, se
     )
 
 
-def decode_field(value: str) -> Tuple[str, str, str, str]:
+def decode_field(value: str) -> tuple[str, str, str, str]:
     arr = json.loads(value)
     if not isinstance(arr, list) or len(arr) != 4:
         raise ValueError("invalid field")
     return (str(arr[0]), str(arr[1]), str(arr[2]), str(arr[3]))
 
 
-def _event_dims(payload: Mapping[str, Any]) -> Tuple[str, str, str, str]:
+def _event_dims(payload: Mapping[str, Any]) -> tuple[str, str, str, str]:
     source = normalize_source(payload.get("selected_source") or payload.get("source"))
     status = normalize_status(payload.get("decision_status") or payload.get("status"))
     purpose = _safe_text(payload.get("purpose"), "unknown") or "unknown"
@@ -163,7 +166,7 @@ def _bootstrap_cursor(r: Any, stream_key: str, cursor_key: str, state_key: str, 
             cursor = str(latest[0][0])
         skipped = 1
     r.set(cursor_key, cursor)
-    try:
+    with contextlib.suppress(Exception):
         r.hset(
             state_key,
             mapping={
@@ -172,8 +175,6 @@ def _bootstrap_cursor(r: Any, stream_key: str, cursor_key: str, state_key: str, 
                 "last_rollup_ts_ms": str(_now_ms()),
             }
         )
-    except Exception:
-        pass
     return cursor
 
 

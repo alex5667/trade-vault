@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict
+from datetime import UTC, datetime
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -22,9 +22,9 @@ class OFCContextV1:
     artifact_version: str = ""
 
 
-def _pick_session(indicators: Dict[str, Any]) -> str:
+def _pick_session(indicators: dict[str, Any]) -> str:
     for key in ("ctx_session", "session_name", "session"):
-        v = str(indicators.get(key, "") or "").strip().lower()
+        v = (indicators.get(key, "") or "").strip().lower()
         if v:
             return v
     for key in ("session_asia", "session_eu", "session_us", "session_off"):
@@ -41,12 +41,12 @@ def build_ofc_context(
     symbol: str,
     direction: str,
     ts_ms: int,
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     runtime: Any,
     scenario_base: str,
     scenario_v4: str,
 ) -> OFCContextV1:
-    dt = datetime.fromtimestamp(max(0, int(ts_ms)) / 1000.0, tz=timezone.utc)
+    dt = datetime.fromtimestamp(max(0, int(ts_ms)) / 1000.0, tz=UTC)
     liq_regime = str(
         indicators.get("liq_regime", getattr(runtime, "liq_regime", getattr(runtime, "last_regime", "na"))) or "na"
     )
@@ -60,13 +60,13 @@ def build_ofc_context(
         indicators.get("dn_tier_active", indicators.get("notional_bucket", "na")) or "na"
     )
     return OFCContextV1(
-        symbol=str(symbol or ""),
-        direction=str(direction or "").upper(),
+        symbol=(symbol or ""),
+        direction=(direction or "").upper(),
         ts_ms=int(ts_ms or 0),
         session=_pick_session(indicators),
         dow=int(dt.weekday()),
         hour_utc=int(dt.hour),
-        scenario_base=str(scenario_base or ""),
+        scenario_base=(scenario_base or ""),
         scenario_v4=str(scenario_v4 or scenario_base or ""),
         liq_regime=liq_regime,
         vol_regime=vol_regime,

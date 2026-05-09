@@ -1,7 +1,6 @@
 import json
 import logging
-import time
-from typing import Dict, Any, List
+from typing import Any
 
 from services.analytics_db import get_conn
 
@@ -195,7 +194,7 @@ def initialize_registry_in_db() -> None:
     except Exception as e:
         logger.error(f"Failed to initialize Invariant Registry in DB: {e}")
 
-def get_active_invariants() -> List[Dict[str, Any]]:
+def get_active_invariants() -> list[dict[str, Any]]:
     """Fetch active invariants from DB. Falls back to static list if DB fails."""
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Optional, Dict, Tuple
+from typing import Any
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -13,10 +13,10 @@ def _env_bool(name: str, default: bool) -> bool:
 def _safe_float(v: Any, default: float = 0.0) -> float:
     try:
         if v is None:
-            return float(default)
+            return default
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _pick_attr(obj: Any, *names: str) -> Any:
@@ -99,8 +99,8 @@ class TrailConditionalEvaluator:
     tf_default: str = "1m"
 
     @classmethod
-    def from_env(cls, *, redis: Any = None) -> "TrailConditionalEvaluator":
-        return cls(redis=redis, tf_default=str(os.getenv("TRAIL_TF_DEFAULT", "1m") or "1m"))
+    def from_env(cls, *, redis: Any = None) -> TrailConditionalEvaluator:
+        return cls(redis=redis, tf_default=(os.getenv("TRAIL_TF_DEFAULT", "1m") or "1m"))
 
     def _trailstats_key(self, *, kind: str, symbol: str, tf: str, regime: str) -> str:
         # writer is in services/trail_giveback_stats.py
@@ -110,7 +110,7 @@ class TrailConditionalEvaluator:
             rg = "na"
         return f"trailstats:{kind}:{symbol}:{tf}:{rg}"
 
-    def _read_ema_giveback_r(self, *, kind: str, symbol: str, tf: str, regime: str) -> Optional[float]:
+    def _read_ema_giveback_r(self, *, kind: str, symbol: str, tf: str, regime: str) -> float | None:
         r = self.redis
         if r is None:
             return None
@@ -197,7 +197,7 @@ class TrailConditionalEvaluator:
 
 def apply_trailing_policy_to_payload(
     *,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     ctx: Any,
     evaluator: Any,
     side: str,
@@ -206,7 +206,7 @@ def apply_trailing_policy_to_payload(
     tf: str,
     regime: str,
     reason_max_len: int = 256,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Single source of truth for propagating conditional trailing decision.
 
@@ -242,9 +242,9 @@ def apply_trailing_policy_to_payload(
 
     # ctx mirrors payload (useful for logs/telegram note/debug)
     try:
-        setattr(ctx, "trail_after_tp1", bool(payload.get("trail_after_tp1", True)))
-        setattr(ctx, "trail_after_tp1_reason", str(payload.get("trail_after_tp1_reason", ""))[:reason_max_len])
+        ctx.trail_after_tp1 = bool(payload.get("trail_after_tp1", True))
+        ctx.trail_after_tp1_reason = (payload.get("trail_after_tp1_reason", ""))[:reason_max_len]
     except Exception:
         pass
 
-    return bool(payload.get("trail_after_tp1", True)), str(payload.get("trail_after_tp1_reason", ""))
+    return bool(payload.get("trail_after_tp1", True)), (payload.get("trail_after_tp1_reason", ""))

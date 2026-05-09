@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Unit tests for tools/ml_confirm_gate_calibrator.py
 """
@@ -6,7 +7,7 @@ Unit tests for tools/ml_confirm_gate_calibrator.py
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch, call
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -17,17 +18,13 @@ if str(tools_path) not in sys.path:
 
 # ── Import module under test ──────────────────────────────────────────────── #
 from ml_confirm_gate_calibrator import (
+    _build_proposal_bundle,
+    _holddown_ok,
     _ladder_next,
     _precision_threshold,
     _should_propose,
-    _build_proposal_bundle,
-    _load_champion_cfg,
-    _save_champion_cfg,
-    _holddown_ok,
     main,
-    LADDER_LEVELS,
 )
-
 
 # ────────────────────────────────────────── ladder_next tests ─────────────── #
 
@@ -221,7 +218,7 @@ def _make_ml_event(allow: int, sid: str, mode: str = "SHADOW") -> dict:
 
 
 def _make_trade(sid: str, r_mult: float) -> dict:
-    return {"sid": sid, "r_mult": str(r_mult), "ts_ms": str(int(1700000000000))}
+    return {"sid": sid, "r_mult": str(r_mult), "ts_ms": str(1700000000000)}
 
 
 class TestMainDryRun:
@@ -252,9 +249,8 @@ class TestMainDryRun:
         mock_r.xrevrange.side_effect = xrevrange_side
         mock_get_redis.return_value = mock_r
 
-        with patch("sys.argv", ["cal.py", "--dry-run", "--hours", "168"]):
-            with pytest.raises(SystemExit) as exc:
-                main()
+        with patch("sys.argv", ["cal.py", "--dry-run", "--hours", "168"]), pytest.raises(SystemExit) as exc:
+            main()
         assert exc.value.code == 0
 
         # Must NOT write bundle in dry-run
@@ -271,9 +267,8 @@ class TestMainPendingGuard:
 
         mock_get_redis.return_value = mock_r
 
-        with patch("sys.argv", ["cal.py", "--hours", "168"]):
-            with pytest.raises(SystemExit) as exc:
-                main()
+        with patch("sys.argv", ["cal.py", "--hours", "168"]), pytest.raises(SystemExit) as exc:
+            main()
         assert exc.value.code == 0
         # Should not have read any streams
         mock_r.xrange.assert_not_called()
@@ -287,9 +282,8 @@ class TestMainNoChampion:
         mock_r.exists.return_value = 0
         mock_get_redis.return_value = mock_r
 
-        with patch("sys.argv", ["cal.py", "--dry-run"]):
-            with pytest.raises(SystemExit) as exc:
-                main()
+        with patch("sys.argv", ["cal.py", "--dry-run"]), pytest.raises(SystemExit) as exc:
+            main()
         assert exc.value.code == 0
 
 
@@ -301,7 +295,6 @@ class TestMainAlreadyAtTop:
         mock_r.exists.return_value = 0
         mock_get_redis.return_value = mock_r
 
-        with patch("sys.argv", ["cal.py", "--dry-run"]):
-            with pytest.raises(SystemExit) as exc:
-                main()
+        with patch("sys.argv", ["cal.py", "--dry-run"]), pytest.raises(SystemExit) as exc:
+            main()
         assert exc.value.code == 0

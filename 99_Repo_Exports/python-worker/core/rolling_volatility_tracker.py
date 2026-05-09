@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Realized volatility tracker (std of log-returns) deterministic by ts_ms.
 
 Definition
@@ -15,7 +16,6 @@ If we have fewer than 3 prices (fewer than 2 log-returns):
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List
 
 from core.rolling_window import RollingWindow
 
@@ -37,7 +37,7 @@ class RollingVolatilityTracker:
     maxlen: int = 512
 
     _px: RollingWindow[float] = None  # type: ignore
-    last_snapshot: Dict[str, float] = None  # type: ignore
+    last_snapshot: dict[str, float] = None  # type: ignore
 
     def __post_init__(self) -> None:
         self._px = RollingWindow[float](horizon_ms=int(self.horizon_ms), maxlen=int(self.maxlen))
@@ -53,7 +53,7 @@ class RollingVolatilityTracker:
     def apply_config(self, *, horizon_ms: int, maxlen: int) -> None:
         self._px.apply_config(horizon_ms=int(horizon_ms or 0), maxlen=int(maxlen or 0))
 
-    def update(self, *, ts_ms: int, px: float) -> Dict[str, float]:
+    def update(self, *, ts_ms: int, px: float) -> dict[str, float]:
         ts_ms = int(ts_ms or 0)
         px = float(px or 0.0)
         ok = self._px.push(ts_ms, px)
@@ -65,13 +65,13 @@ class RollingVolatilityTracker:
             self.last_snapshot = snap
             return dict(snap)
 
-        prices: List[float] = [float(v) for _, v in self._px.items() if float(v) > 0 and math.isfinite(float(v))]
+        prices: list[float] = [float(v) for _, v in self._px.items() if float(v) > 0 and math.isfinite(float(v))]
         if len(prices) < 3:
             snap = {"realized_vol_bps": 0.0, "realized_vol_no_data": 1.0}
             self.last_snapshot = snap
             return dict(snap)
 
-        rets: List[float] = []
+        rets: list[float] = []
         for i in range(1, len(prices)):
             p0 = prices[i - 1]
             p1 = prices[i]

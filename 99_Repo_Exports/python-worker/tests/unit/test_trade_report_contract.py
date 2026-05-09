@@ -1,11 +1,11 @@
 import pytest
 
 from common.trade_report_contract import (
-    compute_hold_ms_with_quarantine,
-    normalize_close_bucket,
-    extract_tp_flags_from_pos,
-    compute_baseline_pnl_net_usd,
     clamp_one_r_money,
+    compute_baseline_pnl_net_usd,
+    compute_hold_ms_with_quarantine,
+    extract_tp_flags_from_pos,
+    normalize_close_bucket,
 )
 
 

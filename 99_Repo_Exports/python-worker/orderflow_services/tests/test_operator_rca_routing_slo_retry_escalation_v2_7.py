@@ -1,6 +1,6 @@
 from orderflow_services.operator_rca_routing_slo_analytics_v2_7 import _reason_codes
-from orderflow_services.rollback_retry_controller_v2_7 import _backoff_sec, RETRYABLE, NON_RETRYABLE
 from orderflow_services.rollback_auto_escalation_summarizer_v2_7 import _severity
+from orderflow_services.rollback_retry_controller_v2_7 import NON_RETRYABLE, RETRYABLE, _backoff_sec
 
 
 def test_reason_codes():

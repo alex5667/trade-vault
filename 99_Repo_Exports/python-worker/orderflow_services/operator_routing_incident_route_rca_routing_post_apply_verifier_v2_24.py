@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
@@ -42,7 +43,7 @@ LAT = _hist("ml_operator_routing_incident_route_rca_routing_verify_latency_secon
 LAST_RUN = _gauge("ml_operator_routing_incident_route_rca_routing_verify_last_run_ts_seconds", "Last timestamp")
 
 def now_ms() -> int: return get_ny_time_millis()
-def as_dict(record: Dict[bytes, bytes]) -> Dict[str, str]:
+def as_dict(record: dict[bytes, bytes]) -> dict[str, str]:
     return {k.decode("utf-8"): v.decode("utf-8") for k, v in record.items()}
 
 async def ensure_group(r: Any, stream: str, group: str) -> None:
@@ -67,34 +68,34 @@ async def run_loop(r: Any) -> None:
                 try:
                     row = as_dict(payload)
                     inc_id = row.get("incident_id", "unknown")
-                    
+
                     # Verification logic
                     # Check current route
                     route_key = "cfg:ml:operator_routing_incident_route_rca_routing:default"
                     current_route = await r.hgetall(route_key)
                     current_route = as_dict(current_route) if current_route else {}
-                    
+
                     # Mock verification for this phase
                     verify_status = "SUCCESS"
                     reason = "All checks passed"
-                    
+
                     if not current_route:
                         verify_status = "ROUTE_MISMATCH"
                         reason = "Default route configuration not found"
-                    
+
                     # Check feedback metrics if available
                     # feedback = await r.hgetall(FEEDBACK_KEY)
-                    
+
                     verify_result = {
                         "incident_id": inc_id,
                         "status": verify_status,
                         "reason": reason,
                         "ts_ms": now_ms()
                     }
-                    
+
                     await r.xadd(OUT_STREAM, verify_result, maxlen=MAXLEN, approximate=True)
                     await r.xadd(AUDIT_STREAM, verify_result, maxlen=MAXLEN, approximate=True)
-                    
+
                     if verify_status != "SUCCESS":
                         rollback_req = {
                             "incident_id": inc_id,
@@ -103,12 +104,12 @@ async def run_loop(r: Any) -> None:
                             "ts_ms": now_ms()
                         }
                         await r.xadd(ROLLBACK_STREAM, rollback_req, maxlen=MAXLEN, approximate=True)
-                    
+
                     await r.xack(IN_STREAM, GROUP, msg_id)
                 except Exception:
                     status = "error"
                     await r.xack(IN_STREAM, GROUP, msg_id)
-                    
+
         if LAST_RUN: LAST_RUN.set(time.time())
     except Exception:
         status = "error"

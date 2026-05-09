@@ -1,5 +1,8 @@
 # python-worker/tools/meta_auto_ramp_v2.py
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+
 """
 Regime-aware auto-ramp for meta-model.
 
@@ -24,10 +27,9 @@ Writes dynamic cfg keys:
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, Optional, Tuple
 import sys
-from pathlib import Path
+import time
+from typing import Any
 
 # P16: DQ-aware freeze latch
 try:
@@ -41,7 +43,7 @@ except Exception:
     redis = None  # type: ignore
 
 
-def _try_load_cfg2(redis_url: str) -> Dict[str, Any]:
+def _try_load_cfg2(redis_url: str) -> dict[str, Any]:
     """Best-effort load of merged config knobs from Redis dynamic cfg hash."""
     if not redis_url:
         return {}
@@ -69,11 +71,11 @@ def _f(x: Any, d: float) -> float:
         return d
 
 
-def _get(cfg: Dict[str, Any], key: str, default: Any = None) -> Any:
+def _get(cfg: dict[str, Any], key: str, default: Any = None) -> Any:
     return cfg.get(key, default)
 
 
-def _get_schema_override(cfg: Dict[str, Any], key: str, schema: str, default: Any) -> Any:
+def _get_schema_override(cfg: dict[str, Any], key: str, schema: str, default: Any) -> Any:
     if schema:
         k2 = f"{key}__{schema}"
         if k2 in cfg:
@@ -102,7 +104,7 @@ def _parse_cfg_value(v: Any) -> Any:
         return s
 
 
-def _load_dyn_cfg() -> Dict[str, Any]:
+def _load_dyn_cfg() -> dict[str, Any]:
     # expects Redis hash key in env
     if redis is None:
         return {}
@@ -113,7 +115,7 @@ def _load_dyn_cfg() -> Dict[str, Any]:
     key = os.environ.get("DYN_CFG_KEY", "settings:dynamic_cfg")
     r = redis.Redis(host=host, port=port, db=db, password=password, decode_responses=True)
     d = r.hgetall(key) or {}
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in d.items():
         out[str(k)] = _parse_cfg_value(v)
     out["_redis_key"] = key
@@ -121,12 +123,12 @@ def _load_dyn_cfg() -> Dict[str, Any]:
     return out
 
 
-def _write_dyn_cfg(cfg: Dict[str, Any], patch: Dict[str, Any]) -> None:
+def _write_dyn_cfg(cfg: dict[str, Any], patch: dict[str, Any]) -> None:
     r = cfg.get("_redis")
     key = cfg.get("_redis_key")
     if r is None or key is None:
         return
-    m: Dict[str, str] = {}
+    m: dict[str, str] = {}
     for k, v in patch.items():
         if isinstance(v, (dict, list)):
             m[k] = json.dumps(v, ensure_ascii=False)
@@ -135,7 +137,7 @@ def _write_dyn_cfg(cfg: Dict[str, Any], patch: Dict[str, Any]) -> None:
     r.hset(key, mapping=m)
 
 
-def _extract_report_metrics(report: Dict[str, Any]) -> Dict[str, float]:
+def _extract_report_metrics(report: dict[str, Any]) -> dict[str, float]:
     m = report.get("metrics") or {}
     return {
         "ece": _f(m.get("ece"), 0.0),
@@ -146,7 +148,7 @@ def _extract_report_metrics(report: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
-def _extract_worst(report: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_worst(report: dict[str, Any]) -> dict[str, Any]:
     w = report.get("worst") or {}
     return {
         "coverage_groups": int(_f(w.get("coverage_groups"), 0)),
@@ -170,14 +172,14 @@ def main() -> None:
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     args = ap.parse_args()
 
-    report = json.loads(open(args.report_json, "r", encoding="utf-8").read())
+    report = json.loads(open(args.report_json, encoding="utf-8").read())
     schema = ""
     if isinstance(report.get("schema"), dict):
         schema = str(report["schema"].get("name") or "")
-    schema = schema or str(report.get("schema_name") or "")
+    schema = schema or (report.get("schema_name") or "")
 
     dyn = _load_dyn_cfg()
-    cfg2: Dict[str, Any] = _try_load_cfg2(getattr(args, "redis_url", ""))
+    cfg2: dict[str, Any] = _try_load_cfg2(getattr(args, "redis_url", ""))
     schema_name = args.schema or report.get("schema_name") or report.get("model", {}).get("schema_name") or ""
 
     # --- P16: DQ latch ---
@@ -199,7 +201,7 @@ def main() -> None:
 
     # Guard latch (P11)
     guard_freeze = int(_f(dyn.get("meta_guard_freeze"), 0))
-    guard_reason = str(dyn.get("meta_guard_reason") or "")
+    guard_reason = (dyn.get("meta_guard_reason") or "")
     if guard_freeze == 1 and int(args.ignore_guard) != 1:
         decision = {
             "ts": _now_iso(),
@@ -269,7 +271,7 @@ def main() -> None:
     prefix = str(args.state_key_prefix)
     good_streak = int(_f(dyn.get(prefix + "good_streak"), 0))
     bad_streak = int(_f(dyn.get(prefix + "bad_streak"), 0))
-    share = float(_f(dyn.get("meta_enforce_share"), float(os.environ.get("META_ENFORCE_SHARE_DEFAULT", "0.0"))))
+    share = float(_f(dyn.get(MetaKeys.ENFORCE_SHARE), float(os.environ.get("META_ENFORCE_SHARE_DEFAULT", "0.0"))))
 
     up_after = int(_get(dyn, "meta_ramp_up_after", int(os.environ.get("META_RAMP_UP_AFTER", "3"))))
     down_after = int(_get(dyn, "meta_ramp_down_after", int(os.environ.get("META_RAMP_DOWN_AFTER", "2"))))

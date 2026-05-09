@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Asset tests: P1.2.2 HA projection worker — YAML and docker-compose checks."""
 
 

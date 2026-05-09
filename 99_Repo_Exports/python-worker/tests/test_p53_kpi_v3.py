@@ -1,7 +1,12 @@
 import unittest
-import json
-from unittest.mock import MagicMock, patch
-from services.orderflow.tools.signal_quality_kpi_worker_v3 import _ece, _precision_top_p, _win_label, _extract_score_prob
+
+from services.orderflow.tools.signal_quality_kpi_worker_v3 import (
+    _ece,
+    _extract_score_prob,
+    _precision_top_p,
+    _win_label,
+)
+
 
 class TestKPIV3(unittest.TestCase):
 
@@ -31,7 +36,7 @@ class TestKPIV3(unittest.TestCase):
         score, prob = _extract_score_prob(d, ["ml_p_cal", "ml_p"], ["ml_p_cal", "ml_p"])
         self.assertEqual(score, 0.75)
         self.assertEqual(prob, 0.75)
-        
+
         d2 = {"score": 0.5}
         score2, prob2 = _extract_score_prob(d2, ["ml_p", "score"], ["ml_p"])
         self.assertEqual(score2, 0.5)

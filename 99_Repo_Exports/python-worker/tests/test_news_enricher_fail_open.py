@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import types
-import pytest
-
 
 class DummyRedis:
     def pipeline(self, transaction=False):

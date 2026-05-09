@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """conf_score_guard_state_exporter_v1.py
 
 Prometheus exporter for the confidence score guardrails state file.
@@ -15,13 +14,13 @@ orderflow_services/conf_score_guardrails_apply_v1.py and exposes:
 Designed for low cardinality: exports only symbols present in the state file.
 """
 
-import os
-import time
 import json
 import logging
-from typing import Any, Dict
+import os
+import time
+from typing import Any
 
-from prometheus_client import start_http_server, Gauge
+from prometheus_client import Gauge, start_http_server
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +47,9 @@ STAGE_AGE = Gauge("conf_score_guard_stage_pointer_age_seconds", "Age of staged.j
 PROMOTE_LAST_OK = Gauge("conf_score_guard_promote_last_ok", "1 if current.json is valid and recent")
 PROMOTE_AGE = Gauge("conf_score_guard_promote_last_age_seconds", "Age of current.json in seconds")
 
-def _load(path: str) -> Dict[str, Any]:
+def _load(path: str) -> dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
     except Exception:
@@ -59,13 +58,13 @@ def _load(path: str) -> Dict[str, Any]:
 def main() -> None:
     path = os.getenv("CONF_SCORE_GUARD_STATE_PATH", "/tmp/conf_score_guard_state.json")
     bundle_dir = os.getenv("CONF_SCORE_GUARD_BUNDLE_DIR", "/var/lib/trade/conf_score_guard_bundles")
-    
+
     port = int(os.getenv("CONF_SCORE_GUARD_EXPORTER_PORT", "9135"))
     sleep_s = float(os.getenv("CONF_SCORE_GUARD_EXPORTER_INTERVAL_SEC", "15"))
 
     start_http_server(port)
     logger.info(f"Serving metrics on port {port}, reading {path}")
-    
+
     # Pre-declare metrics that might not be in state
     STAGE_PRESENT.set(0)
     STAGE_AGE.set(0)
@@ -82,9 +81,9 @@ def main() -> None:
 
                 data = _load(path)
                 decisions = data.get("decisions") if isinstance(data.get("decisions"), dict) else {}
-                
+
                 SYMBOLS.set(float(len(decisions)))
-                
+
                 canary_count = 0
                 for sym, d in decisions.items():
                     if isinstance(d, dict) and int(d.get("canary", 0) or 0) == 1:
@@ -94,7 +93,7 @@ def main() -> None:
                 apply_info = data.get("apply") if isinstance(data.get("apply"), dict) else {}
                 APPLIED.set(float(apply_info.get("applied", 0) or 0))
                 # SKIPPED metric might need better definition, for now keep as is if used
-                
+
                 bundle_info = data.get("bundle") if isinstance(data.get("bundle"), dict) else {}
                 ts = float(data.get("ts_ms") or 0)
                 BUNDLE_TS.set(ts)
@@ -112,7 +111,7 @@ def main() -> None:
                     CANARY.labels(symbol=sym_s).set(1.0 if int(d.get("canary", 0) or 0) == 1 else 0.0)
             else:
                 STATUS_AGE.set(9999)
-            
+
             # 2. Stage/Promote Metrics
             if bundle_dir:
                 # Stage
@@ -122,12 +121,12 @@ def main() -> None:
                     try:
                         sage = time.time() - os.path.getmtime(staged_path)
                         STAGE_AGE.set(sage)
-                    except:
+                    except Exception:
                         STAGE_AGE.set(0)
                 else:
                     STAGE_PRESENT.set(0)
                     STAGE_AGE.set(0)
-                
+
                 # Promote (Current)
                 current_path = os.path.join(bundle_dir, "current.json")
                 if os.path.exists(current_path):
@@ -135,7 +134,7 @@ def main() -> None:
                         cage = time.time() - os.path.getmtime(current_path)
                         PROMOTE_AGE.set(cage)
                         PROMOTE_LAST_OK.set(1)
-                    except:
+                    except Exception:
                         PROMOTE_AGE.set(0)
                         PROMOTE_LAST_OK.set(0)
                 else:
@@ -144,7 +143,7 @@ def main() -> None:
 
         except Exception as e:
             logger.error(f"Error reading state: {e}")
-        
+
         time.sleep(sleep_s)
 
 

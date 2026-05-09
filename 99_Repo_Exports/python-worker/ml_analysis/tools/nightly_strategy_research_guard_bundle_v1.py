@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
-import os
-import json
-import time
-import sys
 import argparse
-from typing import Dict, Any, List
+import json
+import os
+import sys
+import time
+from typing import Any
+
 import redis
 
-from ml_analysis.psr_dsr import probabilistic_sharpe_ratio as compute_psr, deflated_sharpe_ratio as compute_dsr
 from ml_analysis.pbo_cscv import compute_pbo
+from ml_analysis.psr_dsr import deflated_sharpe_ratio as compute_dsr
+from ml_analysis.psr_dsr import probabilistic_sharpe_ratio as compute_psr
 from ml_analysis.reality_check import evaluate_rows as evaluate_strategy
+import contextlib
 
-def load_dataset(filepath: str) -> List[Dict[str, Any]]:
+
+def load_dataset(filepath: str) -> list[dict[str, Any]]:
     dataset = []
     if os.path.exists(filepath):
-        with open(filepath, 'r') as f:
+        with open(filepath) as f:
             for line in f:
                 if line.strip():
-                    try:
+                    with contextlib.suppress(Exception):
                         dataset.append(json.loads(line))
-                    except:
-                        pass
     return dataset
 
 def main():
@@ -34,9 +36,9 @@ def main():
     psr_min = float(os.getenv("PSR_MIN", "0.95"))
     dsr_min = float(os.getenv("DSR_MIN", "0.90"))
     pbo_max = float(os.getenv("PBO_MAX", "0.10"))
-    
+
     dataset = load_dataset(args.dataset)
-    
+
     # Check if dataset has real variants, otherwise fallback deterministic
     variants_data = {}
     for row in dataset:
@@ -46,23 +48,23 @@ def main():
 
     # Universal Evaluator
     universal_metrics = evaluate_strategy(dataset)
-    
+
     # PSR / DSR
     returns_default = variants_data.get("default", [])
     if not returns_default and variants_data:
         returns_default = next(iter(variants_data.values()))
-        
+
     psr = compute_psr(returns_default) if returns_default else 0.0
     dsr = compute_dsr(returns_default, n_trials=len(variants_data) if len(variants_data) > 0 else 1) if returns_default else 0.0
-    
+
     # PBO / CSCV
     returns_matrix = {k: v for k, v in variants_data.items()}
-    
+
     # Ensure all variants have same length for matrix operations
     if returns_matrix:
         min_len = min(len(v) for v in returns_matrix.values())
         returns_matrix = {k: v[:min_len] for k, v in returns_matrix.items() if len(v) > 0}
-        
+
     if returns_matrix and len(returns_matrix) > 0 and len(next(iter(returns_matrix.values()))) > 0:
         try:
             pbo_result = compute_pbo(returns_matrix, n_folds=4)
@@ -70,25 +72,25 @@ def main():
             pbo_result = {"pbo": 1.0, "cscv_splits": 0}
     else:
         pbo_result = {"pbo": 1.0, "cscv_splits": 0}
-        
+
     pbo=pbo_result.get("pbo", 0.0)
     cscv_splits=pbo_result.get("cscv_splits", 0.0)
 
     blocker_active = False
     reasons = []
-    
+
     if psr < psr_min:
         reasons.append(f"PSR ({psr:.2f}) < MIN ({psr_min})")
     if dsr < dsr_min:
         reasons.append(f"DSR ({dsr:.2f}) < MIN ({dsr_min})")
     if pbo > pbo_max:
         reasons.append(f"PBO ({pbo:.2f}) > MAX ({pbo_max})")
-        
+
     if reasons:
         blocker_active = True
-        
+
     report_only = int(os.getenv("STRATEGY_RESEARCH_GUARD_REPORT_ONLY", "1"))
-    
+
     report = {
         "timestamp": int(time.time()),
         "metrics": {
@@ -103,10 +105,10 @@ def main():
         "reason": "; ".join(reasons) if reasons else "ok",
         "report_only": report_only
     }
-    
+
     with open(args.report_path, "w") as f:
         json.dump(report, f, indent=2)
-        
+
     try:
         r = redis.from_url(args.redis_url)
         # Publish metrics summary

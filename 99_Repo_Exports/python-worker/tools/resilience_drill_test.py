@@ -1,8 +1,8 @@
-from utils.time_utils import get_ny_time_millis
 import os
 import sys
-import time
 from unittest.mock import MagicMock
+
+from utils.time_utils import get_ny_time_millis
 
 sys.modules['prometheus_client'] = MagicMock()
 
@@ -13,6 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from services.orderflow.components.tick_processor import TickProcessor
 from services.orderflow.runtime import SymbolRuntime
+
 
 async def test_failure_drill_out_of_order_async():
     from unittest.mock import AsyncMock
@@ -25,7 +26,7 @@ async def test_failure_drill_out_of_order_async():
         atr_cache=AsyncMock(),
         atr_sanity=AsyncMock()
     )
-    
+
     class MockRuntime(SymbolRuntime):
         def __init__(self):
             self.symbol = "BTCUSDT"
@@ -44,7 +45,7 @@ async def test_failure_drill_out_of_order_async():
             self.last_book_ts_ms = 0
             self.last_spread_bps_l2 = 2.0
             self.book_stale_detected = False
-    
+
     runtime = MockRuntime()
     now_ms = get_ny_time_millis()
 
@@ -61,8 +62,8 @@ async def test_failure_drill_out_of_order_async():
     for i in range(3):
         tick = {"t": now_ms + 1000, "p": 50000.0, "q": 1.0, "m": True, "T": now_ms + 1000, "u": 1009}
         await processor.process_tick(runtime, tick)
-        
-    print(f"✅ Duplicate Phase OK: Passed through Deduper.")
+
+    print("✅ Duplicate Phase OK: Passed through Deduper.")
 
     print("\\nPhase 3: Injecting Out-Of-Order Ticks (Chronology violation)")
     # Simulating ticks arriving with a timestamp older than the current high-water mark
@@ -71,7 +72,7 @@ async def test_failure_drill_out_of_order_async():
     await processor.process_tick(runtime, stale_tick)
     dh_stale = float(runtime.indicators.get("data_health", 0))
     print(f"Out of order data_health: {dh_stale}")
-    
+
     # We expect `data_health` < 0.70 inside tick_processor due to bad_time quarantine penalty
     if dh_stale < 0.70:
         print("✅ Out-Of-Order detection passed (data_health degraded properly)")

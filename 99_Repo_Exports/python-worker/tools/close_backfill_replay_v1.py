@@ -1,4 +1,3 @@
-from utils.time_utils import get_ny_time_millis
 #!/usr/bin/env python3
 # P55: Backfill/replay POSITION_CLOSED from events:trades into trades:close_wait (or directly to trades:closed).
 #
@@ -24,15 +23,18 @@ from utils.time_utils import get_ny_time_millis
 # Usage examples:
 #   python -m tools.close_backfill_replay_v1 --hours 72 --count 200000
 #   python -m tools.close_backfill_replay_v1 --since-id 1739990000000-0 --count 50000
-
 import argparse
 import json
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
+
+from domain.evidence_keys import MetaKeys
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def now_ms() -> int:
@@ -55,7 +57,7 @@ def env_bool(name: str, default: str = "0") -> bool:
     return env_str(name, default).strip().lower() in ("1", "true", "yes", "on")
 
 
-def json_loads_safe(s: Any) -> Optional[Dict[str, Any]]:
+def json_loads_safe(s: Any) -> dict[str, Any] | None:
     if s is None:
         return None
     if isinstance(s, (bytes, bytearray)):
@@ -73,15 +75,15 @@ def json_loads_safe(s: Any) -> Optional[Dict[str, Any]]:
         return None
 
 
-def pick(d: Dict[str, Any], *keys: str) -> Any:
+def pick(d: dict[str, Any], *keys: str) -> Any:
     for k in keys:
         if k in d and d[k] is not None:
             return d[k]
     return None
 
 
-def extract_close_fields(close_ev: Dict[str, Any]) -> Dict[str, Any]:
-    def _ts_to_ms(v: Any) -> Optional[int]:
+def extract_close_fields(close_ev: dict[str, Any]) -> dict[str, Any]:
+    def _ts_to_ms(v: Any) -> int | None:
         if v is None:
             return None
         if isinstance(v, str) and v.isdigit():
@@ -127,7 +129,7 @@ def norm_state(v: Any) -> str:
     return "unknown"
 
 
-def compute_drift_mode(decision: Dict[str, Any]) -> str:
+def compute_drift_mode(decision: dict[str, Any]) -> str:
     drift_state = norm_state(pick(decision, "drift_state"))
     actual_action = str(pick(decision, "actual_action", "action") or "")
     actual_reason = str(pick(decision, "actual_reason_code", "reason_code") or "")
@@ -137,8 +139,8 @@ def compute_drift_mode(decision: Dict[str, Any]) -> str:
 
 
 def build_trades_closed_payload(
-    sid: str, close_ev: Dict[str, Any], decision: Dict[str, Any], label_win_r_min: float
-) -> Dict[str, Any]:
+    sid: str, close_ev: dict[str, Any], decision: dict[str, Any], label_win_r_min: float
+) -> dict[str, Any]:
     c = extract_close_fields(close_ev)
     decision_ts_ms = pick(decision, "decision_ts_ms", "ts_ms", "timestamp_ms")
     if isinstance(decision_ts_ms, str) and decision_ts_ms.isdigit():
@@ -167,7 +169,7 @@ def build_trades_closed_payload(
     if y is not None and p_cal is not None:
         brier = (p_cal - float(y)) ** 2
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ver": "p55",
         "sid": sid,
         "symbol": c.get("symbol") or pick(decision, "symbol"),
@@ -190,8 +192,8 @@ def build_trades_closed_payload(
         "dq_state": norm_state(pick(decision, "dq_state")),
         "drift_state": norm_state(pick(decision, "drift_state")),
         "drift_mode": compute_drift_mode(decision),
-        "meta_enforce_cov_bucket": c.get("meta_enforce_cov_bucket") or pick(decision, "meta_enforce_cov_bucket"),
-        "meta_enforce_applied": bool(int(c.get("meta_enforce_applied"))) if str(c.get("meta_enforce_applied")).isdigit() else bool(c.get("meta_enforce_applied", False)),
+        "meta_enforce_cov_bucket": c.get(MetaKeys.ENFORCE_COV_BUCKET) or pick(decision, "meta_enforce_cov_bucket"),
+        "meta_enforce_applied": bool(int(c.get(MetaKeys.ENFORCE_APPLIED))) if (c.get(MetaKeys.ENFORCE_APPLIED)).isdigit() else bool(c.get(MetaKeys.ENFORCE_APPLIED, False)),
         "actual_action": pick(decision, "actual_action"),
         "actual_reason_code": pick(decision, "actual_reason_code"),
         "source": "close_backfill_replay",
@@ -225,7 +227,7 @@ class Cfg:
 def load_cfg() -> Cfg:
     return Cfg(
         redis_url=env_str("REDIS_URL", "redis://localhost:6379/0"),
-        trade_events_stream=env_str("TRADE_EVENTS_STREAM", "events:trades"),
+        trade_events_stream=env_str("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES),
         trades_closed_stream=env_str("TRADES_CLOSED_STREAM", "trades:closed"),
         close_wait_stream=env_str("CLOSE_WAIT_STREAM", "trades:close_wait"),
         decision_key_prefix=env_str("DECISION_KEY_PREFIX", "decision:"),
@@ -247,7 +249,7 @@ def rconn(cfg: Cfg) -> redis.Redis:
     return redis.Redis.from_url(cfg.redis_url, decode_responses=False)
 
 
-def decision_get(r: redis.Redis, cfg: Cfg, sid: str) -> Optional[Dict[str, Any]]:
+def decision_get(r: redis.Redis, cfg: Cfg, sid: str) -> dict[str, Any] | None:
     key = f"{cfg.decision_key_prefix}{sid}"
     raw = r.get(key)
     if raw is not None:
@@ -262,10 +264,8 @@ def decision_get(r: redis.Redis, cfg: Cfg, sid: str) -> Optional[Dict[str, Any]]
 
 
 def metrics_incr(r: redis.Redis, key: str, field: str, inc: int = 1) -> None:
-    try:
+    with contextlib.suppress(Exception):
         r.hincrby(key, field, inc)
-    except Exception:
-        pass
 
 
 def metrics_set(r: redis.Redis, key: str, field: str, val: Any) -> None:
@@ -278,7 +278,7 @@ def metrics_set(r: redis.Redis, key: str, field: str, val: Any) -> None:
         pass
 
 
-def parse_trade_event_payload(fields: Dict[bytes, bytes]) -> Optional[Dict[str, Any]]:
+def parse_trade_event_payload(fields: dict[bytes, bytes]) -> dict[str, Any] | None:
     if b"payload" in fields:
         return json_loads_safe(fields.get(b"payload"))
     if b"data" in fields:
@@ -286,7 +286,7 @@ def parse_trade_event_payload(fields: Dict[bytes, bytes]) -> Optional[Dict[str, 
     return None
 
 
-def is_position_closed(p: Dict[str, Any]) -> bool:
+def is_position_closed(p: dict[str, Any]) -> bool:
     t = str(pick(p, "event_type", "type") or "").upper()
     return t == "POSITION_CLOSED"
 
@@ -309,7 +309,7 @@ def main() -> None:
         start_id = args.since_id.encode("utf-8")
     else:
         start_ms = now_ms() - int(args.hours) * 3600 * 1000
-        start_id = f"{start_ms}-0".encode("utf-8")
+        start_id = f"{start_ms}-0".encode()
 
     # We scan forward using XRANGE in batches.
     # Note: XRANGE is O(N) but acceptable for bounded windows + capped count.
@@ -328,7 +328,7 @@ def main() -> None:
             current_id = msg_id
 
             # seen dedup by event id
-            seen_key = f"{cfg.seen_event_prefix}{msg_id.decode('utf-8','replace')}".encode("utf-8")
+            seen_key = f"{cfg.seen_event_prefix}{msg_id.decode('utf-8','replace')}".encode()
             if r.set(seen_key, b"1", nx=True, ex=cfg.seen_ttl_sec) is None:
                 metrics_incr(r, cfg.metrics_hash, "seen_dedup_skipped_total", 1)
                 continue
@@ -348,7 +348,7 @@ def main() -> None:
                 continue
             sid = str(sid)
 
-            dedup_key = f"{cfg.join_dedup_prefix}{sid}".encode("utf-8")
+            dedup_key = f"{cfg.join_dedup_prefix}{sid}".encode()
             if r.exists(dedup_key):
                 metrics_incr(r, cfg.metrics_hash, "already_joined_total", 1)
                 continue
@@ -394,7 +394,7 @@ def main() -> None:
         # If last id is like b"<ms>-<seq>", next min is b"<ms>-<seq+1>"
         try:
             ms_s, seq_s = current_id.decode("utf-8").split("-")
-            current_id = f"{ms_s}-{int(seq_s)+1}".encode("utf-8")
+            current_id = f"{ms_s}-{int(seq_s)+1}".encode()
         except Exception:
             # fallback: add a high seq
             current_id = (current_id.decode("utf-8", "replace") + "-1").encode("utf-8")

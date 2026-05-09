@@ -1,18 +1,15 @@
 from __future__ import annotations
+
 """Tests for MLConfirmGate util_mh v10.4 support."""
 
 
 import json
-import os
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-from typing import Dict, Any
+from unittest.mock import MagicMock
 
-import pytest
 import numpy as np
+import pytest
 
-from services.ml_confirm_gate import MLConfirmGate, MLConfirmDecision
+from services.ml_confirm_gate import MLConfirmGate
 
 
 class DummyUtilMH:
@@ -59,7 +56,7 @@ def test_util_mh_best_h_and_floor(mock_redis, util_mh_cfg):
     """Test util_mh decision: best horizon selection and floor comparison."""
     # Setup Redis mock to return config
     mock_redis.get.return_value = json.dumps(util_mh_cfg)
-    
+
     gate = MLConfirmGate(
         r=mock_redis,
         mode="SHADOW",
@@ -67,11 +64,11 @@ def test_util_mh_best_h_and_floor(mock_redis, util_mh_cfg):
         champion_key="cfg:ml_confirm:champion",
         challenger_key="cfg:ml_confirm:challenger"
     )
-    
+
     # Mock model loading
     gate._cfg = util_mh_cfg
     gate._model = DummyUtilMH()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000000,
@@ -88,7 +85,7 @@ def test_util_mh_best_h_and_floor(mock_redis, util_mh_cfg):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     assert dec.kind == "util_mh_v1"
     assert dec.best_h_ms == 180000  # Should prefer 180000 (score = 0.05 - 0.5*0.01 = 0.045)
     assert dec.score == pytest.approx(0.045, abs=0.001)  # 0.05 - 0.5*0.01
@@ -96,11 +93,11 @@ def test_util_mh_best_h_and_floor(mock_redis, util_mh_cfg):
     assert dec.bucket == "range"
     assert dec.allow is True  # 0.045 >= 0.02
     assert "util_mh" in dec.reason
-    
+
     # p_edge is sigmoid of (score * scale_factor)
     # 0.045 * 2.5 = 0.1125 -> sigmoid(0.1125) = 0.52809...
     assert dec.p_edge == pytest.approx(0.528, abs=0.001)
-    
+
     assert dec.util_pred is not None
     assert dec.unc is not None
 
@@ -110,9 +107,9 @@ def test_util_mh_block_below_floor(mock_redis, util_mh_cfg):
     # Set high floor to force block
     util_mh_cfg["util_floors"]["global"]["floor"] = 0.10
     util_mh_cfg["util_floors"]["by_bucket"]["range"]["floor"] = 0.10
-    
+
     mock_redis.get.return_value = json.dumps(util_mh_cfg)
-    
+
     gate = MLConfirmGate(
         r=mock_redis,
         mode="ENFORCE",
@@ -120,10 +117,10 @@ def test_util_mh_block_below_floor(mock_redis, util_mh_cfg):
         champion_key="cfg:ml_confirm:champion",
         challenger_key="cfg:ml_confirm:challenger"
     )
-    
+
     gate._cfg = util_mh_cfg
     gate._model = DummyUtilMH()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000000,
@@ -140,7 +137,7 @@ def test_util_mh_block_below_floor(mock_redis, util_mh_cfg):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     assert dec.allow is False  # 0.045 < 0.10
     assert dec.score < dec.floor
 
@@ -148,7 +145,7 @@ def test_util_mh_block_below_floor(mock_redis, util_mh_cfg):
 def test_util_mh_missing_critical_features_enforce(mock_redis, util_mh_cfg):
     """Test ENFORCE mode blocks when critical features are missing."""
     mock_redis.get.return_value = json.dumps(util_mh_cfg)
-    
+
     gate = MLConfirmGate(
         r=mock_redis,
         mode="ENFORCE",
@@ -156,10 +153,10 @@ def test_util_mh_missing_critical_features_enforce(mock_redis, util_mh_cfg):
         champion_key="cfg:ml_confirm:champion",
         challenger_key="cfg:ml_confirm:challenger"
     )
-    
+
     gate._cfg = util_mh_cfg
     gate._model = DummyUtilMH()
-    
+
     # Missing critical features
     dec = gate.check(
         symbol="BTCUSDT",
@@ -173,7 +170,7 @@ def test_util_mh_missing_critical_features_enforce(mock_redis, util_mh_cfg):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     assert dec.allow is False
     assert "missing_critical" in dec.reason
     assert dec.missing is not None
@@ -183,7 +180,7 @@ def test_util_mh_missing_critical_features_enforce(mock_redis, util_mh_cfg):
 def test_util_mh_missing_critical_features_shadow(mock_redis, util_mh_cfg):
     """Test SHADOW mode logs missing features but doesn't block."""
     mock_redis.get.return_value = json.dumps(util_mh_cfg)
-    
+
     gate = MLConfirmGate(
         r=mock_redis,
         mode="SHADOW",
@@ -191,10 +188,10 @@ def test_util_mh_missing_critical_features_shadow(mock_redis, util_mh_cfg):
         champion_key="cfg:ml_confirm:champion",
         challenger_key="cfg:ml_confirm:challenger"
     )
-    
+
     gate._cfg = util_mh_cfg
     gate._model = DummyUtilMH()
-    
+
     # Missing critical features - but SHADOW should still compute
     dec = gate.check(
         symbol="BTCUSDT",
@@ -208,7 +205,7 @@ def test_util_mh_missing_critical_features_shadow(mock_redis, util_mh_cfg):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     # SHADOW mode should still allow (just logs)
     assert dec.mode == "SHADOW"
     assert dec.missing is not None
@@ -218,7 +215,7 @@ def test_util_mh_missing_critical_features_shadow(mock_redis, util_mh_cfg):
 def test_util_mh_bucket_classification(mock_redis, util_mh_cfg):
     """Test bucket classification from scenario."""
     mock_redis.get.return_value = json.dumps(util_mh_cfg)
-    
+
     gate = MLConfirmGate(
         r=mock_redis,
         mode="SHADOW",
@@ -226,10 +223,10 @@ def test_util_mh_bucket_classification(mock_redis, util_mh_cfg):
         champion_key="cfg:ml_confirm:champion",
         challenger_key="cfg:ml_confirm:challenger"
     )
-    
+
     gate._cfg = util_mh_cfg
     gate._model = DummyUtilMH()
-    
+
     # Test range bucket
     dec_range = gate.check(
         symbol="BTCUSDT",
@@ -249,7 +246,7 @@ def test_util_mh_bucket_classification(mock_redis, util_mh_cfg):
     )
     assert dec_range.bucket == "range"
     assert dec_range.floor == pytest.approx(0.02, abs=0.001)
-    
+
     # Test trend bucket
     dec_trend = gate.check(
         symbol="BTCUSDT",
@@ -274,7 +271,7 @@ def test_util_mh_bucket_classification(mock_redis, util_mh_cfg):
 def test_util_mh_compatibility_fields(mock_redis, util_mh_cfg):
     """Test that p_edge/p_min are set for backward compatibility."""
     mock_redis.get.return_value = json.dumps(util_mh_cfg)
-    
+
     gate = MLConfirmGate(
         r=mock_redis,
         mode="SHADOW",
@@ -282,10 +279,10 @@ def test_util_mh_compatibility_fields(mock_redis, util_mh_cfg):
         champion_key="cfg:ml_confirm:champion",
         challenger_key="cfg:ml_confirm:challenger"
     )
-    
+
     gate._cfg = util_mh_cfg
     gate._model = DummyUtilMH()
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000000,
@@ -302,7 +299,7 @@ def test_util_mh_compatibility_fields(mock_redis, util_mh_cfg):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     # Compatibility: p_edge should map to sigmoid-scaled score, p_min to floor
     # 0.045 * 2.5 = 0.1125 -> sigmoid(0.1125) = 0.52809...
     assert dec.p_edge == pytest.approx(0.528, abs=0.001)
@@ -319,7 +316,7 @@ def test_util_mh_off_mode(mock_redis):
         champion_key="cfg:ml_confirm:champion",
         challenger_key="cfg:ml_confirm:challenger"
     )
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000000,
@@ -332,7 +329,7 @@ def test_util_mh_off_mode(mock_redis):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     assert dec.mode == "OFF"
     assert dec.allow is True
     assert dec.reason == "mode_off"
@@ -341,7 +338,7 @@ def test_util_mh_off_mode(mock_redis):
 def test_util_mh_no_cfg(mock_redis):
     """Test behavior when no config is loaded."""
     mock_redis.get.return_value = None
-    
+
     gate = MLConfirmGate(
         r=mock_redis,
         mode="SHADOW",
@@ -349,7 +346,7 @@ def test_util_mh_no_cfg(mock_redis):
         champion_key="cfg:ml_confirm:champion",
         challenger_key="cfg:ml_confirm:challenger"
     )
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000000,
@@ -362,7 +359,7 @@ def test_util_mh_no_cfg(mock_redis):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     assert dec.mode == "ERR"
     assert dec.reason == "no_cfg"
     assert dec.allow is True  # FAIL_OPEN policy
@@ -371,9 +368,9 @@ def test_util_mh_no_cfg(mock_redis):
 def test_util_mh_no_model(mock_redis, util_mh_cfg):
     """Test behavior when model is None."""
     util_mh_cfg["model_path"] = ""  # No model path
-    
+
     mock_redis.get.return_value = json.dumps(util_mh_cfg)
-    
+
     gate = MLConfirmGate(
         r=mock_redis,
         mode="ENFORCE",
@@ -381,10 +378,10 @@ def test_util_mh_no_model(mock_redis, util_mh_cfg):
         champion_key="cfg:ml_confirm:champion",
         challenger_key="cfg:ml_confirm:challenger"
     )
-    
+
     gate._cfg = util_mh_cfg
     gate._model = None  # No model loaded
-    
+
     dec = gate.check(
         symbol="BTCUSDT",
         ts_ms=1000000,
@@ -397,7 +394,7 @@ def test_util_mh_no_model(mock_redis, util_mh_cfg):
         cancel_spike_veto=0,
         ok_rule=1,
     )
-    
+
     assert dec.mode == "ERR"
     assert dec.reason == "no_model_loaded"
     assert dec.allow is False  # FAIL_CLOSED policy in ENFORCE

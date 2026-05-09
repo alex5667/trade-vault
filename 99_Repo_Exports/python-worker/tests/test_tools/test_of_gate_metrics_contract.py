@@ -1,5 +1,5 @@
-import pytest
-from tools.of_gate_metrics_contract import is_gate_row, derive_ok_fields, scenario_key
+from tools.of_gate_metrics_contract import derive_ok_fields, is_gate_row, scenario_key
+
 
 def test_is_gate_row():
     assert is_gate_row({"type": "of_gate"})
@@ -24,7 +24,7 @@ def test_derive_ok_fields():
     assert soft == 0
     assert ok_src == "ofc.ok"
     assert soft_src == "ev.ok_soft"
-    
+
     # Broken floats
     ok, soft, ok_src, soft_src = derive_ok_fields({"ok": "bad"})
     assert ok == 0

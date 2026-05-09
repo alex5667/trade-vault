@@ -1,6 +1,6 @@
-from pathlib import Path
 import importlib.util
 import sys
+from pathlib import Path
 
 mod_path = Path(__file__).with_name('risk_policy_engine.py')
 spec = importlib.util.spec_from_file_location('risk_policy_engine_p104', mod_path)

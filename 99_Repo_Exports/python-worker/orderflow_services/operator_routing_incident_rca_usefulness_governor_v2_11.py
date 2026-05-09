@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import psycopg
@@ -48,15 +49,15 @@ REDIS_POLICY_PREFIX = os.getenv(
 POLL_INTERVAL = int(os.getenv("ML_OPERATOR_ROUTING_INCIDENT_RCA_GOVERNOR_POLL_INTERVAL", "60"))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -101,14 +102,13 @@ class GovernorRepo:
         self.database_url = database_url
         self.r = redis.from_url(redis_url)
 
-    def get_aggregated_stats(self, window_min: int) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    def get_aggregated_stats(self, window_min: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         cutoff_ms = now_ms() - (window_min * 60 * 1000)
-        actions: List[Dict[str, Any]] = []
-        providers: List[Dict[str, Any]] = []
-        with psycopg.connect(self.database_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """,
+        actions: list[dict[str, Any]] = []
+        providers: list[dict[str, Any]] = []
+        with psycopg.connect(self.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """,
                     SELECT
                         task_type,
                         prompt_version,
@@ -120,21 +120,21 @@ class GovernorRepo:
                     WHERE ts_ms >= %(cutoff_ms)s
                     GROUP BY task_type, prompt_version, policy_version,
                     """,
-                    {"cutoff_ms": cutoff_ms},
+                {"cutoff_ms": cutoff_ms},
+            )
+            for row in cur.fetchall():
+                actions.append(
+                    {
+                        "task_type": row[0],
+                        "prompt_version": row[1],
+                        "policy_version": row[2],
+                        "sample_n": row[3],
+                        "avg_quality": float(row[4]),
+                        "avg_usefulness": float(row[5]),
+                    }
                 )
-                for row in cur.fetchall():
-                    actions.append(
-                        {
-                            "task_type": row[0],
-                            "prompt_version": row[1],
-                            "policy_version": row[2],
-                            "sample_n": row[3],
-                            "avg_quality": float(row[4]),
-                            "avg_usefulness": float(row[5]),
-                        }
-                    )
-                cur.execute(
-                    """,
+            cur.execute(
+                """,
                     SELECT
                         provider,
                         model_name,
@@ -146,22 +146,22 @@ class GovernorRepo:
                     WHERE ts_ms >= %(cutoff_ms)s
                     GROUP BY provider, model_name, prompt_version,
                     """,
-                    {"cutoff_ms": cutoff_ms},
+                {"cutoff_ms": cutoff_ms},
+            )
+            for row in cur.fetchall():
+                providers.append(
+                    {
+                        "provider": row[0],
+                        "model_name": row[1],
+                        "prompt_version": row[2],
+                        "sample_n": row[3],
+                        "avg_quality": float(row[4]),
+                        "avg_usefulness": float(row[5]),
+                    }
                 )
-                for row in cur.fetchall():
-                    providers.append(
-                        {
-                            "provider": row[0],
-                            "model_name": row[1],
-                            "prompt_version": row[2],
-                            "sample_n": row[3],
-                            "avg_quality": float(row[4]),
-                            "avg_usefulness": float(row[5]),
-                        }
-                    )
         return actions, providers
 
-    async def publish_decision(self, decision: Dict[str, Any]) -> None:
+    async def publish_decision(self, decision: dict[str, Any]) -> None:
         decision["ts_ms"] = now_ms()
         decision["advisory_only"] = ADVISORY_ONLY
         await self.r.xadd(DECISIONS_STREAM, decision, maxlen=20000, approximate=True)
@@ -171,7 +171,7 @@ class GovernorRepo:
             redis_key = f"{REDIS_POLICY_PREFIX}:action:{decision['task_type']}:{decision['prompt_version']}:{decision['policy_version']}"
         else:
             redis_key = f"{REDIS_POLICY_PREFIX}:provider:{decision['provider']}:{decision['model_name']}:{decision['prompt_version']}"
-        
+
         await self.r.hset(
             redis_key,
             mapping={
@@ -182,14 +182,13 @@ class GovernorRepo:
             }
         )
 
-    def persist_decision_sql(self, decisions: List[Dict[str, Any]]) -> None:
+    def persist_decision_sql(self, decisions: list[dict[str, Any]]) -> None:
         if not decisions:
             return
-        with psycopg.connect(self.database_url) as conn:
-            with conn.cursor() as cur:
-                for d in decisions:
-                    cur.execute(
-                        """
+        with psycopg.connect(self.database_url) as conn, conn.cursor() as cur:
+            for d in decisions:
+                cur.execute(
+                    """
 
                         INSERT INTO llm_operator_routing_incident_rca_governor_decisions (
                             scope_type,
@@ -209,20 +208,20 @@ class GovernorRepo:
                             %(ts_ms)s
                         )
                         """,
-                        {
-                            "scope_type": d["scope_type"],
-                            "scope_key": d["scope_key"],
-                            "action": d["action"],
-                            "score": d["score"],
-                            "sample_n": d["sample_n"],
-                            "advisory_only": ADVISORY_ONLY == 1,
-                            "ts_ms": d["ts_ms"],
-                        }
-                    )
-                conn.commit()
+                    {
+                        "scope_type": d["scope_type"],
+                        "scope_key": d["scope_key"],
+                        "action": d["action"],
+                        "score": d["score"],
+                        "sample_n": d["sample_n"],
+                        "advisory_only": ADVISORY_ONLY == 1,
+                        "ts_ms": d["ts_ms"],
+                    }
+                )
+            conn.commit()
 
 
-def evaluate_score(sample_n: int, avg_quality: float, avg_usefulness: float) -> Tuple[str, float]:
+def evaluate_score(sample_n: int, avg_quality: float, avg_usefulness: float) -> tuple[str, float]:
     if sample_n < MIN_SAMPLE:
         return "HOLD", 0.0
     score = (0.4 * avg_quality) + (0.6 * avg_usefulness)
@@ -236,7 +235,7 @@ def evaluate_score(sample_n: int, avg_quality: float, avg_usefulness: float) -> 
 async def governance_loop(repo: GovernorRepo) -> None:
     started = time.perf_counter()
     status = "ok"
-    decisions_made: List[Dict[str, Any]] = []
+    decisions_made: list[dict[str, Any]] = []
     try:
         actions, providers = repo.get_aggregated_stats(WINDOW_MIN)
         if EVAL_ACTIONS:

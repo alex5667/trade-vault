@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+#!/usr/bin/env python3
 from utils.time_utils import get_ny_time_millis
+
 """Nightly orchestrator for OFC contextual Patch B/C workflow.
 
 Runs:
@@ -17,9 +19,8 @@ import logging
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,7 +45,7 @@ def _script(rel_path: str) -> str:
     return str(path)
 
 
-def _run(cmd: List[str]) -> int:
+def _run(cmd: list[str]) -> int:
     logger.info("RUNNING: %s", " ".join(cmd))
     try:
         return subprocess.run(cmd, check=False).returncode
@@ -53,7 +54,7 @@ def _run(cmd: List[str]) -> int:
         return 1
 
 
-def _write_metrics_hash(mapping: Dict[str, Any]) -> None:
+def _write_metrics_hash(mapping: dict[str, Any]) -> None:
     if redis is None:
         return
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -74,7 +75,7 @@ def _read_manifest_created_ts(bundle_dir: str) -> int:
         return 0
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Nightly OFC contextual ops bundle")
     ap.add_argument("--decisions_jsonl", default=os.getenv("OFC_CTX_DECISIONS_JSONL", "./data/ofc_ctx/decisions.jsonl"))
     ap.add_argument("--outcomes_jsonl", default=os.getenv("OFC_CTX_OUTCOMES_JSONL", "./data/ofc_ctx/outcomes.jsonl"))

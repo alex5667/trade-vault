@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """B7: Prometheus exporter for golden replay capture + nightly parity state.
 
 Exposes gauges by scraping:
@@ -13,9 +14,9 @@ import os
 import time
 from glob import glob
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
-from prometheus_client import Gauge, Counter, start_http_server
+from prometheus_client import Counter, Gauge, start_http_server
 
 
 def _env_int(name: str, default: int) -> int:
@@ -25,7 +26,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _read_json(path: Path) -> Optional[Dict[str, Any]]:
+def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -53,8 +54,8 @@ def _emit_capture_stats(state_dir: Path) -> None:
         if not js:
             C_EXPORTER_SCRAPE_ERRORS.labels(kind="capture_json").inc()
             continue
-        host = str(js.get("host", "unknown"))
-        pid = str(js.get("pid", "0"))
+        host = (js.get("host", "unknown"))
+        pid = (js.get("pid", "0"))
         G_CAPTURE_WRITTEN.labels(host=host, pid=pid).set(float(js.get("written_total", 0)))
         G_CAPTURE_BYTES.labels(host=host, pid=pid).set(float(js.get("bytes_total", 0)))
         G_CAPTURE_ERRORS.labels(host=host, pid=pid).set(float(js.get("errors_total", 0)))

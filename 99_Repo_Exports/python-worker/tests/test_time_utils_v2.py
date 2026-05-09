@@ -1,6 +1,7 @@
 from __future__ import annotations
-import pytest
-from core.time_utils import normalize_epoch_ms, extract_tick_ts_ms
+
+from core.time_utils import extract_tick_ts_ms, normalize_epoch_ms
+
 
 def test_normalize_epoch_ms():
     # Already ms
@@ -24,10 +25,10 @@ def test_extract_tick_ts_ms():
     assert extract_tick_ts_ms({"tick_ts": 1700000000000}) == 1700000000000
     assert extract_tick_ts_ms({"event_time": 1700000000000}) == 1700000000000
     assert extract_tick_ts_ms({"ts_ms": 1700000000000}) == 1700000000000
-    
+
     # Seconds in keys (auto-normalized by normalize_epoch_ms)
     assert extract_tick_ts_ms({"ts": 1700000000}) == 1700000000000
-    
+
     # Missing / empty
     assert extract_tick_ts_ms({}) == 0
     assert extract_tick_ts_ms({"other": 123}) == 0

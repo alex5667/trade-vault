@@ -1,13 +1,16 @@
 # session_service.py
 from __future__ import annotations
+
 """
 Session and execution management functionality extracted from base_orderflow_handler.py
 """
 
 
-from typing import Optional, Dict, Any, TYPE_CHECKING, List, Mapping, Tuple
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
+
 
 # from common.log import setup_logger
 def setup_logger(name):
@@ -15,7 +18,7 @@ def setup_logger(name):
     return logging.getLogger(name)
 
 if TYPE_CHECKING:
-    from contexts import OrderflowSignalContext, ExecutionContext
+    from contexts import ExecutionContext, OrderflowSignalContext
 
 try:
     from zoneinfo import ZoneInfo  # py3.9+
@@ -34,7 +37,7 @@ class SessionWindow:
     tz: str = "UTC"
     start_min: int = 0
     end_min: int = 24 * 60
-    weekdays: Optional[Tuple[int, ...]] = None  # 0=Mon .. 6=Sun
+    weekdays: tuple[int, ...] | None = None  # 0=Mon .. 6=Sun
 
 
 class SessionService:
@@ -42,7 +45,7 @@ class SessionService:
     Service for session analysis and execution planning.
     """
 
-    def __init__(self, symbol: str, config: Any = None, *, asset_class: Optional[str] = None):
+    def __init__(self, symbol: str, config: Any = None, *, asset_class: str | None = None):
         self.symbol = symbol
         self.logger = setup_logger(f"SessionService:{symbol}")
         self.config = config
@@ -50,7 +53,7 @@ class SessionService:
 
         # Defaults: non-overlapping UTC buckets for crypto-like flows
         # Priority: US > Europe > Asia > Overnight
-        self._default_windows_crypto: List[SessionWindow] = [
+        self._default_windows_crypto: list[SessionWindow] = [
             SessionWindow("us_main", "UTC", 14 * 60, 21 * 60, weekdays=None),
             SessionWindow("european", "UTC", 8 * 60, 14 * 60, weekdays=None),
             SessionWindow("asian", "UTC", 0 * 60, 8 * 60, weekdays=None),
@@ -59,7 +62,7 @@ class SessionService:
 
         # "По-взрослому" для FX/металлов: DST-aware зоны.
         # Приоритет сохраняем (US > London > Tokyo > Overnight).
-        self._default_windows_fx_like: List[SessionWindow] = [
+        self._default_windows_fx_like: list[SessionWindow] = [
             SessionWindow("us_main", "America/New_York", 9 * 60, 16 * 60, weekdays=(0, 1, 2, 3, 4)),
             SessionWindow("european", "Europe/London", 8 * 60, 16 * 60, weekdays=(0, 1, 2, 3, 4)),
             SessionWindow("asian", "Asia/Tokyo", 9 * 60, 17 * 60, weekdays=(0, 1, 2, 3, 4)),
@@ -68,7 +71,7 @@ class SessionService:
         ]
 
         # Bias defaults (can be overridden via config)
-        self._default_biases: Dict[str, float] = {
+        self._default_biases: dict[str, float] = {
             "us_main": 0.1,
             "european": -0.05,
             "asian": 0.0,
@@ -106,13 +109,13 @@ class SessionService:
 
     def _safe_zoneinfo(self, tz_name: str):
         if tz_name == "UTC":
-            return timezone.utc
+            return UTC
         if ZoneInfo is None:
-            return timezone.utc
+            return UTC
         try:
             return ZoneInfo(tz_name)
         except Exception:
-            return timezone.utc
+            return UTC
 
     def _minutes_of_day(self, dt: datetime) -> int:
         return dt.hour * 60 + dt.minute
@@ -151,7 +154,7 @@ class SessionService:
                 return default
         return cur if cur is not None else default
 
-    def _infer_asset_class(self, ctx: "OrderflowSignalContext") -> str:
+    def _infer_asset_class(self, ctx: OrderflowSignalContext) -> str:
         """
         Infer asset class for session logic.
         Priority:
@@ -171,7 +174,7 @@ class SessionService:
         # default to crypto because your stack is crypto-first
         return "crypto"
 
-    def _load_windows_from_config(self, asset_class: str) -> Optional[List[SessionWindow]]:
+    def _load_windows_from_config(self, asset_class: str) -> list[SessionWindow] | None:
         """
         Optional config format:
           config.sessions = {
@@ -201,7 +204,7 @@ class SessionService:
         if not windows_raw:
             return None
 
-        def _hm_to_min(x: Any) -> Optional[int]:
+        def _hm_to_min(x: Any) -> int | None:
             if x is None:
                 return None
             if isinstance(x, (int, float)):
@@ -221,20 +224,20 @@ class SessionService:
             except Exception:
                 return None
 
-        out: List[SessionWindow] = []
+        out: list[SessionWindow] = []
         for w in windows_raw:
             if not isinstance(w, Mapping):
                 continue
-            label = str(w.get("label") or "").strip()
+            label = (w.get("label") or "").strip()
             if not label:
                 continue
-            tz = str(w.get("tz") or "UTC").strip() or "UTC"
+            tz = (w.get("tz") or "UTC").strip() or "UTC"
             sm = _hm_to_min(w.get("start"))
             em = _hm_to_min(w.get("end"))
             if sm is None or em is None:
                 continue
             weekdays = w.get("weekdays", None)
-            wd_t: Optional[Tuple[int, ...]] = None
+            wd_t: tuple[int, ...] | None = None
             if isinstance(weekdays, (list, tuple)):
                 try:
                     wd_t = tuple(int(x) for x in weekdays)
@@ -265,14 +268,14 @@ class SessionService:
                     return str(wl)
         return "weekend"
 
-    def _infer_session_label(self, ctx: "OrderflowSignalContext") -> str:
+    def _infer_session_label(self, ctx: OrderflowSignalContext) -> str:
         """Infer trading session label from context (DST-aware when possible)."""
         ts_ms = self._normalize_ts_ms(getattr(ctx, "ts", 0))
         if ts_ms <= 0:
             return "unknown"
 
         try:
-            dt_utc = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+            dt_utc = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
             asset_class = self._infer_asset_class(ctx)
 
             # Configurable weekend labeling
@@ -298,7 +301,7 @@ class SessionService:
             self.logger.warning("Failed to infer session label: %s", e)
             return "unknown"
 
-    def _session_bias(self, ctx: "OrderflowSignalContext") -> float | None:
+    def _session_bias(self, ctx: OrderflowSignalContext) -> float | None:
         """Calculate session bias."""
         session = self._infer_session_label(ctx)
 
@@ -330,7 +333,7 @@ class SessionService:
         else:
             return -0.1  # Bearish bias for ranging days
 
-    def attach_to_ctx(self, ctx: "OrderflowSignalContext") -> None:
+    def attach_to_ctx(self, ctx: OrderflowSignalContext) -> None:
         """
         Single place to attach session fields to the signal context.
         This is what you should call from build_signal_ctx().
@@ -338,13 +341,13 @@ class SessionService:
         try:
             label = self._infer_session_label(ctx)
             bias = self._session_bias(ctx)
-            setattr(ctx, "session", label)
-            setattr(ctx, "session_bias", bias)
+            ctx.session = label
+            ctx.session_bias = bias
         except Exception as e:
             self.logger.warning("Failed to attach session fields: %s", e)
 
     # ---- Execution plan stubs (keep compatibility, but make coherent) ----
-    def create_execution_plan_from_signal(self, sig_ctx: "OrderflowSignalContext") -> Optional[Dict[str, Any]]:
+    def create_execution_plan_from_signal(self, sig_ctx: OrderflowSignalContext) -> dict[str, Any] | None:
         """
         Coherent stub: builds a minimal plan from OrderflowSignalContext.
         If you later introduce a real ExecutionContext, keep this as adapter.
@@ -363,7 +366,7 @@ class SessionService:
             self.logger.warning("Failed to create execution plan from signal ctx: %s", e)
             return None
 
-    def _create_execution_plan(self, ctx: "ExecutionContext") -> Optional[Any]:
+    def _create_execution_plan(self, ctx: ExecutionContext) -> Any | None:
         """Create execution plan from context."""
         try:
             # This would integrate with execution planning logic
@@ -384,7 +387,7 @@ class SessionService:
         # Placeholder - would save to database/cache
         self.logger.debug("Saved execution plan: %s", plan)
 
-    def _execution_plan_to_dict(self, plan: Optional[Any]) -> Optional[dict]:
+    def _execution_plan_to_dict(self, plan: Any | None) -> dict | None:
         """Convert execution plan to dictionary."""
         if plan is None:
             return None
@@ -400,7 +403,7 @@ class SessionService:
             self.logger.warning("Failed to convert execution plan to dict: %s", e)
             return None
 
-    def analyze_session(self, ctx: "OrderflowSignalContext") -> Dict[str, Any]:
+    def analyze_session(self, ctx: OrderflowSignalContext) -> dict[str, Any]:
         """Perform complete session analysis."""
         ts_ms = self._normalize_ts_ms(getattr(ctx, "ts", 0))
         session_label = self._infer_session_label(ctx)

@@ -1,16 +1,16 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 """Unit tests for baseline proposal gating by regress streak.
 
 Tests that propose_baseline_update.py correctly gates baseline proposals
 based on consecutive PASS nights from nightly_regress_engine_replay_safe.py.
 """
 
-import os
-import time
-from unittest.mock import MagicMock, patch, Mock
-import pytest
+from unittest.mock import patch
 
 import fakeredis
+import pytest
 
 
 def now_ms() -> int:
@@ -30,7 +30,7 @@ def test_baseline_proposal_gating_insufficient_streak(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "2")
     mock_redis.set("sre:regress:last_status", "PASS")
     mock_redis.set("sre:regress:last_ts_ms", str(now_ms()))
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("REGRESS_PASS_STREAK_KEY", "sre:regress:pass_streak")
@@ -38,24 +38,24 @@ def test_baseline_proposal_gating_insufficient_streak(mock_redis, monkeypatch):
     monkeypatch.setenv("REGRESS_LAST_TS_KEY", "sre:regress:last_ts_ms")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     # Mock redis.from_url to return our fake redis
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         # Import and call main - it should return early
         from tools.propose_baseline_update import main
-        
+
         # Mock all the subprocess calls and file operations to prevent actual execution
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
              patch("tools.propose_baseline_update.open", create=True), \
              patch("tools.propose_baseline_update.os.makedirs"), \
              patch("tools.propose_baseline_update.os.path.exists", return_value=True):
-            
+
             # Should return early without creating proposal
             main()
-            
+
             # Verify that no bundle was created (no baseline:bundle:* keys)
             bundle_keys = [k for k in mock_redis.keys() if k.startswith("baseline:bundle:")]
             assert len(bundle_keys) == 0, "Baseline proposal should be skipped when streak < min_streak"
@@ -67,7 +67,7 @@ def test_baseline_proposal_gating_sufficient_streak(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "3")
     mock_redis.set("sre:regress:last_status", "PASS")
     mock_redis.set("sre:regress:last_ts_ms", str(now_ms()))
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("REGRESS_PASS_STREAK_KEY", "sre:regress:pass_streak")
@@ -75,7 +75,7 @@ def test_baseline_proposal_gating_sufficient_streak(mock_redis, monkeypatch):
     monkeypatch.setenv("REGRESS_LAST_TS_KEY", "sre:regress:last_ts_ms")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    monkeypatch.setenv("OF_INPUTS_STREAM", "signals:of:inputs")
+    monkeypatch.setenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
     monkeypatch.setenv("OF_INPUTS_STREAM_FIELD", "payload")
     monkeypatch.setenv("CANARY_SYMBOLS", "BTCUSDT,ETHUSDT")
     monkeypatch.setenv("BASELINE_DIR", "/tmp/test_baselines")
@@ -83,15 +83,15 @@ def test_baseline_proposal_gating_sufficient_streak(mock_redis, monkeypatch):
     monkeypatch.setenv("BASELINE_OUTPUT", "/tmp/test_baselines/baseline.ndjson")
     monkeypatch.setenv("RECS_HMAC_SECRET", "test_secret")
     monkeypatch.setenv("RECS_TTL_SEC", "86400")
-    monkeypatch.setenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
-    
+    monkeypatch.setenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
+
     # Mock redis.from_url to return our fake redis
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         # Import and call main
         from tools.propose_baseline_update import main
-        
+
         # Mock all the subprocess calls and file operations
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
@@ -100,14 +100,14 @@ def test_baseline_proposal_gating_sufficient_streak(mock_redis, monkeypatch):
              patch("tools.propose_baseline_update.os.path.exists", return_value=True), \
              patch("tools.propose_baseline_update.json.loads", return_value={}), \
              patch("tools.propose_baseline_update.json.dumps", return_value="{}"):
-            
+
             # Should proceed past gating (will fail on actual file operations, but that's ok)
             try:
                 main()
             except (FileNotFoundError, SystemExit):
                 # Expected to fail on file operations, but gating should pass
                 pass
-            
+
             # Verify that gating passed (we got past the early return)
             # This is verified by the fact that we didn't return early
 
@@ -118,7 +118,7 @@ def test_baseline_proposal_gating_fail_status(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "3")
     mock_redis.set("sre:regress:last_status", "FAIL")
     mock_redis.set("sre:regress:last_ts_ms", str(now_ms()))
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("REGRESS_PASS_STREAK_KEY", "sre:regress:pass_streak")
@@ -126,24 +126,24 @@ def test_baseline_proposal_gating_fail_status(mock_redis, monkeypatch):
     monkeypatch.setenv("REGRESS_LAST_TS_KEY", "sre:regress:last_ts_ms")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     # Mock redis.from_url to return our fake redis
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         # Import and call main
         from tools.propose_baseline_update import main
-        
+
         # Mock all the subprocess calls and file operations
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
              patch("tools.propose_baseline_update.open", create=True), \
              patch("tools.propose_baseline_update.os.makedirs"), \
              patch("tools.propose_baseline_update.os.path.exists", return_value=True):
-            
+
             # Should return early without creating proposal
             main()
-            
+
             # Verify that no bundle was created
             bundle_keys = [k for k in mock_redis.keys() if k.startswith("baseline:bundle:")]
             assert len(bundle_keys) == 0, "Baseline proposal should be skipped when last_status != PASS"
@@ -156,7 +156,7 @@ def test_baseline_proposal_gating_stale_timestamp(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "3")
     mock_redis.set("sre:regress:last_status", "PASS")
     mock_redis.set("sre:regress:last_ts_ms", str(old_ts))
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("REGRESS_PASS_STREAK_KEY", "sre:regress:pass_streak")
@@ -164,24 +164,24 @@ def test_baseline_proposal_gating_stale_timestamp(mock_redis, monkeypatch):
     monkeypatch.setenv("REGRESS_LAST_TS_KEY", "sre:regress:last_ts_ms")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     # Mock redis.from_url to return our fake redis
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         # Import and call main
         from tools.propose_baseline_update import main
-        
+
         # Mock all the subprocess calls and file operations
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
              patch("tools.propose_baseline_update.open", create=True), \
              patch("tools.propose_baseline_update.os.makedirs"), \
              patch("tools.propose_baseline_update.os.path.exists", return_value=True):
-            
+
             # Should return early without creating proposal
             main()
-            
+
             # Verify that no bundle was created
             bundle_keys = [k for k in mock_redis.keys() if k.startswith("baseline:bundle:")]
             assert len(bundle_keys) == 0, "Baseline proposal should be skipped when timestamp is too old"
@@ -196,28 +196,28 @@ def test_regress_streak_recording_pass(mock_redis, monkeypatch):
     monkeypatch.setenv("REGRESS_STREAK_TTL_SEC", "1209600")
     monkeypatch.setenv("REGRESS_MAX_MISMATCHES", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     # Mock redis.from_url to return our fake redis
     with patch("tools.nightly_regress_engine_replay_safe.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         # Set initial streak to 2
         mock_redis.set("sre:regress:pass_streak", "2")
-        
+
         # Import the function that records streak
         from tools.nightly_regress_engine_replay_safe import now_ms
-        
+
         # Simulate PASS (mism = 0, max_mismatches = 0)
         mism = 0
         max_mismatches = 0
         passed = (mism <= max_mismatches)
-        
+
         if passed:
             mock_redis.incr("sre:regress:pass_streak")
             mock_redis.expire("sre:regress:pass_streak", 1209600)
             mock_redis.set("sre:regress:last_status", "PASS", ex=1209600)
             mock_redis.set("sre:regress:last_ts_ms", str(now_ms()), ex=1209600)
-        
+
         # Verify streak was incremented
         assert int(mock_redis.get("sre:regress:pass_streak") or "0") == 3
         assert mock_redis.get("sre:regress:last_status") == "PASS"
@@ -233,27 +233,27 @@ def test_regress_streak_recording_fail(mock_redis, monkeypatch):
     monkeypatch.setenv("REGRESS_STREAK_TTL_SEC", "1209600")
     monkeypatch.setenv("REGRESS_MAX_MISMATCHES", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     # Mock redis.from_url to return our fake redis
     with patch("tools.nightly_regress_engine_replay_safe.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         # Set initial streak to 2
         mock_redis.set("sre:regress:pass_streak", "2")
-        
+
         # Import the function that records streak
         from tools.nightly_regress_engine_replay_safe import now_ms
-        
+
         # Simulate FAIL (mism = 1, max_mismatches = 0)
         mism = 1
         max_mismatches = 0
         passed = (mism <= max_mismatches)
-        
+
         if not passed:
             mock_redis.set("sre:regress:pass_streak", "0", ex=1209600)
             mock_redis.set("sre:regress:last_status", "FAIL", ex=1209600)
             mock_redis.set("sre:regress:last_ts_ms", str(now_ms()), ex=1209600)
-        
+
         # Verify streak was reset to 0
         assert int(mock_redis.get("sre:regress:pass_streak") or "0") == 0
         assert mock_redis.get("sre:regress:last_status") == "FAIL"
@@ -266,7 +266,7 @@ def test_health_gate_low_n(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "3")
     mock_redis.set("sre:regress:last_status", "PASS")
     mock_redis.set("sre:regress:last_ts_ms", str(now_ms()))
-    
+
     # Setup metrics stream with low n
     current_ms = now_ms()
     # Add only 100 metrics (below min_n=200)
@@ -284,7 +284,7 @@ def test_health_gate_low_n(mock_redis, monkeypatch):
             maxlen=200000,
             approximate=True,
         )
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
@@ -292,20 +292,20 @@ def test_health_gate_low_n(mock_redis, monkeypatch):
     monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         from tools.propose_baseline_update import main
-        
+
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
              patch("tools.propose_baseline_update.open", create=True), \
              patch("tools.propose_baseline_update.os.makedirs"), \
              patch("tools.propose_baseline_update.os.path.exists", return_value=True):
-            
+
             main()
-            
+
             bundle_keys = [k for k in mock_redis.keys() if k.startswith("baseline:bundle:")]
             assert len(bundle_keys) == 0, "Baseline proposal should be skipped when n < min_n"
 
@@ -316,7 +316,7 @@ def test_health_gate_high_latency(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "3")
     mock_redis.set("sre:regress:last_status", "PASS")
     mock_redis.set("sre:regress:last_ts_ms", str(now_ms()))
-    
+
     # Setup metrics stream with high latency
     current_ms = now_ms()
     # Add 300 metrics with high latency (p99 will be > 4000)
@@ -335,7 +335,7 @@ def test_health_gate_high_latency(mock_redis, monkeypatch):
             maxlen=200000,
             approximate=True,
         )
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
@@ -344,20 +344,20 @@ def test_health_gate_high_latency(mock_redis, monkeypatch):
     monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         from tools.propose_baseline_update import main
-        
+
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
              patch("tools.propose_baseline_update.open", create=True), \
              patch("tools.propose_baseline_update.os.makedirs"), \
              patch("tools.propose_baseline_update.os.path.exists", return_value=True):
-            
+
             main()
-            
+
             bundle_keys = [k for k in mock_redis.keys() if k.startswith("baseline:bundle:")]
             assert len(bundle_keys) == 0, "Baseline proposal should be skipped when lat_p99 > cap"
 
@@ -368,7 +368,7 @@ def test_health_gate_high_exec_risk(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "3")
     mock_redis.set("sre:regress:last_status", "PASS")
     mock_redis.set("sre:regress:last_ts_ms", str(now_ms()))
-    
+
     # Setup metrics stream with high exec_risk
     current_ms = now_ms()
     # Add 300 metrics with high exec_risk (p90 will be > 0.85)
@@ -387,7 +387,7 @@ def test_health_gate_high_exec_risk(mock_redis, monkeypatch):
             maxlen=200000,
             approximate=True,
         )
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
@@ -396,20 +396,20 @@ def test_health_gate_high_exec_risk(mock_redis, monkeypatch):
     monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         from tools.propose_baseline_update import main
-        
+
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
              patch("tools.propose_baseline_update.open", create=True), \
              patch("tools.propose_baseline_update.os.makedirs"), \
              patch("tools.propose_baseline_update.os.path.exists", return_value=True):
-            
+
             main()
-            
+
             bundle_keys = [k for k in mock_redis.keys() if k.startswith("baseline:bundle:")]
             assert len(bundle_keys) == 0, "Baseline proposal should be skipped when exec_p90 > cap"
 
@@ -420,7 +420,7 @@ def test_health_gate_high_soft_rate(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "3")
     mock_redis.set("sre:regress:last_status", "PASS")
     mock_redis.set("sre:regress:last_ts_ms", str(now_ms()))
-    
+
     # Setup metrics stream with high soft_rate
     current_ms = now_ms()
     # Add 300 metrics with 40% soft fails (above 0.35 cap)
@@ -439,7 +439,7 @@ def test_health_gate_high_soft_rate(mock_redis, monkeypatch):
             maxlen=200000,
             approximate=True,
         )
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
@@ -448,20 +448,20 @@ def test_health_gate_high_soft_rate(mock_redis, monkeypatch):
     monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         from tools.propose_baseline_update import main
-        
+
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
              patch("tools.propose_baseline_update.open", create=True), \
              patch("tools.propose_baseline_update.os.makedirs"), \
              patch("tools.propose_baseline_update.os.path.exists", return_value=True):
-            
+
             main()
-            
+
             bundle_keys = [k for k in mock_redis.keys() if k.startswith("baseline:bundle:")]
             assert len(bundle_keys) == 0, "Baseline proposal should be skipped when soft_rate > cap"
 
@@ -472,7 +472,7 @@ def test_health_gate_low_ok_rate(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "3")
     mock_redis.set("sre:regress:last_status", "PASS")
     mock_redis.set("sre:regress:last_ts_ms", str(now_ms()))
-    
+
     # Setup metrics stream with low ok_rate
     current_ms = now_ms()
     # Add 300 metrics with only 15% ok (below 0.20 floor)
@@ -491,7 +491,7 @@ def test_health_gate_low_ok_rate(mock_redis, monkeypatch):
             maxlen=200000,
             approximate=True,
         )
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
@@ -500,20 +500,20 @@ def test_health_gate_low_ok_rate(mock_redis, monkeypatch):
     monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         from tools.propose_baseline_update import main
-        
+
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
              patch("tools.propose_baseline_update.open", create=True), \
              patch("tools.propose_baseline_update.os.makedirs"), \
              patch("tools.propose_baseline_update.os.path.exists", return_value=True):
-            
+
             main()
-            
+
             bundle_keys = [k for k in mock_redis.keys() if k.startswith("baseline:bundle:")]
             assert len(bundle_keys) == 0, "Baseline proposal should be skipped when ok_rate < floor"
 
@@ -524,7 +524,7 @@ def test_health_gate_scenario_max_share(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "3")
     mock_redis.set("sre:regress:last_status", "PASS")
     mock_redis.set("sre:regress:last_ts_ms", str(now_ms()))
-    
+
     # Setup metrics stream with scenario collapse (90% one scenario)
     current_ms = now_ms()
     # Add 300 metrics with 90% "range" scenario (above 0.85 cap)
@@ -543,7 +543,7 @@ def test_health_gate_scenario_max_share(mock_redis, monkeypatch):
             maxlen=200000,
             approximate=True,
         )
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
@@ -552,20 +552,20 @@ def test_health_gate_scenario_max_share(mock_redis, monkeypatch):
     monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         from tools.propose_baseline_update import main
-        
+
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
              patch("tools.propose_baseline_update.open", create=True), \
              patch("tools.propose_baseline_update.os.makedirs"), \
              patch("tools.propose_baseline_update.os.path.exists", return_value=True):
-            
+
             main()
-            
+
             bundle_keys = [k for k in mock_redis.keys() if k.startswith("baseline:bundle:")]
             assert len(bundle_keys) == 0, "Baseline proposal should be skipped when scenario_max_share > cap"
 
@@ -576,7 +576,7 @@ def test_health_gate_sre_stats_scenario_l1(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "3")
     mock_redis.set("sre:regress:last_status", "PASS")
     mock_redis.set("sre:regress:last_ts_ms", str(now_ms()))
-    
+
     # Setup metrics stream with good metrics
     import json
     current_ms = now_ms()
@@ -594,7 +594,7 @@ def test_health_gate_sre_stats_scenario_l1(mock_redis, monkeypatch):
             maxlen=200000,
             approximate=True,
         )
-    
+
     # Setup SRE stats with high scenario_l1 drift
     sre_stats = {
         "now_ms": current_ms,
@@ -612,7 +612,7 @@ def test_health_gate_sre_stats_scenario_l1(mock_redis, monkeypatch):
         },
     },
     mock_redis.set("sre:of_gate:last_stats", json.dumps(sre_stats))
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
@@ -623,20 +623,20 @@ def test_health_gate_sre_stats_scenario_l1(mock_redis, monkeypatch):
     monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    
+
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         from tools.propose_baseline_update import main
-        
+
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
              patch("tools.propose_baseline_update.open", create=True), \
              patch("tools.propose_baseline_update.os.makedirs"), \
              patch("tools.propose_baseline_update.os.path.exists", return_value=True):
-            
+
             main()
-            
+
             bundle_keys = [k for k in mock_redis.keys() if k.startswith("baseline:bundle:")]
             assert len(bundle_keys) == 0, "Baseline proposal should be skipped when scenario_l1 > cap"
 
@@ -647,7 +647,7 @@ def test_health_gate_passes(mock_redis, monkeypatch):
     mock_redis.set("sre:regress:pass_streak", "3")
     mock_redis.set("sre:regress:last_status", "PASS")
     mock_redis.set("sre:regress:last_ts_ms", str(now_ms()))
-    
+
     # Setup metrics stream with healthy metrics
     current_ms = now_ms()
     # Add 300 metrics with all healthy values
@@ -665,7 +665,7 @@ def test_health_gate_passes(mock_redis, monkeypatch):
             maxlen=200000,
             approximate=True,
         )
-    
+
     monkeypatch.setenv("BASELINE_PROPOSE_MIN_STREAK", "3")
     monkeypatch.setenv("BASELINE_PROPOSE_MAX_AGE_HOURS", "30")
     monkeypatch.setenv("BASELINE_PROPOSE_HEALTH_WINDOW_HOURS", "24")
@@ -678,7 +678,7 @@ def test_health_gate_passes(mock_redis, monkeypatch):
     monkeypatch.setenv("OF_GATE_METRICS_STREAM", "metrics:of_gate")
     monkeypatch.setenv("BASELINE_PROPOSE_NOTIFY_ON_SKIP", "0")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    monkeypatch.setenv("OF_INPUTS_STREAM", "signals:of:inputs")
+    monkeypatch.setenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
     monkeypatch.setenv("OF_INPUTS_STREAM_FIELD", "payload")
     monkeypatch.setenv("CANARY_SYMBOLS", "BTCUSDT,ETHUSDT")
     monkeypatch.setenv("BASELINE_DIR", "/tmp/test_baselines")
@@ -686,13 +686,13 @@ def test_health_gate_passes(mock_redis, monkeypatch):
     monkeypatch.setenv("BASELINE_OUTPUT", "/tmp/test_baselines/baseline.ndjson")
     monkeypatch.setenv("RECS_HMAC_SECRET", "test_secret")
     monkeypatch.setenv("RECS_TTL_SEC", "86400")
-    monkeypatch.setenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram")
-    
+    monkeypatch.setenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM)
+
     with patch("tools.propose_baseline_update.redis.Redis") as mock_redis_cls:
         mock_redis_cls.from_url.return_value = mock_redis
-        
+
         from tools.propose_baseline_update import main
-        
+
         with patch("tools.propose_baseline_update.subprocess.check_call"), \
              patch("tools.propose_baseline_update.export_inputs", return_value=5000), \
              patch("tools.propose_baseline_update.open", create=True), \
@@ -700,14 +700,14 @@ def test_health_gate_passes(mock_redis, monkeypatch):
              patch("tools.propose_baseline_update.os.path.exists", return_value=True), \
              patch("tools.propose_baseline_update.json.loads", return_value={}), \
              patch("tools.propose_baseline_update.json.dumps", return_value="{}"):
-            
+
             # Should proceed past health gate (will fail on actual file operations, but that's ok)
             try:
                 main()
             except (FileNotFoundError, SystemExit):
                 # Expected to fail on file operations, but health gate should pass
                 pass
-            
+
             # Verify that health gate passed (we got past the early return)
             # This is verified by the fact that we didn't return early
 

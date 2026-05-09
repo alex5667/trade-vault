@@ -1,21 +1,19 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
+import logging
 import os
+import sys
 import time
 import uuid
-import sys
-import logging
-from typing import List
 
 import redis.asyncio as aioredis
 
 # Ensure service is importable
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 from services.ab_winner_suggester_service_v2 import ABWinnerSuggesterV2
 from services.reporting_service import ReportingService
+from utils.time_utils import get_ny_time_millis
 
 # Setup basic logging
 logging.basicConfig(
@@ -75,8 +73,8 @@ async def _run_iteration(r: aioredis.Redis, lock_key: str, lock_ttl_ms: int, rep
             svc.r = getattr(svc, "r", r) or r
         except Exception:
             pass
-            
-        updates: List[str] = await svc.run_once()
+
+        updates: list[str] = await svc.run_once()
         log.info(f"Evaluation complete. Updated {len(updates)} items.")
 
         if updates and os.getenv("AB_WINNER_TELEGRAM_ENABLED", "0") == "1":
@@ -92,10 +90,10 @@ async def _run_iteration(r: aioredis.Redis, lock_key: str, lock_ttl_ms: int, rep
                     msg_lines.append(f"... and {len(updates) - i} more")
                     break
                 msg_lines.append(f"• {line}")
-            
+
             msg = "\n".join(msg_lines)
             reporter.send_telegram_message(msg, tags=["ab_winner", "update"], severity="info")
-            
+
     except Exception as e:
         log.error(f"Error during iteration: {e}", exc_info=True)
     finally:
@@ -111,18 +109,18 @@ async def _main_loop() -> None:
         socket_timeout=30,
         max_connections=50,
     )
-    
+
     # Initialize ReportingService (it uses its own sync redis usually, or we pass valid url)
     # ReportingService expects sync redis url often if initializing internal redis, or we can use existing.
-    # Note: ReportingService structure in this codebase might use sync redis-py. 
+    # Note: ReportingService structure in this codebase might use sync redis-py.
     # We will instantiate it simply.
     reporter = ReportingService(redis_url=redis_url)
 
     lock_key = os.getenv("AB_WINNER_LOCK_KEY", "lock:ab_winner_evaluator:v1")
     lock_ttl_ms = int(os.getenv("AB_WINNER_LOCK_TTL_MS", str(55 * 60 * 1000)))
-    
+
     interval_sec = int(os.getenv("AB_WINNER_INTERVAL_SEC", "0"))
-    
+
     if interval_sec <= 0:
         # Run once and exit
         await _run_iteration(r, lock_key, lock_ttl_ms, reporter)
@@ -133,7 +131,7 @@ async def _main_loop() -> None:
     while True:
         start_ts = time.time()
         await _run_iteration(r, lock_key, lock_ttl_ms, reporter)
-        
+
         elapsed = time.time() - start_ts
         sleep_curr = max(1.0, interval_sec - elapsed)
         log.info(f"Sleeping {sleep_curr:.1f}s...")

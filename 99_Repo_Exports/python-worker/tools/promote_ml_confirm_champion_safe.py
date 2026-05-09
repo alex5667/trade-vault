@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Безопасный промоут challenger в champion для ML Confirm Gate.
 
@@ -18,7 +19,6 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Dict, Optional
 
 import redis
 
@@ -122,7 +122,7 @@ def main() -> None:
             print(f"   run_id: {challenger.get('run_id', 'unknown')}")
         except Exception as e:
             print(f"❌ Challenger существует, но невалидный JSON: {e}")
-            print(f"   Промоут невозможен из-за невалидного JSON")
+            print("   Промоут невозможен из-за невалидного JSON")
             sys.exit(1)
     else:
         print("❌ Challenger не найден (пустой)")
@@ -161,7 +161,7 @@ def main() -> None:
         print("📋 Шаг 4: DRY-RUN (промоут не выполнен)")
         print("-" * 80)
         print("✅ DRY-RUN: Промоут был бы выполнен")
-        print(f"   Был бы выполнен:")
+        print("   Был бы выполнен:")
         print(f"     redis-cli SET {champion_key} <challenger_value>")
         print(f"     redis-cli DEL {challenger_key}")
         print(f"     redis-cli STRLEN {champion_key}")

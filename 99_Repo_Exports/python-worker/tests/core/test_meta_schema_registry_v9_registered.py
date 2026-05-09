@@ -5,10 +5,10 @@ Ensures that after C1 wiring patch, get_schema_info() returns the canonical
 Guards against accidental removal of v9 registration.
 """
 from core.meta_features_v9 import (
+    META_FEAT_V9_COLS,
+    META_FEAT_V9_HASH,
     META_FEAT_V9_NAME,
     META_FEAT_V9_VERSION,
-    META_FEAT_V9_HASH,
-    META_FEAT_V9_COLS,
 )
 from core.meta_schema_registry import META_SCHEMA_REGISTRY, get_schema_info
 

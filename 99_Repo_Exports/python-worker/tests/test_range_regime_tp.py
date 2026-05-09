@@ -1,6 +1,9 @@
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
+
 from services.binance_executor import BinanceExecutor
+
 
 @pytest.fixture
 def executor():
@@ -26,21 +29,21 @@ def test_range_regime_tp_ratio_override(executor):
         "sid": "test_range_tp",
         "symbol": "BTCUSDT",
         "side": "LONG",
-        "qty": 1.0, 
+        "qty": 1.0,
         "entry": 50000,
         "sl": 49000,
         "tp_levels": [51000],
         # Range regime override: 100% close at TP1
-        "tp_ratio": [1.0], 
+        "tp_ratio": [1.0],
         "is_virtual": False
     }
-    
+
     res = executor.handle_open(payload)
-    
+
     # Assert _place_protective was called with the overridden tp_ratio
     executor._place_protective.assert_called_once()
     kwargs = executor._place_protective.call_args.kwargs
-    
+
     assert "tp_ratio" in kwargs
     assert kwargs["tp_ratio"] == [1.0]
 
@@ -51,17 +54,17 @@ def test_default_tp_ratio(executor):
         "sid": "test_default_tp",
         "symbol": "BTCUSDT",
         "side": "LONG",
-        "qty": 1.0, 
+        "qty": 1.0,
         "entry": 50000,
         "sl": 49000,
         "tp_levels": [51000, 52000, 53000],
         "is_virtual": False
     }
-    
+
     res = executor.handle_open(payload)
-    
+
     executor._place_protective.assert_called_once()
     kwargs = executor._place_protective.call_args.kwargs
-    
+
     # Should be None if not provided in payload, so executor will fallback to config defaults
     assert kwargs.get("tp_ratio") is None

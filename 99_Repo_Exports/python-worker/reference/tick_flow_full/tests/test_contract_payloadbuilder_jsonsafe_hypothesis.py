@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import os
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any
 
-import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from services.candidate_emit_pipeline_v2 import PayloadBuilder, CandidateFrame
-from common.contracts.tradeable_contracts import assert_tradeable_dict, assert_outbox_sidecar_meta
+from common.contracts.tradeable_contracts import assert_outbox_sidecar_meta, assert_tradeable_dict
+from services.candidate_emit_pipeline_v2 import CandidateFrame, PayloadBuilder
 
 
 def _weird_values():
@@ -36,7 +36,7 @@ def _json_like_recursive():
 
 @settings(max_examples=300, deadline=None)
 @given(parts=st.dictionaries(st.text(min_size=1, max_size=24), _json_like_recursive(), max_size=40))
-def test_payloadbuilder_tradeable_contract(parts: Dict[str, Any]):
+def test_payloadbuilder_tradeable_contract(parts: dict[str, Any]):
     os.environ["STRICT_TRADEABLE_CONTRACTS"] = "1"
 
     ctx = SimpleNamespace(side="LONG", tf="1m")

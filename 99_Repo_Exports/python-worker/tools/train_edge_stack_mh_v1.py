@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """
 Trainer for EdgeStackMHModelV1: multi-horizon stacking with OOF calibration.
@@ -11,22 +12,20 @@ TimeSeries OOF:
 """
 import argparse
 import json
-import math
 import os
 import time
-from typing import Dict, List, Tuple
 
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
-
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+
+from core.edge_stack_mh_v1 import EdgeStackMHModelV1
+from core.feature_engineering import RobustScalerPack  # уже используется в ml_confirm_gate
 
 # В вашем проекте уже есть:
-from services.ml_calibration import PlattLogitCalibrator, fit_platt_logit
-from core.feature_engineering import RobustScalerPack  # уже используется в ml_confirm_gate
-from core.edge_stack_mh_v1 import EdgeStackMHModelV1
+from services.ml_calibration import fit_platt_logit
 
 
 def ece_score(y: np.ndarray, p: np.ndarray, bins: int = 20) -> float:
@@ -53,7 +52,7 @@ def brier(y: np.ndarray, p: np.ndarray) -> float:
     return float(np.mean((p - y) ** 2))
 
 
-def stable_time_folds(ts_ms: np.ndarray, n_splits: int = 5) -> List[Tuple[np.ndarray, np.ndarray]]:
+def stable_time_folds(ts_ms: np.ndarray, n_splits: int = 5) -> list[tuple[np.ndarray, np.ndarray]]:
     order = np.argsort(ts_ms)
     n = len(order)
     fold_sizes = [n // n_splits] * n_splits
@@ -73,7 +72,7 @@ def stable_time_folds(ts_ms: np.ndarray, n_splits: int = 5) -> List[Tuple[np.nda
 
 def best_floor_by_sum_util(score: np.ndarray, util_true: np.ndarray,
                            floor_min: float, floor_max: float, floor_step: float,
-                           min_trades: int) -> Dict:
+                           min_trades: int) -> dict:
     best = {"floor": floor_min, "sum_util": -1e18, "n_take": 0, "take_rate": 0.0, "mean_util": 0.0}
     for f in np.arange(floor_min, floor_max + 1e-12, floor_step):
         m = score >= f
@@ -149,10 +148,10 @@ def main():
 
     folds = stable_time_folds(ts, n_splits=args.n_splits)
 
-    lr_models: Dict[int, any] = {}
-    gbdt_models: Dict[int, any] = {}
-    meta_models: Dict[int, any] = {}
-    calibrators: Dict[int, any] = {}
+    lr_models: dict[int, any] = {}
+    gbdt_models: dict[int, any] = {}
+    meta_models: dict[int, any] = {}
+    calibrators: dict[int, any] = {}
 
     report = {"horizons": horizons, "feature_cols": feature_cols, "metrics": {}}
     now_ms = get_ny_time_millis()
@@ -290,7 +289,7 @@ def main():
         json.dump(report, f, ensure_ascii=False, indent=2)
 
     print(f"OK: saved {model_path}")
-    print(f"OK: saved cfg_edge_stack_mh_v1.json")
+    print("OK: saved cfg_edge_stack_mh_v1.json")
 
 
 if __name__ == "__main__":

@@ -1,31 +1,32 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
+import subprocess
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
-import subprocess
 
 from tools.export_stream_payload_ndjson_v1 import export_stream_since
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
-def _read_json(path: str) -> Dict[str, Any]:
+def _read_json(path: str) -> dict[str, Any]:
     """Read JSON file."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
 
 
-def send_telegram(r: redis.Redis, text: str, buttons: Optional[list] = None) -> None:
+def send_telegram(r: redis.Redis, text: str, buttons: list | None = None) -> None:
     """Send Telegram notification with optional buttons."""
-    stream = os.getenv("TELEGRAM_NOTIFY_STREAM", "notify:telegram")
+    stream = os.getenv("TELEGRAM_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     fields = {"text": text}
     if buttons is not None:
         fields["buttons"] = json.dumps(buttons, ensure_ascii=False, separators=(",", ":"))
@@ -41,7 +42,7 @@ def main() -> None:
 
     r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
 
-    inputs_stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+    inputs_stream = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
     inputs_field = os.getenv("OF_INPUTS_FIELD", "payload")
     tb_stream = os.getenv("TB_LABELS_STREAM", "labels:tb")
     tb_field = os.getenv("TB_LABELS_FIELD", "payload")
@@ -60,7 +61,7 @@ def main() -> None:
     # Export streams
     export_stream_since(r=r, stream=inputs_stream, payload_field=inputs_field, since_ms=since_ms, out_path=tmp_inputs, max_scan=1_200_000, ts_field_guess="ts_ms")
     export_stream_since(r=r, stream=tb_stream, payload_field=tb_field, since_ms=since_ms, out_path=tmp_tb, max_scan=1_200_000, ts_field_guess="created_ms")
-    
+
     # Check if we have enough data (prevent empty models)
     if not os.path.exists(tmp_tb) or os.path.getsize(tmp_tb) < 100:
         print(f"ERROR: Not enough labels found in {tmp_tb} (size: {os.path.getsize(tmp_tb) if os.path.exists(tmp_tb) else 'missing'}). Aborting.")

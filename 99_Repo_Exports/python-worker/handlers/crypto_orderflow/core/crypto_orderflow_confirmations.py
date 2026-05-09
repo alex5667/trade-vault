@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 import os
-from typing import Any, Callable, Dict, Optional, Tuple
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from ..types.crypto_orderflow_handler_types import L2Snapshot
 
@@ -16,8 +17,8 @@ def _safe_f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
     except Exception:
-        return float(default)
-    return v if _is_finite(v) else float(default)
+        return default
+    return v if _is_finite(v) else default
 
 
 def _sum_top_notional(levels: Any, top_n: int) -> float:
@@ -54,7 +55,7 @@ class L2ConfirmCfg:
     wall_dist_bps_max: float = 15.0
 
     @staticmethod
-    def _env_pick(symbol: Optional[str], key: str) -> Optional[str]:
+    def _env_pick(symbol: str | None, key: str) -> str | None:
         """
         Symbol-first env lookup:
           BTC_OBI_TOP_N -> OBI_TOP_N
@@ -69,7 +70,7 @@ class L2ConfirmCfg:
         return v2 if v2 is not None and v2 != "" else None
 
     @classmethod
-    def from_env(cls, symbol: Optional[str] = None, base: Optional["L2ConfirmCfg"] = None) -> "L2ConfirmCfg":
+    def from_env(cls, symbol: str | None = None, base: L2ConfirmCfg | None = None) -> L2ConfirmCfg:
         """
         Build L2ConfirmCfg with ENV overrides.
 
@@ -116,8 +117,8 @@ class L2ConfirmBreakout:
         self,
         *,
         cfg: L2ConfirmCfg,
-        get_snapshot: Callable[[Any], Optional[L2Snapshot]],
-        get_snapshot_ts_ms: Callable[[Any], Optional[int]],
+        get_snapshot: Callable[[Any], L2Snapshot | None],
+        get_snapshot_ts_ms: Callable[[Any], int | None],
     ) -> None:
         self.cfg = cfg
         self._get_snapshot = get_snapshot
@@ -125,21 +126,21 @@ class L2ConfirmBreakout:
 
     # ---- экстракторы по умолчанию (без зависимости от хендлера) ----
     @staticmethod
-    def default_get_snapshot(ctx: Any) -> Optional[L2Snapshot]:
+    def default_get_snapshot(ctx: Any) -> L2Snapshot | None:
         # распространенные имена полей: l2_snapshot, l2, orderbook, book, l2_book
         snap = getattr(ctx, "l2_snapshot", None) or getattr(ctx, "l2", None) or getattr(ctx, "orderbook", None) or getattr(ctx, "book", None)
         return snap if isinstance(snap, L2Snapshot) else None
 
     @staticmethod
-    def default_get_snapshot_ts_ms(ctx: Any) -> Optional[int]:
+    def default_get_snapshot_ts_ms(ctx: Any) -> int | None:
         v = getattr(ctx, "l2_ts_ms", None) or getattr(ctx, "orderbook_ts_ms", None) or getattr(ctx, "book_ts_ms", None)
         try:
             return int(v) if v is not None else None
         except Exception:
             return None
 
-    def check(self, ctx: Any, *, dir_up: bool) -> Tuple[bool, Dict[str, Any]]:
-        details: Dict[str, Any] = {
+    def check(self, ctx: Any, *, dir_up: bool) -> tuple[bool, dict[str, Any]]:
+        details: dict[str, Any] = {
             "ok": False,
             "dir_up": bool(dir_up),
             "reason": "",
@@ -217,28 +218,28 @@ class L2ConfirmAbsorption:
         self,
         *,
         cfg: L2ConfirmCfg,
-        get_snapshot: Callable[[Any], Optional[L2Snapshot]],
-        get_snapshot_ts_ms: Callable[[Any], Optional[int]],
+        get_snapshot: Callable[[Any], L2Snapshot | None],
+        get_snapshot_ts_ms: Callable[[Any], int | None],
     ) -> None:
         self.cfg = cfg
         self._get_snapshot = get_snapshot
         self._get_snapshot_ts_ms = get_snapshot_ts_ms
 
     @staticmethod
-    def default_get_snapshot(ctx: Any) -> Optional[L2Snapshot]:
+    def default_get_snapshot(ctx: Any) -> L2Snapshot | None:
         snap = getattr(ctx, "l2_snapshot", None) or getattr(ctx, "l2", None) or getattr(ctx, "orderbook", None) or getattr(ctx, "book", None)
         return snap if isinstance(snap, L2Snapshot) else None
 
     @staticmethod
-    def default_get_snapshot_ts_ms(ctx: Any) -> Optional[int]:
+    def default_get_snapshot_ts_ms(ctx: Any) -> int | None:
         v = getattr(ctx, "l2_ts_ms", None) or getattr(ctx, "orderbook_ts_ms", None) or getattr(ctx, "book_ts_ms", None)
         try:
             return int(v) if v is not None else None
         except Exception:
             return None
 
-    def check(self, ctx: Any, *, dir_up: bool) -> Tuple[bool, Dict[str, Any]]:
-        details: Dict[str, Any] = {
+    def check(self, ctx: Any, *, dir_up: bool) -> tuple[bool, dict[str, Any]]:
+        details: dict[str, Any] = {
             "ok": False,
             "dir_up": bool(dir_up),
             "reason": "",

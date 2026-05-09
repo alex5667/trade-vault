@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 CrossVenue Gate Calibrator.
 
@@ -15,20 +17,20 @@ If all thresholds are met (saved_r > MIN_SAVED_R, win_rate < MAX_VETO_WINRATE)
 via interactive Telegram (✅/❌).
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
-import hmac
 import hashlib
+import hmac
 import json
 import logging
 import os
 import secrets
 import sys
 import time
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,8 +69,8 @@ def _i(v, default: int = 0) -> int:
 
 # ────────────────────────────────────────── stream readers ────────────────── #
 
-def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, str]]:
-    results: List[Dict[str, str]] = []
+def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, str]]:
+    results: list[dict[str, str]] = []
     start_id = f"{since_ms}-0"
     page = 500
     last_id = start_id
@@ -87,8 +89,8 @@ def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int
 
     return results
 
-def _read_stream_recent(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, str]]:
-    results: List[Dict[str, str]] = []
+def _read_stream_recent(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, str]]:
+    results: list[dict[str, str]] = []
     last_id = "+"
     page = 500
 
@@ -119,7 +121,7 @@ _ADVERSE_FLAGS = frozenset({
     "trade_imbalance_against_short",
 })
 
-def _extract_cv_flags(ev: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _extract_cv_flags(ev: dict[str, Any]) -> dict[str, Any] | None:
     payload_str = ev.get("payload", "")
     if payload_str:
         try:
@@ -140,7 +142,7 @@ def _extract_cv_flags(ev: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     else:
         indicators = {}
 
-    flags_str = str(indicators.get("crossvenue_flags") or "").strip()
+    flags_str = (indicators.get("crossvenue_flags") or "").strip()
     if not flags_str:
         return None
 
@@ -161,7 +163,7 @@ def _collect_analytics(
     r: redis.Redis,
     hours: float,
     max_scan: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     decisions_stream = os.getenv("DECISIONS_FINAL_STREAM", "decisions:final")
     trades_stream = os.getenv("ML_OUTCOME_STREAM", "trades:closed")
 
@@ -171,7 +173,7 @@ def _collect_analytics(
     decision_events = _read_stream_since(r, decisions_stream, since_ms, max_scan)
     trades_events = _read_stream_recent(r, trades_stream, since_ms, max_scan)
 
-    trades_by_sid: Dict[str, Dict[str, str]] = {}
+    trades_by_sid: dict[str, dict[str, str]] = {}
     for ev in trades_events:
         sid = str(ev.get("sid") or ev.get("signal_id") or "").strip()
         if sid and sid not in trades_by_sid:
@@ -218,7 +220,7 @@ def _collect_analytics(
     }
 
 
-def _holddown_ok(r: redis.Redis, step_ts_key: str, holddown_h: float) -> Tuple[bool, float]:
+def _holddown_ok(r: redis.Redis, step_ts_key: str, holddown_h: float) -> tuple[bool, float]:
     raw = r.get(step_ts_key)
     if not raw:
         return True, 999.0
@@ -240,7 +242,7 @@ def _build_proposal_bundle(
     secret: str,
     next_mode: str,
     ttl: int = 86400,
-) -> Tuple[str, str, Dict[str, Any]]:
+) -> tuple[str, str, dict[str, Any]]:
     bid = secrets.token_hex(6)
     sig = _sign(bid, secret)
     ts = _now_ms()
@@ -266,7 +268,7 @@ def _send_telegram_proposal(
     bundle_id: str,
     sig: str,
     hours: float,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     notify_stream: str,
     cur_mode: str,
     next_mode: str,
@@ -306,12 +308,12 @@ def _send_telegram_proposal(
 
 def _should_propose(
     *,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     holddown_ok: bool,
     min_vetoed: int,
     max_winrate: float,
     min_saved_r: float,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     if not holddown_ok:
         return False, "holddown_not_expired"
 
@@ -332,7 +334,7 @@ def _wait_for_decision(
     bundle_id: str,
     sig: str,
     hours: float,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     notify_stream: str,
     reminder_sec: int,
     step_ts_key: str,
@@ -476,8 +478,8 @@ def main() -> None:
     pending_key = "meta:crossvenue_cal:pending"
     step_ts_key = "meta:crossvenue_cal:last_step_ms"
     holddown_h = float(os.getenv("CVCAL_HOLDDOWN_H", "72"))
-    
-    notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+
+    notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_ttl = int(os.getenv("CVCAL_BUNDLE_TTL_SEC", "86400"))
     reminder_sec = int(os.getenv("CVCAL_REMINDER_SEC", "1800"))

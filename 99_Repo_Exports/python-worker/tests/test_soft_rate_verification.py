@@ -13,7 +13,7 @@ def test_soft_rate_logic_explanation():
     3. score >= soft_score_min (по умолчанию 0.60 после фикса)
     4. exec_risk_norm <= soft_exec_max (по умолчанию 0.65 после фикса)
     """
-    
+
     # Симуляция данных из реального потока
     test_cases = [
         {
@@ -72,31 +72,31 @@ def test_soft_rate_logic_explanation():
             "expected_ok_soft": 0,  # have != need - 1
         },
     ]
-    
+
     print("\n" + "="*80)
     print("ПРОВЕРКА ЛОГИКИ SOFT_RATE")
     print("="*80)
-    
+
     for tc in test_cases:
         # Логика из of_confirm_engine.py (строки 906-912)
         ok_soft = 0
-        if (tc["ok"] == 0 and 
-            tc["need"] > 0 and 
+        if (tc["ok"] == 0 and
+            tc["need"] > 0 and
             tc["have"] == tc["need"] - 1):
-            if (tc["score"] >= tc["soft_score_min"] and 
+            if (tc["score"] >= tc["soft_score_min"] and
                 tc["exec_risk_norm"] <= tc["soft_exec_max"]):
                 ok_soft = 1
-        
+
         status = "✅ PASS" if ok_soft == tc["expected_ok_soft"] else "❌ FAIL"
-        
+
         print(f"\n{status} {tc['name']}")
         print(f"  Условия: ok={tc['ok']}, have={tc['have']}, need={tc['need']}")
         print(f"  Метрики: score={tc['score']:.2f}, exec_risk={tc['exec_risk_norm']:.2f}")
         print(f"  Пороги:  soft_score_min={tc['soft_score_min']:.2f}, soft_exec_max={tc['soft_exec_max']:.2f}")
         print(f"  Результат: ok_soft={ok_soft} (ожидалось {tc['expected_ok_soft']})")
-        
+
         assert ok_soft == tc["expected_ok_soft"], f"Тест '{tc['name']}' провалился!"
-    
+
     print("\n" + "="*80)
     print("ВСЕ ТЕСТЫ ПРОШЛИ!")
     print("="*80)

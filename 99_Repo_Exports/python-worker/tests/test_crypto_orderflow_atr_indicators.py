@@ -1,14 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 Unit test for "Broken Chain Fix": verify that ATR floor indicators
 are properly exposed in publish_signal path.
 """
 import unittest
-from unittest.mock import MagicMock, patch
 from types import SimpleNamespace
 
-
 from core.dyn_cfg_keys import DynCfgKeys as DK
+
+
 class TestCryptoOrderflowATRIndicators(unittest.TestCase):
     """
     Test that atr_floor_th_bps and related indicators appear in the indicators dict

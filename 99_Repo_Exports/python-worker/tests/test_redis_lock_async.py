@@ -1,7 +1,7 @@
-# -*- coding: utf-8 -*-
-import pytest
 import asyncio
-from unittest.mock import MagicMock
+
+import pytest
+
 
 @pytest.mark.asyncio
 async def test_redis_lock_async_acquire_release():
@@ -39,8 +39,8 @@ async def test_redis_lock_async_ttl_expire():
 
     lock = await acquire_lock(r=r, key="lock:test_ttl", ttl_sec=1)
     assert lock is not None
-    
+
     await asyncio.sleep(1.1)
-    
+
     lock2 = await acquire_lock(r=r, key="lock:test_ttl", ttl_sec=1)
     assert lock2 is not None

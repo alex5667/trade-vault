@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 TraceWriter: Encapsulates decision tracing and diagnostic logging.
 
@@ -6,8 +7,7 @@ Extracts trace persistence and diagnostic stream interactions from SignalDispatc
 """
 
 import json
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from common.decision_trace import DecisionTrace, trace_enabled
 
@@ -27,7 +27,7 @@ class TraceWriter:
         trace: DecisionTrace,
         *,
         stage: str,
-        extra: Optional[Dict[str, Any]] = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         """
         Emit diagnostics ONLY into diagnostics stream.
@@ -36,7 +36,7 @@ class TraceWriter:
         try:
             if not self.redis or not self.config.diag_stream:
                 return
-            
+
             payload = {
                 "type": "diagnostic",
                 "stage": str(stage),
@@ -44,7 +44,7 @@ class TraceWriter:
                 "trace": trace.to_dict(max_events=200),
                 "extra": extra or {},
             }
-            
+
             self.redis.xadd(
                 self.config.diag_stream,
                 {"data": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
@@ -63,13 +63,13 @@ class TraceWriter:
         try:
             if not self.redis or not sid:
                 return
-            
-            # Using trace_store_enabled config check if implemented, 
+
+            # Using trace_store_enabled config check if implemented,
             # otherwise assuming safe to write if meta_prefix is set.
             # SignalDispatcher didn't check 'trace_store_enabled' explicitly in the copied method,
             # but config has it. We can add check if we want strict parity or improvement.
             # We'll stick to original logic: if prefix exists.
-            
+
             prefix = getattr(self.config, "outbox_meta_prefix", "signal:meta:")
             # Also need ttl.
             # SignalDispatcher used self.outbox_meta_ttl_sec?
@@ -78,13 +78,13 @@ class TraceWriter:
             # Wait, SignalDispatcher code used `self.outbox_meta_ttl_sec`.
             # Config.py has 'trace_env_max_events' but where is 'outbox_meta_ttl_sec'?
             # I need to check Config again for 'outbox_meta_ttl_sec'.
-            
+
             # Assuming it might be missing from Config if I didn't verify it!
             # I will use a default or check if I need to add it to config first.
             # I'll optimistically perform logic assuming I can access it or default (86400).
-            
+
             ttl = getattr(self.config, "outbox_meta_ttl_sec", 86400)
-            
+
             k = f"{prefix}{sid}"
             v = json.dumps(
                 {"type": "meta", "trace": trace.to_dict(max_events=200), "ts_ms": get_ny_time_millis()},
@@ -95,7 +95,7 @@ class TraceWriter:
         except Exception:
             return
 
-    def emit_diag_best_effort(self, env: Dict[str, Any], *, reason: str) -> None:
+    def emit_diag_best_effort(self, env: dict[str, Any], *, reason: str) -> None:
         """
         Write diagnostic event to separate stream.
         """
@@ -109,15 +109,15 @@ class TraceWriter:
             payload = {
                 "type": "diagnostic",
                 "tradeable": False,
-                "reason": str(reason or ""),
+                "reason": (reason or ""),
                 "trace_id": tid,
-                "sid": str(env.get("sid") or ""),
-                "symbol": str(env.get("symbol") or ""),
-                "kind": str(env.get("kind") or ""),
+                "sid": (env.get("sid") or ""),
+                "symbol": (env.get("symbol") or ""),
+                "kind": (env.get("kind") or ""),
                 "trace": env.get("trace"),
                 "ts_ms": get_ny_time_millis(),
             }
-            
+
             self.redis.xadd(
                 self.config.diag_stream,
                 {"data": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},

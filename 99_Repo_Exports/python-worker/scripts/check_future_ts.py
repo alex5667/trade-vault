@@ -1,6 +1,7 @@
-import redis
-import time
 import os
+
+import redis
+
 
 def check_redis(r, name):
     print(f"--- Checking {name} ---")
@@ -25,7 +26,7 @@ def check_redis(r, name):
                                     val = int(v.decode())
                                     if val > threshold:
                                         print(f"FUTURE FIELD in {key_str}.{f_str}: {val}")
-                                except: pass
+                                except Exception: pass
             except Exception as e:
                 print(f"Error checking {key_str}: {e}")
     except Exception as e:
@@ -38,6 +39,6 @@ if __name__ == "__main__":
 
     r_main = redis.Redis.from_url(redis_url)
     r_ticks = redis.Redis.from_url(redis_ticks_url)
-    
+
     check_redis(r_main, "MAIN")
     check_redis(r_ticks, "TICKS")

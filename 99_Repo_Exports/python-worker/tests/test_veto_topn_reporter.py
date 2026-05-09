@@ -1,8 +1,7 @@
-import os
 from dataclasses import dataclass
 
-from common.veto_reason_reporter import VetoTopNReporter
 from common.reason_normalizer import reason_family
+from common.veto_reason_reporter import VetoTopNReporter
 
 
 class FakeEmitter:

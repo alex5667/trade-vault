@@ -7,8 +7,8 @@ requiring scipy in production timers/exporters.
 """
 
 import math
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Iterable, List, Sequence
 
 import numpy as np
 
@@ -22,7 +22,7 @@ class KsResult:
 
 
 def _as_float_array(xs: Iterable[float | int | None]) -> np.ndarray:
-    vals: List[float] = []
+    vals: list[float] = []
     for x in xs:
         try:
             if x is None:

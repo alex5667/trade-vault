@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import os
 import json
-from typing import Any, Dict, Optional
+import os
+from typing import Any
 
-from hypothesis import given, strategies as st
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from services.signal_dispatcher import SignalDispatcher
 
@@ -45,7 +46,7 @@ def _with_guard_enabled():
     return old
 
 
-def _restore_guard(old: Optional[str]) -> None:
+def _restore_guard(old: str | None) -> None:
     if old is None:
         os.environ.pop("TARGETS_MUTATION_GUARD", None)
     else:
@@ -53,7 +54,7 @@ def _restore_guard(old: Optional[str]) -> None:
 
 
 @given(payload=st.dictionaries(st.text(min_size=1, max_size=16), json_value, max_size=12))
-def test_signal_stream_branch_does_not_mutate_original_payload(payload: Dict[str, Any]) -> None:
+def test_signal_stream_branch_does_not_mutate_original_payload(payload: dict[str, Any]) -> None:
     calls: list = []
     d = mk_dispatcher(calls)
     old = _with_guard_enabled()
@@ -84,7 +85,7 @@ def test_signal_stream_branch_does_not_mutate_original_payload(payload: Dict[str
 
 
 @given(payload=st.dictionaries(st.text(min_size=1, max_size=16), json_value, max_size=12))
-def test_audit_branch_does_not_mutate_original_payload(payload: Dict[str, Any]) -> None:
+def test_audit_branch_does_not_mutate_original_payload(payload: dict[str, Any]) -> None:
     calls: list = []
     d = mk_dispatcher(calls)
     old = _with_guard_enabled()
@@ -110,7 +111,7 @@ def test_audit_branch_does_not_mutate_original_payload(payload: Dict[str, Any]) 
 
 
 @given(payload=st.dictionaries(st.text(min_size=1, max_size=16), json_value, max_size=12))
-def test_manual_branch_does_not_mutate_original_payload(payload: Dict[str, Any]) -> None:
+def test_manual_branch_does_not_mutate_original_payload(payload: dict[str, Any]) -> None:
     calls: list = []
     d = mk_dispatcher(calls)
     old = _with_guard_enabled()
@@ -136,7 +137,7 @@ def test_manual_branch_does_not_mutate_original_payload(payload: Dict[str, Any])
 
 
 @given(payload=st.dictionaries(st.text(min_size=1, max_size=16), json_value, max_size=12))
-def test_snapshot_branch_does_not_mutate_original_payload(payload: Dict[str, Any]) -> None:
+def test_snapshot_branch_does_not_mutate_original_payload(payload: dict[str, Any]) -> None:
     calls: list = []
     d = mk_dispatcher(calls)
     old = _with_guard_enabled()

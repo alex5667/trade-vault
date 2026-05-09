@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Optional
 
 import pytest
 
@@ -105,9 +104,9 @@ def test_missing_l3_flag_when_no_l3_fields() -> None:
         symbol: str = "BTCUSDT"
         ts: int = 1
         price: float = 1.0
-        spread_bps: Optional[float] = None
-        microprice_shift_bps_20: Optional[float] = None
-        cancel_to_trade_bid_20s: Optional[float] = None
+        spread_bps: float | None = None
+        microprice_shift_bps_20: float | None = None
+        cancel_to_trade_bid_20s: float | None = None
         data_quality_flags: list[str] = None  # type: ignore
 
     ctx = CtxNoL3(data_quality_flags=[])

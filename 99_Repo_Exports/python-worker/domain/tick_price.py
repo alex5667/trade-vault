@@ -1,11 +1,10 @@
 # domain/tick_price.py
 from __future__ import annotations
-from typing import Optional, Tuple
 
-from domain.models import Tick, Side
+from domain.models import Side, Tick
 
 
-def build_tick(raw: dict) -> Optional[Tick]:
+def build_tick(raw: dict) -> Tick | None:
     symbol = (raw.get("symbol") or "").strip().upper()
     if not symbol:
         return None
@@ -33,7 +32,7 @@ def build_tick(raw: dict) -> Optional[Tick]:
     return Tick(symbol=symbol, ts_ms=ts_ms, bid=bid, ask=ask, last=last, price=price, mid=mid)
 
 
-def trigger_prices(tick: Tick, side: Side) -> Tuple[float, float, float]:
+def trigger_prices(tick: Tick, side: Side) -> tuple[float, float, float]:
     """
     Возвращает (tp_trigger_price, sl_trigger_price, reference_mid)
     Важно:

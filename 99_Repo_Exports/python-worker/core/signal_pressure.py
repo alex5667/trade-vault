@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from collections import deque
-from typing import Deque
+from dataclasses import dataclass, field
 
 
-def _prune(q: Deque[int], now_ms: int, window_ms: int) -> None:
+def _prune(q: deque[int], now_ms: int, window_ms: int) -> None:
     cutoff = now_ms - window_ms
     while q and q[0] < cutoff:
         q.popleft()
@@ -24,9 +23,9 @@ class SignalPressureTracker:
     Window is rolling, measured in ms.
     """
     window_ms: int = 60_000
-    candidates: Deque[int] = field(default_factory=lambda: deque(maxlen=10_000))
-    cooldown_veto: Deque[int] = field(default_factory=lambda: deque(maxlen=10_000))
-    emits: Deque[int] = field(default_factory=lambda: deque(maxlen=10_000))
+    candidates: deque[int] = field(default_factory=lambda: deque(maxlen=10_000))
+    cooldown_veto: deque[int] = field(default_factory=lambda: deque(maxlen=10_000))
+    emits: deque[int] = field(default_factory=lambda: deque(maxlen=10_000))
 
     def record_candidate(self, ts_ms: int) -> None:
         if ts_ms <= 0:

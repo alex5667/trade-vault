@@ -1,7 +1,5 @@
-import json
-import os
 
-from common.decision_trace import ensure_trace, trace_gate, build_trace_summary, build_sidecar_meta, merge_trace_events
+from common.decision_trace import build_trace_summary, ensure_trace, merge_trace_events, trace_gate
 from services.outbox.envelope_builder import build_outbox_envelope, build_trace_sidecar_meta
 
 
@@ -59,7 +57,6 @@ def test_sidecar_meta_contains_full_trace(monkeypatch):
 
 def test_merge_trace_events_trims():
     # Test that merge adds events and that trimming works conceptually
-    from common.decision_trace import merge_trace_events
     tr = {"trace_id": "t1", "sid": "s1", "events": []}
     patch = [{"type": "target", "target": "notify", "ok": True, "attempt": 1, "duration_ms": 1.0} for _ in range(5)]
     out = merge_trace_events(tr, patch)

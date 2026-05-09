@@ -1,13 +1,12 @@
 import asyncio
 import os
-import json
-import logging
-import time
 import sys
+
 sys.path.append("/app")
 import redis.asyncio as aioredis
 
 from core.microbar_streams import LEGACY_STREAM, SYMBOLS_SET, list_symbols, pick_stream_key
+
 
 async def main():
     url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -21,7 +20,7 @@ async def main():
         return
 
     print("\n--- Discovery ---\n")
-    
+
     # 1. Check Microbar Streams (legacy vs split)
     try:
         legacy_exists = await r.exists(LEGACY_STREAM)
@@ -54,7 +53,7 @@ async def main():
     async for k in r.scan_iter("*BTCUSDT*"):
         keys.append(k)
         if len(keys) > 50: break
-    
+
     print(f"Found {len(keys)} keys matching *BTCUSDT*:")
     for k in keys:
         print(f"  {k} ({await r.type(k)})")

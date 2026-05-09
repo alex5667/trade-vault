@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 Autopilot fields normalizer (unit-testable).
 
@@ -31,7 +32,7 @@ Design rules:
 
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
 def _s(x: Any, default: str = "") -> str:
@@ -101,7 +102,7 @@ class AutopilotFields:
     pressure_sps: float = 0.0
 
 
-def extract_autopilot_fields(payload: Dict[str, Any]) -> AutopilotFields:
+def extract_autopilot_fields(payload: dict[str, Any]) -> AutopilotFields:
     """
     Extract best-effort fields from heterogeneous signal payload.
     """
@@ -149,26 +150,26 @@ def extract_autopilot_fields(payload: Dict[str, Any]) -> AutopilotFields:
     abs_lvl_tier = _i(raw_tier, default=-1)
 
     dn_tier = _i(
-        payload.get("dn_tier", None)
-        if payload.get("dn_tier", None) is not None
+        payload.get("dn_tier")
+        if payload.get("dn_tier") is not None
         else ind.get("dn_tier", None),
         default=-1,
     )
     of_confirm_ok = _i(
-        payload.get("of_confirm_ok", None)
-        if payload.get("of_confirm_ok", None) is not None
+        payload.get("of_confirm_ok")
+        if payload.get("of_confirm_ok") is not None
         else ind.get("of_confirm_ok", ind.get("strong_gate_ok", None)),
         default=0, # Default to 0 (False) if unknown, to be safe/conservative
     )
     book_health_ok = _i(
-        payload.get("book_health_ok", None)
-        if payload.get("book_health_ok", None) is not None
+        payload.get("book_health_ok")
+        if payload.get("book_health_ok") is not None
         else ind.get("book_health_ok", 1), # Default to 1 (True) if unknown
         default=1,
     )
     pressure_sps = _f(
-        payload.get("pressure_sps", None)
-        if payload.get("pressure_sps", None) is not None
+        payload.get("pressure_sps")
+        if payload.get("pressure_sps") is not None
         else ind.get("pressure_sps", payload.get("micro", {}).get("pressure_sps") if isinstance(payload.get("micro"), dict) else None),
         default=0.0,
     )
@@ -185,7 +186,7 @@ def extract_autopilot_fields(payload: Dict[str, Any]) -> AutopilotFields:
     )
 
 
-def enrich_signal_payload_for_autopilot(payload: Dict[str, Any]) -> Dict[str, Any]:
+def enrich_signal_payload_for_autopilot(payload: dict[str, Any]) -> dict[str, Any]:
     """
     Merge extracted autopilot fields into payload root.
     This makes persistence easy (PositionState.signal_payload / events:trades root payload).

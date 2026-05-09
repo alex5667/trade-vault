@@ -1,6 +1,6 @@
-from pathlib import Path
 import importlib.util
 import sys
+from pathlib import Path
 
 mod_path = Path(__file__).with_name("binance_executor.py")
 spec = importlib.util.spec_from_file_location("binance_executor", mod_path)

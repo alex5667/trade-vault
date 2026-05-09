@@ -1,6 +1,7 @@
-import pytest
 import numpy as np
-from ml_analysis.tools.fit_confidence_bonus_weights_v1 import _sigmoid, _logit, _auc_roc, _brier, _extract_conf_keys
+
+from ml_analysis.tools.fit_confidence_bonus_weights_v1 import _auc_roc, _brier, _extract_conf_keys, _logit, _sigmoid
+
 
 def test_sigmoid():
     assert np.isclose(_sigmoid(0), 0.5)

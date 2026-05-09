@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ATR Policy SRE Service — Phase 3.7.
 
 Prometheus exporter for the policy control-plane:
@@ -26,12 +27,13 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
 import redis
 from prometheus_client import Counter, Gauge, start_http_server
+import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -155,10 +157,10 @@ g_orphan_queue_total = Gauge(
 # Collection helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _scan_keys(r: redis.Redis, pattern: str, count: int = 500) -> List[str]:
+def _scan_keys(r: redis.Redis, pattern: str, count: int = 500) -> list[str]:
     """SCAN with bounded iteration — avoids blocking under large key sets."""
     cur: int = 0
-    out: List[str] = []
+    out: list[str] = []
     while True:
         cur, keys = r.scan(cur, match=pattern, count=count)
         out.extend(keys)
@@ -167,9 +169,9 @@ def _scan_keys(r: redis.Redis, pattern: str, count: int = 500) -> List[str]:
     return out
 
 
-def _pending_stats(r: redis.Redis) -> Dict[str, Any]:
+def _pending_stats(r: redis.Redis) -> dict[str, Any]:
     """Count SUBMITTED proposals and find the oldest one."""
-    ids: List[str] = list(r.smembers("queue:atr_policy:pending") or [])
+    ids: list[str] = list(r.smembers("queue:atr_policy:pending") or [])
     oldest_ms: int = 0
     now_ms: int = int(time.time() * 1000)
 
@@ -179,7 +181,7 @@ def _pending_stats(r: redis.Redis) -> Dict[str, Any]:
             continue
         try:
             obj = json.loads(raw)
-            if str(obj.get("status") or "") != "SUBMITTED":
+            if (obj.get("status") or "") != "SUBMITTED":
                 continue
             created = int(obj.get("created_at_ms") or 0)
             if created > 0 and (oldest_ms == 0 or created < oldest_ms):
@@ -195,20 +197,20 @@ def _pending_stats(r: redis.Redis) -> Dict[str, Any]:
     }
 
 
-def _queue_stats(r: redis.Redis) -> Dict[str, Any]:
+def _queue_stats(r: redis.Redis) -> dict[str, Any]:
     return {
         "decided_total": len(list(r.smembers("queue:atr_policy:decided") or [])),
         "active_total": len(_scan_keys(r, "cfg:atr_policy:active:*")),
     }
 
 
-def _audit_stats(conn: "psycopg2.connection") -> Dict[str, Any]:
+def _audit_stats(conn: psycopg2.connection) -> dict[str, Any]:
     """Compute p95 latencies and daily counters from the audit table.
 
     All queries are bounded to the last 7 days and today respectively.
     Falls back gracefully if the table does not yet exist.
     """
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "proposal_to_decision_p95_sec": 0.0,
         "approve_to_apply_p95_sec": 0.0,
         "revoke_today_total": 0,
@@ -286,7 +288,7 @@ def _audit_stats(conn: "psycopg2.connection") -> Dict[str, Any]:
     return out
 
 
-def _runtime_stats(r: redis.Redis) -> Dict[str, Any]:
+def _runtime_stats(r: redis.Redis) -> dict[str, Any]:
     """Read ephemeral Redis counters written by callback_worker and reconcile."""
     now_ms = int(time.time() * 1000)
     last_ts = r.get("atr_policy:reconcile:last_success_ts_ms")
@@ -299,16 +301,12 @@ def _runtime_stats(r: redis.Redis) -> Dict[str, Any]:
             reconcile_age = 0
 
     confirm_expired = 0
-    try:
+    with contextlib.suppress(Exception):
         confirm_expired = int(r.get("atr_policy:confirm_expired_today_total") or 0)
-    except Exception:
-        pass
 
     callback_denied = 0
-    try:
+    with contextlib.suppress(Exception):
         callback_denied = int(r.get("atr_policy:callback_denied_today_total") or 0)
-    except Exception:
-        pass
 
     return {
         "reconcile_last_success_age_sec": reconcile_age,
@@ -316,7 +314,7 @@ def _runtime_stats(r: redis.Redis) -> Dict[str, Any]:
         "callback_denied_today_total": callback_denied,
     }
 
-def _drift_stats(r: redis.Redis) -> Dict[str, Any]:
+def _drift_stats(r: redis.Redis) -> dict[str, Any]:
     """Read ephemeral Redis hashes for drift checker stats."""
     now_ms = int(time.time() * 1000)
     last_ts = r.get("atr_policy:drift_check:last_run_ts_ms")
@@ -335,14 +333,14 @@ def _drift_stats(r: redis.Redis) -> Dict[str, Any]:
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
 
-def collect_once() -> Dict[str, Any]:
+def collect_once() -> dict[str, Any]:
     """Collect all SRE metrics in one pass. Used by digest service too."""
     r = _redis()
     conn = psycopg2.connect(
         _dsn(), connect_timeout=5, application_name="atr_policy_sre_service"
     )
     try:
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         out.update(_pending_stats(r))
         out.update(_queue_stats(r))
         out.update(_audit_stats(conn))
@@ -353,7 +351,7 @@ def collect_once() -> Dict[str, Any]:
         conn.close()
 
 
-def export_once() -> Dict[str, Any]:
+def export_once() -> dict[str, Any]:
     """Collect and publish all SRE metrics to Prometheus gauges."""
     s = collect_once()
     g_pending_total.set(s["pending_total"])

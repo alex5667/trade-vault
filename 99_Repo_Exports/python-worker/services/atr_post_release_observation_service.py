@@ -2,12 +2,14 @@ import json
 import logging
 import os
 import uuid
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 import psycopg2.extras
+from prometheus_client import Counter, Gauge
+
 from services.analytics_db import get_conn as get_db_connection
 from services.atr_model_config_drift_service import ATRModelConfigDriftService
-from prometheus_client import Counter, Gauge
 
 logger = logging.getLogger("atr_post_release_observation_service")
 
@@ -43,13 +45,13 @@ DWELL_WINDOWS_HOURS = {
 
 class ATRPostReleaseObservationService:
     @staticmethod
-    def open_post_release_observation(change_id: str, change_class: str, target_scope: str) -> Optional[str]:
+    def open_post_release_observation(change_id: str, change_class: str, target_scope: str) -> str | None:
         if not ATR_POST_RELEASE_OBSERVATION_ENABLE:
             return None
 
-        observation_id = f"obs_{datetime.now(timezone.utc).strftime('%Y_%m_%d')}_{uuid.uuid4().hex[:6]}"
+        observation_id = f"obs_{datetime.now(UTC).strftime('%Y_%m_%d')}_{uuid.uuid4().hex[:6]}"
         dwell_hours = DWELL_WINDOWS_HOURS.get(change_class, 24)
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         observation_until = started_at + timedelta(hours=dwell_hours)
         summary = {"change_id": change_id, "dwell_hours": dwell_hours}
 
@@ -69,19 +71,18 @@ class ATRPostReleaseObservationService:
     @staticmethod
     def _submit_check(observation_id: str, check_name: str, status: str, details: dict) -> None:
         check_id = f"prchk_{observation_id}_{check_name}"
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
+        with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute("""
                     INSERT INTO atr_post_release_checks 
                     (check_id, observation_id, check_name, status, details_json)
                     VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT (check_id) DO UPDATE SET status = EXCLUDED.status, details_json = EXCLUDED.details_json
                 """, (check_id, observation_id, check_name, status, json.dumps(details)))
-                conn.commit()
+            conn.commit()
         CHECK_TOTAL.labels(check_name=check_name, status=status).inc()
 
     @staticmethod
-    def evaluate_post_release_checks(observation_id: str, mock_telemetry: Optional[Dict[str, Any]] = None) -> None:
+    def evaluate_post_release_checks(observation_id: str, mock_telemetry: dict[str, Any] | None = None) -> None:
         """
         Polls telemetry for Signal/Gate, Dispatch, Execution, Protective, and Control-Plane health.
         Updates checks associated with observation.
@@ -89,12 +90,11 @@ class ATRPostReleaseObservationService:
         if not ATR_POST_RELEASE_OBSERVATION_ENABLE:
             return
 
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                cur.execute("SELECT * FROM atr_post_release_observations WHERE observation_id = %s", (observation_id,))
-                obs = cur.fetchone()
-                if not obs or obs['status'] in ['PROMOTION_ELIGIBLE', 'ROLLBACK_REVIEW_REQUIRED']:
-                    return
+        with get_db_connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("SELECT * FROM atr_post_release_observations WHERE observation_id = %s", (observation_id,))
+            obs = cur.fetchone()
+            if not obs or obs['status'] in ['PROMOTION_ELIGIBLE', 'ROLLBACK_REVIEW_REQUIRED']:
+                return
 
         # Fetch telemetry or use mock
         telem = mock_telemetry or {}
@@ -142,22 +142,21 @@ class ATRPostReleaseObservationService:
         )
 
     @staticmethod
-    def open_promotion_hold(observation_id: str, scope_value: str, hold_reason_code: str, severity: str) -> Optional[str]:
+    def open_promotion_hold(observation_id: str, scope_value: str, hold_reason_code: str, severity: str) -> str | None:
         if not ATR_POST_RELEASE_OBSERVATION_ENABLE:
             return None
 
         hold_id = f"ph_{uuid.uuid4().hex[:8]}"
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
+        with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute("""
                     INSERT INTO atr_promotion_holds 
                     (hold_id, observation_id, scope_value, hold_reason_code, severity, status, hold_json)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (hold_id, observation_id, scope_value, hold_reason_code, severity, "active", json.dumps({})))
-                conn.commit()
+            conn.commit()
 
         PROMOTION_HOLD_TOTAL.labels(severity=severity, status="active").inc()
-        
+
         # Advance observation state based on severity
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -178,7 +177,7 @@ class ATRPostReleaseObservationService:
                     cur.execute("UPDATE atr_post_release_observations SET status = %s WHERE observation_id = %s", (new_state, observation_id))
                     conn.commit()
                     OBSERVATION_TOTAL.labels(change_class=obs['change_class'], status=new_state).inc()
-                    
+
                     if new_state == "PROMOTION_HOLD":
                         logger.warning(f"ATR Promotion Hold\n\nChange: {obs['change_id']}\nScope: {obs['target_scope']}\nStatus: PROMOTION_HOLD\nReasons: {hold_reason_code}")
 
@@ -235,7 +234,7 @@ class ATRPostReleaseObservationService:
                 if warning_holds:
                     return "OBSERVING_WITH_CONSTRAINTS"
 
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 if now < obs['observation_until']:
                     return "KEEP_OBSERVING"
 
@@ -246,10 +245,10 @@ class ATRPostReleaseObservationService:
                     conn.commit()
                     OBSERVATION_TOTAL.labels(change_class=obs['change_class'], status=new_state).inc()
                     PROMOTION_ELIGIBLE_TOTAL.labels(change_class=obs['change_class']).inc()
-                    
+
                     dwell_sec = (now - obs['started_at']).total_seconds()
                     OBSERVATION_DWELL_SEC.labels(change_class=obs['change_class']).set(dwell_sec)
-                    
+
                     logger.info(f"ATR Promotion Eligible\n\nChange: {obs['change_id']}\nClass: {obs['change_class']}\nScope: {obs['target_scope']}\nStatus: PROMOTION_ELIGIBLE")
 
 
@@ -262,16 +261,15 @@ def process_pending_observations() -> None:
     Finds all active observations, evaluates checks, and updates promotion status.
     """
     service = ATRPostReleaseObservationService()
-    
-    with get_db_connection() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            # Query all observations that are still in an observing state
-            cur.execute("""
+
+    with get_db_connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        # Query all observations that are still in an observing state
+        cur.execute("""
                 SELECT observation_id FROM atr_post_release_observations 
                 WHERE status IN ('OBSERVING', 'OBSERVING_WITH_CONSTRAINTS', 'PROMOTION_HOLD')
             """)
-            active_ids = [row['observation_id'] for row in cur.fetchall()]
-    
+        active_ids = [row['observation_id'] for row in cur.fetchall()]
+
     if not active_ids:
         return
 

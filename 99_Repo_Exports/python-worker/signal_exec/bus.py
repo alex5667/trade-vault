@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 Signal Bus over Redis Streams.
 
@@ -8,7 +10,7 @@ for consumption by MT5/NestJS workers.
 
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 import redis.asyncio as redis
 
@@ -27,7 +29,7 @@ class SignalBus:
         self._r = redis.from_url(redis_url, decode_responses=True)
 
         self.key_detected = "stream:signals:detected"
-        self.key_plans = "stream:signals:plans"
+        self.key_plans = RS.SIGNAL_PLANS
         self.key_exec_events = "stream:signals:exec_events"
         self.key_performance = "stream:signals:performance"
 
@@ -43,7 +45,7 @@ class SignalBus:
             "ts_signal": ctx.ts_signal.isoformat(),
             "payload": json.dumps(payload),
         }
-        msg_id = await self._r.xadd(self.key_detected, data, maxlen=50000)
+        msg_id = await self._r.xadd(self.key_detected, data, maxlen=50000, approximate=True)
         return msg_id
 
     async def publish_plan(self, ctx: SignalContext, plan: ExecutionPlan) -> str:
@@ -59,7 +61,7 @@ class SignalBus:
             "ts_signal": ctx.ts_signal.isoformat(),
             "payload": json.dumps(payload),
         }
-        msg_id = await self._r.xadd(self.key_plans, data, maxlen=50000)
+        msg_id = await self._r.xadd(self.key_plans, data, maxlen=50000, approximate=True)
         return msg_id
 
     async def publish_exec_event(
@@ -69,7 +71,7 @@ class SignalBus:
         event_type: str,
         ts_iso: str,
         price: float,
-        extra: Dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> str:
         extra = extra or {}
         data = {
@@ -80,10 +82,10 @@ class SignalBus:
             "price": str(price),
             "extra": json.dumps(extra),
         }
-        msg_id = await self._r.xadd(self.key_exec_events, data, maxlen=50000)
+        msg_id = await self._r.xadd(self.key_exec_events, data, maxlen=50000, approximate=True)
         return msg_id
 
-    async def publish_performance(self, perf_dict: Dict[str, Any]) -> str:
+    async def publish_performance(self, perf_dict: dict[str, Any]) -> str:
         """
         Optionally: publish brief summary of signal outcome,
         so NestJS/dashboard can listen for results.
@@ -95,11 +97,11 @@ class SignalBus:
             "symbol": symbol,
             "payload": json.dumps(perf_dict),
         }
-        msg_id = await self._r.xadd(self.key_performance, data, maxlen=50000)
+        msg_id = await self._r.xadd(self.key_performance, data, maxlen=50000, approximate=True)
         return msg_id
 
     @staticmethod
-    def _plan_to_dict(plan: ExecutionPlan) -> Dict[str, Any]:
+    def _plan_to_dict(plan: ExecutionPlan) -> dict[str, Any]:
         return {
             "signal_id": plan.signal_id,
             "symbol": plan.symbol,

@@ -4,6 +4,7 @@ Test that ML gate always receives scenario_v4 instead of legacy reversal/continu
 This ensures ML v10.4 util_mh gets correct bucket selection and util_floor_by_bucket.
 """
 import types
+
 import core.of_confirm_engine as ofe
 
 
@@ -50,19 +51,19 @@ class _MLGateStub:
 def test_ml_gate_receives_scenario_v4_from_indicators(monkeypatch):
     """Test that ML gate uses scenario_v4 from indicators when dec.scenario is legacy"""
     ml_gate_stub = _MLGateStub()
-    
+
     # Mock ML gate
     monkeypatch.setattr(ofe, "MLConfirmGate", _MLGateStub)
-    
+
     # Mock cancellation gate
     class _CancelGateStub:
         def check(self, **_kwargs):
             return types.SimpleNamespace(allow=True, reason="ok", meta={"ready": 0, "veto_kind": "none"})
-    
+
     monkeypatch.setattr(ofe, "CancellationSpikeGate", lambda: _CancelGateStub())
     monkeypatch.setattr(ofe, "veto_total", lambda *a, **k: None)
     monkeypatch.setattr(ofe, "dist", lambda *a, **k: None)
-    
+
     class _ClassifyV4Stub:
         def __init__(self, id_val="range_meanrev"):
             self.id = id_val
@@ -86,7 +87,7 @@ def test_ml_gate_receives_scenario_v4_from_indicators(monkeypatch):
         liq_regime="na",
         liq_score=0.5,
     )
-    
+
     # Provide scenario_v4 in indicators (simulating strategy/engine setting it)
     indicators = {
         "book_health_ok": 1,
@@ -109,7 +110,7 @@ def test_ml_gate_receives_scenario_v4_from_indicators(monkeypatch):
         indicators=indicators,
         absorption={"side": "LONG", "volume": 10.0},
     )
-    
+
     assert ofc is not None
     # Verify ML gate was called
     assert eng._ml_gate.call_count > 0
@@ -122,19 +123,19 @@ def test_ml_gate_receives_scenario_v4_from_indicators(monkeypatch):
 def test_ml_gate_receives_scenario_v4_from_computed(monkeypatch):
     """Test that ML gate uses computed scenario_v4 when dec.scenario is legacy and indicators don't have it"""
     ml_gate_stub = _MLGateStub()
-    
+
     # Mock ML gate
     monkeypatch.setattr(ofe, "MLConfirmGate", _MLGateStub)
-    
+
     # Mock cancellation gate
     class _CancelGateStub:
         def check(self, **_kwargs):
             return types.SimpleNamespace(allow=True, reason="ok", meta={"ready": 0, "veto_kind": "none"})
-    
+
     monkeypatch.setattr(ofe, "CancellationSpikeGate", lambda: _CancelGateStub())
     monkeypatch.setattr(ofe, "veto_total", lambda *a, **k: None)
     monkeypatch.setattr(ofe, "dist", lambda *a, **k: None)
-    
+
     class _ClassifyV4Stub:
         def __init__(self, id_val="range_meanrev"):
             self.id = id_val
@@ -158,7 +159,7 @@ def test_ml_gate_receives_scenario_v4_from_computed(monkeypatch):
         liq_regime="na",
         liq_score=0.5,
     )
-    
+
     # No scenario_v4 in indicators - should use computed one
     indicators = {
         "book_health_ok": 1,
@@ -180,7 +181,7 @@ def test_ml_gate_receives_scenario_v4_from_computed(monkeypatch):
         indicators=indicators,
         absorption={"side": "LONG", "volume": 10.0},
     )
-    
+
     assert ofc is not None
     # Verify ML gate was called
     assert eng._ml_gate.call_count > 0
@@ -195,19 +196,19 @@ def test_ml_gate_receives_scenario_v4_from_computed(monkeypatch):
 def test_ml_gate_preserves_v4_scenario_when_already_v4(monkeypatch):
     """Test that ML gate preserves scenario_v4 when dec.scenario is already v4"""
     ml_gate_stub = _MLGateStub()
-    
+
     # Mock ML gate
     monkeypatch.setattr(ofe, "MLConfirmGate", _MLGateStub)
-    
+
     # Mock cancellation gate
     class _CancelGateStub:
         def check(self, **_kwargs):
             return types.SimpleNamespace(allow=True, reason="ok", meta={"ready": 0, "veto_kind": "none"})
-    
+
     monkeypatch.setattr(ofe, "CancellationSpikeGate", lambda: _CancelGateStub())
     monkeypatch.setattr(ofe, "veto_total", lambda *a, **k: None)
     monkeypatch.setattr(ofe, "dist", lambda *a, **k: None)
-    
+
     class _ClassifyV4Stub:
         def __init__(self, id_val="vol_shock_news_proxy"):
             self.id = id_val
@@ -231,7 +232,7 @@ def test_ml_gate_preserves_v4_scenario_when_already_v4(monkeypatch):
         liq_regime="na",
         liq_score=0.5,
     )
-    
+
     # Provide vol_shock_news_proxy in indicators
     indicators = {
         "book_health_ok": 1,
@@ -254,7 +255,7 @@ def test_ml_gate_preserves_v4_scenario_when_already_v4(monkeypatch):
         indicators=indicators,
         absorption={"side": "LONG", "volume": 10.0},
     )
-    
+
     assert ofc is not None
     # Verify ML gate was called
     assert eng._ml_gate.call_count > 0

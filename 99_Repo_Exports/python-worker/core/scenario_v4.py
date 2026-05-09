@@ -19,7 +19,7 @@ Design principles
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 @dataclass
@@ -27,7 +27,7 @@ class ScenarioV4:
     id: str          # scenario id
     base: str        # coarse group: reversal/continuation/range
     reason: str      # compact human-readable reason
-    flags: Dict[str, Any]
+    flags: dict[str, Any]
 
 
 def _s(x: Any, d: str = "") -> str:
@@ -40,14 +40,14 @@ def _s(x: Any, d: str = "") -> str:
 def classify_v4(
     *,
     sweep_recent: bool,
-    trend_dir: Optional[str],
+    trend_dir: str | None,
     pressure_hi: bool,
     churn_hi: bool,
     exec_risk_bps: float,
     liq_regime: str,
     liq_score: float,
-    cancel_meta: Dict[str, Any],
-    cfg: Dict[str, Any],
+    cancel_meta: dict[str, Any],
+    cfg: dict[str, Any],
 ) -> ScenarioV4:
     """Classify scenario using deterministic proxies."""
 
@@ -83,16 +83,7 @@ def classify_v4(
     is_vol = False
     if vol_en:
         # Pressure+Churn is the strongest proxy for "eventful" regime.
-        if pressure_hi and churn_hi:
-            is_vol = True
-        # Or: high execution risk + any instability signal.
-        elif (pressure_hi or churn_hi) and exec_risk_bps >= risk_min:
-            is_vol = True
-        # Or: liquidity explicitly flagged as news/illiquid.
-        elif str(liq_regime).lower() in ("news", "illiquid"):
-            is_vol = True
-        # Or: liquidity score is very low while risk is high.
-        elif liq_score > 0 and liq_score < liq_min and exec_risk_bps >= risk_min:
+        if pressure_hi and churn_hi or (pressure_hi or churn_hi) and exec_risk_bps >= risk_min or str(liq_regime).lower() in ("news", "illiquid") or liq_score > 0 and liq_score < liq_min and exec_risk_bps >= risk_min:
             is_vol = True
 
     if is_vol:

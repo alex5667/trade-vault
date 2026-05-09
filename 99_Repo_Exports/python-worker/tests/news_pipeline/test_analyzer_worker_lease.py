@@ -1,8 +1,8 @@
 """
 Unit tests for NewsAnalyzerWorker lease+done-after-success idempotency
 """
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
+
 from news_pipeline.analyzer_worker import NewsAnalyzerWorker
 
 

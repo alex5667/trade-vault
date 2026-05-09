@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Conservative rollout controller for OFC contextual gate.
 
 Purpose
@@ -27,9 +29,9 @@ Outputs
 import argparse
 import json
 import os
-import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -52,19 +54,19 @@ def _to_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
-        return float(default)
+        return default
 
 
 def _to_int(v: Any, default: int = 0) -> int:
     try:
         return int(float(v))
     except Exception:
-        return int(default)
+        return default
 
 
-def _parse_symbols(raw: str) -> List[str]:
-    out: List[str] = []
-    for part in str(raw or "").replace(";", ",").split(","):
+def _parse_symbols(raw: str) -> list[str]:
+    out: list[str] = []
+    for part in (raw or "").replace(";", ",").split(","):
         s = part.strip().upper()
         if s and s not in out:
             out.append(s)
@@ -80,7 +82,7 @@ def _redis_client(redis_url: str):
         return None
 
 
-def _read_hash(client: Any, key: str) -> Dict[str, str]:
+def _read_hash(client: Any, key: str) -> dict[str, str]:
     if client is None or not key:
         return {}
     try:
@@ -90,10 +92,10 @@ def _read_hash(client: Any, key: str) -> Dict[str, str]:
         return {}
 
 
-def _write_hash(client: Any, key: str, mapping: Dict[str, Any]) -> None:
+def _write_hash(client: Any, key: str, mapping: dict[str, Any]) -> None:
     if client is None or not key:
         return
-    payload: Dict[str, str] = {}
+    payload: dict[str, str] = {}
     for k, v in mapping.items():
         if isinstance(v, (dict, list)):
             payload[str(k)] = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
@@ -138,7 +140,7 @@ class Thresholds:
 
 
 def _sanitize_mode(raw: str, default: str = "shadow") -> str:
-    s = str(raw or "").strip().lower()
+    s = (raw or "").strip().lower()
     return s if s in MODES else default
 
 
@@ -169,7 +171,7 @@ def compute_rollout_decision(
     inputs: RolloutInputs,
     thresholds: Thresholds,
     force_mode: str = "",
-    now_ms: Optional[int] = None,
+    now_ms: int | None = None,
 ) -> RolloutDecision:
     now_ms = int(now_ms if now_ms is not None else _now_ms())
     current = _sanitize_mode(current_mode, default="shadow")
@@ -342,8 +344,8 @@ def main() -> int:
         "runtime_restart_count": int(_to_int(runtime.get("restart_count", 0), 0)),
         "runtime_defer_active": int(_to_int(runtime.get("defer_active", 0), 0)),
         "runtime_cooldown_remaining_seconds": float(runtime.get("cooldown_remaining_seconds", 0.0) or 0.0),
-        "runtime_last_restart_reason_kind": str(runtime.get("last_restart_reason_kind", "unknown") or "unknown"),
-        "runtime_active_overlay_fingerprint": str(runtime.get("active_overlay_fingerprint", "") or ""),
+        "runtime_last_restart_reason_kind": (runtime.get("last_restart_reason_kind", "unknown") or "unknown"),
+        "runtime_active_overlay_fingerprint": (runtime.get("active_overlay_fingerprint", "") or ""),
     }
 
     if int(args.apply) == 1:

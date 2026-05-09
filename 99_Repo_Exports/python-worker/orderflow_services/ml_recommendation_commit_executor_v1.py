@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis  # type: ignore
@@ -13,8 +14,11 @@ except Exception:  # pragma: no cover
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
+from core.redis_stream_consumer import AsyncRedisStreamHelper
+import contextlib
+
 try:
-    from orderflow_services.recommendation_action_adapters_v1 import (
+    from orderflow_services.recommendation_action_adapters_v1 import (  # type: ignore
         ACTION_WHITELIST,
         execute_action,
         rollback_action,
@@ -27,7 +31,7 @@ except Exception:  # pragma: no cover
         "unfreeze_candidate",
     }
 
-    def execute_action(*, action_type: str, recommendation: Dict[str, Any], mode: str, redis_client: Any = None) -> Dict[str, Any]:
+    def execute_action(*, action_type: str, recommendation: dict[str, Any], mode: str, redis_client: Any = None) -> dict[str, Any]:
         return {
             "status": "ok",
             "mode": mode,
@@ -36,7 +40,7 @@ except Exception:  # pragma: no cover
             "change_summary": json.dumps(recommendation, sort_keys=True),
         }
 
-    def rollback_action(*, action_type: str, journal_payload: Dict[str, Any], redis_client: Any = None) -> Dict[str, Any]:
+    def rollback_action(*, action_type: str, journal_payload: dict[str, Any], redis_client: Any = None) -> dict[str, Any]:
         return {"status": "ok", "action_type": action_type, "rolled_back": True}
 
 
@@ -82,8 +86,8 @@ def _i(v: Any, d: int = 0) -> int:
         return d
 
 
-def _parse_msg(fields: Dict[bytes, bytes]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _parse_msg(fields: dict[bytes, bytes]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         vv = v.decode() if isinstance(v, (bytes, bytearray)) else v
@@ -91,14 +95,14 @@ def _parse_msg(fields: Dict[bytes, bytes]) -> Dict[str, Any]:
     return out
 
 
-async def _emit(r: "redis.Redis", stream: str, payload: Dict[str, Any]) -> None:
+async def _emit(r: redis.Redis, stream: str, payload: dict[str, Any]) -> None:
     try:
         await r.xadd(stream, payload, maxlen=200_000, approximate=True)
     except Exception:
         return
 
 
-async def _process_apply(r: "redis.Redis", payload: Dict[str, Any]) -> None:
+async def _process_apply(r: redis.Redis, payload: dict[str, Any]) -> None:
     now_ms = get_ny_time_millis()
     action_type = _s(payload.get("action_type", "unknown"))
     recommendation_id = _s(payload.get("recommendation_id", ""))
@@ -150,7 +154,7 @@ async def _process_apply(r: "redis.Redis", payload: Dict[str, Any]) -> None:
     APPLY_TOTAL.labels(action=action_type, mode=mode, status=result["status"]).inc()
 
 
-async def _process_rollback(r: "redis.Redis", payload: Dict[str, Any]) -> None:
+async def _process_rollback(r: redis.Redis, payload: dict[str, Any]) -> None:
     now_ms = get_ny_time_millis()
     action_type = _s(payload.get("action_type", "unknown"))
     journal_payload = payload
@@ -175,25 +179,39 @@ async def main() -> None:  # pragma: no cover
         raise RuntimeError("redis.asyncio is required")
     start_http_server(_i(os.getenv("ML_RECOMMENDATION_COMMIT_EXECUTOR_METRICS_PORT", 9871), 9871))
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    try:
-        await r.xgroup_create(INPUT_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
-    try:
-        await r.xgroup_create(ROLLBACK_REQUESTS_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
+
+    helper = AsyncRedisStreamHelper(client=r, group=GROUP, consumer=CONSUMER)
+    await helper.ensure_groups([INPUT_STREAM, ROLLBACK_REQUESTS_STREAM], start_id="0")
+
+    pel_state = {INPUT_STREAM: "0-0", ROLLBACK_REQUESTS_STREAM: "0-0"}
 
     while True:
         t0 = time.perf_counter()
         try:
-            resp = await r.xreadgroup(
-                GROUP,
-                CONSUMER,
-                streams={INPUT_STREAM: ">", ROLLBACK_REQUESTS_STREAM: ">"},
-                count=50,
-                block=5000,
+            # PEL Recovery
+            pending_input_start, pending_input = await helper.claim_pending(
+                INPUT_STREAM, min_idle_ms=5000, count=50, start_id=pel_state[INPUT_STREAM]
             )
+            pel_state[INPUT_STREAM] = pending_input_start
+
+            pending_rollback_start, pending_rollback = await helper.claim_pending(
+                ROLLBACK_REQUESTS_STREAM, min_idle_ms=5000, count=50, start_id=pel_state[ROLLBACK_REQUESTS_STREAM]
+            )
+            pel_state[ROLLBACK_REQUESTS_STREAM] = pending_rollback_start
+
+            resp = []
+            if pending_input:
+                resp.append([INPUT_STREAM, [(m.msg_id, m.fields) for m in pending_input]])
+            if pending_rollback:
+                resp.append([ROLLBACK_REQUESTS_STREAM, [(m.msg_id, m.fields) for m in pending_rollback]])
+
+            if not resp:
+                resp = await helper.read(
+                    {INPUT_STREAM: ">", ROLLBACK_REQUESTS_STREAM: ">"},
+                    count=50,
+                    block=5000,
+                ) or []
+
             if not resp:
                 LAST_RUN.set(time.time())
                 LOOP_SECONDS.observe(time.perf_counter() - t0)
@@ -209,10 +227,8 @@ async def main() -> None:  # pragma: no cover
                         await _process_apply(r, payload)
                     else:
                         await _process_rollback(r, payload)
-                    try:
-                        await r.xack(sname, GROUP, msg_id)
-                    except Exception:
-                        pass
+                    with contextlib.suppress(Exception):
+                        await helper.ack(sname, msg_id)
             LAST_RUN.set(time.time())
             LOOP_SECONDS.observe(time.perf_counter() - t0)
             RUNS.labels(status="ok").inc()

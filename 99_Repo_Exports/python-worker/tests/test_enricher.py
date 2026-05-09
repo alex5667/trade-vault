@@ -3,6 +3,7 @@ from __future__ import annotations
 from news_pipeline.enricher_sync import NewsEnricherSync
 from tests.fake_redis import FakeRedis
 
+
 class Ctx:
     __slots__ = ("symbol","news")
     def __init__(self, symbol: str) -> None:

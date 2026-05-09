@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 Research Guard Calibrator — pure computation module (no IO).
 
@@ -27,9 +28,8 @@ Import as:
     from core.research_guard_calibrator import evaluate_research_guard, ResearchGuardCalibResult
 """
 
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List
-
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -80,10 +80,10 @@ class ResearchGuardCalibResult:
 
     # Diagnostics
     data_sufficient: bool = False
-    thresholds: Dict[str, float] = field(default_factory=dict)
-    failing_metrics: List[str] = field(default_factory=list)
+    thresholds: dict[str, float] = field(default_factory=dict)
+    failing_metrics: list[str] = field(default_factory=list)
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @property
@@ -164,7 +164,7 @@ def evaluate_research_guard(
     result.latest_report_age_sec = report.report_age_sec
 
     # --- Check thresholds ---
-    failing: List[str] = []
+    failing: list[str] = []
 
     if report.report_age_sec > max_report_age_sec:
         failing.append(f"stale(age={report.report_age_sec:.0f}s>{max_report_age_sec:.0f}s)")

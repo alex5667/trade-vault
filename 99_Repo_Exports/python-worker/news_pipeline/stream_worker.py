@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import os
-import time
 import logging
 import signal
-from typing import Dict, Any, Iterable, Tuple, Optional
+import time
+from collections.abc import Iterable
+from typing import Any
 
 import redis
+import contextlib
 
 log = logging.getLogger(__name__)
 
@@ -46,8 +47,9 @@ class StreamWorker:
         self._setup_signal_handlers()
 
     def _ensure_group(self) -> None:
-        import redis as _redis
         import time
+
+        import redis as _redis
 
         max_retries = 30  # 5 минут при 10сек задержке
         retry_count = 0
@@ -85,7 +87,7 @@ class StreamWorker:
         signal.signal(signal.SIGTERM, signal_handler)
         signal.signal(signal.SIGINT, signal_handler)
 
-    def _dlq(self, msg_id: str, fields: Dict[str, Any], err: str) -> None:
+    def _dlq(self, msg_id: str, fields: dict[str, Any], err: str) -> None:
         try:
             payload = dict(fields)
             payload["__src_stream"] = self.stream
@@ -95,7 +97,7 @@ class StreamWorker:
         except Exception:
             pass
 
-    def handle_message(self, msg_id: str, fields: Dict[str, Any]) -> None:
+    def handle_message(self, msg_id: str, fields: dict[str, Any]) -> None:
         """
         Переопределить в наследнике.
         Должен бросать исключение на реальных ошибках.
@@ -106,7 +108,7 @@ class StreamWorker:
         """Called after an iteration that yielded no messages. Override to write heartbeats, update metrics, etc."""
         pass
 
-    def _iter_batch(self) -> Iterable[Tuple[str, Dict[str, Any]]]:
+    def _iter_batch(self) -> Iterable[tuple[str, dict[str, Any]]]:
         # 1) auto-claim старые pending (failover)
         try:
             res = self.r.xautoclaim(self.stream, self.group, self.consumer, min_idle_time=self.claim_idle_ms, start_id="0-0", count=self.count)
@@ -137,10 +139,8 @@ class StreamWorker:
                         self.r.xack(self.stream, self.group, msg_id)
                     except Exception as e:
                         self._dlq(msg_id, fields, str(e))
-                        try:
+                        with contextlib.suppress(Exception):
                             self.r.xack(self.stream, self.group, msg_id)
-                        except Exception:
-                            pass
 
                 if not any_msg and not self._shutdown:
                     self.on_idle()
@@ -175,7 +175,7 @@ class StreamWorker:
                 if not self._shutdown:
                     log.exception(f"❌ Unexpected error in run_forever loop: {e}")
                     time.sleep(1)
-        
+
         log.info("✅ StreamWorker завершён корректно")
         import sys
         sys.stdout.flush()

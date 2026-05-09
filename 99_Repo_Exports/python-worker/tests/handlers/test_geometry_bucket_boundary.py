@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import types
-from unittest.mock import Mock
-
-from handlers.crypto_orderflow_handler import CryptoOrderFlowHandler
 
 
 class MockCryptoOrderFlowHandler:
@@ -36,7 +33,7 @@ class MockCryptoOrderFlowHandler:
         snap = getattr(ctx, "geometry", None)
         if snap is None:
             # missing HTF/geometry provider: neutral score, add quality flag
-            setattr(ctx, "geometry_score", float(self._geometry_missing_score))
+            ctx.geometry_score = float(self._geometry_missing_score)
             flags = getattr(ctx, "data_quality_flags", None)
             if isinstance(flags, list):
                 flags.append("missing_htf")
@@ -102,9 +99,9 @@ class MockCryptoOrderFlowHandler:
                 best_score = score
                 best = h
 
-        setattr(ctx, "geo_zone_hits", hits)
-        setattr(ctx, "geo_zone_hit", best)
-        setattr(ctx, "geometry_score", float(best_score if best is not None else self._geometry_missing_score))
+        ctx.geo_zone_hits = hits
+        ctx.geo_zone_hit = best
+        ctx.geometry_score = float(best_score if best is not None else self._geometry_missing_score)
 
 
 def test_update_geometry_context_populates_hits_and_score_monotone():

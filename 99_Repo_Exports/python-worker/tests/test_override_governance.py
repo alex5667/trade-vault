@@ -1,32 +1,32 @@
+
 import pytest
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any
 
 from services.atr_override_governance_service import ATROverrideGovernanceService
+
 
 class MockDBConn:
     def __init__(self):
         self.log = []
-    
+
     def __enter__(self):
         return self
-        
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
-        
+
     def cursor(self, cursor_factory=None):
         return MockCursor(self)
-        
+
     def commit(self):
         pass
 
 class MockCursor:
     def __init__(self, conn):
         self.conn = conn
-        
+
     def __enter__(self):
         return self
-        
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
 
@@ -60,24 +60,24 @@ def test_hard_forbidden_rules(override_svc, monkeypatch):
     class MockCursorSev1(MockCursor):
         def fetchone(self):
             return {"c": 1}
-    
+
     class MockConnSev1(MockDBConn):
         def cursor(self, cursor_factory=None):
             return MockCursorSev1(self)
-            
+
     monkeypatch.setattr('services.atr_override_governance_service.get_conn', MockConnSev1)
-    
+
     res = override_svc._check_hard_forbidden_rules("TEMP_CLIP_OVERRIDE", "clip", {"symbol": "BTC"})
     assert res == "FORBID_OVERRIDE_OPEN_SEV1_ON_RELATED_SCOPE"
 
 def test_request_override(override_svc, monkeypatch):
     res = override_svc.request_override(
-        "TEMP_CLIP_OVERRIDE", 
-        {"symbol": "ETH"}, 
-        "scope_frozen", 
-        "clip", 
-        1800, 
-        "user1", 
+        "TEMP_CLIP_OVERRIDE",
+        {"symbol": "ETH"},
+        "scope_frozen",
+        "clip",
+        1800,
+        "user1",
         "TEST"
     )
     assert res["status"] == "success"

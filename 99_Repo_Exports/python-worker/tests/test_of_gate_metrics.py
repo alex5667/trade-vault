@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for OF Gate metrics emission and fail-open logic.
 
@@ -8,26 +9,21 @@ Tests:
 3. Fail-open logic ensures spread_bps and expected_slippage_bps never become 0 silently
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import json
-import os
-import time
 import hashlib
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Any, Dict
 
 import pytest
 
 from services.orderflow.strategy import (
-    OrderFlowStrategy,
-    OF_GATE_METRICS_STREAM,
-    OF_GATE_METRICS_ENABLE,
-    SPREAD_BPS_MISSING_DEFAULT,
-    SLIPPAGE_BPS_MISSING_DEFAULT,
     DATA_HEALTH_ON_SPREAD_MISSING,
+    OF_GATE_METRICS_STREAM,
+    SLIPPAGE_BPS_MISSING_DEFAULT,
+    SPREAD_BPS_MISSING_DEFAULT,
+    OrderFlowStrategy,
 )
 from services.orderflow.utils import _should_sample
+from utils.time_utils import get_ny_time_millis
 
 
 class TestOFGateMetrics:
@@ -111,9 +107,10 @@ class TestOFGateMetrics:
         with patch.dict(os.environ, {"OF_GATE_METRICS_ENABLE": "1", "CRYPTO_SIGNAL_MIN_CONF": "100", "DISABLE_CONFIDENCE_FILTER": "1"}):
             # Reload module to pick up env change
             import importlib
+
             import services.orderflow.strategy as strategy_module
             importlib.reload(strategy_module)
-            
+
             tick_ts = get_ny_time_millis()
             tick = {
                 "ts_ms": tick_ts,
@@ -135,19 +132,19 @@ class TestOFGateMetrics:
                 "delta_abs_min_confirm": 0.0,
                 "signal_min_conf": 10.0
             }
-            
+
             # Mock _should_sample to return True
             with patch("services.orderflow.strategy._should_sample", return_value=True):
                 await strategy.process_tick(runtime, tick)
-            
+
             # Check that xadd was called
             assert mock_redis.xadd.called
-            
+
             # Check call arguments
             call_args = mock_redis.xadd.call_args
             assert call_args[0][0] == OF_GATE_METRICS_STREAM
             payload = call_args[0][1]
-            
+
             # Verify payload structure
             assert payload["type"] == "of_gate"
             assert payload["symbol"] == "BTCUSDT"
@@ -162,9 +159,10 @@ class TestOFGateMetrics:
         """Test that metrics are not emitted when disabled."""
         with patch.dict(os.environ, {"OF_GATE_METRICS_ENABLE": "0", "SIGNAL_MIN_CONF": "1.0", "DISABLE_CONFIDENCE_FILTER": "1"}):
             import importlib
+
             import services.orderflow.strategy as strategy_module
             importlib.reload(strategy_module)
-            
+
             tick_ts = get_ny_time_millis()
             tick = {
                 "ts_ms": tick_ts,
@@ -179,9 +177,9 @@ class TestOFGateMetrics:
                 "delta_abs_min_confirm": 0.0,
                 "signal_min_conf": 10.0
             }
-            
+
             await strategy.process_tick(runtime, tick)
-            
+
             # Check that xadd was not called
             assert not mock_redis.xadd.called
 
@@ -191,9 +189,10 @@ class TestOFGateMetrics:
         """Test that metrics are sampled deterministically by (symbol, tick_ts)."""
         with patch.dict(os.environ, {"OF_GATE_METRICS_ENABLE": "1", "OF_GATE_METRICS_SAMPLE": "0.5", "SIGNAL_MIN_CONF": "1.0", "DISABLE_CONFIDENCE_FILTER": "1"}):
             import importlib
+
             import services.orderflow.strategy as strategy_module
             importlib.reload(strategy_module)
-            
+
             tick_ts = 1234567890000  # Fixed timestamp for deterministic sampling
             tick = {
                 "ts_ms": tick_ts,
@@ -214,16 +213,16 @@ class TestOFGateMetrics:
                 "delta_abs_min_confirm": 0.0,
                 "signal_min_conf": 10.0
             }
-            
+
             # Mock _should_sample
             should_sample_calls = []
             def mock_should_sample(ts, rate):
                 should_sample_calls.append((ts, rate))
                 return _should_sample(ts, rate)
-            
+
             with patch("services.orderflow.strategy._should_sample", side_effect=mock_should_sample):
                 await strategy.process_tick(runtime, tick)
-            
+
             # Verify _should_sample was called with correct arguments
             assert len(should_sample_calls) > 0
             # The sampled key is a deterministic hash of (salt|symbol|ts_ms)
@@ -241,12 +240,12 @@ class TestFailOpenLogic:
         """Test that spread_bps defaults to SPREAD_BPS_MISSING_DEFAULT when missing."""
         indicators = {}
         cfg2 = {}
-        
+
         # Simulate fail-open logic
         spr = float(indicators.get("spread_bps", 0.0) or 0.0)
         if spr <= 0:
             spr = float(cfg2.get("spread_bps_missing_default", SPREAD_BPS_MISSING_DEFAULT))
-        
+
         assert spr == SPREAD_BPS_MISSING_DEFAULT
         assert spr > 0
 
@@ -254,11 +253,11 @@ class TestFailOpenLogic:
         """Test that expected_slippage_bps defaults to SLIPPAGE_BPS_MISSING_DEFAULT when missing."""
         indicators = {}
         cfg2 = {}
-        
+
         # Simulate fail-open logic
         if "expected_slippage_bps" not in indicators or float(indicators.get("expected_slippage_bps", 0.0) or 0.0) <= 0:
             indicators["expected_slippage_bps"] = float(cfg2.get("expected_slippage_bps_missing_default", SLIPPAGE_BPS_MISSING_DEFAULT))
-        
+
         assert indicators["expected_slippage_bps"] == SLIPPAGE_BPS_MISSING_DEFAULT
         assert indicators["expected_slippage_bps"] > 0
 
@@ -266,7 +265,7 @@ class TestFailOpenLogic:
         """Test that data_health is degraded when spread is missing."""
         indicators = {"data_health": 1.0}
         cfg2 = {}
-        
+
         # Simulate fail-open logic
         spr = 0.0
         if spr <= 0:
@@ -274,7 +273,7 @@ class TestFailOpenLogic:
             indicators["spread_bps_missing"] = 1
             dh = float(indicators.get("data_health", 1.0) or 1.0)
             indicators["data_health"] = min(dh, float(cfg2.get("data_health_on_spread_missing", DATA_HEALTH_ON_SPREAD_MISSING)))
-        
+
         assert indicators["data_health"] == DATA_HEALTH_ON_SPREAD_MISSING
         assert indicators["data_health"] < 1.0
         assert indicators.get("spread_bps_missing") == 1
@@ -285,12 +284,12 @@ class TestFailOpenLogic:
         cfg2 = {}
         runtime = MagicMock()
         runtime.last_spread_bps = 12.5
-        
+
         # Simulate fail-open logic
         spr = float(indicators.get("spread_bps", 0.0) or 0.0)
         if spr <= 0:
             spr = float(getattr(runtime, "last_spread_bps", 0.0) or 0.0)
-        
+
         assert spr == 12.5
         assert spr > 0
 
@@ -300,14 +299,14 @@ class TestFailOpenLogic:
         cfg2 = {}
         mock_runtime = MagicMock()
         mock_runtime.last_spread_bps = 0.0
-        
+
         # Simulate fail-open logic
         spr = float(indicators.get("spread_bps", 0.0) or 0.0)
         if spr <= 0:
             spr = float(getattr(mock_runtime, "last_spread_bps", 0.0) or 0.0)
         if spr <= 0:
             spr = float(indicators.get("liq_spread_bps", 0.0) or 0.0)
-        
+
         assert spr == 8.0
         assert spr > 0
 

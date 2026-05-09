@@ -1,5 +1,6 @@
-import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
+from core.redis_keys import RedisStreams as RS
 
 targets_st = st.lists(st.sampled_from(["notify", "signal_stream", "audit", "manual"]), unique=True, min_size=1, max_size=4)
 missing_st = st.sets(st.sampled_from(["notify", "signal_stream", "audit", "manual"]), min_size=0, max_size=4)
@@ -23,7 +24,7 @@ def test_done_marker_iff_all_targets_delivered(dispatcher, r, targets, missing):
         meta["audit_stream"] = "stream:signals:audit"
     if "manual" in targets and "manual" not in missing:
         t_obj["manual_payload"] = {"sid": sid}
-        meta["manual_stream"] = "stream:signals:manual"
+        meta["manual_stream"] = RS.SIGNAL_MANUAL
 
     env = {"sid": sid, "targets": t_obj, "meta": meta}
 

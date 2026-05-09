@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 
 # Ensure we can import from the root if needed
 sys.path.append(os.getcwd())

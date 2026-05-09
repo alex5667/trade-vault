@@ -1,13 +1,15 @@
 import asyncio
-import os
 import json
+import os
+
 import redis.asyncio as aioredis
 
 from core.microbar_streams import read_microbars
 
+
 async def main():
     r = aioredis.from_url(os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"), decode_responses=True)
-    
+
     # Check BTC microbars (split-streams aware)
     print("--- BTC Bars Sample ---")
     btc_bars = await read_microbars(r, sym="BTCUSDT", count=5000, reverse=True)

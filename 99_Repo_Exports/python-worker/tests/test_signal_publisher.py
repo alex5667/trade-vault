@@ -1,12 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
-import time
-import types
+
 import redis
 
-from services.signal_publisher import SignalPublisher, PublishSinks
+from services.signal_publisher import PublishSinks, SignalPublisher
+from utils.time_utils import get_ny_time_millis
 
 
 class FakeRedis:

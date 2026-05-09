@@ -1,6 +1,5 @@
-import pytest
 
-from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import read_monitoring_smoke_gate, SmokeGate
+from ml_analysis.tools.edge_stack_train_bundle_utils_p59 import SmokeGate, read_monitoring_smoke_gate
 
 
 def test_smoke_gate_missing_fail_closed():

@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Any, Dict, List
-
+from typing import Any
 
 KEEP = ("v", "symbol", "regime", "ts_ms", "src", "n", "eff_quote_th", "min_quote_delta", "state_hash")
 
 
-def load_ndjson(path: str) -> List[Dict[str, Any]]:
+def load_ndjson(path: str) -> list[dict[str, Any]]:
     out = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:

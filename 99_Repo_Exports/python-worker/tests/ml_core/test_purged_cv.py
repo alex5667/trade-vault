@@ -1,11 +1,11 @@
 from __future__ import annotations
+
 """Tests for purged K-Fold CV for event-based labels."""
 
 
 import numpy as np
-import pytest
 
-from ml_core.purged_cv import purged_kfold_time_series, PurgedFold
+from ml_core.purged_cv import PurgedFold, purged_kfold_time_series
 
 
 def test_purged_kfold_basic():
@@ -13,14 +13,14 @@ def test_purged_kfold_basic():
     n = 100
     ts_ms = np.arange(1000, 1000 + n * 100, 100, dtype=np.int64)
     t1_ms = ts_ms + 5000  # 5s intervals
-    
+
     folds = purged_kfold_time_series(
         ts_ms=ts_ms,
         t1_ms=t1_ms,
         n_splits=5,
         embargo_ms=0,
     )
-    
+
     assert len(folds) == 5
     for fold in folds:
         assert isinstance(fold, PurgedFold)
@@ -35,14 +35,14 @@ def test_purged_kfold_embargo():
     n = 50
     ts_ms = np.arange(1000, 1000 + n * 100, 100, dtype=np.int64)
     t1_ms = ts_ms + 5000
-    
+
     folds = purged_kfold_time_series(
         ts_ms=ts_ms,
         t1_ms=t1_ms,
         n_splits=3,
         embargo_ms=1000,  # 1s embargo
     )
-    
+
     assert len(folds) == 3
     for fold in folds:
         # Train should not overlap with test + embargo
@@ -50,10 +50,10 @@ def test_purged_kfold_embargo():
         train_t1 = t1_ms[fold.train_idx]
         test_ts = ts_ms[fold.test_idx]
         test_t1 = t1_ms[fold.test_idx]
-        
+
         test_min = test_ts.min() - 1000
         test_max = test_t1.max() + 1000
-        
+
         # No train interval should overlap with test+embargo
         for i, (ts, t1) in enumerate(zip(train_ts, train_t1)):
             assert not (t1 >= test_min and ts <= test_max), f"Train sample {i} overlaps test+embargo"
@@ -75,14 +75,14 @@ def test_purged_kfold_sorted():
     # Unsorted timestamps
     ts_ms = np.random.randint(1000, 10000, n)
     t1_ms = ts_ms + 5000
-    
+
     folds = purged_kfold_time_series(
         ts_ms=ts_ms,
         t1_ms=t1_ms,
         n_splits=5,
         embargo_ms=0,
     )
-    
+
     # Test sets should be time-ordered
     for fold in folds:
         test_ts = ts_ms[fold.test_idx]

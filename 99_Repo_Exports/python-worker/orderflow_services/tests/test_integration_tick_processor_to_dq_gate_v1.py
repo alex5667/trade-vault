@@ -6,7 +6,7 @@ import types
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import pytest
 
@@ -32,7 +32,7 @@ def load_module_from_candidates(repo: Path, candidates: list[str], module_name: 
     repo_str = str(repo)
     if repo_str not in sys.path:
         sys.path.insert(0, repo_str)
-    
+
     # Also add worker paths so that imports like `from common.time_utils` resolve
     # to the worker's common package rather than the root common package.
     worker_paths = [
@@ -45,7 +45,7 @@ def load_module_from_candidates(repo: Path, candidates: list[str], module_name: 
     for wp in reversed(worker_paths):
         if wp not in sys.path:
             sys.path.insert(0, wp)
-    last_err: Optional[Exception] = None
+    last_err: Exception | None = None
     for rel in candidates:
         p = repo / rel
         if not p.exists():
@@ -147,7 +147,7 @@ class DummyDeltaDetector:
         self._delta = float(delta_usd)
         self._z = float(z)
 
-    def push(self, tick: Dict[str, Any]) -> Dict[str, float]:
+    def push(self, tick: dict[str, Any]) -> dict[str, float]:
         # TickProcessor expects a truthy dict with at least delta and z.
         return {"delta": self._delta, "z": self._z}
 
@@ -169,18 +169,18 @@ class DummyOFC:
     ok: int = 1
 
     scenario: str = "OK"
-    evidence: Dict[str, Any] = {}
+    evidence: dict[str, Any] = {}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {"ok": int(self.ok), "scenario": str(self.scenario), "evidence": dict(self.evidence)}
 
 
 class DummyEngine:
     def __init__(self, dq_mod: Any):
         self.dq = dq_mod
-        self.last_indicators_pre_dq: Optional[Dict[str, Any]] = None
+        self.last_indicators_pre_dq: dict[str, Any] | None = None
 
-    def build(self, *args: Any, **kwargs: Any) -> Tuple[DummyOFC, Dict[str, Any]]:
+    def build(self, *args: Any, **kwargs: Any) -> tuple[DummyOFC, dict[str, Any]]:
         # Signature in TickProcessor:
         # build(symbol, tick, direction, tick_ts, price, delta_z, runtime, cfg, indicators, absorption=...)
         indicators = kwargs.get("indicators")
@@ -203,7 +203,7 @@ class DummyEngine:
         return DummyOFC(), out
 
 
-def _mk_runtime(cfg: Dict[str, Any]) -> Any:
+def _mk_runtime(cfg: dict[str, Any]) -> Any:
     # Minimal runtime object to make TickProcessor.process_tick reach OFConfirm stage.
     rt = SimpleNamespace()
     rt.symbol = "BTCUSDT"
@@ -233,7 +233,7 @@ def _mk_runtime(cfg: Dict[str, Any]) -> Any:
 
 
 async def _patch_tick_time_guard(tp: Any) -> None:
-    async def _fake_apply(self: Any, runtime: Any, tick: Dict[str, Any]) -> Dict[str, Any]:
+    async def _fake_apply(self: Any, runtime: Any, tick: dict[str, Any]) -> dict[str, Any]:
         ts = int(tick.get("ts_ms") or tick.get("T") or tick.get("E") or 0)
         # Provide minimal TT fields that downstream logic may read.
         return {
@@ -248,7 +248,7 @@ async def _patch_tick_time_guard(tp: Any) -> None:
 
 
 async def _patch_emit_payload(tp: Any) -> None:
-    async def _fake_emit(self: Any, runtime: Any, payload: Dict[str, Any], tick_ts_ms: int) -> Dict[str, Any]:
+    async def _fake_emit(self: Any, runtime: Any, payload: dict[str, Any], tick_ts_ms: int) -> dict[str, Any]:
         # Return payload verbatim to allow inspection of payload["indicators"].
         return payload
 

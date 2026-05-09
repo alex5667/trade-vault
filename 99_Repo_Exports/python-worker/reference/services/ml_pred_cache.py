@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis
 
@@ -18,8 +18,8 @@ def cache_pred(
     r: redis.Redis,
     *,
     sid: str,
-    payload: Dict[str, Any],
-    ttl_sec: Optional[int] = None,
+    payload: dict[str, Any],
+    ttl_sec: int | None = None,
 ) -> None:
     """Cache ML prediction for outcome joiner.
     
@@ -37,7 +37,7 @@ def cache_pred(
     )
 
 
-def get_pred(r: redis.Redis, sid: str) -> Optional[Dict[str, Any]]:
+def get_pred(r: redis.Redis, sid: str) -> dict[str, Any] | None:
     """Retrieve cached ML prediction.
     
     Args:

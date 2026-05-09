@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-
 import argparse
-
-from pathlib import Path
-
-from typing import Any, Dict, List
-
 import sys
-
 import time
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,7 +18,7 @@ from tools.ofc_common import ReplayRuntime, iter_ndjson  # noqa
 
 
 
-def pct(xs: List[int], p: float) -> int:
+def pct(xs: list[int], p: float) -> int:
 
     if not xs:
 
@@ -88,11 +81,11 @@ def main() -> int:
 
         engine.build(
 
-            symbol=str(r.get("symbol", "")),
+            symbol=(r.get("symbol", "")),
 
-            tf=str(r.get("tf", "1s")),
+            tf=(r.get("tf", "1s")),
 
-            direction=str(r.get("direction", "")),
+            direction=(r.get("direction", "")),
 
             tick_ts_ms=int(r.get("tick_ts_ms", 0) or 0),
 
@@ -113,7 +106,7 @@ def main() -> int:
 
     # iters
 
-    lat_us: List[int] = []
+    lat_us: list[int] = []
 
     for i in range(args.iters):
 
@@ -131,11 +124,11 @@ def main() -> int:
 
         engine.build(
 
-            symbol=str(r.get("symbol", "")),
+            symbol=(r.get("symbol", "")),
 
-            tf=str(r.get("tf", "1s")),
+            tf=(r.get("tf", "1s")),
 
-            direction=str(r.get("direction", "")),
+            direction=(r.get("direction", "")),
 
             tick_ts_ms=int(r.get("tick_ts_ms", 0) or 0),
 

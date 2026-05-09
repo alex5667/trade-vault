@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import pytest
 import math
 
+import pytest
+
 hypothesis = pytest.importorskip("hypothesis")
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from handlers.confirmations.l2_common import sanitize_book, wall_distance_bps
 from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import L2Level
-
 
 nan = float("nan")
 inf = float("inf")

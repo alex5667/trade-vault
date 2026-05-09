@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -23,12 +23,12 @@ def _redis():
 
 
 def _mode() -> str:
-    return str(os.getenv("ATR_POLICY_DRIFT_FIX_MODE", "audit_only") or "audit_only").strip().lower()
+    return (os.getenv("ATR_POLICY_DRIFT_FIX_MODE", "audit_only") or "audit_only").strip().lower()
 
 
-def _scan_keys(r, pattern: str, count: int = 500) -> List[str]:
+def _scan_keys(r, pattern: str, count: int = 500) -> list[str]:
     cur = 0
-    out: List[str] = []
+    out: list[str] = []
     while True:
         cur, keys = r.scan(cur, match=pattern, count=count)
         out.extend(keys)
@@ -37,11 +37,11 @@ def _scan_keys(r, pattern: str, count: int = 500) -> List[str]:
     return sorted(out)
 
 
-def _active_key(obj: Dict[str, Any]) -> str:
+def _active_key(obj: dict[str, Any]) -> str:
     return f"cfg:atr_policy:active:{obj['source']}:{obj['symbol']}:{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
 
 
-def _last_good_key(obj: Dict[str, Any]) -> str:
+def _last_good_key(obj: dict[str, Any]) -> str:
     return f"cfg:atr_policy:last_good:{obj['source']}:{obj['symbol']}:{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
 
 
@@ -53,11 +53,11 @@ def _decision_key(pid: str) -> str:
     return f"cfg:decisions:atr_policy:{pid}"
 
 
-def _json_equal(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+def _json_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return json.dumps(a, ensure_ascii=False, sort_keys=True) == json.dumps(b, ensure_ascii=False, sort_keys=True)
 
 
-def _load_current_snapshots(conn, kind: str) -> List[Dict[str, Any]]:
+def _load_current_snapshots(conn, kind: str) -> list[dict[str, Any]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -71,7 +71,7 @@ def _load_current_snapshots(conn, kind: str) -> List[Dict[str, Any]]:
         return [dict(r["snapshot_json"]) for r in cur.fetchall()]
 
 
-def _load_pending(conn) -> List[Dict[str, Any]]:
+def _load_pending(conn) -> list[dict[str, Any]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -83,7 +83,7 @@ def _load_pending(conn) -> List[Dict[str, Any]]:
         return [dict(r["proposal_json"]) for r in cur.fetchall()]
 
 
-def _load_decided_not_applied(conn) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+def _load_decided_not_applied(conn) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -103,7 +103,7 @@ def _load_decided_not_applied(conn) -> List[Tuple[Dict[str, Any], Dict[str, Any]
         return [(dict(r["proposal_json"]), dict(r["decision_json"])) for r in cur.fetchall()]
 
 
-def _insert_recovery_event(conn, *, event_type: str, obj: Dict[str, Any], status: str, reason_code: str, payload: Dict[str, Any]) -> None:
+def _insert_recovery_event(conn, *, event_type: str, obj: dict[str, Any], status: str, reason_code: str, payload: dict[str, Any]) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -114,11 +114,11 @@ def _insert_recovery_event(conn, *, event_type: str, obj: Dict[str, Any], status
             """
             (
                 event_type,
-                str(obj.get("source", "")),
-                str(obj.get("symbol", "")).upper(),
-                str(obj.get("scenario", "")).lower(),
-                str(obj.get("regime", "")).lower(),
-                str(obj.get("risk_horizon_bucket", "")).lower(),
+                (obj.get("source", "")),
+                (obj.get("symbol", "")).upper(),
+                (obj.get("scenario", "")).lower(),
+                (obj.get("regime", "")).lower(),
+                (obj.get("risk_horizon_bucket", "")).lower(),
                 status,
                 reason_code,
                 json.dumps(payload, ensure_ascii=False, sort_keys=True),
@@ -126,7 +126,7 @@ def _insert_recovery_event(conn, *, event_type: str, obj: Dict[str, Any], status
         )
 
 
-def _publish_drift_stream(r, payload: Dict[str, Any]) -> None:
+def _publish_drift_stream(r, payload: dict[str, Any]) -> None:
     r.xadd(
         "stream:atr_policy:state_drifts",
         {"data": json.dumps(payload, ensure_ascii=False, sort_keys=True)},
@@ -135,14 +135,14 @@ def _publish_drift_stream(r, payload: Dict[str, Any]) -> None:
     )
 
 
-def _repair_key(r, key: str, obj: Dict[str, Any], mode: str) -> bool:
+def _repair_key(r, key: str, obj: dict[str, Any], mode: str) -> bool:
     if mode != "repair_redis":
         return False
     r.set(key, json.dumps(obj, ensure_ascii=False, sort_keys=True))
     return True
 
 
-def _parse_json(raw: str) -> Dict[str, Any]:
+def _parse_json(raw: str) -> dict[str, Any]:
     try:
         x = json.loads(raw)
         return x if isinstance(x, dict) else {}
@@ -150,11 +150,11 @@ def _parse_json(raw: str) -> Dict[str, Any]:
         return {}
 
 
-def _check_snapshot_kind(conn, r, *, kind: str, mode: str) -> Dict[str, int]:
+def _check_snapshot_kind(conn, r, *, kind: str, mode: str) -> dict[str, int]:
     sql_rows = _load_current_snapshots(conn, kind)
     repaired = 0
     drifted = 0
-    sql_keys: Set[str] = set()
+    sql_keys: set[str] = set()
 
     for obj in sql_rows:
         key = _active_key(obj) if kind == "active" else _last_good_key(obj)
@@ -220,7 +220,7 @@ def _check_snapshot_kind(conn, r, *, kind: str, mode: str) -> Dict[str, int]:
     return {"drifted": drifted, "repaired": repaired}
 
 
-def _check_pending(conn, r, mode: str) -> Dict[str, int]:
+def _check_pending(conn, r, mode: str) -> dict[str, int]:
     sql_rows = _load_pending(conn)
     sql_ids = {str(o["proposal_id"]) for o in sql_rows}
     repaired = 0
@@ -255,7 +255,7 @@ def _check_pending(conn, r, mode: str) -> Dict[str, int]:
     return {"drifted": drifted, "repaired": repaired}
 
 
-def _check_decided(conn, r, mode: str) -> Dict[str, int]:
+def _check_decided(conn, r, mode: str) -> dict[str, int]:
     sql_rows = _load_decided_not_applied(conn)
     sql_ids = {str(p["proposal_id"]) for p, _ in sql_rows}
     repaired = 0
@@ -291,7 +291,7 @@ def _check_decided(conn, r, mode: str) -> Dict[str, int]:
     return {"drifted": drifted, "repaired": repaired}
 
 
-def run_once() -> Dict[str, Any]:
+def run_once() -> dict[str, Any]:
     mode = _mode()
     if mode not in {"off", "audit_only", "repair_redis"}:
         mode = "audit_only"
@@ -314,7 +314,7 @@ def run_once() -> Dict[str, Any]:
             "pending": pending,
             "decided": decided,
         }
-    except Exception as exc:
+    except Exception:
         conn.rollback()
         r.hincrby("atr_policy:metrics:checker_error_total", "run_once", 1)
         raise

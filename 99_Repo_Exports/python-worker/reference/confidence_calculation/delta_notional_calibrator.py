@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 DeltaNotionalCalibrator
 ======================
@@ -28,7 +28,8 @@ Persistence:
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from datetime import UTC
+from typing import Any
 
 from core.quantile_p2 import P2Quantile
 
@@ -61,8 +62,8 @@ class DeltaNotionalCalibrator:
 
     @staticmethod
     def _get_hour_of_week(ts_ms: int) -> int:
-        from datetime import datetime, timezone
-        dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+        from datetime import datetime
+        dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
         return int(dt.weekday() * 24 + dt.hour)
 
     def __init__(
@@ -70,24 +71,24 @@ class DeltaNotionalCalibrator:
         *,
         min_samples: int = 300,
         liq_alpha: float = 0.05,
-        liq_scale_clamp: Tuple[float, float] = (0.5, 2.0),
+        liq_scale_clamp: tuple[float, float] = (0.5, 2.0),
     ) -> None:
         self.min_samples = int(min_samples)
         self._liq_alpha = float(liq_alpha)
         self._liq_scale_lo = float(liq_scale_clamp[0])
         self._liq_scale_hi = float(liq_scale_clamp[1])
 
-        self._q50: Dict[str, P2Quantile] = {}
-        self._q80: Dict[str, P2Quantile] = {}
-        self._q95: Dict[str, P2Quantile] = {}
-        self._n: Dict[str, int] = {}
+        self._q50: dict[str, P2Quantile] = {}
+        self._q80: dict[str, P2Quantile] = {}
+        self._q95: dict[str, P2Quantile] = {}
+        self._n: dict[str, int] = {}
 
         # Liquidity EMAs (dn_usd) for hour-of-week scaling telemetry
-        self._global_liq: Dict[str, float] = {}
-        self._bucket_liq: Dict[str, Dict[int, float]] = {}
+        self._global_liq: dict[str, float] = {}
+        self._bucket_liq: dict[str, dict[int, float]] = {}
 
     @staticmethod
-    def _get(store: Dict[str, P2Quantile], regime: str, p: float) -> P2Quantile:
+    def _get(store: dict[str, P2Quantile], regime: str, p: float) -> P2Quantile:
         q = store.get(regime)
         if q is None:
             q = P2Quantile(p=float(p))
@@ -95,7 +96,7 @@ class DeltaNotionalCalibrator:
         return q
 
     def update(self, *, regime: str, dn_usd: float, ts_ms: int = 0) -> None:
-        r = str(regime or "na")
+        r = (regime or "na")
         x = max(0.0, float(dn_usd))
         # log1p to stabilize tails
         lx = math.log1p(x)
@@ -145,9 +146,9 @@ class DeltaNotionalCalibrator:
         default_t0: float,
         default_t1: float,
         default_t2: float,
-        clamp_usd: Tuple[float, float] = (0.0, 1e12),
+        clamp_usd: tuple[float, float] = (0.0, 1e12),
     ) -> DeltaNotionalTiers:
-        r = str(regime or "na")
+        r = (regime or "na")
         n = int(self._n.get(r, 0))
 
         # Telemetry-only: hour-of-week scaling factor
@@ -197,11 +198,11 @@ class DeltaNotionalCalibrator:
         )
 
     # ---------------- Persistence ----------------
-    def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> Dict[str, Any]:
-        r = str(regime or "na")
+    def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> dict[str, Any]:
+        r = (regime or "na")
         return {
             "v": 1,
-            "symbol": str(symbol),
+            "symbol": symbol,
             "regime": r,
             "updated_ts_ms": int(updated_ts_ms),
             "n": int(self._n.get(r, 0)),
@@ -212,9 +213,9 @@ class DeltaNotionalCalibrator:
             "liq_bucket": dict(self._bucket_liq.get(r, {})),
         }
 
-    def load_regime_state(self, state: Dict[str, Any]) -> None:
+    def load_regime_state(self, state: dict[str, Any]) -> None:
         try:
-            r = str(state.get("regime") or "na")
+            r = (state.get("regime") or "na")
             n = int(state.get("n", 0) or 0)
             q50 = state.get("q50_log")
             q80 = state.get("q80_log")

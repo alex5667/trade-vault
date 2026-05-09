@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """LiqMap hard-risk gate.
 
 Philosophy:
@@ -11,17 +12,17 @@ The gate consumes already-computed liqmap_* features (see liqmap_features_v1).
 
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 def _f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if v != v or v == float("inf") or v == float("-inf"):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
 def _i(x: Any, default: int = 0) -> int:
@@ -31,7 +32,7 @@ def _i(x: Any, default: int = 0) -> int:
         try:
             return int(float(x))
         except Exception:
-            return int(default)
+            return default
 
 
 @dataclass(frozen=True)
@@ -51,8 +52,8 @@ class LiqMapGateDecision:
 def evaluate_liqmap_gate_v1(
     *,
     direction: str,
-    indicators: Dict[str, Any],
-    cfg2: Dict[str, Any],
+    indicators: dict[str, Any],
+    cfg2: dict[str, Any],
 ) -> LiqMapGateDecision:
     """Evaluate liqmap hard-risk gate.
 
@@ -70,16 +71,16 @@ def evaluate_liqmap_gate_v1(
       - liqmap_gate_min_rr: veto if rr < this (optional)
       - liqmap_gate_require_reward: if 1, missing favorable peak => veto
     """
-    mode = str(cfg2.get("liqmap_gate_mode", "OFF") or "OFF").upper()
+    mode = (cfg2.get("liqmap_gate_mode", "OFF") or "OFF").upper()
     # Backward/forward compatibility:
     # - legacy: explicit liqmap_gate_enable (0/1)
     # - current: mode alone enables the gate (SHADOW/ENFORCE)
-    enable_raw = cfg2.get("liqmap_gate_enable", None)
+    enable_raw = cfg2.get("liqmap_gate_enable")
     if enable_raw is None:
         enable = (mode != "OFF")
     else:
         enable = bool(_i(enable_raw, 0))
-    window = str(cfg2.get("liqmap_gate_window", "5m") or "5m")
+    window = (cfg2.get("liqmap_gate_window", "5m") or "5m")
 
     if not enable or mode == "OFF":
         return LiqMapGateDecision(
@@ -95,7 +96,7 @@ def evaluate_liqmap_gate_v1(
             favorable_peak_usd=0.0,
         )
 
-    d = str(direction or "").upper()
+    d = (direction or "").upper()
     if d not in ("LONG", "SHORT"):
         d = "LONG"
 
@@ -154,7 +155,7 @@ def evaluate_liqmap_gate_v1(
         window=window,
         shadow_veto=int(shadow_veto),
         veto=int(veto),
-        reason=str(reason),
+        reason=reason,
         risk_bps=float(risk_bps),
         reward_bps=float(reward_bps),
         rr=float(rr),

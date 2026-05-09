@@ -4,6 +4,7 @@ import os
 import tempfile
 
 from replay.jsonl import JsonlWriter, iter_jsonl
+import contextlib
 
 
 def test_jsonl_roundtrip() -> None:
@@ -18,7 +19,5 @@ def test_jsonl_roundtrip() -> None:
         xs = list(iter_jsonl(path))
         assert xs == [{"a": 1}, {"b": "x"}]
     finally:
-        try:
+        with contextlib.suppress(Exception):
             os.remove(path)
-        except Exception:
-            pass

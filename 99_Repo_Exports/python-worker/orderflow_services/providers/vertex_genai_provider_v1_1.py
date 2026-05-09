@@ -5,7 +5,7 @@ import os
 import random
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 from orderflow_services.vertex_budget_guard_v1 import VertexBudgetGuardV1, estimate_vertex_triage_cost_usd
 
@@ -33,7 +33,7 @@ Input pack:
 @dataclass
 class ProviderResult:
     raw_text: str
-    parsed: Optional[Dict[str, Any]]
+    parsed: dict[str, Any] | None
     latency_ms: int
     estimated_cost_usd: float
     prompt_version: str
@@ -60,7 +60,7 @@ class VertexGenAIProviderV1_1:
         jitter = random.randint(0, max(50, base // 4))
         time.sleep((base + jitter) / 1000.0)
 
-    def analyze(self, compact_pack: Dict[str, Any]) -> ProviderResult:
+    def analyze(self, compact_pack: dict[str, Any]) -> ProviderResult:
         prompt_version = str(compact_pack.get("prompt_version") or os.getenv("ML_TRIAGE_PROMPT_VERSION", "ml_triage_v1"))
         policy_version = str(compact_pack.get("policy_version") or os.getenv("ML_TRIAGE_POLICY_VERSION", "policy_v1"))
         payload_json = json.dumps(compact_pack, ensure_ascii=False, sort_keys=True)
@@ -70,7 +70,7 @@ class VertexGenAIProviderV1_1:
         if not budget.allowed:
             raise RuntimeError(f"vertex_budget_blocked:{budget.reason}")
         started = time.time()
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         for attempt in range(1, self._max_retries + 1):
             try:
                 cfg = genai_types.GenerateContentConfig(

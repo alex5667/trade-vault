@@ -1,5 +1,5 @@
 import py_compile
-import os
+
 
 def test_compile_enforce_health_tools_v82():
     py_compile.compile('orderflow_services/enforce_health_gates_v82.py', cfile='/tmp/1.pyc', doraise=True)

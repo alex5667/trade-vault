@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Модуль сигналов волатильности по диапазону (volatilityRange).
 
@@ -11,17 +12,17 @@ from utils.time_utils import get_ny_time_millis
 - Публикация выполняется только по ЗАКРЫТОЙ свече.
 """
 
+import json
+import sys
+
+import redis
+
+from core.config import RANGE_MULTIPLIER_THRESHOLD, REDIS_CHANNEL_VOLATILITY_RANGE, VOLATILITY_RANGE_MIN_PCT
 from publisher.stream_publisher import publish_signal_to_stream
 from signals.history_utils import update_and_check_history
-from core.config import VOLATILITY_RANGE_MIN_PCT, REDIS_CHANNEL_VOLATILITY_RANGE, RANGE_MULTIPLIER_THRESHOLD
-import json
-import redis
-import sys
-from typing import Optional
 
 
-import time
-def calculate_volatility_by_range(kline: dict, avg_range: float) -> Optional[dict]:
+def calculate_volatility_by_range(kline: dict, avg_range: float) -> dict | None:
     """
     Считает метрики по свече и возвращает сигнал (dict) либо None.
     Историю НЕ трогаем здесь.
@@ -128,7 +129,7 @@ def handle_volatility_by_range(kline: dict, history: list) -> None:
         sys.stdout.flush()
 
 
-def process_kline_for_volatility_range(kline_data: str, history: Optional[list] = None) -> None:
+def process_kline_for_volatility_range(kline_data: str, history: list | None = None) -> None:
     """
     Парсим вход, определяем формат, передаём в обработчик.
 

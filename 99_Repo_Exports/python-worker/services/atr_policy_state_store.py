@@ -4,7 +4,7 @@ import json
 import os
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, Optional
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -51,7 +51,7 @@ def _proposal_upsert_sql() -> str:
     """
 
 
-def upsert_proposal(conn, proposal: Dict[str, Any]) -> None:
+def upsert_proposal(conn, proposal: dict[str, Any]) -> None:
     row = {
       "proposal_id": str(proposal["proposal_id"]),
       "policy_ver": int(proposal.get("policy_ver", 1)),
@@ -60,10 +60,10 @@ def upsert_proposal(conn, proposal: Dict[str, Any]) -> None:
       "scenario": str(proposal["scenario"]).lower(),
       "regime": str(proposal["regime"]).lower(),
       "risk_horizon_bucket": str(proposal["risk_horizon_bucket"]).lower(),
-      "stop_ttl_mode": str(proposal.get("stop_ttl_mode", "canary")),
-      "trailing_mode": str(proposal.get("trailing_mode", "canary")),
-      "reason_code": str(proposal.get("reason_code", "")),
-      "status": str(proposal.get("status", "SUBMITTED")),
+      "stop_ttl_mode": (proposal.get("stop_ttl_mode", "canary")),
+      "trailing_mode": (proposal.get("trailing_mode", "canary")),
+      "reason_code": (proposal.get("reason_code", "")),
+      "status": (proposal.get("status", "SUBMITTED")),
       "approved": bool(proposal.get("approved", False)),
       "proposal_json": json.dumps(proposal, ensure_ascii=False, sort_keys=True),
       "created_at_ms": int(proposal.get("created_at_ms", int(time.time() * 1000))),
@@ -73,7 +73,7 @@ def upsert_proposal(conn, proposal: Dict[str, Any]) -> None:
         cur.execute(_proposal_upsert_sql(), row)
 
 
-def insert_decision(conn, proposal_id: str, decision: Dict[str, Any]) -> None:
+def insert_decision(conn, proposal_id: str, decision: dict[str, Any]) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -83,9 +83,9 @@ def insert_decision(conn, proposal_id: str, decision: Dict[str, Any]) -> None:
             """
             (
                 proposal_id,
-                str(decision.get("action", "")),
-                str(decision.get("actor", "")),
-                str(decision.get("note", "")),
+                (decision.get("action", "")),
+                (decision.get("actor", "")),
+                (decision.get("note", "")),
                 json.dumps(decision, ensure_ascii=False, sort_keys=True),
                 int(decision.get("ts_ms", int(time.time() * 1000))),
             ),
@@ -110,9 +110,9 @@ def transition_snapshot(
     conn,
     *,
     snapshot_kind: str,
-    policy: Dict[str, Any],
-    applied_from_proposal_id: Optional[str],
-    effective_from_ms: Optional[int] = None,
+    policy: dict[str, Any],
+    applied_from_proposal_id: str | None,
+    effective_from_ms: int | None = None,
 ) -> None:
     effective_from_ms = int(effective_from_ms or int(time.time() * 1000))
     source = str(policy["source"])
@@ -154,8 +154,8 @@ def transition_snapshot(
                 regime,
                 bucket,
                 int(policy.get("policy_ver", 1)),
-                str(policy.get("stop_ttl_mode", "canary")),
-                str(policy.get("trailing_mode", "canary")),
+                (policy.get("stop_ttl_mode", "canary")),
+                (policy.get("trailing_mode", "canary")),
                 json.dumps(policy, ensure_ascii=False, sort_keys=True),
                 effective_from_ms,
                 applied_from_proposal_id,
@@ -167,10 +167,10 @@ def insert_recovery_event(
     conn,
     *,
     event_type: str,
-    policy_ref: Dict[str, Any],
+    policy_ref: dict[str, Any],
     status: str,
     reason_code: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
 ) -> None:
     with conn.cursor() as cur:
         cur.execute(
@@ -182,11 +182,11 @@ def insert_recovery_event(
             """
             (
                 event_type,
-                str(policy_ref.get("source", "")),
-                str(policy_ref.get("symbol", "")).upper(),
-                str(policy_ref.get("scenario", "")).lower(),
-                str(policy_ref.get("regime", "")).lower(),
-                str(policy_ref.get("risk_horizon_bucket", "")).lower(),
+                (policy_ref.get("source", "")),
+                (policy_ref.get("symbol", "")).upper(),
+                (policy_ref.get("scenario", "")).lower(),
+                (policy_ref.get("regime", "")).lower(),
+                (policy_ref.get("risk_horizon_bucket", "")).lower(),
                 status,
                 reason_code,
                 json.dumps(payload, ensure_ascii=False, sort_keys=True),

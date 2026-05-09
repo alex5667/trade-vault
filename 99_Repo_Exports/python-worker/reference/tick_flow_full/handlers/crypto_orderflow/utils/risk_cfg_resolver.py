@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 def _env(name: str, default: Any) -> Any:
@@ -38,7 +38,7 @@ class RiskCfgResolver:
         So ETH will fall back to STOP_* or defaults.
     """
 
-    def resolve(self, symbol: str) -> Dict[str, Any]:
+    def resolve(self, symbol: str) -> dict[str, Any]:
         base = _sym_base(symbol)
 
         def pick(key: str, default: Any) -> Any:
@@ -61,7 +61,7 @@ class RiskCfgResolver:
         rocket_tp1 = float(pick("ROCKET_TP1_ATR_MULT", 0.0))
         min_lock_r = float(pick("TRAILING_MIN_LOCK_R", 0.0))
 
-        cfg: Dict[str, Any] = {
+        cfg: dict[str, Any] = {
             "STOP_MODE": stop_mode,
             "STOP_ATR_MULT": stop_atr_mult,
             "STOP_ATR_MULT_BASE": stop_atr_mult_base,

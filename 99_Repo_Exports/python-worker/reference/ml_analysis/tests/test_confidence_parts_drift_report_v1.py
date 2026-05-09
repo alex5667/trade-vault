@@ -1,6 +1,5 @@
-import json
-import pytest
 from ml_analysis.tools.confidence_parts_drift_report_v1 import build_report
+
 
 def test_drift_report_detects_shift():
     rows = []
@@ -26,20 +25,20 @@ def test_drift_report_detects_shift():
     assert rep["groups"], "expected at least one group"
     g = rep["groups"][0]
     parts = {p["key"]: p for p in g["parts"]}
-    
+
     # Check shift detection
     assert "base" in parts
     p = parts["base"]
     assert p["n_base"] >= 50
     assert p["n_target"] >= 50
     # Median should be ~0.80 vs 0.50, so very high Z
-    assert p["drift_z"] > 5.0 
+    assert p["drift_z"] > 5.0
     assert abs(p["baseline_median"] - 0.50) < 0.01
 
     # Bonuses unchanged
     assert "bonuses" in parts
     pb = parts["bonuses"]
-    # If variability is 0, MAD is 0 -> Z might be 0 or NaN depending on impl, 
+    # If variability is 0, MAD is 0 -> Z might be 0 or NaN depending on impl,
     # but here medians are identical so Z should be 0 (numerator 0).
     # wait, if mad is 0, we use eps epsilon.
     # 0.05 - 0.05 = 0

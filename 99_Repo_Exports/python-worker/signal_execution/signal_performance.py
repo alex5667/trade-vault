@@ -1,14 +1,14 @@
 from __future__ import annotations
+
 """
 Signal Performance Tracker: analyzes executed signals for TTD, MFE/MAE, and outcomes.
 Calculates performance metrics from historical trade data.
 """
 
 
-from typing import List, Optional, Tuple
 from datetime import datetime
 
-from .models import ExtendedSignalContext, SignalPerformance, Side, Bar1m
+from .models import Bar1m, ExtendedSignalContext, Side, SignalPerformance
 
 
 class SignalPerformanceTracker:
@@ -33,8 +33,8 @@ class SignalPerformanceTracker:
         side: Side,
         entry_price: float,
         stop_price: float,
-        bars_after_entry: List[Bar1m],
-    ) -> Optional[int]:
+        bars_after_entry: list[Bar1m],
+    ) -> int | None:
         """
         TTD: через сколько баров max_favorable_excursion впервые >= r_target R.
         Если не произошло — возвращаем None.
@@ -77,8 +77,8 @@ class SignalPerformanceTracker:
         side: Side,
         entry_price: float,
         stop_price: float,
-        bars_during_trade: List[Bar1m],
-    ) -> Tuple[Optional[float], Optional[float]]:
+        bars_during_trade: list[Bar1m],
+    ) -> tuple[float | None, float | None]:
         """
         Calculate MFE (Max Favorable Excursion) and MAE (Max Adverse Excursion) in R.
 
@@ -124,7 +124,7 @@ class SignalPerformanceTracker:
         entry_price: float,
         stop_price: float,
         exit_price: float,
-    ) -> Optional[float]:
+    ) -> float | None:
         """
         Calculate realized R for the trade.
 
@@ -149,12 +149,12 @@ class SignalPerformanceTracker:
     def build_performance(
         self,
         ctx: ExtendedSignalContext,
-        bars: List[Bar1m],
-        entry_ts: Optional[datetime],
-        exit_ts: Optional[datetime],
-        entry_price: Optional[float],
-        exit_price: Optional[float],
-        stop_price: Optional[float],
+        bars: list[Bar1m],
+        entry_ts: datetime | None,
+        exit_ts: datetime | None,
+        entry_price: float | None,
+        exit_price: float | None,
+        stop_price: float | None,
         expired_without_entry: bool = False,
     ) -> SignalPerformance:
         """

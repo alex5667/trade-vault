@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 ATR Sanity Selector
 ==================
@@ -15,10 +16,10 @@ Design goals:
 """
 
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
 import math
 import os
+from dataclasses import dataclass
+from typing import Any
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -50,7 +51,7 @@ class AtrCandidate:
     tf: str
     ts_ms: int = 0
     age_ms: int = 0
-    extra: Dict[str, Any] = None
+    extra: dict[str, Any] = None
 
     def __post_init__(self) -> None:
         if self.extra is None:
@@ -59,9 +60,9 @@ class AtrCandidate:
 
 @dataclass
 class AtrSelectResult:
-    chosen: Optional[AtrCandidate]
+    chosen: AtrCandidate | None
     reason: str
-    debug: Dict[str, Any]
+    debug: dict[str, Any]
 
 
 class AtrSanitySelector:
@@ -104,7 +105,7 @@ class AtrSanitySelector:
         *,
         desired_tf: str,
         expected_atr: float,
-    ) -> Tuple[float, Dict[str, Any]]:
+    ) -> tuple[float, dict[str, Any]]:
         atr = float(c.atr or 0.0)
         if atr <= 0 or not math.isfinite(atr):
             return 1e9, {"bad": 1}
@@ -156,7 +157,7 @@ class AtrSanitySelector:
 
     def choose(
         self,
-        candidates: List[AtrCandidate],
+        candidates: list[AtrCandidate],
         *,
         desired_tf: str,
         now_ms: int,
@@ -176,9 +177,9 @@ class AtrSanitySelector:
             except Exception:
                 c.age_ms = int(c.age_ms or 0)
 
-        best: Optional[AtrCandidate] = None
+        best: AtrCandidate | None = None
         best_cost = 1e18
-        debug_rows: List[Dict[str, Any]] = []
+        debug_rows: list[dict[str, Any]] = []
 
         for c in candidates:
             cost, dbg = self._cost(c, desired_tf=desired_tf, expected_atr=float(expected_atr or 0.0))

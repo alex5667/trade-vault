@@ -1,6 +1,7 @@
-from utils.time_utils import get_ny_time_millis
-import time
+
 from core.atr_sanity_policy import sanitize_atr
+from utils.time_utils import get_ny_time_millis
+
 
 def test_sanitize_atr_stale_falls_back_to_runtime_last():
     now = get_ny_time_millis()

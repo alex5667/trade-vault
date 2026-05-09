@@ -2,8 +2,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any
 
 from services.analytics_db import get_conn
 from services.atr_effective_state_resolver import EffectiveStateResolver
@@ -22,7 +21,7 @@ class ATREffectiveStateEquivalenceCertService:
         return (time.time() * 1000 - projection_ms) > 30000
 
     @staticmethod
-    def certify_equivalence(scope_kind: str, scope_value: str) -> Dict[str, Any]:
+    def certify_equivalence(scope_kind: str, scope_value: str) -> dict[str, Any]:
         """
         Runs certification checks between legacy and graph sources of truth.
         """
@@ -31,7 +30,7 @@ class ATREffectiveStateEquivalenceCertService:
             # 1. Resolve Both States
             legacy_state = EffectiveStateResolver.resolve_legacy(scope_kind, scope_value)
             graph_state = EffectiveStateResolver.resolve_from_graph(scope_kind, scope_value)
-            
+
             # 2. Perform Checks (S1-S7)
             # S1 legacy effective state == graph effective state
             # S2 same freeze precedence result
@@ -40,16 +39,16 @@ class ATREffectiveStateEquivalenceCertService:
             # S5 same release_allowed/promotion_allowed
             # S6 projection version fresh enough
             # S7 no graph-only missing blocker/cert edge (can approximate by block state)
-            
+
             leg_s = legacy_state["states"]
             gr_s = graph_state["states"]
             leg_c = legacy_state["constraints"]
             gr_c = graph_state["constraints"]
-            
+
             s1_match = leg_s["effective_runtime_state"] == gr_s["effective_runtime_state"]
             s2_match = leg_s["freeze_state"] == gr_s["freeze_state"]
             s3_match = leg_s["override_state"] == gr_s["override_state"]
-            
+
             s4_match = (
                 leg_c["new_entries_allowed"] == gr_c["new_entries_allowed"] and
                 leg_c["protective_exits_allowed"] == gr_c["protective_exits_allowed"]
@@ -60,7 +59,7 @@ class ATREffectiveStateEquivalenceCertService:
             )
             s6_match = not ATREffectiveStateEquivalenceCertService._is_stale(graph_state["updated_at_ms"])
             s7_match = True # If release_allowed matches, graph edge is likely fine
-            
+
             checks = {
                 "S1_effective_match": s1_match,
                 "S2_freeze_match": s2_match,
@@ -70,7 +69,7 @@ class ATREffectiveStateEquivalenceCertService:
                 "S6_projection_fresh": s6_match,
                 "S7_graph_deps": s7_match
             }
-            
+
             all_passed = all(checks.values())
             summary = {
                 "checked_scopes": 1,
@@ -78,7 +77,7 @@ class ATREffectiveStateEquivalenceCertService:
                 "warning_drifts": 0,
                 "matching_states": 1 if all_passed else 0
             }
-            
+
             with get_conn() as conn, conn.cursor() as cur:
                 # 3. Record Check Result
                 cur.execute("""
@@ -87,11 +86,11 @@ class ATREffectiveStateEquivalenceCertService:
                         graph_state_json, status, summary_json
                     ) VALUES (%s, %s, %s, %s, %s, %s)
                 """, (
-                    cert_id, scope_value, 
-                    json.dumps(legacy_state), json.dumps(graph_state), 
+                    cert_id, scope_value,
+                    json.dumps(legacy_state), json.dumps(graph_state),
                     "passed" if all_passed else "failed", json.dumps(checks)
                 ))
-                
+
                 # 4. Log Drifts if detected
                 if not s1_match:
                      ATREffectiveStateEquivalenceCertService._log_drift(cur, cert_id, scope_value, "effective_state_mismatch", "error", leg_s, gr_s)
@@ -118,7 +117,7 @@ class ATREffectiveStateEquivalenceCertService:
                 """, (rid, "effective_state_resolver", readiness_status, json.dumps(summary)))
 
                 conn.commit()
-                
+
             return {
                 "cert_id": cert_id,
                 "passed": all_passed,
@@ -146,7 +145,7 @@ class ATREffectiveStateEquivalenceCertService:
         logger.warning(f"Effective state drift detected in {scope_value}: {drift_kind} ({severity})")
 
     @staticmethod
-    def run_batch_certification(scope_kind: str, scope_values: List[str]):
+    def run_batch_certification(scope_kind: str, scope_values: list[str]):
         results = []
         for val in scope_values:
             res = ATREffectiveStateEquivalenceCertService.certify_equivalence(scope_kind, val)

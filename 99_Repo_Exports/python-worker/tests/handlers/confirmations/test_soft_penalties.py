@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+
 def test_soft_penalties_l3_missing_sets_primary_code_and_mul():
     from handlers.confirmations.engine import ConfirmationsEngine
 

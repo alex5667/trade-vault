@@ -13,17 +13,18 @@ Why:
   Safety guard is the "circuit breaker" layer.
 """
 
-import os
-import time
 import json
 import math
+import os
+import time
 import traceback
-from typing import Dict, Any, Tuple, Optional
+from typing import Any
 
 import redis
-from core.redis_keys import RedisStreams as RS
 
 from core.lcb_stats import mean_lcb
+from core.redis_keys import RedisStreams as RS
+import contextlib
 
 
 def _now_ms() -> int:
@@ -31,24 +32,24 @@ def _now_ms() -> int:
 
 
 def _sym(x: str) -> str:
-    return str(x or "").strip().upper()
+    return (x or "").strip().upper()
 
 
 def _rg(x: str) -> str:
-    return str(x or "na").strip().lower()
+    return (x or "na").strip().lower()
 
 
 def _grp(x: str) -> str:
-    return str(x or "default").strip().lower()
+    return (x or "default").strip().lower()
 
 
 def _scn(x: str) -> str:
-    x = str(x or "na").strip().lower()
+    x = (x or "na").strip().lower()
     return x if x in ("continuation", "reversal") else "na"
 
 
 def _arm(x: str) -> str:
-    x = str(x or "A").strip().upper()
+    x = (x or "A").strip().upper()
     return x if x in ("A", "B", "C") else "A"
 
 
@@ -56,14 +57,14 @@ def _f(x, d=0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(d)
+        return d
 
 
 class PolicySafetyGuard:
     def __init__(self) -> None:
         url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.r = redis.from_url(url, decode_responses=True)
-        self.stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+        self.stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
         self.group = os.getenv("SAFETY_GUARD_GROUP", "entry-policy-safety")
         self.consumer = os.getenv("SAFETY_GUARD_CONSUMER", f"c-{os.getpid()}")
         self.active_prefix = os.getenv("ENTRY_POLICY_ACTIVE_PREFIX", "cfg:entry_policy:active_arm")
@@ -80,7 +81,7 @@ class PolicySafetyGuard:
         # Rollback freeze (optional)
         self.freeze_enable = int(os.getenv("SAFETY_FREEZE_ENABLE", "1"))
         self.freeze_sec = int(os.getenv("SAFETY_FREEZE_SEC", "3600"))  # 1h
-        
+
         # Create consumer group with retries
         from core.redis_stream_consumer import SyncRedisStreamHelper
         self.helper = SyncRedisStreamHelper(self.r, self.group, self.consumer)
@@ -99,26 +100,26 @@ class PolicySafetyGuard:
         except Exception as e:
             print(f"❌ Failed to ensure group {self.group}: {e}")
 
-    def _ctx(self, sym: str, rg: str, scn: str, grp: str) -> Tuple[str, str, str, str]:
+    def _ctx(self, sym: str, rg: str, scn: str, grp: str) -> tuple[str, str, str, str]:
         return (sym, rg, scn, grp)
 
-    def _stats_key(self, ctx: Tuple[str, str, str, str], arm: str) -> str:
+    def _stats_key(self, ctx: tuple[str, str, str, str], arm: str) -> str:
         sym, rg, scn, grp = ctx
         return f"autopilot:stats:{sym}:{rg}:{scn}:{grp}:{arm}"
 
     def _ctx_set_key(self) -> str:
         return "autopilot:contexts"
 
-    def _active_key(self, ctx: Tuple[str, str, str, str]) -> str:
+    def _active_key(self, ctx: tuple[str, str, str, str]) -> str:
         sym, rg, scn, grp = ctx
         return f"{self.active_prefix}:{sym}:{rg}:{grp}:{scn}"
 
-    def _freeze_key(self, ctx: Tuple[str, str, str, str]) -> str:
+    def _freeze_key(self, ctx: tuple[str, str, str, str]) -> str:
         sym, rg, scn, grp = ctx
         # matches your documented scheme
         return f"cfg:entry_policy:freeze:v1:{sym}:{grp}:{scn}"
 
-    def _ledger(self, event: Dict[str, Any]) -> None:
+    def _ledger(self, event: dict[str, Any]) -> None:
         try:
             msg = {"type": "policy_event", "ts_ms": str(_now_ms()), "payload": json.dumps(event, ensure_ascii=False, separators=(",", ":"))}
             self.r.xadd(self.ledger_stream, msg, maxlen=int(os.getenv("POLICY_LEDGER_MAXLEN", "50000")), approximate=True)
@@ -132,7 +133,7 @@ class PolicySafetyGuard:
         except Exception:
             pass
 
-    def _update_stats(self, ctx: Tuple[str, str, str, str], arm: str, r_mult: float) -> None:
+    def _update_stats(self, ctx: tuple[str, str, str, str], arm: str, r_mult: float) -> None:
         k = self._stats_key(ctx, arm)
         pipe = self.r.pipeline()
         pipe.hincrby(k, "n", 1)
@@ -143,7 +144,7 @@ class PolicySafetyGuard:
         pipe.expire(self._ctx_set_key(), self.stats_ttl_sec)
         pipe.execute()
 
-    def _read_stats(self, ctx: Tuple[str, str, str, str], arm: str) -> Optional[Dict[str, Any]]:
+    def _read_stats(self, ctx: tuple[str, str, str, str], arm: str) -> dict[str, Any] | None:
         k = self._stats_key(ctx, arm)
         d = self.r.hgetall(k) or {}
         if not d:
@@ -156,7 +157,7 @@ class PolicySafetyGuard:
         except Exception:
             return None
 
-    def _lcb_from_moments(self, st: Dict[str, Any]) -> float:
+    def _lcb_from_moments(self, st: dict[str, Any]) -> float:
         n = int(st.get("n", 0) or 0)
         if n <= 0:
             return float("-inf")
@@ -173,7 +174,7 @@ class PolicySafetyGuard:
             return float(mu - 1.64485 * (std / math.sqrt(float(n))))
         return float(mu)
 
-    def _maybe_rollback(self, ctx: Tuple[str, str, str, str]) -> None:
+    def _maybe_rollback(self, ctx: tuple[str, str, str, str]) -> None:
         # Read active arm
         act = str(self.r.get(self._active_key(ctx)) or "").strip().upper()
         if act not in ("A", "B", "C"):
@@ -216,7 +217,7 @@ class PolicySafetyGuard:
             self._ledger(evt)
             self._notify("<pre>" + json.dumps(evt, ensure_ascii=False, indent=2).replace("<", "&lt;").replace(">", "&gt;") + "</pre>")
 
-    def _process_closed(self, fields: Dict[str, Any]) -> None:
+    def _process_closed(self, fields: dict[str, Any]) -> None:
         et = str(fields.get("event_type") or fields.get("event") or "").upper()
         if et != "POSITION_CLOSED":
             return
@@ -241,10 +242,8 @@ class PolicySafetyGuard:
                         for msg_id, fields in items:
                             self._process_closed(fields or {})
                             # ack
-                            try:
+                            with contextlib.suppress(Exception):
                                 self.helper.ack(self.stream, msg_id)
-                            except Exception:
-                                pass
                 # periodic evaluation across known contexts
                 now = time.time()
                 if (now - last_eval) >= self.eval_every_sec:

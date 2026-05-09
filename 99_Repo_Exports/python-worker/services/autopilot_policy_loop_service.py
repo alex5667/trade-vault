@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 AutopilotPolicyLoopService
@@ -13,11 +14,12 @@ Distributed safety:
 import asyncio
 import os
 import time
-from datetime import datetime, timezone
-from common.log import setup_logger
-from core.redis_keys import RedisStreams as RS
+from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
+
+from core.redis_keys import RedisStreams as RS
+import contextlib
 
 
 def _now_ms() -> int:
@@ -25,7 +27,7 @@ def _now_ms() -> int:
 
 
 def _utc_date() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 async def _send_telegram_report(r, text_html: str) -> None:
@@ -37,10 +39,8 @@ async def _send_telegram_report(r, text_html: str) -> None:
     stream = os.getenv("TELEGRAM_NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     msg = {"type": "report", "text": text_html, "ts_ms": str(_now_ms())}
     # best-effort
-    try:
+    with contextlib.suppress(Exception):
         await r.xadd(stream, msg, maxlen=20000, approximate=True)
-    except Exception:
-        pass
 
 
 async def _run_cmd(cmd: str) -> int:
@@ -79,10 +79,8 @@ class AutopilotPolicyLoopService:
             return False
 
     async def _release_lock(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             await self.r.delete(self.lock_key)
-        except Exception:
-            pass
 
     async def _apply_approved(self) -> None:
         """
@@ -103,10 +101,8 @@ class AutopilotPolicyLoopService:
             return True
 
     async def _mark_daily_done(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             await self.r.set(self.daily_key, _utc_date(), ex=3 * 86400)
-        except Exception:
-            pass
 
     async def _daily_report_and_propose(self) -> None:
         # 1) Export NDJSON from stream
@@ -125,12 +121,12 @@ class AutopilotPolicyLoopService:
             f"{'--redis-write' if self.write_proposal else ''}"
         )
         # capture output by running with output file arg
-        rep_path = f"/tmp/tm_report.md"
+        rep_path = "/tmp/tm_report.md"
         cmd_tune2 = cmd_tune + f" --out-md {rep_path}"
         rc2 = await _run_cmd(cmd_tune2)
 
         try:
-            with open(rep_path, "r", encoding="utf-8") as f:
+            with open(rep_path, encoding="utf-8") as f:
                 md_content = f.read().strip()
                 # Wrap in pre for Telegram HTML (matches tm_autopilot_service behavior)
                 # Need to escape HTML chars in MD to avoid parse errors

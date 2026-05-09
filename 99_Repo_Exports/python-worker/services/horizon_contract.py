@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
-import math
-from dataclasses import dataclass, asdict, field
-from typing import Any, Dict, Literal, Optional
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
+import contextlib
 
 try:
     import redis as _redis_lib
@@ -23,11 +24,11 @@ HorizonBucket = Literal["micro", "short", "medium", "long", "unknown"]
 AtrSource = Literal["legacy", "bootstrap", "selector", "manual", "fallback", "unknown"]
 
 _CONTRACT_VER = int(os.getenv("ATR_HORIZON_CONTRACT_VER", "2") or 2)
-_PHASE_MODE = str(os.getenv("ATR_HORIZON_MODE", "off") or "off").strip().lower()
+_PHASE_MODE = (os.getenv("ATR_HORIZON_MODE", "off") or "off").strip().lower()
 _EMIT_PAYLOAD_META = os.getenv("ATR_HORIZON_EMIT_PAYLOAD_META", "1") == "1"
 _DEFAULT_TF_MS = int(os.getenv("ATR_HORIZON_DEFAULT_TF_MS", "60000") or 60000)
 _DEFAULT_WINDOW_N = int(os.getenv("ATR_HORIZON_DEFAULT_WINDOW_N", "14") or 14)
-_DEFAULT_BUCKET = str(os.getenv("ATR_HORIZON_DEFAULT_BUCKET", "unknown") or "unknown").strip().lower()
+_DEFAULT_BUCKET = (os.getenv("ATR_HORIZON_DEFAULT_BUCKET", "unknown") or "unknown").strip().lower()
 _DEFAULT_PROFILE_SOURCE = str(
     os.getenv("ATR_HORIZON_DEFAULT_PROFILE_SOURCE", "static_bootstrap") or "static_bootstrap"
 ).strip()
@@ -95,7 +96,7 @@ def _safe_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def _ensure_dict(v: Any) -> Dict[str, Any]:
+def _ensure_dict(v: Any) -> dict[str, Any]:
     return dict(v) if isinstance(v, dict) else {}
 
 
@@ -103,7 +104,7 @@ def _ensure_dict(v: Any) -> Dict[str, Any]:
 # Phase 1: Redis profile lookup helpers
 # ---------------------------------------------------------------------------
 
-def _get_profile_redis() -> Optional[Any]:
+def _get_profile_redis() -> Any | None:
     """Lazy singleton Redis client for profile lookup. Returns None on failure."""
     global _R_PROFILE_SYNC
     if _R_PROFILE_SYNC is not None:
@@ -130,7 +131,7 @@ def _load_calibrated_horizon_profile(
     kind: str,
     regime: str,
     now_ms: int,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Try to load a calibrated profile from Redis.
     Fallback chain: exact -> scenario('na') -> symbol default.
@@ -144,10 +145,10 @@ def _load_calibrated_horizon_profile(
     if r is None:
         return None
 
-    source  = str(source  or "CryptoOrderFlow")
-    symbol  = str(symbol  or "").upper()
-    kind    = str(kind    or "default").lower()
-    regime  = str(regime  or "na").lower()
+    source  = (source or "CryptoOrderFlow")
+    symbol  = (symbol or "").upper()
+    kind    = (kind or "default").lower()
+    regime  = (regime or "na").lower()
 
     keys_levels = [
         (_profile_redis_key(source, symbol, kind, regime),    "exact"),
@@ -187,7 +188,7 @@ def _load_calibrated_horizon_profile(
     return None
 
 
-def _merge_meta_contract(dst_meta: Dict[str, Any], src_meta: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_meta_contract(dst_meta: dict[str, Any], src_meta: dict[str, Any]) -> dict[str, Any]:
     out = dict(dst_meta or {})
     if "contract_ver" in src_meta and not out.get("contract_ver"):
         out["contract_ver"] = src_meta.get("contract_ver")
@@ -198,7 +199,7 @@ def _merge_meta_contract(dst_meta: Dict[str, Any], src_meta: Dict[str, Any]) -> 
     return out
 
 
-def _coerce_contract_from_signal_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _coerce_contract_from_signal_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """
     Accept both canonical nested contract:
       payload.meta.contract_ver / payload.meta.horizon / payload.meta.atr_profile
@@ -216,22 +217,22 @@ def _coerce_contract_from_signal_payload(payload: Dict[str, Any]) -> Dict[str, A
                 "hold_target_ms": _safe_int(payload.get("hold_target_ms"), 0),
                 "alpha_half_life_ms": _safe_int(payload.get("alpha_half_life_ms"), 0),
                 "max_signal_age_ms": _safe_int(payload.get("max_signal_age_ms"), 0),
-                "risk_horizon_bucket": str(payload.get("risk_horizon_bucket") or "unknown"),
+                "risk_horizon_bucket": (payload.get("risk_horizon_bucket") or "unknown"),
                 "profile_source": str(payload.get("horizon_profile_source") or _DEFAULT_PROFILE_SOURCE),
                 "profile_conf": _safe_float(payload.get("horizon_profile_conf"), 0.0),
-                "reason_code": str(payload.get("horizon_reason_code") or "HZ_STATIC_BOOTSTRAP"),
+                "reason_code": (payload.get("horizon_reason_code") or "HZ_STATIC_BOOTSTRAP"),
                 "reason_details": _ensure_dict(payload.get("horizon_reason_details")),
             }
 
     if not atr_profile:
         if any(k in payload for k in ("atr_tf_ms", "atr_age_ms", "atr_source", "atr_mode")):
             atr_profile = {
-                "mode": str(payload.get("atr_mode") or "legacy"),
+                "mode": (payload.get("atr_mode") or "legacy"),
                 "atr_value": _safe_float(payload.get("atr") or payload.get("atr_value"), 0.0),
                 "atr_tf_ms": _safe_int(payload.get("atr_tf_ms"), _DEFAULT_TF_MS),
                 "atr_window_n": _safe_int(payload.get("atr_window_n"), _DEFAULT_WINDOW_N),
                 "atr_age_ms": _safe_int(payload.get("atr_age_ms"), 0),
-                "atr_source": str(payload.get("atr_source") or "legacy"),
+                "atr_source": (payload.get("atr_source") or "legacy"),
                 "atr_regime_value": _safe_float(payload.get("atr_regime_value"), 0.0),
                 "atr_trail_value": _safe_float(payload.get("atr_trail_value"), 0.0),
                 "atr_regime_tf_ms": _safe_int(payload.get("atr_regime_tf_ms"), 0),
@@ -251,45 +252,41 @@ def _coerce_contract_from_signal_payload(payload: Dict[str, Any]) -> Dict[str, A
     }
 
 
-def _apply_position_aliases(pos: Any, contract: Dict[str, Any]) -> bool:
+def _apply_position_aliases(pos: Any, contract: dict[str, Any]) -> bool:
     hz = _ensure_dict(contract.get("horizon"))
     ap = _ensure_dict(contract.get("atr_profile"))
     ver = _safe_int(contract.get("contract_ver"), 0)
     if ver <= 0 and not hz and not ap:
         return False
 
-    setattr(pos, "horizon_contract_ver", int(ver or _CONTRACT_VER))
-    setattr(pos, "hold_target_ms", _safe_int(hz.get("hold_target_ms"), getattr(pos, "hold_target_ms", 0)))
-    setattr(pos, "alpha_half_life_ms", _safe_int(hz.get("alpha_half_life_ms"), getattr(pos, "alpha_half_life_ms", 0)))
-    setattr(pos, "max_signal_age_ms", _safe_int(hz.get("max_signal_age_ms"), getattr(pos, "max_signal_age_ms", 0)))
-    setattr(pos, "risk_horizon_bucket", str(hz.get("risk_horizon_bucket") or getattr(pos, "risk_horizon_bucket", "unknown") or "unknown"))
-    setattr(pos, "horizon_profile_source", str(hz.get("profile_source") or getattr(pos, "horizon_profile_source", _DEFAULT_PROFILE_SOURCE)))
-    setattr(pos, "horizon_profile_conf", _safe_float(hz.get("profile_conf"), getattr(pos, "horizon_profile_conf", 0.0)))
-    setattr(pos, "horizon_reason_code", str(hz.get("reason_code") or getattr(pos, "horizon_reason_code", "HZ_STATIC_BOOTSTRAP")))
-    setattr(pos, "horizon_reason_details", _ensure_dict(hz.get("reason_details")))
+    pos.horizon_contract_ver = int(ver or _CONTRACT_VER)
+    pos.hold_target_ms = _safe_int(hz.get("hold_target_ms"), getattr(pos, "hold_target_ms", 0))
+    pos.alpha_half_life_ms = _safe_int(hz.get("alpha_half_life_ms"), getattr(pos, "alpha_half_life_ms", 0))
+    pos.max_signal_age_ms = _safe_int(hz.get("max_signal_age_ms"), getattr(pos, "max_signal_age_ms", 0))
+    pos.risk_horizon_bucket = str(hz.get("risk_horizon_bucket") or getattr(pos, "risk_horizon_bucket", "unknown") or "unknown")
+    pos.horizon_profile_source = str(hz.get("profile_source") or getattr(pos, "horizon_profile_source", _DEFAULT_PROFILE_SOURCE))
+    pos.horizon_profile_conf = _safe_float(hz.get("profile_conf"), getattr(pos, "horizon_profile_conf", 0.0))
+    pos.horizon_reason_code = str(hz.get("reason_code") or getattr(pos, "horizon_reason_code", "HZ_STATIC_BOOTSTRAP"))
+    pos.horizon_reason_details = _ensure_dict(hz.get("reason_details"))
 
-    setattr(pos, "atr_mode", str(ap.get("mode") or getattr(pos, "atr_mode", "legacy")))
-    setattr(pos, "atr_tf_ms", _safe_int(ap.get("atr_tf_ms"), getattr(pos, "atr_tf_ms", _DEFAULT_TF_MS)))
-    setattr(pos, "atr_window_n", _safe_int(ap.get("atr_window_n"), getattr(pos, "atr_window_n", _DEFAULT_WINDOW_N)))
-    setattr(pos, "atr_age_ms", _safe_int(ap.get("atr_age_ms"), getattr(pos, "atr_age_ms", 0)))
-    setattr(pos, "atr_source", str(ap.get("atr_source") or getattr(pos, "atr_source", "legacy")))
-    setattr(pos, "atr_regime_value", _safe_float(ap.get("atr_regime_value"), getattr(pos, "atr_regime_value", 0.0)))
-    setattr(pos, "atr_trail_value", _safe_float(ap.get("atr_trail_value"), getattr(pos, "atr_trail_value", 0.0)))
-    setattr(pos, "atr_regime_tf_ms", _safe_int(ap.get("atr_regime_tf_ms"), getattr(pos, "atr_regime_tf_ms", 0)))
-    setattr(pos, "atr_trail_tf_ms", _safe_int(ap.get("atr_trail_tf_ms"), getattr(pos, "atr_trail_tf_ms", 0)))
-    setattr(pos, "atr_pct", _safe_float(ap.get("atr_pct"), getattr(pos, "atr_pct", 0.0)))
-    setattr(pos, "vol_ratio_fast_slow", _safe_float(ap.get("vol_ratio_fast_slow"), getattr(pos, "vol_ratio_fast_slow", 1.0)))
-    setattr(pos, "vol_ratio_z", _safe_float(ap.get("vol_ratio_z"), getattr(pos, "vol_ratio_z", 0.0)))
+    pos.atr_mode = str(ap.get("mode") or getattr(pos, "atr_mode", "legacy"))
+    pos.atr_tf_ms = _safe_int(ap.get("atr_tf_ms"), getattr(pos, "atr_tf_ms", _DEFAULT_TF_MS))
+    pos.atr_window_n = _safe_int(ap.get("atr_window_n"), getattr(pos, "atr_window_n", _DEFAULT_WINDOW_N))
+    pos.atr_age_ms = _safe_int(ap.get("atr_age_ms"), getattr(pos, "atr_age_ms", 0))
+    pos.atr_source = str(ap.get("atr_source") or getattr(pos, "atr_source", "legacy"))
+    pos.atr_regime_value = _safe_float(ap.get("atr_regime_value"), getattr(pos, "atr_regime_value", 0.0))
+    pos.atr_trail_value = _safe_float(ap.get("atr_trail_value"), getattr(pos, "atr_trail_value", 0.0))
+    pos.atr_regime_tf_ms = _safe_int(ap.get("atr_regime_tf_ms"), getattr(pos, "atr_regime_tf_ms", 0))
+    pos.atr_trail_tf_ms = _safe_int(ap.get("atr_trail_tf_ms"), getattr(pos, "atr_trail_tf_ms", 0))
+    pos.atr_pct = _safe_float(ap.get("atr_pct"), getattr(pos, "atr_pct", 0.0))
+    pos.vol_ratio_fast_slow = _safe_float(ap.get("vol_ratio_fast_slow"), getattr(pos, "vol_ratio_fast_slow", 1.0))
+    pos.vol_ratio_z = _safe_float(ap.get("vol_ratio_z"), getattr(pos, "vol_ratio_z", 0.0))
 
-    setattr(pos, "horizon_contract", {
-        "contract_ver": int(ver or _CONTRACT_VER),
-        "horizon": hz,
-        "atr_profile": ap,
-    })
+    pos.horizon_contract = {"contract_ver": int(ver or _CONTRACT_VER), "horizon": hz, "atr_profile": ap}
     return True
 
 
-def stamp_position_from_signal_payload(pos: Any, payload: Dict[str, Any], *, source: str = "signal_open") -> bool:
+def stamp_position_from_signal_payload(pos: Any, payload: dict[str, Any], *, source: str = "signal_open") -> bool:
     """
     Phase 0.2:
       - ensure PositionState.signal_payload carries canonical contract
@@ -304,15 +301,13 @@ def stamp_position_from_signal_payload(pos: Any, payload: Dict[str, Any], *, sou
     sp = getattr(pos, "signal_payload", None)
     if not isinstance(sp, dict):
         sp = {}
-        setattr(pos, "signal_payload", sp)
+        pos.signal_payload = sp
 
     payload_contract = _coerce_contract_from_signal_payload(payload)
     if not payload_contract.get("contract_ver") and not payload_contract.get("horizon") and not payload_contract.get("atr_profile"):
         if _M_POS_MISSING is not None:
-            try:
-                _M_POS_MISSING.labels(source=str(source or "signal_open")).inc()
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                _M_POS_MISSING.labels(source=(source or "signal_open")).inc()
         return False
 
     sp_meta = _ensure_dict(sp.get("meta"))
@@ -330,16 +325,16 @@ def stamp_position_from_signal_payload(pos: Any, payload: Dict[str, Any], *, sou
     sp.setdefault("hold_target_ms", _safe_int(hz.get("hold_target_ms"), 0))
     sp.setdefault("alpha_half_life_ms", _safe_int(hz.get("alpha_half_life_ms"), 0))
     sp.setdefault("max_signal_age_ms", _safe_int(hz.get("max_signal_age_ms"), 0))
-    sp.setdefault("risk_horizon_bucket", str(hz.get("risk_horizon_bucket") or "unknown"))
+    sp.setdefault("risk_horizon_bucket", (hz.get("risk_horizon_bucket") or "unknown"))
     sp.setdefault("horizon_profile_source", str(hz.get("profile_source") or _DEFAULT_PROFILE_SOURCE))
     sp.setdefault("horizon_profile_conf", _safe_float(hz.get("profile_conf"), 0.0))
-    sp.setdefault("horizon_reason_code", str(hz.get("reason_code") or "HZ_STATIC_BOOTSTRAP"))
-    sp.setdefault("atr_mode", str(ap.get("mode") or "legacy"))
+    sp.setdefault("horizon_reason_code", (hz.get("reason_code") or "HZ_STATIC_BOOTSTRAP"))
+    sp.setdefault("atr_mode", (ap.get("mode") or "legacy"))
     sp.setdefault("atr_value", _safe_float(ap.get("atr_value"), 0.0))
     sp.setdefault("atr_tf_ms", _safe_int(ap.get("atr_tf_ms"), _DEFAULT_TF_MS))
     sp.setdefault("atr_window_n", _safe_int(ap.get("atr_window_n"), _DEFAULT_WINDOW_N))
     sp.setdefault("atr_age_ms", _safe_int(ap.get("atr_age_ms"), 0))
-    sp.setdefault("atr_source", str(ap.get("atr_source") or "legacy"))
+    sp.setdefault("atr_source", (ap.get("atr_source") or "legacy"))
     sp.setdefault("atr_pct", _safe_float(ap.get("atr_pct"), 0.0))
     sp.setdefault("vol_ratio_fast_slow", _safe_float(ap.get("vol_ratio_fast_slow"), 1.0))
     sp.setdefault("vol_ratio_z", _safe_float(ap.get("vol_ratio_z"), 0.0))
@@ -350,10 +345,8 @@ def stamp_position_from_signal_payload(pos: Any, payload: Dict[str, Any], *, sou
         "atr_profile": ap,
     })
     if ok and _M_POS_ATTACH is not None:
-        try:
-            _M_POS_ATTACH.labels(source=str(source or "signal_open")).inc()
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            _M_POS_ATTACH.labels(source=(source or "signal_open")).inc()
     return ok
 
 
@@ -369,26 +362,20 @@ def hydrate_position_from_signal_payload(pos: Any, *, source: str = "recovery") 
     sp = getattr(pos, "signal_payload", None)
     if not isinstance(sp, dict):
         if _M_POS_MISSING is not None:
-            try:
-                _M_POS_MISSING.labels(source=str(source or "recovery")).inc()
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                _M_POS_MISSING.labels(source=(source or "recovery")).inc()
         return False
 
     contract = _coerce_contract_from_signal_payload(sp)
     ok = _apply_position_aliases(pos, contract)
     if ok:
         if _M_POS_RECOVER is not None:
-            try:
-                _M_POS_RECOVER.labels(source=str(source or "recovery")).inc()
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                _M_POS_RECOVER.labels(source=(source or "recovery")).inc()
     else:
         if _M_POS_MISSING is not None:
-            try:
-                _M_POS_MISSING.labels(source=str(source or "recovery")).inc()
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                _M_POS_MISSING.labels(source=(source or "recovery")).inc()
     return ok
 
 
@@ -420,7 +407,7 @@ class HorizonProfileV1:
     profile_source: str
     profile_conf: float = 0.0
     reason_code: str = "HZ_STATIC_BOOTSTRAP"
-    reason_details: Dict[str, Any] = field(default_factory=dict)
+    reason_details: dict[str, Any] = field(default_factory=dict)
 
 
 def build_phase0_horizon_profile(
@@ -430,7 +417,7 @@ def build_phase0_horizon_profile(
     kind: str,
     regime: str,
     now_ms: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Build horizon profile dict.
 
@@ -464,9 +451,9 @@ def build_phase0_horizon_profile(
         profile_conf=0.0,
         reason_code="HZ_STATIC_BOOTSTRAP",
         reason_details={
-            "symbol": str(symbol or "").upper(),
-            "kind": str(kind or "unknown"),
-            "regime": str(regime or "unknown"),
+            "symbol": (symbol or "").upper(),
+            "kind": (kind or "unknown"),
+            "regime": (regime or "unknown"),
             "ts_ms": int(now_ms),
         },
     ),
@@ -478,7 +465,7 @@ def build_phase0_atr_profile(
     atr_value: float,
     price: float,
     atr_age_ms: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Legacy builder — kept for back-compat callers outside attach_phase0_contract."""
     atr_pct = float(atr_value / price) if price > 0.0 else 0.0
     ap = ATRProfileV1(
@@ -501,12 +488,12 @@ def build_phase0_atr_profile(
 
 def build_runtime_atr_profile(
     *,
-    signal: Dict[str, Any],
+    signal: dict[str, Any],
     price: float,
     hold_target_ms: int,
     alpha_half_life_ms: int,
     now_ms: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Phase 2 builder: delegates to runtime selector when enabled.
     Always fail-open to legacy ATRProfileV1 on any error.
@@ -549,7 +536,7 @@ def build_runtime_atr_profile(
     return asdict(ap)
 
 
-def attach_phase0_contract(signal: Dict[str, Any], *, symbol: str, source: str) -> Dict[str, Any]:
+def attach_phase0_contract(signal: dict[str, Any], *, symbol: str, source: str) -> dict[str, Any]:
     """
     Idempotent phase-0 contract attachment.
     Does NOT modify trading semantics.
@@ -608,7 +595,7 @@ def attach_phase0_contract(signal: Dict[str, Any], *, symbol: str, source: str) 
             pass
 
     meta.setdefault("horizon", build_phase0_horizon_profile(
-        source=str(source or "CryptoOrderFlow"),
+        source=(source or "CryptoOrderFlow"),
         symbol=str(symbol or signal.get("symbol") or "").upper(),
         kind=kind,
         regime=regime,
@@ -670,7 +657,7 @@ def attach_phase0_contract(signal: Dict[str, Any], *, symbol: str, source: str) 
     if _M_EMITTED is not None:
         try:
             _M_EMITTED.labels(
-                source=str(source or "unknown"),
+                source=(source or "unknown"),
                 phase_mode=str(meta["horizon"].get("phase_mode") or "off"),
             ).inc()
             _M_REASON.labels(
@@ -682,7 +669,7 @@ def attach_phase0_contract(signal: Dict[str, Any], *, symbol: str, source: str) 
     return signal
 
 
-def extract_horizon_contract_from_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+def extract_horizon_contract_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """
     Stable DB snapshot for trades_closed / analytics.
     """
@@ -700,14 +687,14 @@ def extract_horizon_contract_from_payload(payload: Dict[str, Any]) -> Dict[str, 
     }
 
 
-def extract_horizon_bucket(contract: Dict[str, Any]) -> str:
+def extract_horizon_bucket(contract: dict[str, Any]) -> str:
     if not isinstance(contract, dict):
         return ""
     hz = _ensure_dict(contract.get("horizon"))
-    return str(hz.get("risk_horizon_bucket") or "")
+    return (hz.get("risk_horizon_bucket") or "")
 
 
-def extract_atr_tf_ms(contract: Dict[str, Any]) -> int:
+def extract_atr_tf_ms(contract: dict[str, Any]) -> int:
     if not isinstance(contract, dict):
         return 0
     ap = _ensure_dict(contract.get("atr_profile"))
@@ -739,7 +726,7 @@ POSITION_HORIZON_SCALAR_KEYS: tuple = (
 ),
 
 
-def extract_position_horizon_scalars(obj: Any) -> Dict[str, Any]:
+def extract_position_horizon_scalars(obj: Any) -> dict[str, Any]:
     """
     Produce first-class scalar fields for Redis hash / events / analytics.
     Reads convenience attrs set by Phase 0.2 (_apply_position_aliases).
@@ -790,7 +777,7 @@ _M_CLOSED_STAMPED = Counter(
 ) if Counter is not None else None
 
 
-def apply_position_horizon_scalars_from_hash(pos: Any, h: Dict[str, Any], *, source: str = "hash") -> bool:
+def apply_position_horizon_scalars_from_hash(pos: Any, h: dict[str, Any], *, source: str = "hash") -> bool:
     """
     Rebuild scalar attrs directly from Redis hash fields.
     Phase 0.3 fallback: recovery does NOT depend only on signal_payload JSON.
@@ -802,34 +789,30 @@ def apply_position_horizon_scalars_from_hash(pos: Any, h: Dict[str, Any], *, sou
     has_any = any(h.get(k) for k in ("risk_horizon_bucket", "hold_target_ms", "atr_tf_ms", "contract_ver"))
     if not has_any:
         if _M_SCALAR_MISSING is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _M_SCALAR_MISSING.labels(source=str(source)).inc()
-            except Exception:
-                pass
         return False
     try:
-        setattr(pos, "horizon_contract_ver", _safe_int(h.get("contract_ver"), _CONTRACT_VER))
-        setattr(pos, "hold_target_ms", _safe_int(h.get("hold_target_ms"), 0))
-        setattr(pos, "alpha_half_life_ms", _safe_int(h.get("alpha_half_life_ms"), 0))
-        setattr(pos, "max_signal_age_ms", _safe_int(h.get("max_signal_age_ms"), 0))
-        setattr(pos, "risk_horizon_bucket", str(h.get("risk_horizon_bucket") or "unknown"))
-        setattr(pos, "horizon_profile_source", str(h.get("horizon_profile_source") or _DEFAULT_PROFILE_SOURCE))
-        setattr(pos, "horizon_profile_conf", _safe_float(h.get("horizon_profile_conf"), 0.0))
-        setattr(pos, "horizon_reason_code", str(h.get("horizon_reason_code") or "HZ_STATIC_BOOTSTRAP"))
-        setattr(pos, "atr_mode", str(h.get("atr_mode") or "legacy"))
-        setattr(pos, "atr_value", _safe_float(h.get("atr_value") or h.get("atr"), 0.0))
-        setattr(pos, "atr_tf_ms", _safe_int(h.get("atr_tf_ms"), _DEFAULT_TF_MS))
-        setattr(pos, "atr_window_n", _safe_int(h.get("atr_window_n"), _DEFAULT_WINDOW_N))
-        setattr(pos, "atr_age_ms", _safe_int(h.get("atr_age_ms"), 0))
-        setattr(pos, "atr_source", str(h.get("atr_source") or "legacy"))
-        setattr(pos, "atr_pct", _safe_float(h.get("atr_pct"), 0.0))
-        setattr(pos, "vol_ratio_fast_slow", _safe_float(h.get("vol_ratio_fast_slow"), 1.0))
-        setattr(pos, "vol_ratio_z", _safe_float(h.get("vol_ratio_z"), 0.0))
+        pos.horizon_contract_ver = _safe_int(h.get("contract_ver"), _CONTRACT_VER)
+        pos.hold_target_ms = _safe_int(h.get("hold_target_ms"), 0)
+        pos.alpha_half_life_ms = _safe_int(h.get("alpha_half_life_ms"), 0)
+        pos.max_signal_age_ms = _safe_int(h.get("max_signal_age_ms"), 0)
+        pos.risk_horizon_bucket = (h.get("risk_horizon_bucket") or "unknown")
+        pos.horizon_profile_source = str(h.get("horizon_profile_source") or _DEFAULT_PROFILE_SOURCE)
+        pos.horizon_profile_conf = _safe_float(h.get("horizon_profile_conf"), 0.0)
+        pos.horizon_reason_code = (h.get("horizon_reason_code") or "HZ_STATIC_BOOTSTRAP")
+        pos.atr_mode = (h.get("atr_mode") or "legacy")
+        pos.atr_value = _safe_float(h.get("atr_value") or h.get("atr"), 0.0)
+        pos.atr_tf_ms = _safe_int(h.get("atr_tf_ms"), _DEFAULT_TF_MS)
+        pos.atr_window_n = _safe_int(h.get("atr_window_n"), _DEFAULT_WINDOW_N)
+        pos.atr_age_ms = _safe_int(h.get("atr_age_ms"), 0)
+        pos.atr_source = (h.get("atr_source") or "legacy")
+        pos.atr_pct = _safe_float(h.get("atr_pct"), 0.0)
+        pos.vol_ratio_fast_slow = _safe_float(h.get("vol_ratio_fast_slow"), 1.0)
+        pos.vol_ratio_z = _safe_float(h.get("vol_ratio_z"), 0.0)
         if _M_SCALAR_RECOVER is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _M_SCALAR_RECOVER.labels(source=str(source)).inc()
-            except Exception:
-                pass
         return True
     except Exception:
         return False
@@ -851,19 +834,17 @@ def stamp_closed_trade_horizon_from_position(pos: Any, closed: Any) -> bool:
         sp = getattr(closed, "signal_payload", None)
         if not isinstance(sp, dict):
             sp = {}
-            setattr(closed, "signal_payload", sp)
+            closed.signal_payload = sp
         sp.setdefault("_horizon_scalars", scalars)
         if _M_CLOSED_STAMPED is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _M_CLOSED_STAMPED.inc()
-            except Exception:
-                pass
         return True
     except Exception:
         return False
 
 
-def build_horizon_event_scalars(obj: Any) -> Dict[str, Any]:
+def build_horizon_event_scalars(obj: Any) -> dict[str, Any]:
     """
     Compact payload fragment for OPEN/CLOSED events.
     Subset of extract_position_horizon_scalars — only fields useful for event consumers.

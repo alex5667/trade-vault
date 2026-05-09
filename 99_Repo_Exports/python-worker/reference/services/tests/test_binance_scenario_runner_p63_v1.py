@@ -29,7 +29,6 @@ from services.binance_executor import _make_cid
 from services.testing.binance_mock_harness import running_binance_mock
 from services.testing.binance_scenario_runner import BinanceScenarioRunner
 
-
 # ---------------------------------------------------------------------------
 # Shared env-setup helper
 # ---------------------------------------------------------------------------

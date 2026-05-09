@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from services.smt_bundle_aggregator import BundleSpec, SmtAggregatorConfig, SmtBundleAggregator
 from tests.fake_redis import FakeRedis
-from services.smt_bundle_aggregator import SmtBundleAggregator, BundleSpec, SmtAggregatorConfig
 
 
 def test_smt_aggregator_writes_bundle_state(monkeypatch):
@@ -24,9 +24,9 @@ def test_smt_aggregator_writes_bundle_state(monkeypatch):
     t0 = 1700000000000
     for i in range(1, 50):
         # BTC up first, then ETH/SOL follow slightly
-        r.hset(f"price:latest:BTCUSDT", mapping={"mid": str(100 + i * 0.10), "ts_ms": str(t0 + i * 1000)})
-        r.hset(f"price:latest:ETHUSDT", mapping={"mid": str(50 + max(0, i - 1) * 0.06), "ts_ms": str(t0 + i * 1000)})
-        r.hset(f"price:latest:SOLUSDT", mapping={"mid": str(20 + max(0, i - 1) * 0.04), "ts_ms": str(t0 + i * 1000)})
+        r.hset("price:latest:BTCUSDT", mapping={"mid": str(100 + i * 0.10), "ts_ms": str(t0 + i * 1000)})
+        r.hset("price:latest:ETHUSDT", mapping={"mid": str(50 + max(0, i - 1) * 0.06), "ts_ms": str(t0 + i * 1000)})
+        r.hset("price:latest:SOLUSDT", mapping={"mid": str(20 + max(0, i - 1) * 0.04), "ts_ms": str(t0 + i * 1000)})
         agg.tick_once()
 
     st = r.hgetall("smt:bundle:v1:btc_eth_sol")
@@ -35,7 +35,7 @@ def test_smt_aggregator_writes_bundle_state(monkeypatch):
     leader = (st.get("leader") or st.get(b"leader") or b"").decode() if isinstance(st.get("leader") or st.get(b"leader"), (bytes, bytearray)) else str(st.get("leader") or st.get(b"leader"))
     assert leader in ("BTCUSDT", "ETHUSDT", "SOLUSDT")
 
-    coh = float((st.get("coh") or st.get(b"coh") or b"0").decode() if isinstance(st.get("coh") or st.get(b"coh"), (bytes, bytearray)) else str(st.get("coh") or "0"))
+    coh = float((st.get("coh") or st.get(b"coh") or b"0").decode() if isinstance(st.get("coh") or st.get(b"coh"), (bytes, bytearray)) else (st.get("coh") or "0"))
     assert 0.0 <= coh <= 1.0, f"coherence should be 0..1, got {coh}"
 
 
@@ -94,7 +94,7 @@ def test_smt_aggregator_leader_detection():
 
     leader = (st.get("leader") or st.get(b"leader") or b"").decode() if isinstance(st.get("leader") or st.get(b"leader"), (bytes, bytearray)) else str(st.get("leader") or st.get(b"leader"))
     leader_dir = (st.get("leader_dir") or st.get(b"leader_dir") or b"").decode() if isinstance(st.get("leader_dir") or st.get(b"leader_dir"), (bytes, bytearray)) else str(st.get("leader_dir") or st.get(b"leader_dir"))
-    leader_confirm = int(float((st.get("leader_confirm") or st.get(b"leader_confirm") or b"0").decode() if isinstance(st.get("leader_confirm") or st.get(b"leader_confirm"), (bytes, bytearray)) else str(st.get("leader_confirm") or "0")))
+    leader_confirm = int(float((st.get("leader_confirm") or st.get(b"leader_confirm") or b"0").decode() if isinstance(st.get("leader_confirm") or st.get(b"leader_confirm"), (bytes, bytearray)) else (st.get("leader_confirm") or "0")))
 
     assert leader == "LDRUSDT", f"expected leader LDRUSDT, got {leader}"
     assert leader_dir == "UP", f"expected direction UP, got {leader_dir}"

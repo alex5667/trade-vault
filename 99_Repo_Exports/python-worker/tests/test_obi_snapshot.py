@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for OBI snapshot and p_cluster normalization."""
 
 from core.crypto_orderflow_detectors import OBIDetector

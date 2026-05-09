@@ -1,14 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 log = logging.getLogger("calendar_ingestor")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -17,6 +18,7 @@ HEARTBEAT_TTL_SEC = int(os.getenv("HEARTBEAT_TTL_SEC", "30"))
 INSTANCE_ID = os.getenv("INSTANCE_ID", f"py-cal:{os.getpid()}")
 
 from news_pipeline.leader_lock import LeaderLock
+import contextlib
 
 try:
     import httpx  # type: ignore
@@ -56,7 +58,7 @@ def _uid(source: str, event: str, country: str, currency: str, date_str: str) ->
     return _sha1_hex(f"{source}|{event}|{country}|{currency}|{date_str}")
 
 
-def _http_get_json(url: str, params: Dict[str, Any], timeout_sec: float = 10.0) -> Any:
+def _http_get_json(url: str, params: dict[str, Any], timeout_sec: float = 10.0) -> Any:
     if httpx is not None:
         with httpx.Client(timeout=timeout_sec) as c:
             r = c.get(url, params=params)
@@ -69,7 +71,7 @@ def _http_get_json(url: str, params: Dict[str, Any], timeout_sec: float = 10.0) 
     raise RuntimeError("No HTTP client available (httpx/requests)")
 
 
-def fetch_fmp_calendar() -> List[Dict[str, Any]]:
+def fetch_fmp_calendar() -> list[dict[str, Any]]:
     if not FMP_API_KEY:
         return []
 
@@ -77,17 +79,17 @@ def fetch_fmp_calendar() -> List[Dict[str, Any]]:
     if not isinstance(data, list):
         return []
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     now_ms = get_ny_time_millis()
 
     for row in data:
         try:
             # FMP fields are not strictly documented; typical keys:
             # date, country, event, currency, actual, previous, forecast, impact
-            date_str = str(row.get("date") or "")
+            date_str = (row.get("date") or "")
             event = str(row.get("event") or row.get("title") or "")
-            country = str(row.get("country") or "")
-            currency = str(row.get("currency") or "")
+            country = (row.get("country") or "")
+            currency = (row.get("currency") or "")
             impact = str(row.get("impact") or row.get("importance") or "").lower()
 
             # Normalize importance to 0..3
@@ -124,9 +126,9 @@ def fetch_fmp_calendar() -> List[Dict[str, Any]]:
                     "currency": currency,
                     "title": event,
                     "importance": importance,
-                    "forecast": str(row.get("forecast") or ""),
-                    "previous": str(row.get("previous") or ""),
-                    "unit": str(row.get("unit") or ""),
+                    "forecast": (row.get("forecast") or ""),
+                    "previous": (row.get("previous") or ""),
+                    "unit": (row.get("unit") or ""),
                     "source": FMP_NAME,
                     "payload": json.dumps(row, ensure_ascii=False),
                 }
@@ -137,10 +139,10 @@ def fetch_fmp_calendar() -> List[Dict[str, Any]]:
     return out
 
 
-def publish_events(r: redis.Redis, events: List[Dict[str, Any]]) -> int:
+def publish_events(r: redis.Redis, events: list[dict[str, Any]]) -> int:
     n = 0
     for ev in events:
-        uid = str(ev.get("uid") or "")
+        uid = (ev.get("uid") or "")
         if not uid:
             continue
 
@@ -154,17 +156,16 @@ def publish_events(r: redis.Redis, events: List[Dict[str, Any]]) -> int:
             n += 1
         except Exception as e:
             # DLQ is best-effort
-            try:
+            with contextlib.suppress(Exception):
                 r.xadd(DLQ, {"uid": uid, "err": str(e)[:256], "payload": json.dumps(ev)}, maxlen=200_000, approximate=True)
-            except Exception:
-                pass
     return n
 
 
 def _wait_for_redis_ready(redis_url: str) -> redis.Redis:
     """Wait for Redis to be ready, handling BusyLoadingError"""
-    import redis
     import time
+
+    import redis
 
     max_retries = 60  # 10 минут при 10сек задержке
     retry_count = 0

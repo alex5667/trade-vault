@@ -9,12 +9,9 @@ from __future__ import annotations
 #
 # These are isolated unit tests using fresh Prometheus registries to avoid
 # cross-test contamination from shared global state.
-
-import asyncio
-import sys
 import os
+import sys
 import types
-import pytest
 
 # ---------------------------------------------------------------------------
 # Provide minimal stubs for heavy imports that aren't needed for these tests
@@ -48,7 +45,7 @@ def _stub_redis():
 
 def _fresh_liqmap_counters():
     """Return fresh (unregistered) Prometheus counters for isolated testing."""
-    from prometheus_client import Counter, Gauge, CollectorRegistry
+    from prometheus_client import CollectorRegistry, Counter, Gauge
     reg = CollectorRegistry()
     age_gauge = Gauge(
         "liqmap_snapshot_age_ms_test",
@@ -80,7 +77,6 @@ def _get_pw_metrics_module():
     # Prepend python-worker to sys.path to shadow the root-level services/ copy.
     if sys.path and sys.path[0] != pw:
         sys.path.insert(0, pw)
-    import importlib
     # If already cached in sys.modules we can get it directly.
     mod = sys.modules.get("services.orderflow.metrics")
     if mod is None:

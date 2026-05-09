@@ -1,4 +1,3 @@
-import os
 from tools.auto_train_conf_calibration import gate_decision
 
 

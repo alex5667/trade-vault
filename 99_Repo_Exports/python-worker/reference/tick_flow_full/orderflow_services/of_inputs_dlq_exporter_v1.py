@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """OF Inputs DLQ/Quarantine exporter (P96).
 
 Purpose:
@@ -19,16 +20,13 @@ Run:
   python -m orderflow_services.of_inputs_dlq_exporter_v1
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import asyncio
 import os
-import time
-from typing import Dict, List, Tuple
 
 import redis.asyncio as aioredis
 from prometheus_client import Gauge, start_http_server
 
+from utils.time_utils import get_ny_time_millis
 
 G_UP = Gauge('of_inputs_dlq_exporter_up', '1 if exporter loop is running')
 G_POLL_TS_MS = Gauge('of_inputs_dlq_exporter_poll_ts_ms', 'Last poll timestamp (ms)')
@@ -60,7 +58,7 @@ def _parse_stream_id_ts_ms(stream_id: str) -> int:
         return 0
 
 
-async def _xinfo_len_last_id(r: aioredis.Redis, stream: str) -> Tuple[int, str]:
+async def _xinfo_len_last_id(r: aioredis.Redis, stream: str) -> tuple[int, str]:
     try:
         info = await r.xinfo_stream(stream)
         length = int(info.get('length', 0) or 0)
@@ -88,7 +86,7 @@ async def main() -> None:
     port = int(os.environ.get('OF_INPUTS_DLQ_EXPORTER_PORT', '9158'))
     refresh = float(os.environ.get('OF_INPUTS_DLQ_EXPORTER_REFRESH_SEC', '10'))
     streams_raw = os.environ.get('OF_INPUTS_DLQ_STREAMS', 'stream:dlq:of_inputs,quarantine:signals:of:inputs')
-    streams: List[str] = [s.strip() for s in streams_raw.split(',') if s.strip()]
+    streams: list[str] = [s.strip() for s in streams_raw.split(',') if s.strip()]
 
     start_http_server(port)
 

@@ -11,6 +11,7 @@ Regression pack — BackgroundTaskManager (2026-04-18 wave).
 import asyncio
 import logging
 import warnings
+
 import pytest
 
 
@@ -25,7 +26,7 @@ async def _coro_connection_error():
 
 
 async def _coro_asyncio_timeout():
-    raise asyncio.TimeoutError("simulated asyncio timeout")
+    raise TimeoutError("simulated asyncio timeout")
 
 
 async def _coro_generic_error():

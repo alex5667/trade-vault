@@ -1,8 +1,7 @@
 import os
 import sys
+
 import redis
-import json
-import time
 
 # Add project root to sys.path
 sys.path.append("/app/python-worker")
@@ -12,6 +11,7 @@ print("STARTING DIAGNOSTIC SCRIPT", flush=True)
 
 from core.redis_client import get_redis
 from infra.redis_repo import RedisTradeRepository
+
 
 def check():
     redis_url = os.getenv("REDIS_URL")
@@ -59,7 +59,6 @@ def check():
 
     print("Now trying to import TradeMonitorService...", flush=True)
     try:
-        from services.trade_monitor import TradeMonitorService
         print("Import SUCCESS", flush=True)
     except Exception as e:
         print(f"Import FAILED: {e}", flush=True)

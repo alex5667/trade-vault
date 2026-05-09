@@ -4,8 +4,8 @@
 Вычисление SL и TP уровней в различных режимах.
 """
 import pytest
-from signals.risk_levels import compute_levels, format_sltp_text, parse_floats
 
+from signals.risk_levels import compute_levels, format_sltp_text, parse_floats
 
 # ─────────────────────── parse_floats ───────────────────────
 

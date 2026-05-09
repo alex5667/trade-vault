@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """Export tick-quality gate outcomes from Redis stream as Prometheus textfile metrics.
 
 This is a low-friction way to put gate outcomes on dashboards/alerts without
@@ -15,14 +16,13 @@ Metrics emitted (windowed counts):
   tick_gate_fail_metric_total{metric="...",window_h="24"}
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
 import sys
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -92,7 +92,7 @@ def _parse_msg_id_ms(msg_id: str) -> int:
         return 0
 
 
-def _extract_status_and_failures(msg_id: str, fields: Dict[str, Any]) -> Tuple[str, List[str], int]:
+def _extract_status_and_failures(msg_id: str, fields: dict[str, Any]) -> tuple[str, list[str], int]:
     payload = None
     for k in ("json", "payload", "report", "gate", "result"):
         if k in fields:
@@ -101,7 +101,7 @@ def _extract_status_and_failures(msg_id: str, fields: Dict[str, Any]) -> Tuple[s
                 break
     if not isinstance(payload, dict):
         payload = {}
-    merged: Dict[str, Any] = {}
+    merged: dict[str, Any] = {}
     merged.update(payload)
     merged.update(fields)
 
@@ -125,7 +125,7 @@ def _extract_status_and_failures(msg_id: str, fields: Dict[str, Any]) -> Tuple[s
             status = "ERROR"
 
     failures_raw = merged.get("failures") or merged.get("failed") or merged.get("reasons") or merged.get("violations")
-    failures: List[str] = []
+    failures: list[str] = []
     fr = _loads_json_if_possible(failures_raw)
     if isinstance(fr, list):
         for x in fr:
@@ -139,7 +139,7 @@ def _extract_status_and_failures(msg_id: str, fields: Dict[str, Any]) -> Tuple[s
     return status, failures, rc
 
 
-def _read_stream_events(redis_url: str, stream: str, start_ms: int, limit: int) -> List[Tuple[str, Dict[str, Any]]]:
+def _read_stream_events(redis_url: str, stream: str, start_ms: int, limit: int) -> list[tuple[str, dict[str, Any]]]:
     try:
         import redis  # type: ignore
     except Exception as e:
@@ -147,13 +147,13 @@ def _read_stream_events(redis_url: str, stream: str, start_ms: int, limit: int) 
 
     r = redis.Redis.from_url(redis_url, decode_responses=False)
     raw = r.xrevrange(stream, max="+", min="-", count=int(limit))
-    out: List[Tuple[str, Dict[str, Any]]] = []
+    out: list[tuple[str, dict[str, Any]]] = []
     for msg_id_b, fields in raw:
         msg_id = msg_id_b.decode("utf-8", errors="replace") if isinstance(msg_id_b, (bytes, bytearray)) else str(msg_id_b)
         ts_ms = _parse_msg_id_ms(msg_id)
         if ts_ms < start_ms:
             break
-        f2: Dict[str, Any] = {}
+        f2: dict[str, Any] = {}
         for k, v in (fields or {}).items():
             kk = k.decode("utf-8", errors="replace") if isinstance(k, (bytes, bytearray)) else str(k)
             f2[kk] = v
@@ -165,12 +165,12 @@ def _escape_label_value(v: str) -> str:
     return v.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
 
 
-def _render_prom(lines: List[str]) -> str:
+def _render_prom(lines: list[str]) -> str:
     # Ensure trailing newline
     return "\n".join(lines) + "\n"
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     p.add_argument("--stream", default=os.getenv("TICK_GATE_REDIS_STREAM", "ops:tick_quality_gate"))
@@ -187,7 +187,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     pass_n = fail_n = ins_n = err_n = 0
-    fail_metric: Dict[str, int] = {}
+    fail_metric: dict[str, int] = {}
     for msg_id, fields in items:
         status, failures, rc = _extract_status_and_failures(msg_id, fields)
         if status == "PASS":
@@ -209,7 +209,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             err_n += 1
 
     window_h = f"{args.hours:g}"
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("# HELP tick_gate_pass_total Gate PASS count for window")
     lines.append("# TYPE tick_gate_pass_total gauge")
     lines.append(f'tick_gate_pass_total{{window_h="{window_h}"}} {pass_n}')

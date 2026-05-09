@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from typing import List
+
 
 @dataclass
 class SentimentContextDecision:
     hit: bool
     mode: str
-    flags: List[str]
+    flags: list[str]
     risk_multiplier: float
     tighten_add_bps: float
     veto: bool
@@ -29,11 +29,11 @@ def evaluate_sentiment_context(
         "strict": "tighten",
         "tighten": "tighten",
         "hard": "tighten",  # intentionally no veto
-    }.get(str(profile or "monitor").lower(), "monitor")
+    }.get((profile or "monitor").lower(), "monitor")
 
-    flags: List[str] = []
+    flags: list[str] = []
 
-    regime = str(sentiment_regime or "unknown").lower()
+    regime = (sentiment_regime or "unknown").lower()
 
     if regime == "extreme_fear":
         flags.append("sentiment_extreme_fear")

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Deque, Dict, Optional
 from collections import deque
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -14,8 +13,8 @@ class TickGapTracker:
     Percentiles computed on-demand (calibrator interval, not every tick).
     """
     window: int = 512
-    last_ts_ms: Optional[int] = None
-    gaps_ms: Deque[int] = field(default_factory=lambda: deque(maxlen=512))
+    last_ts_ms: int | None = None
+    gaps_ms: deque[int] = field(default_factory=lambda: deque(maxlen=512))
 
     def record(self, ts_ms: int) -> None:
         if ts_ms <= 0:
@@ -24,7 +23,7 @@ class TickGapTracker:
             self.gaps_ms.append(int(ts_ms - self.last_ts_ms))
         self.last_ts_ms = int(ts_ms)
 
-    def snapshot(self) -> Dict[str, float]:
+    def snapshot(self) -> dict[str, float]:
         xs = list(self.gaps_ms)
         if not xs:
             return {"n": 0.0, "p50": 0.0, "p90": 0.0, "p95": 0.0, "p99": 0.0}

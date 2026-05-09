@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
 
 @dataclass
@@ -18,7 +18,7 @@ def compute_strong_need_same_tick(
     churn_hi: bool,
     regime: str,
     unstable: bool,
-    cfg: Dict[str, Any],
+    cfg: dict[str, Any],
 ) -> NeedDecision:
     """
     Same-tick escalation policy.

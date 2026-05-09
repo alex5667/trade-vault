@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import os
-import urllib.request
 import urllib.parse
+import urllib.request
 from dataclasses import dataclass
-from typing import Optional
+
 
 @dataclass
 class TelegramClient:
@@ -21,7 +21,7 @@ class TelegramClient:
     timeout_s: float = 4.0
 
     @staticmethod
-    def from_env() -> Optional["TelegramClient"]:
+    def from_env() -> TelegramClient | None:
         # Backward compatible env names:
         #   - preferred: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID
         #   - legacy (used by some older services): BOT_TOKEN / CHAT_ID

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from core.meta_model_lr import MetaModelLR
 
@@ -12,7 +12,7 @@ def validate_meta_model(
     pin_schema_name: str = "",
     pin_schema_hash: str = "",
     expected_schema_hash: str = "",
-) -> Tuple[bool, str, Dict[str, Any]]:
+) -> tuple[bool, str, dict[str, Any]]:
     """Validate meta-model artifact for production use.
 
     Returns: (ok, reason, details)
@@ -20,7 +20,7 @@ def validate_meta_model(
       - reason: short machine-friendly string
       - details: useful diagnostics for evidence/logging
     """
-    details: Dict[str, Any] = {
+    details: dict[str, Any] = {
         "schema_name": str(getattr(mm, "schema_name", "") or ""),
         "schema_version": int(getattr(mm, "schema_version", 0) or 0),
         "schema_hash": str(getattr(mm, "schema_hash", "") or ""),

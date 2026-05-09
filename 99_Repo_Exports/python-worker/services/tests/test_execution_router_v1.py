@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for ExecutionRouter — intent→queue routing with scale-in redirect.
 
 Tests:
@@ -15,8 +16,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -36,16 +35,15 @@ import pytest
 
 from services.execution_router import ExecutionRouter
 
-
 # --- FakeRedis ---
 
 class FakeRedis:
     def __init__(self):
-        self.store: Dict[str, str] = {}
-        self.lists: Dict[str, List[str]] = {}
-        self.stream: List[tuple] = []
+        self.store: dict[str, str] = {}
+        self.lists: dict[str, list[str]] = {}
+        self.stream: list[tuple] = []
 
-    def get(self, key: str) -> Optional[bytes]:
+    def get(self, key: str) -> bytes | None:
         v = self.store.get(key)
         return v.encode() if isinstance(v, str) else v
 
@@ -59,7 +57,7 @@ class FakeRedis:
             self.lists[key].append(v)
         return len(self.lists[key])
 
-    def blpop(self, key: str, timeout: int = 0) -> Optional[tuple]:
+    def blpop(self, key: str, timeout: int = 0) -> tuple | None:
         lst = self.lists.get(key, [])
         if lst:
             return (key, lst.pop(0))

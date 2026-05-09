@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 from core.of_confirm_engine import OFConfirmEngine
 
 
@@ -118,13 +119,13 @@ def test_ok_soft_near_miss_reversal_have_need_minus_one():
     exec_risk_norm_val = ofc.evidence.get("exec_risk_norm", 1.0)
     soft_score_min = _base_cfg().get("soft_score_min", 0.60)
     soft_exec_max = _base_cfg().get("soft_exec_risk_norm_max", 0.75)
-    
+
     # Adjust test expectations based on actual values
     # If score is too low or exec_risk too high, ok_soft won't be set
     if score_val >= soft_score_min and exec_risk_norm_val <= soft_exec_max:
         assert ofc.evidence.get("ok_soft") == 1, f"ok_soft should be 1 when score={score_val} >= {soft_score_min} and exec_risk_norm={exec_risk_norm_val} <= {soft_exec_max}"
         assert indicators.get("ok_soft") == 1
-        assert str(indicators.get("ok_soft_reason", "")).startswith("near_miss")
+        assert (indicators.get("ok_soft_reason", "")).startswith("near_miss")
     else:
         # If conditions not met, ok_soft should be 0
         assert ofc.evidence.get("ok_soft", 0) == 0, f"ok_soft should be 0 when conditions not met: score={score_val} (need >= {soft_score_min}), exec_risk_norm={exec_risk_norm_val} (need <= {soft_exec_max})"
@@ -163,6 +164,6 @@ def test_ok_soft_suppressed_by_hard_veto():
     assert ofc.ok == 0
     assert ofc.evidence.get("ok_soft") == 0
     assert indicators.get("ok_soft") == 0
-    assert str(indicators.get("ok_soft_reason", "")).startswith("policy_veto:") or indicators.get("ok_soft_blocker") is not None
+    assert (indicators.get("ok_soft_reason", "")).startswith("policy_veto:") or indicators.get("ok_soft_blocker") is not None
     assert str(ofc.reason).startswith("vol_shock_fail_closed|")
 

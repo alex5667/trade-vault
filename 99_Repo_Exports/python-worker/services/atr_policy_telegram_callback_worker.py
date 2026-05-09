@@ -4,39 +4,43 @@ import json
 import os
 import socket
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import redis
 
-from services.atr_policy_workflow import record_decision, proposal_key
+from services.atr_change_control_service import approve_change, get_change, pause_change, request_rollback
+from services.atr_change_control_telegram_surface import publish_ack as change_publish_ack
+from services.atr_change_control_telegram_surface import publish_change_to_telegram
+from services.atr_policy_confirm_tokens import consume_confirm_token, issue_confirm_token
+from services.atr_policy_guardrails import arm_cooldown, evaluate_guardrails
+from services.atr_policy_operator_bootstrap_service import run_once as run_operator_bootstrap_once
+from services.atr_policy_telegram_guardrail_ops import (
+    publish_guardrail_block,
+    publish_guardrail_warning,
+)
+
 # ...
 # (lines truncated for brevity in replacement, but I will provide the full block)
 from services.atr_policy_telegram_ops import publish_policy_ack_to_telegram, publish_policy_proposal_to_telegram
-from services.atr_policy_operator_bootstrap_service import run_once as run_operator_bootstrap_once
+from services.atr_policy_telegram_pack_service import (
+    build_pack_buttons,
+    publish_ops_pack,
+    resolve_active_ref,
+)
 from services.atr_policy_telegram_summary_service import (
-    publish_summary_menu,
     _notify,
-    report_pending,
+    publish_summary_menu,
     report_active,
-    report_revoked_today,
     report_best,
+    report_pending,
+    report_revoked_today,
     report_worst,
     summary_menu_buttons,
 )
-from services.atr_policy_telegram_pack_service import (
-    publish_ops_pack,
-    resolve_active_ref,
-    build_pack_buttons,
-)
-from services.atr_policy_guardrails import evaluate_guardrails, arm_cooldown
-from services.atr_policy_confirm_tokens import issue_confirm_token, consume_confirm_token
-from services.atr_policy_telegram_guardrail_ops import (
-    publish_guardrail_warning,
-    publish_guardrail_block,
-)
-from services.atr_change_control_service import approve_change, pause_change, request_rollback, get_change
-from services.atr_change_control_telegram_surface import publish_ack as change_publish_ack, publish_change_to_telegram
+from services.atr_policy_workflow import proposal_key, record_decision
 from services.atr_rollback_control_service import approve_rollback, get_rollback
+import contextlib
+
 _redis_instance: redis.Redis | None = None
 
 def _redis() -> redis.Redis:
@@ -58,30 +62,30 @@ def _redis() -> redis.Redis:
             wait = min(2**attempts, 5)
             print(f"⚠️ Redis connection attempt {attempts} failed: {e}. Retrying in {wait}s...")
             time.sleep(wait)
-    
+
     # Fallback
     return redis.Redis.from_url(url, decode_responses=True)
 
 
 def _allowed_user_ids() -> set[str]:
-    raw = str(os.getenv("ATR_POLICY_TELEGRAM_ALLOWED_USER_IDS", "") or "").strip()
+    raw = (os.getenv("ATR_POLICY_TELEGRAM_ALLOWED_USER_IDS", "") or "").strip()
     return {x.strip() for x in raw.split(",") if x.strip()}
 
 
 def _allowed_usernames() -> set[str]:
-    raw = str(os.getenv("ATR_POLICY_TELEGRAM_ALLOWED_USERNAMES", "") or "").strip()
+    raw = (os.getenv("ATR_POLICY_TELEGRAM_ALLOWED_USERNAMES", "") or "").strip()
     return {x.strip().lower() for x in raw.split(",") if x.strip()}
 
 
 def _allowed_chat_ids() -> set[str]:
-    raw = str(os.getenv("ATR_POLICY_TELEGRAM_ALLOWED_CHAT_IDS", "") or "").strip()
+    raw = (os.getenv("ATR_POLICY_TELEGRAM_ALLOWED_CHAT_IDS", "") or "").strip()
     return {x.strip() for x in raw.split(",") if x.strip()}
 
 
-def _is_allowed(evt: Dict[str, Any]) -> bool:
-    uid = str(evt.get("user_id") or "")
-    uname = str(evt.get("username") or "").lower()
-    chat_id = str(evt.get("chat_id") or "")
+def _is_allowed(evt: dict[str, Any]) -> bool:
+    uid = (evt.get("user_id") or "")
+    uname = (evt.get("username") or "").lower()
+    chat_id = (evt.get("chat_id") or "")
     allow_ids = _allowed_user_ids()
     allow_names = _allowed_usernames()
     allow_chats = _allowed_chat_ids()
@@ -95,9 +99,9 @@ def _is_allowed(evt: Dict[str, Any]) -> bool:
     return not allow_ids and not allow_names
 
 
-def _parse_callback(cb: str) -> Tuple[str, str]:
+def _parse_callback(cb: str) -> tuple[str, str]:
     # atrpol:approve:<proposal_id>
-    parts = str(cb or "").split(":")
+    parts = (cb or "").split(":")
     if len(parts) != 3 or parts[0] != "atrpol":
         return ("", "")
     return (parts[1].lower(), parts[2])
@@ -105,7 +109,7 @@ def _parse_callback(cb: str) -> Tuple[str, str]:
 
 def _parse_summary_callback(cb: str) -> str:
     # atrsum:pending
-    parts = str(cb or "").split(":")
+    parts = (cb or "").split(":")
     if len(parts) != 2 or parts[0] != "atrsum":
         return ""
     return parts[1].lower()
@@ -119,7 +123,7 @@ def _parse_pack_callback(cb: str):
     # atrpack:active:<ref>
     # atrpack:revoke:<ref>
     # atrpack:confirm:<token>
-    parts = str(cb or "").split(":")
+    parts = (cb or "").split(":")
     if len(parts) < 2 or parts[0] != "atrpack":
         return ("", "")
     if len(parts) == 2:
@@ -132,7 +136,7 @@ def _parse_change_callback(cb: str):
     # atrchange:pause:<change_id>
     # atrchange:rollback:<change_id>
     # atrchange:artifacts:<change_id>
-    parts = str(cb or "").split(":")
+    parts = (cb or "").split(":")
     if len(parts) < 2 or parts[0] != "atrchange":
         return ("", "")
     if len(parts) == 2:
@@ -145,7 +149,7 @@ def _parse_rollback_callback(cb: str):
     # atr_rollback:manifest:<rollback_id>
     # atr_rollback:postcert:<rollback_id>
     # atr_rollback:evidence:<rollback_id>
-    parts = str(cb or "").split(":")
+    parts = (cb or "").split(":")
     if len(parts) < 2 or parts[0] != "atr_rollback":
         return ("", "")
     if len(parts) == 2:
@@ -156,7 +160,7 @@ def _parse_incident_callback(cb: str):
     # incident|ack_incident|<incident_id>
     # incident|apply_runbook|<incident_id>
     # incident|emergency_freeze|<incident_id>
-    parts = str(cb or "").split("|")
+    parts = (cb or "").split("|")
     if len(parts) < 2 or parts[0] != "incident":
         return ("", "")
     if len(parts) == 2:
@@ -165,7 +169,7 @@ def _parse_incident_callback(cb: str):
 
 def _parse_postmortem_callback(cb: str):
     # postmortem|action|<pm_id>
-    parts = str(cb or "").split("|")
+    parts = (cb or "").split("|")
     if len(parts) < 2 or parts[0] != "postmortem":
         return ("", "")
     if len(parts) == 2:
@@ -174,7 +178,7 @@ def _parse_postmortem_callback(cb: str):
 
 def _parse_golive_callback(cb: str):
     # golive:action:<pkg_id>:<arg>
-    parts = str(cb or "").split(":")
+    parts = (cb or "").split(":")
     if len(parts) < 2 or parts[0] != "golive":
         return ("", "")
     if len(parts) == 2:
@@ -186,7 +190,7 @@ def _dedup_key(proposal_id: str, action: str, user_id: str) -> str:
     return f"dedup:atr_policy_tg:{proposal_id}:{action}:{user_id}"
 
 
-def handle_event(evt: Dict[str, Any]) -> bool:
+def handle_event(evt: dict[str, Any]) -> bool:
     if not _is_allowed(evt):
         try:
             from services.atr_promotion_policy_metrics import atr_policy_tg_callback_denied_total
@@ -201,14 +205,14 @@ def handle_event(evt: Dict[str, Any]) -> bool:
         except Exception:
             pass
         publish_policy_ack_to_telegram(
-            proposal_id=str(evt.get("callback") or ""),
+            proposal_id=(evt.get("callback") or ""),
             action="DENIED",
             actor=str(evt.get("username") or evt.get("user_id") or "unknown"),
             note="not_authorized",
         )
         return False
 
-    cb = str(evt.get("callback") or "")
+    cb = (evt.get("callback") or "")
 
     # Handle incident callbacks
     inc_action, inc_arg = _parse_incident_callback(cb)
@@ -244,7 +248,7 @@ def handle_event(evt: Dict[str, Any]) -> bool:
     gl_action, gl_pkg_id, gl_arg = _parse_golive_callback(cb)
     if gl_action:
         from services.atr_go_live_telegram_surface import handle_golive_callback
-        # We need to adapt handle_golive_callback to take split parts if needed, 
+        # We need to adapt handle_golive_callback to take split parts if needed,
         # or just pass the full callback_query
         # Here we pass a synthetic payload
         synthetic_query = {
@@ -252,7 +256,7 @@ def handle_event(evt: Dict[str, Any]) -> bool:
             "from": {"username": str(evt.get("username") or evt.get("user_id") or "unknown")}
         }
         result_msg = handle_golive_callback(synthetic_query)
-        # Note: In a real bot, we would edit the message here. 
+        # Note: In a real bot, we would edit the message here.
         # The surface usually returns the new message body and markup.
         # For simplicity in this worker, we log the action ack.
         publish_policy_ack_to_telegram(
@@ -269,7 +273,7 @@ def handle_event(evt: Dict[str, Any]) -> bool:
     rb_action, rb_arg = _parse_rollback_callback(cb)
     if rb_action:
         actor = str(evt.get("username") or evt.get("user_id") or "unknown")
-        user_id = str(evt.get("user_id") or "")
+        user_id = (evt.get("user_id") or "")
         r = _redis()
         # Dedup check
         if not r.set(_dedup_key(rb_arg, rb_action, user_id), "1", nx=True, ex=60):
@@ -289,9 +293,9 @@ def handle_event(evt: Dict[str, Any]) -> bool:
         elif rb_action == "pause":
             # For phase 6.3 pause can be logged
             ok = True
-            
+
         rollback_publish_ack(rb_arg, rb_action.upper(), actor, "ok" if ok else "failed")
-        
+
         rb = get_rollback(rb_arg)
         if rb:
             publish_rollback_to_telegram(rb)
@@ -301,12 +305,12 @@ def handle_event(evt: Dict[str, Any]) -> bool:
     cg_action, cg_arg = _parse_change_callback(cb)
     if cg_action:
         actor = str(evt.get("username") or evt.get("user_id") or "unknown")
-        user_id = str(evt.get("user_id") or "")
+        user_id = (evt.get("user_id") or "")
         r = _redis()
         # Dedup check
         if not r.set(_dedup_key(cg_arg, cg_action, user_id), "1", nx=True, ex=60):
             return True
-            
+
         if cg_action == "artifacts":
             # show artifacts path
             chg = get_change(cg_arg)
@@ -315,7 +319,7 @@ def handle_event(evt: Dict[str, Any]) -> bool:
             # For now just reshow the change with empty artifacts note
             publish_change_to_telegram(chg)
             return True
-            
+
         ok = False
         note = "via_telegram"
         if cg_action == "approve":
@@ -329,9 +333,9 @@ def handle_event(evt: Dict[str, Any]) -> bool:
             # Not strictly mapped in phase 6 snippet but good to have
             # Can just pause or add reject state later
             ok = pause_change(cg_arg, actor, note="rejected_by_operator")
-            
+
         change_publish_ack(cg_arg, cg_action.upper(), actor, "ok" if ok else "failed")
-        
+
         # Publish refreshed view
         chg = get_change(cg_arg)
         if chg:
@@ -382,7 +386,7 @@ def handle_event(evt: Dict[str, Any]) -> bool:
                     actor=actor,
                     note="token_expired",
                 )
-            if str(tok.get("actor") or "") != actor:
+            if (tok.get("actor") or "") != actor:
                 try:
                     from prometheus_client import Counter
                     Counter(
@@ -399,8 +403,8 @@ def handle_event(evt: Dict[str, Any]) -> bool:
                     note="actor_mismatch",
                 )
             payload = tok.get("payload") if isinstance(tok.get("payload"), dict) else {}
-            confirmed_action = str(tok.get("action") or "").upper()
-            target = str(tok.get("target") or "")
+            confirmed_action = (tok.get("action") or "").upper()
+            target = (tok.get("target") or "")
             if confirmed_action in {"APPROVE", "REJECT", "REVOKE"}:
                 ok = record_decision(
                     target,
@@ -409,10 +413,8 @@ def handle_event(evt: Dict[str, Any]) -> bool:
                     note="via_telegram_guardrail_confirm",
                 )
                 if ok and payload:
-                    try:
+                    with contextlib.suppress(Exception):
                         arm_cooldown(payload, actor=actor, action=confirmed_action)
-                    except Exception:
-                        pass
                 publish_policy_ack_to_telegram(
                     proposal_id=target,
                     action=confirmed_action,
@@ -456,10 +458,8 @@ def handle_event(evt: Dict[str, Any]) -> bool:
             # SAFE path — direct approve
             ok = record_decision(pack_arg, action="APPROVE", actor=actor, note="via_telegram_pack")
             if ok:
-                try:
+                with contextlib.suppress(Exception):
                     arm_cooldown(obj, actor=actor, action="APPROVE")
-                except Exception:
-                    pass
             publish_policy_ack_to_telegram(
                 proposal_id=pack_arg, action="APPROVE", actor=actor, note="ok" if ok else "failed"
             )
@@ -471,10 +471,8 @@ def handle_event(evt: Dict[str, Any]) -> bool:
             obj = json.loads(raw) if raw else {}
             ok = record_decision(pack_arg, action="REJECT", actor=actor, note="via_telegram_pack")
             if ok and obj:
-                try:
+                with contextlib.suppress(Exception):
                     arm_cooldown(obj, actor=actor, action="REJECT")
-                except Exception:
-                    pass
             publish_policy_ack_to_telegram(
                 proposal_id=pack_arg, action="REJECT", actor=actor, note="ok" if ok else "failed"
             )
@@ -498,7 +496,7 @@ def handle_event(evt: Dict[str, Any]) -> bool:
                     proposal_id=pack_arg, action="REVOKE", actor=actor, note="active_policy_not_found"
                 )
             obj = json.loads(raw)
-            pid = str(obj.get("proposal_id") or "")
+            pid = (obj.get("proposal_id") or "")
             if not pid:
                 return publish_policy_ack_to_telegram(
                     proposal_id=pack_arg, action="REVOKE", actor=actor, note="proposal_id_missing"
@@ -523,10 +521,8 @@ def handle_event(evt: Dict[str, Any]) -> bool:
             # SAFE path — direct revoke
             ok = record_decision(pid, action="REVOKE", actor=actor, note="via_telegram_pack")
             if ok:
-                try:
+                with contextlib.suppress(Exception):
                     arm_cooldown(obj, actor=actor, action="REVOKE")
-                except Exception:
-                    pass
             publish_policy_ack_to_telegram(
                 proposal_id=pid, action="REVOKE", actor=actor, note="ok" if ok else "failed"
             )
@@ -574,7 +570,7 @@ def handle_event(evt: Dict[str, Any]) -> bool:
         return False
 
     r = _redis()
-    user_id = str(evt.get("user_id") or "")
+    user_id = (evt.get("user_id") or "")
     if not r.set(_dedup_key(proposal_id, action, user_id), "1", nx=True, ex=60):
         try:
             from services.atr_promotion_policy_metrics import atr_policy_tg_callback_duplicate_total
@@ -660,10 +656,8 @@ def run_forever() -> None:
                     evt = dict(fields)
                     handle_event(evt)
                 finally:
-                    try:
+                    with contextlib.suppress(Exception):
                         r.xack(stream, group, msg_id)
-                    except Exception:
-                        pass
 
 
 if __name__ == "__main__":

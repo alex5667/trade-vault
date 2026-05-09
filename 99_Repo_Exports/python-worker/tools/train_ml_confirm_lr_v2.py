@@ -3,17 +3,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import average_precision_score, log_loss, brier_score_loss
+from sklearn.metrics import average_precision_score, brier_score_loss, log_loss
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from core.ml_feature_schema_v2 import MLFeatureSchemaV2
 from ml_core.purged_cv import purged_kfold_time_series
@@ -76,7 +76,7 @@ def main() -> None:
         tscv = TimeSeriesSplit(n_splits=args.splits)
 
     fold = 0
-    metrics: List[Dict[str, Any]] = []
+    metrics: list[dict[str, Any]] = []
     if folds is not None:
         it = [(f.train_idx, f.test_idx) for f in folds]
         cv_meta = {"type": "PurgedKFold", "splits": int(args.splits), "embargo_ms": int(embargo_ms), "t1_col": "tb_t_hit_ms"}

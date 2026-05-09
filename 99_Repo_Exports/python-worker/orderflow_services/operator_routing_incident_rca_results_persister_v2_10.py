@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import os
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import psycopg
@@ -40,15 +41,15 @@ PORT = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_PERSISTER_PORT", "9886"))
 MAXLEN = int(os.getenv("ML_OPERATOR_RCA_ROUTING_RCA_PERSISTER_MAXLEN", "20000"))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -75,8 +76,8 @@ def now_ms() -> int:
     return get_ny_time_millis()
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -93,7 +94,7 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def compute_output_hash(payload: Dict[str, Any]) -> str:
+def compute_output_hash(payload: dict[str, Any]) -> str:
     key_material = {
         "route_change_id": payload.get("route_change_id", ""),
         "provider": payload.get("provider", ""),
@@ -110,14 +111,13 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def persist_result(db_url: str, row: Dict[str, Any], output_hash: str) -> None:
+async def persist_result(db_url: str, row: dict[str, Any], output_hash: str) -> None:
     if not db_url or psycopg is None:
         return
     try:  # pragma: no cover
-        with psycopg.connect(db_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
+        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
 
                     INSERT INTO llm_operator_routing_incident_rca_results (
                         output_hash,
@@ -144,20 +144,20 @@ async def persist_result(db_url: str, row: Dict[str, Any], output_hash: str) -> 
                     )
                     ON CONFLICT(output_hash) DO NOTHING,
                     """,
-                    {
-                        "output_hash": output_hash,
-                        "route_change_id": row.get("route_change_id", ""),
-                        "task_type": row.get("task_type", ""),
-                        "compact_hash": row.get("compact_hash", ""),
-                        "prompt_version": row.get("prompt_version", ""),
-                        "policy_version": row.get("policy_version", ""),
-                        "provider": row.get("provider", "vertex"),
-                        "model_name": row.get("model_name", ""),
-                        "result_json": row.get("result_json", "{}"),
-                        "ts_ms": row.get("ts_ms", now_ms()),
-                    }
-                )
-                conn.commit()
+                {
+                    "output_hash": output_hash,
+                    "route_change_id": row.get("route_change_id", ""),
+                    "task_type": row.get("task_type", ""),
+                    "compact_hash": row.get("compact_hash", ""),
+                    "prompt_version": row.get("prompt_version", ""),
+                    "policy_version": row.get("policy_version", ""),
+                    "provider": row.get("provider", "vertex"),
+                    "model_name": row.get("model_name", ""),
+                    "result_json": row.get("result_json", "{}"),
+                    "ts_ms": row.get("ts_ms", now_ms()),
+                }
+            )
+            conn.commit()
     except Exception:
         return
 
@@ -183,7 +183,7 @@ async def main() -> None:  # pragma: no cover
                 try:
                     output_hash = compute_output_hash(row)
                     await persist_result(db_url, row, output_hash)
-                    
+
                     quality_req = {
                         "schema_version": 1,
                         "output_hash": output_hash,

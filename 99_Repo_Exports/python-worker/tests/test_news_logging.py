@@ -4,11 +4,9 @@ from __future__ import annotations
 import json
 import logging
 
-import pytest
-
+from common.stable_hash import sample_pct, stable_hash64
 from contexts import NewsFeatures, OrderflowSignalContext
-from news_pipeline.news_logging import add_news_minilog, NewsFullDebugFetcher, normalize_analysis_key
-from common.stable_hash import stable_hash64, sample_pct
+from news_pipeline.news_logging import NewsFullDebugFetcher, add_news_minilog, normalize_analysis_key
 
 
 class FakeRedis:

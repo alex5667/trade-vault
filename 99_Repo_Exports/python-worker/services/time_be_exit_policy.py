@@ -1,8 +1,7 @@
 # services/time_be_exit_policy.py
 import os
-import math
 from dataclasses import dataclass
-from typing import Tuple, Any
+from typing import Any
 
 from common.log import setup_logger
 
@@ -33,12 +32,12 @@ def load_time_be_exit_config() -> TimeBeExitConfig:
     )
 
 def should_time_be_exit(
-    pos: Any, 
-    now_ms: int, 
-    pnl_net_bps: float, 
+    pos: Any,
+    now_ms: int,
+    pnl_net_bps: float,
     last_price_ts_ms: int,
     cfg: TimeBeExitConfig
-) -> Tuple[bool, str, str]:
+) -> tuple[bool, str, str]:
     """
     Оценивает, должна ли позиция быть закрыта по времени около безубытка.
     

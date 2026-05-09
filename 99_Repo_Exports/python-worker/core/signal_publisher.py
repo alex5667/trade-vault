@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import contextlib
 
 
 class SignalPublisher:
@@ -56,8 +57,6 @@ class SignalPublisher:
             self._outbox.publish(payload)
             return True
         except Exception as e:
-            try:
+            with contextlib.suppress(Exception):
                 self._logger.exception(f"SignalPublisher.publish failed: {e}")
-            except Exception:
-                pass
             return False

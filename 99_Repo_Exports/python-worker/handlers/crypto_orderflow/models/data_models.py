@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Tuple
 
 
 @dataclass
@@ -48,7 +47,7 @@ class RegimeConfig:
     htf_far_bps_fallback: float = 40.0
 
     # session regime: мапа session_label -> bias (по умолчанию)
-    session_bias_default: Dict[str, float] | None = None
+    session_bias_default: dict[str, float] | None = None
 
     def __post_init__(self) -> None:
         if self.session_bias_default is None:
@@ -150,7 +149,7 @@ class SignalTypeConf:
     min_raw_score: float            # минимальный |raw_score| (например, z-score сигнала)
 
     # режимы рынка
-    allowed_regimes: Tuple[MarketRegime, ...]
+    allowed_regimes: tuple[MarketRegime, ...]
     prefer_trend: bool = False
     prefer_range: bool = False
     forbid_strong_trend: bool = False

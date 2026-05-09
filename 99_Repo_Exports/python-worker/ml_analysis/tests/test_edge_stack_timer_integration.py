@@ -9,9 +9,9 @@ Tests verify:
 import json
 import os
 import tempfile
-from pathlib import Path
 
 import pytest
+from core.redis_keys import RedisStreams as RS
 
 
 def test_dataset_report_json_structure():
@@ -24,7 +24,7 @@ def test_dataset_report_json_structure():
     drop.add("close_invalid_risk", {"id": "2-0", "sid": "test", "risk_usd": 0.0})
 
     report = {
-        "signal_stream": "signals:of:inputs",
+        "signal_stream": RS.OF_INPUTS,
         "closed_stream": "trades:closed",
         "signals_raw": 1000,
         "signals_parsed": 950,
@@ -96,7 +96,7 @@ def test_quarantine_jsonl_structure():
         q.write(
             "signal",
             "signal_parse_none",
-            stream="signals:of:inputs",
+            stream=RS.OF_INPUTS,
             msg_id="1-0",
             data={"payload": "invalid"},
         )
@@ -110,14 +110,14 @@ def test_quarantine_jsonl_structure():
         q.close()
 
         # Validate structure
-        with open(q_path, "r", encoding="utf-8") as f:
+        with open(q_path, encoding="utf-8") as f:
             lines = f.readlines()
             assert len(lines) == 2
 
             rec1 = json.loads(lines[0])
             assert rec1["kind"] == "signal"
             assert rec1["reason"] == "signal_parse_none"
-            assert rec1["stream"] == "signals:of:inputs"
+            assert rec1["stream"] == RS.OF_INPUTS
             assert "id" in rec1
             assert "data" in rec1
 

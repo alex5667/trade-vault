@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Autopilot Reporter
  - exports closed trades NDJSON (7d)
@@ -10,21 +10,22 @@ Autopilot Reporter
 Runs inside container with a Redis SETNX lock (prevents double-run).
 """
 
-from utils.time_utils import get_ny_time_millis
 import asyncio
+import html
 import json
 import logging
 import os
 import subprocess
 import sys
 import time
-import html
-from typing import List
 
 import redis.asyncio as aioredis
 
 from core.entry_policy_overrides_v1 import EntryPolicyOverridesV1
 from core.redis_keys import RedisStreams as RS
+from utils.time_utils import get_ny_time_millis
+import contextlib
+
 
 def _now_ms() -> int:
     return get_ny_time_millis()
@@ -39,10 +40,8 @@ async def _send_telegram(r: aioredis.Redis, stream: str, text: str) -> None:
         "ts_ms": str(_now_ms()),
         "text": f"<pre>{html.escape(str(text))}</pre>"
     }
-    try:
+    with contextlib.suppress(Exception):
         await r.xadd(stream, msg, maxlen=20000, approximate=True)
-    except Exception:
-        pass
 
 async def _acquire_lock(r, key: str, ttl_sec: int) -> bool:
     try:
@@ -51,7 +50,7 @@ async def _acquire_lock(r, key: str, ttl_sec: int) -> bool:
     except Exception:
         return False
 
-def _run(cmd: List[str]) -> None:
+def _run(cmd: list[str]) -> None:
     subprocess.check_call(cmd)
 
 async def run_once() -> None:
@@ -92,7 +91,7 @@ async def run_once() -> None:
 
     # 3) Telegram report
     try:
-        with open(tmp_md, "r", encoding="utf-8") as f:
+        with open(tmp_md, encoding="utf-8") as f:
             md = f.read()
         await _send_telegram(r, os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), md)
     except Exception:
@@ -100,7 +99,7 @@ async def run_once() -> None:
 
     # 4) Auto-proposal (kind=overrides_v1)
     try:
-        with open(tmp_json, "r", encoding="utf-8") as f:
+        with open(tmp_json, encoding="utf-8") as f:
             rep = json.load(f)
         winners = list(rep.get("winners") or [])
     except Exception:
@@ -111,12 +110,12 @@ async def run_once() -> None:
     stream = os.getenv("AUTOPILOT_SUGGEST_STREAM", "stream:ab:suggestions")
 
     for w in winners:
-        sym = str(w.get("symbol","")).upper()
-        rg = str(w.get("regime","na")).lower()
-        scn = str(w.get("scenario","na")).lower()
-        grp = str(w.get("group","default")).lower()
-        arm = str(w.get("winner_arm","A")).upper()
-        
+        sym = (w.get("symbol","")).upper()
+        rg = (w.get("regime","na")).lower()
+        scn = (w.get("scenario","na")).lower()
+        grp = (w.get("group","default")).lower()
+        arm = (w.get("winner_arm","A")).upper()
+
         # Consistent with EntryPolicyOverridesV1 schema
         o = EntryPolicyOverridesV1(
             updated_ts_ms=_now_ms(),
@@ -129,7 +128,7 @@ async def run_once() -> None:
             freeze_active=0,
             ab_split_b=int(os.getenv("AB_SPLIT_B", "10")),
             ab_split_c=int(os.getenv("AB_SPLIT_C", "10")),
-            ab_salt=str(os.getenv("AB_SALT", "v1")),
+            ab_salt=os.getenv("AB_SALT", "v1"),
             extra={
                 "src": "autopilot_reporter",
                 "n": int(w.get("n",0) or 0),
@@ -157,10 +156,8 @@ async def run_once() -> None:
             await r.set(f"{prefix_meta}:{sid}", json.dumps(meta, ensure_ascii=False, separators=(",", ":")), ex=int(os.getenv("AUTOPILOT_META_TTL_SEC", "1209600")))
             await r.set(f"{prefix_latest}:{sym}:{rg}:{scn}:{grp}", sid, ex=int(os.getenv("AUTOPILOT_LATEST_TTL_SEC", "1209600")))
             # notify stream for UI/audit
-            try:
+            with contextlib.suppress(Exception):
                 await r.xadd(stream, {"type":"autopilot_proposal","sid":sid,"ts_ms":str(_now_ms()),"payload":json.dumps(meta, ensure_ascii=False, separators=(",", ":"))}, maxlen=50000, approximate=True)
-            except Exception:
-                pass
         except Exception:
             continue
 
@@ -169,10 +166,8 @@ async def run_forever() -> None:
     period_sec = int(os.getenv("AUTOPILOT_PERIOD_SEC", "3600"))
     while True:
         t0 = time.time()
-        try:
+        with contextlib.suppress(Exception):
             await run_once()
-        except Exception:
-            pass
         dt = time.time() - t0
         sleep_s = max(5.0, float(period_sec) - dt)
         await asyncio.sleep(sleep_s)

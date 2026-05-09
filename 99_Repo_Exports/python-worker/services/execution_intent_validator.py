@@ -9,9 +9,9 @@ The goal is to reject malformed exit contracts *before* they hit Binance:
 - Algo orders must not combine `closePosition=true` with `reduceOnly`
 """
 
-from dataclasses import dataclass
-from typing import Optional, Literal, Dict, Any
 import time
+from dataclasses import dataclass
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -25,13 +25,13 @@ class ExitIntentResult:
 def validate_exit_intent(
     *,
     position_mode: str,
-    position_side: Optional[str],
+    position_side: str | None,
     exit_intent: str,
     reduce_only: bool,
     close_position: bool,
-    quantity: Optional[float],
+    quantity: float | None,
     order_type: str,
-    working_type: Optional[str],
+    working_type: str | None,
     is_algo: bool,
 ) -> ExitIntentResult:
     pm = (position_mode or "oneway").strip().lower()
@@ -89,8 +89,8 @@ class ExecutionIntent:
     expires_at_ms: int
 
     @classmethod
-    def from_payload(cls, payload: Dict[str, Any]) -> ExecutionIntent:
-        action = str(payload.get("action") or "").strip().lower()
+    def from_payload(cls, payload: dict[str, Any]) -> ExecutionIntent:
+        action = (payload.get("action") or "").strip().lower()
         if action not in {"open", "modify", "cancel", "resize", "close"}:
             action = "open"
 
@@ -108,23 +108,23 @@ class ExecutionIntent:
         entry = payload.get("entry")
         price = None
         if entry not in (None, 0, "", "0"):
-            price = float(entry)
-            
+            price = entry
+
         order_type = str(payload.get("type") or ("limit" if price else "market")).upper()
         entry_type = "MARKET" if order_type in {"MARKET", "MKT"} else "LIMIT"
 
         now_ms = int(time.time() * 1000)
-        
+
         ts_exec_start_ms = payload.get("ts_exec_start_ms") or now_ms
         ts_decision_ms = payload.get("ts_decision_ms") or payload.get("ts_queue_ms") or payload.get("ts_signal_ms") or ts_exec_start_ms
-        
+
         max_ttd_ms = payload.get("max_ttd_ms")
         if max_ttd_ms is None:
             max_ttd_ms = 50
 
         return cls(
-            sid=str(payload.get("sid") or ""),
-            symbol=str(payload.get("symbol") or "").upper(),
+            sid=(payload.get("sid") or ""),
+            symbol=(payload.get("symbol") or "").upper(),
             action=action, # type: ignore
             direction=direction, # type: ignore
             qty=qty_val,

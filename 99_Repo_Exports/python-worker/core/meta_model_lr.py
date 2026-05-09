@@ -1,15 +1,15 @@
-# python-worker/core/meta_model_lr.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import math
-import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.feature_engineering import RobustScalerPack, apply_transform
+
+# python-worker/core/meta_model_lr.py
+from utils.time_utils import get_ny_time_millis
 
 
 def _sha256_hex(s: str) -> str:
@@ -54,9 +54,9 @@ class MetaModelLR:
       }
     """
 
-    features: List[str]
+    features: list[str]
     intercept: float
-    coef: List[float]
+    coef: list[float]
     threshold: float = 0.5
 
     schema_name: str = "legacy"
@@ -67,15 +67,15 @@ class MetaModelLR:
     created_ms: int = 0
     model_signature: str = ""
 
-    transforms: Dict[str, Any] = field(default_factory=dict)
-    robust_scaler: Optional[RobustScalerPack] = None
+    transforms: dict[str, Any] = field(default_factory=dict)
+    robust_scaler: RobustScalerPack | None = None
 
     @staticmethod
-    def compute_feature_cols_hash(cols: List[str]) -> str:
+    def compute_feature_cols_hash(cols: list[str]) -> str:
         return _sha256_hex(",".join([str(x) for x in cols]))[:16]
 
     @staticmethod
-    def compute_signature(d: Dict[str, Any]) -> str:
+    def compute_signature(d: dict[str, Any]) -> str:
         # Exclude signature itself
         dd = dict(d)
         dd.pop("model_signature", None)
@@ -83,8 +83,8 @@ class MetaModelLR:
         return _sha256_hex(s)[:16]
 
     @staticmethod
-    def load(path: str) -> "MetaModelLR":
-        d = json.loads(open(path, "r", encoding="utf-8").read())
+    def load(path: str) -> MetaModelLR:
+        d = json.loads(open(path, encoding="utf-8").read())
         tf = d.get("transforms") if isinstance(d.get("transforms"), dict) else {}
         rs = d.get("robust_scaler") if isinstance(d.get("robust_scaler"), dict) else {}
 
@@ -96,17 +96,17 @@ class MetaModelLR:
         # - older artifacts sometimes stored schema_hash in feature_cols_hash
         cols_hash = str(d.get("feature_cols_hash") or d.get("schema_hash") or d.get("schema_cols_hash") or "")
         schema_hash = str(d.get("schema_hash") or d.get("feature_cols_hash") or d.get("schema_cols_hash") or cols_hash or "")
-        
+
         # Ensure feature_cols_hash is set if features are present and it's missing
         if not cols_hash and features:
             cols_hash = MetaModelLR.compute_feature_cols_hash(features)
 
         created_ms = int(d.get("created_ms") or 0)
-        model_signature = str(d.get("model_signature") or "")
-        
+        model_signature = (d.get("model_signature") or "")
+
         rs_pack = None
         if rs:
-            params: Dict[str, Dict[str, float]] = {}
+            params: dict[str, dict[str, float]] = {}
             for k, v in rs.items():
                 if not isinstance(v, dict):
                     continue
@@ -134,7 +134,7 @@ class MetaModelLR:
             robust_scaler=rs_pack,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Export to JSON-compatible dict."""
         rs_dict = {}
         if self.robust_scaler and hasattr(self.robust_scaler, "params"):
@@ -193,7 +193,7 @@ class MetaModelLR:
             v = self.robust_scaler.scale(name, float(v))
         return float(v)
 
-    def predict_proba(self, feat: Dict[str, Any]) -> float:
+    def predict_proba(self, feat: dict[str, Any]) -> float:
         s = float(self.intercept)
         for name, w in zip(self.features, self.coef):
             v = _f(feat.get(name, 0.0), 0.0)
@@ -201,5 +201,5 @@ class MetaModelLR:
             s += float(w) * float(v)
         return float(_sigmoid(s))
 
-    def predict(self, feat: Dict[str, Any]) -> int:
+    def predict(self, feat: dict[str, Any]) -> int:
         return 1 if self.predict_proba(feat) >= float(self.threshold) else 0

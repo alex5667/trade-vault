@@ -1,4 +1,4 @@
-from ml_analysis.tools.replay_inputs_archiver import _utc_day_from_ts_ms, _pick_ts_ms
+from ml_analysis.tools.replay_inputs_archiver import _pick_ts_ms, _utc_day_from_ts_ms
 
 
 def test_utc_day_from_ts_ms_epoch_boundaries():

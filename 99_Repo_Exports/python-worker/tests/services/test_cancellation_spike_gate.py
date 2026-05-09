@@ -237,7 +237,7 @@ def test_robust_z_score_veto():
     )
     g = CancellationSpikeGate(p)
     cfg2 = {}
-    
+
     # 1. Warmup with stable ~10.0 cancellation rate
     # hist will contain: [10.0, 10.0, 10.0, 10.0, 10.0, 11.0, 9.0] etc.
     values = [10.0, 10.0, 10.0, 10.0, 10.0, 11.0, 9.0]

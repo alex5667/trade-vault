@@ -1,6 +1,7 @@
 import logging
-from typing import Dict, Any, Tuple
 from dataclasses import dataclass
+from typing import Any
+
 
 @dataclass
 class CoinGeckoMacroGateResult:
@@ -16,7 +17,7 @@ class CoinGeckoMacroGate:
     Выдает рекомендации по ужесточению порогов входа (confidence_penalty) 
     и снижению риска (risk_mult).
     """
-    
+
     def __init__(
         self,
         stable_dom_mom_risk_off_th: float = 0.02,
@@ -28,7 +29,7 @@ class CoinGeckoMacroGate:
         self.default_risk_mult = default_risk_mult
         self.logger = logging.getLogger("coingecko_macro_gate")
 
-    def evaluate(self, indicators: Dict[str, Any], direction: str) -> CoinGeckoMacroGateResult:
+    def evaluate(self, indicators: dict[str, Any], direction: str) -> CoinGeckoMacroGateResult:
         """
         Оценивает переданные индикаторы и возвращает результат.
         В indicators ожидаются ключи, добавленные через CoinGeckoSnapshotReader:
@@ -51,7 +52,7 @@ class CoinGeckoMacroGate:
         stable_dom_mom = float(indicators.get("cg_stable_dom_mom", 0.0) or 0.0)
         btc_dom_mom = float(indicators.get("cg_btc_dom_mom", 0.0) or 0.0)
         rel_str_btc = float(indicators.get("cg_symbol_rel_strength_btc_1h", 0.0) or 0.0)
-        
+
         # New indicators
         oi_volume_ratio = float(indicators.get("cg_oi_volume_ratio", 0.0) or 0.0)
         sector_mcap_change = float(indicators.get("cg_sector_mcap_change_24h", 0.0) or 0.0)
@@ -59,7 +60,7 @@ class CoinGeckoMacroGate:
         # Helper calculations
         def clamp01(v: float) -> float:
             return max(0.0, min(1.0, v))
-            
+
         def pos_norm(v: float, base: float) -> float:
             if v <= 0: return 0.0
             return clamp01(v / base)
@@ -67,17 +68,17 @@ class CoinGeckoMacroGate:
         # Macro risk score construction (from dialog recommendations)
         stable_risk = pos_norm(stable_dom_mom, 0.05)
         btc_risk = pos_norm(btc_dom_mom, 0.05)
-        
+
         # Leverage stress: ratio > 1.0 is considered stress
         deriv_stress = pos_norm(oi_volume_ratio - 1.0, 1.0)
-        
+
         # Sector weakness: negative 24h change is weak
         sector_weakness = pos_norm(-sector_mcap_change, 5.0)
-        
+
         cg_macro_risk_score = clamp01(
-            (stable_risk * 0.4) + 
-            (btc_risk * 0.3) + 
-            (deriv_stress * 0.2) + 
+            (stable_risk * 0.4) +
+            (btc_risk * 0.3) +
+            (deriv_stress * 0.2) +
             (sector_weakness * 0.1)
         )
 

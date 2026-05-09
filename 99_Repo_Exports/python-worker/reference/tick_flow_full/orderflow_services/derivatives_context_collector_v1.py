@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Low-frequency collector for normalized derivatives context.
@@ -17,8 +18,6 @@ import asyncio
 import json
 import logging
 import os
-import time
-from typing import Dict, List
 
 import redis.asyncio as aioredis
 
@@ -34,8 +33,8 @@ from services.orderflow.metrics_derivatives_context import deriv_ctx_collector_e
 logger = logging.getLogger("derivatives_context_collector_v1")
 
 
-def _split_csv(raw: str) -> List[str]:
-    return [s.strip().upper() for s in str(raw or "").split(",") if s.strip()]
+def _split_csv(raw: str) -> list[str]:
+    return [s.strip().upper() for s in (raw or "").split(",") if s.strip()]
 
 
 class DerivativesContextCollector:
@@ -58,12 +57,12 @@ class DerivativesContextCollector:
         self.concurrency_limit = int(os.getenv("DERIV_CTX_CONCURRENCY", "5") or 5)
         self.semaphore = asyncio.Semaphore(self.concurrency_limit)
 
-    async def _discover_symbols(self) -> List[str]:
+    async def _discover_symbols(self) -> list[str]:
         out = set(self.static_symbols)
         try:
             members = await self.r.smembers(self.symbols_key)
             for m in members or []:
-                s = str(m or "").strip().upper()
+                s = (m or "").strip().upper()
                 if s:
                     out.add(s)
         except Exception:
@@ -72,7 +71,7 @@ class DerivativesContextCollector:
             out = {"BTCUSDT", "ETHUSDT"}
         return sorted(out)
 
-    async def _read_funding_history(self, symbol: str) -> List[float]:
+    async def _read_funding_history(self, symbol: str) -> list[float]:
         key = f"ctx:deriv_hist:funding:{symbol}"
         try:
             vals = await self.r.lrange(key, 0, self.history_len - 1)
@@ -91,7 +90,7 @@ class DerivativesContextCollector:
         except Exception:
             pass
 
-    async def _get_partial_funding_payload(self, symbol: str) -> Dict:
+    async def _get_partial_funding_payload(self, symbol: str) -> dict:
         try:
             raw = await self.r.get(f"{self.partial_prefix}{symbol}")
             return json.loads(raw) if raw else {}
@@ -140,11 +139,11 @@ class DerivativesContextCollector:
         tasks = []
         for sym in syms:
             tasks.append(self._safe_collect_symbol(sym))
-        
+
         # Parallelize collection with a global timeout for the whole batch
         try:
             await asyncio.wait_for(asyncio.gather(*tasks), timeout=self.interval_s - 5)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("run_once: timed out waiting for symbol collection batch")
 
     async def _safe_collect_symbol(self, symbol: str) -> None:

@@ -1,16 +1,18 @@
 # python-worker/tools/label_triple_barrier_from_redis_ticks_v10.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import math
 import os
-import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 # =============================================================================
@@ -62,7 +64,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _safe_json_loads(s: Any) -> Dict[str, Any]:
+def _safe_json_loads(s: Any) -> dict[str, Any]:
     try:
         if not s:
             return {}
@@ -73,7 +75,7 @@ def _safe_json_loads(s: Any) -> Dict[str, Any]:
         return {}
 
 
-def _merge_tick_fields(flat: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_tick_fields(flat: dict[str, Any]) -> dict[str, Any]:
     """
     Merges optional JSON string field 'data' over flat fields.
     This matches your tick stream examples.
@@ -85,7 +87,7 @@ def _merge_tick_fields(flat: Dict[str, Any]) -> Dict[str, Any]:
     return merged
 
 
-def _pick_tick_ts_ms(obj: Dict[str, Any]) -> int:
+def _pick_tick_ts_ms(obj: dict[str, Any]) -> int:
     # Primary: ts (epoch ms). Fallbacks: ts_ms, timestamp.
     ts = _i(obj.get("ts"), 0)
     if ts <= 0:
@@ -95,7 +97,7 @@ def _pick_tick_ts_ms(obj: Dict[str, Any]) -> int:
     return ts
 
 
-def _pick_tick_price(obj: Dict[str, Any]) -> float:
+def _pick_tick_price(obj: dict[str, Any]) -> float:
     """
     Price priority:
       mid > price > last > (bid+ask)/2
@@ -124,7 +126,7 @@ class Barriers:
 
 
 def infer_tp_sl_bps(
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     *,
     tp_k_atr: float,
     sl_k_atr: float,
@@ -147,7 +149,7 @@ def _signed_ret_bps(direction: str, entry_px: float, px: float) -> float:
     return ret if (direction or "").upper() == "LONG" else -ret
 
 
-def _pick_entry_price(path: List[Tuple[int, float]]) -> float:
+def _pick_entry_price(path: list[tuple[int, float]]) -> float:
     # First tick price in path
     for _, px in path:
         if px > 0.0:
@@ -155,11 +157,11 @@ def _pick_entry_price(path: List[Tuple[int, float]]) -> float:
     return 0.0
 
 
-def _slice_path(series: List[Tuple[int, float]], ts0: int, ts1: int) -> List[Tuple[int, float]]:
+def _slice_path(series: list[tuple[int, float]], ts0: int, ts1: int) -> list[tuple[int, float]]:
     # series is sorted by ts ascending; keep [ts0..ts1]
     if ts1 <= ts0:
         return []
-    out: List[Tuple[int, float]] = []
+    out: list[tuple[int, float]] = []
     for ts, px in series:
         if ts < ts0:
             continue
@@ -170,19 +172,19 @@ def _slice_path(series: List[Tuple[int, float]], ts0: int, ts1: int) -> List[Tup
 
 
 def label_one(
-    inp: Dict[str, Any],
-    tick_series: List[Tuple[int, float]],
+    inp: dict[str, Any],
+    tick_series: list[tuple[int, float]],
     *,
     h_ms: int,
     tp_k_atr: float,
     sl_k_atr: float,
     fallback_tp_bps: float,
     fallback_sl_bps: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     out = dict(inp)
-    sym = str(inp.get("symbol") or "").upper()
+    sym = (inp.get("symbol") or "").upper()
     ts0 = _i(inp.get("ts_ms", inp.get("ts", 0)), 0)
-    direction = str(inp.get("direction", "") or "").upper()
+    direction = (inp.get("direction", "") or "").upper()
 
     indicators = inp.get("indicators") if isinstance(inp.get("indicators"), dict) else {}
     b = infer_tp_sl_bps(
@@ -291,7 +293,7 @@ def load_ticks_for_symbol(
     start_ms: int,
     end_ms: int,
     max_rows: int,
-) -> List[Tuple[int, float]]:
+) -> list[tuple[int, float]]:
     """
     Reads ticks forward via XRANGE within [start_ms, end_ms] using stream IDs.
     Assumes stream IDs are '<ms>-<seq>' (confirmed in your repo).
@@ -299,7 +301,7 @@ def load_ticks_for_symbol(
     start_id = _stream_id_for_ms_start(start_ms)
     end_id = _stream_id_for_ms_end(end_ms)
 
-    out: List[Tuple[int, float]] = []
+    out: list[tuple[int, float]] = []
     last_id = start_id
     scanned = 0
 
@@ -337,16 +339,14 @@ def load_ticks_for_symbol(
             last_id = last_id.decode("utf-8", "ignore")
         if isinstance(last_id, str) and "-" in last_id:
             ms_s, seq_s = last_id.split("-", 1)
-            try:
+            with contextlib.suppress(Exception):
                 last_id = f"{int(ms_s)}-{int(seq_s) + 1}"
-            except Exception:
-                pass
 
     return out
 
 
-def read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def read_ndjson(path: str) -> Iterable[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -359,7 +359,7 @@ def read_ndjson(path: str) -> Iterable[Dict[str, Any]]:
                 yield obj
 
 
-def write_ndjson(path: str, rows: Iterable[Dict[str, Any]]) -> None:
+def write_ndjson(path: str, rows: Iterable[dict[str, Any]]) -> None:
     with open(path, "w", encoding="utf-8") as f:
         for r0 in rows:
             f.write(json.dumps(r0, ensure_ascii=False, separators=(",", ":")))
@@ -395,9 +395,9 @@ def main() -> None:
 
     # Determine per-symbol time windows:
     # start = min(ts_ms) - small pad; end = max(ts_ms + h_ms) + pad
-    by_sym: Dict[str, List[Dict[str, Any]]] = {}
+    by_sym: dict[str, list[dict[str, Any]]] = {}
     for x in inputs:
-        sym = str(x.get("symbol") or "").upper()
+        sym = (x.get("symbol") or "").upper()
         if not sym:
             continue
         by_sym.setdefault(sym, []).append(x)
@@ -408,7 +408,7 @@ def main() -> None:
     # Ticks Redis should be decode_responses=True: we want str fields.
     r_ticks = redis.Redis.from_url(args.ticks_redis_url, decode_responses=True)
 
-    tick_map: Dict[str, List[Tuple[int, float]]] = {}
+    tick_map: dict[str, list[tuple[int, float]]] = {}
 
     for sym, rows in by_sym.items():
         ts_vals = [ _i(v.get("ts_ms", v.get("ts", 0)), 0) for v in rows ]
@@ -442,7 +442,7 @@ def main() -> None:
     labeled = [
         label_one(
             x,
-            tick_map.get(str(x.get('symbol') or '').upper(), []),
+            tick_map.get((x.get('symbol') or '').upper(), []),
             h_ms=int(args.h_ms),
             tp_k_atr=float(args.tp_k_atr),
             sl_k_atr=float(args.sl_k_atr),

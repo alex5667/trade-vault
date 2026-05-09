@@ -1,7 +1,8 @@
-import pytest
 from types import SimpleNamespace
+
 from handlers.crypto_orderflow.components.gates import CryptoSignalGates
 from handlers.crypto_orderflow.utils.pre_publish_gates import GateDecision
+
 
 class RaiserGate:
     def evaluate(self, *args, **kwargs):
@@ -15,15 +16,15 @@ def test_gates_fail_open():
         regime_liquidity_gate=RaiserGate(),
         smt_gate=RaiserGate(),
     )
-    
+
     ctx = SimpleNamespace(data_quality_flags=[])
-    
+
     # 1. check_quality
     qa_res = gates.check_quality(ctx, kind="custom")
     assert qa_res.veto is False
     assert qa_res.reason == "FAIL_OPEN_QUALITY"
     assert "quality_error" in ctx.data_quality_flags
-    
+
     # 2. check_smt
     smt_res = gates.check_smt(ctx, kind="custom", side=1)
     assert smt_res.veto is False

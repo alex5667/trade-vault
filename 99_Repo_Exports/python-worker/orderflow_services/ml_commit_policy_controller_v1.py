@@ -1,12 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import json
 import os
-import random
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis  # type: ignore
@@ -15,6 +14,8 @@ except Exception:  # pragma: no cover
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
+from core.redis_stream_consumer import AsyncRedisStreamHelper
+import contextlib
 
 APPLY_REQUESTS_STREAM = os.getenv(
     "ML_COMMIT_POLICY_INPUT_STREAM",
@@ -115,9 +116,9 @@ class CommitPolicyDecision:
 
 
 def build_effective_action_policy(
-    global_cfg: Dict[str, Any],
-    action_cfg: Dict[str, Any],
-) -> Dict[str, Any]:
+    global_cfg: dict[str, Any],
+    action_cfg: dict[str, Any],
+) -> dict[str, Any]:
     executor_mode = _s(action_cfg.get("executor_mode", global_cfg.get("executor_mode", "DRY_RUN")), "DRY_RUN").upper()
     return {
         "global_commit_enabled": _b(global_cfg.get("commit_enabled", "0"), False),
@@ -144,8 +145,8 @@ def evaluate_commit_policy(
     last_commit_ts_ms: int,
     commits_last_hour: int,
     now_ms: int,
-    global_cfg: Dict[str, Any],
-    action_cfg: Dict[str, Any],
+    global_cfg: dict[str, Any],
+    action_cfg: dict[str, Any],
 ) -> CommitPolicyDecision:
     policy = build_effective_action_policy(global_cfg, action_cfg)
 
@@ -252,7 +253,7 @@ def evaluate_commit_policy(
     )
 
 
-async def _load_hash(r: "redis.Redis", key: str) -> Dict[str, Any]:
+async def _load_hash(r: redis.Redis, key: str) -> dict[str, Any]:
     try:
         raw = await r.hgetall(key)
         return {(_s(k)): (_s(v)) for k, v in (raw or {}).items()}
@@ -260,7 +261,7 @@ async def _load_hash(r: "redis.Redis", key: str) -> Dict[str, Any]:
         return {}
 
 
-async def _get_state(r: "redis.Redis", action_type: str) -> Tuple[int, int]:
+async def _get_state(r: redis.Redis, action_type: str) -> tuple[int, int]:
     key = f"{STATE_PREFIX}{action_type}"
     try:
         raw = await r.hgetall(key)
@@ -275,7 +276,7 @@ async def _get_state(r: "redis.Redis", action_type: str) -> Tuple[int, int]:
         return 0, 0
 
 
-async def _update_state(r: "redis.Redis", action_type: str, now_ms: int) -> None:
+async def _update_state(r: redis.Redis, action_type: str, now_ms: int) -> None:
     key = f"{STATE_PREFIX}{action_type}"
     try:
         raw = await r.hgetall(key)
@@ -298,22 +299,22 @@ async def _update_state(r: "redis.Redis", action_type: str, now_ms: int) -> None
         return
 
 
-async def _emit_audit(r: "redis.Redis", payload: Dict[str, Any]) -> None:
+async def _emit_audit(r: redis.Redis, payload: dict[str, Any]) -> None:
     try:
         await r.xadd(AUDIT_STREAM, payload, maxlen=200_000, approximate=True)
     except Exception:
         return
 
 
-async def _emit_result(r: "redis.Redis", payload: Dict[str, Any]) -> None:
+async def _emit_result(r: redis.Redis, payload: dict[str, Any]) -> None:
     try:
         await r.xadd(RESULTS_STREAM, payload, maxlen=200_000, approximate=True)
     except Exception:
         return
 
 
-def _parse_message(msg: Dict[bytes, bytes]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _parse_message(msg: dict[bytes, bytes]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in msg.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         vv = v.decode() if isinstance(v, (bytes, bytearray)) else v
@@ -327,23 +328,27 @@ async def main() -> None:  # pragma: no cover
     port = _i(os.getenv("ML_COMMIT_POLICY_METRICS_PORT", 9870), 9870)
     start_http_server(port)
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-    try:
-        await r.xgroup_create(APPLY_REQUESTS_STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
+
+    helper = AsyncRedisStreamHelper(client=r, group=GROUP, consumer=CONSUMER)
+    await helper.ensure_groups([APPLY_REQUESTS_STREAM])
 
     min_approvals = _i(os.getenv("ML_COMMIT_POLICY_MIN_APPROVALS", 1), 1)
+
+    pel_start_id = "0-0"
 
     while True:
         t0 = time.perf_counter()
         try:
-            resp = await r.xreadgroup(
-                GROUP,
-                CONSUMER,
-                streams={APPLY_REQUESTS_STREAM: ">"},
-                count=50,
-                block=5000,
+            pel_start_id, pending_msgs = await helper.claim_pending(
+                APPLY_REQUESTS_STREAM, min_idle_ms=5000, count=50, start_id=pel_start_id
             )
+            pending_formatted = [(m.msg_id, m.fields) for m in pending_msgs]
+
+            if pending_formatted:
+                resp = [[APPLY_REQUESTS_STREAM, pending_formatted]]
+            else:
+                resp = await helper.read({APPLY_REQUESTS_STREAM: ">"}, count=50, block=5000) or []
+
             if not resp:
                 LAST_RUN.set(time.time())
                 LOOP_SECONDS.observe(time.perf_counter() - t0)
@@ -415,10 +420,8 @@ async def main() -> None:  # pragma: no cover
                         BLOCKED.labels(action=action_type, reason=decision.reason).inc()
                         RUNS.labels(status="blocked").inc()
 
-                    try:
-                        await r.xack(APPLY_REQUESTS_STREAM, GROUP, msg_id)
-                    except Exception:
-                        pass
+                    with contextlib.suppress(Exception):
+                        await helper.ack(APPLY_REQUESTS_STREAM, msg_id)
 
             LAST_RUN.set(time.time())
             LOOP_SECONDS.observe(time.perf_counter() - t0)

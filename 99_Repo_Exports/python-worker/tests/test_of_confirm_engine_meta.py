@@ -1,22 +1,21 @@
+from domain.evidence_keys import MetaKeys
+
 # python-worker/tests/test_of_confirm_engine_meta.py
 """
 Unit tests for OFConfirmEngine meta-model integration and exec-risk penalty.
 """
+import json
 import os
 import tempfile
-import json
-from unittest.mock import Mock, MagicMock
-
-import pytest
+from unittest.mock import Mock
 
 from core.of_confirm_engine import OFConfirmEngine
-from core.meta_model_lr import MetaModelLR
 
 
 def test_meta_model_loader_fail_open_no_file():
     """Test that build() does not crash when meta model file is missing."""
     engine = OFConfirmEngine()
-    
+
     runtime = Mock()
     runtime.last_wp = Mock(weak_any=False)
     runtime.last_obi_event = None
@@ -32,20 +31,20 @@ def test_meta_model_loader_fail_open_no_file():
     runtime.pressure.is_pressure_hi = Mock(return_value=False)
     runtime.book_churn_hi = 0
     runtime.liq_regime = "normal"
-    
+
     cfg = {
         "meta_model_enable": 1,
         "meta_model_path": "/nonexistent/path/model.json",  # File does not exist
         "meta_model_mode": "SHADOW",
     }
-    
+
     indicators = {
         "spread_bps": 10.0,
         "expected_slippage_bps": 2.0,
         "book_health_ok": 1,
         "data_health": 1.0,
     }
-    
+
     # Should not raise exception
     result, dec = engine.build(
         symbol="BTCUSDT",
@@ -58,21 +57,21 @@ def test_meta_model_loader_fail_open_no_file():
         cfg=cfg,
         indicators=indicators,
     )
-    
+
     assert result is not None
     assert result.ok == 0  # Should fail gate, but not crash
-    assert result.evidence["meta_enable"] == 1
-    assert result.evidence["meta_p"] == -1.0  # Not loaded
+    assert result.evidence[MetaKeys.ENABLE] == 1
+    assert result.evidence[MetaKeys.P] == -1.0  # Not loaded
 
 
 def test_meta_model_loader_fail_open_invalid_json():
     """Test that build() does not crash when meta model file has invalid JSON."""
     engine = OFConfirmEngine()
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         f.write("invalid json {")
         temp_path = f.name
-    
+
     try:
         runtime = Mock()
         runtime.last_wp = Mock(weak_any=False)
@@ -89,20 +88,20 @@ def test_meta_model_loader_fail_open_invalid_json():
         runtime.pressure.is_pressure_hi = Mock(return_value=False)
         runtime.book_churn_hi = 0
         runtime.liq_regime = "normal"
-        
+
         cfg = {
             "meta_model_enable": 1,
             "meta_model_path": temp_path,
             "meta_model_mode": "SHADOW",
         }
-        
+
         indicators = {
             "spread_bps": 10.0,
             "expected_slippage_bps": 2.0,
             "book_health_ok": 1,
             "data_health": 1.0,
         }
-        
+
         # Should not raise exception
         result, dec = engine.build(
             symbol="BTCUSDT",
@@ -115,9 +114,9 @@ def test_meta_model_loader_fail_open_invalid_json():
             cfg=cfg,
             indicators=indicators,
         )
-        
+
         assert result is not None
-        assert result.evidence["meta_p"] == -1.0  # Not loaded due to error
+        assert result.evidence[MetaKeys.P] == -1.0  # Not loaded due to error
     finally:
         os.unlink(temp_path)
 
@@ -125,7 +124,7 @@ def test_meta_model_loader_fail_open_invalid_json():
 def test_exec_risk_penalty_missing_spread_slippage():
     """Test that exec-risk penalty is non-zero when spread/slippage are missing."""
     engine = OFConfirmEngine()
-    
+
     runtime = Mock()
     runtime.last_wp = Mock(weak_any=False)
     runtime.last_obi_event = None
@@ -141,20 +140,20 @@ def test_exec_risk_penalty_missing_spread_slippage():
     runtime.pressure.is_pressure_hi = Mock(return_value=False)
     runtime.book_churn_hi = 0
     runtime.liq_regime = "normal"
-    
+
     cfg = {
         "spread_bps_missing_default": 15.0,
         "expected_slippage_bps_missing_default": 4.0,
         "exec_risk_ref_bps": 10.0,
         "w_exec_risk": 0.18,
     }
-    
+
     indicators = {
         # Missing spread_bps and expected_slippage_bps
         "book_health_ok": 1,
         "data_health": 1.0,
     }
-    
+
     result, dec = engine.build(
         symbol="BTCUSDT",
         tf="1m",
@@ -166,7 +165,7 @@ def test_exec_risk_penalty_missing_spread_slippage():
         cfg=cfg,
         indicators=indicators,
     )
-    
+
     assert result is not None
     # Check that missing flags are set
     assert indicators.get("spread_bps_missing") == 1
@@ -186,7 +185,7 @@ def test_exec_risk_penalty_missing_spread_slippage():
 def test_fp_edge_absorb_from_indicators():
     """Test that fp_edge_absorb from indicators is used in eval_reversal."""
     engine = OFConfirmEngine()
-    
+
     runtime = Mock()
     runtime.last_wp = Mock(weak_any=True)
     runtime.last_obi_event = None
@@ -202,14 +201,14 @@ def test_fp_edge_absorb_from_indicators():
     runtime.pressure.is_pressure_hi = Mock(return_value=False)
     runtime.book_churn_hi = 0
     runtime.liq_regime = "normal"
-    
+
     cfg = {
         "strong_need_reversal": 2,
         "strong_z_min": 2.0,
         "spread_bps": 10.0,
         "expected_slippage_bps": 2.0,
     }
-    
+
     indicators = {
         "spread_bps": 10.0,
         "expected_slippage_bps": 2.0,
@@ -217,7 +216,7 @@ def test_fp_edge_absorb_from_indicators():
         "data_health": 1.0,
         "fp_edge_absorb": 1,  # Set fp_edge_absorb in indicators
     }
-    
+
     result, dec = engine.build(
         symbol="BTCUSDT",
         tf="1m",
@@ -229,7 +228,7 @@ def test_fp_edge_absorb_from_indicators():
         cfg=cfg,
         indicators=indicators,
     )
-    
+
     assert result is not None
     # Check that fp_edge_absorb is in indicators (it gets derived)
     assert indicators["fp_edge_absorb"] == 1
@@ -243,7 +242,7 @@ def test_fp_edge_absorb_from_indicators():
 def test_meta_model_shadow_mode():
     """Test that meta-model in SHADOW mode does not change ok but exports meta_p."""
     engine = OFConfirmEngine()
-    
+
     # Create a valid meta model file
     model_data = {
         "features": ["score", "have", "need", "delta_z_abs", "exec_risk_norm"],
@@ -251,11 +250,11 @@ def test_meta_model_shadow_mode():
         "coef": [1.0, 0.5, -0.3, 0.2, -0.5],
         "threshold": 0.5,
     }
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(model_data, f)
         temp_path = f.name
-    
+
     try:
         runtime = Mock()
         runtime.last_wp = Mock(weak_any=True)
@@ -272,7 +271,7 @@ def test_meta_model_shadow_mode():
         runtime.pressure.is_pressure_hi = Mock(return_value=False)
         runtime.book_churn_hi = 0
         runtime.liq_regime = "normal"
-        
+
         cfg = {
             "meta_model_enable": 1,
             "meta_model_path": temp_path,
@@ -283,14 +282,14 @@ def test_meta_model_shadow_mode():
             "spread_bps": 10.0,
             "expected_slippage_bps": 2.0,
         }
-        
+
         indicators = {
             "spread_bps": 10.0,
             "expected_slippage_bps": 2.0,
             "book_health_ok": 1,
             "data_health": 1.0,
         }
-        
+
         result, dec = engine.build(
             symbol="BTCUSDT",
             tf="1m",
@@ -302,16 +301,16 @@ def test_meta_model_shadow_mode():
             cfg=cfg,
             indicators=indicators,
         )
-        
+
         assert result is not None
-        assert result.evidence["meta_enable"] == 1
-        assert result.evidence["meta_mode"] == "SHADOW"
+        assert result.evidence[MetaKeys.ENABLE] == 1
+        assert result.evidence[MetaKeys.MODE] == "SHADOW"
         # meta_p should be computed (or -1.0 if mock data is incomplete)
-        assert result.evidence["meta_p"] >= -1.0
-        assert result.evidence["meta_p"] <= 1.0
+        assert result.evidence[MetaKeys.P] >= -1.0
+        assert result.evidence[MetaKeys.P] <= 1.0
         # In SHADOW mode, ok should not be changed by meta model
         # (only logged in meta_veto)
-        assert result.evidence["meta_veto"] in [0, 1]  # Can be 1 if meta_p < meta_p_min, but ok unchanged
+        assert result.evidence[MetaKeys.VETO] in [0, 1]  # Can be 1 if meta_p < meta_p_min, but ok unchanged
     finally:
         os.unlink(temp_path)
 

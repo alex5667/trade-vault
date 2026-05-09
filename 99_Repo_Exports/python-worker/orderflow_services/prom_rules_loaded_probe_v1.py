@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """Runtime probe: verify repo rule files are actually loaded by Prometheus.
 
 This is intentionally different from `promtool check rules`:
@@ -30,11 +32,11 @@ ENV
 import argparse
 import json
 import os
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from orderflow_services.rules_bundle_discovery_v1 import discover_rule_files
+import contextlib
 
 
 def _now_ms() -> int:
@@ -50,7 +52,7 @@ def _get_repo_root(arg_root: str | None) -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _http_get_json(url: str, timeout_s: int = 5) -> Dict[str, Any]:
+def _http_get_json(url: str, timeout_s: int = 5) -> dict[str, Any]:
     import urllib.request
 
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
@@ -62,13 +64,13 @@ def _http_get_json(url: str, timeout_s: int = 5) -> Dict[str, Any]:
     return obj
 
 
-def _extract_loaded_rule_files(resp: Dict[str, Any]) -> Set[str]:
+def _extract_loaded_rule_files(resp: dict[str, Any]) -> set[str]:
     """Return a set of file paths reported by Prometheus /api/v1/rules.
 
     Prometheus returns groups with a `file` field. We treat these as authoritative
     for "what is loaded".
     """,
-    if str(resp.get("status")) != "success":
+    if (resp.get("status")) != "success":
         raise RuntimeError(f"prometheus status != success: {resp.get('status')}")
 
     data = resp.get("data")
@@ -80,7 +82,7 @@ def _extract_loaded_rule_files(resp: Dict[str, Any]) -> Set[str]:
         # Some versions may return {groups: []}
         return set()
 
-    out: Set[str] = set()
+    out: set[str] = set()
     for g in groups:
         if not isinstance(g, dict):
             continue
@@ -92,11 +94,11 @@ def _extract_loaded_rule_files(resp: Dict[str, Any]) -> Set[str]:
 
 def _compute_loaded_expected(
     *,
-    expected_rel: List[str],
-    loaded_files: Set[str],
-) -> Tuple[int, List[str]]:
+    expected_rel: list[str],
+    loaded_files: set[str],
+) -> tuple[int, list[str]]:
     loaded_n = 0
-    missing: List[str] = []
+    missing: list[str] = []
     for rel in expected_rel:
         rel = rel.replace("\\\\", "/")
         ok = any(lf.replace("\\\\", "/").endswith(rel) for lf in loaded_files)
@@ -107,7 +109,7 @@ def _compute_loaded_expected(
     return loaded_n, missing
 
 
-def _write_state(redis_url: str, prefix: str, payload: Dict[str, Any]) -> None:
+def _write_state(redis_url: str, prefix: str, payload: dict[str, Any]) -> None:
     try:
         import redis  # type: ignore
     except Exception as e:
@@ -178,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
         missing_n = len(missing)
         ok = (missing_n == 0)
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "last_ok": 1 if ok else 0,
             "last_run_ts_ms": now,
             "last_ok_ts_ms": now if ok else 0,
@@ -210,10 +212,8 @@ def main(argv: list[str] | None = None) -> int:
             "missing_json": None,
             "error_head": f"{type(e).__name__}: {e}",
         }
-        try:
+        with contextlib.suppress(Exception):
             _write_state(redis_url, prefix, payload)
-        except Exception:
-            pass
         print(json.dumps({"ok": False, "error": payload["error_head"]}, separators=(",", ":")))
         return 2
 

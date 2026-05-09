@@ -1,17 +1,16 @@
 # services/stats_aggregator.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import time
-import math
 import json
-from typing import Any, Dict, List, Tuple, Optional
+import math
+import os
+from typing import Any
 
 # EV gate EMA stats (best-effort)
-
 from common.log import setup_logger
-from domain.normalizers import canon_strategy, canon_symbol, canon_tf, canon_source, bucket_close_reason
+from domain.normalizers import bucket_close_reason, canon_source, canon_strategy, canon_symbol, canon_tf
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 log = setup_logger("StatsAggregator")
 
@@ -35,29 +34,27 @@ def _env_bool(name: str, default: bool) -> bool:
     v = (os.getenv(name, "1" if default else "0") or "").strip().lower()
     return v in {"1", "true", "yes", "on"}
 
-def _parse_csv_ints(s: str) -> Tuple[int, ...]:
+def _parse_csv_ints(s: str) -> tuple[int, ...]:
     out = []
     for part in (s or "").split(","):
         p = part.strip()
         if not p:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(int(p))
-        except Exception:
-            pass
     return tuple(out)
 
-def _emp_buckets_ms_from_env() -> Tuple[int, ...]:
+def _emp_buckets_ms_from_env() -> tuple[int, ...]:
     mins = _parse_csv_ints(os.getenv("EMP_TIME_BUCKETS_MINUTES", "1,2,3,5,8,13,21,34,45"))
     ms = sorted([m * 60_000 for m in mins if m and m > 0])
     return tuple(int(x) for x in ms)
 
-def _extract_timebucket_pnls(trade_closed: Dict[str, Any], buckets_ms: Tuple[int, ...]) -> Dict[int, Tuple[Optional[float], Optional[float]]]:
+def _extract_timebucket_pnls(trade_closed: dict[str, Any], buckets_ms: tuple[int, ...]) -> dict[int, tuple[float | None, float | None]]:
     """
     Extract per-bucket (mfe_pnl, mae_pnl) from TradeClosed mapping.
     Missing keys are returned as (None, None).
     """
-    out: Dict[int, Tuple[Optional[float], Optional[float]]] = {}
+    out: dict[int, tuple[float | None, float | None]] = {}
     for b in buckets_ms:
         mfe_k = f"mfe_pnl_t{b}"
         mae_k = f"mae_pnl_t{b}"
@@ -77,10 +74,10 @@ def _extract_timebucket_pnls(trade_closed: Dict[str, Any], buckets_ms: Tuple[int
 def _estimate_bps_from_pnl(
     pnl: float,
     *,
-    entry_price: Optional[float],
-    qty: Optional[float],
-    notional: Optional[float],
-) -> Optional[float]:
+    entry_price: float | None,
+    qty: float | None,
+    notional: float | None,
+) -> float | None:
     """
     Convert PnL (quote currency) into bps using notional ~= |qty|*entry_price.
     (This helper already exists in your file; keep a single definition. If you
@@ -96,10 +93,10 @@ def _estimate_bps_from_pnl(
     return float(bps)
 
 def extract_timebucket_bps(
-    trade_closed: Dict[str, Any],
+    trade_closed: dict[str, Any],
     *,
-    buckets_ms: Tuple[int, ...],
-) -> Dict[int, Tuple[Optional[float], Optional[float]]]:
+    buckets_ms: tuple[int, ...],
+) -> dict[int, tuple[float | None, float | None]]:
     """
     Convert per-bucket pnl snapshots into per-bucket (mfe_bps, mae_bps).
     """
@@ -120,7 +117,7 @@ def extract_timebucket_bps(
         notional = None
 
     pnls = _extract_timebucket_pnls(trade_closed, buckets_ms)
-    out: Dict[int, Tuple[Optional[float], Optional[float]]] = {}
+    out: dict[int, tuple[float | None, float | None]] = {}
     for b, (mfe_pnl, mae_pnl) in pnls.items():
         mfe_bps = _estimate_bps_from_pnl(mfe_pnl, entry_price=entry_price, qty=qty, notional=notional) if mfe_pnl is not None else None
         mae_bps = _estimate_bps_from_pnl(mae_pnl, entry_price=entry_price, qty=qty, notional=notional) if mae_pnl is not None else None
@@ -135,8 +132,8 @@ def write_timebucket_buffers(
     tf: str,
     regime: str,
     duration_ms: int,
-    buckets_ms: Tuple[int, ...],
-    bps_by_bucket: Dict[int, Tuple[Optional[float], Optional[float]]],
+    buckets_ms: tuple[int, ...],
+    bps_by_bucket: dict[int, tuple[float | None, float | None]],
 ) -> None:
     """
     Persist time-bucket buffers and survival counters.
@@ -156,10 +153,10 @@ def write_timebucket_buffers(
     buf_max = int(os.getenv("EMP_LEVELS_BUF_MAX", "300") or "300")
     ttl_sec = int(os.getenv("EMP_LEVELS_BUF_TTL_SEC", "604800") or "604800")  # 7d default
 
-    kd = str(kind or "").strip().lower()
-    sym = str(symbol or "").strip().upper()
-    tf_s = str(tf or "").strip().lower() or "1m"
-    rg = str(regime or "").strip().lower() or "na"
+    kd = (kind or "").strip().lower()
+    sym = (symbol or "").strip().upper()
+    tf_s = (tf or "").strip().lower() or "1m"
+    rg = (regime or "").strip().lower() or "na"
 
     surv_key = f"statscnt:{kd}:{sym}:{tf_s}:{rg}:survival"
     # Pipeline is enough here (best-effort). Main stats are already atomic via Lua.
@@ -196,27 +193,25 @@ def _env_bool(name: str, default: bool) -> bool:
     return v in {"1", "true", "yes", "on"}
 
 
-def _parse_csv_ints(s: str) -> List[int]:
-    out: List[int] = []
+def _parse_csv_ints(s: str) -> list[int]:
+    out: list[int] = []
     for part in (s or "").split(","):
         p = part.strip()
         if not p:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(int(p))
-        except Exception:
-            pass
     return out
 
 
-def _time_buckets_ms_from_env() -> List[int]:
+def _time_buckets_ms_from_env() -> list[int]:
     mins = _parse_csv_ints(os.getenv("EMP_TIME_BUCKETS_MINUTES", "1,2,3,5,8,13,21,34,45"))
     ms = [m * 60_000 for m in mins if m and m > 0]
     ms.sort()
     return ms
 
 
-def _parse_json_dict_strfloat(v: Any) -> Dict[int, float]:
+def _parse_json_dict_strfloat(v: Any) -> dict[int, float]:
     """
     Accept:
       - dict[int,float] already
@@ -225,7 +220,7 @@ def _parse_json_dict_strfloat(v: Any) -> Dict[int, float]:
       dict[int,float] with bucket_ms keys
     """
     if isinstance(v, dict):
-        out: Dict[int, float] = {}
+        out: dict[int, float] = {}
         for k, x in v.items():
             try:
                 kk = int(k)
@@ -253,7 +248,7 @@ def _parse_json_dict_strfloat(v: Any) -> Dict[int, float]:
         except Exception:
             return {}
         if isinstance(obj, dict):
-            out2: Dict[int, float] = {}
+            out2: dict[int, float] = {}
             for k, x in obj.items():
                 try:
                     kk = int(k)
@@ -271,8 +266,8 @@ def _parse_json_dict_strfloat(v: Any) -> Dict[int, float]:
 
 
 def _estimate_notional(
-    *, entry_price: Optional[float], qty: Optional[float], notional: Optional[float]
-) -> Optional[float]:
+    *, entry_price: float | None, qty: float | None, notional: float | None
+) -> float | None:
     """
     Keep it consistent with _estimate_bps_from_pnl() logic:
     notional ~= |qty| * entry_price (for USDT-quoted symbols this is exact enough).
@@ -296,7 +291,7 @@ def _estimate_notional(
     return None
 
 
-def _pnl_to_bps(pnl: float, *, entry_price: Optional[float], qty: Optional[float], notional: Optional[float]) -> Optional[float]:
+def _pnl_to_bps(pnl: float, *, entry_price: float | None, qty: float | None, notional: float | None) -> float | None:
     """
     Convert pnl (quote) -> bps using notional.
     bps = |pnl| / notional * 10000
@@ -321,7 +316,7 @@ def _write_timebucket_buffers(
     symbol: str,
     tf: str,
     regime_key: str,
-    trade_closed: Dict[str, Any],
+    trade_closed: dict[str, Any],
 ) -> None:
     """
     Writer for time-bucket empirical buffers (MFE@T / MAE@T) and survival counters.
@@ -410,10 +405,8 @@ def _write_timebucket_buffers(
                 pipe.ltrim(k, 0, max(buf_max, 1) - 1)
                 if buf_ttl and buf_ttl > 0:
                     pipe.expire(k, buf_ttl)
-    try:
+    with contextlib.suppress(Exception):
         pipe.execute()
-    except Exception:
-        pass
 
 
 def canon_regime(v: Any) -> str:
@@ -430,7 +423,7 @@ def canon_regime(v: Any) -> str:
     return s if s else "na"
 
 
-def _first_nonzero_float(*vals: Any) -> Optional[float]:
+def _first_nonzero_float(*vals: Any) -> float | None:
     for x in vals:
         try:
             if x is None:
@@ -443,7 +436,7 @@ def _first_nonzero_float(*vals: Any) -> Optional[float]:
     return None
 
 
-def _first_positive_float(*vals: Any) -> Optional[float]:
+def _first_positive_float(*vals: Any) -> float | None:
     for x in vals:
         try:
             if x is None:
@@ -456,7 +449,7 @@ def _first_positive_float(*vals: Any) -> Optional[float]:
     return None
 
 
-def _estimate_bps_from_pnl(pnl: float, *, entry_price: Optional[float], qty: Optional[float], notional: Optional[float]) -> Optional[float]:
+def _estimate_bps_from_pnl(pnl: float, *, entry_price: float | None, qty: float | None, notional: float | None) -> float | None:
     """
     Convert PnL (quote currency) into bps using notional ~= |qty|*entry_price.
     If notional is missing and qty/entry are missing -> returns None (fail-open).
@@ -481,7 +474,7 @@ def _estimate_bps_from_pnl(pnl: float, *, entry_price: Optional[float], qty: Opt
 
 
 
-def _pick_entry_regime(trade_closed: Dict[str, Any]) -> str:
+def _pick_entry_regime(trade_closed: dict[str, Any]) -> str:
     """
     IMPORTANT: we segment empirical levels & EV stats by *entry* regime, not exit regime.
     Use entry_regime if present; fallback to regime.
@@ -492,7 +485,7 @@ def _pick_entry_regime(trade_closed: Dict[str, Any]) -> str:
         v = None
     return canon_regime(v)
 
-def extract_empirical_triplet(trade_closed: Dict[str, Any]) -> Dict[str, Any]:
+def extract_empirical_triplet(trade_closed: dict[str, Any]) -> dict[str, Any]:
     """
     Returns a dict with:
       regime_key, mfe_bps, mae_bps, ttd_tp1_ms
@@ -545,7 +538,7 @@ def extract_empirical_triplet(trade_closed: Dict[str, Any]) -> Dict[str, Any]:
             val_pnl = _first_nonzero_float(trade_closed.get("mae_pnl_before_tp1"))
         if val_pnl is None:
             val_pnl = _safe_float(trade_closed.get("mae_pnl") or 0.0)
-        
+
         # MAE PnL is usually negative, we want BPS to be positive distance
         # _estimate_bps_from_pnl uses abs(pnl) inside, so sign doesn't matter much,
         # but let's be consistent.
@@ -847,7 +840,7 @@ class StatsAggregator:
 
             # strict final-close gate (учитывает "1"/1/true)
             if STATS_REQUIRE_EXPLICIT_FINAL:
-                if not _boolish(trade_closed.get("is_final_close", None)):
+                if not _boolish(trade_closed.get("is_final_close")):
                     return
             else:
                 is_final = bool(trade_closed.get("is_final_close", True))
@@ -1008,10 +1001,8 @@ class StatsAggregator:
             #   - must be fail-open: never break stats aggregation
             #   - must run ONLY when Lua applied==1 (not a dedup)
             # ------------------------------------------------------------------
-            try:
+            with contextlib.suppress(Exception):
                 _post_applied_hooks(redis_client, pos, trade_closed)
-            except Exception:
-                pass
 
             # ------------------------------------------------------------------
             # NEW: Execution slippage/spread EMA writer for EdgeCostGate.
@@ -1157,11 +1148,11 @@ class StatsAggregator:
                     update_spread_ema(
                         redis_client,
                         cfg=sp_cfg,
-                        symbol=str(symbol),
+                        symbol=symbol,
                         venue=str(venue),
                         session=str(sess),
                         tf=str(tf2),
-                        kind=str(knd or "na"),
+                        kind=(knd or "na"),
                         now_ms=now_ms2,
                         realized_spread_bps=trade_closed.get("realized_spread_bps") or trade_closed.get("realized_spread") or 0.0,
                     )
@@ -1188,16 +1179,16 @@ class StatsAggregator:
             try:
                 from services.reliability_calibrator import (
                     ReliabilityCalConfig,
-                    update_reliability_curve,
                     extract_dims_for_calibration,
                     outcome_hit_from_closed,
+                    update_reliability_curve,
                 )
 
                 # Avoid env parsing on each aggregation tick: cache config on self.
                 rcfg = getattr(self, "_rel_cal_cfg", None)
                 if rcfg is None:
                     rcfg = ReliabilityCalConfig.from_env()
-                    setattr(self, "_rel_cal_cfg", rcfg)
+                    self._rel_cal_cfg = rcfg
                 if rcfg.enabled:
                     symbol2, kind2, regime2, tf2, conf_pct2, ts2 = extract_dims_for_calibration(
                         pos=pos if isinstance(pos, dict) else {},
@@ -1303,12 +1294,12 @@ class StatsAggregator:
             #   - ошибки Redis / парсинга -> пропускаем
             # ------------------------------------------------------------------
             try:
-                from services.slippage_stats import SlippageEmaConfig, update_slippage_ema, session_from_ts_ms
+                from services.slippage_stats import SlippageEmaConfig, session_from_ts_ms, update_slippage_ema
 
                 cfg_s = SlippageEmaConfig.from_env()
                 if cfg_s.enabled:
                     # symbol обязателен — он у вас уже есть переменной выше
-                    sym = str(symbol)
+                    sym = symbol
 
                     # venue: берём из trade_closed, либо из pos, либо na
                     venue = (
@@ -1524,8 +1515,8 @@ class StatsAggregator:
                         redis_client,
                         cfg=ev_cfg,
                         kind=str(kind),
-                        symbol=str(symbol),
-                        tf=str(tf),
+                        symbol=symbol,
+                        tf=tf,
                         regime=str(regime),
                         tp1_hit=int(tp1_hit),
                     )
@@ -1558,21 +1549,21 @@ class StatsAggregator:
             try:
                 from services.execution_cost_ema import (
                     ExecCostEmaConfig,
-                    session_from_ts_ms,
                     build_exec_cost_ema_key,
+                    session_from_ts_ms,
                     update_exec_cost_ema,
                 )
                 cfg_ec = ExecCostEmaConfig.from_env()
                 if cfg_ec.enabled:
                     # Inputs come from TradeClosed (saved by finalize_trade)
-                    sym = str(symbol or "").strip().upper() or "NA"
-                    tfv = str(tf or "").strip().lower() or "na"
+                    sym = (symbol or "").strip().upper() or "NA"
+                    tfv = (tf or "").strip().lower() or "na"
                     # In your pipeline "strategy == kind" (per provided notes). Keep that convention.
-                    knd = str(strategy or "na").strip().lower() or "na"
+                    knd = (strategy or "na").strip().lower() or "na"
                     # Venue: we persist it in TradeClosed (patched in domain/handlers.py).
-                    ven = str(trade_closed.get("venue") or "na").strip().lower() or "na"
+                    ven = (trade_closed.get("venue") or "na").strip().lower() or "na"
                     # Session: prefer persisted entry_session, else derive from entry_ts_ms.
-                    ses = str(trade_closed.get("entry_session") or "").strip().lower()
+                    ses = (trade_closed.get("entry_session") or "").strip().lower()
                     if not ses:
                         try:
                             ets = int(float(trade_closed.get("entry_ts_ms") or 0))
@@ -1636,7 +1627,7 @@ class StatsAggregator:
                 pass
 
 
-def _post_applied_hooks(redis_client: Any, pos: Dict[str, Any], trade_closed: Dict[str, Any]) -> None:
+def _post_applied_hooks(redis_client: Any, pos: dict[str, Any], trade_closed: dict[str, Any]) -> None:
     """
     Extracted for testability:
       - called only after the main Lua script reports applied==1

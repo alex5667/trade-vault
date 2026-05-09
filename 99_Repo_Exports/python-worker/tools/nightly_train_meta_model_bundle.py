@@ -1,5 +1,4 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
@@ -8,13 +7,17 @@ import secrets
 import subprocess
 import sys
 import time
+from typing import Any
 
 import redis
-from typing import Dict, Any
+
+from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
 
 
 def sign(bundle_id: str, secret: str) -> str:
-    import hmac, hashlib
+    import hashlib
+    import hmac
     d = hmac.new(secret.encode("utf-8"), bundle_id.encode("utf-8"), hashlib.sha256).hexdigest()
     return d[:8]
 
@@ -30,9 +33,9 @@ def main() -> None:
     args = ap.parse_args()
 
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
-    inputs_stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+    inputs_stream = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
     inputs_field = os.getenv("OF_INPUTS_STREAM_FIELD", "payload")
-    trades_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    trades_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
 
     ts = time.strftime("%Y%m%d_%H%M%S")
@@ -66,21 +69,21 @@ def main() -> None:
         # 2) filter canary
         allow = {s.strip().upper() for s in args.canary_symbols.split(",") if s.strip()}
         n = 0
-        with open(inputs_raw, "r", encoding="utf-8") as f, open(inputs_can, "w", encoding="utf-8") as g:
+        with open(inputs_raw, encoding="utf-8") as f, open(inputs_can, "w", encoding="utf-8") as g:
             for line in f:
                 if not line.strip():
                     continue
                 row = json.loads(line)
                 p = row.get("payload")
                 inp = json.loads(p) if isinstance(p, str) else (p if isinstance(p, dict) else row)
-                sym = str(inp.get("symbol", "")).upper()
+                sym = (inp.get("symbol", "")).upper()
                 if sym in allow:
                     g.write(json.dumps(inp, ensure_ascii=False) + "\n")
                     n += 1
         if n < 100:
             status_data["n_inputs"] = n
             raise SystemExit(f"too_few_inputs_canary n={n}")
-        
+
         status_data["n_inputs"] = n
 
         # 3) engine replay
@@ -102,7 +105,7 @@ def main() -> None:
         # 6) train LR model
         subprocess.run([sys.executable, "-m", "tools.train_of_meta_model_lr", "--dataset", dataset_out, "--out-model", model_path, "--out-report", report_path], check=True, capture_output=True, text=True)
 
-        report = json.loads(open(report_path, "r", encoding="utf-8").read())
+        report = json.loads(open(report_path, encoding="utf-8").read())
         auc = float(report.get("auc", 0.0))
 
         # 7) create bundle to enable SHADOW meta model (per symbol)
@@ -147,11 +150,11 @@ def main() -> None:
 
         if auto_confirm:
             # Inline apply_ops utils to avoid dependency hell in tool scripts
-            def audit_push(r: redis.Redis, bundle_id: str, entry: Dict[str, Any], ttl: int) -> None:
+            def audit_push(r: redis.Redis, bundle_id: str, entry: dict[str, Any], ttl: int) -> None:
                 r.rpush(f"recs:audit:{bundle_id}", json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
                 r.expire(f"recs:audit:{bundle_id}", ttl)
 
-            def apply_ops_inline(r: redis.Redis, bundle: Dict[str, Any], ttl: int, actor: Dict[str, str]) -> int:
+            def apply_ops_inline(r: redis.Redis, bundle: dict[str, Any], ttl: int, actor: dict[str, str]) -> int:
                 ops = bundle.get("ops") or []
                 ts = get_ny_time_millis()
                 applied = 0
@@ -167,7 +170,7 @@ def main() -> None:
                     if typ == "HSET":
                         old = r.hget(key, field)
                         old_null = 1 if old is None else 0
-                        val = str(op.get("value", ""))
+                        val = (op.get("value", ""))
                         pipe.hset(key, field, val)
                         audit_push(r, bundle.get("id"), {
                             "op": "HSET", "key": key, "field": field,
@@ -176,7 +179,7 @@ def main() -> None:
                         }, ttl)
                         applied += 1
                     elif typ == "SET":
-                        val = str(op.get("value", ""))
+                        val = (op.get("value", ""))
                         # For SET, we need to read old value for audit/rollback
                         old_val = r.get(key)
                         old_null = 1 if old_val is None else 0
@@ -196,7 +199,7 @@ def main() -> None:
             actor = {"who": "auto-confirm", "ts": str(get_ny_time_millis())}
             n_ops = apply_ops_inline(r, bundle, ttl, actor)
             r.set(f"recs:status:{bundle_id}", "APPLIED", ex=ttl)
-            
+
             # Notify APPLIED
             msg = (
                 "<b>Nightly meta-model (LR) - AUTO APPLIED</b>\n"
@@ -207,12 +210,12 @@ def main() -> None:
                 f"ops=<code>{n_ops}</code> status=<code>APPLIED</code>"
             )
             # No buttons for auto-applied (can be rolled back via manual admin tools if needed)
-            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
                 "type": "report",
                 "text": msg,
                 "ts": str(get_ny_time_millis()),
             }, maxlen=200000, approximate=True)
-            
+
             status_data["status"] = "SUCCESS_AUTO_APPLIED"
 
         else:
@@ -231,18 +234,18 @@ def main() -> None:
                 f"auc=<code>{auc:.3f}</code> thr=<code>{float(report.get('threshold',0.5)):.2f}</code> p_min=<code>{args.meta_p_min:.2f}</code>\n"
                 f"features=<code>{report.get('features')}</code>"
             )
-            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
                 "type": "report",
                 "text": msg,
                 "buttons": json.dumps(buttons, ensure_ascii=False, separators=(",", ":")),
                 "ts": str(get_ny_time_millis()),
             }, maxlen=200000, approximate=True)
-            
+
             status_data["status"] = "SUCCESS_PENDING"
 
         status_data["status"] = "SUCCESS"
         status_data["bundle_id"] = bundle_id
-    
+
     except subprocess.CalledProcessError as e:
         msg = e.stderr or str(e)
         if "too_few_inputs" in msg or "dataset_too_small" in msg:

@@ -1,5 +1,7 @@
 import unittest
+
 from tools.check_ml_confirm_stream_health import compute_health
+
 
 class TestMLConfirmHealth(unittest.TestCase):
     def test_ok_stream(self):

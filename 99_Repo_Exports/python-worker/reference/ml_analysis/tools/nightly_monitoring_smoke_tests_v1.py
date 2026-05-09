@@ -1,12 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Dict, List, Tuple, Optional
 
 import requests
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _env(name: str, default: str = "") -> str:
@@ -17,8 +17,8 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _split_csv(s: str) -> List[str]:
-    out: List[str] = []
+def _split_csv(s: str) -> list[str]:
+    out: list[str] = []
     for part in (s or "").replace(";", ",").split(","):
         p = part.strip()
         if p:
@@ -26,7 +26,7 @@ def _split_csv(s: str) -> List[str]:
     return out
 
 
-def _http_check(url: str, *, verify_tls: bool, timeout_s: float = 6.0) -> Tuple[bool, str, float]:
+def _http_check(url: str, *, verify_tls: bool, timeout_s: float = 6.0) -> tuple[bool, str, float]:
     t0 = time.time()
     try:
         r = requests.get(url, verify=verify_tls, timeout=timeout_s)
@@ -49,7 +49,7 @@ def _mk_url(base: str, path: str) -> str:
     return b + p
 
 
-def _smoke_contract_targets(public_base: str) -> Tuple[List[str], List[str]]:
+def _smoke_contract_targets(public_base: str) -> tuple[list[str], list[str]]:
     """Return (runbooks_urls, dashboards_urls) for contract checks."""
     runbooks = _split_csv(_env("SMOKE_RUNBOOK_PATHS", "/runbooks/web_uptime.md,/runbooks/promote_freeze.md,/runbooks/chatops_security.md"))
     dashboards = _split_csv(_env("SMOKE_DASHBOARD_PATHS", "/grafana/d/edge_stack_overview/edge-stack-overview?orgId=1,/grafana/d/chatops_security/chatops-security?orgId=1"))
@@ -58,7 +58,7 @@ def _smoke_contract_targets(public_base: str) -> Tuple[List[str], List[str]]:
     return runbook_urls, dash_urls
 
 
-def _telegram_links_smoke(webhook_url: str, *, verify_tls: bool) -> Tuple[bool, str]:
+def _telegram_links_smoke(webhook_url: str, *, verify_tls: bool) -> tuple[bool, str]:
     payload = {
         "status": "firing",
         "alerts": [{"labels": {"alertname": "SmokeTest"}}],
@@ -84,7 +84,7 @@ def _telegram_links_smoke(webhook_url: str, *, verify_tls: bool) -> Tuple[bool, 
         return False, f"exc:{type(e).__name__}"
 
 
-def _write_redis(hash_key: str, fields: Dict[str, str]) -> None:
+def _write_redis(hash_key: str, fields: dict[str, str]) -> None:
     try:
         import redis
         url = _env("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -111,7 +111,7 @@ def main() -> int:
     ]
     runbook_urls, dash_urls = _smoke_contract_targets(public_base)
 
-    checks: List[Dict[str, str]] = []
+    checks: list[dict[str, str]] = []
     ok_all = True
 
     # 1) Public proxy health checks

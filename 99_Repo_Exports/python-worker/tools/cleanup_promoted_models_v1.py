@@ -1,11 +1,9 @@
+import argparse
+import glob
+import logging
 import os
 import sys
-import argparse
-import logging
-import glob
-import shutil
 import time
-from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(
@@ -35,18 +33,18 @@ def cleanup_promoted_models(promote_dir, keep_last=80, keep_days=14, dry_run=Fal
         return False
 
     # 1. Gather all artifacts
-    # Pattern: meta_model_<schema>_YYYYmmdd_HHMMSS_sha12.json 
+    # Pattern: meta_model_<schema>_YYYYmmdd_HHMMSS_sha12.json
     # We'll just match meta_model_*.json to be safe but flexible
     pattern = os.path.join(promote_dir, "meta_model_*.json")
     files = glob.glob(pattern)
-    
+
     if not files:
         logger.info(f"No promoted models found in {promote_dir}. Nothing to clean.")
         return True
 
     # Sort by modification time, newest first
     files_sorted = sorted(files, key=os.path.getmtime, reverse=True)
-    
+
     logger.info(f"Found {len(files_sorted)} total artifacts in {promote_dir}")
 
     # 2. Apply keep-last policy
@@ -57,18 +55,18 @@ def cleanup_promoted_models(promote_dir, keep_last=80, keep_days=14, dry_run=Fal
     # 3. Apply keep-days policy for the rest
     now = time.time()
     cutoff_time = now - (keep_days * 86400)
-    
+
     files_to_delete = []
-    
+
     for fpath in files_sorted:
         if fpath in safe_files:
             continue
-            
+
         mtime = os.path.getmtime(fpath)
         if mtime >= cutoff_time:
             # File is recent enough, keep it
             continue
-        
+
         # If we are here, it's not in top-N and it's older than keep-days -> delete
         files_to_delete.append(fpath)
 
@@ -81,15 +79,15 @@ def cleanup_promoted_models(promote_dir, keep_last=80, keep_days=14, dry_run=Fal
     # 4. Perform deletion
     deleted_count = 0
     errors = 0
-    
+
     for fpath in files_to_delete:
         base_name = os.path.basename(fpath)
-        
+
         # Double check safety: must be in promote_dir (already handled by glob but just in case)
         if os.path.dirname(fpath) != promote_dir:
             logger.warning(f"SKIPPING suspicious path not directly in promote_dir: {fpath}")
             continue
-            
+
         if dry_run:
             logger.info(f"[DRY-RUN] Would delete: {base_name}")
             deleted_count += 1
@@ -107,25 +105,25 @@ def cleanup_promoted_models(promote_dir, keep_last=80, keep_days=14, dry_run=Fal
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Cleanup old promoted model artifacts.")
-    
+
     # Defaults from requirements
     default_dir = os.environ.get("META_PROMOTE_DIR", "/var/lib/trade/meta_promote")
-    
+
     parser.add_argument("--promote-dir", default=default_dir, help="Directory containing promoted models")
     parser.add_argument("--keep-last", type=int, default=80, help="Minimum number of recent artifacts to keep (default: 80)")
     parser.add_argument("--keep-days", type=int, default=14, help="Retention period in days (default: 14)")
     parser.add_argument("--dry-run", action="store_true", help="Print what would be deleted without deleting")
-    
+
     args = parser.parse_args()
-    
+
     logger.info(f"Starting cleanup with: promote_dir={args.promote_dir}, keep_last={args.keep_last}, keep_days={args.keep_days}, dry_run={args.dry_run}")
-    
+
     success = cleanup_promoted_models(
         promote_dir=args.promote_dir,
         keep_last=args.keep_last,
         keep_days=args.keep_days,
         dry_run=args.dry_run
     )
-    
+
     if not success:
         sys.exit(1)

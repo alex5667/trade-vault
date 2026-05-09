@@ -1,5 +1,7 @@
 import fakeredis
+
 from news_pipeline.ingestor_service import _dedup_pass
+
 
 def test_dedup_pass_once():
     r = fakeredis.FakeRedis(decode_responses=True)

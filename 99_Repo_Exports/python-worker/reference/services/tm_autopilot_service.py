@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
+
 """
 TM Autopilot Service:
 ...
@@ -11,10 +12,9 @@ import hashlib
 import json
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 import redis
-
 
 # Tools are imported locally in run_once to avoid circular dependencies or early load errors
 
@@ -87,7 +87,7 @@ def _write_proposal(r: redis.Redis, proposal: dict[str, Any]) -> str:
       cfg:suggestions:entry_policy:latest:autopilot:{group} -> sid
       cfg:suggestions:entry_policy:approvals:{sid} (empty placeholder; approvals handled by your existing workflow)
     """
-    group = str(proposal.get("group", "default") or "default").lower()
+    group = (proposal.get("group", "default") or "default").lower()
     sid = _sha1(json.dumps({"kind": "tm_autopilot", "group": group, "ts": int(proposal.get("updated_ts_ms", _now_ms()))}, separators=(",", ":")))
     meta_key = f"cfg:suggestions:entry_policy:meta:{sid}"
     latest_key = f"cfg:suggestions:entry_policy:latest:autopilot:{group}"
@@ -107,7 +107,7 @@ def _write_proposal(r: redis.Redis, proposal: dict[str, Any]) -> str:
     return sid
 
 
-def _send_telegram_report(r: redis.Redis, html: str, buttons: Optional[list[list[dict[str, str]]]] = None) -> None:
+def _send_telegram_report(r: redis.Redis, html: str, buttons: list[list[dict[str, str]]] | None = None) -> None:
     stream = os.getenv("TELEGRAM_NOTIFY_STREAM", "notify:telegram")
     fields = {"type": "report", "text": html}
     if buttons:
@@ -135,10 +135,17 @@ def run_once(r: redis.Redis) -> dict[str, Any]:
     )
 
     # 2) Tune
-    from tools.tm_policy_tuner import load_rows, group_rows_by_context, pick_winners, build_overrides_v1_proposal, write_proposals_overrides_v1, render_report_md
+    from tools.tm_policy_tuner import (
+        build_overrides_v1_proposal,
+        group_rows_by_context,
+        load_rows,
+        pick_winners,
+        render_report_md,
+        write_proposals_overrides_v1,
+    )
     rows = load_rows(tmp_path)
     grouped = group_rows_by_context(rows, window_days=window_days)
-    
+
     min_samples_by_regime = {
         "thin": int(os.getenv("LCB_MIN_SAMPLES_THIN", str(min_n))),
         "news": int(os.getenv("LCB_MIN_SAMPLES_THIN", str(min_n))),
@@ -150,7 +157,7 @@ def run_once(r: redis.Redis) -> dict[str, Any]:
         min_edge_r=min_edge_r,
         min_samples_by_regime=min_samples_by_regime,
     )
-    
+
     # 3) Optional proposal (with 24h guard)
     proposals_list = []
     can_propose = _b(os.getenv("TM_AUTOPILOT_ENABLE_PROPOSAL", "1"), True)
@@ -160,7 +167,7 @@ def run_once(r: redis.Redis) -> dict[str, Any]:
             val = r.get("state:tm_autopilot:last_proposal_ts_ms")
             if val: last_prop_ts = int(val)
         except Exception: pass
-        
+
         prop_every_h = float(os.getenv("TM_AUTOPILOT_PROPOSAL_EVERY_HOURS", "24"))
         if (now - last_prop_ts) < (prop_every_h * 3600 * 1000):
             can_propose = False
@@ -171,22 +178,22 @@ def run_once(r: redis.Redis) -> dict[str, Any]:
         tuner_out = {"winners": winners}
         proposals_result = build_overrides_v1_proposal(tuner_out)
         proposals_list = proposals_result.get("proposals", [])
-        
+
         # Write to Redis
         n_written = write_proposals_overrides_v1(r=r, winners=winners)
-        
+
         if n_written > 0:
             try:
                 r.set("state:tm_autopilot:last_proposal_ts_ms", str(now))
                 # Save to DB - combine winner data with proposal data
                 from services.analytics_db import save_autopilot_proposal
-                
+
                 # Create a map of winner data by (symbol, regime, scenario, group)
                 winners_map = {}
                 for w in winners:
                     key = (w["symbol"], w["regime"], w["scenario"], w.get("group", "default"))
                     winners_map[key] = w
-                
+
                 for p in proposals_list:
                     # Extract symbol, regime, scenario, group from latest_key
                     # Format: cfg:suggestions:entry_policy:latest:overrides_v1:{sym}:{rg}:{grp}:{scn}
@@ -197,7 +204,7 @@ def run_once(r: redis.Redis) -> dict[str, Any]:
                         rg = parts[6].lower()
                         grp = parts[7].lower()
                         scn = parts[8].lower()
-                        
+
                         winner = winners_map.get((sym, rg, scn, grp))
                         if winner:
                             save_autopilot_proposal(
@@ -218,7 +225,7 @@ def run_once(r: redis.Redis) -> dict[str, Any]:
     # Convert MD to basic HTML wrapper if notify_worker expects HTML
     # existing format used bold/italic tags
     html_report = f"<b>TM Autopilot Report</b>\n<pre>{_html_escape(md)}</pre>"
-    
+
     buttons = []
     for p in proposals_list:
         label = f"Apply {p['symbol']}:{p['regime']} ({p['winner_arm']})"

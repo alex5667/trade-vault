@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Regression tests for OrderFlowConfigLoader.build_symbol_config fallback paths.
 
 Primary fix: when the pipeline preload has been failing (`_last_preload_ts`
@@ -9,13 +10,10 @@ hgetalls saturate the hot-path Redis pool and trigger the cascading
 """
 
 
-import asyncio
 import time
-from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from redis.exceptions import RedisError
 
 from services.orderflow import configuration as cfg_mod
 from services.orderflow.configuration import OrderFlowConfigLoader
@@ -129,7 +127,7 @@ class TestPreloadFailureEscalation:
         mode is visible without having to grep WARNING."""
         pipe = MagicMock()
         pipe.hgetall = MagicMock()
-        pipe.execute = AsyncMock(side_effect=asyncio.TimeoutError())
+        pipe.execute = AsyncMock(side_effect=TimeoutError())
         fake_redis.pipeline = MagicMock(return_value=pipe)
 
         with caplog.at_level("ERROR", logger="crypto_orderflow.config"):
@@ -148,7 +146,7 @@ class TestPreloadFailureEscalation:
 
         pipe = MagicMock()
         pipe.hgetall = MagicMock()
-        pipe.execute = AsyncMock(side_effect=[[{}], asyncio.TimeoutError()])
+        pipe.execute = AsyncMock(side_effect=[[{}], TimeoutError()])
         fake_redis.pipeline = MagicMock(return_value=pipe)
 
         with caplog.at_level("ERROR", logger="crypto_orderflow.config"):

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Dataset Export - Экспорт единого датасета сигналов и сделок в Parquet.
 
@@ -15,9 +16,10 @@ Dataset Export - Экспорт единого датасета сигналов
 """
 
 import os
-import time
 import pathlib
-from typing import List, Dict, Any, Sequence, Optional
+import time
+from collections.abc import Sequence
+from typing import Any
 
 import pandas as pd
 
@@ -25,8 +27,8 @@ from common.log import setup_logger
 
 try:
     import pyarrow as pa
-    import pyarrow.parquet as pq
     import pyarrow.dataset as ds
+    import pyarrow.parquet as pq
     _ARROW = True
 except ImportError:
     _ARROW = False
@@ -45,7 +47,7 @@ def _ensure_dir(p: str):
     pathlib.Path(p).mkdir(parents=True, exist_ok=True)
 
 
-def _join_rows(orders: List, sig_by_id: Dict[str, Any], repo) -> List[Dict[str, Any]]:
+def _join_rows(orders: list, sig_by_id: dict[str, Any], repo) -> list[dict[str, Any]]:
     """
     Объединение ордеров и сигналов в единый датасет.
     
@@ -58,7 +60,7 @@ def _join_rows(orders: List, sig_by_id: Dict[str, Any], repo) -> List[Dict[str, 
         Список словарей с объединёнными данными
     """
     rows = []
-    
+
     for o in orders:
         s = sig_by_id.get(o.signal_id or "")
 
@@ -73,13 +75,13 @@ def _join_rows(orders: List, sig_by_id: Dict[str, Any], repo) -> List[Dict[str, 
 
                 if book_stale_ms > 1000:
                     continue
-                
+
                 if scenario in ("breakout", "absorption") and touch_traded_w < 0.10:
                     continue
-                    
+
                 if "breakout" in scenario and smt_coherence < 0.70:
                     continue
-                    
+
                 if "absorption" in scenario and l3_taker_rate < 0.20:
                     continue
             except Exception as e:
@@ -87,16 +89,16 @@ def _join_rows(orders: List, sig_by_id: Dict[str, Any], repo) -> List[Dict[str, 
                 pass
 
         pnl = repo.compute_pnl_usd(o)
-        
+
         # Определяем outcome
         win = 1 if (pnl is None or pnl > 0) else 0
-        
+
         # Вычисляем latency (если доступно)
         tp1_latency = (o.tp1_time - o.entry_time) if (o.tp1_time and o.entry_time) else None
         tp2_latency = (o.tp2_time - o.entry_time) if (o.tp2_time and o.entry_time) else None
         tp3_latency = (o.tp3_time - o.entry_time) if (o.tp3_time and o.entry_time) else None
         sl_latency = (o.sl_time - o.entry_time) if (o.sl_time and o.entry_time) else None
-        
+
         rows.append({
             # Order fields
             "order_id": o.order_id,
@@ -152,15 +154,15 @@ def _join_rows(orders: List, sig_by_id: Dict[str, Any], repo) -> List[Dict[str, 
             # Outcome flag
             "win": win,
         })
-    
+
     return rows
 
 
 def export_dataset(
     repo,
-    orders: List,
-    signals: List,
-    out_name: Optional[str] = None
+    orders: list,
+    signals: list,
+    out_name: str | None = None
 ) -> str:
     """
     Экспорт датасета в один Parquet файл (непартиционированный).
@@ -175,7 +177,7 @@ def export_dataset(
         Путь к созданному файлу
     """
     _ensure_dir(DATASET_DIR)
-    
+
     sig_by_id = {s.signal_id: s for s in signals}
     rows = _join_rows(orders, sig_by_id, repo)
     df = pd.DataFrame(rows)
@@ -189,28 +191,28 @@ def export_dataset(
 
     if out_name is None:
         out_name = f"dataset_{int(time.time())}.parquet"
-    
+
     out_path = os.path.join(DATASET_DIR, out_name)
-    
+
     logger.info(f"📊 Экспорт датасета: {len(rows)} записей")
-    
+
     if _ARROW and pa and pq:
         table = pa.Table.from_pandas(df, preserve_index=False)
         pq.write_table(table, out_path)
     else:
         df.to_parquet(out_path, engine="fastparquet", index=False)
-    
+
     logger.info(f"✅ Датасет экспортирован: {out_path}")
-    
+
     return out_path
 
 
 def export_dataset_partitioned(
     repo,
-    orders: List,
-    signals: List,
+    orders: list,
+    signals: list,
     partition_cols: Sequence[str] = ("symbol", "strategy", "year", "month"),
-    base_dir: Optional[str] = None
+    base_dir: str | None = None
 ) -> str:
     """
     Экспорт датасета с партиционированием.
@@ -229,7 +231,7 @@ def export_dataset_partitioned(
     """
     base_dir = base_dir or os.getenv("DATASET_DIR", "/data/datasets_partitioned")
     _ensure_dir(base_dir)
-    
+
     sig_by_id = {s.signal_id: s for s in signals}
     rows = _join_rows(orders, sig_by_id, repo)
     df = pd.DataFrame(rows)
@@ -243,7 +245,7 @@ def export_dataset_partitioned(
 
     logger.info(f"📊 Экспорт партиционированного датасета: {len(rows)} записей")
     logger.info(f"📁 Партиции: {partition_cols}")
-    
+
     if _ARROW and pa and pq:
         # Используем PyArrow для партиционирования
         table = pa.Table.from_pandas(df, preserve_index=False)
@@ -256,25 +258,25 @@ def export_dataset_partitioned(
     else:
         # Fallback: группируем и пишем вручную
         logger.warning("⚠️ PyArrow недоступен, используем ручное партиционирование")
-        
+
         grouped = df.groupby(list(partition_cols), dropna=False)
-        
+
         for keys, part in grouped:
             # Формируем путь
             if not isinstance(keys, tuple):
                 keys = (keys,)
-            
+
             rel_parts = []
             for col, val in zip(partition_cols, keys):
                 rel_parts.append(f"{col}={val}")
-            
+
             out_dir = os.path.join(base_dir, *rel_parts)
             _ensure_dir(out_dir)
-            
+
             out_file = os.path.join(out_dir, f"part-{int(time.time())}.parquet")
             part.to_parquet(out_file, engine="fastparquet", index=False)
-    
+
     logger.info(f"✅ Партиционированный датасет экспортирован: {base_dir}")
-    
+
     return base_dir
 

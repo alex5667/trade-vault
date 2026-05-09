@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Signal Quality KPI Worker V1
 
@@ -18,19 +19,19 @@ Writes global config to Redis for Prometheus Exporter:
 - plus regime-specific keys
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import argparse
+import json
+import logging
+import math
 import os
 import time
-import json
-import math
-import logging
-import argparse
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis  # type: ignore
-import numpy as np
+
+from domain.evidence_keys import MetaKeys
+from utils.time_utils import get_ny_time_millis
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -55,7 +56,7 @@ def _to_str(x: Any) -> str:
     return str(x)
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -79,7 +80,7 @@ def _clamp01(x: float) -> float:
     return x
 
 
-def _json_loads_best_effort(s: Any) -> Optional[dict]:
+def _json_loads_best_effort(s: Any) -> dict | None:
     if s is None:
         return None
     if isinstance(s, dict):
@@ -97,20 +98,20 @@ def _json_loads_best_effort(s: Any) -> Optional[dict]:
         return None
 
 
-def _extract_payload(fields: Dict[Any, Any]) -> Dict[str, Any]:
+def _extract_payload(fields: dict[Any, Any]) -> dict[str, Any]:
     payload = fields.get("payload")
     if payload is None and b"payload" in fields:
         payload = fields.get(b"payload")
     ev = _json_loads_best_effort(payload)
     if isinstance(ev, dict):
         return ev
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         out[_to_str(k)] = _to_str(v)
     return out
 
 
-def _extract_close_ts_ms(ev: Dict[str, Any]) -> Optional[int]:
+def _extract_close_ts_ms(ev: dict[str, Any]) -> int | None:
     for k in ("close_ts_ms", "ts_ms", "event_ts_ms", "exit_ts_ms"):
         v = ev.get(k)
         if v is None:
@@ -125,7 +126,7 @@ def _extract_close_ts_ms(ev: Dict[str, Any]) -> Optional[int]:
     return None
 
 
-def _pick_first_float(ev: Dict[str, Any], keys: List[str]) -> Optional[float]:
+def _pick_first_float(ev: dict[str, Any], keys: list[str]) -> float | None:
     for k in keys:
         if k in ev:
             v = _safe_float(ev.get(k))
@@ -134,7 +135,7 @@ def _pick_first_float(ev: Dict[str, Any], keys: List[str]) -> Optional[float]:
     return None
 
 
-def _pick_reason_top1(ev: Dict[str, Any]) -> str:
+def _pick_reason_top1(ev: dict[str, Any]) -> str:
     for k in ("rule_reason_code_top1", "reason_top1", "rule_reason_top"):
         if k in ev and ev.get(k):
             return _to_str(ev.get(k))[:64]
@@ -187,8 +188,8 @@ class Row:
     ts_ms: int
     r_mult: float
     y: int
-    rank_score: Optional[float]
-    p: Optional[float]
+    rank_score: float | None
+    p: float | None
     strategy: str
     symbol: str
     tf: str
@@ -207,11 +208,11 @@ def _load_rows_from_stream(
     lookback_ms: int,
     max_scan: int,
     win_r_min: float,
-    score_fields: List[str],
-    prob_fields: List[str],
-) -> List[Row]:
+    score_fields: list[str],
+    prob_fields: list[str],
+) -> list[Row]:
     cutoff = _now_ms() - lookback_ms
-    rows: List[Row] = []
+    rows: list[Row] = []
     last_id = b"+"
     scanned = 0
     chunk = 2000
@@ -247,7 +248,7 @@ def _load_rows_from_stream(
             strategy = _to_str(ev.get("strategy") or ev.get("strat") or ev.get("strategy_id"))
             symbol = _to_str(ev.get("symbol") or ev.get("sym"))
             tf = _to_str(ev.get("tf") or ev.get("timeframe") or ev.get("tf_ms") or ev.get("frame"))
-            bucket = _to_str(ev.get("meta_enforce_cov_bucket") or ev.get("meta_cov_bucket") or "na")
+            bucket = _to_str(ev.get(MetaKeys.ENFORCE_COV_BUCKET) or ev.get("meta_cov_bucket") or "na")
             reason_top1 = _pick_reason_top1(ev)
             model_ver = _to_str(ev.get("ml_model_ver") or ev.get("model_ver") or ev.get("ml_model_version") or "na")
 
@@ -280,13 +281,13 @@ def _load_rows_from_stream(
     return rows
 
 
-def _expectancy_r(rows: List[Row]) -> Optional[float]:
+def _expectancy_r(rows: list[Row]) -> float | None:
     if not rows:
         return None
     return sum(r.r_mult for r in rows) / float(len(rows))
 
 
-def _precision_top_p(rows: List[Row], top_p: float) -> Optional[float]:
+def _precision_top_p(rows: list[Row], top_p: float) -> float | None:
     if not rows:
         return None
     scored = [r for r in rows if r.rank_score is not None and not math.isnan(float(r.rank_score))]
@@ -299,7 +300,7 @@ def _precision_top_p(rows: List[Row], top_p: float) -> Optional[float]:
     return sum(r.y for r in top) / float(len(top))
 
 
-def _ece(rows: List[Row], bins: int) -> Optional[float]:
+def _ece(rows: list[Row], bins: int) -> float | None:
     pp = [r for r in rows if r.p is not None and not math.isnan(float(r.p))]
     if not pp:
         return None
@@ -324,27 +325,27 @@ def _ece(rows: List[Row], bins: int) -> Optional[float]:
     return ece
 
 
-def _group_key(r: Row, include_reason: bool) -> Tuple[str, str, str, str, str]:
+def _group_key(r: Row, include_reason: bool) -> tuple[str, str, str, str, str]:
     if include_reason:
         return (r.strategy, r.symbol, r.tf, r.bucket, r.reason_top1)
     return (r.strategy, r.symbol, r.tf, r.bucket, "na")
 
 
-def _compute_groups(rows: List[Row], max_groups: int, include_reason: bool) -> Dict[str, Dict[str, Any]]:
-    groups: Dict[Tuple[str, str, str, str, str], List[Row]] = {}
+def _compute_groups(rows: list[Row], max_groups: int, include_reason: bool) -> dict[str, dict[str, Any]]:
+    groups: dict[tuple[str, str, str, str, str], list[Row]] = {}
     for r in rows:
         groups.setdefault(_group_key(r, include_reason), []).append(r)
     items = list(groups.items())
     items.sort(key=lambda kv: len(kv[1]), reverse=True)
     items = items[:max_groups]
-    out: Dict[str, Dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for (strategy, symbol, tf, bucket, reason), rr in items:
         gid = f"strategy={strategy}|symbol={symbol}|tf={tf}|bucket={bucket}|reason={reason}"
         out[gid] = {"n": len(rr)}
     return out
 
 
-def _compute_metrics(rows: List[Row], top_p: float, bins: int) -> Dict[str, Any]:
+def _compute_metrics(rows: list[Row], top_p: float, bins: int) -> dict[str, Any]:
     n = len(rows)
     expectancy = _expectancy_r(rows)
     precision = _precision_top_p(rows, top_p=top_p)
@@ -356,14 +357,14 @@ def _compute_metrics(rows: List[Row], top_p: float, bins: int) -> Dict[str, Any]
 def _write_cfg2(
     r: redis.Redis,
     dyn_cfg_key: str,
-    expectancy: Optional[float],
-    precision: Optional[float],
-    ece: Optional[float],
+    expectancy: float | None,
+    precision: float | None,
+    ece: float | None,
     n: int,
     last_ts_ms: int,
-    per_regime: Dict[str, Dict[str, Any]],
+    per_regime: dict[str, dict[str, Any]],
 ) -> None:
-    mapping: Dict[str, Any] = {"signal_quality_n_24h": str(int(n)), "signal_quality_last_ts_ms": str(int(last_ts_ms))}
+    mapping: dict[str, Any] = {"signal_quality_n_24h": str(int(n)), "signal_quality_last_ts_ms": str(int(last_ts_ms))}
     if expectancy is not None:
         mapping["signal_quality_expectancy_r_24h"] = f"{expectancy:.6f}"
     if precision is not None:
@@ -390,9 +391,9 @@ def _write_cfg2(
 def _write_breakdown_hash(
     r: redis.Redis,
     out_hash: str,
-    global_obj: Dict[str, Any],
-    per_regime: Dict[str, Dict[str, Any]],
-    rows: List[Row],
+    global_obj: dict[str, Any],
+    per_regime: dict[str, dict[str, Any]],
+    rows: list[Row],
     top_p: float,
     bins: int,
     max_groups: int,
@@ -408,35 +409,35 @@ def _write_breakdown_hash(
     pipe.execute()
 
 
-def process_metrics(trades: List[Dict]) -> Optional[Dict[str, Any]]:
+def process_metrics(trades: list[dict]) -> dict[str, Any] | None:
     # This function acts as a bridge for existing tests if they called it directly.
     # It converts dicts to Rows and computes global metrics.
-    rows: List[Row] = []
+    rows: list[Row] = []
     # Mock minimal envs if not set
     score_fields = ["ml_p_cal", "ml_p", "rule_score", "score"]
     prob_fields = ["ml_p_cal", "ml_p", "p"]
     win_r_min = 0.0
-    
+
     for t in trades:
         # Minimal conversion
         ts_ms = _extract_close_ts_ms(t) or 0
         r_mult = float(t.get("r_mult") or t.get("r") or 0.0)
         y = 1 if r_mult >= win_r_min else 0
-        
+
         # rank_score
         rank_score = None
         for k in score_fields:
             if k in t:
                 rank_score = float(t[k])
                 break
-        
+
         # p
         p = None
         for k in prob_fields:
             if k in t:
                 p = _clamp01(float(t[k]))
                 break
-                
+
         rows.append(Row(
             sid="mock",
             ts_ms=ts_ms,
@@ -447,21 +448,21 @@ def process_metrics(trades: List[Dict]) -> Optional[Dict[str, Any]]:
             strategy="", symbol="", tf="", bucket="", reason_top1="", model_ver="",
             dq_state="unknown", drift_state="unknown", drift_mode="unknown", regime="unknown"
         ))
-    
+
     if not rows:
         return None
-    
+
     # Use top_p from global or default
     metrics = _compute_metrics(rows, top_p=0.05, bins=10)
-    # The existing test expects a dict, not None if n < MIN_N? 
+    # The existing test expects a dict, not None if n < MIN_N?
     # Actually existing test expects None if n < MIN_N.
     # We should respect MIN_N here too if we want full compat.
     # The new code handles min_n in run_once.
     return metrics
-    
+
 # Export calculate_ece for test compatibility
 calculate_ece = lambda probs, outcomes, bins: _ece([
-    Row("", 0, 0.0, int(y), 0.0, float(p), "", "", "", "", "", "", "", "", "", "") 
+    Row("", 0, 0.0, int(y), 0.0, float(p), "", "", "", "", "", "", "", "", "", "")
     for p, y in zip(probs, outcomes)
 ], bins)
 
@@ -471,8 +472,8 @@ def get_trades_window(r, stream, window_ms):
     # The new _load_rows_from_stream returns Row objects, old one returned Dicts.
     # Tests might expect Dicts.
     rows = _load_rows_from_stream(
-        r, stream, window_ms, 200000, 0.0, 
-        ["ml_p_cal", "ml_p", "rule_score", "score"], 
+        r, stream, window_ms, 200000, 0.0,
+        ["ml_p_cal", "ml_p", "rule_score", "score"],
         ["ml_p_cal", "ml_p", "p"]
     )
     # Convert back to dicts roughly
@@ -538,7 +539,7 @@ def _connect_redis_with_retry(redis_url: str, max_retries: int = 5) -> redis.Red
 def run_once() -> int:
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     trades_stream = os.getenv("TRADES_CLOSED_STREAM", "trades:closed")
-    
+
     r = _connect_redis_with_retry(redis_url)
     rows = _load_rows_from_stream(
         r=r,

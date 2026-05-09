@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Common logging utilities for the scanner infrastructure.
 
@@ -24,7 +25,6 @@ before processing the tick.
 import logging
 import sys
 from contextvars import ContextVar, Token
-from typing import Optional
 
 # ---------------------------------------------------------------------------
 # trace_id context variable
@@ -44,7 +44,7 @@ def set_trace_id(trace_id: str) -> Token[str]:
         finally:
             _TRACE_ID_VAR.reset(token)
     """
-    return _TRACE_ID_VAR.set(str(trace_id or ""))
+    return _TRACE_ID_VAR.set((trace_id or ""))
 
 
 def get_trace_id() -> str:
@@ -74,7 +74,7 @@ class _TraceIdFilter(logging.Filter):
 _TRACE_FILTER = _TraceIdFilter()
 
 
-def setup_logger(name: str = "app", level: Optional[str] = "INFO") -> logging.Logger:
+def setup_logger(name: str = "app", level: str | None = "INFO") -> logging.Logger:
     """Setup and return a configured logger.
 
     Args:

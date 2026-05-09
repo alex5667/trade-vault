@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """Unit tests for exec-risk observability v16 integration.
 
 Tests cover:
@@ -8,14 +9,13 @@ Tests cover:
 - Smoke-check compiles without syntax errors
 """
 
-import os
-import json
 import math
+import os
 import py_compile
-import yaml
-import pytest
 from pathlib import Path
 
+import pytest
+import yaml
 
 # ---------------------------------------------------------------------------
 # Helpers

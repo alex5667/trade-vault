@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any
+from typing import Any
 
 from services.orderflow.runtime import SymbolRuntime
 
@@ -7,7 +7,7 @@ logger = logging.getLogger("orderflow_obi_tracker")
 
 class OBITracker:
     @staticmethod
-    def update(runtime: SymbolRuntime, book_raw: Dict[str, Any], book_ts_ms: int) -> None:
+    def update(runtime: SymbolRuntime, book_raw: dict[str, Any], book_ts_ms: int) -> None:
         try:
             obi_event = runtime.obi_detector.push(book_raw)
             if obi_event:

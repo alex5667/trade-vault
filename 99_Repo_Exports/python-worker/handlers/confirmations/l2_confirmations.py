@@ -11,9 +11,8 @@ from typing import Any
 from common.reason_codes import ReasonCode
 from signal_scoring.reason_registry import normalize_reason
 
-from .l2_confirm_breakout import L2ConfirmBreakout, BreakoutConfirmCfg
-from .l2_confirm_absorption import L2ConfirmAbsorption, AbsorptionConfirmCfg
-
+from .l2_confirm_absorption import AbsorptionConfirmCfg, L2ConfirmAbsorption
+from .l2_confirm_breakout import BreakoutConfirmCfg, L2ConfirmBreakout
 
 # Стабильные структурированные коды (5.2)
 OK = ReasonCode.OK.value

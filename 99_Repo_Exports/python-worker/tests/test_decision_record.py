@@ -1,10 +1,9 @@
 
-import pytest
 import json
-import time
+
 from core.decision_record import DecisionRecord
 from core.decision_store import DecisionStore
-from fakeredis import FakeRedis
+
 
 class TestDecisionRecord:
     def test_serialization_roundtrip(self):
@@ -21,14 +20,14 @@ class TestDecisionRecord:
             dq_state={"tick_age": 50},
             final_permit=True
         )
-        
+
         # To Redis Dict
         redis_data = record.serialize_for_redis()
         assert redis_data["sid"] == "TEST:LONG:100:123456"
         assert redis_data["ts"] == "123456"
         assert redis_data["rule_ok"] == "true"  # json.dumps(True) -> "true"
         assert "\"active_arm\": \"A\"" in redis_data["features"]
-        
+
         # From Redis Dict - verification that parse handles "true" correctly
         loaded = DecisionRecord.parse_from_redis(redis_data)
         assert loaded.sid == record.sid
@@ -62,17 +61,17 @@ class TestDecisionStore:
             "features": {"f1": 1},
             "final_permit": True
         })
-        
+
         store = DecisionStore(redis_client=r)
-        
+
         record = DecisionRecord(
             sid="S1", symbol="BTC", ts=1000,
             features={"f1": 1},
             final_permit=True
         )
-        
+
         store.save_decision(record)
-        
+
         # Verify canonical JSON key write
         r.set.assert_called_once()
         args, kwargs = r.set.call_args
@@ -80,7 +79,7 @@ class TestDecisionStore:
         saved = json.loads(args[1])
         assert saved["sid"] == "S1"
         assert kwargs["ex"] == 86400 * 3
-        
+
         # Load back
         loaded = store.load_decision("S1")
         assert r.get.called
@@ -93,14 +92,14 @@ class TestDecisionStore:
         from unittest.mock import MagicMock
         r = MagicMock()
         store = DecisionStore(redis_client=r)
-        
+
         record = DecisionRecord(
             sid="S2", symbol="ETH", ts=2000,
             final_permit=False
         )
-        
+
         store.publish_decision(record)
-        
+
         assert r.xadd.called
         args, kwargs = r.xadd.call_args
         assert args[0] == "decisions:final"

@@ -1,8 +1,10 @@
-import os
 import json
+import os
 import time
+
 import psycopg2
 import redis
+
 try:
     from core.redis_client import get_atr_redis
 except Exception:
@@ -27,7 +29,7 @@ def _safe_float(v, default=0.0):
 
 def _get_active_symbols(r: redis.Redis) -> list[str]:
     # Very heuristic. Normally we fetch from whitelist, or we fetch from allocator states.
-    # For now, let's grab all spread_ema keys 
+    # For now, let's grab all spread_ema keys
     keys = r.keys("spread_ema_half_bps:*")
     syms = set()
     for k in keys:
@@ -63,7 +65,7 @@ def _read_dt_quality(r: redis.Redis, symbol: str) -> list[str]:
     drift = r.get(f"feature_drift:active:{symbol}")
     if drift == "1" and os.getenv("ATR_POLICY_STRESS_USE_DRIFT_GATE", "1") == "1":
          flags.append("drift_lock")
-         
+
     # Stale book or tick gap
     stale = r.get(f"state:data_quality:stale_book:{symbol}")
     if stale == "1":
@@ -84,7 +86,7 @@ def run_once() -> int:
     slip_shock_thr = _safe_float(os.getenv("ATR_POLICY_STRESS_SLIPPAGE_THR_BPS", "15.0"))
     spread_shock_thr = _safe_float(os.getenv("ATR_POLICY_STRESS_SPREAD_THR_BPS", "20.0"))
     depth_floor = _safe_float(os.getenv("ATR_POLICY_STRESS_DEPTH_FLOOR", "5000.0"))
-    
+
     use_slip = os.getenv("ATR_POLICY_STRESS_USE_SLIPPAGE_EMA", "1") == "1"
     use_spread = os.getenv("ATR_POLICY_STRESS_USE_DEPTH_SPREAD", "1") == "1"
 
@@ -92,7 +94,7 @@ def run_once() -> int:
     portfolio_stress_active = (r.get("state:atr_portfolio:stress_active") == "1")
 
     evts = []
-    
+
     conn = None
     try:
         conn = psycopg2.connect(_dsn(), connect_timeout=5, application_name="atr_policy_regime_classifier")
@@ -103,13 +105,13 @@ def run_once() -> int:
         if conn:
             with conn.cursor() as cur:
                  cur.execute("UPDATE atr_policy_regime_states SET is_current=false WHERE is_current=true")
-                 
+
         for symbol in symbols:
             # Gather execution proxies
             spread_half = _safe_float(r.get(f"spread_ema_half_bps:{symbol}"))
             spread_bps = spread_half * 2.0
             slip_bps = _safe_float(r.get(f"slippage_ema:{symbol}") or 0.0) # depends on your actual key
-            
+
             # depth approx
             depth_ask = _safe_float(r.get(f"depth_ask_5:{symbol}") or 999999.0)
             depth_bid = _safe_float(r.get(f"depth_bid_5:{symbol}") or 999999.0)
@@ -123,16 +125,16 @@ def run_once() -> int:
             r_regime = r.get(f"state:atr_regime_raw:{symbol}")
             if r_regime in {"trend_up", "trend_down", "chop", "expansion"}:
                  regime = r_regime
-                 
+
             # Hierarchy of stress
             stress = "normal"
             reason = ""
-            
+
             if "drift_lock" in dq_flags:
                  stress = "drift_lock"
                  reason = "Feature drift active"
             elif "tick_gap_critical" in dq_flags:
-                 stress = "drift_lock" 
+                 stress = "drift_lock"
                  reason = "Data quality tick gap critical"
             elif venue_stress_active:
                  stress = "venue_stress"
@@ -149,7 +151,7 @@ def run_once() -> int:
             elif use_spread and (spread_bps > spread_shock_thr or depth_top5 < depth_floor):
                  stress = "liquidity_shock"
                  reason = f"Spread/Depth breached thresholds ({spread_bps:.2f}bps / ${depth_top5:.0f})"
-                 
+
             # Action deduction (just for internal tagging, the explicit config is used in the gate)
             action = "allow"
             if stress != "normal":
@@ -160,7 +162,7 @@ def run_once() -> int:
             if prev_stress != stress:
                  evts.append((symbol, regime, stress, action, "STATE_TRANSITION", reason))
                  r.set(f"state:atr_stress:{symbol}", stress)
-                 
+
             if r.get(f"state:atr_regime:{symbol}") != regime:
                  r.set(f"state:atr_regime:{symbol}", regime)
 
@@ -172,7 +174,7 @@ def run_once() -> int:
                           source, symbol, regime, stress_state, confidence, state_json, is_current, created_at_ms, updated_at_ms
                         ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, true, %s, %s)
                      """, (
-                        "CryptoOrderFlow", symbol, regime, stress, 1.0, 
+                        "CryptoOrderFlow", symbol, regime, stress, 1.0,
                         json.dumps(state_json), int(time.time()*1000), int(time.time()*1000)
                      ))
 

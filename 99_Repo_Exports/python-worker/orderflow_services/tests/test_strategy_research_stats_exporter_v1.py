@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 from orderflow_services.strategy_research_stats_exporter_v1 import _reason_kind
 
 

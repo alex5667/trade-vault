@@ -1,4 +1,3 @@
-import pytest
 
 
 def test_finalize_decision_veto_sets_reason_and_decision():

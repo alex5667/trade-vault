@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import redis
 
@@ -27,7 +27,7 @@ def _safe_str(v: Any, default: str = "") -> str:
         return default
 
 
-def _compact_tag(obj: Dict[str, Any]) -> str:
+def _compact_tag(obj: dict[str, Any]) -> str:
     base = "|".join([
         _safe_str(obj.get("policy_source")),
         _safe_str(obj.get("symbol")).upper(),
@@ -41,7 +41,7 @@ def _compact_tag(obj: Dict[str, Any]) -> str:
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:12]
 
 
-def build_policy_provenance(signal: Dict[str, Any]) -> Dict[str, Any]:
+def build_policy_provenance(signal: dict[str, Any]) -> dict[str, Any]:
     meta = signal.get("meta", {}) if isinstance(signal.get("meta"), dict) else {}
     pol = meta.get("atr_policy_snapshot", {}) if isinstance(meta.get("atr_policy_snapshot"), dict) else {}
 

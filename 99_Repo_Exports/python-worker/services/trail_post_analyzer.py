@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Trail Post-Analyzer — MFE/MAE post-analysis per symbol × regime.
 
@@ -17,15 +18,13 @@ GPU-accelerated: uses CuPy for array operations when available (CUDA).
 Fallback: numpy on CPU if CuPy not installed or no GPU.
 Fail-open: never raises on Redis/data errors.
 """
-from utils.time_utils import get_ny_time_millis
-
-import math
 import os
-import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from common.log import setup_logger
+from utils.time_utils import get_ny_time_millis
 
 logger = setup_logger("TrailPostAnalyzer")
 
@@ -56,23 +55,23 @@ def _env_bool(name: str, default: bool) -> bool:
 def _sf(v: Any, default: float = 0.0) -> float:
     try:
         if v is None:
-            return float(default)
+            return default
         return float(str(v).strip())
     except Exception:
-        return float(default)
+        return default
 
 
 def _si(v: Any, default: int = 0) -> int:
     try:
         if v is None:
-            return int(default)
+            return default
         return int(float(str(v).strip()))
     except Exception:
-        return int(default)
+        return default
 
 
 def _sb(v: Any) -> bool:
-    s = str(v or "").strip().lower()
+    s = (v or "").strip().lower()
     return s in ("1", "true", "yes", "y", "on")
 
 
@@ -111,7 +110,7 @@ def _pstdev(values: Sequence[float]) -> float:
     return float(xp.std(arr))
 
 
-def _gpu_bucket_stats(values: Sequence[float]) -> Dict[str, float]:
+def _gpu_bucket_stats(values: Sequence[float]) -> dict[str, float]:
     """Compute all stats for a values array on GPU in one pass."""
     if not values:
         return {"mean": 0.0, "median": 0.0, "std": 0.0, "p25": 0.0, "p50": 0.0, "p75": 0.0}
@@ -140,7 +139,7 @@ class TrailAnalyzerConfig:
     ttl_sec: int
 
     @classmethod
-    def from_env(cls) -> "TrailAnalyzerConfig":
+    def from_env(cls) -> TrailAnalyzerConfig:
         return cls(
             enabled=_env_bool("TRAIL_ANALYZER_ENABLED", True),
             lookback_days=_si(os.getenv("TRAIL_ANALYZER_LOOKBACK_DAYS", "7"), 7),
@@ -182,8 +181,8 @@ class TrailAnalysisBucket:
     # Timestamp
     computed_at_ms: int
 
-    def to_redis_mapping(self) -> Dict[str, str]:
-        d: Dict[str, str] = {}
+    def to_redis_mapping(self) -> dict[str, str]:
+        d: dict[str, str] = {}
         for k, v in asdict(self).items():
             d[k] = str(v)
         return d
@@ -217,11 +216,11 @@ class TrailPostAnalyzer:
     Writes results to Redis hashes: trail:analysis:{symbol}:{regime}.
     """
 
-    def __init__(self, redis_client: Any, *, cfg: Optional[TrailAnalyzerConfig] = None):
+    def __init__(self, redis_client: Any, *, cfg: TrailAnalyzerConfig | None = None):
         self.redis = redis_client
         self.cfg = cfg or TrailAnalyzerConfig.from_env()
 
-    def run(self, symbols: Optional[List[str]] = None) -> List[TrailAnalysisBucket]:
+    def run(self, symbols: list[str] | None = None) -> list[TrailAnalysisBucket]:
         """
         Main entry point. Returns list of analysis buckets.
 
@@ -243,12 +242,12 @@ class TrailPostAnalyzer:
             trades = [t for t in trades if t.symbol in syms]
 
         # Group by symbol × regime
-        buckets: Dict[str, List[_ParsedTrade]] = {}
+        buckets: dict[str, list[_ParsedTrade]] = {}
         for t in trades:
             key = f"{t.symbol}:{t.regime}"
             buckets.setdefault(key, []).append(t)
 
-        results: List[TrailAnalysisBucket] = []
+        results: list[TrailAnalysisBucket] = []
         for key, bucket_trades in buckets.items():
             bucket = self._analyze_bucket(bucket_trades)
             if bucket:
@@ -261,7 +260,7 @@ class TrailPostAnalyzer:
         )
         return results
 
-    def _load_trades(self) -> List[_ParsedTrade]:
+    def _load_trades(self) -> list[_ParsedTrade]:
         """Load trades from trades:closed stream within lookback window."""
         if self.redis is None:
             return []
@@ -278,7 +277,7 @@ class TrailPostAnalyzer:
             has_hydrator = False
             hydrate_trade_closed_batch = None
 
-        trades: List[_ParsedTrade] = []
+        trades: list[_ParsedTrade] = []
         CHUNK = 2000
         MAX_SCAN = 500_000
         last_id = "+"
@@ -325,7 +324,7 @@ class TrailPostAnalyzer:
         logger.info("Loaded %d valid trades (scanned %d entries)", len(trades), total_scanned)
         return trades
 
-    def _parse_trade(self, fields: Dict[str, str]) -> Optional[_ParsedTrade]:
+    def _parse_trade(self, fields: dict[str, str]) -> _ParsedTrade | None:
         """Parse a single trade from stream fields."""
         symbol = (fields.get("symbol") or "").upper()
         if not symbol:
@@ -379,7 +378,7 @@ class TrailPostAnalyzer:
             close_reason=cr,
         )
 
-    def _analyze_bucket(self, trades: List[_ParsedTrade]) -> Optional[TrailAnalysisBucket]:
+    def _analyze_bucket(self, trades: list[_ParsedTrade]) -> TrailAnalysisBucket | None:
         """Analyze one symbol × regime bucket. GPU-vectorized."""
         if not trades:
             return None
@@ -486,8 +485,8 @@ class TrailPostAnalyzer:
             logger.error("Failed to write %s: %s", key, e)
 
     @staticmethod
-    def _norm_map(m: Dict[str, Any]) -> Dict[str, str]:
-        out: Dict[str, str] = {}
+    def _norm_map(m: dict[str, Any]) -> dict[str, str]:
+        out: dict[str, str] = {}
         for k, v in (m or {}).items():
             if v is None:
                 continue
@@ -499,7 +498,7 @@ class TrailPostAnalyzer:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def format_telegram_report(buckets: List[TrailAnalysisBucket]) -> str:
+    def format_telegram_report(buckets: list[TrailAnalysisBucket]) -> str:
         """Format analysis results for Telegram."""
         if not buckets:
             return "📊 <b>Trail Analysis Report</b>\n\nNo data — insufficient trades."
@@ -507,7 +506,7 @@ class TrailPostAnalyzer:
         lines = ["📊 <b>Trail Analysis Report</b> (post-analysis)\n"]
 
         # Group by symbol
-        by_sym: Dict[str, List[TrailAnalysisBucket]] = {}
+        by_sym: dict[str, list[TrailAnalysisBucket]] = {}
         for b in buckets:
             by_sym.setdefault(b.symbol, []).append(b)
 

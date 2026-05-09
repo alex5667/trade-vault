@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 
 def is_transient_error(e: BaseException) -> bool:
     """
@@ -11,15 +9,18 @@ def is_transient_error(e: BaseException) -> bool:
     """
     # --- Типы исключений (первичный сигнал) ---
     try:
-        import redis
         from redis.exceptions import (
-            ConnectionError as RedisConnectionError,
-            TimeoutError as RedisTimeoutError,
             BusyLoadingError,
-            TryAgainError,
             ClusterDownError,
             MasterDownError,
             ReadOnlyError,
+            TryAgainError,
+        )
+        from redis.exceptions import (
+            ConnectionError as RedisConnectionError,
+        )
+        from redis.exceptions import (
+            TimeoutError as RedisTimeoutError,
         )
 
         if isinstance(

@@ -1,25 +1,24 @@
 from __future__ import annotations
 
-import logging
 import json
-import time
-from typing import Any, Dict, List, Optional, Protocol, Tuple
+import logging
+from typing import Any, Protocol
 
 import redis
 
-from .models import NewsRawItem, NewsAnalysisCompact
-from .redis_streams import ensure_group, xreadgroup_block, xack, xadd_trim
-from .tags import tags_to_mask, pick_primary_tag
-from .utils import now_ms, safe_float
 from . import config
 from .llm_client import GeminiClient, LLMClient
-
+from .models import NewsAnalysisCompact, NewsRawItem
+from .redis_streams import ensure_group, xack, xadd_trim, xreadgroup_block
+from .tags import pick_primary_tag, tags_to_mask
+from .utils import now_ms
+import contextlib
 
 log = logging.getLogger("news-analyzer")
 
 
 class LLMClient(Protocol):
-    def analyze_news(self, item: NewsRawItem) -> Dict[str, Any]:
+    def analyze_news(self, item: NewsRawItem) -> dict[str, Any]:
         """
         Вернуть dict (тяжёлое):
         {
@@ -47,7 +46,7 @@ class GeminiClient:
         self.api_key = api_key
         self.model = model
 
-    def analyze_news(self, item: NewsRawItem) -> Dict[str, Any]:
+    def analyze_news(self, item: NewsRawItem) -> dict[str, Any]:
         if not self.api_key:
             # fail-open: если ключа нет — отдаём нейтральный анализ
             return {"summary": "", "risk": 0.0, "surprise": 0.0, "tags": [], "confidence": 0.0}
@@ -201,7 +200,5 @@ class NewsAnalyzerService:
                         except Exception:
                             pass
                         # чтобы не зависало в pending — ack
-                        try:
+                        with contextlib.suppress(Exception):
                             xack(self.r, config.NEWS_RAW_STREAM, config.NEWS_ANALYZER_GROUP, msg_id)
-                        except Exception:
-                            pass

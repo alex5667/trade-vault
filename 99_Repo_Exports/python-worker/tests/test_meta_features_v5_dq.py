@@ -1,6 +1,8 @@
 
 import unittest
-from core.meta_features_v5 import build_meta_features_v5, META_FEAT_V5_NEW_COLS
+
+from core.meta_features_v5 import META_FEAT_V5_NEW_COLS, build_meta_features_v5
+
 
 class TestMetaFeaturesV5DQ(unittest.TestCase):
     def test_dq_keys_present(self):
@@ -15,7 +17,7 @@ class TestMetaFeaturesV5DQ(unittest.TestCase):
             "tick_time_age_abs_ema_ms": 123.45
         }
         feat, missing = build_meta_features_v5(evidence, {}, ml_scenario="test")
-        
+
         self.assertEqual(feat["tick_event_age_abs_ema_ms"], 123.45)
         self.assertNotIn("tick_event_age_abs_ema_ms", missing)
 
@@ -26,7 +28,7 @@ class TestMetaFeaturesV5DQ(unittest.TestCase):
             "tick_time_age_abs_ema_ms": 111.0
         }
         feat, missing = build_meta_features_v5(evidence, {}, ml_scenario="test")
-        
+
         self.assertEqual(feat["tick_event_age_abs_ema_ms"], 999.0)
 
     def test_new_dq_keys_extraction(self):
@@ -36,7 +38,7 @@ class TestMetaFeaturesV5DQ(unittest.TestCase):
             "tick_ts_source_stream_id_ema": 5.0
         }
         feat, missing = build_meta_features_v5(evidence, {}, ml_scenario="test")
-        
+
         self.assertEqual(feat["tick_ts_source_now_ema"], 1000.0)
         self.assertEqual(feat["tick_ts_source_stream_id_ema"], 5.0)
         self.assertNotIn("tick_ts_source_now_ema", missing)

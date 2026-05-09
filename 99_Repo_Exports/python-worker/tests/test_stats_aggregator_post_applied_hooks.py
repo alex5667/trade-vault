@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from typing import Any, Dict
-
 import os
+from collections import defaultdict
+from typing import Any
 
 from services.stats_aggregator import _post_applied_hooks
 
 
 class FakeRedis:
     def __init__(self) -> None:
-        self.h: Dict[str, Dict[str, int]] = defaultdict(dict)
+        self.h: dict[str, dict[str, int]] = defaultdict(dict)
 
-    def pipeline(self, transaction: bool = False) -> "FakeRedis":
+    def pipeline(self, transaction: bool = False) -> FakeRedis:
         return self
 
     def hincrby(self, key: str, field: str, amount: int) -> int:

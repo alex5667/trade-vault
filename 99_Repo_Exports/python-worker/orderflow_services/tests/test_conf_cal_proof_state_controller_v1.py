@@ -11,7 +11,7 @@ def _write_status(p: Path, *, ts_ms: int, ok=True, skipped=False, guard_passed=T
                 "ts_ms": ts_ms,
                 "ok": bool(ok),
                 "skipped": bool(skipped),
-                "skip_reason": str(skip_reason),
+                "skip_reason": skip_reason,
                 "guard_passed": guard_passed,
                 "guard": {"fail": (guard_passed is False), "reasons": ["ece_worse"] if guard_passed is False else []},
             }
@@ -30,8 +30,8 @@ def test_proof_controller_good_then_ramp(tmp_path: Path):
 
     ctl = ProofStateController(
         reports_dir=str(reports),
-        proof_path=str(proof_path),
-        state_path=str(state_path),
+        proof_path=proof_path,
+        state_path=state_path,
         min_good_runs=2,
         min_bad_runs=2,
         max_live_age_sec=999999,
@@ -71,8 +71,8 @@ def test_proof_controller_bad_disables(tmp_path: Path):
 
     ctl = ProofStateController(
         reports_dir=str(reports),
-        proof_path=str(proof_path),
-        state_path=str(state_path),
+        proof_path=proof_path,
+        state_path=state_path,
         min_good_runs=1,
         min_bad_runs=2,
         max_live_age_sec=999999,

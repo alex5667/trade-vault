@@ -1,15 +1,15 @@
 from __future__ import annotations
-\
 
 import argparse
 import json
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
-from core.ml_metrics_utils import quantiles, ks_statistic
+from core.ml_metrics_utils import ks_statistic, quantiles
 
-def load_preds(path: str) -> Dict[str, Dict[str, Any]]:
+
+def load_preds(path: str) -> dict[str, dict[str, Any]]:
     m = {}
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line=line.strip()
             if not line:

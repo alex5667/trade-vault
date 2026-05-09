@@ -1,8 +1,6 @@
 # news_pipeline/grade.py
 from __future__ import annotations
 
-from typing import Any
-
 # Grade semantics (used by consumers):
 #   0 = none/ignore
 #   1 = low

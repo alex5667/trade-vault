@@ -1,6 +1,9 @@
-import pytest
-import json
-from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_bundle_rca_bridge_v3_28 import route_decision, prepare_vertex_payload, prepare_local_payload
+from orderflow_services.route_incident_rca_mirror_rca_winner_apply_apply_bundle_rca_bridge_v3_28 import (
+    prepare_local_payload,
+    prepare_vertex_payload,
+    route_decision,
+)
+
 
 def test_route_decision_auto_vertex_healthy():
     decision, reason = route_decision("AUTO", vertex_healthy=True, req_degraded=True, bundle_bytes=1000, severity="critical")
@@ -11,7 +14,7 @@ def test_route_decision_auto_vertex_degraded():
     decision, reason = route_decision("AUTO", vertex_healthy=False, req_degraded=True, bundle_bytes=1000, severity="warning")
     assert decision == "ROUTE_LOCAL"
     assert reason == "vertex_degraded"
-    
+
 def test_route_decision_too_large():
     decision, reason = route_decision("AUTO", vertex_healthy=True, req_degraded=True, bundle_bytes=99999999, severity="warning")
     assert decision == "REJECT"

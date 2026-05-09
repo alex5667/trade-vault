@@ -1,5 +1,5 @@
 import logging
-from typing import Dict
+
 from services.orderflow.metrics import log_silent_error
 
 logger = logging.getLogger("crypto_orderflow.calibration_service")
@@ -90,7 +90,7 @@ class CalibrationService:
         except Exception as exc:
             log_silent_error(exc, "persist_failure", runtime.symbol, "calib_svc:persist_atr_sanity")
 
-    async def persist_atr_tf_choice(self, runtime, choice_state: Dict, ts_ms: int) -> None:
+    async def persist_atr_tf_choice(self, runtime, choice_state: dict, ts_ms: int) -> None:
         """
         Saves ATR TF choice.
         """

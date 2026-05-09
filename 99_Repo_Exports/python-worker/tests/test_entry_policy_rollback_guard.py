@@ -1,13 +1,14 @@
 import asyncio
 import json
-import pytest
+
 from services.entry_policy_rollback_guard_v1 import EntryPolicyRollbackGuardV1
+
 
 class FakePipeline:
     def __init__(self, red):
         self.red = red
         self.cmds = []
-    
+
     def lpush(self, k, v):
         self.cmds.append(("lpush", k, v))
         return self
@@ -38,18 +39,18 @@ class FakeRedis:
         self.kv = {}
         self.lists = {}
         self.stream = []
-    
-    def pipeline(self): 
+
+    def pipeline(self):
         return FakePipeline(self)
-    
-    async def get(self, k): 
+
+    async def get(self, k):
         return self.kv.get(k)
-        
+
     async def set(self, k, v, ex=None, nx=False, px=None):
         if nx and k in self.kv: return None
         self.kv[k] = v
         return True
-        
+
     async def lrange(self, k, a, b):
         # simplistic slice handling for [0, -1]
         val = self.lists.get(k, [])

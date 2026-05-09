@@ -4,15 +4,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
 import psycopg2
 
-from typing import Tuple, Dict, Any, List, Iterable
-import shutil
-from pathlib import Path
-
 from tools.train_confidence_calibration import train
+import contextlib
 
 
 def _env(*names: str, default: str = "") -> str:
@@ -20,12 +22,12 @@ def _env(*names: str, default: str = "") -> str:
         v = os.getenv(n, "")
         if v:
             return str(v)
-    return str(default)
+    return default
 
 
-def _read_json(path: str) -> Dict[str, Any]:
+def _read_json(path: str) -> dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return dict(json.load(f) or {})
     except Exception:
         return {}
@@ -35,14 +37,14 @@ def _safe_int(x: Any, default: int = 0) -> int:
     try:
         return int(x)
     except Exception:
-        return int(default)
+        return default
 
 
 def _safe_float(x: Any, default: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
-        return float(default)
+        return default
 
 
 def _isfinite(x: float) -> bool:
@@ -52,7 +54,7 @@ def _isfinite(x: float) -> bool:
         return False
 
 
-def _weighted_mean(pairs: List[Tuple[float, float]]) -> float:
+def _weighted_mean(pairs: list[tuple[float, float]]) -> float:
     """
     pairs: [(value, weight), ...]
     """
@@ -70,7 +72,7 @@ def _weighted_mean(pairs: List[Tuple[float, float]]) -> float:
     return float(s / sw)
 
 
-def _weighted_quantile(pairs: List[Tuple[float, float]], q: float) -> float:
+def _weighted_quantile(pairs: list[tuple[float, float]], q: float) -> float:
     """
     Weighted quantile of values with weights.
     q in [0..1]. Returns nan if empty.
@@ -100,7 +102,7 @@ class State:
 
 def _load_state(path: str) -> State:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             o = json.load(f) or {}
         return State(trained_at=int(o.get("trained_at", 0) or 0), max_ts_epoch=float(o.get("max_ts_epoch", 0.0) or 0.0))
     except Exception:
@@ -133,7 +135,7 @@ def _count_new_eligible(conn, *, since_ts_epoch: float) -> int:
 
 def _read_calib_max_ts(path: str) -> float:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             o = json.load(f) or {}
         return float(o.get("max_ts_epoch", 0.0) or 0.0)
     except Exception:
@@ -154,7 +156,7 @@ def _history_name(prefix: str, trained_at: int) -> str:
     return f"{prefix}.{int(trained_at)}.json"
 
 
-def _list_history(dirp: str, prefix: str) -> List[str]:
+def _list_history(dirp: str, prefix: str) -> list[str]:
     try:
         xs = []
         for fn in os.listdir(dirp):
@@ -184,7 +186,7 @@ def _cleanup_keep_last(dirp: str, prefix: str, keep: int) -> None:
             pass
 
 
-def gate_decision(report: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+def gate_decision(report: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
     """
     Gate по global + top-K kind|symbol на val-slice (по n_val).
     По умолчанию режим "soft":
@@ -194,7 +196,7 @@ def gate_decision(report: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
       - brier должен улучшиться минимум на MIN_BRIER_IMPROVE (дельта <= -min_improve)
       - ece не ухудшать больше чем +MAX_ECE_UP
     """
-    mode = str(os.getenv("CONF_CAL_GATE_MODE", "soft") or "soft").lower()
+    mode = (os.getenv("CONF_CAL_GATE_MODE", "soft") or "soft").lower()
 
     # --- global thresholds ---
     max_brier_up = float(os.getenv("CONF_CAL_GATE_MAX_BRIER_UP", "0.002"))
@@ -212,7 +214,7 @@ def gate_decision(report: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
 
     # --- aggregated group gate (надежнее, чем "count fails") ---
     # Включено по умолчанию.
-    agg_enable = str(os.getenv("CONF_CAL_GATE_GROUP_AGG_ENABLE", "1") or "1").strip().lower() not in ("0", "false", "no", "off")
+    agg_enable = (os.getenv("CONF_CAL_GATE_GROUP_AGG_ENABLE", "1") or "1").strip().lower() not in ("0", "false", "no", "off")
     agg_q = float(os.getenv("CONF_CAL_GATE_GROUP_AGG_Q", "0.90"))
     agg_min_total_val = int(os.getenv("CONF_CAL_GATE_GROUP_AGG_MIN_TOTAL_VAL", "2000"))
     # Пороги для weighted mean
@@ -240,7 +242,7 @@ def gate_decision(report: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
         except Exception:
             return 0
 
-    def _get_delta(key: str) -> Tuple[float, float]:
+    def _get_delta(key: str) -> tuple[float, float]:
         dg = delta_groups.get(key, {}) or {}
         return (
             _safe_float(dg.get("brier", float("nan")), float("nan")),
@@ -251,7 +253,7 @@ def gate_decision(report: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
         db, de = _get_delta(key)
         return _isfinite(db) and _isfinite(de)
 
-    def _eval_global() -> Tuple[bool, str, Dict[str, Any]]:
+    def _eval_global() -> tuple[bool, str, dict[str, Any]]:
         n_val = _get_n_val("global")
         db, de = _get_delta("global")
 
@@ -280,8 +282,8 @@ def gate_decision(report: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
             if k and k != "global":
                 yield str(k)
 
-    def _select_topk() -> List[str]:
-        items: List[Tuple[int, str]] = []
+    def _select_topk() -> list[str]:
+        items: list[tuple[int, str]] = []
         for k in _iter_candidate_keys():
             n_val = _get_n_val(k)
             if n_val < min_val_group:
@@ -294,7 +296,7 @@ def gate_decision(report: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
             items = items[:topk]
         return [k for _, k in items]
 
-    def _eval_group(key: str) -> Tuple[bool, str, Dict[str, Any]]:
+    def _eval_group(key: str) -> tuple[bool, str, dict[str, Any]]:
         n_val = _get_n_val(key)
         db, de = _get_delta(key)
         if n_val < min_val_group:
@@ -322,12 +324,12 @@ def gate_decision(report: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
 
     # 2) group gate top-K
     keys = _select_topk()
-    group_results: List[Dict[str, Any]] = []
+    group_results: list[dict[str, Any]] = []
     hard_reject = False
     fails = 0
     # пары (delta, n_val) для агрегатных проверок
-    pairs_db: List[Tuple[float, float]] = []
-    pairs_de: List[Tuple[float, float]] = []
+    pairs_db: list[tuple[float, float]] = []
+    pairs_de: list[tuple[float, float]] = []
     total_val = 0.0
     for k in keys:
         ok, r, d = _eval_group(k)
@@ -357,7 +359,7 @@ def gate_decision(report: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
 
     # 2.05) top-M worst-case gate (самые массовые группы)
     # Более жёсткий и "точный": гарантируем, что ни один из крупнейших сегментов не регрессировал заметно.
-    topm_enable = str(os.getenv("CONF_CAL_GATE_GROUP_TOPM_ENABLE", "1") or "1").strip().lower() not in ("0", "false", "no", "off")
+    topm_enable = (os.getenv("CONF_CAL_GATE_GROUP_TOPM_ENABLE", "1") or "1").strip().lower() not in ("0", "false", "no", "off")
     topm = int(os.getenv("CONF_CAL_GATE_GROUP_TOPM", "3"))  # default: 3 (точнее чем 5)
     topm_min_val_group = int(os.getenv("CONF_CAL_GATE_GROUP_TOPM_MIN_VAL_GROUP", str(min_val_group)))
     topm_max_brier_up = float(os.getenv("CONF_CAL_GATE_GROUP_TOPM_MAX_BRIER_UP", "0.0035"))
@@ -365,7 +367,7 @@ def gate_decision(report: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
     topm_hard_brier_up = float(os.getenv("CONF_CAL_GATE_GROUP_TOPM_HARD_BRIER_UP", "0.02"))
     topm_hard_ece_up = float(os.getenv("CONF_CAL_GATE_GROUP_TOPM_HARD_ECE_UP", "0.08"))
 
-    topm_details: Dict[str, Any] = {
+    topm_details: dict[str, Any] = {
         "enabled": bool(topm_enable),
         "topm": int(topm),
         "min_val_group": int(topm_min_val_group),
@@ -427,7 +429,7 @@ def gate_decision(report: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
             topm_details["reason"] = "no_eligible_groups_for_topm"
 
     # 2.1) aggregated gate (weighted mean + weighted quantile)
-    agg_details: Dict[str, Any] = {"enabled": bool(agg_enable), "q": float(agg_q), "total_val": float(total_val)}
+    agg_details: dict[str, Any] = {"enabled": bool(agg_enable), "q": float(agg_q), "total_val": float(total_val)}
     if agg_enable and total_val >= float(agg_min_total_val):
         wmean_db = _weighted_mean(pairs_db)
         wmean_de = _weighted_mean(pairs_de)
@@ -527,8 +529,7 @@ def _backup_to_history(path: str, history_dir: str, keep: int = 50) -> str | Non
     try:
         files = sorted([x for x in hd.glob("*_confidence_calibration.json")], key=lambda x: x.name, reverse=True)
         for x in files[int(keep):]:
-            try: x.unlink()
-            except Exception: pass
+            with contextlib.suppress(Exception): x.unlink()
     except Exception:
         pass
     return str(dst)
@@ -580,7 +581,7 @@ def main() -> None:
         out_path=str(cand_path),
         min_samples=int(args.min_samples),
         val_days=int(args.val_days),
-        mode=str(os.getenv("CONF_CAL_ISO_MODE", "linear")),
+        mode=os.getenv("CONF_CAL_ISO_MODE", "linear"),
         baseline_path=baseline_path,
     )
 
@@ -598,10 +599,8 @@ def main() -> None:
         # сохраняем rejected candidate
         rname = _history_name("confidence_calibration", cand_trained_at or int(time.time()))
         dst = os.path.join(rej_dir, rname)
-        try:
+        with contextlib.suppress(Exception):
             os.replace(cand_path, dst)
-        except Exception:
-            pass
         try:
             if os.path.exists(cand_report_path):
                 os.replace(cand_report_path, dst + ".report.json")
@@ -638,14 +637,12 @@ def main() -> None:
     new_dst = os.path.join(hist_dir, new_name)
     try:
         # copy bytes
-        with open(out_path, "rb") as fsrc:
-            with open(new_dst, "wb") as fdst:
-                fdst.write(fsrc.read())
+        with open(out_path, "rb") as fsrc, open(new_dst, "wb") as fdst:
+            fdst.write(fsrc.read())
         rep_src = out_path + ".report.json"
         if os.path.exists(rep_src):
-            with open(rep_src, "rb") as fsrc:
-                with open(new_dst + ".report.json", "wb") as fdst:
-                    fdst.write(fsrc.read())
+            with open(rep_src, "rb") as fsrc, open(new_dst + ".report.json", "wb") as fdst:
+                fdst.write(fsrc.read())
     except Exception:
         pass
 
@@ -682,7 +679,7 @@ if __name__ == "__main__":
             sys.argv = full_args
         except Exception:
             pass
-            
+
         print(f"Starting auto_train_conf_calibration loop, interval={interval}s")
         while True:
             try:

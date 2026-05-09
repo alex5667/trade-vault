@@ -1,12 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -14,7 +16,6 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, start_http_server
-
 
 STREAM_IN = os.getenv("ML_OPERATOR_RCA_ROUTED_IN_STREAM", "stream:ml:operator_rca_requests_routed")
 STREAM_OUT = os.getenv("ML_OPERATOR_RCA_EXPERIMENT_OUT_STREAM", "stream:ml:operator_rca_requests_experimented")
@@ -60,7 +61,7 @@ def _hash_bucket(seed: str) -> float:
     return int(h, 16) / float(0xFFFFFFFFFFFFFFFF)
 
 
-def _normalize_weights(arms: Iterable[ArmSpec]) -> List[ArmSpec]:
+def _normalize_weights(arms: Iterable[ArmSpec]) -> list[ArmSpec]:
     lst = [a for a in arms if a.weight > 0.0]
     total = sum(a.weight for a in lst)
     if total <= 0:
@@ -68,26 +69,26 @@ def _normalize_weights(arms: Iterable[ArmSpec]) -> List[ArmSpec]:
     return [ArmSpec(**{**a.__dict__, "weight": a.weight / total}) for a in lst]
 
 
-def parse_experiment_arms(raw_json: str) -> List[ArmSpec]:
+def parse_experiment_arms(raw_json: str) -> list[ArmSpec]:
     data = _safe_json_loads(raw_json, [])
-    out: List[ArmSpec] = []
+    out: list[ArmSpec] = []
     for item in data:
         if not isinstance(item, dict):
             continue
         out.append(
             ArmSpec(
-                name=str(item.get("name", "control")),
+                name=(item.get("name", "control")),
                 weight=float(item.get("weight", 0.0) or 0.0),
-                provider=str(item.get("provider", "vertex")),
-                model_name=str(item.get("model_name", os.getenv("ML_OPERATOR_RCA_DEFAULT_MODEL", "gemini-2.5-flash-lite"))),
-                prompt_version=str(item.get("prompt_version", os.getenv("ML_OPERATOR_RCA_DEFAULT_PROMPT_VERSION", "ml_triage_v1"))),
-                policy_version=str(item.get("policy_version", os.getenv("ML_OPERATOR_RCA_DEFAULT_POLICY_VERSION", "policy_v1"))),
+                provider=(item.get("provider", "vertex")),
+                model_name=(item.get("model_name", os.getenv("ML_OPERATOR_RCA_DEFAULT_MODEL", "gemini-2.5-flash-lite"))),
+                prompt_version=(item.get("prompt_version", os.getenv("ML_OPERATOR_RCA_DEFAULT_PROMPT_VERSION", "ml_triage_v1"))),
+                policy_version=(item.get("policy_version", os.getenv("ML_OPERATOR_RCA_DEFAULT_POLICY_VERSION", "policy_v1"))),
             )
         )
     return _normalize_weights(out)
 
 
-def choose_arm(experiment_id: str, request_id: str, arms: List[ArmSpec]) -> Optional[ArmSpec]:
+def choose_arm(experiment_id: str, request_id: str, arms: list[ArmSpec]) -> ArmSpec | None:
     if not arms:
         return None
     x = _hash_bucket(f"{experiment_id}:{request_id}")
@@ -99,7 +100,7 @@ def choose_arm(experiment_id: str, request_id: str, arms: List[ArmSpec]) -> Opti
     return arms[-1]
 
 
-def build_experiment_assignment(payload: Dict[str, Any], experiment_id: str, arm: ArmSpec) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def build_experiment_assignment(payload: dict[str, Any], experiment_id: str, arm: ArmSpec) -> tuple[dict[str, Any], dict[str, Any]]:
     request_id = str(payload.get("request_id") or payload.get("analysis_run_id") or payload.get("recommendation_id") or "na")
     ts_ms = int(payload.get("ts_ms") or get_ny_time_millis())
     assigned = dict(payload)
@@ -120,8 +121,8 @@ def build_experiment_assignment(payload: Dict[str, Any], experiment_id: str, arm
         "model_name": arm.model_name,
         "prompt_version": arm.prompt_version,
         "policy_version": arm.policy_version,
-        "incident_id": str(payload.get("incident_id", "")),
-        "recommendation_id": str(payload.get("recommendation_id", "")),
+        "incident_id": (payload.get("incident_id", "")),
+        "recommendation_id": (payload.get("recommendation_id", "")),
     }
     return assigned, exposure
 

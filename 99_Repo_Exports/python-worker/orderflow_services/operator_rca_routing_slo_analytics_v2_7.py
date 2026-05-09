@@ -1,12 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from statistics import median
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -34,8 +36,8 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _to_str_dict(raw: Dict[Any, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _to_str_dict(raw: dict[Any, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
     for k, v in raw.items():
         ks = k.decode() if isinstance(k, bytes) else str(k)
         vs = v.decode() if isinstance(v, bytes) else str(v)
@@ -43,7 +45,7 @@ def _to_str_dict(raw: Dict[Any, Any]) -> Dict[str, str]:
     return out
 
 
-def _pctile(values: List[float], q: float) -> float:
+def _pctile(values: list[float], q: float) -> float:
     if not values:
         return 0.0
     arr = sorted(values)
@@ -56,8 +58,8 @@ def _pctile(values: List[float], q: float) -> float:
     return float(arr[lo] * (1.0 - frac) + arr[hi] * frac)
 
 
-def _reason_codes(success_rate: float, mttr_p95: float, breaches: int, cfg: Dict[str, Any]) -> List[str]:
-    codes: List[str] = []
+def _reason_codes(success_rate: float, mttr_p95: float, breaches: int, cfg: dict[str, Any]) -> list[str]:
+    codes: list[str] = []
     if success_rate < float(cfg["success_rate_min"]):
         codes.append("ROUTE_VERIFY_SUCCESS_RATE_LOW")
     if mttr_p95 > float(cfg["mttr_p95_max_sec"]):
@@ -77,9 +79,9 @@ class RoutingEvent:
     reason_code: str
 
 
-async def _read_recent(cli: "redis.Redis", stream: str, count: int) -> List[Dict[str, str]]:
+async def _read_recent(cli: redis.Redis, stream: str, count: int) -> list[dict[str, str]]:
     rows = await cli.xrevrange(stream, max="+", min="-", count=count)
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for _id, payload in rows:
         d = _to_str_dict(payload)
         d["stream_id"] = _id.decode() if isinstance(_id, bytes) else str(_id)
@@ -87,18 +89,18 @@ async def _read_recent(cli: "redis.Redis", stream: str, count: int) -> List[Dict
     return out
 
 
-def _extract_events(rows: Iterable[Dict[str, str]]) -> List[RoutingEvent]:
-    out: List[RoutingEvent] = []
+def _extract_events(rows: Iterable[dict[str, str]]) -> list[RoutingEvent]:
+    out: list[RoutingEvent] = []
     for r in rows:
         try:
             out.append(
                 RoutingEvent(
-                    recommendation_id=str(r.get("recommendation_id", "")),
-                    route_change_id=str(r.get("route_change_id", "")),
+                    recommendation_id=(r.get("recommendation_id", "")),
+                    route_change_id=(r.get("route_change_id", "")),
                     ts_ms=int(r.get("ts_ms", "0") or 0),
-                    verify_status=str(r.get("verify_status", "UNKNOWN")),
+                    verify_status=(r.get("verify_status", "UNKNOWN")),
                     rollback_required=int(r.get("rollback_required", "0") or 0),
-                    reason_code=str(r.get("reason_code", "")),
+                    reason_code=(r.get("reason_code", "")),
                 )
             )
         except Exception:
@@ -106,7 +108,7 @@ def _extract_events(rows: Iterable[Dict[str, str]]) -> List[RoutingEvent]:
     return out
 
 
-async def run_once(cli: "redis.Redis", cfg: Dict[str, Any]) -> Dict[str, Any]:
+async def run_once(cli: redis.Redis, cfg: dict[str, Any]) -> dict[str, Any]:
     t0 = time.perf_counter()
     win = int(cfg["window_count"])
     verify_rows = await _read_recent(cli, VERIFY_STREAM, win)
@@ -114,12 +116,12 @@ async def run_once(cli: "redis.Redis", cfg: Dict[str, Any]) -> Dict[str, Any]:
     events = _extract_events(verify_rows)
     rb = _extract_events(rb_rows)
 
-    rb_by_change: Dict[str, int] = {}
+    rb_by_change: dict[str, int] = {}
     for e in rb:
         if e.route_change_id:
             rb_by_change[e.route_change_id] = e.ts_ms
 
-    mttrs: List[float] = []
+    mttrs: list[float] = []
     success = 0
     failed = 0
     breaches = 0

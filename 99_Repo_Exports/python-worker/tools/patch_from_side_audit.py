@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Batch patch generator/applicator for side->sign conversions based on audit output.
 
@@ -23,7 +23,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,7 @@ class Finding:
     line: str
 
     @staticmethod
-    def from_obj(obj: Dict[str, Any]) -> "Finding":
+    def from_obj(obj: dict[str, Any]) -> Finding:
         return Finding(
             path=str(obj.get("path") or obj.get("file") or ""),
             lineno=int(obj.get("lineno") or obj.get("line_no") or obj.get("line") or 0),
@@ -43,13 +43,13 @@ class Finding:
         )
 
 
-def _load_audit_json(p: Path) -> List[Finding]:
+def _load_audit_json(p: Path) -> list[Finding]:
     data = json.loads(p.read_text(encoding="utf-8"))
     if isinstance(data, dict):
         data = data.get("findings") or data.get("results") or data.get("items") or []
     if not isinstance(data, list):
         raise ValueError("Audit JSON must be a list or dict with findings/results/items list.")
-    findings: List[Finding] = []
+    findings: list[Finding] = []
     for it in data:
         if isinstance(it, dict):
             f = Finding.from_obj(it)
@@ -58,7 +58,7 @@ def _load_audit_json(p: Path) -> List[Finding]:
     return findings
 
 
-def _extract_var_from_cond(cond: str) -> Optional[str]:
+def _extract_var_from_cond(cond: str) -> str | None:
     """Extract tick variable name from conditional expression."""
     m = re.search(r"\b([A-Za-z_]\w*)\s*(?:\.get\(|\[\s*['\"])side", cond)
     if m:
@@ -77,7 +77,7 @@ def _safe_tri_state_expr(side_var: str) -> str:
     return f'(1 if {side_var} == "BUY" else (-1 if {side_var} == "SELL" else 0))'
 
 
-def _fix_line(line: str) -> Tuple[str, bool, bool]:
+def _fix_line(line: str) -> tuple[str, bool, bool]:
     original = line
 
     # Default side fallback: ... or "BUY" -> ... or "UNKNOWN"
@@ -125,7 +125,7 @@ def _fix_line(line: str) -> Tuple[str, bool, bool]:
     return line, changed, _needs_side_sign_import(line)
 
 
-def _ensure_import(lines: List[str]) -> List[str]:
+def _ensure_import(lines: list[str]) -> list[str]:
     import_stmt = "from services.orderflow.side_sign import side_sign_from_tick\n"
     if any(l.strip() == import_stmt.strip() for l in lines):
         return lines
@@ -146,11 +146,11 @@ def _ensure_import(lines: List[str]) -> List[str]:
     return lines[:insert_at] + [import_stmt] + lines[insert_at:]
 
 
-def fix_file(path: Path, findings: List[Finding]) -> Tuple[Optional[str], Optional[str], bool]:
+def fix_file(path: Path, findings: list[Finding]) -> tuple[str | None, str | None, bool]:
     before = path.read_text(encoding="utf-8")
     lines = before.splitlines(keepends=True)
 
-    by_line: Dict[int, List[Finding]] = {}
+    by_line: dict[int, list[Finding]] = {}
     for f in findings:
         if f.lineno > 0:
             by_line.setdefault(f.lineno, []).append(f)
@@ -198,14 +198,14 @@ def make_unified_diff(rel_path: str, before: str, after: str) -> str:
     )
 
 
-def generate_patch(root: Path, findings: List[Finding]) -> str:
+def generate_patch(root: Path, findings: list[Finding]) -> str:
     root = root.resolve()
-    by_file: Dict[str, List[Finding]] = {}
+    by_file: dict[str, list[Finding]] = {}
     for f in findings:
         p = f.path.replace("\\", "/").lstrip("/")
         by_file.setdefault(p, []).append(f)
 
-    diffs: List[str] = []
+    diffs: list[str] = []
     for rel, f_list in sorted(by_file.items()):
         file_path = (root / rel).resolve()
         if not file_path.exists() or not file_path.is_file():
@@ -216,9 +216,9 @@ def generate_patch(root: Path, findings: List[Finding]) -> str:
     return "".join(diffs)
 
 
-def apply_patch_in_place(root: Path, findings: List[Finding], backup: bool = True) -> int:
+def apply_patch_in_place(root: Path, findings: list[Finding], backup: bool = True) -> int:
     root = root.resolve()
-    by_file: Dict[str, List[Finding]] = {}
+    by_file: dict[str, list[Finding]] = {}
     for f in findings:
         p = f.path.replace("\\", "/").lstrip("/")
         by_file.setdefault(p, []).append(f)

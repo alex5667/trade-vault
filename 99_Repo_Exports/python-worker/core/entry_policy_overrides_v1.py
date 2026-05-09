@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 EntryPolicyOverridesV1
 Strict schema for runtime overrides consumed by smt_entry_policy_service.
@@ -12,11 +13,12 @@ Design goals:
   - supports hold-down & hysteresis in consumer service
 """
 
-from utils.time_utils import get_ny_time_millis
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, Tuple, Optional
 import json
-import time
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+
 
 def _s(x: Any, d: str = "") -> str:
     try:
@@ -107,11 +109,11 @@ class EntryPolicyOverridesV1:
     ab_salt: str = "v1"
 
     # extensibility (forward-compatible)
-    extra: Dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
     # ---------------- Parsing ----------------
     @staticmethod
-    def from_json(raw: str) -> Tuple[Optional["EntryPolicyOverridesV1"], str]:
+    def from_json(raw: str) -> tuple[EntryPolicyOverridesV1 | None, str]:
         try:
             d = json.loads(raw or "")
             return EntryPolicyOverridesV1.from_dict(d)
@@ -119,7 +121,7 @@ class EntryPolicyOverridesV1:
             return None, f"bad_json:{e}"
 
     @staticmethod
-    def from_dict(d: Dict[str, Any]) -> Tuple[Optional["EntryPolicyOverridesV1"], str]:
+    def from_dict(d: dict[str, Any]) -> tuple[EntryPolicyOverridesV1 | None, str]:
         if not isinstance(d, dict):
             return None, "not_dict"
         try:
@@ -166,7 +168,7 @@ class EntryPolicyOverridesV1:
             return None, f"bad_fields:{e}"
 
     # ---------------- Validation ----------------
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         if int(self.v) != 1:
             return False, "bad_v"
         if str(self.kind).strip().lower() != "overrides_v1":

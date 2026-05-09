@@ -1,14 +1,16 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
+
+import logging
 import os
 import time
-import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
 
-from news_pipeline.stream_worker import StreamWorker
 from news_pipeline.postgres_writer import NewsPostgresWriter
+from news_pipeline.stream_worker import StreamWorker
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 log = logging.getLogger("calendar_store")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -37,7 +39,7 @@ def _i(v: Any, default: int = 0) -> int:
 
 def _s(v: Any) -> str:
     try:
-        return str(v or "").strip()
+        return (v or "").strip()
     except Exception:
         return ""
 
@@ -58,7 +60,7 @@ def importance_to_grade_id(importance: int) -> int:
         return 2
     return 4
 
-def map_scopes(currency: str, country: str, importance: int) -> List[str]:
+def map_scopes(currency: str, country: str, importance: int) -> list[str]:
     """
     Выбранная политика: важные события по USD/EUR/GBP/JPY/CNY -> всем классам.
     Иначе -> forex (+metals если medium/high).
@@ -87,7 +89,7 @@ class CalendarStoreWorker(StreamWorker):
       - Postgres calendar_events (сырье)
     """
 
-    def __init__(self, *, redis: redis.Redis, pg: Optional[NewsPostgresWriter] = None):
+    def __init__(self, *, redis: redis.Redis, pg: NewsPostgresWriter | None = None):
         super().__init__(
             redis=redis,
             stream=CAL_STREAM,
@@ -121,7 +123,7 @@ class CalendarStoreWorker(StreamWorker):
         except Exception:
             pass
 
-    def handle_message(self, msg_id: str, fields: Dict[str, Any]) -> None:
+    def handle_message(self, msg_id: str, fields: dict[str, Any]) -> None:
         uid = _s(fields.get("uid"))
         if not uid:
             return
@@ -147,7 +149,7 @@ class CalendarStoreWorker(StreamWorker):
 
         # 1) Postgres сырье (fail-open)
         if self.pg is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.pg.insert_calendar_event(
                     uid=uid,
                     event_ts_ms=event_ts_ms,
@@ -163,8 +165,6 @@ class CalendarStoreWorker(StreamWorker):
                     source=source,
                     payload_json=payload,
                 )
-            except Exception:
-                pass
 
         # 2) Redis agg: выбираем "next event" per scope
         now_ms = get_ny_time_millis()
@@ -179,7 +179,7 @@ class CalendarStoreWorker(StreamWorker):
             scope_norm = ac
             if scope_norm == "forex":
                 scope_norm = "fx"
-            
+
             key = f"calendar:agg:{scope_norm}"
             prev = self.r.hgetall(key) or {}
             prev_next = _i(prev.get("next_ts_ms"), 0)
@@ -203,10 +203,10 @@ class CalendarStoreWorker(StreamWorker):
                 })
                 pipe.expire(key, AGG_TTL_SEC)
                 pipe.execute()
-                
+
                 # Optional: insert feature snapshot into Postgres
                 if self.pg is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.pg.insert_calendar_feature_scope(
                             scope=scope_norm,
                             ts_ms=now_ms,
@@ -215,8 +215,6 @@ class CalendarStoreWorker(StreamWorker):
                             event_ref=uid,
                             event_tminus_sec=tminus
                         )
-                    except Exception:
-                        pass
 
 def main() -> None:
     try:

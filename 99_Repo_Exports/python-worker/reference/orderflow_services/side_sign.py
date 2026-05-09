@@ -21,10 +21,11 @@ Preferred inference order:
   3) UNKNOWN => sign=0
 """
 
-from typing import Any, Mapping, Tuple
+from collections.abc import Mapping
+from typing import Any
 
 
-def side_sign_from_tick(tick: Mapping[str, Any]) -> Tuple[int, str]:
+def side_sign_from_tick(tick: Mapping[str, Any]) -> tuple[int, str]:
     """
     Returns (sign, reason).
 
@@ -39,7 +40,7 @@ def side_sign_from_tick(tick: Mapping[str, Any]) -> Tuple[int, str]:
             # buyer is maker => SELL aggressor (taker) ; buyer not maker => BUY aggressor
             return (-1, "maker_sell") if ibm else (1, "maker_buy")
 
-        side = str(tick.get("side") or "").strip().upper()
+        side = (tick.get("side") or "").strip().upper()
         if side == "BUY":
             return (1, "side_buy")
         if side == "SELL":

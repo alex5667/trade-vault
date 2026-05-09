@@ -1,18 +1,20 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import html
 import json
 import os
 import socket
-import time
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
 
 from common.redis_errors import retry_redis_operation
+from domain.evidence_keys import MetaKeys
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 
 def _now_ms() -> int:
@@ -37,7 +39,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     xs = sorted(xs)
@@ -46,9 +48,9 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 600000) -> List[Dict[str, Any]]:
+def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 600000) -> list[dict[str, Any]]:
     end_ms = start_ms + window_ms
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -86,15 +88,15 @@ def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: i
     return rows
 
 
-def _scenario_key(r: Dict[str, Any]) -> str:
-    sv4 = str(r.get("scenario_v4", "") or "")
+def _scenario_key(r: dict[str, Any]) -> str:
+    sv4 = (r.get("scenario_v4", "") or "")
     if sv4:
         return sv4
-    s = str(r.get("scenario", "") or "")
+    s = (r.get("scenario", "") or "")
     return s or "na"
 
 
-def _parse_missing_legs(r: Dict[str, Any]) -> List[str]:
+def _parse_missing_legs(r: dict[str, Any]) -> list[str]:
     x = r.get("missing_legs", "")
     if not x:
         return []
@@ -109,18 +111,18 @@ def _parse_missing_legs(r: Dict[str, Any]) -> List[str]:
     return []
 
 
-def _dist_l1(p: Dict[str, float], q: Dict[str, float]) -> float:
+def _dist_l1(p: dict[str, float], q: dict[str, float]) -> float:
     keys = set(p.keys()) | set(q.keys())
     return float(sum(abs(p.get(k, 0.0) - q.get(k, 0.0)) for k in keys))
 
 
-def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *, dh_bad_th: float) -> Dict[str, Any]:
+def compute_stats(rows: list[dict[str, Any]], prev: dict[str, Any] | None, *, dh_bad_th: float) -> dict[str, Any]:
     n = len(rows)
     ok = 0
     soft = 0
-    lat: List[float] = []
-    ml_lat: List[float] = []
-    execn: List[float] = []
+    lat: list[float] = []
+    ml_lat: list[float] = []
+    execn: list[float] = []
     meta_veto = 0
     book_bad = 0
     src_bad = 0
@@ -142,7 +144,7 @@ def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *,
         if en > 0:
             execn.append(en)
 
-        meta_veto += 1 if _i(r.get("meta_veto", 0), 0) == 1 else 0
+        meta_veto += 1 if _i(r.get(MetaKeys.VETO, 0), 0) == 1 else 0
         book_bad += 1 if _i(r.get("book_health_ok", 1), 1) == 0 else 0
         src_bad += 1 if _i(r.get("source_consistency_ok", 1), 1) == 0 else 0
         dh = _f(r.get("data_health", 1.0), 1.0)
@@ -155,7 +157,7 @@ def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *,
     ok_rate = (ok / n) if n > 0 else 0.0
     soft_rate = (soft / n) if n > 0 else 0.0
 
-    scen_dist: Dict[str, float] = {}
+    scen_dist: dict[str, float] = {}
     if n > 0:
         for k, c in scen.items():
             scen_dist[k] = float(c) / float(n)
@@ -198,8 +200,8 @@ def compute_stats(rows: List[Dict[str, Any]], prev: Optional[Dict[str, Any]], *,
     return out
 
 
-def build_alerts(stats: Dict[str, Any], *, cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
-    alerts: List[Dict[str, Any]] = []
+def build_alerts(stats: dict[str, Any], *, cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    alerts: list[dict[str, Any]] = []
     n = _i(stats.get("n", 0), 0)
     min_n = _i(cfg.get("min_n", 200), 200)
 
@@ -242,7 +244,7 @@ def build_alerts(stats: Dict[str, Any], *, cfg: Dict[str, Any]) -> List[Dict[str
     return alerts
 
 
-def _fmt(stats: Dict[str, Any], alerts: List[Dict[str, Any]], *, window_min: int) -> str:
+def _fmt(stats: dict[str, Any], alerts: list[dict[str, Any]], *, window_min: int) -> str:
     hostname = socket.gethostname()
     pid = os.getpid()
 
@@ -308,14 +310,14 @@ class AlertManager:
         self.key = key
         self.cooldown_ms = cooldown_sec * 1000
 
-    def filter(self, current_alerts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def filter(self, current_alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Returns only alerts that should be fired (new or cooldown expired).
         Updates state for fired alerts.
         Clears state for alerts that are no longer active.
         """
         now = _now_ms()
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
 
         # Load current state
         try:
@@ -337,10 +339,8 @@ class AlertManager:
                 out.append(alert)
                 # Update state immediately (optimistic)
                 state[code] = now
-                try:
+                with contextlib.suppress(Exception):
                     self.r.hset(self.key, code, str(now))
-                except Exception:
-                    pass
 
         # 2. Clear state for resolved alerts
         # (If a code is in state but not in current_codes, it's resolved)
@@ -350,10 +350,8 @@ class AlertManager:
                 resolved.append(code)
 
         if resolved:
-            try:
+            with contextlib.suppress(Exception):
                 self.r.hdel(self.key, *resolved)
-            except Exception:
-                pass
 
         return out
 
@@ -362,7 +360,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--metrics-stream", default=os.getenv("OF_GATE_METRICS_STREAM", "metrics:of_gate"))
-    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"))
+    ap.add_argument("--notify-stream", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM))
     ap.add_argument("--state-key", default=os.getenv("SRE_OF_GATE_STATE_KEY", "sre:of_gate:last_stats"))
     ap.add_argument("--alert-state-key", default=os.getenv("SRE_OF_GATE_ALERT_STATE_KEY", "sre:of_gate:alert_state"))
     ap.add_argument("--cooldown-sec", type=int, default=int(os.getenv("SRE_OF_GATE_ALERT_COOLDOWN_SEC", "1800")))
@@ -390,7 +388,7 @@ def main() -> None:
     start_ms = _now_ms() - window_ms
     rows = _read_stream_window(r, args.metrics_stream, start_ms, window_ms)
 
-    prev: Optional[Dict[str, Any]] = None
+    prev: dict[str, Any] | None = None
     try:
         blob = retry_redis_operation(
             operation=lambda: r.get(args.state_key),

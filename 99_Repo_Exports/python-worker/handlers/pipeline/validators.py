@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Optional
-import os
 import math
+import os
+from dataclasses import dataclass
+from typing import Any
 
 
 def _f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
 
 def _clamp01(x: float) -> float:
@@ -30,7 +30,7 @@ class Adjustment:
 
 
 class KindValidator:
-    def adjust(self, *, kind: str, ctx: Any, side: int, level_price: Optional[float]) -> Adjustment:
+    def adjust(self, *, kind: str, ctx: Any, side: int, level_price: float | None) -> Adjustment:
         return Adjustment(False, 1.0, [], "noop", {})
 
 
@@ -47,7 +47,7 @@ class BreakoutValidator(KindValidator):
         self.c2t_bad = float(os.getenv("BO_CANCEL_TO_TRADE_BAD", "4.0"))
         self.c2t_veto_taker = float(os.getenv("BO_CANCEL_TO_TRADE_VETO_TAKER", "0.35"))
 
-    def adjust(self, *, kind: str, ctx: Any, side: int, level_price: Optional[float]) -> Adjustment:
+    def adjust(self, *, kind: str, ctx: Any, side: int, level_price: float | None) -> Adjustment:
         flags: list[str] = []
         parts: dict[str, float] = {}
         veto = False
@@ -89,7 +89,7 @@ class AbsorptionValidator(KindValidator):
         self.min_taker = float(os.getenv("AB_MIN_TAKER_RATE", "0.45"))
         self.fail_mult = float(os.getenv("AB_FAIL_MULT", "0.0"))  # 0.0 => veto
 
-    def adjust(self, *, kind: str, ctx: Any, side: int, level_price: Optional[float]) -> Adjustment:
+    def adjust(self, *, kind: str, ctx: Any, side: int, level_price: float | None) -> Adjustment:
         flags: list[str] = []
         parts: dict[str, float] = {}
 
@@ -132,7 +132,7 @@ class OBISpikeValidator(KindValidator):
         self.c2t_penalty = float(os.getenv("OBI_C2T_PENALTY_MULT", "0.55"))
         self.spread_scale_bps = float(os.getenv("OBI_SPREAD_SCALE_BPS", "40.0"))
 
-    def adjust(self, *, kind: str, ctx: Any, side: int, level_price: Optional[float]) -> Adjustment:
+    def adjust(self, *, kind: str, ctx: Any, side: int, level_price: float | None) -> Adjustment:
         flags: list[str] = []
         parts: dict[str, float] = {}
         mult = 1.0

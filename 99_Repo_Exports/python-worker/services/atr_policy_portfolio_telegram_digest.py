@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import os
+
 import psycopg2
 import psycopg2.extras
 import redis
+
 try:
     from core.redis_client import get_atr_redis
 except Exception:
     get_atr_redis = None
 from common.log import setup_logger
+from core.redis_keys import STREAM_RETENTION
+from core.redis_keys import RedisStreams as RS
 
 logger = setup_logger("portfolio_tg_digest")
 
@@ -48,7 +52,7 @@ def run_once() -> bool:
             lines.append(
                 f"- {r['factor_cluster']} | denied_risk={float(r['denied_risk_pct'] or 0):.2f}% | n={r['n_denials']}"
             )
-            
+
         if not crowded:
             lines.append("- No denied risks in the last 24h")
 
@@ -56,8 +60,8 @@ def run_once() -> bool:
         chat_id = os.getenv("ATR_POLICY_TELEGRAM_CHAT_ID", "")
         if chat_id:
             payload["chat_id"] = chat_id
-            
-        _redis().xadd(os.getenv("NOTIFY_STREAM", "notify:telegram"), payload, maxlen=20000, approximate=True)
+
+        _redis().xadd(os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM), payload, maxlen=STREAM_RETENTION[RS.NOTIFY_TELEGRAM], approximate=True)
         logger.info("Sent Portfolio Telegram Digest")
         return True
     except Exception as e:

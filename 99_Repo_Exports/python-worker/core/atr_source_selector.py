@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 ATR Source Selector (ATR TF Calibrator core)
 ==========================================
@@ -27,8 +28,8 @@ ATR Source Selector (ATR TF Calibrator core)
 
 
 import math
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any
 
 
 @dataclass
@@ -43,7 +44,7 @@ class AtrCandidate:
     score: float = 0.0
     penalty_consistency: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -66,7 +67,7 @@ def _freshness_score(age_ms: int, *, half_life_ms: int) -> float:
         return 0.0
 
 
-def _median(xs: List[float]) -> float:
+def _median(xs: list[float]) -> float:
     ys = sorted(xs)
     n = len(ys)
     if n == 0:
@@ -75,12 +76,12 @@ def _median(xs: List[float]) -> float:
     return float(ys[mid]) if (n % 2 == 1) else float(0.5 * (ys[mid - 1] + ys[mid]))
 
 
-def _consistency_penalty(cands: List[AtrCandidate]) -> Dict[str, float]:
+def _consistency_penalty(cands: list[AtrCandidate]) -> dict[str, float]:
     """
     Returns per-key penalty in [0..1], where 0 = no penalty, 1 = huge penalty.
     Robust: compare ratio to median ATR among candidates (only finite >0).
     """
-    vals: List[float] = []
+    vals: list[float] = []
     for c in cands:
         if math.isfinite(c.atr) and c.atr > 0:
             vals.append(float(c.atr))
@@ -89,7 +90,7 @@ def _consistency_penalty(cands: List[AtrCandidate]) -> Dict[str, float]:
     med = _median(vals)
     if med <= 0:
         return {}
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
     for c in cands:
         if not (math.isfinite(c.atr) and c.atr > 0):
             continue
@@ -108,17 +109,17 @@ def _consistency_penalty(cands: List[AtrCandidate]) -> Dict[str, float]:
 def select_best_atr_candidate(
     *,
     desired_tf: str,
-    candidates: List[AtrCandidate],
+    candidates: list[AtrCandidate],
     now_ms: int,
     allow_tf_mismatch: bool = False,
     half_life_ms: int = 10 * 60 * 1000,  # 10 min
-    src_priority: Optional[Dict[str, float]] = None,
-) -> Tuple[Optional[AtrCandidate], Dict[str, Any]]:
+    src_priority: dict[str, float] | None = None,
+) -> tuple[AtrCandidate | None, dict[str, Any]]:
     """
     Returns (best_candidate, meta).
     meta includes: chosen_src, chosen_key, chosen_tf, reasons, candidates[]
     """
-    tf0 = str(desired_tf or "").upper().strip()
+    tf0 = (desired_tf or "").upper().strip()
     nm = int(now_ms or 0)
     if nm <= 0:
         nm = 0
@@ -133,7 +134,7 @@ def select_best_atr_candidate(
     }
 
     # Normalize and pre-filter
-    good: List[AtrCandidate] = []
+    good: list[AtrCandidate] = []
     for c in candidates:
         try:
             if not (math.isfinite(c.atr) and c.atr > 0):

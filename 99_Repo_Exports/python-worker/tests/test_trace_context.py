@@ -10,7 +10,7 @@ def test_ensure_trace_id_propagates_to_meta_and_ctx():
     meta = {}
     tid = ensure_trace_id(ctx=ctx, meta=meta)
     assert tid
-    assert getattr(ctx, "trace_id") == tid
+    assert ctx.trace_id == tid
     assert meta["trace_id"] == tid
 
 

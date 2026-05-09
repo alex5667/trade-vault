@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
-from typing import Any, Optional
-
 import math
+import os
+from typing import Any
 
 
 class SignalPublisher:
@@ -50,12 +49,12 @@ class SignalPublisher:
         # ПРИМЕЧАНИЕ: сохранено для обратной совместимости со старыми вызывающими кодами.
         # НЕ ДОЛЖНО использоваться для записи payload["confidence"].
         # Новый контракт: publisher полностью игнорирует это поле.
-        confidence: Optional[float] = None,
+        confidence: float | None = None,
         signal_id: str,
-        level_price: Optional[float] = None,
-        level_key: Optional[str] = None,
-        reasons: Optional[list[str]] = None,
-        parts: Optional[dict[str, Any]] = None,
+        level_price: float | None = None,
+        level_key: str | None = None,
+        reasons: list[str] | None = None,
+        parts: dict[str, Any] | None = None,
         **extra: Any,
     ) -> dict[str, Any]:
         # Payload ДОЛЖЕН быть стабильным и минимальным.
@@ -125,12 +124,12 @@ class SignalPublisher:
                 # If emitter.publish expects keyword-only args (SignalOutboxPublisher pattern)
                 if "envelope" in params:
                     self._emitter.publish(
-                        source=str(payload.get("source", "unified")),
-                        strategy=str(payload.get("strategy", "unified")),
-                        symbol=str(payload.get("symbol", "unknown")),
-                        side=str(payload.get("side", "UNKNOWN")).upper(),
-                        kind=str(payload.get("kind", "ENTRY")),
-                        level_key=str(payload.get("level_key", "")),
+                        source=(payload.get("source", "unified")),
+                        strategy=(payload.get("strategy", "unified")),
+                        symbol=(payload.get("symbol", "unknown")),
+                        side=(payload.get("side", "UNKNOWN")).upper(),
+                        kind=(payload.get("kind", "ENTRY")),
+                        level_key=(payload.get("level_key", "")),
                         ts_ms=int(payload.get("ts", 0) or payload.get("ts_ms", 0) or 0),
                         envelope=payload,
                     )

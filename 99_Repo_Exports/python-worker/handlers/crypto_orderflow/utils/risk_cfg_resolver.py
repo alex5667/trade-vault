@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 def _env(name: str, default: Any) -> Any:
@@ -34,9 +34,9 @@ class RiskCfgResolver:
       2) <KEY>         (e.g. STOP_MODE, STOP_ATR_MULT, TP_RR)
       3) default
     """
-    redis_client: Optional[Any] = None
+    redis_client: Any | None = None
 
-    def resolve(self, symbol: str) -> Dict[str, Any]:
+    def resolve(self, symbol: str) -> dict[str, Any]:
         base = _sym_base(symbol)
 
         def pick(key: str, default: Any) -> Any:
@@ -66,11 +66,11 @@ class RiskCfgResolver:
         # STOP
         stop_mode = str(pick("STOP_MODE", "ATR")).upper()
         stop_atr_mult = float(pick("STOP_ATR_MULT", 1.0))  # was 0.6
-        
+
         # Override with calibrated value if available
         if calib_stop_atr_mult > 0.0:
             stop_atr_mult = calib_stop_atr_mult
-            
+
         stop_atr_mult_base = float(pick("STOP_ATR_MULT_BASE", stop_atr_mult))
         stop_pct = float(pick("STOP_PCT", 0.2))
         stop_points = float(pick("STOP_POINTS", 1.0))
@@ -78,16 +78,16 @@ class RiskCfgResolver:
         # TP
         tp_mode = str(pick("TP_MODE", "RR")).upper()
         tp_rr = str(pick("TP_RR", "1,2,3"))
-        
+
         # Override with calibrated value if available
         if calib_rr_levels:
             tp_rr = calib_rr_levels
-            
+
         tp_atr_mults = str(pick("TP_ATR_MULTS", "0.6,1.0,1.5"))
 
         # Optional: profile hook
         trail_profile = pick("TRAIL_PROFILE", pick("trail_profile", ""))  # allow both spellings
-        
+
         rocket_tp1 = 0.0
         # Check Redis first for ROCKET_TP1_ATR_MULT
         if self.redis_client is not None:
@@ -97,7 +97,7 @@ class RiskCfgResolver:
                     rocket_tp1 = float(r_val)
             except Exception:
                 pass
-            
+
         # Fallback to ENV (check prefix and suffix mappings)
         if rocket_tp1 <= 0.0:
             env_val = pick("ROCKET_TP1_ATR_MULT", 0.0)
@@ -107,7 +107,7 @@ class RiskCfgResolver:
 
         min_lock_r = float(pick("TRAILING_MIN_LOCK_R", 0.0))
 
-        cfg: Dict[str, Any] = {
+        cfg: dict[str, Any] = {
             "STOP_MODE": stop_mode,
             "STOP_ATR_MULT": stop_atr_mult,
             "STOP_ATR_MULT_BASE": stop_atr_mult_base,

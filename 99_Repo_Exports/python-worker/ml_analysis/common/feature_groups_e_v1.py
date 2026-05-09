@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Feature-group definitions for ablation/denylist (E block).
 
 Goal
@@ -16,8 +17,8 @@ Notes
 """
 
 
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterable, List, Sequence, Set
 
 
 def normalize_feature_key(name: str) -> str:
@@ -46,7 +47,7 @@ class FeatureGroup:
     matcher: Callable[[str], bool]
 
 
-def build_e_groups() -> List[FeatureGroup]:
+def build_e_groups() -> list[FeatureGroup]:
     """Return ordered E-block groups (stable names for reports)."""
 
     def _starts_any(s: str, prefixes: Sequence[str]) -> bool:
@@ -94,10 +95,10 @@ def build_e_groups() -> List[FeatureGroup]:
     ]
 
 
-def group_features(feature_names: Iterable[str], groups: Sequence[FeatureGroup]) -> Dict[str, Set[str]]:
+def group_features(feature_names: Iterable[str], groups: Sequence[FeatureGroup]) -> dict[str, set[str]]:
     """Return mapping group_name -> set(raw_feature_keys) for provided names."""
     keys = [normalize_feature_key(x) for x in feature_names]
-    out: Dict[str, Set[str]] = {g.name: set() for g in groups}
+    out: dict[str, set[str]] = {g.name: set() for g in groups}
     for k in keys:
         for g in groups:
             try:
@@ -108,8 +109,8 @@ def group_features(feature_names: Iterable[str], groups: Sequence[FeatureGroup])
     return out
 
 
-def flatten_groups(m: Dict[str, Set[str]]) -> Set[str]:
-    out: Set[str] = set()
+def flatten_groups(m: dict[str, set[str]]) -> set[str]:
+    out: set[str] = set()
     for s in m.values():
         out |= set(s)
     return out

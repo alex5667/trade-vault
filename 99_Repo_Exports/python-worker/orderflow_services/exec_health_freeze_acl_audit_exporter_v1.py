@@ -1,8 +1,11 @@
-#!/usr/bin/env python3
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
-from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
+
 from services.orderflow.exec_health_freeze_reconnect_healing import heal_service_identity_sync
+from services.orderflow.exec_health_freeze_service_identity import ensure_service_identity_sync
+
+#!/usr/bin/env python3
+from utils.time_utils import get_ny_time_millis
+
 """P11: ACL audit exporter — читает ACL LOG и экспортирует метрики о попытках прямых hash-записей.
 
 Мониторит команды HSET/HDEL/DEL/UNLINK/EVAL/EVALSHA на freeze-control ключах.
@@ -10,13 +13,14 @@ from services.orderflow.exec_health_freeze_reconnect_healing import heal_service
 """,
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 try:
     import redis  # type: ignore
 except Exception:  # pragma: no cover
     redis = None
 from prometheus_client import Counter, Gauge, start_http_server
+import contextlib
 
 FREEZE_KEYS = (
     'cfg:orderflow:exec_health:freeze_control:v1',
@@ -38,24 +42,24 @@ def _now_ms() -> int:
 
 def _s(x: Any, d: str = '') -> str:
     try:
-        return str(x) if x is not None else str(d)
+        return str(x) if x is not None else d
     except Exception:
-        return str(d)
+        return d
 
 
 def _i(x: Any, d: int = 0) -> int:
     try:
         return int(float(x))
     except Exception:
-        return int(d)
+        return d
 
 
-def _norm_entry(raw: Any) -> Dict[str, Any]:
+def _norm_entry(raw: Any) -> dict[str, Any]:
     """Нормализует запись ACL LOG (может быть dict или flat list) в словарь.""",
     if isinstance(raw, dict):
         return {str(k): v for k, v in raw.items()}
     if isinstance(raw, (list, tuple)):
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         flat = list(raw)
         for i in range(0, len(flat) - 1, 2):
             out[str(flat[i])] = flat[i + 1]
@@ -63,7 +67,7 @@ def _norm_entry(raw: Any) -> Dict[str, Any]:
     return {}
 
 
-def _matches(entry: Dict[str, Any]) -> bool:
+def _matches(entry: dict[str, Any]) -> bool:
     """True если запись ACL LOG касается freeze-control ключей и запрещённых команд.""",
     cmd = _s(entry.get('command') or entry.get('cmd')).upper()
     obj = _s(entry.get('object'))
@@ -85,28 +89,26 @@ class Exporter:
         heal_service_identity_sync(self.r, "exec_health_freeze_acl_audit_exporter_v1", force=True)
         self._seen_ids: set[str] = set()
 
-    def _read_state(self) -> Dict[str, Any]:
+    def _read_state(self) -> dict[str, Any]:
         try:
             return self.r.hgetall(self.state_key) or {}
         except Exception:
             return {}
 
-    def _write_state(self, mapping: Dict[str, Any]) -> None:
+    def _write_state(self, mapping: dict[str, Any]) -> None:
         try:
             self.r.hset(self.state_key, mapping={str(k): str(v) for k, v in mapping.items()})
             self.r.expire(self.state_key, 86400 * 7)
         except Exception:
             pass
 
-    def run_once(self) -> Dict[str, Any]:
+    def run_once(self) -> dict[str, Any]:
         """Один цикл: читает ACL LOG, фильтрует freeze-control violations, обновляет метрики.""",
-        try:
+        with contextlib.suppress(Exception):
             heal_service_identity_sync(self.r, "exec_health_freeze_acl_audit_exporter_v1")
-        except Exception:
-            pass
         now = _now_ms()
         rows = self.r.execute_command('ACL', 'LOG', 64) or []
-        matches: List[Dict[str, Any]] = []
+        matches: list[dict[str, Any]] = []
         active_cmds = set()
         last_ts_ms = 0
         for raw in rows:

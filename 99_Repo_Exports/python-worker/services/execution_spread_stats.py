@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import time
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Optional, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -17,22 +18,22 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)) or default)
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 def _safe_float(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
-        return v if math.isfinite(v) else float(default)
+        return v if math.isfinite(v) else default
     except Exception:
-        return float(default)
+        return default
 
 
 @dataclass(frozen=True)
@@ -47,12 +48,12 @@ class SpreadEmaConfig:
     min_samples: int
 
     @staticmethod
-    def from_env() -> "SpreadEmaConfig":
+    def from_env() -> SpreadEmaConfig:
         return SpreadEmaConfig(
             enabled=_env_bool("EXEC_SPREAD_EMA_ENABLED", True),
             alpha=_env_float("EXEC_SPREAD_EMA_ALPHA", 0.05),
             ttl_s=_env_int("EXEC_SPREAD_EMA_TTL_S", 60 * 60 * 24 * 30),  # 30 days
-            prefix=str(os.getenv("EXEC_SPREAD_EMA_PREFIX", "spreadema:") or "spreadema:"),
+            prefix=(os.getenv("EXEC_SPREAD_EMA_PREFIX", "spreadema:") or "spreadema:"),
             min_samples=_env_int("EXEC_SPREAD_EMA_MIN_SAMPLES", 10),
         )
 
@@ -76,7 +77,7 @@ def update_spread_ema(
     session: str,
     tf: str,
     kind: str,
-    now_ms: Optional[int],
+    now_ms: int | None,
     realized_spread_bps: Any,
 ) -> None:
     """
@@ -110,7 +111,7 @@ def update_spread_ema(
                 return x.decode("utf-8", errors="ignore")
             return str(x)
 
-        cur_s: Dict[str, str] = {}
+        cur_s: dict[str, str] = {}
         if isinstance(cur, dict):
             for kk, vv in cur.items():
                 cur_s[_dec(kk)] = _dec(vv)
@@ -138,9 +139,7 @@ def update_spread_ema(
             "ema_spread_bps": str(float(ema)),
             "last_ts_ms": str(int(ts)),
         })
-        try:
+        with contextlib.suppress(Exception):
             redis_client.expire(k, int(max(60, cfg.ttl_s)))
-        except Exception:
-            pass
     except Exception:
         return

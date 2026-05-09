@@ -1,37 +1,31 @@
-import os
-import time
-import uuid
-import math
+import hashlib
 import json
 import logging
-import hashlib
-from dataclasses import dataclass
-from dataclasses import field
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
+import os
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
-from common.decision_trace import Span, trace_gate, trace_enabled, ensure_trace, should_sample
-from common.payload_fingerprint import fingerprint_tradeable_payload
-from common.metrics_stage import stage_counter, stage_ms_hist, emit_ok_total, dist, veto_total
+from common.contracts.tradeable_contracts import assert_outbox_sidecar_meta, assert_tradeable_dict
+from common.decision_trace import Span, ensure_trace, should_sample, trace_enabled, trace_gate
+from common.json_contract import enforce_payload_budgets, maybe_assert_json_safe
 from common.json_fast import dumps1
 from common.json_safe import to_json_safe
-from common.runtime_snapshot import RuntimeSnapshot, RuntimeRefresher
-from common.ctx_cache import cached_on_ctx
+from common.metrics_stage import dist, stage_counter, stage_ms_hist, veto_total
 from common.outbox_contract import contract_check_best_effort
+from common.payload_fingerprint import fingerprint_tradeable_payload
 from common.payload_policy import enforce_and_validate_payload
-from common.json_contract import enforce_payload_budgets, maybe_assert_json_safe
-from common.contracts.tradeable_contracts import assert_tradeable_dict, assert_outbox_sidecar_meta
+from common.runtime_snapshot import RuntimeRefresher, RuntimeSnapshot
+from handlers.base_orderflow_handler import ensure_levels
 from services.outbox.envelope_builder import (
-    build_trace_sidecar_meta,
     build_entry_policy_diag_event,
+    build_trace_sidecar_meta,
     emit_entry_policy_diag_best_effort,
 )
-from handlers.base_orderflow_handler import ensure_levels
 from signals.level_enricher import attach_trade_levels_to_ctx
-from news_pipeline.enricher_sync import NewsEnricherSync
-
-from common.json_safe import to_json_safe
 
 # ------------------------------------------------------------
 # JSON-safe helpers (3.2): payload must be json-safe by construction.
@@ -41,11 +35,8 @@ _JSON_SCALARS = (str, int, float, bool, type(None))
 
 logger = logging.getLogger(__name__)
 
-import json
-import hashlib
-from common.json_safe import to_json_safe
 
-def _cfg_hash(cfg: Dict[str, Any]) -> str:
+def _cfg_hash(cfg: dict[str, Any]) -> str:
     """
     Быстрый детерминированный хэш конфига.
     Важно: cfg уже должен быть json-safe (dict из скаляров/листов/…).
@@ -57,7 +48,7 @@ def _cfg_hash(cfg: Dict[str, Any]) -> str:
         return "cfg:err"
 
 def ensure_trade_levels_once(
-    *, ctx: Any, symbol: str, side: str, kind: str, cfg: Optional[Dict[str, Any]],
+    *, ctx: Any, symbol: str, side: str, kind: str, cfg: dict[str, Any] | None,
     regime: Any = None, empirical: Any = None, logger: Any = None,
 ) -> None:
     """
@@ -78,7 +69,7 @@ def ensure_trade_levels_once(
     except Exception:
         cfgd = {}
 
-    key = ("trade_levels", str(symbol), str(side), str(kind), _cfg_hash(cfgd))
+    key = ("trade_levels", symbol, side, str(kind), _cfg_hash(cfgd))
     try:
         prev = getattr(ctx, "_trade_levels_key", None)
         if prev == key:
@@ -89,10 +80,10 @@ def ensure_trade_levels_once(
     try:
         attach_trade_levels_to_ctx(
             ctx,
-            side=str(side),
-            symbol=str(symbol),
+            side=side,
+            symbol=symbol,
             cfg=cfgd,
-            kind=str(kind or ""),
+            kind=(kind or ""),
             regime=regime,
             empirical=empirical,
             overwrite=False,
@@ -103,7 +94,7 @@ def ensure_trade_levels_once(
         return
 
     try:
-        setattr(ctx, "_trade_levels_key", key)
+        ctx._trade_levels_key = key
     except Exception:
         logger.debug("failed to set _trade_levels_key", exc_info=True)
 
@@ -120,7 +111,7 @@ def _replay_stable_signal_id_enabled() -> bool:
 
     Enabled via ENV: REPLAY_STABLE_SIGNAL_ID=1
     """
-    v = str(os.getenv('REPLAY_STABLE_SIGNAL_ID', '0') or '0').strip().lower()
+    v = (os.getenv('REPLAY_STABLE_SIGNAL_ID', '0') or '0').strip().lower()
     return v in {'1','true','yes','on'}
 
 
@@ -182,7 +173,7 @@ def _replay_stable_signal_id_enabled() -> bool:
 
     Enabled via ENV: REPLAY_STABLE_SIGNAL_ID=1
     """
-    v = str(os.getenv('REPLAY_STABLE_SIGNAL_ID', '0') or '0').strip().lower()
+    v = (os.getenv('REPLAY_STABLE_SIGNAL_ID', '0') or '0').strip().lower()
     return v in {'1','true','yes','on'}
 
 
@@ -239,12 +230,12 @@ def _finite_or(x: Any, default: float) -> float:
         f = float(x)
         if f == f and f not in (float("inf"), float("-inf")):
             return f
-        return float(default)
+        return default
     except Exception:
-        return float(default)
+        return default
 
 
-def _cfg_hash(cfg: Dict[str, Any]) -> str:
+def _cfg_hash(cfg: dict[str, Any]) -> str:
     """
     Stable cfg hash for cache keys.
     IMPORTANT: do NOT use dumps1() here because it doesn't sort keys.
@@ -284,7 +275,7 @@ class CandidateFrame:
     # Keys examples:
     #   "risk_cfg", "levels_attached", ("consistency", kind, side)
     # ------------------------------------------------------------
-    memo: Dict[Any, Any] = field(default_factory=dict, compare=False, repr=False)
+    memo: dict[Any, Any] = field(default_factory=dict, compare=False, repr=False)
 
     def memo_get(self, key: Any, compute: Callable[[], T]) -> T:
         """
@@ -327,12 +318,12 @@ def _side_payload_from_frame(f: CandidateFrame) -> str:
 class CandidateExtractor:
     """Stage 1: obtain candidates and create CandidateFrame objects."""
 
-    def extract(self, handler: Any, ctx: Any) -> List[CandidateFrame]:
+    def extract(self, handler: Any, ctx: Any) -> list[CandidateFrame]:
         det = getattr(handler, "_detect_candidates", None)
         if not callable(det):
             return []
         cands = det(ctx) or []
-        out: List[CandidateFrame] = []
+        out: list[CandidateFrame] = []
         ctx_symbol = getattr(ctx, "symbol", None)
         ctx_ts = getattr(ctx, "ts", None)
         ctx_price = getattr(ctx, "price", None)
@@ -381,7 +372,7 @@ class ContextEnricher:
     # Реальная функция: handlers/base_orderflow_handler.ensure_levels(ctx, side=?)
     # ensure_levels FAIL-OPEN и НЕ возвращает veto/rc.
     # ------------------------------------------------------------
-    def ensure_levels_once(self, f: CandidateFrame) -> Tuple[bool, str]:
+    def ensure_levels_once(self, f: CandidateFrame) -> tuple[bool, str]:
         if f.memo.get("levels_done") is True:
             return True, ""
         ok = True
@@ -414,7 +405,7 @@ class ContextEnricher:
                 )
         except Exception:
             logger.debug("trace_gate failed", exc_info=True)
-        return bool(ok), str(rc or "")
+        return bool(ok), (rc or "")
 
 
 class GateRunner:
@@ -448,12 +439,12 @@ class GateRunner:
             logger.debug("_ensure_levels_once failed", exc_info=True)
         self._memo_set(f, "ensure_levels_done", True)
 
-    def _resolve_risk_cfg_once(self, f: CandidateFrame) -> Dict[str, Any]:
+    def _resolve_risk_cfg_once(self, f: CandidateFrame) -> dict[str, Any]:
         cached = self._memo_get(f, "risk_cfg")
         if isinstance(cached, dict):
             return cached
 
-        cfg: Dict[str, Any] = {}
+        cfg: dict[str, Any] = {}
         # Варианты источника cfg (в порядке предпочтения):
         # 1) handler.resolve_risk_cfg(symbol, ctx, cand)
         # 2) handler._resolve_risk_cfg_for_levels()
@@ -483,7 +474,7 @@ class GateRunner:
 
         return cfg
 
-    def _ensure_trade_levels_once(self, f: CandidateFrame, *, cfg: Dict[str, Any]) -> None:
+    def _ensure_trade_levels_once(self, f: CandidateFrame, *, cfg: dict[str, Any]) -> None:
         """
         Тяжёлая часть: attach_trade_levels_to_ctx(...)
         Делаем 1 раз на кандидата и фиксируем key на ctx, чтобы другие ветки не пересчитали.
@@ -529,13 +520,13 @@ class GateRunner:
                 logger.debug("attach_trade_levels_to_ctx failed", exc_info=True)
 
         try:
-            setattr(f.ctx, "_trade_levels_key", key)
+            f.ctx._trade_levels_key = key
         except Exception:
             pass  # failed to set key attribute
 
         self._memo_set(f, "trade_levels_done", True)
 
-    def regime(self, f: CandidateFrame) -> Tuple[bool, str]:
+    def regime(self, f: CandidateFrame) -> tuple[bool, str]:
         fn = getattr(f.handler, "_apply_regime_gate", None)
         if not callable(fn):
             return True, ""
@@ -551,7 +542,7 @@ class GateRunner:
         except Exception:
             return True, ""
 
-    def edge_cost(self, f: CandidateFrame) -> Tuple[bool, str]:
+    def edge_cost(self, f: CandidateFrame) -> tuple[bool, str]:
         """
         Реальный gate: handler._legacy_gate_cost_edge(frame=f, pre={...}) -> (ok, rc)
         Требует инвариантов ctx: entry/tp1/sl/price/side.
@@ -567,7 +558,7 @@ class GateRunner:
         pre = {"ctx_symbol": str(f.ctx_symbol or "")}
         try:
             ok, rc = fn(frame=f, pre=pre)
-            return bool(ok), str(rc or "")
+            return bool(ok), (rc or "")
         except Exception:
             return True, ""  # fail-open
 
@@ -600,8 +591,8 @@ class GateRunner:
     # Реальный класс: SignalConsistencyGate.evaluate(ctx, symbol, kind, side) -> QualityGateDecision
     # Decision fields: apply(bool), veto(bool), reason_code(str)
     # ------------------------------------------------------------
-    def consistency_once(self, f: CandidateFrame) -> Tuple[bool, str]:
-        def _compute() -> Tuple[bool, str]:
+    def consistency_once(self, f: CandidateFrame) -> tuple[bool, str]:
+        def _compute() -> tuple[bool, str]:
             ok = True
             rc = ""
             apply = False
@@ -664,7 +655,7 @@ class GateRunner:
             except Exception:
                 logger.debug("trace_gate consistency failed", exc_info=True)
 
-            return bool(ok), str(rc or "")
+            return bool(ok), (rc or "")
 
         return f.memo_get(("consistency", str(f.kind_key or f.kind_str), _side_payload_from_frame(f)), _compute)
 
@@ -672,8 +663,8 @@ class GateRunner:
     # 3.3: edge/cost gate ровно 1 раз на кандидата.
     # Реальная функция: handler._legacy_gate_cost_edge(frame=f, pre={...}) -> (ok, rc)
     # ------------------------------------------------------------
-    def edge_cost_once(self, f: CandidateFrame) -> Tuple[bool, str]:
-        def _compute() -> Tuple[bool, str]:
+    def edge_cost_once(self, f: CandidateFrame) -> tuple[bool, str]:
+        def _compute() -> tuple[bool, str]:
             sp = Span()
 
             # ------------------------------------------------------------
@@ -740,7 +731,7 @@ class GateRunner:
                         )
                 except Exception:
                     logger.debug("trace_gate edge_cost failed", exc_info=True)
-            return bool(ok), str(rc or "")
+            return bool(ok), (rc or "")
 
         return f.memo_get(("edge_cost_once", str(f.kind_key or f.kind_str)), _compute)
 
@@ -748,7 +739,7 @@ class GateRunner:
 class ScoringRunner:
     """Stage 4: raw_score + conf_factor -> final_score, then confidence_pct."""
 
-    def compute(self, f: CandidateFrame, res: Any) -> Tuple[float, float, float, float, Dict[str, Any]]:
+    def compute(self, f: CandidateFrame, res: Any) -> tuple[float, float, float, float, dict[str, Any]]:
         sp = Span()
         raw_score = _finite_or(getattr(f.cand, "raw_score", None), 0.0)
         conf_factor01 = _clamp01(_finite_or(getattr(res, "conf_factor01", None), 1.0))
@@ -791,9 +782,9 @@ class ConfidenceGateRunner:
 
             return float(os.getenv(name, str(default)) or default)
         except Exception:
-            return float(default)
+            return default
 
-    def check(self, f: CandidateFrame, *, confidence_pct: float, conf_factor01: float) -> Tuple[bool, str]:
+    def check(self, f: CandidateFrame, *, confidence_pct: float, conf_factor01: float) -> tuple[bool, str]:
         sym_u = _safe_str(f.ctx_symbol).strip().upper()
 
         min_conf = self._env_float(f"MIN_CONF_{sym_u}", self._env_float("MIN_CONF_DEFAULT", 70.0))
@@ -835,9 +826,9 @@ class PayloadBuilder:
         conf_factor01: float,
         final_score: float,
         confidence_pct: float,
-        parts: Dict[str, Any],
+        parts: dict[str, Any],
         res: Any,
-    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """
         JSON-SAFE BY CONSTRUCTION:
           - payload: только str/int/float/bool/None/list/dict
@@ -867,7 +858,7 @@ class PayloadBuilder:
         # ------------------------------------------------------------------
         sid = str(getattr(f.cand, "signal_id", "") or "").strip()
 
-        payload_base: Dict[str, Any] = {
+        payload_base: dict[str, Any] = {
             "kind": str(getattr(f.cand, "kind", "") or ""),
             "side": side_payload,
             "symbol": str(f.ctx_symbol or ""),
@@ -890,7 +881,7 @@ class PayloadBuilder:
             else:
                 sid = f"s_{uuid.uuid4().hex}"
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "sid": sid,              # back-compat
             "signal_id": sid,        # canonical
             **payload_base,
@@ -957,8 +948,8 @@ class PayloadBuilder:
         parts_in = parts if isinstance(parts, dict) else {}
         parts_safe = to_json_safe(parts_in)  # гарантирует json-safe структуру
 
-        parts_small: Dict[str, Any] = {}
-        parts_full: Dict[str, Any] = {}
+        parts_small: dict[str, Any] = {}
+        parts_full: dict[str, Any] = {}
         if isinstance(parts_safe, dict):
             for k, v in parts_safe.items():
                 if _is_small_json_value(v):
@@ -968,7 +959,7 @@ class PayloadBuilder:
 
         payload["parts"] = parts_small if parts_small else {}
 
-        payload_meta: Dict[str, Any] = {}
+        payload_meta: dict[str, Any] = {}
         if parts_full:
             payload_meta["parts_full"] = parts_full
 
@@ -1066,7 +1057,7 @@ class PayloadBuilder:
 class OutboxWriter:
     """Stage 6: emit into outbox via handler._emitter.emit (dedup on)."""
 
-    def emit(self, f: CandidateFrame, payload: Dict[str, Any], *, meta_extra: Optional[Dict[str, Any]] = None) -> bool:
+    def emit(self, f: CandidateFrame, payload: dict[str, Any], *, meta_extra: dict[str, Any] | None = None) -> bool:
         em = getattr(f.handler, "_emitter", None)
         fn = getattr(em, "emit", None) if em is not None else None
         if not callable(fn):
@@ -1103,7 +1094,7 @@ class OutboxWriter:
             try:
                 sid0 = str(payload.get("signal_id") or payload.get("sid") or sid or "")
             except Exception:
-                sid0 = str(sid or "")
+                sid0 = (sid or "")
             contract_check_best_effort(kind="payload", obj=to_json_safe(payload), where="OutboxWriter.emit", sid=sid0, logger=getattr(f.handler, "logger", None))
             if isinstance(meta, dict):
                 contract_check_best_effort(kind="meta", obj=to_json_safe(meta), where="OutboxWriter.emit", sid=sid0, logger=getattr(f.handler, "logger", None))
@@ -1124,7 +1115,7 @@ class Observability:
             except Exception:
                 try:
                     logger.debug("veto_metric emit failed", exc_info=True)
-                except:
+                except Exception:
                     pass
 
 
@@ -1340,8 +1331,8 @@ class CandidateEmitPipelineV2:
         stage: str,
         name: str,
         reason_code: str,
-        metrics: Optional[Dict[str, Any]] = None,
-        extra: Optional[Dict[str, Any]] = None,
+        metrics: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         """Diagnostics-only outbox.
 
@@ -1355,7 +1346,7 @@ class CandidateEmitPipelineV2:
         FAIL-OPEN: never blocks the main emission path.
         """
         try:
-            stream = str(os.getenv("ENTRY_POLICY_DIAG_STREAM", "") or "").strip()
+            stream = (os.getenv("ENTRY_POLICY_DIAG_STREAM", "") or "").strip()
             if not stream:
                 return
 
@@ -1388,9 +1379,9 @@ class CandidateEmitPipelineV2:
                 trace_id=trace_id or sid,
                 kind=kind,
                 symbol=symbol,
-                stage=str(stage or ""),
-                name=str(name or ""),
-                reason_code=str(reason_code or ""),
+                stage=(stage or ""),
+                name=(name or ""),
+                reason_code=(reason_code or ""),
                 metrics=metrics or {},
                 extra=extra or {},
             )
@@ -1398,7 +1389,7 @@ class CandidateEmitPipelineV2:
         except Exception:
             try:
                 logger.debug("emit_policy_diag failed", exc_info=True)
-            except:
+            except Exception:
                 pass
             return
 
@@ -1421,7 +1412,7 @@ class CandidateEmitPipelineV2:
         except Exception:
             # fail-open: не мешаем сигналам
             try:
-                setattr(ctx, "news", None)
+                ctx.news = None
             except Exception:
                 logger.debug("fallback cleanup failed", exc_info=True)
 
@@ -1472,7 +1463,7 @@ class CandidateEmitPipelineV2:
                     name="regime_gate",
                     passed=bool(ok),
                     veto=not bool(ok),
-                    reason_code=str(rc or "OK"),
+                    reason_code=(rc or "OK"),
                     duration_ms=float(sp_g1.ms()),
                     metrics={"kind": kind_s, "symbol": sym},
                 )
@@ -1493,7 +1484,7 @@ class CandidateEmitPipelineV2:
                         f,
                         stage="gates",
                         name="regime_gate",
-                        reason_code=str(rc or "VETO_REGIME"),
+                        reason_code=(rc or "VETO_REGIME"),
                         metrics={"kind": kind_s, "symbol": sym},
                     )
                 except Exception:
@@ -1558,7 +1549,7 @@ class CandidateEmitPipelineV2:
                         f,
                         stage="gates",
                         name="confirmations",
-                        reason_code=str(veto_rc or "VETO_UNKNOWN"),
+                        reason_code=(veto_rc or "VETO_UNKNOWN"),
                         metrics={"kind": kind_s, "symbol": sym},
                     )
                 except Exception:
@@ -1641,7 +1632,7 @@ class CandidateEmitPipelineV2:
                         f,
                         stage="gates",
                         name="confidence_gate",
-                        reason_code=str(rc or "VETO_CONF"),
+                        reason_code=(rc or "VETO_CONF"),
                         metrics={"confidence_pct": float(confidence_pct), "conf_factor01": float(conf_factor01)},
                     )
                 except Exception:
@@ -1660,7 +1651,7 @@ class CandidateEmitPipelineV2:
             if not ok:
                 self.obs.veto_metric(f, rc or "VETO_LEVELS")
                 try:
-                    veto_total(self.h, kind=kind_s, reason_code=str(rc or "VETO_LEVELS"))
+                    veto_total(self.h, kind=kind_s, reason_code=(rc or "VETO_LEVELS"))
                 except Exception:
                     logger.debug("veto_total levels failed", exc_info=True)
                 try:
@@ -1670,13 +1661,13 @@ class CandidateEmitPipelineV2:
                         name="ensure_levels",
                         passed=False,
                         veto=True,
-                        reason_code=str(rc or "VETO_LEVELS"),
+                        reason_code=(rc or "VETO_LEVELS"),
                         duration_ms=float(sp_g3.ms),
                     )
                 except Exception:
                     logger.debug("trace_gate ensure_levels failed", exc_info=True)
                 try:
-                    self._emit_policy_diag_best_effort(f, stage="ensure_levels", reason_code=str(rc or "VETO_LEVELS"))
+                    self._emit_policy_diag_best_effort(f, stage="ensure_levels", reason_code=(rc or "VETO_LEVELS"))
                 except Exception:
                     logger.debug("metrics consistency failed", exc_info=True)
                 continue
@@ -1686,7 +1677,7 @@ class CandidateEmitPipelineV2:
             if not ok:
                 self.obs.veto_metric(f, rc or "VETO_CONSISTENCY")
                 try:
-                    veto_total(self.h, kind=kind_s, reason_code=str(rc or "VETO_CONSISTENCY"))
+                    veto_total(self.h, kind=kind_s, reason_code=(rc or "VETO_CONSISTENCY"))
                 except Exception:
                     logger.debug("veto_total consistency failed", exc_info=True)
                 try:
@@ -1696,13 +1687,13 @@ class CandidateEmitPipelineV2:
                         name="consistency",
                         passed=False,
                         veto=True,
-                        reason_code=str(rc or "VETO_CONSISTENCY"),
+                        reason_code=(rc or "VETO_CONSISTENCY"),
                         duration_ms=float(sp_g4.ms),
                     )
                 except Exception:
                     logger.debug("diag consistency failed", exc_info=True)
                 try:
-                    self._emit_policy_diag_best_effort(f, stage="consistency", reason_code=str(rc or "VETO_CONSISTENCY"))
+                    self._emit_policy_diag_best_effort(f, stage="consistency", reason_code=(rc or "VETO_CONSISTENCY"))
                 except Exception:
                     logger.debug("diag consistency failed", exc_info=True)
                 continue
@@ -1729,7 +1720,7 @@ class CandidateEmitPipelineV2:
             ok, rc = self.gates.edge_cost_once(f)
             if not ok:
                 try:
-                    veto_total(self.h, kind=kind_s, reason_code=str(rc or "VETO_EDGE_COST"))
+                    veto_total(self.h, kind=kind_s, reason_code=(rc or "VETO_EDGE_COST"))
                 except Exception:
                     logger.debug("metrics edge_cost failed", exc_info=True)
                 try:
@@ -1739,7 +1730,7 @@ class CandidateEmitPipelineV2:
                         name="edge_cost",
                         passed=False,
                         veto=True,
-                        reason_code=str(rc or "VETO_EDGE_COST"),
+                        reason_code=(rc or "VETO_EDGE_COST"),
                         duration_ms=float(sp_g5.ms),
                         metrics={"raw_score": float(raw_score), "final_score": float(final_score)},
                     )
@@ -1749,7 +1740,7 @@ class CandidateEmitPipelineV2:
                     self._emit_policy_diag_best_effort(
                         f,
                         stage="edge_cost",
-                        reason_code=str(rc or "VETO_EDGE_COST"),
+                        reason_code=(rc or "VETO_EDGE_COST"),
                         extra={"raw_score": float(raw_score), "final_score": float(final_score)},
                     )
                 except Exception:
@@ -1786,7 +1777,7 @@ class CandidateEmitPipelineV2:
                     ctx = getattr(f, "ctx", None) or getattr(f, "context", None)
                     tr = ensure_trace(ctx) if ctx is not None else None
                     if isinstance(tr, dict):
-                        tid = str(tr.get("trace_id") or "")
+                        tid = (tr.get("trace_id") or "")
                         rate = float(self.trace_log_sample_rate or 0.02)
                         if should_sample(tid, rate):
                             # build_trace_summary == make_trace_summary (alias в decision_trace.py)
@@ -1797,7 +1788,7 @@ class CandidateEmitPipelineV2:
                                 "where": "candidate_emit",
                                 "sent": bool(sent),
                                 "trace_id": tid,
-                                "sid": str(payload.get("signal_id") or ""),
+                                "sid": (payload.get("signal_id") or ""),
                                 "trace_summary": summ,
                             }))
                 except Exception:
@@ -1811,7 +1802,7 @@ class ConfidenceGateRunner:
     Stage 4.5: cheap confidence gates (explicit, isolated).
     Mirrors logic from the legacy mega-method, but in a testable unit.
     """
-    def __init__(self, runtime: Optional[Any] = None) -> None:
+    def __init__(self, runtime: Any | None = None) -> None:
         self._runtime_holder = runtime
 
     def check(
@@ -1820,10 +1811,10 @@ class ConfidenceGateRunner:
         *,
         confidence_pct: float,
         conf_factor01: float,
-        rt: Optional[RuntimeSnapshot] = None,
-    ) -> Tuple[bool, str]:
+        rt: RuntimeSnapshot | None = None,
+    ) -> tuple[bool, str]:
         sym_u = _safe_str(f.ctx_symbol).strip().upper()
-        
+
         # Resolve runtime snapshot
         snapshot = rt
         if snapshot is None:
@@ -1835,7 +1826,7 @@ class ConfidenceGateRunner:
                      snapshot = rh.runtime
                 elif isinstance(rh, RuntimeSnapshot):
                      snapshot = rh
-        
+
         if snapshot is None:
              # fallback
              try:
@@ -1844,7 +1835,7 @@ class ConfidenceGateRunner:
              except Exception:
                  logger.debug("Runtime fallback load failed", exc_info=True)
                  snapshot = None
-             
+
         rt = snapshot # ensure we use the resolved one
 
 

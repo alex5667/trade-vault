@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import pytest
-
 import services.signal_dispatcher as sd_mod
-from services.signal_dispatcher import SignalDispatcher, PendingMsg
+from services.signal_dispatcher import PendingMsg, SignalDispatcher
+from core.redis_keys import RedisStreams as RS
 
 
 class FakeHelper:
@@ -35,7 +34,7 @@ class FakeRedis:
 def test_process_new_batch_acks_each_message_and_marks_done(monkeypatch):
     r = FakeRedis()
     d = SignalDispatcher(redis_client=r)
-    d.outbox_stream = "stream:signals:outbox"
+    d.outbox_stream = RS.SIGNAL_OUTBOX
     d.done_ttl_sec = 60
     d._ctr = {"acked": 0, "ack_failed": 0}
 
@@ -49,13 +48,13 @@ def test_process_new_batch_acks_each_message_and_marks_done(monkeypatch):
     d._handle_one = lambda msg_id, fields: True
 
     messages = [
-        ("stream:signals:outbox", [PendingMsg(msg_id="1-0", fields={"a": 1}), PendingMsg(msg_id="2-0", fields={"a": 2})])
+        (RS.SIGNAL_OUTBOX, [PendingMsg(msg_id="1-0", fields={"a": 1}), PendingMsg(msg_id="2-0", fields={"a": 2})])
     ]
 
     d._process_new_batch(helper, messages)
 
-    assert ("stream:signals:outbox", "1-0") in helper.acked
-    assert ("stream:signals:outbox", "2-0") in helper.acked
+    assert (RS.SIGNAL_OUTBOX, "1-0") in helper.acked
+    assert (RS.SIGNAL_OUTBOX, "2-0") in helper.acked
     assert d._is_outbox_done("1-0") is True
     assert d._is_outbox_done("2-0") is True
     assert d._ctr["acked"] == 2
@@ -64,7 +63,7 @@ def test_process_new_batch_acks_each_message_and_marks_done(monkeypatch):
 def test_process_new_batch_done_fastpath_ack_only(monkeypatch):
     r = FakeRedis()
     d = SignalDispatcher(redis_client=r)
-    d.outbox_stream = "stream:signals:outbox"
+    d.outbox_stream = RS.SIGNAL_OUTBOX
     d.done_ttl_sec = 60
     d._ctr = {"acked": 0, "ack_failed": 0}
 
@@ -81,18 +80,18 @@ def test_process_new_batch_done_fastpath_ack_only(monkeypatch):
         return True
     d._handle_one = _handle_one
 
-    messages = [("stream:signals:outbox", [PendingMsg(msg_id="1-0", fields={})])]
+    messages = [(RS.SIGNAL_OUTBOX, [PendingMsg(msg_id="1-0", fields={})])]
     d._process_new_batch(helper, messages)
 
     assert called["n"] == 0
-    assert helper.acked == [("stream:signals:outbox", "1-0")]
+    assert helper.acked == [(RS.SIGNAL_OUTBOX, "1-0")]
     assert d._ctr["acked"] == 1
 
 
 def test_process_new_batch_transient_handle_error_does_not_ack(monkeypatch):
     r = FakeRedis()
     d = SignalDispatcher(redis_client=r)
-    d.outbox_stream = "stream:signals:outbox"
+    d.outbox_stream = RS.SIGNAL_OUTBOX
     d._ctr = {"acked": 0, "ack_failed": 0}
 
     helper = FakeHelper()
@@ -106,7 +105,7 @@ def test_process_new_batch_transient_handle_error_does_not_ack(monkeypatch):
         raise RuntimeError("transient")
     d._handle_one = _handle_one
 
-    messages = [("stream:signals:outbox", [PendingMsg(msg_id="1-0", fields={})])]
+    messages = [(RS.SIGNAL_OUTBOX, [PendingMsg(msg_id="1-0", fields={})])]
     d._process_new_batch(helper, messages)
 
     assert helper.acked == []

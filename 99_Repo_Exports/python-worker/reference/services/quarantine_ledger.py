@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Best-effort SQL sink for quarantine/repair audit trail.
@@ -7,14 +8,13 @@ The sink is intentionally fail-open: runtime execution and publish gates must no
 block just because the audit mirror is unavailable.
 """
 
-from dataclasses import dataclass
-from typing import Any, Dict
 import json
 import os
-import time
+from dataclasses import dataclass
+from typing import Any
 
 try:
-    from prometheus_client import Counter, REGISTRY
+    from prometheus_client import REGISTRY, Counter
 except Exception:  # pragma: no cover
     Counter = None  # type: ignore
     REGISTRY = None  # type: ignore
@@ -71,7 +71,7 @@ class QuarantineLedgerSink:
             return None
         return self.connect_factory(self.dsn)
 
-    def record_quarantine_event(self, payload: Dict[str, Any]) -> bool:
+    def record_quarantine_event(self, payload: dict[str, Any]) -> bool:
         if not self.enabled:
             return False
         doc = dict(payload or {})
@@ -83,30 +83,29 @@ class QuarantineLedgerSink:
         )
         try:
             conn = self._connect()
-            with conn:
-                with conn.cursor() as cur:
-                    cur.execute(sql, (
-                        str(doc.get('sid') or ''),
-                        str(doc.get('symbol') or ''),
-                        str(doc.get('action') or 'QUARANTINED'),
-                        str(doc.get('severity') or ''),
-                        str(doc.get('reason') or ''),
-                        str(doc.get('source') or ''),
-                        str(doc.get('quarantine_key') or ''),
-                        bool(doc.get('applied', True)),
-                        json.dumps(doc.get('state') or doc, ensure_ascii=False, default=str),
-                        now_ms,
-                        int(doc.get('created_at_ms') or now_ms),
-                    ))
+            with conn, conn.cursor() as cur:
+                cur.execute(sql, (
+                    (doc.get('sid') or ''),
+                    (doc.get('symbol') or ''),
+                    (doc.get('action') or 'QUARANTINED'),
+                    (doc.get('severity') or ''),
+                    (doc.get('reason') or ''),
+                    (doc.get('source') or ''),
+                    (doc.get('quarantine_key') or ''),
+                    bool(doc.get('applied', True)),
+                    json.dumps(doc.get('state') or doc, ensure_ascii=False, default=str),
+                    now_ms,
+                    int(doc.get('created_at_ms') or now_ms),
+                ))
             if EXECUTION_QUARANTINE_EVENTS_TOTAL:
-                EXECUTION_QUARANTINE_EVENTS_TOTAL.labels(action=str(doc.get('action') or 'QUARANTINED')).inc()
+                EXECUTION_QUARANTINE_EVENTS_TOTAL.labels(action=(doc.get('action') or 'QUARANTINED')).inc()
             return True
         except Exception:
             if TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL:
                 TRADE_QUARANTINE_LEDGER_WRITE_FAIL_TOTAL.labels(kind='quarantine_event').inc()
             return False
 
-    def record_repair_run(self, payload: Dict[str, Any]) -> bool:
+    def record_repair_run(self, payload: dict[str, Any]) -> bool:
         if not self.enabled:
             return False
         doc = dict(payload or {})
@@ -119,16 +118,15 @@ class QuarantineLedgerSink:
         )
         try:
             conn = self._connect()
-            with conn:
-                with conn.cursor() as cur:
-                    cur.execute(sql, (
-                        str(doc.get('run_kind') or 'automated_repair'),
-                        str(doc.get('source') or ''),
-                        str(doc.get('status') or ''),
-                        json.dumps(doc.get('summary') or doc, ensure_ascii=False, default=str),
-                        started_at_ms,
-                        finished_at_ms,
-                    ))
+            with conn, conn.cursor() as cur:
+                cur.execute(sql, (
+                    (doc.get('run_kind') or 'automated_repair'),
+                    (doc.get('source') or ''),
+                    (doc.get('status') or ''),
+                    json.dumps(doc.get('summary') or doc, ensure_ascii=False, default=str),
+                    started_at_ms,
+                    finished_at_ms,
+                ))
             if EXECUTION_QUARANTINE_EVENTS_TOTAL:
                 EXECUTION_QUARANTINE_EVENTS_TOTAL.labels(action='REPAIR_RUN').inc()
             return True

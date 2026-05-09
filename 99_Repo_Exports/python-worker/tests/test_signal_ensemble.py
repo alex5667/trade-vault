@@ -1,14 +1,15 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Unit tests for Signal Ensemble: SignalVote, EnsembleDecision, SignalEnsemble.
 """
 
 import json
-import sys
 import os
+import sys
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 # Add python-worker to path for imports (matches pytest.ini pythonpath=.)
 _pw_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -16,15 +17,14 @@ if _pw_dir not in sys.path:
     sys.path.insert(0, _pw_dir)
 
 from services.signal_ensemble import (
-    SignalVote,
     EnsembleDecision,
     SignalEnsemble,
-    build_orderflow_vote,
-    build_ta_vote,
+    SignalVote,
     build_microstructure_vote,
+    build_orderflow_vote,
     build_regime_vote,
+    build_ta_vote,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

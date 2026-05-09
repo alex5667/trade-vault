@@ -10,19 +10,19 @@ Covers:
   - Never-raise guarantee on garbage input
 """
 import pytest
+
 from core.confirmations_schema_v1 import (
-    # New v1 API
-    ConfirmationSignalV1,
-    _ALIASES,
     _CANONICAL_KEYS_11,
-    parse_confirmations_v1,
-    confirmations_to_indicator_keys_v1,
-    apply_confirmations_to_indicators,
-    summarize_confirmations_v1,
     # Legacy API must still work
     CONF_KEYS_V1,
-    parse_confirmations_list,
+    # New v1 API
+    ConfirmationSignalV1,
+    apply_confirmations_to_indicators,
+    confirmations_to_indicator_keys_v1,
     extract_confirmation_flags,
+    parse_confirmations_list,
+    parse_confirmations_v1,
+    summarize_confirmations_v1,
 )
 
 

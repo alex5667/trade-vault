@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """tick_flow_full.core.dq_observe_only
 
 Observe-only rollout guard for DQ hard-veto on BOOK sequence degradation.
@@ -30,8 +31,9 @@ we keep integration as a small, well-documented insertion.
 
 
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 
 def _cfg_get(cfg: Any, key: str, default: Any) -> Any:
@@ -85,8 +87,8 @@ def _reason_is_book_seq(reason: str) -> bool:
 
 
 def is_book_veto_case(
-    dq_reason_bucket: Optional[str],
-    dq_reasons: Optional[Sequence[str]],
+    dq_reason_bucket: str | None,
+    dq_reasons: Sequence[str] | None,
 ) -> bool:
     """Return True if the current hard-veto came from book-seq degradation."""
     if (dq_reason_bucket or "").lower() in ("book_seq", "book", "bookseq"):
@@ -100,15 +102,15 @@ def is_book_veto_case(
 class ObserveOnlyDecision:
     dq_veto: int
     suppressed: bool
-    suppress_reason: Optional[str]
+    suppress_reason: str | None
 
 
 def apply_observe_only_book_veto(
     *,
     dq_level: int,
     dq_veto: int,
-    dq_reason_bucket: Optional[str],
-    dq_reasons: Optional[Sequence[str]],
+    dq_reason_bucket: str | None,
+    dq_reasons: Sequence[str] | None,
     uptime_sec: float,
     cfg: Any = None,
 ) -> ObserveOnlyDecision:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Normalized derivatives context for perpetual futures.
@@ -51,10 +52,10 @@ Design rules
 
 import json
 import math
-import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from statistics import median
-from typing import Any, Dict, Iterable, Optional, Sequence, Tuple
+from typing import Any
 
 SCHEMA_VERSION = 1
 SCHEMA_VERSION_V2 = 2
@@ -89,7 +90,7 @@ class DerivativesContextSnapshot:
     market_breadth_volume_z: float = 0.0
     leader_btc_eth_confirm: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_json(self) -> str:
@@ -120,11 +121,11 @@ def _i(v: Any, d: int = 0) -> int:
 
 
 def _s(v: Any) -> str:
-    return str(v or "").strip()
+    return (v or "").strip()
 
 
 def ctx_key(symbol: str, prefix: str = DEFAULT_CTX_PREFIX) -> str:
-    return f"{prefix}{str(symbol or '').upper()}"
+    return f"{prefix}{(symbol or '').upper()}"
 
 
 def basis_bps(*, mark_price: float, index_price: float) -> float:
@@ -220,9 +221,9 @@ def build_snapshot(
 
     return DerivativesContextSnapshot(
         schema_version=SCHEMA_VERSION,
-        symbol=str(symbol or "").upper(),
+        symbol=(symbol or "").upper(),
         ts_ms=int(ts_ms or _now_ms()),
-        venue=str(venue or "binance").lower(),
+        venue=(venue or "binance").lower(),
         funding_rate=float(fr),
         funding_rate_abs=float(abs(fr)),
         funding_rate_z=float(fz),
@@ -284,9 +285,9 @@ def build_snapshot_v2(
 
     return DerivativesContextSnapshot(
         schema_version=SCHEMA_VERSION_V2,
-        symbol=str(symbol or "").upper(),
+        symbol=(symbol or "").upper(),
         ts_ms=int(ts_ms or _now_ms()),
-        venue=str(venue or "binance").lower(),
+        venue=(venue or "binance").lower(),
         funding_rate=float(fr),
         funding_rate_abs=float(abs(fr)),
         funding_rate_z=float(fz),
@@ -311,7 +312,7 @@ def build_snapshot_v2(
     )
 
 
-def from_dict(payload: Dict[str, Any]) -> Optional[DerivativesContextSnapshot]:
+def from_dict(payload: dict[str, Any]) -> DerivativesContextSnapshot | None:
     try:
         symbol = _s(payload.get("symbol")).upper()
         if not symbol:
@@ -347,7 +348,7 @@ def from_dict(payload: Dict[str, Any]) -> Optional[DerivativesContextSnapshot]:
         return None
 
 
-def from_json(raw: Any) -> Optional[DerivativesContextSnapshot]:
+def from_json(raw: Any) -> DerivativesContextSnapshot | None:
     try:
         if raw is None:
             return None
@@ -362,14 +363,14 @@ def from_json(raw: Any) -> Optional[DerivativesContextSnapshot]:
         return None
 
 
-_LOCAL_CACHE: Dict[str, Tuple[int, Optional[DerivativesContextSnapshot]]] = {}
+_LOCAL_CACHE: dict[str, tuple[int, DerivativesContextSnapshot | None]] = {}
 
-async def aread_derivatives_context(redis, *, symbol: str, prefix: str = DEFAULT_CTX_PREFIX) -> Optional[DerivativesContextSnapshot]:
+async def aread_derivatives_context(redis, *, symbol: str, prefix: str = DEFAULT_CTX_PREFIX) -> DerivativesContextSnapshot | None:
     if redis is None:
         return None
     now_ms = _now_ms()
     cache_key = ctx_key(symbol, prefix=prefix)
-    
+
     # Check local cache (2-second TTL)
     if cache_key in _LOCAL_CACHE:
         ts, snap = _LOCAL_CACHE[cache_key]
@@ -385,7 +386,7 @@ async def aread_derivatives_context(redis, *, symbol: str, prefix: str = DEFAULT
         return None
 
 
-def read_derivatives_context_sync(redis, *, symbol: str, prefix: str = DEFAULT_CTX_PREFIX) -> Optional[DerivativesContextSnapshot]:
+def read_derivatives_context_sync(redis, *, symbol: str, prefix: str = DEFAULT_CTX_PREFIX) -> DerivativesContextSnapshot | None:
     if redis is None:
         return None
     try:
@@ -415,7 +416,7 @@ def write_derivatives_context_sync(redis, snap: DerivativesContextSnapshot, *, t
         return False
 
 
-def partial_funding_payload_from_exchange(payload: Dict[str, Any], *, venue: str = "binance", now_ms: Optional[int] = None) -> Dict[str, Any]:
+def partial_funding_payload_from_exchange(payload: dict[str, Any], *, venue: str = "binance", now_ms: int | None = None) -> dict[str, Any]:
     """Normalize a funding stream payload into a minimal partial context payload.
 
     This helper is intentionally limited to fields that can realistically arrive
@@ -431,7 +432,7 @@ def partial_funding_payload_from_exchange(payload: Dict[str, Any], *, venue: str
         "schema_version": SCHEMA_VERSION,
         "symbol": symbol,
         "ts_ms": ts_ms,
-        "venue": str(venue or "binance").lower(),
+        "venue": (venue or "binance").lower(),
         "funding_rate": float(rate),
         "funding_rate_abs": float(abs(rate)),
         "funding_rate_z": 0.0,

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from common.metrics_stage import (
     candidates_total,
-    veto_total,
+    dist,
     emit_ok_total,
     stage_ms_hist,
-    dist,
+    veto_total,
 )
 
 

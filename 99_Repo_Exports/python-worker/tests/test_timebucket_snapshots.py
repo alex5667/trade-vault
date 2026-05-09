@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pytest
 
@@ -30,11 +30,11 @@ class FakePos:
     max_price_seen: float = 110.0
     min_price_seen: float = 90.0
 
-    mfe_pnl: Optional[float] = 20.0
-    mae_pnl: Optional[float] = 20.0
+    mfe_pnl: float | None = 20.0
+    mae_pnl: float | None = 20.0
 
-    mfe_pnl_t: Dict[int, float] = field(default_factory=dict)
-    mae_pnl_t: Dict[int, float] = field(default_factory=dict)
+    mfe_pnl_t: dict[int, float] = field(default_factory=dict)
+    mae_pnl_t: dict[int, float] = field(default_factory=dict)
 
     def is_long(self) -> bool:
         return str(self.direction).lower() in {"long", "buy"}
@@ -111,7 +111,7 @@ def test_snapshots_attached_to_closed_as_flat_fields():
 
     closed = FakeClosed()
     attach_timebucket_snapshots_to_closed(pos, closed)
-    assert getattr(closed, "mfe_pnl_t60000") == 10.0
-    assert getattr(closed, "mae_pnl_t60000") == -5.0
-    assert getattr(closed, "mfe_pnl_t120000") == 20.0
-    assert getattr(closed, "mae_pnl_t120000") == -8.0
+    assert closed.mfe_pnl_t60000 == 10.0
+    assert closed.mae_pnl_t60000 == -5.0
+    assert closed.mfe_pnl_t120000 == 20.0
+    assert closed.mae_pnl_t120000 == -8.0

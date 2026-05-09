@@ -5,8 +5,8 @@ Signal context for unified signal processing.
 Заглушка для совместимости с существующим кодом.
 """
 
-from typing import Any, Dict, Optional
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -16,9 +16,9 @@ class SignalContext:
     symbol=""
     confidence: float = 0.0
     score: float = 0.0
-    price: Optional[float] = None
+    price: float | None = None
     direction: str = ""
-    metadata: Dict[str, Any] = None
+    metadata: dict[str, Any] = None
 
     def __post_init__(self):
         if self.metadata is None:

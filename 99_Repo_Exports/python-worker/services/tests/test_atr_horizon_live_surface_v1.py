@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Phase 2.4B unit tests: build_live_risk_surface."""
 
 import pytest

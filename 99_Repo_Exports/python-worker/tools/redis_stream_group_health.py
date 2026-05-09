@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 #!/usr/bin/env python3
 """Redis Streams consumer-group health checker.
 
@@ -15,9 +17,10 @@ Env:
   NOTIFY_TELEGRAM_STREAM: Redis stream to send alerts to
 """
 
+import argparse
 import os
 import time
-import argparse
+
 import redis
 
 # Simple in-process cooldown to avoid flooding Telegram on every invocation
@@ -60,7 +63,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis-url", default=os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0"))
     ap.add_argument("--targets", default=os.getenv("STREAM_GROUP_TARGETS", ""))
-    ap.add_argument("--notify", default=os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"))
+    ap.add_argument("--notify", default=os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM))
     ap.add_argument("--pending-max", type=int, default=int(os.getenv("STREAM_HEALTH_PENDING_MAX", "5000")))
     ap.add_argument("--lag-max", type=int, default=int(os.getenv("STREAM_HEALTH_LAG_MAX", "5000")))
     ap.add_argument("--max-age-sec", type=int, default=int(os.getenv("STREAM_HEALTH_MAX_AGE_SEC", "300")))

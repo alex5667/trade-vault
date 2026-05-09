@@ -1,15 +1,16 @@
 """P0 regression tests: enum normalization must not silently map SHORT→LONG."""
 import pytest
+
 from common.enums.trading import Direction, Side
 from common.normalization import (
+    NormalizedSide,
+    get_side_int,
+    get_side_int_safe,
     normalize_direction,
     normalize_direction_safe,
     normalize_side,
-    normalize_side_safe,
     normalize_side_3,
-    get_side_int,
-    get_side_int_safe,
-    NormalizedSide,
+    normalize_side_safe,
 )
 
 

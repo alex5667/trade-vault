@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.crypto_orderflow_detectors import classify_signed_qty
 from core.footprint_lite import FootprintLite, FootprintSnapshot
+import contextlib
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -20,7 +21,7 @@ def _safe_float(x: Any) -> Optional[float]:
         return None
 
 
-def _safe_int(x: Any) -> Optional[int]:
+def _safe_int(x: Any) -> int | None:
     try:
         if x is None:
             return None
@@ -61,10 +62,10 @@ class MicroBar:
     vwap: float = 0.0
     _pv_sum: float = 0.0
 
-    bid_last: Optional[float] = None
-    ask_last: Optional[float] = None
-    mid_last: Optional[float] = None
-    spread_last: Optional[float] = None
+    bid_last: float | None = None
+    ask_last: float | None = None
+    mid_last: float | None = None
+    spread_last: float | None = None
 
     tick_count: int = 0
 
@@ -99,9 +100,9 @@ class MicroBar:
     fp_eff_quote: float = 0.0
     fp_eff_vol: float = 0.0
 
-    _fp: Optional[FootprintLite] = None
+    _fp: FootprintLite | None = None
 
-    def update_from_tick(self, tick: Dict[str, Any], cvd_current: float) -> None:
+    def update_from_tick(self, tick: dict[str, Any], cvd_current: float) -> None:
         px = _safe_float(tick.get("price") or tick.get("last") or tick.get("mid"))
         if px is None:
             return
@@ -178,7 +179,7 @@ class MicroBar:
                 extract = snap.extra.get
             elif isinstance(snap, dict):
                 extract = snap.get
-            
+
             if extract:
                 self.fp_max_imb_ratio = float(extract("fp_max_imb_ratio", 1.0))
                 self.fp_ladder_low_len = int(extract("fp_ladder_low_len", 0))
@@ -224,14 +225,14 @@ class MicroBarAggregator:
         self.fp_bucket_bp: float = 2.0
         self.fp_max_buckets: int = 200
 
-        self.cur: Optional[MicroBar] = None
-        self.cur_bucket: Optional[int] = None
-        self.last_ts_ms: Optional[int] = None
+        self.cur: MicroBar | None = None
+        self.cur_bucket: int | None = None
+        self.last_ts_ms: int | None = None
 
         self.bad_time_count = 0
         self.empty_price_count = 0
 
-    def apply_config(self, cfg: Dict[str, Any]) -> None:
+    def apply_config(self, cfg: dict[str, Any]) -> None:
         try:
             m = str(cfg.get("microbar_mode", self.mode) or self.mode)
             if m in ("time", "volume"):
@@ -252,10 +253,8 @@ class MicroBarAggregator:
             pass
 
         # Phase D: footprint-lite params
-        try:
+        with contextlib.suppress(Exception):
             self.fp_enabled = bool(cfg.get("fp_enabled", self.fp_enabled))
-        except Exception:
-            pass
         try:
             self.fp_bucket_px = float(cfg.get("fp_bucket_px", self.fp_bucket_px))
             if self.fp_bucket_px < 0:
@@ -331,28 +330,26 @@ class MicroBarAggregator:
             self.cur.fp_enabled = False
             self.cur._fp = None
 
-    def _finalize_cur(self, ts_ms_close: int) -> Optional[MicroBar]:
+    def _finalize_cur(self, ts_ms_close: int) -> MicroBar | None:
         if not self.cur:
             return None
         if self.mode == "volume":
             self.cur.end_ts_ms = int(ts_ms_close)
-            
+
         # Phase D: finalize footprint metrics
-        try:
+        with contextlib.suppress(Exception):
             self.cur.finalize_footprint()
-        except Exception:
-            pass
 
         out = self.cur
         self.cur = None
         self.cur_bucket = None
         return out
 
-    def push_tick(self, tick: Dict[str, Any], cvd_current: float) -> List[MicroBar]:
+    def push_tick(self, tick: dict[str, Any], cvd_current: float) -> list[MicroBar]:
         """
         Возвращает список закрытых баров (обычно 0 или 1).
         """
-        out: List[MicroBar] = []
+        out: list[MicroBar] = []
 
         ts_ms = _safe_int(tick.get("ts"))
         if ts_ms is None or ts_ms <= 0:

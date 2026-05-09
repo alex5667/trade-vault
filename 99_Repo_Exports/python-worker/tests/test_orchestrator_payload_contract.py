@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Golden payload contract test for SignalOrchestrator.
 
@@ -14,10 +15,8 @@ import json
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-import pytest
 
 from handlers.crypto_orderflow.pipeline.orchestrator import SignalOrchestrator
-
 
 # ---------------------------------------------------------------------------
 # GOLDEN SCHEMA  (обновлять осознанно — с датой и причиной изменения)

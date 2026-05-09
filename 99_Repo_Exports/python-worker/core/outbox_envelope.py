@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
-import uuid
 import time
+import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, List
+from typing import Any
+
+from domain.evidence_keys import MetaKeys
+
 SCHEMA_VERSION = 1
 
 @dataclass(frozen=True)
@@ -25,24 +28,24 @@ class OutboxEnvelope:
     kind: str
     symbol: str
     # ── Observability / tracing (Optional с дефолтами) ────────────────────────
-    event_id: Optional[str] = None
+    event_id: str | None = None
     source: str = "python-worker"
-    ingest_time_ms: Optional[int] = None
-    process_time_ms: Optional[int] = None
-    trace_id: Optional[str] = None
-    quality_flags: Optional[List[str]] = None
+    ingest_time_ms: int | None = None
+    process_time_ms: int | None = None
+    trace_id: str | None = None
+    quality_flags: list[str] | None = None
     # ── Signal fields ─────────────────────────────────────────────────────────
-    side: Optional[str] = None
-    raw_score: Optional[float] = None
-    final_score: Optional[float] = None
-    confidence_pct: Optional[float] = None
-    payload: Optional[Dict[str, Any]] = None
+    side: str | None = None
+    raw_score: float | None = None
+    final_score: float | None = None
+    confidence_pct: float | None = None
+    payload: dict[str, Any] | None = None
     # schema_version = meta_schema_version propagated from confirmations_engine.build().
     # Default SCHEMA_VERSION keeps backward-compat when caller does not pass it.
     schema_version: int = SCHEMA_VERSION
 
     @classmethod
-    def make_envelope(cls, **kwargs) -> "OutboxEnvelope":
+    def make_envelope(cls, **kwargs) -> OutboxEnvelope:
         if "event_id" not in kwargs:
             kwargs["event_id"] = str(uuid.uuid4())
 
@@ -57,13 +60,13 @@ class OutboxEnvelope:
         # confirmations_engine.build() can propagate the feature-set version
         # without changing the field name on the envelope dataclass.
         if "meta_schema_version" in kwargs and "schema_version" not in kwargs:
-            kwargs["schema_version"] = int(kwargs.pop("meta_schema_version") or 1)
+            kwargs["schema_version"] = int(kwargs.pop(MetaKeys.SCHEMA_VERSION) or 1)
         elif "meta_schema_version" in kwargs:
-            kwargs.pop("meta_schema_version")  # discard duplicate
+            kwargs.pop(MetaKeys.SCHEMA_VERSION)  # discard duplicate
 
         return cls(**kwargs)
 
-    def to_stream_fields(self) -> Dict[str, str]:
+    def to_stream_fields(self) -> dict[str, str]:
         """
         Превратить envelope в поля для XADD.
 
@@ -77,7 +80,7 @@ class OutboxEnvelope:
         process_time_ms = self.process_time_ms if self.process_time_ms is not None else int(time.time() * 1000)
         trace_id = self.trace_id or event_id
 
-        d: Dict[str, Any] = {
+        d: dict[str, Any] = {
             "schema_version": self.schema_version,
             "event_id": event_id,
             "source": self.source,

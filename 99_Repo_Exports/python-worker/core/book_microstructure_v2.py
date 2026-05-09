@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
 import math
+from typing import Any
 
-Level = Tuple[float, float]  # (price, qty)
+Level = tuple[float, float]  # (price, qty)
 
 def _is_finite(x: float) -> bool:
     return isinstance(x, (int, float)) and math.isfinite(float(x))
@@ -12,12 +12,12 @@ def _to_f(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
         if not math.isfinite(v):
-            return float(default)
+            return default
         return v
     except Exception:
-        return float(default)
+        return default
 
-def _get_levels(snap: Any, side: str) -> List[Level]:
+def _get_levels(snap: Any, side: str) -> list[Level]:
     """
     Supports:
       - object with attributes .bids/.asks as list[[px,qty],...]
@@ -33,7 +33,7 @@ def _get_levels(snap: Any, side: str) -> List[Level]:
             levels = getattr(snap, side, None)
             if levels is None:
                 levels = getattr(snap, "bid" if side == "bids" else "ask", []) or []
-        out: List[Level] = []
+        out: list[Level] = []
         for it in levels:
             if it is None:
                 continue
@@ -47,7 +47,7 @@ def _get_levels(snap: Any, side: str) -> List[Level]:
     except Exception:
         return []
 
-def compute_queue_imbalance_topn(snap: Any, levels: int = 5) -> Dict[str, float]:
+def compute_queue_imbalance_topn(snap: Any, levels: int = 5) -> dict[str, float]:
     """
     qimb_lk = (bid_qty_k - ask_qty_k)/(bid_qty_k + ask_qty_k), 0 if denom==0
     qimb_wmean: weights 1/k
@@ -57,7 +57,7 @@ def compute_queue_imbalance_topn(snap: Any, levels: int = 5) -> Dict[str, float]
     L = max(len(bids), len(asks), int(levels))
     if L <= 0:
         return {}
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
     num_w = 0.0
     den_w = 0.0
     for k in range(1, L + 1):
@@ -74,7 +74,7 @@ def compute_queue_imbalance_topn(snap: Any, levels: int = 5) -> Dict[str, float]
     out["qimb_wmean"] = float(num_w / den_w) if den_w > 0 else 0.0
     return out
 
-def compute_ofi_multilevel_topn(prev_snap: Any, snap: Any, levels: int = 5) -> Dict[str, float]:
+def compute_ofi_multilevel_topn(prev_snap: Any, snap: Any, levels: int = 5) -> dict[str, float]:
     """
     Proxy multi-level OFI:
       ofi_k = (bid_qty_k - prev_bid_qty_k) - (ask_qty_k - prev_ask_qty_k)

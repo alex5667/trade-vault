@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P6 tests for BinanceFuturesClient routing and replace_algo_order.
 
 Verifies:
@@ -7,10 +8,7 @@ Verifies:
   - replace_algo_order cancel+replace semantics
 """
 
-import pytest
-import sys
-import os
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import patch
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 

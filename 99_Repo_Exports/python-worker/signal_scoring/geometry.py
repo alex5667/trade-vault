@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from ._helpers import _is_finite
 
@@ -26,7 +27,7 @@ def normalize_zone_strength(raw_strength: Any) -> float:
 def distance_to_score(
     *,
     dist_bps: float,
-    dist_rel_atr: Optional[float],
+    dist_rel_atr: float | None,
     bps_half_life: float = 25.0,
     atr_half_life: float = 0.35,
 ) -> float:
@@ -53,7 +54,7 @@ def geometry_score(
     *,
     zone_strength01: float,
     dist_bps: float,
-    dist_rel_atr: Optional[float],
+    dist_rel_atr: float | None,
     bps_half_life: float = 25.0,
     atr_half_life: float = 0.35,
 ) -> float:
@@ -78,11 +79,11 @@ class GeoZoneHit:
     zone_strength: float  # normalized [0..1]
     zone_price: float
     dist_bps: float
-    dist_rel_atr: Optional[float]
+    dist_rel_atr: float | None
     score: float
-    meta: Dict[str, Any]
+    meta: dict[str, Any]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         # keep meta last / readable
         d["meta"] = dict(self.meta or {})
@@ -92,11 +93,11 @@ class GeoZoneHit:
 def compute_geo_hits(
     *,
     price: float,
-    atr: Optional[float],
-    zones: Iterable[Dict[str, Any]],
+    atr: float | None,
+    zones: Iterable[dict[str, Any]],
     bps_half_life: float = 25.0,
     atr_half_life: float = 0.35,
-) -> List[GeoZoneHit]:
+) -> list[GeoZoneHit]:
     """
     zones: iterable of dicts with at least:
       - type (or zone_type)
@@ -108,11 +109,11 @@ def compute_geo_hits(
         return []
     px = float(price)
 
-    atr_f: Optional[float] = None
-    if _is_finite(atr) and float(atr) > 0:
-        atr_f = float(atr)
+    atr_f: float | None = None
+    if _is_finite(atr) and atr > 0:
+        atr_f = atr
 
-    hits: List[GeoZoneHit] = []
+    hits: list[GeoZoneHit] = []
 
     for z in zones:
         if not isinstance(z, dict):
@@ -172,10 +173,10 @@ def compute_geometry_context(
     *,
     price: Any,
     atr: Any,
-    zones: Iterable[Dict[str, Any]],
+    zones: Iterable[dict[str, Any]],
     bps_half_life: float = 25.0,
     atr_half_life: float = 0.35,
-) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]], float]:
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, float]:
     """
     Returns:
       - geo_zone_hits: list[dict] (json-friendly)
@@ -187,7 +188,7 @@ def compute_geometry_context(
 
     hits = compute_geo_hits(
         price=float(price),
-        atr=float(atr) if _is_finite(atr) else None,
+        atr=atr if _is_finite(atr) else None,
         zones=zones,
         bps_half_life=bps_half_life,
         atr_half_life=atr_half_life,

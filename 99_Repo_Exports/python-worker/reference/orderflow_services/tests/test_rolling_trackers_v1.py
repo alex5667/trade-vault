@@ -11,8 +11,8 @@ Tests cover:
 All tests are stateless (no I/O, no Redis, no imports from services.*).
 """
 import math
-import sys
 import os
+import sys
 
 # Add python-worker root to path so 'core.*' is importable
 # Depth: tests -> orderflow -> services -> tick_flow_full -> python-worker (4 levels)
@@ -21,12 +21,10 @@ if _PW_ROOT not in sys.path:
     sys.path.insert(0, _PW_ROOT)
 
 
-from core.rolling_window import RollingWindow, WeightedRollingWindow
-from core.rolling_vwap_tracker import RollingVWAPTracker
 from core.rolling_momentum_tracker import RollingMomentumTracker
 from core.rolling_volatility_tracker import RollingVolatilityTracker
-
-
+from core.rolling_vwap_tracker import RollingVWAPTracker
+from core.rolling_window import RollingWindow, WeightedRollingWindow
 
 # ──────────────────────────────────────────────────────────
 # RollingWindow

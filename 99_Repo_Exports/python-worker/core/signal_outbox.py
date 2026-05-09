@@ -1,17 +1,14 @@
-from utils.time_utils import get_ny_time_millis
+
 # core/signal_outbox.py
 import json
 import logging
-import os
-import time
-import hashlib
-import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, List, Tuple, Iterable
-from core.redis_keys import RedisStreams as RS
+from typing import Any
 
-from core.performance_optimizer import get_optimized_redis_client
 from common.time_utils import normalize_epoch_ms_best_effort
+from core.performance_optimizer import get_optimized_redis_client
+from core.redis_keys import RedisStreams as RS
+from utils.time_utils import get_ny_time_millis
 
 logger = logging.getLogger(__name__)
 
@@ -52,16 +49,16 @@ return {1, id}
 class SignalOutboxPublisher:
     def __init__(
         self,
-        redis_url: Optional[str] = None,
-        settings: Optional[OutboxSettings] = None,
-        redis_client: Optional[Any] = None,
+        redis_url: str | None = None,
+        settings: OutboxSettings | None = None,
+        redis_client: Any | None = None,
     ):
         if redis_client is not None:
             self._redis = redis_client
         else:
             self._redis = get_optimized_redis_client(redis_url)
         self.settings = settings or OutboxSettings()
-        self._sha_dedup: Optional[str] = None
+        self._sha_dedup: str | None = None
 
     @staticmethod
     def _normalize_epoch_ms(ts_ms: Any) -> int:
@@ -71,7 +68,7 @@ class SignalOutboxPublisher:
         return normalize_epoch_ms_best_effort(ts_ms)
 
     @staticmethod
-    def _normalize_ts_ms(ts_ms: Any, envelope: Dict[str, Any]) -> int:
+    def _normalize_ts_ms(ts_ms: Any, envelope: dict[str, Any]) -> int:
         """
         CRITICAL (D): ts_ms может быть 0/мусор/не-epoch → bucket=0 → ложный дедуп (глушит сигналы).
         Нормализация:
@@ -83,7 +80,7 @@ class SignalOutboxPublisher:
         lo = 946684800000       # 2000-01-01
         hi = 4102444800000      # 2100-01-01
 
-        def _to_int(x: Any) -> Optional[int]:
+        def _to_int(x: Any) -> int | None:
             try:
                 if x is None:
                     return None
@@ -147,9 +144,9 @@ class SignalOutboxPublisher:
         kind: str,
         level_key: str,
         ts_ms: int,
-        envelope: Dict[str, Any],
-        dedup_ttl_ms: Optional[int] = None,
-    ) -> Optional[str]:
+        envelope: dict[str, Any],
+        dedup_ttl_ms: int | None = None,
+    ) -> str | None:
         """
         Atomic dedup + XADD to outbox stream via Lua script.
 
@@ -162,7 +159,7 @@ class SignalOutboxPublisher:
         norm_ts_ms = self._normalize_ts_ms(ts_ms, envelope)
 
         # P1-8: Include fingerprint to avoid losing legitimate signals in 60s bucket
-        reason = str(envelope.get("fingerprint") or "")
+        reason = (envelope.get("fingerprint") or "")
 
         dedup_key = self.build_dedup_key(
             source=source,
@@ -175,6 +172,10 @@ class SignalOutboxPublisher:
             ts_ms=norm_ts_ms,
             bucket_ms=settings.dedup_bucket_ms,
         )
+
+        # Ensure schema_version is present — dispatcher rejects envelopes without it.
+        if "schema_version" not in envelope:
+            envelope = {**envelope, "schema_version": 1}
 
         envelope_json = json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
 

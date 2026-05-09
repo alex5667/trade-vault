@@ -2,18 +2,17 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 
 def _import_engine_and_contexts():
     # Support both package and flat execution layouts
     try:
-        from l2_microstructure_engine import L2MicrostructureEngine  # type: ignore
         from contexts import BucketState, L2Level, SimpleL2Snapshot  # type: ignore
+        from l2_microstructure_engine import L2MicrostructureEngine  # type: ignore
         return L2MicrostructureEngine, BucketState, L2Level, SimpleL2Snapshot
     except Exception:
         # try common package layout
         from handlers.l2_microstructure_engine import L2MicrostructureEngine  # type: ignore
+
         from contexts import BucketState, L2Level, SimpleL2Snapshot  # type: ignore
         return L2MicrostructureEngine, BucketState, L2Level, SimpleL2Snapshot
 
@@ -85,8 +84,8 @@ def test_inverted_book_sets_valid_false():
     )
     engine.update(s, 123, st)
 
-    assert getattr(st, "obi_valid") is False
-    assert getattr(st, "obi_20_valid") is False
+    assert st.obi_valid is False
+    assert st.obi_20_valid is False
 
 
 def test_obi20_invalid_when_band_empty_min_levels_each_side():
@@ -103,7 +102,7 @@ def test_obi20_invalid_when_band_empty_min_levels_each_side():
     )
     engine.update(s, 1000, st)
 
-    assert getattr(st, "obi_20_valid") is False
+    assert st.obi_20_valid is False
     assert float(getattr(st, "obi_20", 0.0) or 0.0) == 0.0
 
 

@@ -1,4 +1,3 @@
-import os
 
 from core.redis_client import get_redis_fast_news, reset_redis_connection
 

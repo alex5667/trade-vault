@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import os
-import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from core.redis_keys import RedisKeyPrefixes as RK
 
@@ -46,10 +45,10 @@ class NotifyGate:
       ретраи не сдвигают счётчик и не меняют решение
     """
 
-    def __init__(self, redis_client: Any, *, settings: Optional[NotifyGateSettings] = None) -> None:
+    def __init__(self, redis_client: Any, *, settings: NotifyGateSettings | None = None) -> None:
         self.redis = redis_client
         self.settings = settings or NotifyGateSettings()
-        self._sha: Optional[str] = None
+        self._sha: str | None = None
 
     def _gate_key(self, sid: str) -> str:
         return f"{self.settings.gate_prefix}:{sid}"
@@ -60,7 +59,7 @@ class NotifyGate:
         self._sha = str(self.redis.script_load(_LUA_COUNTER_GATE))
         return self._sha
 
-    def should_send(self, sid: str, symbol: Optional[str] = None) -> bool:
+    def should_send(self, sid: str, symbol: str | None = None) -> bool:
         n = int(self.settings.every_n)
         if n == 0:
             return False  # 0 = disabled, no notifications
@@ -72,20 +71,20 @@ class NotifyGate:
             return (zlib.crc32(sid.encode("utf-8")) % n) == 0
         # counter mode (stable per sid)
         sha = self._ensure_sha()
-        
+
         counter_key = self.settings.counter_key
         if symbol:
             counter_key = f"{counter_key}:{symbol}"
-            
+
         try:
             res = self.redis.evalsha(sha, 2, self._gate_key(sid), counter_key, str(int(self.settings.ttl_sec)), str(n))
         except Exception:
             res = self.redis.eval(_LUA_COUNTER_GATE, 2, self._gate_key(sid), counter_key, str(int(self.settings.ttl_sec)), str(n))
-        
+
         decision = bool(res) and int(res) == 1
         # Debug logging to trace gate decisions
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"[NotifyGate] SID={sid} Mode={mode} N={n} Result={res} Decision={decision} Key={counter_key}")
-        
+
         return decision

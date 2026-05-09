@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Build ML-confirm dataset from NDJSON exports.
 
 Inputs
@@ -30,11 +30,12 @@ This completes Step A (Outcome labels) without relying on a DB.
 import argparse
 import json
 import math
-from typing import Any, Dict, Iterator, Optional
+from collections.abc import Iterator
+from typing import Any
 
 
-def _read_ndjson(path: str) -> Iterator[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def _read_ndjson(path: str) -> Iterator[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -60,7 +61,7 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def _get_sid(obj: Dict[str, Any]) -> str:
+def _get_sid(obj: dict[str, Any]) -> str:
     for k in ("sid", "signal_id", "id"):
         v = obj.get(k)
         if isinstance(v, str) and v:
@@ -68,7 +69,7 @@ def _get_sid(obj: Dict[str, Any]) -> str:
     return ""
 
 
-def _get_ts(obj: Dict[str, Any]) -> int:
+def _get_ts(obj: dict[str, Any]) -> int:
     for k in ("ts_ms", "ts", "timestamp"):
         v = obj.get(k)
         if v is None:
@@ -79,21 +80,21 @@ def _get_ts(obj: Dict[str, Any]) -> int:
     return 0
 
 
-def _get_symbol(obj: Dict[str, Any]) -> str:
+def _get_symbol(obj: dict[str, Any]) -> str:
     v = obj.get("symbol")
     if isinstance(v, str):
         return v.upper()
     return ""
 
 
-def _flatten_features(inp: Dict[str, Any]) -> Dict[str, Any]:
+def _flatten_features(inp: dict[str, Any]) -> dict[str, Any]:
     """Turn OFInputsV1 into a flat feature dict.
 
     Rules:
       - keep numbers/bools/short strings
       - drop large blobs (cfg/raw_ctx) if present
     """
-    X: Dict[str, Any] = {}
+    X: dict[str, Any] = {}
     for k, v in inp.items():
         if k in ("cfg", "raw_ctx", "context", "payload"):
             continue
@@ -114,31 +115,29 @@ def _flatten_features(inp: Dict[str, Any]) -> Dict[str, Any]:
                 nk = f"{k}.{kk}"
                 if isinstance(vv, bool):
                     X[nk] = int(vv)
-                elif isinstance(vv, (int, float)):
-                    X[nk] = vv
-                elif isinstance(vv, str) and len(vv) <= 64:
+                elif isinstance(vv, (int, float)) or isinstance(vv, str) and len(vv) <= 64:
                     X[nk] = vv
         # ignore lists/huge objects
     # ensure stable categoricals
     if "symbol" in inp:
-        X["symbol"] = str(inp.get("symbol")).upper()
+        X["symbol"] = (inp.get("symbol")).upper()
     if "direction" in inp:
-        X["direction"] = str(inp.get("direction")).upper()
+        X["direction"] = (inp.get("direction")).upper()
     # allow both scenario and scenario_v4 naming
     if "scenario_v4" in inp:
-        X["scenario_v4"] = str(inp.get("scenario_v4"))
+        X["scenario_v4"] = (inp.get("scenario_v4"))
     if "scenario" in inp and "scenario_v4" not in X:
-        X["scenario_v4"] = str(inp.get("scenario"))
+        X["scenario_v4"] = (inp.get("scenario"))
     if "regime_group" in inp:
-        X["regime_group"] = str(inp.get("regime_group"))
+        X["regime_group"] = (inp.get("regime_group"))
     if "regime" in inp and "regime_group" not in X:
-        X["regime_group"] = str(inp.get("regime"))
+        X["regime_group"] = (inp.get("regime"))
     return X
 
 
-def _extract_outcome(row: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_outcome(row: dict[str, Any]) -> dict[str, Any]:
     """Normalize closed-trade row to a small set of outcome fields."""
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     out["ts_ms"] = _get_ts(row)
     out["sid"] = _get_sid(row)
     out["symbol"] = _get_symbol(row)
@@ -156,7 +155,7 @@ def _extract_outcome(row: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _adverse_proxy(out: Dict[str, Any]) -> Optional[float]:
+def _adverse_proxy(out: dict[str, Any]) -> float | None:
     # prefer MAE in R if present
     if out.get("mae_r") is not None:
         return _f(out.get("mae_r"), 0.0)
@@ -177,7 +176,7 @@ def main() -> None:
     args = ap.parse_args()
 
     # Load outcomes keyed by sid
-    outcomes: Dict[str, Dict[str, Any]] = {}
+    outcomes: dict[str, dict[str, Any]] = {}
     for row in _read_ndjson(args.closed):
         o = _extract_outcome(row)
         sid = o.get("sid", "")

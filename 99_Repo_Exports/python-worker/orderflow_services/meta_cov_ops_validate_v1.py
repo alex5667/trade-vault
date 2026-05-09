@@ -22,8 +22,7 @@ import json
 import logging
 import os
 import sys
-import time
-from typing import Optional
+from core.redis_keys import RedisStreams as RS
 
 try:
     import redis
@@ -43,11 +42,11 @@ logger = logging.getLogger("MetaCovPreflight")
 class PreflightConfig:
     def __init__(self):
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        
+
         self.source_stream = os.getenv("META_COV_SOURCE_STREAM", "metrics:of_gate")
-        self.trade_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+        self.trade_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
         self.dyn_cfg_key = os.getenv("DYN_CFG_KEY", "settings:dynamic_cfg")
-        
+
         self.min_of_gate = int(os.getenv("META_COV_PREFLIGHT_MIN_OF_GATE", "200"))
         self.min_trades = int(os.getenv("META_COV_PREFLIGHT_MIN_TRADES", "50"))
         # Timeout isn't used for connection (redis handles that), but conceptually relevant
@@ -83,14 +82,14 @@ def _b2s(x):
 def _loads_maybe_json(v):
     if v is None:
         return None
-    
+
     work_v = v
     if isinstance(work_v, (bytes, bytearray)):
         try:
             work_v = work_v.decode("utf-8", "replace")
         except Exception:
             return v
-    
+
     if isinstance(work_v, str):
         s = work_v.strip()
         if not s:
@@ -104,7 +103,7 @@ def _loads_maybe_json(v):
                     if (s2.startswith("{") and s2.endswith("}")) or (s2.startswith("[") and s2.endswith("]")):
                          try:
                              return json.loads(s2)
-                         except:
+                         except Exception:
                              return parsed
                 return parsed
             except Exception:
@@ -139,14 +138,14 @@ def _is_position_closed(d: dict) -> bool:
     ev = str(d.get("event") or d.get("type") or "").upper()
     if ev == "POSITION_CLOSED":
         return True
-    st = str(d.get("status") or "").upper()
+    st = (d.get("status") or "").upper()
     return st == "POSITION_CLOSED"
 
 
 def check_stream_data(
-    r: redis.Redis, 
-    stream_key: str, 
-    min_count: int, 
+    r: redis.Redis,
+    stream_key: str,
+    min_count: int,
     required_fields: list[str]
 ) -> bool:
     """,
@@ -165,15 +164,15 @@ def check_stream_data(
         if not entries:
             logger.warning(f"Stream {stream_key} is empty (but xlen said {length}?).")
             return False
-        
+
         _, raw_fields = entries[0]
         fields = _parse_entry(raw_fields)
-        
+
         missing = [f for f in required_fields if f not in fields]
         if missing:
             logger.warning(f"Stream {stream_key} missing required fields: {missing}. Available: {list(fields.keys())}")
             return False
-            
+
         logger.info(f"Stream {stream_key} OK: len={length}, fields verified.")
         return True
 
@@ -184,7 +183,7 @@ def check_stream_data(
 
 def main() -> int:
     cfg = PreflightConfig()
-    
+
     logger.info("Starting Meta Coverage Preflight Check...")
     logger.info(f"Config: source={cfg.source_stream}, trades={cfg.trade_stream}, cfg_key={cfg.dyn_cfg_key}")
 
@@ -205,7 +204,7 @@ def main() -> int:
 
     # 2. Check Data Streams
     soft_block = False
-    
+
     # Source Stream
     try:
         if not check_stream_data(r, cfg.source_stream, cfg.min_of_gate, ["meta_feature_coverage", "meta_enforce_cov_bucket"]):
@@ -231,18 +230,18 @@ def main() -> int:
                     fields = _parse_entry(raw_fields)
                     if not _is_position_closed(fields):
                         continue
-                    
+
                     found_closed = True
                     # Fields to check: r_mult (or r), meta_enforce_cov_bucket (or meta_cov_bucket), meta_enforce_applied (or meta_applied)
                     has_r = "r_mult" in fields or "r" in fields
                     has_bucket = "meta_enforce_cov_bucket" in fields or "meta_cov_bucket" in fields
                     has_applied = "meta_enforce_applied" in fields or "meta_applied" in fields
-                    
+
                     if not has_r:
                         logger.warning(f"Trade event missing 'r_mult'/'r'. Fields: {list(fields.keys())}")
                         soft_block = True
                         break
-                    
+
                     if not (has_bucket and has_applied):
                         msg = f"Trade event missing P41 meta fields (bucket/applied). Fields: {list(fields.keys())}"
                         if cfg.require_trade_meta:
@@ -251,11 +250,11 @@ def main() -> int:
                         else:
                             logger.warning(f"WARNING: {msg}")
                     break
-                
+
                 if not found_closed:
                     logger.warning(f"No POSITION_CLOSED found in last 50 entries of {cfg.trade_stream}.")
                     soft_block = True
-                        
+
     except Exception as e:
         logger.error(f"Error checking trade stream: {e}")
         return 1

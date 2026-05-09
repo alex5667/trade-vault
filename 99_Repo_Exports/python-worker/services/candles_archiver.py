@@ -12,17 +12,17 @@ Features:
 - Metadata tracking in `archive_metadata` table
 """
 
+import json
+import logging
 import os
+import signal
 import sys
 import time
-import json
-import signal
-import logging
-from datetime import datetime, timezone
-from typing import Dict, Any
+from datetime import UTC, datetime
+from typing import Any
 
-import redis
 import psycopg2
+import redis
 from psycopg2.extras import execute_batch
 
 # Configuration
@@ -65,7 +65,7 @@ def get_pg_connection():
         keepalives_count=5
     )
 
-def _first_value(obj: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+def _first_value(obj: dict[str, Any], *keys: str, default: Any = None) -> Any:
     for key in keys:
         value = obj.get(key)
         if value is not None and value != "":
@@ -88,18 +88,18 @@ def safe_float(val, default=0.0):
     except (ValueError, TypeError):
         return default
 
-def parse_candle(data: Dict[bytes, bytes]) -> Dict[str, Any]:
+def parse_candle(data: dict[bytes, bytes]) -> dict[str, Any]:
     """Parse candle data from Redis stream format."""
     try:
         # Decode bytes keys/values
         d = {k.decode('utf-8'): v.decode('utf-8') for k, v in data.items()}
-        
+
         # Determine source format (JSON or fields)
         if d.get('type') == 'init':
             return None
-            
+
         ts_fallback = safe_int(d.get('ts'))
-            
+
         json_data = d.get('data') or d.get('payload')
         if json_data:
             # JSON format
@@ -109,15 +109,15 @@ def parse_candle(data: Dict[bytes, bytes]) -> Dict[str, Any]:
                     raw = json.loads(raw)
             except json.JSONDecodeError:
                 raw = {}
-                
+
             open_time_ms = safe_int(_first_value(raw, 'k_t', 't', 'open_time', 'openTime'), ts_fallback)
             close_time_ms = safe_int(_first_value(raw, 'k_Tw', 'T', 'close_time', 'closeTime'), ts_fallback)
-            
+
             return {
                 'symbol': _first_value(raw, 's', 'symbol') or _first_value(d, 'symbol', 's', default='UNKNOWN'),
                 'timeframe': _first_value(raw, 'tf', 'timeframe', 'i') or _first_value(d, 'tf', 'timeframe', 'i', default='1m'),
-                'open_time': datetime.fromtimestamp(open_time_ms / 1000.0, timezone.utc),
-                'close_time': datetime.fromtimestamp(close_time_ms / 1000.0, timezone.utc),
+                'open_time': datetime.fromtimestamp(open_time_ms / 1000.0, UTC),
+                'close_time': datetime.fromtimestamp(close_time_ms / 1000.0, UTC),
                 'open': safe_float(_first_value(raw, 'o', 'open')),
                 'high': safe_float(_first_value(raw, 'h', 'high')),
                 'low': safe_float(_first_value(raw, 'l', 'low')),
@@ -134,12 +134,12 @@ def parse_candle(data: Dict[bytes, bytes]) -> Dict[str, Any]:
              # Or full names
             open_time_ms = safe_int(_first_value(d, 't', 'open_time'), ts_fallback)
             close_time_ms = safe_int(_first_value(d, 'T', 'close_time'), ts_fallback)
-             
+
             return {
                 'symbol': _first_value(d, 's', 'symbol', default='UNKNOWN'),
                 'timeframe': _first_value(d, 'i', 'tf', 'timeframe', default='1m'),
-                'open_time': datetime.fromtimestamp(open_time_ms / 1000.0, timezone.utc),
-                'close_time': datetime.fromtimestamp(close_time_ms / 1000.0, timezone.utc),
+                'open_time': datetime.fromtimestamp(open_time_ms / 1000.0, UTC),
+                'close_time': datetime.fromtimestamp(close_time_ms / 1000.0, UTC),
                 'open': safe_float(_first_value(d, 'o', 'open')),
                 'high': safe_float(_first_value(d, 'h', 'high')),
                 'low': safe_float(_first_value(d, 'l', 'low')),
@@ -150,7 +150,7 @@ def parse_candle(data: Dict[bytes, bytes]) -> Dict[str, Any]:
                 'taker_buy_base': safe_float(_first_value(d, 'V', 'taker_buy_base', 'takerBuyVolume')),
                 'taker_buy_quote': safe_float(_first_value(d, 'Q', 'taker_buy_quote', 'takerBuyQuote', 'takerBuyQuoteVolume')),
             }
-            
+
     except Exception as e:
         logger.error(f"Failed to parse candle data: {e} - Data: {data}")
         return None
@@ -169,19 +169,19 @@ def ensure_consumer_group(r, stream, group):
 def main():
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
-    
+
     logger.info("Starting Candles Archiver Service...")
     logger.info(f"Stream: {CANDLES_STREAM}, Group: {ARCHIVE_GROUP}, Batch: {BATCH_SIZE}")
-    
+
     r = get_redis_client()
-    
+
     # Ensure consumer group exists
     try:
         ensure_consumer_group(r, CANDLES_STREAM, ARCHIVE_GROUP)
     except Exception as e:
         logger.error(f"Startup error: {e}")
         sys.exit(1)
-            
+
     pg_conn = None
 
     while running:
@@ -193,14 +193,14 @@ def main():
                 count=BATCH_SIZE,
                 block=BLOCK_MS
             )
-            
+
             if not messages:
                 continue
-                
+
             batch_data = []
             msg_ids = []
             last_id = ""
-            
+
             # Process messages
             for stream, msgs in messages:
                 for msg_id, data in msgs:
@@ -223,13 +223,13 @@ def main():
                         ))
                     msg_ids.append(msg_id)
                     last_id = msg_id.decode('utf-8')
-            
+
             if not batch_data:
                 # Still ACK if we got messages but couldn't parse them (to skip bad data)
                 if msg_ids:
                     r.xack(CANDLES_STREAM, ARCHIVE_GROUP, *msg_ids)
                 continue
-                
+
             # Insert into Postgres with an infinite retry loop to avoid data loss
             while True:
                 # Maintain persistent Postgres connection
@@ -243,9 +243,8 @@ def main():
                         continue
 
                 try:
-                    with pg_conn:
-                        with pg_conn.cursor() as cur:
-                            execute_batch(cur, """
+                    with pg_conn, pg_conn.cursor() as cur:
+                        execute_batch(cur, """
                                 INSERT INTO candles_archive (
                                     symbol, timeframe, open_time, close_time,
                                     open, high, low, close,
@@ -254,9 +253,9 @@ def main():
                                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON CONFLICT (symbol, timeframe, open_time) DO NOTHING
                             """, batch_data, page_size=1000)
-                            
-                            # Update metadata
-                            cur.execute("""
+
+                        # Update metadata
+                        cur.execute("""
                                 UPDATE archive_metadata 
                                 SET last_archived_id = %s,
                                     last_archived_at = NOW(),
@@ -277,15 +276,15 @@ def main():
                     # Don't drop connection on basic IntegrityError etc, but let with-block rollback
                     raise
 
-            
+
             # ACK messages in Redis
             r.xack(CANDLES_STREAM, ARCHIVE_GROUP, *msg_ids)
-            
+
             global _archive_log_counter
             _archive_log_counter += 1
             if _archive_log_counter % 10000 == 0:
                 logger.info(f"✅ Archived {len(batch_data)} candles. Last ID: {last_id}")
-            
+
         except redis.exceptions.ResponseError as e:
             if 'NOGROUP' in str(e):
                 logger.warning(f"Consumer group missing (NOGROUP), attempting to recreate: {e}")
@@ -305,7 +304,7 @@ def main():
 
     if pg_conn and not pg_conn.closed:
         pg_conn.close()
-        
+
     logger.info("Service stopped.")
 
 if __name__ == "__main__":

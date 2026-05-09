@@ -1,30 +1,29 @@
 # services/periodic_reporter.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import time
+import importlib.util
 import json
 import math
-import importlib.util
+import os
+import time
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple, List, Any
+from typing import Any
 
+from common.log import setup_logger
+from core.redis_client import get_redis
+from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning
+from services.pnl_math import safe_div
 from services.reporting_service import ReportingService
 from services.trade_metrics_service import TradeMetricsService
 from services.trailing_edge_analyzer import TrailingEdgeAnalyzer
-from services.pnl_math import safe_div
-from core.redis_client import get_redis
-from common.log import setup_logger
-from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning
-
+from utils.time_utils import get_ny_time_millis
 
 # Setup logger before imports that might fail
 logger = setup_logger("PeriodicReporter")
 
 try:
-    from services.edge_gate_reporter import EdgeGateReporter, EdgeGateReportConfig
+    from services.edge_gate_reporter import EdgeGateReportConfig, EdgeGateReporter
 except ImportError:
     # Fail safe if file doesn't exist yet (though we just created it)
     logger.warning("Could not import EdgeGateReporter")
@@ -57,16 +56,23 @@ except Exception as e:
 
 # Import trailing size recommender
 try:
-    from services.trailing_size_recommender import recommend_trailing_size, ClosedTradeSnapshot
+    from services.trailing_size_recommender import ClosedTradeSnapshot, recommend_trailing_size
 except ImportError as e:
     logger.warning(f"⚠️ Could not import trailing size recommender: {e}")
     recommend_trailing_size = None
     ClosedTradeSnapshot = None
 
-from domain.normalizers import canon_source, canon_symbol, canon_tf, tf_variants, bucket_close_reason, canon_strategy, strategy_from_source
-from services.trade_closed_hydrator import hydrate_trade_closed_batch
+from domain.normalizers import (
+    bucket_close_reason,
+    canon_source,
+    canon_strategy,
+    canon_symbol,
+    canon_tf,
+    strategy_from_source,
+    tf_variants,
+)
 from infra.redis_repo import RedisTradeRepository
-from services.trade_closed_hydrator import hydrate_trade_closed
+from services.trade_closed_hydrator import hydrate_trade_closed, hydrate_trade_closed_batch
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 
@@ -91,7 +97,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
 
 
-def _closed_zkey(strategy: str, symbol: str, tf: str, source: Optional[str] = None) -> str:
+def _closed_zkey(strategy: str, symbol: str, tf: str, source: str | None = None) -> str:
     from domain.normalizers import canon_strategy, canon_tf
     st = canon_strategy(strategy)
     sy = canon_symbol(symbol)
@@ -159,7 +165,7 @@ def get_reporter_instance():
     return _reporter_instance
 
 
-def check_and_trigger_report(source: str, symbol: str, counter_type: str = "trades", order_id: Optional[str] = None):
+def check_and_trigger_report(source: str, symbol: str, counter_type: str = "trades", order_id: str | None = None):
     try:
         get_reporter_instance()._check_and_trigger_report(source, symbol, counter_type, order_id=order_id)
     except Exception as e:
@@ -205,14 +211,14 @@ class PeriodicReporter:
 
         self.report_counter = {}  # {f"{source}:{symbol}": count}
 
-    def _candidate_tfs(self) -> List[str]:
+    def _candidate_tfs(self) -> list[str]:
         """
         Возвращаем список TF в КАНОНИЧЕСКОМ виде.
         При этом запись закрытий уже идет в несколько tf_variants(), но для чтения
         лучше начинать с канона, а легаси покроется через tf_variants(tf).
         """
         raw = [x.strip() for x in (PERIODIC_REPORT_TFS_ENV or "").split(",") if x.strip()]
-        out: List[str] = []
+        out: list[str] = []
         for tf in raw:
             c = canon_tf(tf)
             if c and c not in out:
@@ -220,7 +226,7 @@ class PeriodicReporter:
         return out or ["tick", "1m", "5m"]
 
 
-    def _symbol_trailing_enabled(self, symbol: str) -> Optional[bool]:
+    def _symbol_trailing_enabled(self, symbol: str) -> bool | None:
         """
         Пытаемся считать из Redis спецификацию символа: symbol_specs:{symbol}
         Ожидаем поле trailing_enabled (bool). Если нет/ошибка — возвращаем None.
@@ -251,8 +257,8 @@ class PeriodicReporter:
         symbol: str,
         tf: str,
         source: str,
-        window_seconds: Optional[int] = None,
-    ) -> List[Dict[str, str]]:
+        window_seconds: int | None = None,
+    ) -> list[dict[str, str]]:
         """
         Возвращает список сделок для окна отчёта.
 
@@ -271,7 +277,7 @@ class PeriodicReporter:
 
         # (A) режим "последние N сделок" имеет приоритет над "окно по времени"
         # НО только если window_seconds НЕ передан явно (для ежедневных отчетов всегда берем по времени)
-        trade_window_count: Optional[int] = (TRADE_WINDOW_COUNT if TRADE_WINDOW_COUNT > 0 else None) if window_seconds is None else None
+        trade_window_count: int | None = (TRADE_WINDOW_COUNT if TRADE_WINDOW_COUNT > 0 else None) if window_seconds is None else None
 
         zset_enabled = (
             _env_bool("ENABLE_CLOSED_ZSET_INDEX", default=False) or
@@ -296,7 +302,7 @@ class PeriodicReporter:
                 for oid in ids:
                     p.hgetall(f"order:{oid}")
                 rows = p.execute() or []
-                out: List[Dict[str, str]] = []
+                out: list[dict[str, str]] = []
                 for row in rows:
                     if not row:
                         continue
@@ -330,7 +336,7 @@ class PeriodicReporter:
                 for s in sys_symbols_raw:
                     s_str = s.decode("utf-8") if isinstance(s, bytes) else str(s)
                     all_syms.add(canon_symbol(s_str))
-            
+
             # Add defaults just in case
             from services.orderflow.configuration import DEFAULT_SYMBOLS
             for s in DEFAULT_SYMBOLS:
@@ -339,21 +345,21 @@ class PeriodicReporter:
             # 2. Collect trades from ALL symbols
             # We'll limit per symbol to avoid exploding memory, then sort and limit global
             # For "ALL" report we usually want the global recent list.
-            
+
             # This is heavy but necessary without a global stream.
             # We treat target_window as authoritative.
-            
-            all_trades: List[Dict[str, str]] = []
-            
+
+            all_trades: list[dict[str, str]] = []
+
             # We need to look at specific TFs or just "tick"?
             # closed_z index exists per TF. Usually "tick" or "1m" covers everything if implemented correctly.
             # safe assumption: iterate candidate TFs.
             tfs = self._candidate_tfs()
-            
+
             for sym in all_syms:
                 if "XAU" in sym or "GOLD" in sym:
                     continue
-                
+
                 # Re-use ZSET logic per symbol
                 # We can't easily call self._iter_recent_trades_window recursively because it might recurse infinitely or fail checks
                 # So we duplicate the ZSET fetch logic for single symbol here (simplified)
@@ -367,15 +373,15 @@ class PeriodicReporter:
                         zkey_ids.extend(ids)
                     except Exception:
                         pass
-                
+
                 if not zkey_ids:
                     continue
-                
+
                 # uniq
                 u_ids = list(set(zkey_ids))
                 if not u_ids:
                     continue
-                
+
                 # hydrate logic
                 p = self.redis.pipeline(transaction=False)
                 valid_ids = []
@@ -384,10 +390,10 @@ class PeriodicReporter:
                     if oid_str:
                         valid_ids.append(oid_str)
                         p.hgetall(f"order:{oid_str}")
-                
+
                 if not valid_ids:
                     continue
-                    
+
                 rows = p.execute() or []
                 for r in rows:
                     if not r:
@@ -398,12 +404,12 @@ class PeriodicReporter:
                     # Double check source (though zkey included it)
                     if canon_source(t.get("source")) != canon_source(source):
                         continue
-                        
+
                     all_trades.append(t)
 
             # 3. Sort by exit_ts_ms desc
             all_trades.sort(key=lambda x: float(x.get("exit_ts_ms") or x.get("closed_time") or 0), reverse=True)
-            
+
             # 4. Limit
             limit = trade_window_count if trade_window_count else RECENT_LIMIT
             return all_trades[:limit]
@@ -416,7 +422,7 @@ class PeriodicReporter:
         except Exception:
             entries = []
 
-        out: List[Dict[str, str]] = []
+        out: list[dict[str, str]] = []
         if entries:
             for _id, fields in entries:
                 f = _norm_map(fields or {})
@@ -426,9 +432,9 @@ class PeriodicReporter:
                 # фильтры
                 if canon_strategy(t.get("strategy")) != canon_strategy(strategy):
                     continue
-                
+
                 t_symbol = canon_symbol(t.get("symbol"))
-                
+
                 # Handling for "ALL" aggregation
                 if symbol == "ALL":
                      # EXCLUDE non-crypto (e.g. XAU/GOLD)
@@ -450,18 +456,18 @@ class PeriodicReporter:
             return out
 
         # (C) Если stream пуст — ваш существующий fallback через lists/order hashes остаётся
-        # But fallback using lists is symbol-specific. If ALL, we can't easily fallback unless we iterate all known keys? 
+        # But fallback using lists is symbol-specific. If ALL, we can't easily fallback unless we iterate all known keys?
         # Usually stream shouldn't be empty if there are trades. skipping fallback for ALL.
         if symbol == "ALL":
              return []
-        
+
         return []
 
     # Env-flag: если DISABLE_SCHEDULED_REPORTS=true, event-driven path пропускает hourly/daily
     # (расписание владеет periodic_reporter_timer сервис). Только count-based trigger остаётся.
     _DISABLE_SCHEDULED = os.getenv("DISABLE_SCHEDULED_REPORTS", "false").lower() in ("1", "true", "yes")
 
-    def _check_and_trigger_report(self, source: str, symbol: str, counter_type: str = "trades", order_id: Optional[str] = None):
+    def _check_and_trigger_report(self, source: str, symbol: str, counter_type: str = "trades", order_id: str | None = None):
         """
         Проверяет условия и триггерит отчеты (Hourly/Daily/Count-based).
         Вызывается при каждой закрытой сделке.
@@ -470,7 +476,7 @@ class PeriodicReporter:
         src = canon_source(source)
         sym = canon_symbol(symbol)
         now_ts = time.time()
-        now_dt = datetime.fromtimestamp(now_ts, tz=timezone.utc)
+        now_dt = datetime.fromtimestamp(now_ts, tz=UTC)
 
         # ---------------------------------------------------------
         # 1. Hourly Report (Window = 60 minutes)
@@ -519,7 +525,7 @@ class PeriodicReporter:
         if not PeriodicReporter._DISABLE_SCHEDULED and (now_dt.hour > 17 or (now_dt.hour == 17 and now_dt.minute >= 5)):
             daily_key = f"report_last_daily_date:{src}:{sym}"
             today_str = now_dt.strftime("%Y-%m-%d")
-            
+
             try:
                 last_daily_date = self.redis.get(daily_key)
             except Exception:
@@ -558,14 +564,14 @@ class PeriodicReporter:
              self._check_and_trigger_report(src, "ALL", counter_type, order_id)
 
 
-    def send_report_for_pair(self, source: str, symbol: str, window_seconds: Optional[int] = None, silent_locked: bool = False):
+    def send_report_for_pair(self, source: str, symbol: str, window_seconds: int | None = None, silent_locked: bool = False):
         """
         Public wrapper to send a report manually or via legacy calls.
         Acquires lock to ensure single execution if called concurrently.
         """
         src = canon_source(source)
         sym = canon_symbol(symbol)
-        
+
         lock_key = f"report_lock:{src}:{sym}"
         if not self._acquire_lock(lock_key, ttl=REPORT_LOCK_TTL_SECONDS):
             if not silent_locked:
@@ -573,14 +579,14 @@ class PeriodicReporter:
             else:
                 logger.debug(f"⏭️ Пропуск {src}/{sym} (lock занят)")
             return
-            
+
         try:
             self._generate_and_send_report_internal(src, sym, window_seconds=window_seconds)
         finally:
             self._release_lock(lock_key)
 
 
-    def _generate_and_send_report_internal(self, source: str, symbol: str, window_seconds: Optional[int] = None):
+    def _generate_and_send_report_internal(self, source: str, symbol: str, window_seconds: int | None = None):
         """
         Internal method to generate and send report.
         ASSUMES LOCK IS ALREADY ACQUIRED by caller.
@@ -618,17 +624,17 @@ class PeriodicReporter:
                 m_all = self.tm.new_metrics()
                 m_smt_passed = self.tm.new_metrics()  # Hypothetical: SMT VETO mode enabled
                 m_all_gates = self.tm.new_metrics()   # Hypothetical: ML Gate + SMT VETO enabled
-                
+
                 # New metrics for Virtual Trades
                 m_v_all = self.tm.new_metrics()
 
                 # Setup symbol breakdown accumulator for ALL report
                 symbol_breakdown = {}  # {symbol: {"pnl": 0.0, "trades": 0}}
-                
+
                 for t in trades:
-                    is_v = str(t.get("is_virtual") or "0") in ("1", "True", "true", "TRUE")
-                    v_gate = str(t.get("v_gate_status") or "na").lower()
-                    
+                    is_v = (t.get("is_virtual") or "0") in ("1", "True", "true", "TRUE")
+                    v_gate = (t.get("v_gate_status") or "na").lower()
+
                     if not is_v:
                         self._accumulate_trade_metrics(m_real, t)
                         self._accumulate_trade_metrics(m_all, t)
@@ -642,7 +648,7 @@ class PeriodicReporter:
                         if v_gate == "passed":
                             # Would have passed gates
                             self._accumulate_trade_metrics(m_passed, t)
-                    
+
                     # Accumulate symbol specific PnL if this is an aggregated report
                     # Include both real and virtual trades for breakdown
                     if sym == "ALL":
@@ -650,11 +656,11 @@ class PeriodicReporter:
                          if t_sym:
                              if t_sym not in symbol_breakdown:
                                  symbol_breakdown[t_sym] = {"pnl": 0.0, "trades": 0}
-                             
+
                              pnl_val = float(t.get("pnl_net") or t.get("pnl") or 0.0)
                              symbol_breakdown[t_sym]["pnl"] += pnl_val
                              symbol_breakdown[t_sym]["trades"] += 1
-                    
+
                     # --- SMT Veto Simulation ---
                     # Logic from SmtCoherenceGate: veto if countertrend + confirmed leader + high coherence
                     # FIX: no fail-open — if SMT fields are absent in order hash, the sim is N/A for this trade.
@@ -668,8 +674,8 @@ class PeriodicReporter:
                         try:
                             stm_conf = int(float(t.get("smt_leader_confirm") or 0))
                             stm_coh = float(t.get("smt_coh") or 0.0)
-                            stm_ld = str(t.get("smt_leader_dir") or "").upper().strip()
-                            side = str(t.get("side") or "").upper().strip()
+                            stm_ld = (t.get("smt_leader_dir") or "").upper().strip()
+                            side = (t.get("side") or "").upper().strip()
 
                             ld_norm = "LONG" if stm_ld == "UP" else ("SHORT" if stm_ld == "DOWN" else "NA")
                             countertrend = (side in ("LONG", "SHORT")) and (ld_norm in ("LONG", "SHORT")) and (side != ld_norm)
@@ -690,12 +696,12 @@ class PeriodicReporter:
                         # SMT fields not stored in order hash for this trade → sim is N/A
                         # Track separately; do NOT add to m_smt_passed to avoid inflating pass rate
                         m_smt_passed["_missing_fields"] = int(m_smt_passed.get("_missing_fields") or 0) + 1
-                
+
                 # Attach breakdown to metrics (both m_real and m_all for virtual-only reports)
                 if sym == "ALL" and symbol_breakdown:
                     m_real["symbol_breakdown"] = symbol_breakdown
                     m_all["symbol_breakdown"] = symbol_breakdown
-                
+
                 # Finalize all buckets
                 self.tm.finalize(m_real)
                 self.tm.finalize(m_passed)
@@ -703,14 +709,14 @@ class PeriodicReporter:
                 self.tm.finalize(m_smt_passed)
                 self.tm.finalize(m_all_gates)
                 self.tm.finalize(m_v_all)
-                
+
                 # Inject shadow buckets into main metrics
                 m_real["shadow_passed"] = m_passed
                 m_real["shadow_all"] = m_all
                 m_real["smt_passed"] = m_smt_passed
                 m_real["shadow_all_gates"] = m_all_gates
                 m_real["virtual_all"] = m_v_all
-                
+
                 self._add_health_metrics(m_real, src, sym)
                 real_total = int(m_real.get("total_trades", 0))
                 virtual_total = int(m_all.get("total_trades", 0))
@@ -734,7 +740,7 @@ class PeriodicReporter:
                 _cutoff_open_ms = _now_ms - int(_target_w) * 1000
                 _opened_in_window = 0
                 for _t in trades:
-                    _is_v = str(_t.get("is_virtual") or "0") in ("1", "True", "true", "TRUE")
+                    _is_v = (_t.get("is_virtual") or "0") in ("1", "True", "true", "TRUE")
                     if _is_v:
                         continue  # only real trades for the primary counter
                     try:
@@ -788,7 +794,7 @@ class PeriodicReporter:
     # ----------------------------
     # WINDOW metrics from multiple sources
     # ----------------------------
-    def _gather_window_metrics_stream(self, source: str, symbol: str, window_seconds: Optional[int] = None) -> Dict[str, any]:
+    def _gather_window_metrics_stream(self, source: str, symbol: str, window_seconds: int | None = None) -> dict[str, any]:
         """
         Собирает метрики из нескольких источников:
         1. trades:closed stream
@@ -796,11 +802,11 @@ class PeriodicReporter:
         3. order:{id} hashes (fallback)
         """
         from domain.normalizers import canon_strategy, strategy_from_source
-        
+
         target_window = window_seconds if window_seconds is not None else RECENT_WINDOW_SECONDS
         # Если window_seconds задан, игнорируем trade_window_count
         trade_window_count = (TRADE_WINDOW_COUNT if TRADE_WINDOW_COUNT > 0 else None) if window_seconds is None else None
-        
+
         cutoff_ms = 0 if trade_window_count else get_ny_time_millis() - target_window * 1000
         min_id = f"{cutoff_ms}-0"
 
@@ -847,7 +853,7 @@ class PeriodicReporter:
             try:
                 strategy = strategy_from_source(source)
                 now_ms = get_ny_time_millis()
-                oids: List[str] = []
+                oids: list[str] = []
                 for tf in self._candidate_tfs():
                     oids.extend(self.repo.get_closed_by_time(strategy, symbol, tf, source, from_ts_ms=cutoff_ms, to_ts_ms=now_ms, limit=RECENT_LIMIT, desc=True))
                     if len(oids) >= RECENT_LIMIT:
@@ -873,7 +879,7 @@ class PeriodicReporter:
                     req_strategy = canon_strategy(strategy_from_source(source))
                     req_source = canon_source(source)
                     t_symbol = canon_symbol(t.get("symbol") or "")
-                    
+
                     if t_strategy != req_strategy:
                         continue
                     if t_source != req_source and t_source not in ("binance", "bybit", "mt5", "binance_real", "binance_paper"):
@@ -925,7 +931,7 @@ class PeriodicReporter:
 
                 # pipeline HGETALL для скорости
                 p = self.redis.pipeline(transaction=False)
-                oids: List[str] = []
+                oids: list[str] = []
                 for oid_raw in ids:
                     oid = _to_str(oid_raw)
                     if not oid or oid in processed_order_ids:
@@ -939,7 +945,7 @@ class PeriodicReporter:
                         continue
                     order_data = _norm_map(row)
                     # статус/время
-                    status = str(order_data.get("status") or "").lower()
+                    status = (order_data.get("status") or "").lower()
                     if status != "closed":
                         continue
                     closed_ts_raw = _si(order_data.get("closed_time") or order_data.get("exit_ts_ms") or order_data.get("close_time") or 0)
@@ -1015,7 +1021,7 @@ class PeriodicReporter:
                 continue
 
             # final-close only (опционально, если поле есть)
-            is_final = str(t.get("is_final_close") or "1")
+            is_final = (t.get("is_final_close") or "1")
             if is_final not in ("1", "true", "True"):
                 continue
 
@@ -1055,7 +1061,7 @@ class PeriodicReporter:
                                 continue
 
                             # Проверка статуса и времени (нормализуем timestamp)
-                            status = str(order_data.get("status") or "").lower()
+                            status = (order_data.get("status") or "").lower()
                             if status != "closed":
                                 continue
 
@@ -1111,7 +1117,7 @@ class PeriodicReporter:
                             if not order_data:
                                 continue
 
-                            status = str(order_data.get("status") or "").lower()
+                            status = (order_data.get("status") or "").lower()
                             if status != "closed":
                                 continue
 
@@ -1156,7 +1162,7 @@ class PeriodicReporter:
             f"📊 Итого собрано {m['total_trades']} сделок для {source}/{symbol} "
             f"(окно {window_label}, matched={matched_count} из {len(entries)}, processed_order_ids={len(processed_order_ids)})"
         )
-        
+
         # Диагностика: если сделок нет, логируем больше информации
         if m['total_trades'] == 0:
             sampled_warning(
@@ -1167,7 +1173,7 @@ class PeriodicReporter:
                 f"closed lists, order:* hashes. "
                 f"Убедитесь, что source={source} и symbol={symbol} корректны."
             )
-        
+
         self.tm.finalize(m)
 
         # Add health metrics for the symbol
@@ -1175,7 +1181,7 @@ class PeriodicReporter:
 
         return m
 
-    def _get_gate_diagnostics(self, source: str, symbol: str) -> List[str]:
+    def _get_gate_diagnostics(self, source: str, symbol: str) -> list[str]:
         """
         Анализирует последний replay файл для диагностики gate.
         Возвращает список строк для добавления в отчет.
@@ -1185,80 +1191,80 @@ class PeriodicReporter:
             out_dir = os.getenv("OUT_DIR", "/var/lib/trade/of_reports/out")
             if not os.path.exists(out_dir):
                 return []
-            
+
             # Ищем последний nightly run (не meta)
             import glob
             pattern = os.path.join(out_dir, "nightly_*")
             runs = sorted([d for d in glob.glob(pattern) if os.path.isdir(d) and "meta" not in d], reverse=True)
-            
+
             if not runs:
                 return []
-            
+
             latest_run = runs[0]
             replay_file = os.path.join(latest_run, "of_replay_engine.ndjson")
             inputs_file = os.path.join(latest_run, "of_inputs_canary.ndjson")
-            
+
             if not os.path.exists(replay_file):
                 return []
-            
+
             # Анализируем replay
             from collections import Counter
-            
+
             rows = []
-            with open(replay_file, "r", encoding="utf-8") as f:
+            with open(replay_file, encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
                         try:
                             rows.append(json.loads(line))
                         except Exception:
                             continue
-            
+
             if not rows:
                 return []
-            
+
             # Фильтруем по символу, если указан
             if symbol and symbol != "ALL":
-                rows = [r for r in rows if str(r.get("symbol", "")).upper() == symbol.upper()]
-            
+                rows = [r for r in rows if (r.get("symbol", "")).upper() == symbol.upper()]
+
             if not rows:
                 return []
-            
+
             # Статистика
             total = len(rows)
             ok1 = sum(1 for r in rows if r.get("ok") == 1)
             ok0 = total - ok1
-            
+
             scores = [r.get("score", 0.0) for r in rows if "score" in r]
             have_need = [(r.get("have", 0), r.get("need", 0)) for r in rows]
             have_need_ok = sum(1 for h, n in have_need if h >= n and n > 0)
-            
+
             # Причины блокировки
             ok0_rows = [r for r in rows if r.get("ok") == 0]
             reasons = Counter([r.get("reason", "unknown")[:50] for r in ok0_rows[:200]])
             top_reasons = reasons.most_common(5)
-            
+
             # Конфигурация из inputs
             score_min = 0.65  # default
             if os.path.exists(inputs_file):
                 try:
-                    with open(inputs_file, "r", encoding="utf-8") as f:
+                    with open(inputs_file, encoding="utf-8") as f:
                         sample = json.loads(f.readline())
                         cfg = sample.get("cfg", {})
                         if isinstance(cfg, dict):
                             score_min = float(cfg.get("of_score_min", 0.65))
                 except Exception:
                     pass
-            
+
             # Score distribution
             scores_above_threshold = sum(1 for s in scores if s >= score_min) if scores else 0
-            
+
             # Формируем строки отчета
             lines = [
                 "",
                 "<b>🔍 Gate Diagnostics (Replay Analysis)</b>",
                 f"Replay: <b>{os.path.basename(latest_run)}</b>",
                 f"Total rows: <b>{total}</b> | ok=1: <b>{ok1}</b> ({ok1/total*100:.1f}%) | ok=0: <b>{ok0}</b> ({ok0/total*100:.1f}%)"]
-            
+
             if scores:
                 lines.append(
                     f"Score >= {score_min:.2f}: <b>{scores_above_threshold}</b>/{len(scores)} "
@@ -1266,25 +1272,25 @@ class PeriodicReporter:
                     f"Range: <b>{min(scores):.3f}</b> - <b>{max(scores):.3f}</b> | "
                     f"Mean: <b>{sum(scores)/len(scores):.3f}</b>"
                 )
-            
+
             lines.append(
                 f"Have >= Need: <b>{have_need_ok}</b>/{len(have_need)} "
                 f"({have_need_ok/len(have_need)*100:.1f}%)"
             )
-            
+
             lines.append(f"Config of_score_min: <b>{score_min:.3f}</b>")
-            
+
             if top_reasons:
                 reasons_str = ", ".join([f"{reason}({count})" for reason, count in top_reasons])
                 lines.append(f"Top ok=0 reasons: <b>{reasons_str}</b>")
-            
+
             return lines
-            
+
         except Exception as e:
             logger.debug(f"⚠️ Gate diagnostics error: {e}")
             return []
-    
-    def _accumulate_trade_metrics(self, m: Dict[str, any], t: Dict[str, str]) -> None:
+
+    def _accumulate_trade_metrics(self, m: dict[str, any], t: dict[str, str]) -> None:
         # --- bucket for strict stats (with TRAILING_PROFIT special case) ---
         raw_reason = (
             t.get("close_reason_raw")
@@ -1301,10 +1307,10 @@ class PeriodicReporter:
         else:
             bucket = bucket_close_reason(raw_reason)
             t_normalized = dict(t)
-        
+
         if bucket == "UNKNOWN":
             sampled_warning(logger, "UNKNOWN_CLOSE_REASON", f"⚠️ Trade {t.get('order_id')} has UNKNOWN close_reason (raw={raw_reason}). Check PositionState preservation.")
-        
+
         # Ensure the normalized bucket is passed to TradeMetricsService
         t_normalized["close_reason"] = bucket
         # Ensure raw reason is preserved if not already present
@@ -1345,13 +1351,13 @@ class PeriodicReporter:
             )
 
         # ✅ агрегация по trailing_profile (moved to TradeMetricsService)
-        # profile = str(t.get("trailing_profile") or "").strip()
+        # profile = (t.get("trailing_profile") or "").strip()
         # if profile:
         #     profiles = m.get("trailing_profiles") or {}
         #     profiles[profile] = int(profiles.get(profile, 0)) + 1
         #     m["trailing_profiles"] = profiles
 
-    def _calculate_session_pnl_breakdown(self, trades: List[Dict[str, str]], window_hours: int = 24) -> Dict[str, Dict[str, any]]:
+    def _calculate_session_pnl_breakdown(self, trades: list[dict[str, str]], window_hours: int = 24) -> dict[str, dict[str, any]]:
         """
         Рассчитывает разбивку PnL по торговым сессиям за последние N часов.
 
@@ -1363,7 +1369,7 @@ class PeriodicReporter:
             Dict с сессиями: "asia", "london", "nyc"
             Каждая сессия содержит: {"profit": float, "loss": float, "net": float, "trades": int}
         """
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         if not trades:
             return {}
@@ -1380,7 +1386,7 @@ class PeriodicReporter:
 
         def get_session_for_timestamp(ts_ms: int) -> str:
             """Определяет торговую сессию для временной метки"""
-            dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+            dt = datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
             hour = dt.hour
 
             if 0 <= hour < 8:
@@ -1389,7 +1395,7 @@ class PeriodicReporter:
                 return "london"
             else:  # 16 <= hour < 24
                 return "nyc"
-        
+
         # Группировка сделок по сессиям
         for t in trades:
             try:
@@ -1421,7 +1427,7 @@ class PeriodicReporter:
 
         return sessions
 
-    def _add_health_metrics(self, m: Dict[str, any], source: str, symbol: str) -> None:
+    def _add_health_metrics(self, m: dict[str, any], source: str, symbol: str) -> None:
         """
         Добавляет health metrics для symbol в отчет.
         """
@@ -1475,19 +1481,19 @@ class PeriodicReporter:
     # ----------------------------
     # Telegram report
     # ----------------------------
-    def _send_report(self, source: str, symbol: str, m: Dict[str, any], window_seconds: Optional[int] = None) -> None:
+    def _send_report(self, source: str, symbol: str, m: dict[str, any], window_seconds: int | None = None) -> None:
         try:
             total = int(m.get("total_trades", 0))
             real_total = int(m.get("real_trades_total", total))
             report_virtual_only = bool(m.get("report_virtual_only"))
             send_empty = os.getenv("PERIODIC_REPORT_SEND_EMPTY", "false").lower() == "true"
-            
+
             sampled_info(
                 logger,
                 "PERIODIC_REPORTER_SEND_REPORT",
                 f"📨 _send_report вызван для {source}/{symbol}: total_trades={total}, send_empty={send_empty}"
             )
-            
+
             # Guard: не отправляем пустые отчеты (по просьбе пользователя)
             # Если это не плановый отчет (window_seconds=3600 или 86400),
             # то проверяем минимальное количество сделок.
@@ -1515,7 +1521,7 @@ class PeriodicReporter:
                     f"⏭️ Пропуск отчета для {source}/{symbol}: недостаточно сделок ({total} < {min_trades_for_report})"
                 )
                 return
-            
+
             trade_window_count = TRADE_WINDOW_COUNT if TRADE_WINDOW_COUNT > 0 and window_seconds is None else None
             effective_window_sec = window_seconds if window_seconds is not None else RECENT_WINDOW_SECONDS
             window_minutes = max(1, int(effective_window_sec // 60))
@@ -1526,7 +1532,7 @@ class PeriodicReporter:
                 if trade_window_count else
                 f"последние <b>{window_minutes}</b> мин"
             )
-            now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            now_utc = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
             # Анализ trailing vs baseline (если включен и доступны функции, и пришло время)
             trailing_vs_baseline_results = None
@@ -1606,18 +1612,18 @@ class PeriodicReporter:
 
             gross_profit = float(m["gross_profit"])
             gross_loss = float(m["gross_loss"])
-            
+
             # Диагностика: проверяем соотношение P/L net и fees
             # User Req 3: "pnl_net artificially lowered?" check
             # We trust TradeMetricsService accumulation which usually does pnl_gross = (exit-entry)*lot.
-            
+
             pnl_gross_calc = total_pnl + fees  # Expected 'gross' if 'total_pnl' is truly net
-            
+
             # If total_pnl_gross (from source) is approx total_pnl, it means likely source 'pnl_gross' was polluted with net value.
             # But normally we accumulate distinct fields.
-            
+
             fees_ratio = abs(fees / total_pnl) if abs(total_pnl) > EPS else 0.0
-            
+
             # Invariant check for audit log (invisible to user unless warn)
             if abs(total_pnl_gross - pnl_gross_calc) > 1.0 and abs(total_pnl_gross) > 10.0:
                  # Discrepancy: Collected Gross != Calc Gross
@@ -1653,11 +1659,11 @@ class PeriodicReporter:
             trailing_started_legacy = int(m.get("trailing_started", 0))
             trailing_started_count = int(m.get("trailing_started_count", 0))  # из TradeMetricsService
             trailing_started = max(trailing_started_legacy, trailing_started_count)  # берем максимум
-            
+
             trailing_stop_hits_legacy = int(m.get("trailing_stop_hits", 0))
             trailing_stop_hits_tm = int(m.get("trailing_stop_hits", 0))  # из TradeMetricsService (то же поле)
             trailing_stop_hits = max(trailing_stop_hits_legacy, trailing_stop_hits_tm)
-            
+
             trailing_profit_hits = int(m.get("trailing_profit_hits", 0))  # только из TradeMetricsService
             closed_by_trail = int(m.get("closed_by_trail", 0))
 
@@ -1739,7 +1745,7 @@ class PeriodicReporter:
             shadow_passed = m.get("shadow_passed", {}) or {}
             smt_passed = m.get("smt_passed", {}) or {}
             all_gates = m.get("shadow_all_gates", {}) or {}
-            
+
             # Helper for metrics
             def _get_metrics(dm):
                 c = int(dm.get('total_trades', 0))
@@ -1747,12 +1753,12 @@ class PeriodicReporter:
                 p = float(dm.get('total_pnl', 0))
                 wr_ = (w / c * 100.0) if c > 0 else 0.0
                 return c, wr_, p
-            
+
             s_all_c, s_all_wr, s_all_pnl = _get_metrics(shadow_all)
             s_pass_c, s_pass_wr, s_pass_pnl = _get_metrics(shadow_passed)
             smt_c, smt_wr, smt_pnl = _get_metrics(smt_passed)
             ag_c, ag_wr, ag_pnl = _get_metrics(all_gates)
-            
+
             # Virtual Trade Metrics
             virtual_all = m.get("virtual_all", {}) or {}
 
@@ -1821,7 +1827,7 @@ class PeriodicReporter:
                         s_wr = (s_wins / cnt * 100.0)
                         line = f"Strong (High Conf) {thr}: <b>{cnt}</b> | WR: <b>{s_wr:.1f}%</b> | PnL: <b>{s_pnl:+.2f}</b>"
                         signal_shadow_lines.append(line)
-            display_symbol = "ALLSYMBOLS" if str(symbol) == "ALL" else str(symbol)
+            display_symbol = "ALLSYMBOLS" if symbol == "ALL" else symbol
             sections: list[str] = [
                 f"📊 <b>Отчет: {html.escape(str(source))} / {html.escape(display_symbol)}</b>",
                 f"🕐 {now_utc}",
@@ -1850,7 +1856,7 @@ class PeriodicReporter:
                 "",
                 *signal_shadow_lines,
                 "",
-                f"<b>👮 Validation Stats</b>",
+                "<b>👮 Validation Stats</b>",
                 # Show breakdown: X passed, Y failed, Z bypassed
                 # Pass rate is only over decided (passed+failed), bypassed = gate not evaluated (Shadow)
                 *(
@@ -1859,7 +1865,7 @@ class PeriodicReporter:
                     ["Validation Pass Rate: <b>N/A</b> (no signals in window)"]
                 )
                 *(
-                    [f"Missing Legs: {', '.join(f'{k}: <b>{v:.1f}%</b>' for k, v in sorted(missing_legs_stats.items()))}"]  
+                    [f"Missing Legs: {', '.join(f'{k}: <b>{v:.1f}%</b>' for k, v in sorted(missing_legs_stats.items()))}"]
                     if missing_legs_stats and total_signals_val > 0 else []
                 )
                 # ── ok=0 breakdown ───────────────────────────────────────────────────
@@ -1870,7 +1876,7 @@ class PeriodicReporter:
                     [
                         "",
                         "<b>❌ Почему ok=0? (breakdown сигналов в сигнал-стриме)</b>",
-                        f"<i>Источник: signals:of:inputs за окно отчёта — пул сигналов (не сделок)</i>",
+                        "<i>Источник: signals:of:inputs за окно отчёта — пул сигналов (не сделок)</i>",
                         f"Отклонено сигналов (ok=0): <b>{v_failed_count}</b> из <b>{total_signals_val}</b> total | pass_rate: <b>{v_pass_rate:.1f}%</b>",
                         "Условия, заблокировавшие ok (% от отклонённых):",
                         *[
@@ -1924,7 +1930,7 @@ class PeriodicReporter:
                 "<b>🧬 PnL Sign x Reason</b>",
             ]
 
-            def _fmt_reason_map(d: Dict[str, int], total_count: int) -> str:
+            def _fmt_reason_map(d: dict[str, int], total_count: int) -> str:
                 if not d: return "none"
                 top_d = sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:3]
                 parts = []
@@ -1947,12 +1953,12 @@ class PeriodicReporter:
                 trailing_info_parts = []
                 if trailing_started > 0 or effective_trailing_enabled:
                     trailing_info_parts.append(f"Started: <b>{trailing_started}</b>")
-                
+
                 if closed_by_trail > 0:
                     trailing_info_parts.append(f"Closed by trail: <b>{closed_by_trail}</b>")
                     twr = safe_div(closed_by_trail, trailing_started) * 100.0
                     trailing_info_parts.append(f"Trail WR: <b>{twr:.1f}%</b>")
-                
+
                 if trailing_info_parts:
                     trailing_lines.append(" | ".join(trailing_info_parts))
                     has_trailing_info = True
@@ -1963,14 +1969,14 @@ class PeriodicReporter:
                 prof_str = ", ".join(f"{html.escape(str(k))}:{v}" for k, v in prof_top)
                 trailing_lines.append(f"Profiles: <b>{prof_str}</b>")
                 has_trailing_info = True
-            
+
             if has_trailing_info:
                 sections.extend(trailing_lines)
 
             # --- Removed Duplicate Edge/Risk Section ---
             # Original code here added a second "Edge / Risk" block with broken keys (sh_new, mdd_new=0).
             # We have merged the valuable info (PF(net), Median R) into the main sections above.
-            
+
             sections.append("") # Spacer
 
             if total >= min_es:
@@ -2032,7 +2038,7 @@ class PeriodicReporter:
             # === Gate & Scenarios (NEW) ===
             cnt_rev = int(m.get("cnt_scenario_reversal", 0))
             cnt_cont = int(m.get("cnt_scenario_continuation", 0))
-            
+
             cnt_s_ok = int(m.get("cnt_strong_ok", 0))
             pnl_s_ok = float(m.get("sum_pnl_strong_ok", 0.0))
             cnt_s_fail = int(m.get("cnt_strong_fail", 0))
@@ -2042,12 +2048,12 @@ class PeriodicReporter:
             if cnt_rev > 0 or cnt_cont > 0 or total_s > 0:
                 pnl_rev = float(m.get("sum_pnl_scenario_reversal", 0.0))
                 pnl_cont = float(m.get("sum_pnl_scenario_continuation", 0.0))
-                
+
                 cnt_enforce = int(m.get("cnt_gate_enforce", 0))
                 cnt_shadow = int(m.get("cnt_gate_shadow", 0))
                 cnt_veto = int(m.get("cnt_gate_shadow_veto", 0))
                 pnl_veto = float(m.get("sum_pnl_shadow_veto", 0.0))
-                
+
                 gate_lines = [
                     "",
                     "<b>⛩️ Gate & Scenarios</b>",
@@ -2055,13 +2061,13 @@ class PeriodicReporter:
                     f"Gate Mode: Enforce(<b>{cnt_enforce}</b>) vs Shadow(<b>{cnt_shadow}</b>)"]
                 if cnt_veto > 0:
                     gate_lines.append(f"Shadow Veto: <b>{cnt_veto}</b> rejected (Impact: <b>{pnl_veto:+.2f}$</b>)")
-                
+
                 # Strong vs Weak Breakdown
                 cnt_s_ok = int(m.get("cnt_strong_ok", 0))
                 pnl_s_ok = float(m.get("sum_pnl_strong_ok", 0.0))
                 cnt_s_fail = int(m.get("cnt_strong_fail", 0))
                 pnl_s_fail = float(m.get("sum_pnl_strong_fail", 0.0))
-                
+
                 if total_s > 0:
                     pct_ok = (cnt_s_ok / total_s) * 100.0
                     pct_fail = (cnt_s_fail / total_s) * 100.0
@@ -2083,7 +2089,7 @@ class PeriodicReporter:
                         source=source,
                         window_seconds=effective_window_sec
                     )
-                    
+
                     if trades_for_breakdown:
                         session_breakdown = self._calculate_session_pnl_breakdown(
                             trades_for_breakdown,
@@ -2125,7 +2131,7 @@ class PeriodicReporter:
                                 )
 
                             sections.extend(breakdown_lines)
-                            
+
                 except Exception as e:
                     logger.warning(f"⚠️ Ошибка расчета hourly PnL breakdown: {e}")
 
@@ -2163,50 +2169,50 @@ class PeriodicReporter:
                 "",
                 "<b>✅ OF Confirm Stats</b>"
             ]
-            
+
             if not of_confirm_stats:
                 # Add default if completely empty
                 of_confirm_stats = {"none_gate(0/0)": {"count": 0, "wins": 0, "pnl": 0.0}}
-                
+
             # Calculate total signals for percentage
             total_of_signals = sum(s["count"] for s in of_confirm_stats.values())
-            
+
             # Sort by count descending
             sorted_stats = sorted(
                 of_confirm_stats.items(),
                 key=lambda x: x[1]["count"],
                 reverse=True
             )
-            
+
             for key, stats in sorted_stats:
                 cnt = stats["count"]
                 s_wins = stats["wins"]
                 s_pnl = stats["pnl"]
-                
+
                 s_wr = (s_wins / cnt * 100.0) if cnt > 0 else 0.0
                 share = (cnt / total_of_signals * 100.0) if total_of_signals > 0 else 0.0
-                
+
                 of_lines.append(
                     f"{key}: WR: <b>{s_wr:.1f}%</b> | PnL: <b>{s_pnl:+.2f}$</b> | Share: <b>{share:.1f}%</b>"
                 )
-            
+
             sections.extend(of_lines)
 
             # === ML Performance Stats (ENHANCED) ===
             ml_stats = m.get("ml_stats", {})
             ml_cond_stats = m.get("ml_condition_stats", {})
-            
+
             ml_lines = [
                 "",
                 "<b>🤖 ML Performance (Shadow Mode)</b>"
             ]
-            
+
             if not ml_stats:
                 ml_stats = {
                     "pass": {"count": 0, "wins": 0, "pnl": 0.0},
                     "veto": {"count": 0, "wins": 0, "pnl": 0.0}
                 }
-            
+
             # Overall stats
             total_ml_signals = sum(s["count"] for s in ml_stats.values())
             for key in ["pass", "veto"]:
@@ -2220,15 +2226,15 @@ class PeriodicReporter:
                 ml_lines.append(
                     f"{label}: WR: <b>{s_wr:.1f}%</b> | PnL: <b>{s_pnl:+.2f}$</b> | Share: <b>{share:.1f}%</b> ({cnt})"
                 )
-            
+
             # NEW: Detailed condition breakdown
             if not ml_cond_stats:
                 ml_cond_stats = {"total_evaluated": 0, "avg_p_edge": 0.0, "median_p_edge": 0.0}
-                
+
             total_eval = ml_cond_stats.get("total_evaluated", 0)
             avg_p = ml_cond_stats.get("avg_p_edge", 0.0)
             med_p = ml_cond_stats.get("median_p_edge", 0.0)
-            
+
             ml_lines.extend([
                 "",
                 f"<b>📊 ML Condition Analysis ({total_eval} signals evaluated)</b>",
@@ -2245,7 +2251,7 @@ class PeriodicReporter:
             if by_thr:
                 ml_lines.append("")
                 ml_lines.append("<b>🎯 Signals passing different thresholds (if enforce enabled):</b>")
-                
+
                 # Sort thresholds ascending
                 sorted_thrs = sorted(by_thr.items(), key=lambda x: float(x[0]))
                 for thr_key, stats in sorted_thrs:
@@ -2257,37 +2263,37 @@ class PeriodicReporter:
                         share = (cnt / total_eval * 100.0)
                     else:
                         share = 0.0
-                    
+
                     ml_lines.append(
                         f"  p_edge ≥ {thr_key}: <b>{cnt}</b> ({share:.1f}%) | "
                         f"WR: <b>{s_wr:.1f}%</b> | PnL: <b>{s_pnl:+.2f}$</b>"
                     )
-            
+
             # Per-scenario breakdown
             by_scn = ml_cond_stats.get("by_scenario", {})
             if by_scn:
                 ml_lines.append("")
                 ml_lines.append("<b>🎭 By Scenario:</b>")
-                
+
                 for scn_key, stats in sorted(by_scn.items(), key=lambda x: x[1]["count"], reverse=True):
                     cnt = stats["count"]
                     s_wins = stats["wins"]
                     s_pnl = stats["pnl"]
                     avg_p = stats.get("avg_p_edge", 0.0)
                     s_wr = (s_wins / cnt * 100.0) if cnt > 0 else 0.0
-                    
+
                     ml_lines.append(
                         f"  {html.escape(scn_key)}: n=<b>{cnt}</b> | "
                         f"WR: <b>{s_wr:.1f}%</b> | PnL: <b>{s_pnl:+.2f}$</b> | "
                         f"avg_p: <b>{avg_p:.3f}</b>"
                     )
-            
+
             # P_edge distribution
             dist = ml_cond_stats.get("p_edge_distribution", {})
             if dist:
                 ml_lines.append("")
                 ml_lines.append("<b>📈 P_edge Distribution:</b>")
-                
+
                 # Sort buckets
                 bucket_order = ["0.0-0.3", "0.3-0.4", "0.4-0.5", "0.5-0.6", "0.6-0.7", "0.7-1.0"]
                 for bucket in bucket_order:
@@ -2315,7 +2321,7 @@ class PeriodicReporter:
                             else:
                                 share = 0.0
                             ml_lines.append(f"  {bucket}: <b>{cnt}</b> ({share:.1f}%)")
-            
+
             sections.extend(ml_lines)
 
             # === Symbol Breakdown (PnL per symbol) ===
@@ -2324,22 +2330,22 @@ class PeriodicReporter:
                 try:
                     # Sort symbols by PnL descending
                     sorted_syms = sorted(
-                        symbol_breakdown.items(), 
-                        key=lambda x: x[1]['pnl'], 
+                        symbol_breakdown.items(),
+                        key=lambda x: x[1]['pnl'],
                         reverse=True
                     )
-                    
+
                     sb_lines = [
                         "",
                         "<b>🪙 PnL по символам</b>"
                     ]
-                    
+
                     for sym_key, stats in sorted_syms:
                         p = stats['pnl']
                         tr = stats['trades']
                         # Format: SYMBOL: +123.45$ (5 сделок)
                         sb_lines.append(f"{html.escape(str(sym_key))}: <b>{p:+.2f}$</b> ({tr} сделок)")
-                    
+
                     sections.extend(sb_lines)
                 except Exception as e:
                     logger.warning(f"⚠️ Error formatting symbol breakdown: {e}")
@@ -2425,20 +2431,20 @@ class PeriodicReporter:
             # Проверяем длину сообщения и разбиваем на части если необходимо
             # Telegram лимит: 4096 символов, но с HTML тегами лучше использовать 3500-3800
             MAX_MESSAGE_LENGTH = 3500
-            
+
             if len(msg) > MAX_MESSAGE_LENGTH:
                 logger.info(f"⚠️ Отчет слишком длинный ({len(msg)} символов), разбиваем на части...")
-                
+
                 # Ищем логическое место для разбиения - перед секцией "Trailing vs Baseline"
                 # или перед рекомендациями
                 msg_lines = msg.split('\n')
-                
+
                 # Ищем маркеры для разбиения
                 split_markers = [
                     "<b>🎯 Trailing vs Baseline",
                     "<b>🧠 РЕКОМЕНДАЦИИ ПО НАСТРОЙКАМ:",
                     "<b>💪 По силе сигнала"]
-                
+
                 split_index = None
                 for i, line in enumerate(msg_lines):
                     for marker in split_markers:
@@ -2447,40 +2453,40 @@ class PeriodicReporter:
                             break
                     if split_index is not None:
                         break
-                
+
                 # Если не нашли маркер, разбиваем пополам
                 if split_index is None:
                     split_index = len(msg_lines) // 2
-                
+
                 # Формируем первую часть
                 part1_lines = msg_lines[:split_index]
                 part1 = "\n".join(part1_lines)
-                
+
                 # Формируем вторую часть
                 part2_lines = msg_lines[split_index:]
                 part2 = "\n".join(part2_lines)
-                
+
                 # Проверяем, что части не слишком длинные (если да, telegram worker разобьет дальше)
                 if len(part1) > MAX_MESSAGE_LENGTH:
                     logger.warning(f"⚠️ Часть 1 все еще слишком длинная ({len(part1)} символов), telegram worker разобьет дальше")
                 if len(part2) > MAX_MESSAGE_LENGTH:
                     logger.warning(f"⚠️ Часть 2 все еще слишком длинная ({len(part2)} символов), telegram worker разобьет дальше")
-                
+
                 # Добавляем индикаторы частей
                 part1 += "\n\n📄 Часть 1/2"
                 # Добавляем контекст во вторую часть, чтобы при вклинивании других сообщений было понятно к чему она
                 part2 = f"📄 Часть 2/2 | <b>{html.escape(str(source))} ({report_type_label}) / {html.escape(display_symbol)}</b>\n\n" + part2
-                
+
                 logger.info(f"📤 Публикация отчета в Redis stream для {source}/{symbol} (часть 1/2, {len(part1)} символов)...")
                 success1 = self.reporting.send_telegram_message(part1)
-                
+
                 # Небольшая задержка между частями для избежания rate limit
                 import time
                 time.sleep(0.3)
-                
+
                 logger.info(f"📤 Публикация отчета в Redis stream для {source}/{symbol} (часть 2/2, {len(part2)} символов)...")
                 success2 = self.reporting.send_telegram_message(part2)
-                
+
                 success = success1 and success2
             else:
                 # Отправка основного отчета (если не превышает лимит)
@@ -2556,7 +2562,7 @@ class PeriodicReporter:
         except Exception as e:
             logger.error(f"❌ Ошибка при формировании/отправке отчета для {source}/{symbol}: {e}", exc_info=True)
 
-    def _gather_trades_for_trailing_analysis(self, source: str, symbol: str, limit: int = 500) -> List[ClosedTradeSnapshot]:
+    def _gather_trades_for_trailing_analysis(self, source: str, symbol: str, limit: int = 500) -> list[ClosedTradeSnapshot]:
         """
         Собирает сделки для анализа trailing size рекомендаций.
         Возвращает список ClosedTradeSnapshot из trades:closed stream.
@@ -2614,7 +2620,7 @@ class PeriodicReporter:
         return trades
 
 
-    def _generate_trailing_size_recommendations(self, source: str, symbol: str, total_trades: int) -> List[str]:
+    def _generate_trailing_size_recommendations(self, source: str, symbol: str, total_trades: int) -> list[str]:
         """
         Генерирует секции отчета с рекомендациями по размеру трейлинга.
         Возвращает список строк для добавления в отчет.
@@ -2709,7 +2715,7 @@ class PeriodicReporter:
         # Дефолтные значения по символу
         if "BTC" in symbol:
             # FIX: Do not hardcode 0.5 for BTC, allow default (1.0) or Redis value.
-            # return 0.5 
+            # return 0.5
             pass
         elif "ETH" in symbol:
             # return 0.6
@@ -2732,10 +2738,10 @@ class PeriodicReporter:
         except Exception:
             pass
 
-    def _source_from_strategy(self, strategy: str, symbol: Optional[str] = None) -> str:
+    def _source_from_strategy(self, strategy: str, symbol: str | None = None) -> str:
         """Преобразует strategy в source для корректного маппинга."""
         s = (strategy or "").strip().lower()
-        
+
         # Special handling for Gold/Forex generic orderflow
         if s == "orderflow" and symbol:
             sym_upper = symbol.upper()
@@ -2751,7 +2757,7 @@ class PeriodicReporter:
         source_raw = mapping.get(s, strategy)
         return canon_source(source_raw)
 
-    def send_periodic_report(self, window_seconds: Optional[int] = None) -> None:
+    def send_periodic_report(self, window_seconds: int | None = None) -> None:
         """
         Отправляет периодические отчеты для всех найденных пар source/symbol.
         Используется для вызова из других сервисов (например, SignalPerformanceTracker).
@@ -2759,13 +2765,13 @@ class PeriodicReporter:
         try:
             logger.info("🔍 Начало поиска пар для периодических отчетов...")
             pairs = self._discover_pairs()
-            
+
             if not pairs:
                 logger.warning("⚠️ Пар для отчетов не найдено. Проверьте наличие данных в Redis")
                 return
-            
+
             logger.info(f"📊 Найдено {len(pairs)} пар для отчетов: {pairs[:5]}{'...' if len(pairs) > 5 else ''}")
-            
+
             sent_count = 0
             skipped_count = 0
             for source, symbol in pairs:
@@ -2777,27 +2783,27 @@ class PeriodicReporter:
                     if not self._acquire_lock(lock_key, ttl=REPORT_LOCK_TTL_SECONDS):
                         logger.debug(f"⏭️ Пропуск {source}/{symbol} (lock занят)")
                         continue
-                    
+
                     try:
                         metrics = self._gather_window_metrics_stream(source, symbol, window_seconds=window_seconds)
                         total_trades = int(metrics.get("total_trades", 0))
-                        
+
                         # Пропускаем пары без сделок, чтобы не засорять Telegram пустыми отчетами
                         send_empty = os.getenv("PERIODIC_REPORT_SEND_EMPTY", "false").lower() == "true"
                         if total_trades <= 0 and not send_empty:
                             logger.debug(f"⏭️ Пропуск {source}/{symbol} (нет сделок в окне, send_empty={send_empty})")
                             skipped_count += 1
                             continue
-                        
+
                         logger.info(f"📤 Формирование отчета для {source}/{symbol} (сделок: {total_trades})")
                         self._send_report(source, symbol, metrics, window_seconds=window_seconds)
                         sent_count += 1
                     finally:
                         self._release_lock(lock_key)
-                        
+
                 except Exception as e:
                     logger.error(f"❌ Ошибка при отправке отчета для {source}/{symbol}: {e}", exc_info=True)
-            
+
             if sent_count > 0:
                 logger.info(f"✅ Отправлено отчетов: {sent_count}/{len(pairs)} (пропущено: {skipped_count})")
             else:
@@ -2807,11 +2813,11 @@ class PeriodicReporter:
                     f"Возможные причины: нет сделок в окне {RECENT_WINDOW_SECONDS}s, "
                     f"или PERIODIC_REPORT_SEND_EMPTY=false"
                 )
-                
+
         except Exception as e:
             logger.error(f"❌ Ошибка в send_periodic_report: {e}", exc_info=True)
 
-    def _get_validation_stats(self, source: str, symbol: str, window_seconds: Optional[int] = None) -> Tuple[float, int, Dict[str, float], int, int]:
+    def _get_validation_stats(self, source: str, symbol: str, window_seconds: int | None = None) -> tuple[float, int, dict[str, float], int, int]:
         """
         Вычисляет статистику валидации сигналов за период.
         Возвращает:
@@ -2838,15 +2844,15 @@ class PeriodicReporter:
             passed_validation = 0
             failed_validation = 0
             bypassed_validation = 0
-            missing_legs_counts: Dict[str, int] = {}
-            ok_fail_conds: Dict[str, int] = {}
-            ok_fail_reasons: Dict[str, int] = {}
+            missing_legs_counts: dict[str, int] = {}
+            ok_fail_conds: dict[str, int] = {}
+            ok_fail_reasons: dict[str, int] = {}
             # Score threshold for veto label — reads same ENV as engine (orderflow_strategy.py forces 0.60)
             _score_veto_min: float = float(os.getenv("OF_SCORE_MIN", "0.60"))
             _score_veto_label: str = f"score_veto (score<{_score_veto_min:.2f})"
             # Score threshold breakdown: {threshold_str: {"count": int, "passed": int, "failed": int}}
             _SCORE_THRESHOLDS = [0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75]
-            score_by_threshold: Dict[str, Dict[str, int]] = {
+            score_by_threshold: dict[str, dict[str, int]] = {
                 f"{t:.2f}": {"count": 0, "passed": 0, "failed": 0} for t in _SCORE_THRESHOLDS
             }
 
@@ -2872,7 +2878,7 @@ class PeriodicReporter:
                                 payload = {}
 
                             # Filter by symbol
-                            sig_symbol = str(payload.get('symbol') or '')
+                            sig_symbol = (payload.get('symbol') or '')
                             if symbol != 'ALL' and canon_symbol(sig_symbol) != symbol:
                                 continue
 
@@ -2885,20 +2891,20 @@ class PeriodicReporter:
 
                             # Проверяем статус валидации
                             # Check explicitly for validation status first
-                            v_status = str(payload.get('validation_status') or "").lower()
-                            
+                            v_status = (payload.get('validation_status') or "").lower()
+
                             # Fallback to indicators if validation_status not set (older signals)
                             indicators = payload.get('indicators') or {}
                             if not v_status:
                                 of_ok = indicators.get("strong_gate_ok")
                                 if of_ok is None:
                                     of_ok = indicators.get("of_confirm_ok")
-                                    
+
                                 if of_ok is None:
                                     rule = payload.get("rule") or {}
                                     if isinstance(rule, dict):
                                         of_ok = rule.get("ok")
-                                        
+
                                 if of_ok is None:
                                     oc = indicators.get("of_confirm") or {}
                                     if isinstance(oc, str):
@@ -2932,7 +2938,7 @@ class PeriodicReporter:
                                         gate = {}
                                     def _ff(v):
                                         try: return float(v)
-                                        except: return 0.0
+                                        except Exception: return 0.0
                                     # 1. score veto
                                     sc = gate.get("score") or indicators.get("of_score") or indicators.get("score")
                                     if sc is not None and _ff(sc) < _score_veto_min:
@@ -2981,7 +2987,7 @@ class PeriodicReporter:
                             if v_status == 'passed':
                                 try:
                                     indicators_p = payload.get('indicators') or {}
-                                    gate_p: Dict = {}
+                                    gate_p: dict = {}
                                     oc_p = indicators_p.get("of_confirm") or {}
                                     if isinstance(oc_p, str):
                                         try:
@@ -3005,9 +3011,9 @@ class PeriodicReporter:
                                                     score_by_threshold[key]["passed"] += 1
                                 except Exception:
                                     pass
-                            
+
                             # Collect missing legs stats
-                            # We look at 'strong_gate_legs' in indicators. 
+                            # We look at 'strong_gate_legs' in indicators.
                             # It is expected to be a dict like {"A": 1, "B": 0, "C": 1} where 0 means missing.
                             gate_legs = indicators.get("strong_gate_legs")
                             if isinstance(gate_legs, dict):
@@ -3038,7 +3044,7 @@ class PeriodicReporter:
                 missing_stats_pct[leg] = (float(count) / float(total_signals)) * 100.0
 
             # Build ok_fail_breakdown
-            ok_fail_breakdown: Dict[str, int] = dict(ok_fail_conds)
+            ok_fail_breakdown: dict[str, int] = dict(ok_fail_conds)
             for rs, cnt in sorted(ok_fail_reasons.items(), key=lambda kv: -kv[1])[:8]:
                 ok_fail_breakdown[f"reason: {rs}"] = cnt
 
@@ -3055,28 +3061,28 @@ class PeriodicReporter:
         logger.info("📅 Запуск ежедневной рассылки (окно 24ч)...")
         self.send_periodic_report(window_seconds=86400)
 
-    def _discover_pairs(self) -> List[Tuple[str, str]]:
+    def _discover_pairs(self) -> list[tuple[str, str]]:
         """Обнаружить пары source/symbol из разных источников."""
         try:
             pairs = []
             seen_pairs = set()
-            
+
             # 1) Получаем все стратегии из stats:strategies
             try:
                 strategies = self.redis.smembers("stats:strategies") or set()
                 for strategy in strategies:
                     if not strategy:
                         continue
-                    str_strategy = str(strategy) if isinstance(strategy, bytes) else strategy
-                    
+                    str_strategy = strategy if isinstance(strategy, bytes) else strategy
+
                     # Получаем символы для стратегии
                     symbols_key = f"stats:symbols:{str_strategy}"
                     symbols = self.redis.smembers(symbols_key) or set()
-                    
+
                     for symbol in symbols:
                         if not symbol:
                             continue
-                        str_symbol = str(symbol) if isinstance(symbol, bytes) else symbol
+                        str_symbol = symbol if isinstance(symbol, bytes) else symbol
                         # Преобразуем strategy в source для корректного маппинга
                         source = self._source_from_strategy(str_strategy, str_symbol)
                         symbol_norm = canon_symbol(str_symbol)
@@ -3086,26 +3092,26 @@ class PeriodicReporter:
                             pairs.append(pair)
             except Exception as e:
                 logger.debug(f"⚠️ Ошибка при чтении stats:strategies: {e}")
-            
+
             # 2) Пробуем из stream trades:closed
             if len(pairs) < 50:  # Если мало пар, дополняем из stream (Limit increased 5->50)
                 try:
                     entries = self.redis.xrevrange("trades:closed", max="+", count=200) or []
                     logger.debug(f"🔍 Проверяю trades:closed stream, найдено {len(entries)} записей")
-                    
+
                     for _, fields in entries:
                         if not fields:
                             continue
                         t = {str(k): str(v) for k, v in fields.items()}
                         source_raw = t.get("strategy") or t.get("source") or "unknown"
                         symbol_raw = t.get("symbol") or "UNKNOWN"
-                        
+
                         if not source_raw or source_raw == "unknown" or symbol_raw == "UNKNOWN":
                             continue
-                        
+
                         source = canon_source(source_raw)
                         symbol = canon_symbol(symbol_raw)
-                        
+
                         pair = (source, symbol)
                         if pair not in seen_pairs:
                             seen_pairs.add(pair)
@@ -3114,13 +3120,13 @@ class PeriodicReporter:
                                 break
                 except Exception as e:
                     logger.warning(f"⚠️ Ошибка при поиске пар в trades:closed stream: {e}")
-            
+
             # 3) Пробуем из orders:open (открытые позиции)
             if len(pairs) < 50:  # Limit increased
                 try:
                     order_ids = list(self.redis.smembers("orders:open") or set())[:50]
                     logger.debug(f"🔍 Проверяю orders:open, найдено {len(order_ids)} открытых позиций")
-                    
+
                     for oid_raw in order_ids:
                         oid = _to_str(oid_raw)
                         if not oid:
@@ -3128,19 +3134,19 @@ class PeriodicReporter:
                         order_key = f"order:{oid}"
                         order_data_raw = self.redis.hgetall(order_key) or {}
                         order_data = _norm_map(order_data_raw)
-                        
+
                         if not order_data:
                             continue
-                        
+
                         source_raw = order_data.get("strategy") or order_data.get("source") or "unknown"
                         symbol_raw = order_data.get("symbol") or "UNKNOWN"
-                        
+
                         if source_raw == "unknown" or symbol_raw == "UNKNOWN":
                             continue
-                        
+
                         source = canon_source(source_raw)
                         symbol = canon_symbol(symbol_raw)
-                        
+
                         pair = (source, symbol)
                         if pair not in seen_pairs:
                             seen_pairs.add(pair)
@@ -3149,7 +3155,7 @@ class PeriodicReporter:
                                 break
                 except Exception as e:
                     logger.debug(f"⚠️ Ошибка при чтении orders:open: {e}")
-            
+
             # 4) Пробуем из signals streams (последние сигналы)
             if len(pairs) < 50:  # Limit increased
                 try:
@@ -3158,9 +3164,9 @@ class PeriodicReporter:
                         # Increased scan count and limit to avoid missing keys
                         keys = list(self.redis.scan_iter(match=pattern, count=10000))[:50]
                         signal_keys.extend(keys)
-                    
+
                     logger.debug(f"🔍 Проверяю signals streams, найдено {len(signal_keys)} ключей")
-                    
+
                     for key in signal_keys[:100]:  # Increased limit
                         try:
                             key_str = str(key) if isinstance(key, bytes) else key
@@ -3169,11 +3175,11 @@ class PeriodicReporter:
                             if len(parts) >= 3:
                                 strategy_part = parts[1].lower()
                                 symbol_raw = parts[2]
-                                
+
                                 # Используем единый метод для маппинга
                                 source = self._source_from_strategy(strategy_part, symbol_raw)
                                 symbol = canon_symbol(symbol_raw)
-                                
+
                                 pair = (source, symbol)
                                 if pair not in seen_pairs:
                                     seen_pairs.add(pair)
@@ -3184,7 +3190,7 @@ class PeriodicReporter:
                             continue
                 except Exception as e:
                     logger.debug(f"⚠️ Ошибка при чтении signals streams: {e}")
-            
+
             if pairs:
                 logger.info(f"✅ Найдено {len(pairs)} пар для отчетов: {pairs[:5]}{'...' if len(pairs) > 5 else ''}")
             else:
@@ -3193,20 +3199,20 @@ class PeriodicReporter:
                     "Проверьте наличие данных в Redis: "
                     "stats:strategies, trades:closed stream, orders:open, signals:* streams"
                 )
-            
+
             # 5) Добавляем "ALL" для каждого найденного источника
             sources = set(p[0] for p in pairs)
             for src in sources:
                 if (src, "ALL") not in seen_pairs:
                     seen_pairs.add((src, "ALL"))
                     pairs.append((src, "ALL"))
-            
+
             return pairs
         except Exception as e:
             logger.error(f"❌ Ошибка обнаружения пар: {e}", exc_info=True)
             return []
 
-    def _generate_decision_recommendations(self, global_analysis: Dict[str, any], by_tag_analysis: List[Dict[str, any]]) -> List[str]:
+    def _generate_decision_recommendations(self, global_analysis: dict[str, any], by_tag_analysis: list[dict[str, any]]) -> list[str]:
         """
         Генерирует рекомендации по настройкам трейлинга на основе анализа baseline vs managed.
         """
@@ -3275,7 +3281,7 @@ def _to_str(v) -> str:
     return str(v)
 
 
-def _norm_map(d: Dict[Any, Any]) -> Dict[str, str]:
+def _norm_map(d: dict[Any, Any]) -> dict[str, str]:
     """Нормализует словарь: все ключи и значения в str (bytes → str)."""
     return {_to_str(k): _to_str(v) for k, v in (d or {}).items()}
 
@@ -3315,7 +3321,7 @@ def _sf(v) -> float:
 def main():
     """Главная функция для запуска периодического репортера."""
     import signal
-    
+
     logger.info("=" * 70)
     logger.info("📊 Periodic Reporter Service")
     logger.info("=" * 70)
@@ -3323,30 +3329,30 @@ def main():
     logger.info(f"Window: {RECENT_WINDOW_SECONDS}s ({RECENT_WINDOW_SECONDS // 60} мин)")
     logger.info(f"Trigger count: {REPORT_TRIGGER_COUNT} (Interval: {os.getenv('PERIODIC_REPORT_CHECK_INTERVAL_SEC', '0')})")
     logger.info("=" * 70)
-    
+
     reporter = PeriodicReporter()
-    
+
     # Graceful shutdown
     stop_flag = {"running": True}
-    
+
     def signal_handler(signum, frame):
         logger.info(f"⚠️ Получен сигнал {signum}, завершение работы...")
         stop_flag["running"] = False
-    
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
-    
+
+
     # Периодическая отправка отчетов
     last_check_time = time.time()
     check_interval = int(os.getenv("PERIODIC_REPORT_CHECK_INTERVAL_SEC", "0"))  # 0 = таймер отключен, работаем от триггера сделок
-    
+
     if check_interval <= 0:
         logger.info("⏸️ Таймер периодических проверок отключен (PERIODIC_REPORT_CHECK_INTERVAL_SEC<=0). "
                     "Отчеты отправляются кратно количеству сделок (REPORT_TRIGGER_COUNT).")
     else:
         logger.info(f"🔄 Начало работы, проверка каждые {check_interval}с")
-    
+
     # Init Edge Gate Reporter
     edge_gate_dsn = (os.getenv("ANALYTICS_DB_DSN") or os.getenv("TRADES_DB_DSN"))
     edge_gate_interval = int(os.getenv("EDGE_GATE_REPORT_INTERVAL_SEC", "3600"))
@@ -3357,23 +3363,23 @@ def main():
         try:
             logger.info(f"🛡️ Configured Edge Gate Reporter (interval={edge_gate_interval}s)")
             # lookback defaults to 6h in class, or we can maximize it. 6h is fine.
-            eg_cfg = EdgeGateReportConfig(db_dsn=edge_gate_dsn) 
+            eg_cfg = EdgeGateReportConfig(db_dsn=edge_gate_dsn)
             edge_gate_reporter = EdgeGateReporter(eg_cfg)
         except Exception as e:
             logger.error(f"❌ Failed to init Edge Gate Reporter: {e}")
-    
+
     # Init Daily Report Scheduler
     daily_report_enabled = os.getenv("DAILY_REPORT_ENABLED", "true").lower() == "true"
     daily_report_hour = int(os.getenv("DAILY_REPORT_UTC_HOUR", "17"))
     daily_report_minute = int(os.getenv("DAILY_REPORT_UTC_MINUTE", "5"))
-    
+
     # "ALL" in daily_report_symbols means we discover pairs dynamically.
     daily_report_symbols_env = os.getenv("DAILY_REPORT_SYMBOLS", "ALL").strip()
     if daily_report_symbols_env.upper() == "ALL":
         daily_report_symbols = "ALL"
     else:
         daily_report_symbols = [s.strip() for s in daily_report_symbols_env.split(",") if s.strip()]
-        
+
     daily_report_source = os.getenv("DAILY_REPORT_SOURCE", "CryptoOrderFlow")
     # Initialize to today so we DON'T do catch-up on restart.
     # Daily report will fire only at next scheduled time (e.g. 17:00 UTC tomorrow if started after 17:00).
@@ -3383,7 +3389,7 @@ def main():
     else:
         from datetime import date as _date
         last_daily_report_date = _date.today()  # no catch-up: wait for next scheduled send
-    
+
     # Init Hourly Report State
     # Initialize to -1: fires at next XX:00 (correct behavior).
     # Per-pair Redis dedup prevents actual duplicate sends even after restart.
@@ -3407,31 +3413,31 @@ def main():
                     edge_gate_reporter.generate_and_send()
                 except Exception as e:
                     logger.error(f"❌ Error in Edge Gate Reporter loop: {e}")
-                
+
                 last_edge_gate_report_time = now
 
             # --- Daily Report Scheduling ---
             if daily_report_enabled:
                 try:
-                    current_utc = datetime.now(timezone.utc)
+                    current_utc = datetime.now(UTC)
                     current_date = current_utc.date()
                     current_time = current_utc.time()
-                    
+
                     # Create scheduled time for today
                     from datetime import time as dt_time
                     scheduled_time = dt_time(daily_report_hour, daily_report_minute)
-                    
+
                     # Check if we should send daily report:
                     # 1. Current time has passed the scheduled time
                     # 2. We haven't sent a report today yet
                     should_send = (
-                        current_time >= scheduled_time and 
+                        current_time >= scheduled_time and
                         last_daily_report_date != current_date
                     )
-                    
+
                     if should_send:
                         logger.info(f"📅 Daily report trigger activated at {current_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-                        
+
                         target_pairs = []
                         if daily_report_symbols == "ALL":
                              # Discover all pairs + filter by source if possible or just use discovered source
@@ -3450,7 +3456,7 @@ def main():
                                 day_key = f"report_last_daily_date:{src}:{sym}"
                                 last_date_val = reporter.redis.get(day_key)
                                 today_str = current_date.strftime("%Y-%m-%d")
-                                
+
                                 if last_date_val == today_str:
                                     continue
 
@@ -3460,11 +3466,11 @@ def main():
                                 count_sent += 1
                             except Exception as e:
                                 logger.error(f"❌ Error sending daily report for {src}/{sym}: {e}", exc_info=True)
-                        
+
                         # Mark today as reported globally (loop finished)
                         last_daily_report_date = current_date
                         logger.info(f"✅ Daily reports completed ({count_sent} sent). Next scheduled: {current_date + __import__('datetime').timedelta(days=1)} {scheduled_time}")
-                        
+
                 except Exception as e:
                     logger.error(f"❌ Error in daily report scheduler: {e}", exc_info=True)
 
@@ -3473,14 +3479,14 @@ def main():
             hourly_report_enabled = os.getenv("HOURLY_REPORT_ENABLED", "true").lower() == "true"
             if hourly_report_enabled:
                 try:
-                    current_utc = datetime.now(timezone.utc)
-                    
+                    current_utc = datetime.now(UTC)
+
                     if current_utc.minute == 0 and current_utc.hour != last_hourly_report_hour:
                         logger.info(f"🕐 Hourly report trigger activated at {current_utc.strftime('%H:%M')} UTC")
                         last_hourly_report_hour = current_utc.hour
-                        
+
                         hourly_pairs = reporter._discover_pairs()
-                        
+
                         count_sent_hourly = 0
                         for src, sym in hourly_pairs:
                             try:
@@ -3488,31 +3494,31 @@ def main():
                                 hour_key = f"report_last_hourly_hour:{src}:{sym}"
                                 current_hour_str = current_utc.strftime("%Y-%m-%d-%H")
                                 last_hour_val = reporter.redis.get(hour_key)
-                                
+
                                 if last_hour_val == current_hour_str:
                                     logger.debug(f"⏭️ Skipping hourly report for {src}/{sym} (already sent for {current_hour_str})")
                                     continue
-                                
+
                                 # Также проверяем timestamp для полной уверенности
                                 last_ts_key = f"report_last_ts:{src}:{sym}"
                                 try:
                                     last_ts = float(reporter.redis.get(last_ts_key) or 0)
                                 except Exception:
                                     last_ts = 0.0
-                                
+
                                 if (time.time() - last_ts) < 1800 and last_hour_val is not None:
                                     continue
 
                                 logger.info(f"📤 Sending hourly report for {src}/{sym} (60m window via main loop)")
                                 reporter.send_report_for_pair(src, sym, window_seconds=3600, silent_locked=True)
-                                # send_report_for_pair вызывает _generate_and_send_report_internal, 
+                                # send_report_for_pair вызывает _generate_and_send_report_internal,
                                 # но НЕ проставляет ключи hour_key/last_ts_key. Проставим их здесь.
                                 reporter.redis.set(hour_key, current_hour_str, ex=172800)
                                 reporter.redis.set(last_ts_key, str(time.time()), ex=172800)
                                 count_sent_hourly += 1
                             except Exception as e:
                                 logger.error(f"❌ Error sending hourly report for {src}/{sym}: {e}")
-                        
+
                         logger.info(f"✅ Hourly reports completed ({count_sent_hourly} sent).")
 
                 except Exception as e:
@@ -3526,15 +3532,15 @@ def main():
                 continue
 
             now = time.time()
-            
+
             # Периодическая проверка и отправка отчетов
             if now - last_check_time >= check_interval:
                 logger.info("🔍 Проверка пар для отправки отчетов...")
                 pairs = reporter._discover_pairs()
-                
+
                 if pairs:
                     logger.info(f"📊 Найдено {len(pairs)} пар: {pairs[:5]}{'...' if len(pairs) > 5 else ''}")
-                    
+
                     sent_count = 0
                     for source, symbol in pairs:
                         try:
@@ -3543,45 +3549,45 @@ def main():
                             if not reporter._acquire_lock(lock_key, ttl=REPORT_LOCK_TTL_SECONDS):
                                 logger.debug(f"⏭️ Пропуск {source}/{symbol} (lock занят)")
                                 continue
-                            
+
                             try:
                                 metrics = reporter._gather_window_metrics_stream(source, symbol)
                                 total_trades = int(metrics.get("total_trades", 0))
-                                
+
                                 # Пропускаем пустые отчеты (как в send_periodic_report())
                                 send_empty = os.getenv("PERIODIC_REPORT_SEND_EMPTY", "false").lower() == "true"
                                 if total_trades <= 0 and not send_empty:
                                     logger.debug(f"⏭️ Пропуск {source}/{symbol} (нет сделок в окне)")
                                     continue
-                                
+
                                 logger.info(f"📤 Формирование отчета для {source}/{symbol} (сделок: {total_trades})")
                                 reporter._send_report(source, symbol, metrics, window_seconds=RECENT_WINDOW_SECONDS)
                                 sent_count += 1
                             finally:
                                 reporter._release_lock(lock_key)
-                                
+
                         except Exception as e:
                             logger.error(f"❌ Ошибка при отправке отчета для {source}/{symbol}: {e}", exc_info=True)
-                    
+
                     if sent_count > 0:
                         logger.info(f"✅ Отправлено отчетов: {sent_count}/{len(pairs)}")
                     else:
                         logger.warning(f"⚠️ Не удалось отправить ни одного отчета из {len(pairs)} пар")
                 else:
                     logger.warning("⚠️ Пар для отчетов не найдено. Проверьте наличие данных в Redis (stats:strategies, trades:closed, orders:open, signals:* streams)")
-                
+
                 last_check_time = now
             else:
                 # Короткий сон между проверками
                 time.sleep(10)
-                
+
         except KeyboardInterrupt:
             logger.info("⚠️ KeyboardInterrupt, завершение...")
             break
         except Exception as e:
             logger.error(f"❌ Критическая ошибка в main loop: {e}", exc_info=True)
             time.sleep(60)  # Долгая пауза после ошибки
-    
+
     logger.info("✅ Periodic Reporter завершен")
 
 

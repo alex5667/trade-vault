@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Train edge_stack_v1 with strict out-of-fold stacking (OOF).
 
 This tool trains a two-base-model stack:
@@ -28,8 +29,9 @@ import json
 import math
 import os
 import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 try:
     import numpy as np
@@ -43,8 +45,8 @@ except Exception as e:  # pragma: no cover
 
 # sklearn is intentionally optional for import-time; we error with a clean message at runtime
 try:
-    from sklearn.linear_model import LogisticRegression  # type: ignore
     from sklearn.ensemble import HistGradientBoostingClassifier  # type: ignore
+    from sklearn.linear_model import LogisticRegression  # type: ignore
 except Exception:
     LogisticRegression = None  # type: ignore
     HistGradientBoostingClassifier = None  # type: ignore
@@ -54,9 +56,11 @@ except Exception:
 # Centralized schema choices (avoid drift across tools)
 # ---------------------------------------------------------------------------
 try:
-    from tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 except Exception:  # pragma: no cover
-    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices, normalize_schema_ver as _norm_schema_ver  # type: ignore
+    from ml_analysis.tools.schema_choices_v1 import normalize_schema_ver as _norm_schema_ver
+    from ml_analysis.tools.schema_choices_v1 import schema_choices as _schema_choices  # type: ignore
 
 # Prefer the project's feature engineering for train==serve consistency.
 try:
@@ -80,15 +84,15 @@ except Exception:  # pragma: no cover
                 return i
         return len(edges)
 
-    def derive_regime_label(v: Any, fallback_score: Optional[float], cfg: Dict[str, Any]) -> str:  # type: ignore
-        return str(v or "") or "unknown"
+    def derive_regime_label(v: Any, fallback_score: float | None, cfg: dict[str, Any]) -> str:  # type: ignore
+        return (v or "") or "unknown"
 
-    def derive_session_label(ts_ms: int, cfg: Dict[str, Any]) -> str:  # type: ignore
+    def derive_session_label(ts_ms: int, cfg: dict[str, Any]) -> str:  # type: ignore
         return "unknown"
 
 
 try:
-    from services.ml_calibration import brier_score, ece_score, logloss, fit_platt_logit
+    from services.ml_calibration import brier_score, ece_score, fit_platt_logit, logloss
 except Exception:  # pragma: no cover
     brier_score = ece_score = logloss = fit_platt_logit = None  # type: ignore
 
@@ -105,20 +109,20 @@ def _sha256_16(items: Sequence[str]) -> str:
     return hashlib.sha256(payload).hexdigest()[:16]
 
 
-def _f(x: Any, d: Any = 0.0) -> Optional[float]:
+def _f(x: Any, d: Any = 0.0) -> float | None:
     """Convert x to float; return d on failure/non-finite.
 
     d=None is allowed (returns None), useful for optional fallback_score args.
     """
     try:
         if x is None:
-            return None if d is None else float(d)
+            return None if d is None else d
         v = float(x)
         if not math.isfinite(v):
-            return None if d is None else float(d)
+            return None if d is None else d
         return float(v)
     except Exception:
-        return None if d is None else float(d)
+        return None if d is None else d
 
 
 def _median(xs: Sequence[float]) -> float:
@@ -155,7 +159,7 @@ class PurgedEmbargoTimeSeriesSplit:
     embargo_ms: int = 0
     min_train: int = 200
 
-    def split(self, ts_ms: Sequence[int]) -> Iterable[Tuple[np.ndarray, np.ndarray]]:
+    def split(self, ts_ms: Sequence[int]) -> Iterable[tuple[np.ndarray, np.ndarray]]:
         if self.n_splits < 2:
             raise ValueError("n_splits must be >= 2")
         order = np.argsort(np.asarray(ts_ms, dtype=np.int64), kind="mergesort")
@@ -199,7 +203,7 @@ class PurgedEmbargoTimeSeriesSplit:
 
 
 def _scenario_norm(s: Any) -> str:
-    ss = str(s or "").strip().lower()
+    ss = (s or "").strip().lower()
     if not ss:
         return "other"
     return ss
@@ -224,9 +228,9 @@ def _spread_bucket_label(spread_bps: float, edges: Sequence[float]) -> str:
     return f"gt{int(es[-1])}"
 
 
-def _load_jsonl(path: str) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    with open(path, "r", encoding="utf-8") as f:
+def _load_jsonl(path: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -240,7 +244,7 @@ def _load_jsonl(path: str) -> List[Dict[str, Any]]:
     return rows
 
 
-def _get_indicators(row: Dict[str, Any]) -> Dict[str, Any]:
+def _get_indicators(row: dict[str, Any]) -> dict[str, Any]:
     ind = row.get("indicators")
     if isinstance(ind, dict):
         return ind
@@ -248,7 +252,7 @@ def _get_indicators(row: Dict[str, Any]) -> Dict[str, Any]:
     return row
 
 
-def _get_ts_ms(row: Dict[str, Any], i: int) -> int:
+def _get_ts_ms(row: dict[str, Any], i: int) -> int:
     for k in ("ts_ms", "ts", "t_ms", "t"):
         if k in row:
             try:
@@ -259,15 +263,15 @@ def _get_ts_ms(row: Dict[str, Any], i: int) -> int:
     return int(i)
 
 
-def _get_direction(row: Dict[str, Any]) -> str:
+def _get_direction(row: dict[str, Any]) -> str:
     return str(row.get("direction") or row.get("side") or "").upper() or "BUY"
 
 
-def _get_scenario(row: Dict[str, Any]) -> str:
+def _get_scenario(row: dict[str, Any]) -> str:
     return str(row.get("scenario") or row.get("sc") or "").lower() or "other"
 
 
-def _get_label(row: Dict[str, Any]) -> Optional[int]:
+def _get_label(row: dict[str, Any]) -> int | None:
     for k in ("y", "label", "target"):
         if k in row:
             try:
@@ -277,8 +281,8 @@ def _get_label(row: Dict[str, Any]) -> Optional[int]:
     return None
 
 
-def _collect_base_feature_names(feature_cols: Sequence[str]) -> List[str]:
-    out: List[str] = []
+def _collect_base_feature_names(feature_cols: Sequence[str]) -> list[str]:
+    out: list[str] = []
     for col in feature_cols:
         if col.startswith("f_"):
             out.append(col[2:])
@@ -290,7 +294,7 @@ def _collect_base_feature_names(feature_cols: Sequence[str]) -> List[str]:
                 out.append(b)
     # unique, stable order
     seen = set()
-    uniq: List[str] = []
+    uniq: list[str] = []
     for x in out:
         if x not in seen:
             seen.add(x)
@@ -298,10 +302,10 @@ def _collect_base_feature_names(feature_cols: Sequence[str]) -> List[str]:
     return uniq
 
 
-def _fit_robust_scaler(rows: Sequence[Dict[str, Any]], feature_names: Sequence[str]) -> Dict[str, Dict[str, float]]:
-    params: Dict[str, Dict[str, float]] = {}
+def _fit_robust_scaler(rows: Sequence[dict[str, Any]], feature_names: Sequence[str]) -> dict[str, dict[str, float]]:
+    params: dict[str, dict[str, float]] = {}
     for name in feature_names:
-        xs: List[float] = []
+        xs: list[float] = []
         for r in rows:
             ind = _get_indicators(r)
             xs.append(_f(ind.get(name, 0.0), 0.0))
@@ -315,11 +319,11 @@ def _fit_robust_scaler(rows: Sequence[Dict[str, Any]], feature_names: Sequence[s
 
 def _make_num_getter(
     *,
-    indicators: Dict[str, Any],
-    transforms: Dict[str, Any],
-    scaler_params: Optional[Dict[str, Dict[str, float]]],
+    indicators: dict[str, Any],
+    transforms: dict[str, Any],
+    scaler_params: dict[str, dict[str, float]] | None,
 ) -> Any:
-    cache: Dict[str, float] = {}
+    cache: dict[str, float] = {}
 
     def num(name: str) -> float:
         if name in cache:
@@ -342,21 +346,21 @@ def _make_num_getter(
 def build_feature_row(
     *,
     feature_cols: Sequence[str],
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     direction: str,
     scenario: str,
     ts_ms: int,
-    feature_transforms: Optional[Dict[str, Any]] = None,
-    robust_scaler_params: Optional[Dict[str, Dict[str, float]]] = None,
-    session_cfg: Optional[Dict[str, Any]] = None,
-    spread_bucket_edges: Optional[Sequence[float]] = None,
-    liq_cfg: Optional[Dict[str, Any]] = None,
-) -> List[float]:
+    feature_transforms: dict[str, Any] | None = None,
+    robust_scaler_params: dict[str, dict[str, float]] | None = None,
+    session_cfg: dict[str, Any] | None = None,
+    spread_bucket_edges: Sequence[float] | None = None,
+    liq_cfg: dict[str, Any] | None = None,
+) -> list[float]:
     tf = feature_transforms if isinstance(feature_transforms, dict) else {}
     sc = session_cfg if isinstance(session_cfg, dict) else {}
     lc = liq_cfg if isinstance(liq_cfg, dict) else {}
 
-    d = str(direction or "").upper()
+    d = (direction or "").upper()
     s = _scenario_norm(scenario)
 
     # derived categorical features
@@ -367,8 +371,8 @@ def build_feature_row(
     spread_bucket_idx = int(bucketize(float(spread_bps_raw), [float(x) for x in edges]))
     spread_bucket_lbl = _spread_bucket_label(float(spread_bps_raw), edges)
 
-    liq_label = str(derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score", None), None), cfg=lc)).lower()
-    vol_label = str(derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score", None), None), cfg=lc)).lower()
+    liq_label = str(derive_regime_label(indicators.get("liq_regime"), fallback_score=_f(indicators.get("liq_score"), None), cfg=lc)).lower()
+    vol_label = str(derive_regime_label(indicators.get("vol_regime"), fallback_score=_f(indicators.get("vol_score"), None), cfg=lc)).lower()
 
     # UTC hour/day-of-week and scenario bucket (Commit 8)
     tm = time.gmtime(float(int(ts_ms or 0)) / 1000.0)
@@ -378,7 +382,7 @@ def build_feature_row(
 
     num = _make_num_getter(indicators=indicators, transforms=tf, scaler_params=robust_scaler_params)
 
-    row: List[float] = []
+    row: list[float] = []
     for col in feature_cols:
         if col.startswith("f_"):
             key = col[2:]
@@ -441,7 +445,7 @@ def _precision_at_top_k(probs: Sequence[float], y: Sequence[int], frac: float = 
     return float(hits) / float(k)
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_jsonl", required=True)
     ap.add_argument("--out_model", required=True)
@@ -530,8 +534,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("dataset is empty or unreadable")
 
     # Resolve feature_cols: Registry-first, fallback to legacy sources
-    feature_cols: List[str] = []
-    registry_meta: Optional[Dict[str, Any]] = None
+    feature_cols: list[str] = []
+    registry_meta: dict[str, Any] | None = None
     schema_ver = _norm_schema_ver(str(getattr(args, "feature_schema_ver", "") or "").strip())
 
     if schema_ver:
@@ -562,7 +566,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not feature_cols:
         # Legacy fallback: --feature_cols_json → CSV → dataset row
         if args.feature_cols_json:
-            feature_cols = json.loads(open(args.feature_cols_json, "r", encoding="utf-8").read())
+            feature_cols = json.loads(open(args.feature_cols_json, encoding="utf-8").read())
         elif args.feature_cols:
             feature_cols = [c.strip() for c in str(args.feature_cols).split(",") if c.strip()]
         else:
@@ -580,7 +584,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Strict match: если заданы оба --feature_cols_json и --feature_schema_ver, сверяем точно
     if schema_ver and args.feature_cols_json and int(getattr(args, "strict_registry_match", 1) or 0) == 1:
         try:
-            legacy_cols = json.loads(open(args.feature_cols_json, "r", encoding="utf-8").read())
+            legacy_cols = json.loads(open(args.feature_cols_json, encoding="utf-8").read())
             if list(legacy_cols) != list(feature_cols):
                 raise SystemExit(
                     "feature_cols_mismatch: feature_cols_json не совпадает с registry-derived feature_cols; "
@@ -593,7 +597,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # Commit 12: reject scenario_v4_* if strict mode is on.
     # Activated via --strict_feature_cols=1 OR EDGE_STACK_STRICT_FEATURE_COLS=1 env var.
-    _strict_env = str(os.environ.get("EDGE_STACK_STRICT_FEATURE_COLS", os.environ.get("ML_STRICT_FEATURE_COLS", "0")) or "0").strip().lower()
+    _strict_env = os.environ.get("EDGE_STACK_STRICT_FEATURE_COLS", os.environ.get("ML_STRICT_FEATURE_COLS", "0") or "0").strip().lower()
     strict_cols = (int(getattr(args, "strict_feature_cols", 0) or 0) == 1) or (_strict_env in ("1", "true", "yes"))
     if strict_cols:
         bad = [c for c in feature_cols if str(c).startswith("scenario_v4_")]
@@ -606,10 +610,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Опциональная валидация feature_registry по dataset_report_json (hash-check)
     if getattr(args, "dataset_report_json", ""):
         try:
-            rep = json.loads(open(args.dataset_report_json, "r", encoding="utf-8").read())
+            rep = json.loads(open(args.dataset_report_json, encoding="utf-8").read())
             fr = rep.get("feature_registry") if isinstance(rep, dict) else None
             if isinstance(fr, dict):
-                expected_hash = str(fr.get("feature_cols_hash") or "").strip()
+                expected_hash = (fr.get("feature_cols_hash") or "").strip()
                 got_hash = _sha256_16([str(x) for x in feature_cols])
                 if expected_hash and expected_hash != got_hash:
                     raise SystemExit(
@@ -620,8 +624,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 if (
                     schema_ver
                     and registry_meta
-                    and str(fr.get("schema_hash") or "").strip()
-                    and str(fr.get("schema_hash") or "").strip() != str(registry_meta.get("schema_hash") or "")
+                    and (fr.get("schema_hash") or "").strip()
+                    and (fr.get("schema_hash") or "").strip() != (registry_meta.get("schema_hash") or "")
                 ):
                     raise SystemExit(
                         f"schema_hash_mismatch: expected={fr.get('schema_hash')} "
@@ -637,19 +641,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if schema_ver and int(getattr(args, "require_feature_registry", 0) or 0) == 1:
                 raise SystemExit(f"dataset_report_read_failed: {e}")
 
-    feature_transforms: Dict[str, Any] = {}
+    feature_transforms: dict[str, Any] = {}
     if args.feature_transforms_json:
         try:
-            feature_transforms = json.loads(open(args.feature_transforms_json, "r", encoding="utf-8").read())
+            feature_transforms = json.loads(open(args.feature_transforms_json, encoding="utf-8").read())
         except Exception:
             feature_transforms = {}
 
     # Collect usable examples
-    ex: List[Dict[str, Any]] = []
-    ts: List[int] = []
-    y: List[int] = []
-    direction: List[str] = []
-    scenario: List[str] = []
+    ex: list[dict[str, Any]] = []
+    ts: list[int] = []
+    y: list[int] = []
+    direction: list[str] = []
+    scenario: list[str] = []
 
     for i, r in enumerate(rows):
         yy = _get_label(r)
@@ -665,7 +669,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit(f"not enough labeled rows: {len(ex)}")
 
     # Robust scaler params over base numeric features (f_ and mul_ inputs)
-    scaler_params: Optional[Dict[str, Dict[str, float]]] = None,
+    scaler_params: dict[str, dict[str, float]] | None = None,
     if int(args.with_robust_scaler) == 1:
         base_names = _collect_base_feature_names(feature_cols),
         scaler_params = _fit_robust_scaler(ex, base_names),
@@ -767,14 +771,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     base_gbdt.fit(X, y_arr)
 
     # Optional calibration (Platt scaling on logit(p_meta))
-    calibrator_dict: Optional[Dict[str, Any]] = None
+    calibrator_dict: dict[str, Any] | None = None
     if int(args.calibrate) == 1 and fit_platt_logit is not None:
         p_meta_oof = meta.predict_proba(Z)[:, 1]
         cal = fit_platt_logit([float(x) for x in p_meta_oof], [int(x) for x in y_z])
         calibrator_dict = cal.to_dict()
 
     # Report
-    report: Dict[str, Any] = {
+    report: dict[str, Any] = {
         "n_total": int(len(ex)),
         "n_oof": int(np.sum(mask)),
         "pos_rate": float(np.mean(y_arr)) if len(y_arr) else 0.0,
@@ -794,7 +798,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.p_min_by_bucket_json:
         try:
-            report["p_min_by_bucket"] = json.loads(open(args.p_min_by_bucket_json, "r", encoding="utf-8").read())
+            report["p_min_by_bucket"] = json.loads(open(args.p_min_by_bucket_json, encoding="utf-8").read())
         except Exception:
             report["p_min_by_bucket"] = {}
 
@@ -823,13 +827,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         report["oof"]["meta"]["ece"] = float(ece)
         report["oof"]["meta"]["ece_bins"] = bins[:10]
 
-    out_pack: Dict[str, Any] = {
+    out_pack: dict[str, Any] = {
         "schema_version": 1,
         "kind": "edge_stack_v1",
         "feature_cols": [str(x) for x in feature_cols],
         # Pinning metadata: позволяет детектировать column drift при загрузке
         "feature_cols_hash": _sha256_16([str(x) for x in feature_cols]),
-        "feature_schema_ver": str(schema_ver or ""),
+        "feature_schema_ver": (schema_ver or ""),
         "feature_registry": registry_meta or {},
         "feature_transforms": feature_transforms,
         "robust_scaler": scaler_params or {},

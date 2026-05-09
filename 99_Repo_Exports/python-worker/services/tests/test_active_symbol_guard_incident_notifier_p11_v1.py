@@ -49,7 +49,7 @@ class DummyDiag:
     def incident_bundle_symbol(self, symbol, include_exchange=False):
         return {
             'summary': {
-                'symbol': str(symbol).upper(),
+                'symbol': symbol.upper(),
                 'sid': 'sid-btc',
                 'classification': 'pending_release',
                 'severity': 'warning',

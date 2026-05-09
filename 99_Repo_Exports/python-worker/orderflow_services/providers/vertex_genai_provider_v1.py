@@ -4,7 +4,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class VertexProviderError(RuntimeError):
@@ -15,11 +15,11 @@ class VertexProviderError(RuntimeError):
 class VertexResult:
     provider: str
     model_name: str
-    output_json: Dict[str, Any]
+    output_json: dict[str, Any]
     latency_ms: int
     raw_text: str
-    request_tokens: Optional[int] = None
-    response_tokens: Optional[int] = None
+    request_tokens: int | None = None
+    response_tokens: int | None = None
 
 
 SYSTEM_INSTRUCTION = """You analyze ML health for a trading system.
@@ -45,7 +45,7 @@ class VertexGenAIProviderV1:
         self.max_output_tokens = int(os.getenv("VERTEX_MAX_OUTPUT_TOKENS", "4096"))
         self.timeout_ms = int(os.getenv("VERTEX_TIMEOUT_MS", "45000"))
 
-    def _build_prompt(self, req: Dict[str, Any]) -> str:
+    def _build_prompt(self, req: dict[str, Any]) -> str:
         return json.dumps(
             {
                 "task_type": req.get("task_type"),
@@ -64,7 +64,7 @@ class VertexGenAIProviderV1:
             ensure_ascii=False,
         )
 
-    def analyze(self, req: Dict[str, Any]) -> VertexResult:
+    def analyze(self, req: dict[str, Any]) -> VertexResult:
         try:
             from google import genai
             from google.genai import types

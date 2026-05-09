@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P86: Compile test for enforce_bucket_state_exporter_v1.py with DB residual stats.
 
 Verifies that the exporter module parses correctly after the P86 additions

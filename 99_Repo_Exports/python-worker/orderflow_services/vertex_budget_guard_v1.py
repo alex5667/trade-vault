@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
 import os
 import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any
 
 try:
     import redis
@@ -22,7 +21,7 @@ class BudgetDecision:
     hourly_calls: int
     hourly_limit: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -38,7 +37,7 @@ class VertexBudgetGuardV1:
         self._redis_url = redis_url
         self._daily_limit_usd = float(os.getenv("VERTEX_MAX_DAILY_USD", "25") or 25.0)
         self._hourly_limit = int(os.getenv("VERTEX_MAX_CALLS_PER_HOUR", "300") or 300)
-        self._fail_policy = str(os.getenv("VERTEX_BUDGET_FAIL_POLICY", "OPEN") or "OPEN").upper()
+        self._fail_policy = (os.getenv("VERTEX_BUDGET_FAIL_POLICY", "OPEN") or "OPEN").upper()
         self._r = None
         if redis is not None:
             self._r = redis.Redis.from_url(redis_url, decode_responses=True)
@@ -51,7 +50,7 @@ class VertexBudgetGuardV1:
     def _utc_hour(ts: int) -> str:
         return time.strftime("%Y%m%d%H", time.gmtime(ts))
 
-    def _keys(self, provider: str, model: str, ts: int) -> Tuple[str, str]:
+    def _keys(self, provider: str, model: str, ts: int) -> tuple[str, str]:
         d = self._utc_day(ts)
         h = self._utc_hour(ts)
         return (

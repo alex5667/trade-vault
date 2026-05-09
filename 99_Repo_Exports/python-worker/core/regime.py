@@ -1,5 +1,6 @@
-# core/regime.py
 from __future__ import annotations
+
+# core/regime.py
 from typing import Literal
 
 Regime = Literal["trend", "range", "mixed"]

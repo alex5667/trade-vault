@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 P3-#22: Integration test — outbox → dispatcher E2E flow.
 
@@ -25,17 +26,13 @@ Invariants verified per signal:
 
 
 import json
-import sys
 import time
 import uuid
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, "/home/alex/front/trade/scanner_infra/python-worker")
-
-import pytest
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Shared stubs (extended from chaos tests, kept local to avoid coupling)
@@ -45,10 +42,10 @@ class _AtomicDeliveryStore:
     """Thread-safe store simulating GETSET-based idempotency markers."""
 
     def __init__(self):
-        self._delivered: Dict[str, str] = {}  # marker_key → stream_id
-        self._streams: Dict[str, List[Dict]] = defaultdict(list)
+        self._delivered: dict[str, str] = {}  # marker_key → stream_id
+        self._streams: dict[str, list[dict]] = defaultdict(list)
 
-    def deliver(self, marker_key: str, stream: str, payload: dict, maxlen: int) -> Tuple[bool, Optional[str]]:
+    def deliver(self, marker_key: str, stream: str, payload: dict, maxlen: int) -> tuple[bool, str | None]:
         if marker_key in self._delivered:
             return False, None  # already delivered (idempotent)
         stream_id = f"{int(time.time() * 1000)}-0"
@@ -59,7 +56,7 @@ class _AtomicDeliveryStore:
     def delivered_count(self, stream: str) -> int:
         return len(self._streams[stream])
 
-    def all_streams(self) -> Dict[str, List[Dict]]:
+    def all_streams(self) -> dict[str, list[dict]]:
         return dict(self._streams)
 
 
@@ -67,11 +64,11 @@ class _FakeOutboxRedis:
     """Minimal Redis stub with outbox stream + PEL simulation."""
 
     def __init__(self):
-        self._streams: Dict[str, List[Tuple[str, Dict]]] = defaultdict(list)
-        self._pending: Dict[str, Dict[str, Dict[str, str]]] = defaultdict(lambda: defaultdict(dict))  # stream -> group -> {id: fields}
-        self._acked: List[str] = []
-        self._incr: Dict[str, int] = {}
-        self._keys: Dict[str, Any] = {}
+        self._streams: dict[str, list[tuple[str, dict]]] = defaultdict(list)
+        self._pending: dict[str, dict[str, dict[str, str]]] = defaultdict(lambda: defaultdict(dict))  # stream -> group -> {id: fields}
+        self._acked: list[str] = []
+        self._incr: dict[str, int] = {}
+        self._keys: dict[str, Any] = {}
         self._next_id: int = 1700000000000
 
     # ── Write to outbox ────────────────────────────────────────────────────
@@ -163,7 +160,7 @@ def _make_envelope(
     is_virtual: bool = False,
     signal_stream: str = "stream:signals:live",
     audit_stream: str = "stream:signals:audit",
-) -> Dict[str, str]:
+) -> dict[str, str]:
     env = {
         "sid": sid,
         "schema_version": schema_version,
@@ -239,7 +236,7 @@ def _build_dispatcher_with_delivery_store(
 class _FakeHelper:
     """Minimal SyncRedisStreamHelper stub recording acks."""
     def __init__(self):
-        self.acked: List[str] = []
+        self.acked: list[str] = []
 
     def ack(self, stream, msg_id):
         self.acked.append(msg_id)

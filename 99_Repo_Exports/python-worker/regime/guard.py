@@ -1,21 +1,20 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Callable, Dict, Optional, Tuple
-
 import json
-import psycopg2
-from psycopg2 import pool
-import redis
+from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
+import psycopg2
+import redis
+from psycopg2 import pool
+
+from .models import BaselineQuantiles
 from .rolling_stats import RollingWindowStats
 from .state import RegimeState, Status
-from .models import BaselineQuantiles
 
-
-Key = Tuple[str, str, str, str]  # (venue, symbol, timeframe, family)
+Key = tuple[str, str, str, str]  # (venue, symbol, timeframe, family)
 
 
 @dataclass
@@ -53,12 +52,12 @@ class RegimeGuardService:
         self.degrade_dd_mult = degrade_dd_mult
         self.wr_safe_margin = wr_safe_margin
 
-        self._stats: Dict[Key, RollingWindowStats] = defaultdict(
+        self._stats: dict[Key, RollingWindowStats] = defaultdict(
             lambda: RollingWindowStats(window_size=window_size)
         )
-        self._state: Dict[Key, RegimeState] = {}
+        self._state: dict[Key, RegimeState] = {}
 
-        self._baseline_cache: Dict[Key, BaselineConfig] = {}
+        self._baseline_cache: dict[Key, BaselineConfig] = {}
 
         # Internal logger
         import logging
@@ -68,7 +67,7 @@ class RegimeGuardService:
         self.baseline_window_size = window_size  # используем то же окно
         self.baseline_horizon_days = baseline_horizon_days if 'baseline_horizon_days' in locals() else 180
 
-    def _safe_read(self, query: str, params: tuple) -> Optional[tuple]:
+    def _safe_read(self, query: str, params: tuple) -> tuple | None:
         """Safely execute a read query with rollback on error."""
         conn = None
         try:
@@ -126,7 +125,7 @@ class RegimeGuardService:
 
     # ---------- загрузка baseline из Timescale ----------
 
-    def _load_baseline(self, key: Key) -> Optional[BaselineConfig]:
+    def _load_baseline(self, key: Key) -> BaselineConfig | None:
         if key in self._baseline_cache:
             return self._baseline_cache[key]
 
@@ -146,7 +145,7 @@ class RegimeGuardService:
         self._baseline_cache[key] = cfg
         return cfg
 
-    def _load_baseline_metric(self, symbol: str, family: str, metric: str) -> Optional[BaselineQuantiles]:
+    def _load_baseline_metric(self, symbol: str, family: str, metric: str) -> BaselineQuantiles | None:
         """Загружает квантили для одной метрики."""
         query = """
             SELECT p05, p10, p25, p50, p75, p90, p95, sample_size
@@ -178,13 +177,13 @@ class RegimeGuardService:
         timeframe: str,
         r_value: float,
         closed_at: datetime,
-    ) -> Optional[Callable[[], None]]:
+    ) -> Callable[[], None] | None:
         """
         Вызывается при фактическом завершении сигнала (SL/TP/ручное закрытие).
         r_value = pnl / risk (в R).
         """
         if closed_at.tzinfo is None:
-            closed_at = closed_at.replace(tzinfo=timezone.utc)
+            closed_at = closed_at.replace(tzinfo=UTC)
 
         key = self.make_key(venue, symbol, timeframe, family)
 
@@ -322,7 +321,7 @@ class RegimeGuardService:
         family: str,
         window_size: int = 50,
         horizon_days: int = 180,
-    ) -> Dict[str, BaselineQuantiles]:
+    ) -> dict[str, BaselineQuantiles]:
         """
         Читает baseline по двум метрикам для данного symbol+family.
 
@@ -331,7 +330,7 @@ class RegimeGuardService:
         """
         from .baseline_calc import BaselineQuantiles
 
-        result: Dict[str, BaselineQuantiles] = {}
+        result: dict[str, BaselineQuantiles] = {}
 
         query = """
             SELECT metric,

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 test_eval_meta_ramp_outcomes_did.py
 
@@ -8,25 +8,22 @@ Unit tests for eval_meta_ramp_outcomes_did.py
 """
 
 
-import json
-import tempfile
 import os
-from typing import List, Dict, Any
-
-import pytest
 
 # Import the module functions
 import sys
+import tempfile
+
+import pytest
+
 sys.path.insert(0, os.path.dirname(__file__))
 from eval_meta_ramp_outcomes_did import (
-    iter_ndjson,
-    stats,
-    bootstrap_did,
-    pctl,
-    _f,
-    _i,
-    _event_ts_ms,
     _delta,
+    _event_ts_ms,
+    bootstrap_did,
+    iter_ndjson,
+    pctl,
+    stats,
 )
 
 
@@ -58,11 +55,11 @@ def test_event_ts_ms():
     """Test timestamp extraction."""
     r1 = {"ts_ms": 1234567890000}
     assert _event_ts_ms(r1) == 1234567890000
-    
+
     r2 = {"ts": 1234567890}  # seconds
     ts = _event_ts_ms(r2)
     assert ts > 0
-    
+
     r3 = {"exit_ts_ms": 1234567890000}
     assert _event_ts_ms(r3) == 1234567890000
 
@@ -82,11 +79,11 @@ def test_bootstrap_did():
     # Before: enforce better than control
     eb = [0.5] * 50 + [-0.3] * 50  # mean = 0.1
     cb = [0.2] * 50 + [-0.5] * 50  # mean = -0.15
-    
+
     # After: enforce improved more than control
     ea = [0.8] * 50 + [-0.2] * 50  # mean = 0.3
     ca = [0.3] * 50 + [-0.4] * 50  # mean = -0.05
-    
+
     result = bootstrap_did(eb, cb, ea, ca, iters=100, seed=42)
     assert result["ok"] == 1.0
     assert "did_mean_p05" in result
@@ -115,7 +112,7 @@ def test_iter_ndjson():
         f.write('\n')  # empty line
         f.write('{"c": 3}\n')
         fname = f.name
-    
+
     try:
         rows = list(iter_ndjson(fname))
         assert len(rows) == 3
@@ -135,7 +132,7 @@ def test_did_eval_windows():
     before_to = ramp_ts
     after_from = ramp_ts
     after_to = ramp_ts + win_ms
-    
+
     assert before_from < before_to
     assert after_from < after_to
     assert before_to == after_from  # contiguous windows

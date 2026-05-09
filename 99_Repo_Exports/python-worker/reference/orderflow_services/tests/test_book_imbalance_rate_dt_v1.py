@@ -1,13 +1,11 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """Unit tests for book_imbalance_rate_10 dt guards (A2).
 
 We validate the dependency-free helper in `core.book_derivatives_v1`.
 """
 
 
-import sys
-from pathlib import Path
 
 # Ensure we import SoT (tick_flow_full/...) as top-level packages: core.*, services.*
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # .../tick_flow_full

@@ -1,8 +1,8 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import time
-from typing import Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _ms_now() -> int:
@@ -13,11 +13,11 @@ def _i(v: Any, default: int = 0) -> int:
     try:
         return int(v)
     except Exception:
-        return int(default)
+        return default
 
 
 
-def guard_view(doc: Dict[str, Any] | None, *, now_ms: int | None = None) -> Dict[str, Any]:
+def guard_view(doc: dict[str, Any] | None, *, now_ms: int | None = None) -> dict[str, Any]:
     """Return the canonical reader-facing semantics for active_symbol guard docs.
 
     This utility is the single contract for all readers of
@@ -28,9 +28,9 @@ def guard_view(doc: Dict[str, Any] | None, *, now_ms: int | None = None) -> Dict
     """
     raw = dict(doc or {})
     now = int(now_ms or _ms_now())
-    symbol = str(raw.get("symbol") or "").strip().upper()
-    sid = str(raw.get("sid") or "").strip()
-    status = str(raw.get("guard_status") or "active").strip().lower()
+    symbol = (raw.get("symbol") or "").strip().upper()
+    sid = (raw.get("sid") or "").strip()
+    status = (raw.get("guard_status") or "active").strip().lower()
     if status not in {"active", "released"}:
         status = "active"
     released_at_ms = _i(raw.get("released_at_ms") or raw.get("updated_at_ms") or raw.get("guard_writer_ts_ms"), 0)
@@ -53,24 +53,24 @@ def guard_view(doc: Dict[str, Any] | None, *, now_ms: int | None = None) -> Dict
         "is_blocking": is_blocking,
         "guard_version": guard_version,
         "guard_release_pending": pending_release,
-        "guard_release_policy": str(raw.get("guard_release_policy") or ""),
+        "guard_release_policy": (raw.get("guard_release_policy") or ""),
         "guard_release_reason": str(raw.get("guard_release_reason") or raw.get("release_reason") or ""),
         "state_terminalish": terminalish,
         "released_at_ms": released_at_ms,
         "updated_at_ms": updated_at_ms,
         "tombstone_age_ms": tombstone_age_ms,
-        "guard_writer": str(raw.get("guard_writer") or ""),
-        "guard_lease_token": str(raw.get("guard_lease_token") or ""),
+        "guard_writer": (raw.get("guard_writer") or ""),
+        "guard_lease_token": (raw.get("guard_lease_token") or ""),
     }
 
 
 
-def active_guard_doc(doc: Dict[str, Any] | None, *, now_ms: int | None = None) -> Dict[str, Any]:
+def active_guard_doc(doc: dict[str, Any] | None, *, now_ms: int | None = None) -> dict[str, Any]:
     raw = dict(doc or {})
     return raw if guard_view(raw, now_ms=now_ms).get("is_blocking") else {}
 
 
 
-def released_tombstone_doc(doc: Dict[str, Any] | None, *, now_ms: int | None = None) -> Dict[str, Any]:
+def released_tombstone_doc(doc: dict[str, Any] | None, *, now_ms: int | None = None) -> dict[str, Any]:
     raw = dict(doc or {})
     return raw if guard_view(raw, now_ms=now_ms).get("is_released") else {}

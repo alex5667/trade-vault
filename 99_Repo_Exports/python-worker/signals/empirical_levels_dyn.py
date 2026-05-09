@@ -1,12 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import os
-import time
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 # =====================================================================================
 # Динамические уровни на основе эмпирических буферов (MFE/MAE/TTD).
@@ -44,31 +44,31 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(float(os.getenv(name, str(default)) or default))
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)) or default)
     except Exception:
-        return float(default)
+        return default
 
 
 def _canon_symbol(sym: Any) -> str:
-    s = str(sym or "").strip().upper()
+    s = (sym or "").strip().upper()
     return s.replace("/", "").replace("-", "")
 
 
 def _canon_kind(kind: Any) -> str:
-    return (str(kind or "").strip().lower() or "na")
+    return ((kind or "").strip().lower() or "na")
 
 
 def _canon_tf(tf: Any) -> str:
-    return (str(tf or "").strip().lower() or "na")
+    return ((tf or "").strip().lower() or "na")
 
 
 def _canon_regime(r: Any) -> str:
-    return (str(r or "").strip().lower() or "na")
+    return ((r or "").strip().lower() or "na")
 
 
 def _decode(x: Any) -> str:
@@ -80,8 +80,8 @@ def _decode(x: Any) -> str:
     return str(x)
 
 
-def _to_pos_floats(xs: List[Any]) -> List[float]:
-    out: List[float] = []
+def _to_pos_floats(xs: list[Any]) -> list[float]:
+    out: list[float] = []
     for x in xs:
         try:
             v = float(_decode(x).strip())
@@ -92,8 +92,8 @@ def _to_pos_floats(xs: List[Any]) -> List[float]:
     return out
 
 
-def _to_pos_ints(xs: List[Any]) -> List[int]:
-    out: List[int] = []
+def _to_pos_ints(xs: list[Any]) -> list[int]:
+    out: list[int] = []
     for x in xs:
         try:
             v = int(float(_decode(x).strip()))
@@ -104,7 +104,7 @@ def _to_pos_ints(xs: List[Any]) -> List[int]:
     return out
 
 
-def _percentile_sorted(sorted_vals: List[float], q: float) -> float:
+def _percentile_sorted(sorted_vals: list[float], q: float) -> float:
     """
     Детерминированный перцентиль с линейной интерполяцией.
     q в диапазоне [0..1].
@@ -125,7 +125,7 @@ def _percentile_sorted(sorted_vals: List[float], q: float) -> float:
     return float(sorted_vals[lo] * (1.0 - w) + sorted_vals[hi] * w)
 
 
-def _percentile(vals: List[float], q: float) -> float:
+def _percentile(vals: list[float], q: float) -> float:
     sv = sorted(vals)
     return _percentile_sorted(sv, q)
 
@@ -145,7 +145,7 @@ class EmpiricalLevelsConfig:
     max_ttd_ms: int
 
     @classmethod
-    def from_env(cls) -> "EmpiricalLevelsConfig":
+    def from_env(cls) -> EmpiricalLevelsConfig:
         return cls(
             enabled=_env_bool("EMP_LEVELS_ENABLED", False),
             min_n=max(10, _env_int("EMP_LEVELS_MIN_N", 60)),
@@ -190,12 +190,12 @@ class RedisEmpiricalLevelsProvider:
         self.redis = redis_client
         self.cfg = cfg
         # кэш: key_prefix -> (ts_ms, result)
-        self._cache: Dict[str, Tuple[int, Optional[EmpiricalLevelsResult]]] = {}
+        self._cache: dict[str, tuple[int, EmpiricalLevelsResult | None]] = {}
 
     def _now_ms(self) -> int:
         return get_ny_time_millis()
 
-    def _get_cached(self, cache_key: str) -> Optional[EmpiricalLevelsResult]:
+    def _get_cached(self, cache_key: str) -> EmpiricalLevelsResult | None:
         if self.cfg.cache_ms <= 0:
             return None
         it = self._cache.get(cache_key)
@@ -206,12 +206,12 @@ class RedisEmpiricalLevelsProvider:
             return res
         return None
 
-    def _put_cached(self, cache_key: str, res: Optional[EmpiricalLevelsResult]) -> None:
+    def _put_cached(self, cache_key: str, res: EmpiricalLevelsResult | None) -> None:
         if self.cfg.cache_ms <= 0:
             return
         self._cache[cache_key] = (self._now_ms(), res)
 
-    def get(self, *, kind: str, symbol: str, tf: str, regime: str) -> Optional[EmpiricalLevelsResult]:
+    def get(self, *, kind: str, symbol: str, tf: str, regime: str) -> EmpiricalLevelsResult | None:
         """
         Читать буферы и вычислять квантили.
         Возвращает None, если недостаточно данных.
@@ -228,7 +228,7 @@ class RedisEmpiricalLevelsProvider:
         if cached is not None:
             return cached
 
-        def try_regime(rg: str) -> Optional[EmpiricalLevelsResult]:
+        def try_regime(rg: str) -> EmpiricalLevelsResult | None:
             k_mfe = self.cfg.key(kind=kind, symbol=symbol, tf=tf, regime=rg, metric="mfe_bps")
             k_mae = self.cfg.key(kind=kind, symbol=symbol, tf=tf, regime=rg, metric="mae_bps")
             k_ttd = self.cfg.key(kind=kind, symbol=symbol, tf=tf, regime=rg, metric="ttd_ms")
@@ -284,27 +284,23 @@ class RedisEmpiricalLevelsProvider:
         return res
 
 
-def _parse_csv_floats(s: Any) -> List[float]:
+def _parse_csv_floats(s: Any) -> list[float]:
     if s is None:
         return []
     if isinstance(s, (list, tuple)):
-        out: List[float] = []
+        out: list[float] = []
         for x in s:
-            try:
+            with contextlib.suppress(Exception):
                 out.append(float(x))
-            except Exception:
-                pass
         return out
     if isinstance(s, str):
-        out: List[float] = []
+        out: list[float] = []
         for part in s.split(","):
             p = part.strip()
             if not p:
                 continue
-            try:
+            with contextlib.suppress(Exception):
                 out.append(float(p))
-            except Exception:
-                pass
         return out
     try:
         return [float(s)]
@@ -318,9 +314,9 @@ def apply_empirical_levels_to_ctx(
     side: str,
     entry_price: float,
     atr: float,
-    risk_cfg: Dict[str, Any],
+    risk_cfg: dict[str, Any],
     emp: EmpiricalLevelsResult,
-    logger: Optional[Any] = None,
+    logger: Any | None = None,
 ) -> bool:
     """
     Применяет эмпирические TP1/SL к контексту и перестраивает tp_levels согласованно.
@@ -335,7 +331,7 @@ def apply_empirical_levels_to_ctx(
       Любое исключение => вернуть False.
     """
     try:
-        s = str(side or "").strip().upper()
+        s = (side or "").strip().upper()
         is_long = s in {"LONG", "BUY"}
         entry = float(entry_price)
         if not math.isfinite(entry) or entry <= 0.0:
@@ -360,12 +356,12 @@ def apply_empirical_levels_to_ctx(
         if stop_dist <= 0.0:
             return False
 
-        tp_mode = str(risk_cfg.get("TP_MODE", "RR") or "RR").strip().upper()
+        tp_mode = (risk_cfg.get("TP_MODE", "RR") or "RR").strip().upper()
         rr_list = _parse_csv_floats(risk_cfg.get("TP_RR", "1,2,3"))
         atr_mults = _parse_csv_floats(risk_cfg.get("TP_ATR_MULTS", "0.6,1.0,1.5"))
 
         # Build tp_levels
-        tp_levels: List[float] = []
+        tp_levels: list[float] = []
         if tp_mode == "RR" and rr_list:
             # согласованные уровни RR с новым SL
             for rr in rr_list[:3]:
@@ -378,20 +374,18 @@ def apply_empirical_levels_to_ctx(
                 lvl = entry + r * stop_dist if is_long else entry - r * stop_dist
                 tp_levels.append(float(lvl))
             if not tp_levels:
-                tp_levels = [float(tp1)]
-        elif tp_mode == "ATR" and atr_mults and math.isfinite(float(atr)) and float(atr) > 0.0:
+                tp_levels = [tp1]
+        elif tp_mode == "ATR" and atr_mults and math.isfinite(atr) and atr > 0.0:
             # ATR-mode: уровни TP независимы от SL; сохраняем согласованность с ATR.
             # Всё ещё принудительно ставим tp1 на эмпирический (более мощно для качества).
             # Для tp2/tp3 мы либо используем существующие ctx.tp_levels (если есть),
             # либо вычисляем из мультипликаторов ATR.
-            tp_levels = [float(tp1)]
+            tp_levels = [tp1]
             # предпочитаем существующие базовые tp для 2/3, чтобы избежать неожиданных скачков
             base = getattr(ctx, "tp_levels", None)
             if isinstance(base, list) and len(base) >= 3:
-                try:
+                with contextlib.suppress(Exception):
                     tp_levels.extend([float(base[1]), float(base[2])])
-                except Exception:
-                    pass
             if len(tp_levels) < 3:
                 for m in atr_mults[1:3]:
                     try:
@@ -400,42 +394,42 @@ def apply_empirical_levels_to_ctx(
                         continue
                     if mm <= 0:
                         continue
-                    move = float(atr) * mm
+                    move = atr * mm
                     lvl = entry + move if is_long else entry - move
                     tp_levels.append(float(lvl))
         else:
             # неизвестный режим -> как минимум применить tp1
-            tp_levels = [float(tp1)]
+            tp_levels = [tp1]
 
         # записать поля (тот же контракт, что и level_enricher)
-        setattr(ctx, "entry_price", float(entry))
-        setattr(ctx, "sl_price", float(sl))
-        setattr(ctx, "tp1_price", float(tp_levels[0]))
-        setattr(ctx, "tp_levels", [float(x) for x in tp_levels])
-        setattr(ctx, "stop_dist", float(stop_dist))
+        ctx.entry_price = entry
+        ctx.sl_price = sl
+        ctx.tp1_price = float(tp_levels[0])
+        ctx.tp_levels = [float(x) for x in tp_levels]
+        ctx.stop_dist = stop_dist
         # aliases
-        setattr(ctx, "entry", float(entry))
-        setattr(ctx, "sl", float(sl))
-        setattr(ctx, "tp1", float(tp_levels[0]))
+        ctx.entry = entry
+        ctx.sl = sl
+        ctx.tp1 = float(tp_levels[0])
 
         # диагностика: какая эмпирическая статистика использовалась
-        setattr(ctx, "emp_levels_used", True)
-        setattr(ctx, "emp_tp1_bps", float(tp1_bps))
-        setattr(ctx, "emp_sl_bps", float(sl_bps))
-        setattr(ctx, "emp_ttd_ms", int(emp.ttd_ms))
-        setattr(ctx, "emp_regime_used", str(emp.regime_used))
-        setattr(ctx, "emp_n_mfe", int(emp.n_mfe))
-        setattr(ctx, "emp_n_mae", int(emp.n_mae))
-        setattr(ctx, "emp_n_ttd", int(emp.n_ttd))
+        ctx.emp_levels_used = True
+        ctx.emp_tp1_bps = float(tp1_bps)
+        ctx.emp_sl_bps = float(sl_bps)
+        ctx.emp_ttd_ms = int(emp.ttd_ms)
+        ctx.emp_regime_used = str(emp.regime_used)
+        ctx.emp_n_mfe = int(emp.n_mfe)
+        ctx.emp_n_mae = int(emp.n_mae)
+        ctx.emp_n_ttd = int(emp.n_ttd)
 
         if logger is not None:
-            try:
+            with contextlib.suppress(Exception):
                 logger.debug(
                     "emp_levels applied: side=%s entry=%.8f sl=%.8f tp1=%.8f tp_mode=%s "
                     "mfe_q=%.2f sl_q=%.2f ttd_q=%.2f n(mfe=%d,mae=%d,ttd=%d) regime=%s",
                     s,
-                    float(entry),
-                    float(sl),
+                    entry,
+                    sl,
                     float(tp_levels[0]),
                     tp_mode,
                     float(tp1_bps),
@@ -446,8 +440,6 @@ def apply_empirical_levels_to_ctx(
                     int(emp.n_ttd),
                     str(emp.regime_used),
                 )
-            except Exception:
-                pass
 
         return True
     except Exception:

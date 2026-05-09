@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Анализ baseline vs managed по entry_tag.
 
@@ -15,11 +14,9 @@ Baseline — результаты, как если бы ты закрывал п
 ΔExp_R — на сколько стратегия управления улучшает (или ухудшает) чистый edge входа по этому классу сигналов.
 """
 
-import os
-import sys
-import json
 import argparse
-from collections import defaultdict
+import json
+import os
 
 import redis
 
@@ -306,15 +303,15 @@ def analyze_by_entry_tag(
     symbol_up = (symbol or "").upper().strip()
 
     for t in trades:
-        t_source = str(t.get("source") or "").lower()
-        t_symbol = str(t.get("symbol") or "").upper()
+        t_source = (t.get("source") or "").lower()
+        t_symbol = (t.get("symbol") or "").upper()
 
         if source and t_source != source:
             continue
         if symbol_up and t_symbol != symbol_up:
             continue
 
-        entry_tag = str(t.get("entry_tag") or "").strip()
+        entry_tag = (t.get("entry_tag") or "").strip()
         if not entry_tag:
             entry_tag = NO_TAG
 

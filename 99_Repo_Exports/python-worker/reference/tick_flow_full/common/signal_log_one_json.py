@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Optional, Dict
+from typing import Any
 
 from common.json_fast import dumps1
 
 
-def _f(x: Any) -> Optional[float]:
+def _f(x: Any) -> float | None:
     """Fast, safe float extractor: returns None for non-finite / non-castable."""
     try:
         v = float(x)
@@ -26,7 +26,7 @@ def _b(x: Any) -> int:
         return 0
 
 
-def _max2(a: Optional[float], b: Optional[float]) -> Optional[float]:
+def _max2(a: float | None, b: float | None) -> float | None:
     if a is None:
         return b
     if b is None:
@@ -34,7 +34,7 @@ def _max2(a: Optional[float], b: Optional[float]) -> Optional[float]:
     return a if a >= b else b
 
 
-def _infer_l2_stale(ctx: Any) -> Optional[int]:
+def _infer_l2_stale(ctx: Any) -> int | None:
     """
     Best-effort L2 staleness signal for logs:
       - prefer explicit ctx flags if present
@@ -93,15 +93,15 @@ def _infer_missing_htf(ctx: Any) -> int:
 
 def build_signal_one_json_obj(
     *,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     ctx: Any,
-    parts: Optional[Dict[str, Any]] = None,
+    parts: dict[str, Any] | None = None,
     emitted: bool,
-    emit_ok: Optional[bool] = None,
-    conf_factor01: Optional[float] = None,
-    veto_reason_code: Optional[str] = None,
-    veto_reason_u16: Optional[int] = None,
-) -> Dict[str, Any]:
+    emit_ok: bool | None = None,
+    conf_factor01: float | None = None,
+    veto_reason_code: str | None = None,
+    veto_reason_u16: int | None = None,
+) -> dict[str, Any]:
     """
     Build a stable, compact log object:
       - Always same top-level keys (dashboards love stable schemas)
@@ -209,14 +209,14 @@ def build_signal_one_json_obj(
 def log_signal_one_json(
     logger: Any,
     *,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     ctx: Any,
-    parts: Optional[Dict[str, Any]] = None,
+    parts: dict[str, Any] | None = None,
     emitted: bool,
-    emit_ok: Optional[bool] = None,
-    conf_factor01: Optional[float] = None,
-    veto_reason_code: Optional[str] = None,
-    veto_reason_u16: Optional[int] = None,
+    emit_ok: bool | None = None,
+    conf_factor01: float | None = None,
+    veto_reason_code: str | None = None,
+    veto_reason_u16: int | None = None,
 ) -> None:
     """
     PERF CRITICAL:

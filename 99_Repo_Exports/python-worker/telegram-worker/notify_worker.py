@@ -1,4 +1,6 @@
 from utils.time_utils import get_ny_time_millis
+from core.redis_keys import RedisStreams as RS
+
 #!/usr/bin/env python3
 """
 Notify‑worker: отдельный процесс, читающий задачи из Redis Stream (notify:telegram)
@@ -11,33 +13,36 @@ Notify‑worker: отдельный процесс, читающий задач�
 - ВРЕМЕННО: сообщения НЕ удаляются из потока после обработки (для отладки)
 """
 import asyncio
-from utils.task_manager import safe_create_task
-
-import json
-import os
-import sys
-import time
-import re
-from typing import Any, Dict, Optional, List
-
-import redis
-from redis.exceptions import ResponseError
-from dotenv import load_dotenv
 
 # Enable console output for debugging
 import builtins
+import json
+import os
+import re
+import sys
+import time
+from typing import Any
+
+import redis
+from dotenv import load_dotenv
+from redis.exceptions import ResponseError
+
+from utils.task_manager import safe_create_task
+
 _original_print = builtins.print
 
 # Подключаем модули, предполагая, что они доступны в python path
 try:
     from app.config import load_settings
-    from notifier import notify_parsed_signal, delete_message_from_stream, ENABLED as NOTIFY_ENABLED, send_html_to_telegram
+    from notifier import ENABLED as NOTIFY_ENABLED
+    from notifier import delete_message_from_stream, notify_parsed_signal, send_html_to_telegram
 except ImportError:
     # Fallback для локального запуска или если пути отличаются
     sys.path.append(os.getcwd())
     try:
         from app.config import load_settings
-        from notifier import notify_parsed_signal, delete_message_from_stream, ENABLED as NOTIFY_ENABLED, send_html_to_telegram
+        from notifier import ENABLED as NOTIFY_ENABLED
+        from notifier import delete_message_from_stream, notify_parsed_signal, send_html_to_telegram
     except ImportError:
         print("❌ CRITICAL: Could not import app modules. Check PYTHONPATH.")
         sys.exit(1)
@@ -60,7 +65,7 @@ JSON_FIELD_KEYS = {
     "indicators",
     "confirmations",
     # UI controls
-    "buttons" 
+    "buttons"
 }
 
 def _b2s(x: Any) -> Any:
@@ -79,23 +84,23 @@ def _maybe_json_load(v: Any) -> Any:
     # Idempotent: if already dict/list -> return as is
     if isinstance(v, (dict, list)):
         return v
-    
+
     # Bytes -> decode to string
     if isinstance(v, (bytes, bytearray)):
         v = v.decode("utf-8", errors="ignore")
-        
+
     if not isinstance(v, str):
         return v
-        
+
     if not _looks_like_json(v):
         return v
-        
+
     try:
         return json.loads(v)
     except Exception:
         return v
 
-def normalize_entry(entry: Any) -> Dict[str, Any]:
+def normalize_entry(entry: Any) -> dict[str, Any]:
     """
     Robust normalization for Redis Stream entries:
       1. Convert bytes keys/values to strings.
@@ -107,7 +112,7 @@ def normalize_entry(entry: Any) -> Dict[str, Any]:
         return {}
 
     # 1 & 2: Base dict conversion
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     if isinstance(entry, dict):
         out = {_b2s(k): _b2s(v) for k, v in entry.items() if k is not None}
     elif isinstance(entry, (list, tuple)):
@@ -169,10 +174,10 @@ def _attach_outbox_meta(redis_client: Any, *, entry: dict, parsed: dict, raw: di
         return
 
     signal_id = (
-        str(parsed.get("signal_id") or "")
-        or str(entry.get("signal_id") or "")
-        or str(parsed.get("id") or "")
-        or str(entry.get("id") or "")
+        (parsed.get("signal_id") or "")
+        or (entry.get("signal_id") or "")
+        or (parsed.get("id") or "")
+        or (entry.get("id") or "")
     )
     if not signal_id:
         return
@@ -184,11 +189,11 @@ def _attach_outbox_meta(redis_client: Any, *, entry: dict, parsed: dict, raw: di
 
     cfg = _compact_config_params(cfg)
     parsed["config_params"] = cfg
-    
+
     ss = parsed.get("signal_settings")
     if isinstance(ss, dict):
         ss["config_params"] = cfg
-    
+
     raw["config_params"] = cfg
     raw["signal_id"] = signal_id
 
@@ -211,12 +216,12 @@ class BotCallbackPoller:
         self.token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
         self.running = False
         self.offset = 0
-        
+
     async def start(self):
         if not self.token:
             print("⚠️ BotCallbackPoller disabled: no token")
             return
-        
+
         print("🚀 BotCallbackPoller started")
         self.running = True
 
@@ -233,10 +238,10 @@ class BotCallbackPoller:
 
         try:
             import httpx
-            
+
             # Determine approval prefix
             self.approvals_prefix = os.getenv("ENTRY_POLICY_APPROVALS_PREFIX", "cfg:suggestions:entry_policy:approvals")
-            
+
             # read=40s covers long-poll timeout=15 + network buffer.
             # httpx.ReadTimeout.str() is empty — always log type+repr.
             _tg_timeout = httpx.Timeout(connect=10.0, read=40.0, write=10.0, pool=5.0)
@@ -250,7 +255,7 @@ class BotCallbackPoller:
                             try:
                                 cb_data = json.loads(msg["data"])
                                 update = {"callback_query": cb_data}
-                                print(f"🔧 BotCallbackPoller received update via PubSub")
+                                print("🔧 BotCallbackPoller received update via PubSub")
                                 await self.handle_update(client, update)
                             except Exception as parse_e:
                                 print(f"⚠️ Invalid callback JSON: {parse_e}")
@@ -266,18 +271,18 @@ class BotCallbackPoller:
         cb = update.get("callback_query")
         if not cb:
             return
-            
+
         cb_id = cb.get("id")
         data = cb.get("data", "")
         from_user = cb.get("from", {})
-        username = from_user.get("username") or str(from_user.get("id"))
+        username = from_user.get("username") or (from_user.get("id"))
         message = cb.get("message", {})
         chat_id = message.get("chat", {}).get("id")
         message_id = message.get("message_id")
-        
+
         meta_prefix = os.getenv("ENTRY_POLICY_META_PREFIX", "cfg:suggestions:entry_policy:meta")
         proposal_ttl = int(os.getenv("TM_PROPOSAL_TTL_SEC", "1209600"))  # 14d
-        notify_stream = os.getenv("TM_TELEGRAM_STREAM", os.getenv("NOTIFY_STREAM", "notify:telegram"))
+        notify_stream = os.getenv("TM_TELEGRAM_STREAM", os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM))
 
         if data.startswith("approve:"):
             # Format: approve:<sid>
@@ -288,57 +293,57 @@ class BotCallbackPoller:
                 self.r.sadd(key, username)
                 self.r.expire(key, proposal_ttl)
                 count = self.r.scard(key)
-                
+
                 # Mark as applied
                 applied_key = f"cfg:suggestions:entry_policy:applied:{sid}"
                 self.r.set(applied_key, str(get_ny_time_millis()), ex=proposal_ttl)
-                
+
                 # Answer callback immediately (stop loading spinner)
                 await client.post(
                     f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": f"✅ Approved! (Total: {count})"}
                 )
-                
+
                 # Send confirmation notification to Telegram
                 confirm_text = f"✅ <b>Proposal {sid[:8]}… APPROVED</b>\nby @{username} (approvals: {count})\n\n<i>Changes applied to cfg:suggestions</i>"
                 self.r.xadd(notify_stream, {"type": "report", "text": confirm_text}, maxlen=20000, approximate=True)
-                
+
                 # Remove buttons from original message
                 await self._remove_buttons(client, chat_id, message_id)
-                
+
                 print(f"✅ Callback approval: {username} -> {sid} (Total: {count})")
             except Exception as e:
                 print(f"❌ Callback approve error: {e}")
-                
+
         elif data.startswith("reject:"):
             # Format: reject:<sid>
             try:
                 sid = data.split(":", 1)[1]
-                
+
                 # Mark as rejected
                 rejected_key = f"cfg:suggestions:entry_policy:rejected:{sid}"
                 self.r.set(rejected_key, json.dumps({
                     "by": username,
                     "ts_ms": get_ny_time_millis(),
                 }), ex=proposal_ttl)
-                
+
                 # Delete the proposal meta key (discard)
                 meta_key = f"{meta_prefix}:{sid}"
                 self.r.delete(meta_key)
-                
+
                 # Answer callback
                 await client.post(
                     f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": "❌ Rejected!"}
                 )
-                
+
                 # Send rejection notification to Telegram
                 confirm_text = f"❌ <b>Proposal {sid[:8]}… REJECTED</b>\nby @{username}\n\n<i>Proposal discarded from cfg:suggestions</i>"
                 self.r.xadd(notify_stream, {"type": "report", "text": confirm_text}, maxlen=20000, approximate=True)
-                
+
                 # Remove buttons from original message
                 await self._remove_buttons(client, chat_id, message_id)
-                
+
                 print(f"❌ Callback rejection: {username} -> {sid}")
             except Exception as e:
                 print(f"❌ Callback reject error: {e}")
@@ -349,7 +354,7 @@ class BotCallbackPoller:
             try:
                 run_id = data.split(":", 1)[1]
                 pending_key = f"trail:calib:pending:{run_id}"
-                
+
                 # Read pending data for rich confirmation
                 raw_pending = self.r.get(pending_key)
                 pending = {}
@@ -359,10 +364,10 @@ class BotCallbackPoller:
                     pending["approved_by"] = username
                     pending["approved_at_ms"] = get_ny_time_millis()
                     self.r.set(pending_key, json.dumps(pending, ensure_ascii=False), keepttl=True)
-                
+
                 # Per-symbol shadow results for selective enforcement
                 shadow_per_symbol = pending.get("shadow_per_symbol", {})
-                
+
                 # Scan trail:calib:* keys and selectively enforce
                 enforced_keys = []
                 skipped_keys = []
@@ -374,15 +379,15 @@ class BotCallbackPoller:
                         # Skip pending/stability/shadow auxiliary keys
                         if ":pending:" in k or ":stability:" in k or ":shadow:" in k:
                             continue
-                        
+
                         # Extract symbol:regime from key (trail:calib:BTCUSDT:na -> BTCUSDT:na)
                         suffix = k.replace(f"{calib_prefix}:", "", 1)
-                        
+
                         # Check shadow recommendation for this symbol
                         shadow_info = shadow_per_symbol.get(suffix, {})
                         recommendation = shadow_info.get("recommendation", "")
                         delta_r = shadow_info.get("delta_pnl_r", 0.0)
-                        
+
                         if shadow_info and delta_r < 0:
                             # Keep in shadow — calibration would hurt this symbol (any negative Δ)
                             skipped_keys.append({
@@ -400,16 +405,16 @@ class BotCallbackPoller:
                             })
                     if cursor == 0:
                         break
-                
+
                 n_enforced = len(enforced_keys)
                 n_skipped = len(skipped_keys)
-                
+
                 # Answer callback
                 await client.post(
                     f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": f"✅ Trail approved! ({n_enforced} enforced, {n_skipped} skipped)"}
                 )
-                
+
                 # Build rich confirmation with param details
                 param_details = pending.get("param_details", [])
                 shadow_data = pending.get("shadow_summary", {})
@@ -472,26 +477,26 @@ class BotCallbackPoller:
                     f"Run ID: <code>{run_id}</code>"
                 )
                 self.r.xadd(notify_stream, {"type": "report", "text": confirm_text}, maxlen=20000, approximate=True)
-                
+
                 # Update pending with enforcement details
                 if pending:
                     pending["enforced_keys"] = [ek["key"] for ek in enforced_keys]
                     pending["skipped_keys"] = [sk["key"] for sk in skipped_keys]
                     self.r.set(pending_key, json.dumps(pending, ensure_ascii=False), keepttl=True)
-                
+
                 # Remove buttons
                 await self._remove_buttons(client, chat_id, message_id)
-                
+
                 print(f"✅ Trail calibration approved: {username} -> {run_id} ({n_enforced} enforced, {n_skipped} skipped)")
             except Exception as e:
                 print(f"❌ Trail approve error: {e}")
-                
+
         elif data.startswith("trail_reject:"):
             # Format: trail_reject:<run_id>
             try:
                 run_id = data.split(":", 1)[1]
                 pending_key = f"trail:calib:pending:{run_id}"
-                
+
                 # Read pending data for context
                 raw_pending = self.r.get(pending_key)
                 pending = {}
@@ -501,13 +506,13 @@ class BotCallbackPoller:
                     pending["rejected_by"] = username
                     pending["rejected_at_ms"] = get_ny_time_millis()
                     self.r.set(pending_key, json.dumps(pending, ensure_ascii=False), keepttl=True)
-                
+
                 # Answer callback
                 await client.post(
                     f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": "❌ Trail calibration rejected"}
                 )
-                
+
                 # Build rejection with shadow context
                 shadow_data = pending.get("shadow_summary", {})
                 stability_data = pending.get("stability_summary", {})
@@ -539,10 +544,10 @@ class BotCallbackPoller:
                     f"Run ID: <code>{run_id}</code>"
                 )
                 self.r.xadd(notify_stream, {"type": "report", "text": reject_text}, maxlen=20000, approximate=True)
-                
+
                 # Remove buttons
                 await self._remove_buttons(client, chat_id, message_id)
-                
+
                 print(f"❌ Trail calibration rejected: {username} -> {run_id}")
             except Exception as e:
                 print(f"❌ Trail reject error: {e}")
@@ -552,7 +557,7 @@ class BotCallbackPoller:
             try:
                 run_id = data.split(":", 1)[1]
                 pending_key = f"ml_scorer:pending:{run_id}"
-                
+
                 raw_pending = self.r.get(pending_key)
                 if not raw_pending:
                     await client.post(
@@ -560,9 +565,9 @@ class BotCallbackPoller:
                         json={"callback_query_id": cb_id, "text": "⚠️ Pending record expired"}
                     )
                     return
-                
+
                 pending = json.loads(raw_pending)
-                
+
                 if pending.get("status") != "PENDING":
                     await client.post(
                         f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
@@ -574,7 +579,7 @@ class BotCallbackPoller:
                 candidate_path = pending.get("candidate_path", "")
                 production_path = pending.get("production_path", "")
                 metrics = pending.get("metrics", {})
-                
+
                 # Promote: copy candidate → production
                 promoted = False
                 if candidate_path and production_path:
@@ -585,27 +590,27 @@ class BotCallbackPoller:
                         print(f"✅ ML Scorer promoted: {candidate_path} → {production_path}")
                     except Exception as e:
                         print(f"❌ ML Scorer promote failed: {e}")
-                
+
                 # Update pending status
                 pending["status"] = "APPROVED"
                 pending["approved_by"] = username
                 pending["approved_at_ms"] = get_ny_time_millis()
                 pending["promoted"] = promoted
                 self.r.set(pending_key, json.dumps(pending, ensure_ascii=False), keepttl=True)
-                
+
                 # Answer callback
                 status_text = "✅ ML Scorer promoted!" if promoted else "⚠️ Approved but promote failed"
                 await client.post(
                     f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": status_text}
                 )
-                
+
                 # Confirmation to Telegram with metrics
                 mae = metrics.get("mae_oof", -1)
                 r2 = metrics.get("r2_oof", -1)
                 spearman = metrics.get("spearman_oof", -1)
                 n_samples = pending.get("n_samples", 0)
-                
+
                 confirm_text = (
                     f"✅ <b>ML Scorer V2 APPROVED</b>\n"
                     f"by @{username}\n\n"
@@ -619,25 +624,25 @@ class BotCallbackPoller:
                     f"Run ID: <code>{run_id}</code>"
                 )
                 self.r.xadd(notify_stream, {"type": "report", "text": confirm_text}, maxlen=20000, approximate=True)
-                
+
                 # Remove buttons
                 await self._remove_buttons(client, chat_id, message_id)
-                
+
                 print(f"✅ ML Scorer approved: {username} -> {run_id} (promoted={promoted})")
             except Exception as e:
                 print(f"❌ ML Scorer approve error: {e}")
-                
+
         elif data.startswith("ml_scorer_reject:"):
             # Format: ml_scorer_reject:<run_id>
             try:
                 run_id = data.split(":", 1)[1]
                 pending_key = f"ml_scorer:pending:{run_id}"
-                
+
                 raw_pending = self.r.get(pending_key)
                 candidate_path = ""
                 if raw_pending:
                     pending = json.loads(raw_pending)
-                    
+
                     if pending.get("status") != "PENDING":
                         await client.post(
                             f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
@@ -651,7 +656,7 @@ class BotCallbackPoller:
                     pending["rejected_at_ms"] = get_ny_time_millis()
                     self.r.set(pending_key, json.dumps(pending, ensure_ascii=False), keepttl=True)
                     candidate_path = pending.get("candidate_path", "")
-                
+
                 # Delete candidate file
                 deleted = False
                 if candidate_path:
@@ -662,13 +667,13 @@ class BotCallbackPoller:
                             deleted = True
                     except Exception:
                         pass
-                
+
                 # Answer callback
                 await client.post(
                     f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                     json={"callback_query_id": cb_id, "text": "❌ ML Scorer rejected"}
                 )
-                
+
                 # Rejection to Telegram
                 reject_text = (
                     f"❌ <b>ML Scorer V2 REJECTED</b>\n"
@@ -678,10 +683,10 @@ class BotCallbackPoller:
                     f"Run ID: <code>{run_id}</code>"
                 )
                 self.r.xadd(notify_stream, {"type": "report", "text": reject_text}, maxlen=20000, approximate=True)
-                
+
                 # Remove buttons
                 await self._remove_buttons(client, chat_id, message_id)
-                
+
                 print(f"❌ ML Scorer rejected: {username} -> {run_id}")
             except Exception as e:
                 print(f"❌ ML Scorer reject error: {e}")
@@ -1228,7 +1233,7 @@ class BotCallbackPoller:
             )
         except Exception as e:
             print(f"⚠️ Failed to remove buttons: {e}")
-    
+
     def stop(self):
         self.running = False
 
@@ -1251,7 +1256,7 @@ class BotCallbackPoller:
         reminder_sec = int(os.getenv("SG_CALIB_REMINDER_SEC", "1800"))
         reminder_max = int(os.getenv("SG_CALIB_REMINDER_MAX", "48"))
         check_interval = min(60, reminder_sec // 2)  # poll every 60s or half-interval
-        notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+        notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
         print(
             f"🔔 SG Calib reminder loop started: interval={reminder_sec}s, "
@@ -1401,7 +1406,7 @@ class BotCallbackPoller:
         reminder_sec = int(os.getenv("ADV_CALIB_REMINDER_SEC", "1800"))
         reminder_max = int(os.getenv("ADV_CALIB_REMINDER_MAX", "48"))
         check_interval = min(60, reminder_sec // 2)
-        notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+        notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
         print(
             f"🔔 ADV Calib reminder loop started: interval={reminder_sec}s, "
@@ -1549,7 +1554,7 @@ class BotCallbackPoller:
         reminder_sec = int(os.getenv("RG_CALIB_REMINDER_SEC", "1800"))
         reminder_max = int(os.getenv("RG_CALIB_REMINDER_MAX", "48"))
         check_interval = min(60, reminder_sec // 2)
-        notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+        notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
         print(
             f"🔔 RG Calib reminder loop started: interval={reminder_sec}s, "
@@ -1696,7 +1701,7 @@ class BotCallbackPoller:
         reminder_sec = int(os.getenv("CONT_CTX_CALIB_REMINDER_SEC", "1800"))
         reminder_max = int(os.getenv("CONT_CTX_CALIB_REMINDER_MAX", "48"))
         check_interval = min(60, reminder_sec // 2)
-        notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+        notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
         print(
             f"🔔 Cont Ctx Calib reminder loop started: interval={reminder_sec}s, "
@@ -1880,7 +1885,7 @@ class BotCallbackPoller:
         """
         autoreject_sec = int(os.getenv("OF_RECS_AUTOREJECT_SEC", "900"))
         check_interval = min(60, autoreject_sec // 2)
-        notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+        notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
 
         print(
             f"🔔 OF Gate Recs autoreject loop started: timeout={autoreject_sec}s, "
@@ -1923,7 +1928,7 @@ class BotCallbackPoller:
 
                             # Auto Reject!
                             await asyncio.to_thread(self.r.set, key, "REJECTED", keepttl=True)
-                            
+
                             ts = meta.get("ts", "unknown")
 
                             # Send to telegram
@@ -2012,43 +2017,43 @@ def ensure_consumer_group(client: redis.Redis, stream_name: str, group_name: str
     raise RuntimeError(f"Redis is still loading dataset after {max_retries} attempts")
 
 
-async def handle_message(entry: Dict[str, Any], stream_name: str = None, message_id: str = None, redis: Any = None) -> bool:
+async def handle_message(entry: dict[str, Any], stream_name: str = None, message_id: str = None, redis: Any = None) -> bool:
     global message_log_counter
 
     # IMPORTANT: entry is already normalized by the main loop before calling handle_message
-    
+
     if not NOTIFY_ENABLED:
-        print(f"⚠️ notify_worker: notifications disabled")
+        print("⚠️ notify_worker: notifications disabled")
         return True
-        
+
     try:
         message_log_counter += 1
         msg_type = entry.get("type")
-        
+
         # ✅ PRIORITY 1: Handle reports and alerts
         if msg_type in ("report", "alert"):
             text = entry.get("text", "")
             if not text:
                 print(f"⚠️ notify_worker: skipping empty {msg_type}")
                 return True
-            
-            # Buttons should be a list or dict if normalized correctly, 
+
+            # Buttons should be a list or dict if normalized correctly,
             # OR a JSON string if simple normalization happened.
             # Since we added "buttons" to JSON_FIELD_KEYS, normalize_entry MUST maintain it as list/dict.
             buttons = entry.get("buttons")
-            
+
             # Debugging for safety
             if buttons:
                 print(f"🔧 DEBUG: Report buttons type={type(buttons)}")
-                
+
             success = await send_html_to_telegram(text, buttons=buttons)
-            
+
             if message_log_counter % MESSAGE_LOG_INTERVAL == 0:
                 status = "✅" if success else "❌"
                 label = "sent" if success else "delivery failed"
                 print(f"{status} Report #{message_log_counter} {label} ({len(text)} chars)")
             return success
-        
+
         # ✅ PRIORITY 2: Handle Signals (Outbox or Legacy)
         signal_payload = entry.get("signal_payload")
         signal_settings = entry.get("signal_settings")
@@ -2073,17 +2078,17 @@ async def handle_message(entry: Dict[str, Any], stream_name: str = None, message
             text = entry.get("text", "")
             side = entry.get("side", "")
             price = entry.get("price", "")
-            
+
             symbol_match = re.search(r'(XAU\w*|BTC\w*|ETH\w*|[A-Z]{3,})', text)
             symbol = symbol_match.group(1) if symbol_match else ""
-            
+
             risk_json = entry.get("risk")
             stop = None
             tp_list = []
             if isinstance(risk_json, dict):
                 stop = risk_json.get("sl")
                 tp_list = risk_json.get("tp_levels", [])
-            
+
             parsed = {
                 "symbol": symbol,
                 "direction": side,
@@ -2135,7 +2140,7 @@ async def handle_message(entry: Dict[str, Any], stream_name: str = None, message
                 "profitPct": entry.get("profitPct") or "",
                 "raw_text": existing_text
             }
-            
+
             tp_raw = entry.get("tp")
             if tp_raw:
                 if isinstance(tp_raw, list):
@@ -2164,22 +2169,22 @@ async def handle_message(entry: Dict[str, Any], stream_name: str = None, message
 
 
 async def main():
-    notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+    notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     print(f"\n🚀 NOTIFY-WORKER: Started. GROUP={GROUP}, CONSUMER={CONSUMER}")
-    
+
     settings = load_settings()
     # DEBUG: Mask password but print host
     safe_url = settings.redis_url
     if "@" in safe_url:
         safe_url = safe_url.split("://")[0] + "://***:***@" + safe_url.split("@")[1]
     print(f"Connecting to REDIS_URL: {safe_url}")
-    
+
     r = get_redis(settings.redis_url)
-    
+
     # Start poller
     poller = BotCallbackPoller(r)
     safe_create_task(poller.start())
-    
+
     # Ensure group
     try:
         ensure_consumer_group(r, notify_stream, GROUP)
@@ -2190,7 +2195,7 @@ async def main():
         return
 
     # Backfill loop
-    print(f"🔄 Starting backfill...")
+    print("🔄 Starting backfill...")
     backfill_total = 0
     while True:
         try:
@@ -2198,19 +2203,19 @@ async def main():
                 r.xreadgroup, GROUP, CONSUMER, {notify_stream: "0"}, count=50, block=1000
             )
             if not msgs or not msgs[0][1]:
-                print(f"✅ Backfill complete.")
+                print("✅ Backfill complete.")
                 break
-            
+
             batch = msgs[0][1]
             backfill_total += len(batch)
             print(f"📥 Backfill batch: {len(batch)} msgs")
-            
+
             for stream_name, entries in msgs:
                 for msg_id, fields in entries:
                     entry = normalize_entry(fields)
                     if await handle_message(entry, stream_name, msg_id, r):
                         r.xack(stream_name, GROUP, msg_id)
-                        
+
         except Exception as e:
             print(f"❌ Backfill error: {e}")
             await asyncio.sleep(1)
@@ -2221,13 +2226,13 @@ async def main():
     processed = 0
     dlq_retry_interval = int(os.getenv("NOTIFY_DLQ_RETRY_INTERVAL", "300"))  # 5 минут
     last_dlq_retry = time.time()
-    
+
     while True:
         try:
             msgs = await asyncio.to_thread(
                 r.xreadgroup, GROUP, CONSUMER, {notify_stream: ">"}, count=10, block=5000
             )
-            
+
             if not msgs or not msgs[0][1]:
                 backoff = 1
                 # DLQ retry при простое
@@ -2242,24 +2247,24 @@ async def main():
                         print(f"⚠️ DLQ retry error: {e}")
                 await asyncio.sleep(0)  # Yield to loop
                 continue
-                
+
             for stream_name, entries in msgs:
                 for msg_id, fields in entries:
                     processed += 1
-                    
+
                     # 1. Normalize ONCE
                     entry = normalize_entry(fields)
-                    
+
                     # 2. Handle
                     if await handle_message(entry, stream_name, msg_id, r):
                         r.xack(stream_name, GROUP, msg_id)
-            
+
         except Exception as e:
             if is_nogroup_error(e):
                 print("⚠️ Group missing, recreating...")
                 ensure_consumer_group(r, notify_stream, GROUP)
                 continue
-            
+
             print(f"❌ Read loop error: {e}")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30)

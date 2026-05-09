@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ATR cache / reader for multiple legacy key shapes.
 
 We keep this module read-optimised because production uses many key shapes:
@@ -15,18 +16,16 @@ Public API
 - :class:`ATRCache` — main cache class
 - :func:`get_atr_cache` — module-level singleton factory
 """
-from utils.time_utils import get_ny_time_millis
-
 import json
 import logging
 import os
-import time
 from typing import Any
 
 import redis
 
 from core.redis_client import get_redis
 from utils.helpers import _f, _i
+from utils.time_utils import get_ny_time_millis
 
 _log = logging.getLogger(__name__)
 
@@ -96,7 +95,7 @@ class ATRCache:
             now_ms:     Current epoch-ms. Defaults to ``get_ny_time_millis()``.
             prefer_src: Force-select a specific candidate source name.
         """
-        sym = str(symbol)
+        sym = symbol
         nm = int(now_ms) if now_ms is not None else get_ny_time_millis()
 
         if timeframe is None:
@@ -155,8 +154,8 @@ class ATRCache:
             ``atr``, ``src``, ``key``, ``tf``, ``ts_ms``, ``age_ms``, ``has_ts``.
         """
         out: list[dict[str, Any]] = []
-        sym = str(symbol or "").upper()
-        tf_raw = str(timeframe or "1m")
+        sym = (symbol or "").upper()
+        tf_raw = (timeframe or "1m")
         tf_norm = _normalize_tracker_tf(tf_raw)
         nm = int(now_ms) if now_ms is not None else get_ny_time_millis()
 
@@ -232,7 +231,7 @@ class ATRCache:
                 d = json.loads(raw)
                 atr = _f(d.get("atr", 0.0) or 0.0, 0.0)
                 ts_ms = _i(d.get("ts", 0) or 0, 0)
-                src_tf = str(d.get("tf", "") or "").upper()
+                src_tf = (d.get("tf", "") or "").upper()
                 if atr > 0:
                     age = max(0, nm - ts_ms) if ts_ms > 0 else 0
                     tf_mismatch = int(bool(src_tf) and src_tf != tf_norm)
@@ -305,9 +304,9 @@ def _normalize_tracker_tf(tf: str) -> str:
 def _candidate_meta(c: dict[str, Any], requested_tf: str) -> dict[str, Any]:
     """Build a normalised meta dict from a candidate entry."""
     return {
-        "src": str(c.get("src", "unknown")),
-        "key": str(c.get("key", "")),
-        "tf": str(c.get("tf", requested_tf)),
+        "src": (c.get("src", "unknown")),
+        "key": (c.get("key", "")),
+        "tf": (c.get("tf", requested_tf)),
         "ts_ms": int(c.get("ts_ms", 0) or 0),
         "age_ms": int(c.get("age_ms", 0) or 0),
         "tf_mismatch": int(c.get("tf_mismatch", 0)),

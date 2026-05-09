@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # python-worker/tools/check_tb_health.py
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
-import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -26,7 +26,7 @@ def _get_int(r: redis.Redis, key: bytes) -> int:
         return 0
 
 
-def _zset_oldest(r: redis.Redis, key: str) -> Tuple[str, int]:
+def _zset_oldest(r: redis.Redis, key: str) -> tuple[str, int]:
     try:
         rows = r.zrange(key, 0, 0, withscores=True)
         if not rows:
@@ -86,7 +86,7 @@ def main() -> None:
         ok = False
         reasons.append(f"oldest_overdue_ms={oldest_overdue_ms}")
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "ok": ok,
         "now_ms": now_ms,
         "input_lag_ms": input_lag_ms,

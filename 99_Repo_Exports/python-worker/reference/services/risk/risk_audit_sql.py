@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Best-effort SQL audit sink for risk decisions (P4.4/P4.5).
@@ -16,11 +17,10 @@ Prometheus metrics emitted:
   trade_risk_audit_write_fail_total{stage} — failed writes
 """
 
-from dataclasses import dataclass
-from typing import Any, Dict
 import json
 import os
-import time
+from dataclasses import dataclass
+from typing import Any
 
 try:
     import psycopg  # type: ignore
@@ -28,7 +28,7 @@ except Exception:  # pragma: no cover
     psycopg = None  # type: ignore
 
 try:
-    from prometheus_client import Counter, REGISTRY
+    from prometheus_client import REGISTRY, Counter
 except Exception:  # pragma: no cover
     Counter = None  # type: ignore
     REGISTRY = None  # type: ignore
@@ -74,10 +74,10 @@ class RiskAuditSqlSink:
     enabled: bool = False
 
     @classmethod
-    def from_env(cls) -> 'RiskAuditSqlSink':
+    def from_env(cls) -> RiskAuditSqlSink:
         """Construct sink from environment variables."""
-        dsn = str(os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '')) or '').strip()
-        enabled = str(os.getenv('TRADE_RISK_SQL_AUDIT_ENABLE', '1')).strip().lower() in {'1', 'true', 'yes', 'on'}
+        dsn = os.getenv('RISK_AUDIT_SQL_DSN', os.getenv('EXECUTION_JOURNAL_DSN', '') or '').strip()
+        enabled = os.getenv('TRADE_RISK_SQL_AUDIT_ENABLE', '1').strip().lower() in {'1', 'true', 'yes', 'on'}
         return cls(dsn=dsn, enabled=bool(enabled and dsn))
 
     def _connect(self):
@@ -90,7 +90,7 @@ class RiskAuditSqlSink:
         self,
         *,
         decision_id: str,
-        signal: Dict[str, Any],
+        signal: dict[str, Any],
         risk_input: Any,
         risk_decision: Any,
     ) -> bool:
@@ -114,7 +114,7 @@ class RiskAuditSqlSink:
         reasons = list(getattr(risk_decision, 'reasons', []) or [])
 
         symbol = str(signal.get('symbol') or getattr(risk_input, 'symbol', '') or '').upper()
-        sid = str(signal.get('sid') or '') or None
+        sid = (signal.get('sid') or '') or None
         signal_id = str(signal.get('signal_id') or signal.get('id') or '') or None
         tier = str(
             getattr(getattr(risk_decision, 'tier_policy', None), 'name', None)
@@ -141,11 +141,10 @@ class RiskAuditSqlSink:
         decision_latency_ms = float(snapshot.get('decision_latency_ms') or 0.0)
 
         try:
-            with conn:
-                with conn.cursor() as cur:
-                    # Full audit trail — immutable append (ON CONFLICT → UPDATE allow idempotency)
-                    cur.execute(
-                        """
+            with conn, conn.cursor() as cur:
+                # Full audit trail — immutable append (ON CONFLICT → UPDATE allow idempotency)
+                cur.execute(
+                    """
                         insert into risk_decision_audit (
                             decision_id, signal_id, sid, symbol, cluster, tier, level,
                             allow_trade_publish, effective_execution_policy,
@@ -181,21 +180,21 @@ class RiskAuditSqlSink:
                             signal_jsonb = excluded.signal_jsonb,
                             created_ts_ms = excluded.created_ts_ms
                         """
-                        (
-                            decision_id, signal_id, sid, symbol, cluster, tier, level,
-                            allow_trade_publish, effective_execution_policy,
-                            requested_notional_usd, adjusted_notional_usd,
-                            leverage_cap, risk_multiplier, clamp_ratio,
-                            decision_latency_ms, _json(reasons), _json(snapshot),
-                            _json(signal), created_ts_ms,
-                        )
+                    (
+                        decision_id, signal_id, sid, symbol, cluster, tier, level,
+                        allow_trade_publish, effective_execution_policy,
+                        requested_notional_usd, adjusted_notional_usd,
+                        leverage_cap, risk_multiplier, clamp_ratio,
+                        decision_latency_ms, _json(reasons), _json(snapshot),
+                        _json(signal), created_ts_ms,
                     )
-                    if TRADE_RISK_AUDIT_WRITE_TOTAL:
-                        TRADE_RISK_AUDIT_WRITE_TOTAL.labels(table='risk_decision_audit').inc()
+                )
+                if TRADE_RISK_AUDIT_WRITE_TOTAL:
+                    TRADE_RISK_AUDIT_WRITE_TOTAL.labels(table='risk_decision_audit').inc()
 
-                    # Latest snapshot per decision — upsert for fast current-state lookup
-                    cur.execute(
-                        """
+                # Latest snapshot per decision — upsert for fast current-state lookup
+                cur.execute(
+                    """
                         insert into risk_snapshot (
                             decision_id, sid, signal_id, symbol, cluster, tier, level,
                             effective_execution_policy, adjusted_notional_usd, leverage_cap,
@@ -218,14 +217,14 @@ class RiskAuditSqlSink:
                             snapshot_jsonb = excluded.snapshot_jsonb,
                             updated_ts_ms = excluded.updated_ts_ms
                         """
-                        (
-                            decision_id, sid, signal_id, symbol, cluster, tier, level,
-                            effective_execution_policy, adjusted_notional_usd, leverage_cap,
-                            clamp_ratio, decision_latency_ms, _json(snapshot), created_ts_ms,
-                        )
+                    (
+                        decision_id, sid, signal_id, symbol, cluster, tier, level,
+                        effective_execution_policy, adjusted_notional_usd, leverage_cap,
+                        clamp_ratio, decision_latency_ms, _json(snapshot), created_ts_ms,
                     )
-                    if TRADE_RISK_AUDIT_WRITE_TOTAL:
-                        TRADE_RISK_AUDIT_WRITE_TOTAL.labels(table='risk_snapshot').inc()
+                )
+                if TRADE_RISK_AUDIT_WRITE_TOTAL:
+                    TRADE_RISK_AUDIT_WRITE_TOTAL.labels(table='risk_snapshot').inc()
             return True
         except Exception:
             if TRADE_RISK_AUDIT_WRITE_FAIL_TOTAL:

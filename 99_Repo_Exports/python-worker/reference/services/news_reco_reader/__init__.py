@@ -12,4 +12,4 @@ Hot-path (no IO):
     snap = get_reco("BTCUSDT")
 """
 
-from .reader import ensure_started, shutdown, get_reco, NewsRecoReader  # noqa: F401
+from .reader import NewsRecoReader, ensure_started, get_reco, shutdown  # noqa: F401

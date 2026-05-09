@@ -61,8 +61,8 @@ def test_approve_requires_ab_done_and_gate_pass(tmp_path, monkeypatch):
 
 def test_approve_then_apply_happy_path(tmp_path, monkeypatch):
     """Full happy path: approve succeeds with ab_done+gate_pass=1, then apply transitions to applied."""
-    from ml_analysis.tools import approve_feature_denylist_proposal_v1 as approve
     from ml_analysis.tools import apply_feature_denylist_proposal_v1 as apply_tool
+    from ml_analysis.tools import approve_feature_denylist_proposal_v1 as approve
 
     proposals_dir = tmp_path / "proposals"
     proposals_dir.mkdir(parents=True)

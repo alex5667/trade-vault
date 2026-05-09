@@ -2,22 +2,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
-from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import Ridge
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
 from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.linear_model import Ridge
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
-from services.ml_calibration import fit_platt_logit, brier_score, ece_score, PlattLogitCalibrator
-import math
 from core.ml_model_types import UtilMHModelV1
 from core.purged_embargo_split_v2 import PurgedEmbargoTimeSeriesSplitV2
+from services.ml_calibration import PlattLogitCalibrator, brier_score, ece_score, fit_platt_logit
+
 
 def _fit_ridge(X: np.ndarray, y: np.ndarray) -> Any:
     """Fit Ridge regression with standardization."""
@@ -53,7 +53,7 @@ def _scale_p_edge(score: float) -> float:
         scale_factor = base_scale * 0.8
     else:
         scale_factor = base_scale
-    
+
     scaled = float(score) * scale_factor
     p = _sigmoid(scaled)
     if p == 0.0 and score > -1e17:
@@ -98,35 +98,35 @@ def main() -> None:
 
     split = PurgedEmbargoTimeSeriesSplitV2(n_splits=args.splits, purge_ms=args.purge_ms, embargo_ms=args.embargo_ms)
 
-    ridge: Dict[int, Any] = {}
-    gbdt: Dict[int, Any] = {}
+    ridge: dict[int, Any] = {}
+    gbdt: dict[int, Any] = {}
 
-    metrics: Dict[str, Any] = {"eval_last_split": {}, "horizons": horizons, "reliability": {}}
-    calibrators: Dict[int, PlattLogitCalibrator] = {}
+    metrics: dict[str, Any] = {"eval_last_split": {}, "horizons": horizons, "reliability": {}}
+    calibrators: dict[int, PlattLogitCalibrator] = {}
 
     # OOF accumulation for calibration
     # dict[h] -> (list_pred, list_y)
-    oof_data: Dict[int, Dict[str, List[float]]] = {h: {"pred": [], "y": []} for h in horizons}
+    oof_data: dict[int, dict[str, list[float]]] = {h: {"pred": [], "y": []} for h in horizons}
 
     for tr, te in split.split(ts):
         if len(te) < 10:
              continue
-        
+
         for h in horizons:
             ycol = f"util_r_{h}"
             if ycol not in df.columns:
                  continue
             y = df[ycol].astype(float).to_numpy()
-            
+
             # Fit temp models on tr
             r_tmp = _fit_ridge(X[tr], y[tr])
             g_tmp = _fit_gbdt(X[tr], y[tr])
-            
+
             # Predict on te
             p_te = 0.5 * (r_tmp.predict(X[te]) + g_tmp.predict(X[te]))
-            
+
             metrics["eval_last_split"][str(h)] = {"mae_util": float(np.mean(np.abs(p_te - y[te]))), "n": int(len(te))}
-            
+
             # Store for calibration
             oof_data[h]["pred"].extend([float(x) for x in p_te])
             oof_data[h]["y"].extend([float(x) for x in y[te]])
@@ -137,22 +137,22 @@ def main() -> None:
         targets = oof_data[h]["y"]
         if not preds:
             continue
-            
+
         # 1. Scale scores to p_raw
         p_raw = [_scale_p_edge(s) for s in preds]
-        
+
         # 2. Binary target (util > 0)
         y_bin = [1 if t > 0 else 0 for t in targets]
-        
+
         # 3. Fit Platt
         cal = fit_platt_logit(p_raw, y_bin, l2=0.01)
         calibrators[h] = cal
-        
+
         # 4. Metrics
         p_cal = cal.apply(p_raw)
         brier = brier_score(p_cal, y_bin)
         ece, _ = ece_score(p_cal, y_bin)
-        
+
         metrics["reliability"][str(h)] = {
             "brier": float(brier),
             "ece": float(ece),

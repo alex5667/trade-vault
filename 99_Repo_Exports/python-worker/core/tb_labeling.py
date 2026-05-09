@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
 import math
+from dataclasses import dataclass
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -25,7 +25,7 @@ class Barriers:
 
 
 def infer_tp_sl_bps(
-    indicators: Dict[str, Any],
+    indicators: dict[str, Any],
     *,
     tp_k_atr: float,
     sl_k_atr: float,
@@ -71,6 +71,7 @@ def signed_ret_bps(direction: str, entry_px: float, px: float) -> float:
 
 
 import numpy as np
+
 try:
     from numba import njit
 except ImportError:
@@ -89,36 +90,36 @@ def _barrier_stats_jit(
     path: np.ndarray,
     tp: float,
     sl: float
-) -> Tuple[int, int, float, float, float]:
+) -> tuple[int, int, float, float, float]:
     label_code = 0  # 0=TIMEOUT, 1=TP, 2=SL
     hit_ms = ts1
     ret_bps = 0.0
     mae = 0.0
     mfe = 0.0
-    
+
     n = path.shape[0]
     for i in range(n):
         ts = int(path[i, 0])
         px = path[i, 1]
-        
+
         if ts < ts0:
             continue
         if ts > ts1:
             break
-            
+
         if entry_px <= 0.0 or px <= 0.0:
             r = 0.0
         else:
             r = 10000.0 * (px - entry_px) / entry_px
             if not is_long:
                 r = -r
-                
+
         ret_bps = r
         if r > mfe:
             mfe = r
         if r < mae:
             mae = r
-            
+
         if tp > 0.0 and r >= tp:
             label_code = 1
             hit_ms = ts
@@ -127,7 +128,7 @@ def _barrier_stats_jit(
             label_code = 2
             hit_ms = ts
             break
-            
+
     return label_code, hit_ms, ret_bps, mae, mfe
 
 
@@ -140,7 +141,7 @@ def barrier_stats(
     b: Barriers,
     h_ms: int,
     adv_max: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute triple-barrier outcome + MAE/MFE + adverse_proxy.
 
@@ -155,7 +156,7 @@ def barrier_stats(
         y_edge: 1 if TP hit AND adverse_proxy<=adv_max else 0
     """
     ts1 = ts0 + int(h_ms)
-    
+
     # Ensure path is a numpy array
     if not isinstance(path, np.ndarray):
         if not path:
@@ -209,7 +210,7 @@ def barrier_stats(
     }
 
 
-def exec_cost_r(indicators: Dict[str, Any], scale_bps: float) -> float:
+def exec_cost_r(indicators: dict[str, Any], scale_bps: float) -> float:
     """
     Compute execution cost in R-multiples (spread + slippage normalized by scale).
     

@@ -1,15 +1,16 @@
-# domain/handlers.py
 from __future__ import annotations
 
-import time
-import os
-import json
-import uuid
 import math
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+import os
+import uuid
+from collections.abc import Sequence
+from typing import Any
 
-from domain.time_utils import session_from_ts_ms
 from common.log import setup_logger
+
+# domain/handlers.py
+from domain.evidence_keys import MetaKeys
+from domain.time_utils import session_from_ts_ms
 
 logger = setup_logger("DomainHandlers")
 
@@ -34,13 +35,16 @@ def _parse_boolish(v: Any, default: bool) -> bool:
     except Exception:
         return bool(default)
 
-from domain.models import PositionState, SignalNorm, TradeClosed, TradeEvent, Tick
 from domain.calculators import (
-    calc_missed_profit, calc_trailing_sl, duration_ms, pnl_pct_simple, update_excursions, snapshot_tp1_excursions
+    calc_missed_profit,
+    calc_trailing_sl,
+    pnl_pct_simple,
+    snapshot_tp1_excursions,
 )
+from domain.models import PositionState, SignalNorm, Tick, TradeClosed, TradeEvent
 from domain.normalizers import bucket_close_reason
 from domain.tick_price import trigger_prices
-
+import contextlib
 
 ADVERSE_BUCKETS_MS = (100, 200, 400, 800)
 
@@ -101,7 +105,7 @@ def _enrich_closed_from_pos(closed: TradeClosed, pos: PositionState, exit_px: fl
     """
     entry_ts = int(pos.entry_ts_ms)
     entry = float(pos.entry_price)
-    
+
     # --- Time Sync Defense (Expert Recommendation) ---
     # hold_ms must always be >= 0. If now_ms < entry_ts, clamp to 0.
     if now_ms < entry_ts:
@@ -120,7 +124,7 @@ def _enrich_closed_from_pos(closed: TradeClosed, pos: PositionState, exit_px: fl
             mfe_bps = max(0.0, (entry - pos.max_favorable_price) / entry * 10000.0)
             mae_bps = max(0.0, (pos.max_adverse_price - entry) / entry * 10000.0)
             mfe_ts = int(pos.max_favorable_ts_ms)
-        
+
         # Defensive: time_to_mfe_ms must also be >= 0
         if mfe_ts and mfe_ts < entry_ts:
             time_to_mfe_ms = 0
@@ -148,7 +152,7 @@ def _enrich_closed_from_pos(closed: TradeClosed, pos: PositionState, exit_px: fl
     closed.qty = float(pos.lot)
     closed.entry_px = entry
     closed.exit_px = float(exit_px)
-    
+
     if closed.fees_usd is None:
         closed.fees_usd = float(getattr(closed, "fees", 0.0) or 0.0) or None
 
@@ -257,13 +261,13 @@ def _compute_spread_bps_from_tick(tick: Any, mid: float) -> float:
     return 0.0
 
 
-def _micro_buckets_ms_from_env() -> List[int]:
+def _micro_buckets_ms_from_env() -> list[int]:
     """
     Бакеты для adverse_bps@T (миллисекунды).
     По умолчанию: 500ms и 2000ms (то, что вы просили как старт).
     """
     raw = (os.getenv("EMP_ADVERSE_BUCKETS_MS", "500,2000") or "").strip()
-    out: List[int] = []
+    out: list[int] = []
     for p in raw.split(","):
         s = p.strip()
         if not s:
@@ -382,7 +386,7 @@ def _trail_offset_from_payload(pos) -> float:
     return 0.0
 
 
-def maybe_arm_trailing_after_tp1(pos, *, spec, ts_ms: int) -> Optional["TradeEvent"]:
+def maybe_arm_trailing_after_tp1(pos, *, spec, ts_ms: int) -> TradeEvent | None:
     """
     Arm trailing right at TP1, based on conditional policy.
 
@@ -438,34 +442,34 @@ def maybe_arm_trailing_after_tp1(pos, *, spec, ts_ms: int) -> Optional["TradeEve
         pass
 
     offset = _trail_offset_from_payload(pos)
-    
+
     # --------------------------------------------------------------------------
     # SECURE PROFIT: Move SL to BreakEven + Fees + Slippage immediately
     # User Request: "After TP1 move stop to BE + (fees+slip)"
     # --------------------------------------------------------------------------
     current_sl = float(getattr(pos, "sl", 0.0) or 0.0)
     secured_sl = current_sl
-    
+
     try:
         # 1. Estimate costs (Fees + Slippage)
         # Commission: default to 4bps roundtrip (0.0004) if not set
         comm_rate = getattr(spec, "commission_rate", None)
         if comm_rate is None:
             comm_rate = 0.0005 # conservative default for crypto maker/taker mix
-        
+
         # Roundtrip fees = rate * 2
         fees_bps = comm_rate * 2.0
-        
+
         # Slippage buffer: conservative 2 bps
         slip_bps = 0.0005
-        
+
         total_verify_bps = fees_bps + slip_bps
         entry_price = float(pos.entry_price or 0.0)
-        
+
         if entry_price > 0:
             buffer_price = entry_price * total_verify_bps
             is_long = (pos.direction == "LONG")
-            
+
             # Calculate BE+ level
             if is_long:
                 be_plus = entry_price + buffer_price
@@ -474,7 +478,7 @@ def maybe_arm_trailing_after_tp1(pos, *, spec, ts_ms: int) -> Optional["TradeEve
                     secured_sl = be_plus
             else:
                 be_minus = entry_price - buffer_price
-                # Move SL down if better (SL < current) works for short? 
+                # Move SL down if better (SL < current) works for short?
                 # For SHORT: SL is above price. We lower it to lock profit?
                 # No, for SHORT, Entry is high. Profit is low.
                 # SL must be LOWER than Entry to be in profit (Wait, SL for Short is ABOVE price usually)
@@ -532,7 +536,7 @@ def _trail_after_tp1_reason(pos) -> str:
         pass
     return "NO_REASON"
 
-def _arm_trailing_after_tp1(pos, *, ts_ms: int) -> Optional["TradeEvent"]:
+def _arm_trailing_after_tp1(pos, *, ts_ms: int) -> TradeEvent | None:
     """
     Arms trailing AFTER TP1 (one-time).
     We intentionally do NOT compute a new SL here (that's trade_monitor's job).
@@ -544,8 +548,8 @@ def _arm_trailing_after_tp1(pos, *, ts_ms: int) -> Optional["TradeEvent"]:
     try:
         # audit fields (safe even if dataclass has slots=False; if slots=True we'll add fields in models.py diff)
         try:
-            setattr(pos, "trailing_armed_ts_ms", int(ts_ms))
-            setattr(pos, "trailing_start_reason", _trail_after_tp1_reason(pos))
+            pos.trailing_armed_ts_ms = int(ts_ms)
+            pos.trailing_start_reason = _trail_after_tp1_reason(pos)
         except Exception:
             pass
 
@@ -708,13 +712,11 @@ def _parse_csv_ints(s: str) -> Sequence[int]:
         p = part.strip()
         if not p:
             continue
-        try:
+        with contextlib.suppress(Exception):
             out.append(int(p))
-        except Exception:
-            pass
     return out
 
-_EMP_BUCKETS_MS_CACHE: Optional[Sequence[int]] = None
+_EMP_BUCKETS_MS_CACHE: Sequence[int] | None = None
 
 def _emp_buckets_ms() -> Sequence[int]:
     """
@@ -758,7 +760,7 @@ def maybe_snapshot_time_buckets(pos: Any, spec: Any, ts_ms: int) -> None:
             # fail-open: create on the fly if missing
             tb = {}
             try:
-                setattr(pos, "emp_time_buckets", tb)
+                pos.emp_time_buckets = tb
             except Exception:
                 return
 
@@ -869,20 +871,20 @@ def _baseline_update(pos: PositionState, last_price: float, now_ms: int) -> None
             _baseline_force_close(pos, last_price, now_ms, "BASELINE_TIME")
 
 
-def _build_features_snapshot(feats: Dict[str, Any]) -> Dict[str, Any]:
+def _build_features_snapshot(feats: dict[str, Any]) -> dict[str, Any]:
     """
     Whitelist-based feature snapshot for TradeClosed events.
     Prevents event bloat while keeping critical attribution dimensions.
     """
     whitelist = {
-        "delta_z", "dn_usd", "obi", "cvd_slope", "absorption_score", 
-        "weak_progress", "vwap_pos", "atr_bps", "liq_scale", 
+        "delta_z", "dn_usd", "obi", "cvd_slope", "absorption_score",
+        "weak_progress", "vwap_pos", "atr_bps", "liq_scale",
         "confidence", "spread_bps_at_entry", "book_age_ms", "slippage_bps_est",
         "scenario", "regime", "tier", "data_health", "expected_slippage_bps"
     },
     if not isinstance(feats, dict):
         return {}
-        
+
     trimmed = {k: v for k, v in feats.items() if k in whitelist}
     # Limit size of individual values (strings/lists)
     for k, v in trimmed.items():
@@ -900,7 +902,7 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
     # P41 fix: meta_enforce fields are in payload["indicators"], not top-level payload.
     # We extract them once here to use as fallback below.
     _indicators_pl = payload.get("indicators", {}) if isinstance(payload.get("indicators"), dict) else {}
-    baseline_mode = str(payload.get("baseline_mode") or "tp_sl").lower()
+    baseline_mode = (payload.get("baseline_mode") or "tp_sl").lower()
     baseline_horizon_ms = int(float(payload.get("baseline_horizon_ms") or payload.get("baseline_exit_ms") or 0))
 
     # резервные уровни baseline = исходные SL/TP
@@ -957,27 +959,27 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
 
         atr=float(payload.get("atr") or signal.payload.get("atr") or 0.0),
         # AB attribution
-        ab_arm=str(payload.get("ab_arm") or "A"),
-        ab_group=str(payload.get("ab_group") or "default"),
-        ab_key=str(payload.get("ab_key") or ""),
+        ab_arm=(payload.get("ab_arm") or "A"),
+        ab_group=(payload.get("ab_group") or "default"),
+        ab_key=(payload.get("ab_key") or ""),
         arm_ver=int(float(payload.get("arm_ver") or 0)),
-        entry_regime=str(payload.get("regime") or "na"),
-        entry_zone_id=str(payload.get("zone_id") or ""),
+        entry_regime=(payload.get("regime") or "na"),
+        entry_zone_id=(payload.get("zone_id") or ""),
 
         # P41 Native Meta Fields
         # NOTE: meta_enforce_cov_bucket is in payload["indicators"] (not top-level payload).
         # We first look at top-level (for future-proofing), then fall back to indicators dict.
         meta_enforce_cov_bucket=str(
-            payload.get("meta_enforce_cov_bucket")
-            or _indicators_pl.get("meta_enforce_cov_bucket")
+            payload.get(MetaKeys.ENFORCE_COV_BUCKET)
+            or _indicators_pl.get(MetaKeys.ENFORCE_COV_BUCKET)
             or ""
         ),
         meta_enforce_applied=int(
-            payload.get("meta_enforce_applied")
-            if payload.get("meta_enforce_applied") is not None
+            payload.get(MetaKeys.ENFORCE_APPLIED)
+            if payload.get(MetaKeys.ENFORCE_APPLIED) is not None
             else (
-                _indicators_pl.get("meta_enforce_applied")
-                if _indicators_pl.get("meta_enforce_applied") is not None
+                _indicators_pl.get(MetaKeys.ENFORCE_APPLIED)
+                if _indicators_pl.get(MetaKeys.ENFORCE_APPLIED) is not None
                 else -1
             )
         )
@@ -1065,9 +1067,9 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
         r_usd = float(getattr(pos, "risk_usd", 0.0) or 0.0)
         if r_usd <= 0.0:
             r_usd = float(spec.risk_money(pos.entry_price, pos.sl, pos.lot, pos.direction, pos.symbol) or 0.0)
-        
+
         pos.risk_usd = r_usd
-        
+
         # Merge back into signal_payload for Redis logging (TradeEventsLogger expansion)
         if isinstance(pos.signal_payload, dict):
             pos.signal_payload["risk_usd"] = r_usd
@@ -1086,31 +1088,31 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
         if isinstance(getattr(signal, "payload", None), dict):
             sp = sp if isinstance(sp, dict) else {}
             pl = signal.payload
-            
+
             # Core AB routing + entry_id for decision chain tracking
             for k in ("entry_id", "ab_arm", "ab_group", "ab_key"):
                 if k in pl and k not in sp:
                     sp[k] = pl.get(k)
-            
+
             # Copy ctx/of fields used by LCB threshold evaluator
             ctx = pl.get("ctx") if isinstance(pl.get("ctx"), dict) else {}
             of_dict = pl.get("of") if isinstance(pl.get("of"), dict) else {}
             zone = pl.get("zone") if isinstance(pl.get("zone"), dict) else {}
-            
+
             # Decision-time features for threshold optimization
             for k in ("regime", "scenario", "zone_dist_bp", "obi_stable_sec", "iceberg_strict", "spread_z"):
                 if k in ctx and k not in sp:
                     sp[k] = ctx.get(k)
-            
+
             # OF confirmation score (critical for entry quality)
             if "of_confirm_score" in of_dict and "of_confirm_score" not in sp:
                 sp["of_confirm_score"] = of_dict.get("of_confirm_score")
-            
+
             # Zone distance fallback (if not in ctx)
             if "dist_bp" in zone and "zone_dist_bp" not in sp:
                 sp["zone_dist_bp"] = zone.get("dist_bp")
-            
-            setattr(pos, "signal_payload", sp)
+
+            pos.signal_payload = sp
     except Exception:
         pass
 
@@ -1128,37 +1130,37 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
     try:
         pl = signal.payload or {}
         # kind: ctx.kind -> outbox -> normalize_signal(payload) -> PositionState
-        setattr(pos, "kind", str(pl.get("kind") or pl.get("signal_kind") or signal.strategy or "na").lower())
+        pos.kind = str(pl.get("kind") or pl.get("signal_kind") or signal.strategy or "na").lower()
     except Exception:
         pass
     try:
         pl = signal.payload or {}
-        setattr(pos, "venue", str(pl.get("venue") or "na").lower())
+        pos.venue = (pl.get("venue") or "na").lower()
     except Exception:
         pass
     try:
         pl = signal.payload or {}
         # confidence can be "confidence" or "conf" depending on emitters
-        setattr(pos, "confidence", float(pl.get("confidence") or pl.get("conf") or pl.get("conf_pct") or 0.0))
+        pos.confidence = float(pl.get("confidence") or pl.get("conf") or pl.get("conf_pct") or 0.0)
     except Exception:
         pass
     try:
         pl = signal.payload or {}
         # regime at entry (if present)
         if "entry_regime" in pl:
-            setattr(pos, "entry_regime", str(pl.get("entry_regime") or "na"))
+            pos.entry_regime = (pl.get("entry_regime") or "na")
         elif "regime" in pl:
-            setattr(pos, "entry_regime", str(pl.get("regime") or "na"))
+            pos.entry_regime = (pl.get("regime") or "na")
     except Exception:
         pass
     try:
         pl = signal.payload or {}
         # AB metadata (V2)
         if "ab_arm" in pl:
-             setattr(pos, "ab_arm", str(pl.get("ab_arm") or "A"))
+             pos.ab_arm = (pl.get("ab_arm") or "A")
         # regime is usually entry_regime, but we capture the precise tag if present
         if "regime" in pl:
-             setattr(pos, "regime", str(pl.get("regime") or "na"))
+             pos.regime = (pl.get("regime") or "na")
     except Exception:
         pass
 
@@ -1221,7 +1223,7 @@ def create_position(signal: SignalNorm, spec) -> PositionState:
         r = getattr(signal, "trail_after_tp1_reason", None)
         if r is None and isinstance(signal.payload, dict):
             r = signal.payload.get("trail_after_tp1_reason")
-        pos.trail_after_tp1_reason = str(r or "")
+        pos.trail_after_tp1_reason = (r or "")
     except Exception:
         pos.trail_after_tp1_reason = ""
 
@@ -1251,7 +1253,7 @@ def apply_trailing_update(
     trailing_distance: float = 0.0,
     point_size: float = 0.0,
     clear_future_tp_levels: bool = False,
-) -> Optional[TradeEvent]:
+) -> TradeEvent | None:
     if pos.closed:
         return None
 
@@ -1284,9 +1286,7 @@ def apply_trailing_update(
     try:
         mlp = float(getattr(pos, "min_lock_price", 0.0) or 0.0)
         if mlp > 0 and trail_profile == "rocket_v1":
-            if pos.is_long() and new_sl_float < mlp:
-                new_sl_float = mlp
-            elif not pos.is_long() and new_sl_float > mlp:
+            if pos.is_long() and new_sl_float < mlp or not pos.is_long() and new_sl_float > mlp:
                 new_sl_float = mlp
     except Exception:
         pass
@@ -1335,14 +1335,14 @@ def process_tick(
     spec,
     tp_ratios: Sequence[float],
     fill_policy: str = "level",  # "level" или "tick"
-) -> Tuple[List[TradeEvent], Optional[TradeClosed]]:
+) -> tuple[list[TradeEvent], TradeClosed | None]:
     """
     Возвращает (events, closed_trade_or_none)
     """
     if pos.closed:
         return [], None
 
-    events: List[TradeEvent] = []
+    events: list[TradeEvent] = []
 
     # 1) O(1) Update of excursions and adverse move probes (Expert Recommendation)
     _update_excursions_and_adverse(pos, tick)
@@ -1511,10 +1511,8 @@ def process_tick(
             if tp_level == 1 and pos.tp1_hit and not pos.trailing_started:
                 ev_tr = maybe_arm_trailing_after_tp1(pos, spec=spec, ts_ms=int(tick.ts_ms))
                 if ev_tr is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         events.append(ev_tr)
-                    except Exception:
-                        pass
 
             events.append(TradeEvent(
                 event_type="TP_HIT",
@@ -1585,10 +1583,8 @@ def process_tick(
         if tp_level == 1 and pos.tp1_hit and not pos.trailing_started:
             ev_tr = maybe_arm_trailing_after_tp1(pos, spec=spec, ts_ms=int(tick.ts_ms))
             if ev_tr is not None:
-                try:
+                with contextlib.suppress(Exception):
                     events.append(ev_tr)
-                except Exception:
-                    pass
 
         events.append(TradeEvent(
             event_type="TP_HIT",
@@ -1916,10 +1912,10 @@ def finalize_trade(
 
     # ✅ Time contract: hold_ms + quarantine (fail-open)
     from common.trade_report_contract import (
-        compute_hold_ms_with_quarantine,
-        normalize_close_bucket,
         clamp_one_r_money,
+        compute_hold_ms_with_quarantine,
         infer_trailing_started,
+        normalize_close_bucket,
     )
 
     # Try to wire metrics/quarantine if your PositionState carries them (optional)
@@ -1964,7 +1960,7 @@ def finalize_trade(
             if comm_rate is None:
                 comm_rate = 0.0005
             fees = turnover_roundtrip * float(comm_rate)
-    
+
     # net = gross - fees
     pnl_gross = float(pos.realized_pnl_gross)
     pnl_net = pnl_gross - fees
@@ -2009,7 +2005,7 @@ def finalize_trade(
         pass
 
     bucket = normalize_close_bucket(
-        close_reason_raw_bucket=str(base_bucket or ""),
+        close_reason_raw_bucket=(base_bucket or ""),
         pnl_net=float(pnl_net),
         tp_hits=int(pos.tp_hits or 0),
         trailing_started=trailing_started,
@@ -2020,7 +2016,7 @@ def finalize_trade(
 
     # ✅ Fix: ensure MFE/MAE PnL are calculated if missing
     if float(pos.mfe_pnl) == 0.0 and float(pos.max_favorable_price or 0.0) != 0.0:
-        try:
+        with contextlib.suppress(Exception):
             pos.mfe_pnl = float(spec.pnl_money(
                 float(pos.entry_price),
                 float(pos.max_favorable_price),
@@ -2028,11 +2024,9 @@ def finalize_trade(
                 str(pos.direction),
                 symbol=str(pos.symbol or "")
             ))
-        except Exception:
-            pass
 
     if float(pos.mae_pnl) == 0.0 and float(getattr(pos, "max_adverse_price", 0.0) or 0.0) != 0.0:
-        try:
+        with contextlib.suppress(Exception):
             pos.mae_pnl = float(spec.pnl_money(
                 float(pos.entry_price),
                 float(getattr(pos, "max_adverse_price", 0.0)),
@@ -2040,8 +2034,6 @@ def finalize_trade(
                 str(pos.direction),
                 symbol=str(pos.symbol or "")
             ))
-        except Exception:
-            pass
 
     # giveback и missed_profit
     giveback = float(pos.mfe_pnl - pnl_gross)
@@ -2172,9 +2164,9 @@ def finalize_trade(
     # NEW: persist dynamic dims into TradeClosed
     # -------------------------------------------------------------------------
     try:
-        setattr(closed, "kind", str(getattr(pos, "kind", "") or (pos.signal_payload or {}).get("kind") or pos.strategy or "na").lower())
-        setattr(closed, "venue", str(getattr(pos, "venue", "") or (pos.signal_payload or {}).get("venue") or "na").lower())
-        setattr(closed, "confidence", float(getattr(pos, "confidence", 0.0) or (pos.signal_payload or {}).get("confidence") or 0.0))
+        closed.kind = str(getattr(pos, "kind", "") or (pos.signal_payload or {}).get("kind") or pos.strategy or "na").lower()
+        closed.venue = str(getattr(pos, "venue", "") or (pos.signal_payload or {}).get("venue") or "na").lower()
+        closed.confidence = float(getattr(pos, "confidence", 0.0) or (pos.signal_payload or {}).get("confidence") or 0.0)
     except Exception: pass
 
     # Transfer TP1 hit ts and excursion snapshots
@@ -2198,9 +2190,8 @@ def finalize_trade(
                     if touched: setattr(closed, f"tp{idx+1}_touched", True)
     except Exception: pass
 
-    try:
+    with contextlib.suppress(Exception):
         _attach_nosl_after_tp1_flags(pos, closed, exit_ts_ms=int(exit_ts_ms))
-    except Exception: pass
 
     # -------------------------------------------------------------------------
     # FIX: Populate selected_tp1_price / selected_sl_price from actual position
@@ -2223,9 +2214,9 @@ def finalize_trade(
     return _enrich_closed_from_pos(closed, pos, exit_px=exit_price, now_ms=exit_ts_ms)
 
 
-def _parse_int_list_env(name: str, default_csv: str) -> List[int]:
+def _parse_int_list_env(name: str, default_csv: str) -> list[int]:
     raw = os.getenv(name, default_csv) or default_csv
-    out: List[int] = []
+    out: list[int] = []
     try:
         for p in str(raw).split(","):
             s = p.strip()
@@ -2237,16 +2228,15 @@ def _parse_int_list_env(name: str, default_csv: str) -> List[int]:
         try:
             for p in str(default_csv).split(","):
                 s = p.strip()
-                if s: 
+                if s:
                     v = int(float(s))
                     if v > 0: out.append(v)
         except Exception: return []
-    try: out = sorted(set(out))
-    except Exception: pass
+    with contextlib.suppress(Exception): out = sorted(set(out))
     return out
 
 def _stop_like_close_reason(reason: str) -> bool:
-    rs = str(reason or "").strip().upper()
+    rs = (reason or "").strip().upper()
     try:
         allow = os.getenv("NOSL_AFTER_TP1_STOP_REASONS", "SL,TRAILING_STOP") or "SL,TRAILING_STOP"
         allow_set = {x.strip().upper() for x in str(allow).split(",") if x.strip()}
@@ -2261,8 +2251,7 @@ def _get_tp1_hit_ts_ms(pos: PositionState) -> int:
         if isinstance(tpf, dict): ts1 = int(tpf.get(1) or 0)
     except Exception: pass
     if ts1 > 0: return ts1
-    try: ts1 = int(getattr(pos, "tp1_hit_ts_ms", 0) or 0)
-    except Exception: pass
+    with contextlib.suppress(Exception): ts1 = int(getattr(pos, "tp1_hit_ts_ms", 0) or 0)
     return ts1
 
 def _attach_nosl_after_tp1_flags(pos: PositionState, closed: Any, *, exit_ts_ms: int) -> None:
@@ -2276,20 +2265,20 @@ def _attach_nosl_after_tp1_flags(pos: PositionState, closed: Any, *, exit_ts_ms:
 
     tp1_hit = bool(getattr(pos, "tp1_hit", False))
     tp1_ts = int(_get_tp1_hit_ts_ms(pos) or 0)
-    if tp1_ts > 0: setattr(closed, "tp1_hit_ts_ms", int(tp1_ts))
+    if tp1_ts > 0: closed.tp1_hit_ts_ms = int(tp1_ts)
 
     if (not tp1_hit) or tp1_ts <= 0 or int(exit_ts_ms or 0) <= 0:
-        setattr(closed, "nosl_after_tp1_applicable", 0)
-        setattr(closed, "sl_after_tp1_elapsed_ms", 0)
+        closed.nosl_after_tp1_applicable = 0
+        closed.sl_after_tp1_elapsed_ms = 0
         _set_bucket_fields(False, applicable=False)
         return
 
-    setattr(closed, "nosl_after_tp1_applicable", 1)
+    closed.nosl_after_tp1_applicable = 1
     close_bucket = str(getattr(closed, "close_reason", "") or "").strip()
     stop_like = _stop_like_close_reason(close_bucket)
 
     if not stop_like:
-        setattr(closed, "sl_after_tp1_elapsed_ms", 0)
+        closed.sl_after_tp1_elapsed_ms = 0
         for b in buckets:
             setattr(closed, f"sl_within_tp1_t{int(b)}", 0)
             setattr(closed, f"nosl_after_tp1_t{int(b)}", 1)
@@ -2297,7 +2286,7 @@ def _attach_nosl_after_tp1_flags(pos: PositionState, closed: Any, *, exit_ts_ms:
 
     elapsed = int(exit_ts_ms) - int(tp1_ts)
     if elapsed < 0: elapsed = 0
-    setattr(closed, "sl_after_tp1_elapsed_ms", int(elapsed))
+    closed.sl_after_tp1_elapsed_ms = int(elapsed)
     for b in buckets:
         bb = int(b)
         within = bool(elapsed > 0 and elapsed <= bb)

@@ -1,5 +1,4 @@
 # tick_flow_full/tests/integration/test_mini_replay_liqmap_shadow_v1.py
-# -*- coding: utf-8 -*-
 """Integration-style smoke: LiqMap injection + liqmap gate (SHADOW).
 
 This is a "mini-replay" in the sense that we:
@@ -16,11 +15,11 @@ No external services required.
 
 import asyncio
 import json
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class _FakeAsyncRedis:
-    def __init__(self, kv: Dict[str, Optional[bytes]]):
+    def __init__(self, kv: dict[str, bytes | None]):
         self._kv = dict(kv)
 
     async def get(self, key: str):
@@ -32,7 +31,7 @@ def _snap(*, ts_ms: int, symbol: str, window: str) -> bytes:
         {
             "v": 1,
             "ts_ms": int(ts_ms),
-            "symbol": str(symbol),
+            "symbol": symbol,
             "window": str(window),
             "levels": [
                 {"side": "ask", "price": 101.0, "usd": 400_000.0, "cnt": 10},
@@ -43,8 +42,8 @@ def _snap(*, ts_ms: int, symbol: str, window: str) -> bytes:
 
 
 def test_mini_replay_liqmap_shadow_smoke():
-    from services.orderflow.components.tick_processor import TickProcessor
     from core.of_confirm_engine import OFConfirmEngine
+    from services.orderflow.components.tick_processor import TickProcessor
 
     # Build a "partial" TickProcessor for injection only.
     tp = TickProcessor.__new__(TickProcessor)
@@ -78,7 +77,7 @@ def test_mini_replay_liqmap_shadow_smoke():
         last_wp = None
         last_fp_edge = None
 
-    indicators: Dict[str, Any] = {
+    indicators: dict[str, Any] = {
         "price": 100.0,
         "atr_bps": 50.0,
         "tick_time_age_ms": 0.0,

@@ -1,5 +1,6 @@
 import os
 import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.fake_redis import FakeRedis
@@ -20,8 +21,8 @@ def test_adjuster_increases_or_decreases_confidence_by_context_delta():
     os.environ["RELIABILITY_ADJ_ALPHA"] = "0.5"
     os.environ["RELIABILITY_ADJ_MIN_BUCKET_SAMPLES"] = "50"
 
-    from services.reliability_curves import make_reliability_key_v3, make_reliability_key_v4
     from services.reliability_adjuster import maybe_adjust_confidence
+    from services.reliability_curves import make_reliability_key_v4
 
     r = FakeRedis()
 

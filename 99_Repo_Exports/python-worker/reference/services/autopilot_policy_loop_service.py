@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 AutopilotPolicyLoopService
@@ -13,7 +14,7 @@ Distributed safety:
 import asyncio
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
 
@@ -23,7 +24,7 @@ def _now_ms() -> int:
 
 
 def _utc_date() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 async def _send_telegram_report(r, text_html: str) -> None:
@@ -123,12 +124,12 @@ class AutopilotPolicyLoopService:
             f"{'--redis-write' if self.write_proposal else ''}"
         )
         # capture output by running with output file arg
-        rep_path = f"/tmp/tm_report.md"
+        rep_path = "/tmp/tm_report.md"
         cmd_tune2 = cmd_tune + f" --out-md {rep_path}"
         rc2 = await _run_cmd(cmd_tune2)
 
         try:
-            with open(rep_path, "r", encoding="utf-8") as f:
+            with open(rep_path, encoding="utf-8") as f:
                 md_content = f.read().strip()
                 # Wrap in pre for Telegram HTML (matches tm_autopilot_service behavior)
                 # Need to escape HTML chars in MD to avoid parse errors

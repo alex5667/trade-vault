@@ -3,15 +3,16 @@
 Tests for RegimeEngine and BarBuilder1m.
 """
 
-import pytest
 import math
 from types import SimpleNamespace
 
+import pytest
+
 # Import components
 try:
-    from regime_engine import BarBuilder1m, Bar, RegimeEngine, RegimeState
+    from regime_engine import Bar, BarBuilder1m, RegimeEngine, RegimeState
 except ImportError:
-    from python_worker.regime_engine import BarBuilder1m, Bar, RegimeEngine, RegimeState
+    from python_worker.regime_engine import Bar, BarBuilder1m, RegimeEngine
 
 
 def make_config():

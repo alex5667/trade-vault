@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """
 Orders Router - Telegram callbacks to orders queue.
@@ -12,16 +13,16 @@ Workflow:
     bot:callbacks → orders_router → orders:queue → MT5 OrderExecutor
 """
 
+import json
 import math
 import os
-import json
-import time
+from typing import Any
+
 import redis
-from typing import Dict, Optional, Any
 
-from core.redis_keys import RedisStreams as RS, RedisKeyPrefixes as RK
-from symbol_specs_store import SymbolSpecsStore, SymbolSpecs
-
+from core.redis_keys import RedisKeyPrefixes as RK
+from core.redis_keys import RedisStreams as RS
+from symbol_specs_store import SymbolSpecs, SymbolSpecsStore
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
@@ -33,7 +34,7 @@ GROUP = os.getenv("ORDERS_ROUTER_GROUP", "orders-router-group")
 CONSUMER = os.getenv("ORDERS_ROUTER_CONSUMER", "orders-router-1")
 
 
-def _parse_float(value: Any) -> Optional[float]:
+def _parse_float(value: Any) -> float | None:
     """Безопасно преобразует значение к float."""
     if value is None:
         return None
@@ -71,7 +72,7 @@ def _round_price(price: float, point: float) -> float:
     return round(steps * point, decimals)
 
 
-def _ensure_min_distance(entry: Optional[float], target: Optional[float], side: str, min_distance: float) -> Optional[float]:
+def _ensure_min_distance(entry: float | None, target: float | None, side: str, min_distance: float) -> float | None:
     """Возвращает цену, отстоящую от entry не менее чем на min_distance."""
     if entry is None or target is None or min_distance <= 0:
         return target
@@ -85,7 +86,7 @@ def _ensure_min_distance(entry: Optional[float], target: Optional[float], side: 
     return target
 
 
-def _filter_tp_levels(entry: Optional[float], tps: list, side: str, min_distance: float) -> list:
+def _filter_tp_levels(entry: float | None, tps: list, side: str, min_distance: float) -> list:
     """Фильтрует TP уровни, оставляя только корректные значения."""
     if entry is None or not tps:
         return []
@@ -105,7 +106,7 @@ def _filter_tp_levels(entry: Optional[float], tps: list, side: str, min_distance
     return filtered
 
 
-def get_snapshot(r: redis.Redis, sid: str) -> Optional[Dict]:
+def get_snapshot(r: redis.Redis, sid: str) -> dict | None:
     """
     Get signal snapshot from Redis.
     
@@ -119,7 +120,7 @@ def get_snapshot(r: redis.Redis, sid: str) -> Optional[Dict]:
     snap = r.get(SNAP_PREFIX + sid)
     if not snap:
         return None
-    
+
     try:
         return json.loads(snap)
     except json.JSONDecodeError:
@@ -134,21 +135,21 @@ def route_open(r: redis.Redis, parts: list) -> None:
     """
     if len(parts) < 4:
         return
-    
+
     side, lot, sid = parts[1], parts[2], parts[3]
     sid = sid.strip()
     if not sid:
         print(f"⚠️  Ignoring open callback without sid: {parts}")
         return
-    
+
     # Get signal snapshot
     snap = get_snapshot(r, sid)
 
     symbol = ""
-    entry_price: Optional[float] = None
-    sl_price: Optional[float] = None
+    entry_price: float | None = None
+    sl_price: float | None = None
     tp_levels = []
-    atr_value: Optional[float] = None
+    atr_value: float | None = None
     note = ""
 
     if snap:
@@ -167,7 +168,7 @@ def route_open(r: redis.Redis, parts: list) -> None:
     payload = {
         "action": "open",
         "side": side,
-        "lot": float(lot),
+        "lot": lot,
         "sid": sid,
         "timestamp": get_ny_time_millis(),
         "symbol": symbol,
@@ -229,18 +230,18 @@ def route_sltp(r: redis.Redis, parts: list) -> None:
     """
     if len(parts) < 3:
         return
-    
+
     sid = parts[2].strip()
     if not sid:
         print(f"⚠️  Ignoring sltp callback without sid: {parts}")
         return
-    
+
     # Get signal snapshot
     snap = get_snapshot(r, sid)
     if not snap:
         print(f"⚠️  No snapshot for sid={sid[:20]}...")
         return
-    
+
     symbol = snap.get("symbol")
     entry_price = _parse_float(snap.get("price"))
     side = snap.get("side", "LONG")
@@ -311,22 +312,22 @@ def route_size(r: redis.Redis, parts: list) -> None:
     """
     if len(parts) < 3:
         return
-    
+
     mult, sid = parts[1], parts[2].strip()
     if not sid:
         print(f"⚠️  Ignoring size callback without sid: {parts}")
         return
-    
+
     # Get signal snapshot
     snap = get_snapshot(r, sid)
     if not snap:
         print(f"⚠️  No snapshot for sid={sid[:20]}...")
         return
-    
+
     # Calculate new lot
     original_lot = float(snap.get("lot", 0.1))
     new_lot = original_lot * float(mult)
-    
+
     payload = {
         "action": "resize",
         "sid": sid,
@@ -336,7 +337,7 @@ def route_size(r: redis.Redis, parts: list) -> None:
         "multiplier": float(mult),
         "timestamp": get_ny_time_millis()
     }
-    
+
     # Push to queue
     r.xadd(ORDERS_QUEUE, payload, maxlen=1000, approximate=True)
     print(f"✅ Routed: resize x{mult} (sid={sid[:20]}...)")
@@ -350,18 +351,18 @@ def route_cancel(r: redis.Redis, parts: list) -> None:
     """
     if len(parts) < 2:
         return
-    
+
     sid = parts[-1].strip()
     if not sid:
         print(f"⚠️  Ignoring cancel callback without sid: {parts}")
         return
-    
+
     payload = {
         "action": "cancel",
         "sid": sid,
         "timestamp": get_ny_time_millis()
     }
-    
+
     # Push to queue
     r.xadd(ORDERS_QUEUE, payload, maxlen=1000, approximate=True)
     print(f"✅ Routed: cancel (sid={sid[:20]}...)")
@@ -369,29 +370,29 @@ def route_cancel(r: redis.Redis, parts: list) -> None:
 
 def main():
     """Main entry point."""
-    print(f"🔀 Orders Router starting...")
+    print("🔀 Orders Router starting...")
     print(f"   Callbacks: {CALLBACKS_STREAM}")
     print(f"   Orders Queue: {ORDERS_QUEUE}")
     print(f"   Snapshot Prefix: {SNAP_PREFIX}")
     print(f"   Group: {GROUP}")
     print(f"   Consumer: {CONSUMER}")
     print()
-    
+
     # Connect to Redis
     r = redis.from_url(REDIS_URL, decode_responses=True)
-    
+
     # Create consumer group
     try:
         r.xgroup_create(CALLBACKS_STREAM, GROUP, id='0', mkstream=True)
         print(f"✅ Created consumer group: {GROUP}")
     except redis.ResponseError:
         print(f"✅ Consumer group already exists: {GROUP}")
-    
-    print(f"📊 Listening for callbacks...")
+
+    print("📊 Listening for callbacks...")
     print()
-    
+
     routed_count = 0
-    
+
     # Main loop
     while True:
         msgs = r.xreadgroup(
@@ -401,44 +402,44 @@ def main():
             count=50,
             block=2000
         )
-        
+
         for stream, entries in msgs or []:
             for msg_id, fields in entries:
                 try:
                     cb = fields.get("callback", "")
                     parts = cb.split(":")
-                    
+
                     if not parts:
                         continue
-                    
+
                     action = parts[0]
-                    
+
                     # Route based on action
                     if action == "open":
                         route_open(r, parts)
                         routed_count += 1
-                    
+
                     elif action == "sltp":
                         route_sltp(r, parts)
                         routed_count += 1
-                    
+
                     elif action == "size":
                         route_size(r, parts)
                         routed_count += 1
-                    
+
                     elif action == "cancel":
                         route_cancel(r, parts)
                         routed_count += 1
-                    
+
                     else:
                         print(f"⚠️  Unknown action: {action}")
-                    
+
                     if routed_count % 10 == 0:
                         print(f"📊 Total routed: {routed_count}")
-                
+
                 except Exception as e:
                     print(f"❌ Error routing callback: {e}")
-                
+
                 finally:
                     # Always ACK
                     r.xack(stream, GROUP, msg_id)

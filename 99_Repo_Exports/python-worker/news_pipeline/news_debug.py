@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """python-worker/news_pipeline/news_debug.py
 
 News logging helpers.
@@ -16,7 +17,7 @@ No external dependencies.
 import json
 import os
 import zlib
-from typing import Any, Optional, Tuple
+from typing import Any
 
 
 def stable_sample_pct(symbol: str, ts_ms: int, pct: int) -> bool:
@@ -64,7 +65,7 @@ def _safe_getattr(obj: Any, name: str, default: Any = None) -> Any:
         return default
 
 
-def extract_news_mini(ctx: Any) -> Optional[Tuple[str, int, float, int, int, int]]:
+def extract_news_mini(ctx: Any) -> tuple[str, int, float, int, int, int] | None:
     """Return a compact tuple used by the mini logger.
 
     Returns:
@@ -128,7 +129,7 @@ def maybe_log_news_full(redis_client: Any, logger: Any, ctx: Any) -> None:
     - Truncates payload.
     """
 
-    if str(os.getenv("NEWS_DEBUG_FULL", "false")).lower() not in ("1", "true", "yes", "on"):
+    if os.getenv("NEWS_DEBUG_FULL", "false").lower() not in ("1", "true", "yes", "on"):
         return
 
     mini = extract_news_mini(ctx)

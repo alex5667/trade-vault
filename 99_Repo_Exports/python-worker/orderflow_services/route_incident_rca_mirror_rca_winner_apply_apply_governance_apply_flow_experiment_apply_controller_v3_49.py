@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -108,15 +109,15 @@ ARMS = {"vertex_primary", "vertex_compact_candidate", "local_candidate"}
 ACTIONABLE_DECISIONS = {"PROMOTE_VERTEX_COMPACT_CANDIDATE", "PROMOTE_LOCAL_CANDIDATE"}
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -176,8 +177,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -201,7 +202,7 @@ def maybe_json(value: Any, default: Any = None) -> Any:
         return default
 
 
-def normalize_profile(raw: Any, default: Dict[str, int]) -> Dict[str, int]:
+def normalize_profile(raw: Any, default: dict[str, int]) -> dict[str, int]:
     val = maybe_json(raw, default)
     if not isinstance(val, dict):
         val = default
@@ -212,7 +213,7 @@ def normalize_profile(raw: Any, default: Dict[str, int]) -> Dict[str, int]:
     }
 
 
-def default_profiles() -> Dict[str, Dict[str, int]]:
+def default_profiles() -> dict[str, dict[str, int]]:
     return {
         "vertex_primary_profile": normalize_profile(DEFAULT_PROFILE_VERTEX_PRIMARY_JSON, {"vertex_primary_weight": 50, "vertex_compact_weight": 30, "local_candidate_weight": 20}),
         "vertex_compact_profile": normalize_profile(DEFAULT_PROFILE_VERTEX_COMPACT_JSON, {"vertex_primary_weight": 30, "vertex_compact_weight": 50, "local_candidate_weight": 20}),
@@ -220,7 +221,7 @@ def default_profiles() -> Dict[str, Dict[str, int]]:
     }
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     allow_winner_arms = maybe_json(raw.get("allow_winner_arms_json"), maybe_json(DEFAULT_ALLOW_WINNER_ARMS_JSON, []))
     if not isinstance(allow_winner_arms, list):
         allow_winner_arms = ["vertex_compact_candidate", "local_candidate"]
@@ -242,9 +243,9 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def experiment_policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     return {
-        "mode": str(raw.get("mode") or "SHADOW").upper(),
+        "mode": (raw.get("mode") or "SHADOW").upper(),
         "vertex_primary_weight": parse_int(raw.get("vertex_primary_weight"), 50),
         "vertex_compact_weight": parse_int(raw.get("vertex_compact_weight"), 30),
         "local_candidate_weight": parse_int(raw.get("local_candidate_weight"), 20),
@@ -252,14 +253,14 @@ def experiment_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def winner_policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
-    incumbent = str(raw.get("incumbent_arm") or "vertex_primary")
+def winner_policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
+    incumbent = (raw.get("incumbent_arm") or "vertex_primary")
     return {
         "incumbent_arm": incumbent if incumbent in ARMS else "vertex_primary",
     }
 
 
-def weights_dict(exp_policy: Dict[str, Any]) -> Dict[str, int]:
+def weights_dict(exp_policy: dict[str, Any]) -> dict[str, int]:
     return {
         "vertex_primary_weight": parse_int(exp_policy.get("vertex_primary_weight"), 50),
         "vertex_compact_weight": parse_int(exp_policy.get("vertex_compact_weight"), 30),
@@ -267,7 +268,7 @@ def weights_dict(exp_policy: Dict[str, Any]) -> Dict[str, int]:
     }
 
 
-def infer_profile_name(weights: Dict[str, int], profiles: Dict[str, Dict[str, int]]) -> str:
+def infer_profile_name(weights: dict[str, int], profiles: dict[str, dict[str, int]]) -> str:
     for name, profile in profiles.items():
         if profile == weights:
             return name
@@ -294,17 +295,17 @@ def map_decision_to_profile(decision: str) -> str:
 
 
 def evaluate_apply(
-    winner_decision_row: Dict[str, Any],
-    exp_policy: Dict[str, Any],
-    winner_policy: Dict[str, Any],
-    controller_policy: Dict[str, Any],
-) -> Dict[str, Any]:
+    winner_decision_row: dict[str, Any],
+    exp_policy: dict[str, Any],
+    winner_policy: dict[str, Any],
+    controller_policy: dict[str, Any],
+) -> dict[str, Any]:
     current_weights = weights_dict(exp_policy)
     current_profile = infer_profile_name(current_weights, controller_policy["profiles"])
     current_incumbent = winner_policy["incumbent_arm"]
-    decision = str(winner_decision_row.get("decision") or "")
-    winner_arm = str(winner_decision_row.get("winner_arm") or "")
-    score_margin = extract_score_margin(str(winner_decision_row.get("scorecards_json") or "{}"), current_incumbent, winner_arm)
+    decision = (winner_decision_row.get("decision") or "")
+    winner_arm = (winner_decision_row.get("winner_arm") or "")
+    score_margin = extract_score_margin((winner_decision_row.get("scorecards_json") or "{}"), current_incumbent, winner_arm)
     cooldown_active = (
         exp_policy["last_weight_rebalance_ts_ms"] > 0
         and (now_ms() - exp_policy["last_weight_rebalance_ts_ms"]) < controller_policy["cooldown_sec"] * 1000
@@ -372,14 +373,14 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_hash(r: Any, key: str) -> Dict[str, Any]:
+async def read_hash(r: Any, key: str) -> dict[str, Any]:
     return as_dict(await r.hgetall(key))
 
 
 async def persist_if_configured(
     db_url: str,
-    decision_out: Dict[str, Any],
-    winner_row: Dict[str, Any],
+    decision_out: dict[str, Any],
+    winner_row: dict[str, Any],
     applied: int,
 ) -> None:
     if not db_url or psycopg is None:
@@ -467,7 +468,7 @@ async def main() -> None:  # pragma: no cover
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             controller_policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     exp_policy = experiment_policy_from_hash(await read_hash(r, EXPERIMENT_POLICY_KEY))
                     winner_policy = winner_policy_from_hash(await read_hash(r, WINNER_POLICY_KEY))
                     decision_out = evaluate_apply(winner_row, exp_policy, winner_policy, controller_policy)

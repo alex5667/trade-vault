@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """P6/P7 BinanceUserStreamWorker lifecycle tests.
 
 Tests:
@@ -7,10 +8,10 @@ Tests:
   - close_listen_key sets listen_key to None even after a success
 """
 
-import pytest
-import sys
 import os
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 

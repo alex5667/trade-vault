@@ -1,12 +1,11 @@
-import pytest
-from unittest.mock import patch, MagicMock
 import os
+from unittest.mock import patch
+
 from services.auto_calibration_service import (
-    _normalize_enabled_symbols,
-    init_auto_calibration,
-    get_auto_calibration_service,
-    AutoCalibrationService,
     SymbolConfig,
+    _normalize_enabled_symbols,
+    get_auto_calibration_service,
+    init_auto_calibration,
 )
 
 
@@ -155,10 +154,11 @@ class TestWalkForwardMode:
 
     def test_service_accepts_use_walk_forward_flag(self):
         """AutoCalibrationService accepts use_walk_forward parameter."""
-        from services.auto_calibration_service import AutoCalibrationService as ACS
         # Just test that the constructor accepts the parameter
         # (actual DB/Redis connections would fail, so we don't instantiate)
         import inspect
+
+        from services.auto_calibration_service import AutoCalibrationService as ACS
         sig = inspect.signature(ACS.__init__)
         assert 'use_walk_forward' in sig.parameters
 

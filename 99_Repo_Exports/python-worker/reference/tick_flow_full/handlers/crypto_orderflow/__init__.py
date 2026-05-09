@@ -6,6 +6,6 @@ organized into submodules for better maintainability.
 """
 
 # Re-export commonly used components
+from .core import *
 from .mixins import *
 from .types import *
-from .core import *

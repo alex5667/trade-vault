@@ -98,7 +98,7 @@ class TestRiskBasedSizing(unittest.TestCase):
         # Calculate one_r_money
         spec = SymbolSpec()
         one_r_money = spec.risk_money(entry_price, sl, lot, direction, symbol=symbol)
-        
+
         # one_r_money should be ≈ $5.0 (intended risk)
         self.assertAlmostEqual(one_r_money, 5.0, delta=0.1,
                                msg=f"one_r_money should be ~$5.0 but got ${one_r_money:.2f}")
@@ -164,13 +164,13 @@ class TestRiskBasedSizing(unittest.TestCase):
         sl = 83.73
         sl_distance = abs(entry - sl)
         risk_usd = 5.0
-        
+
         # Risk-based lot calculation (what calculate_position_size should produce)
         lot = risk_usd / sl_distance  # 18.518...
-        
+
         spec = SymbolSpec()
         one_r = spec.risk_money(entry, sl, lot, "LONG", symbol="SOLUSDT")
-        
+
         self.assertAlmostEqual(one_r, risk_usd, delta=0.01,
                                msg=f"one_r_money={one_r:.2f} should be ~{risk_usd:.2f}")
 
@@ -188,12 +188,12 @@ class TestRiskBasedSizing(unittest.TestCase):
         sl = 86700.0
         sl_distance = abs(entry - sl)
         risk_usd = 5.0
-        
+
         lot = risk_usd / sl_distance  # 0.01666...
-        
+
         spec = SymbolSpec()
         one_r = spec.risk_money(entry, sl, lot, "LONG", symbol="BTCUSDT")
-        
+
         self.assertAlmostEqual(one_r, risk_usd, delta=0.01,
                                msg=f"BTC one_r_money={one_r:.2f} should be ~{risk_usd:.2f}")
 
@@ -209,9 +209,9 @@ class TestRiskBasedSizing(unittest.TestCase):
         tp1 = 84.27  # 0.27 above entry (1 RR)
         sl_distance = abs(entry - sl)
         risk_usd = 5.0
-        
+
         lot = risk_usd / sl_distance  # risk-based lot
-        
+
         spec = SymbolSpec()
         one_r = spec.risk_money(entry, sl, lot, "LONG", symbol="SOLUSDT")
 
@@ -243,18 +243,18 @@ class TestRiskBasedSizing(unittest.TestCase):
         sl = 83.73
         margin = 5.0  # deposit * risk%
         leverage = 100.0
-        
+
         # Old margin-based lot (WRONG)
         notional = margin * leverage  # $500
         old_lot = notional / entry  # 5.952...
-        
+
         spec = SymbolSpec()
         old_one_r = spec.risk_money(entry, sl, old_lot, "LONG", symbol="SOLUSDT")
-        
+
         # Confirm the old one_r is ~$1.6, NOT $5.0
         self.assertAlmostEqual(old_one_r, 1.607, delta=0.1,
                                msg=f"Old margin-based one_r={old_one_r:.2f} should be ~$1.6")
-        
+
         # And confirm it's way below the intended risk
         risk_usd = 5.0
         self.assertLess(old_one_r, risk_usd * 0.5,

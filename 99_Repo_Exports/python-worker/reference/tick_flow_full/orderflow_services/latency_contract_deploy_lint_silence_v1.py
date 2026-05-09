@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Operator ack/silence workflow for latency deploy-lint notifier.
@@ -14,7 +15,6 @@ import argparse
 import json
 import os
 import sys
-import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,8 +22,10 @@ from services.observability.latency_deploy_contract import CONTRACTS
 from services.observability.latency_deploy_lint_silence_state import (
     clear_ack_silence,
     parse_silence_state,
-    state_key as silence_state_key,
     upsert_ack_silence,
+)
+from services.observability.latency_deploy_lint_silence_state import (
+    state_key as silence_state_key,
 )
 from services.observability.latency_deploy_lint_state import state_key as lint_state_key
 
@@ -75,9 +77,9 @@ def _read_purpose_status(r: Any, cfg: Cfg, purpose: str, now_ms: int) -> dict[st
     silence = parse_silence_state(silence_raw, now_ms=now_ms)
     return {
         'purpose': purpose,
-        'gate_active': str(lint_raw.get('gate_active', '0')) == '1',
-        'gate_reason_code': str(lint_raw.get('gate_reason_code', 'unknown') or 'unknown'),
-        'error_codes': str(lint_raw.get('error_codes', 'ok') or 'ok'),
+        'gate_active': (lint_raw.get('gate_active', '0')) == '1',
+        'gate_reason_code': (lint_raw.get('gate_reason_code', 'unknown') or 'unknown'),
+        'error_codes': (lint_raw.get('error_codes', 'ok') or 'ok'),
         'fail_age_s': _i(lint_raw.get('fail_age_s'), 0),
         'silence_active': silence.silence_active,
         'silence_until_ts_ms': silence.silence_until_ts_ms,
@@ -126,7 +128,7 @@ def cmd_ack(
 ) -> dict[str, Any]:
     now_ms = get_ny_time_millis() if now_ms is None else int(now_ms)
     lint_raw = r.hgetall(lint_state_key(cfg.state_prefix, purpose)) or {}
-    gate_active = str(lint_raw.get('gate_active', '0')) == '1'
+    gate_active = (lint_raw.get('gate_active', '0')) == '1'
     state = upsert_ack_silence(
         r,
         prefix=cfg.silence_prefix,
@@ -153,7 +155,7 @@ def cmd_ack(
         'operator': operator,
         'ticket': ticket,
         'minutes': int(minutes),
-        'escalation_ticket': str(escalation_ticket or ''),
+        'escalation_ticket': (escalation_ticket or ''),
         'policy': {
             'window_hours': int(cfg.policy_window_s / 3600),
             'max_budget_minutes': cfg.policy_max_budget_minutes,

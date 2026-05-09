@@ -2,9 +2,11 @@
 """
 Check for closed trades in the last hour from PostgreSQL database
 """
-import psycopg2
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
+import psycopg2
+
 
 def main():
     # Database connection parameters
@@ -42,7 +44,7 @@ def main():
         cursor = conn.cursor()
 
         # Calculate time range
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         one_hour_ago = now - timedelta(hours=1)
 
         now_ms = int(now.timestamp() * 1000)

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Emit ops-event/Telegram summaries for persistent latency deploy-lint drift.
@@ -14,14 +15,14 @@ class changes are deterministic and visible to approval binding.
 
 import json
 import os
-import time
 from dataclasses import dataclass
 from typing import Any
 
 from services.observability.latency_deploy_contract import CONTRACTS
-from services.observability.latency_deploy_lint_state import state_key as lint_state_key
-from services.observability.latency_deploy_lint_notify_state import purposes_hash, state_key as notify_state_key, update_notifier_state
+from services.observability.latency_deploy_lint_notify_state import purposes_hash, update_notifier_state
+from services.observability.latency_deploy_lint_notify_state import state_key as notify_state_key
 from services.observability.latency_deploy_lint_silence_state import list_silenced_purposes, parse_silence_state
+from services.observability.latency_deploy_lint_state import state_key as lint_state_key
 
 
 def _env(name: str, default: str = '') -> str:
@@ -80,7 +81,7 @@ def _active_state_payload(r: Any, prefix: str) -> tuple[list[str], dict[str, dic
     for purpose in sorted(CONTRACTS.keys()):
         raw = r.hgetall(lint_state_key(prefix, purpose)) or {}
         details[purpose] = raw
-        if str(raw.get('gate_active', '0')) == '1':
+        if (raw.get('gate_active', '0')) == '1':
             active.append(purpose)
     return active, details
 
@@ -93,7 +94,7 @@ def _partition_active_by_silence(r: Any, *, prefix: str, active: list[str], now_
 
 def _split_codes(raw: Any) -> set[str]:
     """Split a comma-separated warning_codes field into individual code tokens."""
-    return {x.strip() for x in str(raw or '').split(',') if x.strip() and x.strip() != 'none'}
+    return {x.strip() for x in (raw or '').split(',') if x.strip() and x.strip() != 'none'}
 
 
 def _warning_policy_for_active(cfg: Cfg, details: dict[str, dict[str, str]], active: list[str]) -> str:
@@ -133,7 +134,7 @@ def _summary_text(active: list[str], details: dict[str, dict[str, str]], *, sile
     parts: list[str] = []
     for purpose in active:
         raw = details.get(purpose) or {}
-        parts.append(f"{purpose}: {str(raw.get('error_codes') or 'unknown')[:240]}")
+        parts.append(f"{purpose}: {(raw.get('error_codes') or 'unknown')[:240]}")
     if silenced:
         parts.append('silenced on notifier:')
         for purpose in silenced:
@@ -231,8 +232,8 @@ def main() -> int:
     raw_active, details = _active_state_payload(r, cfg.state_prefix)
     active, silenced, silence_details = _partition_active_by_silence(r, prefix=cfg.silence_prefix, active=raw_active, now_ms=now_ms)
     prev = r.hgetall(notify_state_key(cfg.notifier_state_key)) or {}
-    prev_hash = str(prev.get('active_hash') or '')
-    prev_status = str(prev.get('last_status') or 'unknown')
+    prev_hash = (prev.get('active_hash') or '')
+    prev_status = (prev.get('last_status') or 'unknown')
     last_emit_ts_ms = _i(prev.get('last_emit_ts_ms'), 0)
     current_hash = purposes_hash(active)
     current_status = 'active' if active else ('silenced' if raw_active else 'ok')

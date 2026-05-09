@@ -1,17 +1,19 @@
 # python-worker/services/tb_labeler_worker_v10_2.py
 
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis  # runtime dependency
 
 from core.tb_labeling import infer_tp_sl_bps
+from utils.time_utils import get_ny_time_millis
+import contextlib
+from core.redis_keys import RedisStreams as RS
 
 try:
     from prometheus_client import Counter, Gauge, Histogram, start_http_server  # type: ignore
@@ -25,7 +27,7 @@ except Exception:  # pragma: no cover
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
 TICKS_REDIS_URL = os.getenv("TICKS_REDIS_URL", "redis://redis-ticks:6379/0")
 
-OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+OF_INPUTS_STREAM = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
 OF_INPUTS_FIELD = os.getenv("OF_INPUTS_FIELD", "payload")
 
 OF_INPUTS_GROUP = os.getenv("OF_INPUTS_GROUP", "tb_labeler_v2")
@@ -100,7 +102,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def _safe_loads(s: Any) -> Dict[str, Any]:
+def _safe_loads(s: Any) -> dict[str, Any]:
     try:
         if isinstance(s, dict):
             return s
@@ -118,7 +120,7 @@ def _safe_loads(s: Any) -> Dict[str, Any]:
 
 
 def _normalize_direction(x: Any) -> str:
-    s = str(x or "").upper()
+    s = (x or "").upper()
     if s in ("BUY", "LONG", "B"):
         return "LONG"
     if s in ("SELL", "SHORT", "S"):
@@ -130,10 +132,10 @@ def _stream_id(ms: int, seq: int = 0) -> str:
     return f"{ms}-{seq}"
 
 
-def _parse_stream_id(id_: Any) -> Tuple[int, int]:
+def _parse_stream_id(id_: Any) -> tuple[int, int]:
     if isinstance(id_, bytes):
         id_ = id_.decode("utf-8", "ignore")
-    s = str(id_ or "0-0")
+    s = (id_ or "0-0")
     try:
         a, b = s.split("-", 1)
         return int(a), int(b)
@@ -164,7 +166,7 @@ def _day_bucket_yyyymmdd(ts_ms: int) -> str:
 # Metrics
 # ----------------------------
 class _NoopMetric:
-    def labels(self, *args: Any, **kwargs: Any) -> "_NoopMetric":
+    def labels(self, *args: Any, **kwargs: Any) -> _NoopMetric:
         return self
 
     def inc(self, n: float = 1.0) -> None:
@@ -201,10 +203,10 @@ TB_GROUP_CLAIM_TOTAL = Counter("tb_of_inputs_claim_total", "Claimed pending OF i
 # ----------------------------
 # TB Labeling
 # ----------------------------
-def sample_ticks(path: List[Tuple[int, float]], every: int, max_n: int) -> Optional[List[List[float]]]:
+def sample_ticks(path: list[tuple[int, float]], every: int, max_n: int) -> list[list[float]] | None:
     if not path:
         return None
-    out: List[List[float]] = []
+    out: list[list[float]] = []
     for i, (ts, px) in enumerate(path):
         if i % max(1, every) != 0:
             continue
@@ -234,7 +236,7 @@ class TBResult:
     side: str
 
 
-def eval_barrier(path: List[Tuple[int, float]], entry_ts_ms: int, horizon_ms: int, side: str,
+def eval_barrier(path: list[tuple[int, float]], entry_ts_ms: int, horizon_ms: int, side: str,
                 tp_bps: float, sl_bps: float, adv_max: float,
                 spread_bps: float, slip_bps: float, exec_cost_mult: float = 1.0) -> TBResult:
     side = _normalize_direction(side)
@@ -317,7 +319,7 @@ class TBLabelerWorkerV10_2:
         except Exception:
             return
 
-    def _idx_get(self, sid: str, ts_ms: int) -> Optional[str]:
+    def _idx_get(self, sid: str, ts_ms: int) -> str | None:
         if not sid:
             return None
         try:
@@ -424,7 +426,7 @@ class TBLabelerWorkerV10_2:
                     max="+",
                     count=OF_INPUTS_CLAIM_COUNT,
                 )
-                ids: List[str] = []
+                ids: list[str] = []
                 for p in pend:
                     pid = p.get("message_id") if isinstance(p, dict) else None
                     if isinstance(pid, bytes):
@@ -446,8 +448,8 @@ class TBLabelerWorkerV10_2:
             except Exception:
                 return
 
-    def _canonical_sid(self, inp: Dict[str, Any], msg_id: Any) -> str:
-        sid = str(inp.get("sid") or "")
+    def _canonical_sid(self, inp: dict[str, Any], msg_id: Any) -> str:
+        sid = (inp.get("sid") or "")
         symbol = str(inp.get("symbol") or inp.get("sym") or "").upper()
         ts_ms = _i(inp.get("ts_ms") or inp.get("ts") or 0, 0)
         if sid and ":" in sid:
@@ -460,7 +462,7 @@ class TBLabelerWorkerV10_2:
             symbol = "UNKNOWN"
         return f"crypto-of:{symbol}:{ts_ms}"
 
-    def _on_input(self, inp: Dict[str, Any], msg_id: Any, from_claim: bool = False) -> None:
+    def _on_input(self, inp: dict[str, Any], msg_id: Any, from_claim: bool = False) -> None:
         if not inp:
             return
         # support flat payloads (OFInputsV2)
@@ -470,10 +472,8 @@ class TBLabelerWorkerV10_2:
 
         ts_ms = _i(inp.get("ts_ms") or indicators.get("ts_ms") or 0, 0)
         if ts_ms <= 0:
-            try:
+            with contextlib.suppress(Exception):
                 ts_ms = int((msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)).split("-", 1)[0])
-            except Exception:
-                pass
         sid = self._canonical_sid(inp, msg_id)
         symbol = str(inp.get("symbol") or indicators.get("symbol") or "").upper()
         direction = _normalize_direction(inp.get("direction") or indicators.get("direction") or "LONG")
@@ -511,7 +511,7 @@ class TBLabelerWorkerV10_2:
             except Exception:
                 continue
 
-    def _load_of_input(self, sid: str, msg_id_hint: str, ts_ms: int) -> Optional[Dict[str, Any]]:
+    def _load_of_input(self, sid: str, msg_id_hint: str, ts_ms: int) -> dict[str, Any] | None:
         t0 = time.time()
         # index lookup
         try:
@@ -544,15 +544,15 @@ class TBLabelerWorkerV10_2:
         TB_INPUT_LOOKUP_MS.observe((time.time() - t0) * 1000.0)
         return None
 
-    def _fetch_ticks(self, symbol: str, start_ms: int, end_ms: int) -> List[Tuple[int, float]]:
+    def _fetch_ticks(self, symbol: str, start_ms: int, end_ms: int) -> list[tuple[int, float]]:
         # Scan ticks stream in [start,end], pick price from field names used in your tick ingest
         stream = f"{TB_TICK_STREAM_PREFIX}{symbol}"
         cur = _stream_id(start_ms, 0)
         end_id = _stream_id(end_ms, 0)
-        out: List[Tuple[int, float]] = []
+        out: list[tuple[int, float]] = []
         scanned = 0
 
-        def _merge_tick_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
+        def _merge_tick_fields(fields: dict[str, Any]) -> dict[str, Any]:
             merged = dict(fields)
             if "data" in fields:
                 nested = _safe_loads(fields.get("data"))
@@ -560,7 +560,7 @@ class TBLabelerWorkerV10_2:
                     merged.update(nested)
             return merged
 
-        def _pick_tick_ts_ms(t: Dict[str, Any]) -> int:
+        def _pick_tick_ts_ms(t: dict[str, Any]) -> int:
             ts = _i(t.get("ts", 0), 0)
             if ts <= 0:
                 ts = _i(t.get("ts_ms", 0), 0)
@@ -568,7 +568,7 @@ class TBLabelerWorkerV10_2:
                 ts = _i(t.get("timestamp", 0), 0)
             return ts
 
-        def _pick_price(t: Dict[str, Any]) -> float:
+        def _pick_price(t: dict[str, Any]) -> float:
             px = _f(t.get("mid"), 0.0)
             if px <= 0.0:
                 px = _f(t.get("price"), 0.0)
@@ -629,7 +629,7 @@ class TBLabelerWorkerV10_2:
             # print(f"Processing job {job_id_b_str}")
             if not job_id_b:
                 continue
-            
+
             # dedup
             try:
                 done_key = f"{TB_DONE_KEY_PREFIX}{job_id_b_str}"
@@ -642,18 +642,18 @@ class TBLabelerWorkerV10_2:
                 if not job_data:
                     self.r.zrem(TB_JOBS_ZSET, job_id_b)
                     continue
-                
+
                 job = _safe_loads(job_data)
                 if not job:
                     self.r.zrem(TB_JOBS_ZSET, job_id_b)
                     continue
 
-                sid = str(job.get("sid") or "")
-                symbol = str(job.get("symbol") or "").upper()
+                sid = (job.get("sid") or "")
+                symbol = (job.get("symbol") or "").upper()
                 ts_ms = _i(job.get("ts_ms"), 0)
                 h_ms = _i(job.get("h_ms"), 0)
                 direction = _normalize_direction(job.get("direction") or "LONG")
-                msg_id_hint = str(job.get("msg_id") or "")
+                msg_id_hint = (job.get("msg_id") or "")
 
                 inp = self._load_of_input(sid, msg_id_hint, ts_ms)
                 if not inp:
@@ -678,7 +678,7 @@ class TBLabelerWorkerV10_2:
                 except Exception as e:
                     print(f"Error fetching ticks for {symbol}: {e}")
                     path = []
-                    
+
                 TB_TICK_FETCH_MS.observe((time.time() - t0) * 1000.0)
                 TB_TICKS_USED.observe(len(path))
 
@@ -690,7 +690,7 @@ class TBLabelerWorkerV10_2:
 
                 # derive barriers
                 # atr_bps/stop_bps extraction redundant as they are extracted in infer_tp_sl_bps
-                
+
                 barriers = infer_tp_sl_bps(
                     indicators,
                     tp_k_atr=TP_K_ATR,
@@ -700,7 +700,7 @@ class TBLabelerWorkerV10_2:
                 )
                 tp_bps = barriers.tp_bps
                 sl_bps = barriers.sl_bps
-                
+
                 spread_bps = _f(indicators.get("spread_bps") or 0.0, 0.0)
                 slip_bps = _f(indicators.get("expected_slippage_bps") or indicators.get("slippage_bps") or 0.0, 0.0)
 
@@ -752,7 +752,7 @@ class TBLabelerWorkerV10_2:
                     print(f"Error writing label for {sid}: {e}")
                     TB_JOBS_TOTAL.labels("err").inc()
                     self.r.set(TB_LAST_ERR_TS_MS_KEY, str(now_ms()))
-                
+
                 # Success -> remove from ZSET
                 self.r.zrem(TB_JOBS_ZSET, job_id_b)
 
@@ -764,10 +764,8 @@ class TBLabelerWorkerV10_2:
                  import traceback
                  traceback.print_exc()
                  # Remove if it's a non-retriable error to avoid infinite loop
-                 try:
+                 with contextlib.suppress(Exception):
                     self.r.zrem(TB_JOBS_ZSET, job_id_b)
-                 except Exception:
-                    pass
 
     def run_forever(self) -> None:
         self._ensure_group()

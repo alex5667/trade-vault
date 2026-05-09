@@ -17,7 +17,6 @@ from services.binance_futures_client import BinanceFuturesClient
 from services.binance_user_stream_worker import BinanceUserStreamWorker
 from services.testing.binance_mock_harness import InMemoryRedis, running_binance_mock
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

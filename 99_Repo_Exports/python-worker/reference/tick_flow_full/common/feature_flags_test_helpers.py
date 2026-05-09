@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 
 class FakeRedis:
@@ -12,7 +12,7 @@ class FakeRedis:
     def __init__(self) -> None:
         self._kv: dict[str, Any] = {}
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         return self._kv.get(key)
 
     def set(self, key: str, value: Any) -> None:

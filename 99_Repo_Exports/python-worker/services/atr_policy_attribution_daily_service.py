@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 import time
 
 from services.analytics_db import get_conn
@@ -76,12 +75,13 @@ def run_once() -> None:
             logger.error("Error executing attribution aggregation: %s", e)
 
 if __name__ == "__main__":
-    import yaml
     import logging.config
+
+    import yaml
     try:
-        with open("logging.yaml", "r") as f:
+        with open("logging.yaml") as f:
             logging.config.dictConfig(yaml.safe_load(f))
     except Exception:
         logging.basicConfig(level=logging.INFO)
-    
+
     run_once()

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+
 """
 test_eval_meta_ramp_outcomes.py
 
@@ -9,22 +11,20 @@ Unit tests for eval_meta_ramp_outcomes.py
 
 
 import json
-import tempfile
 import os
-from typing import List, Dict, Any
-
-import pytest
 
 # Import the module functions
 import sys
+import tempfile
+
+import pytest
+
 sys.path.insert(0, os.path.dirname(__file__))
 from eval_meta_ramp_outcomes import (
-    iter_ndjson,
-    stats,
     bootstrap_diff,
+    iter_ndjson,
     pctl,
-    _f,
-    _i,
+    stats,
 )
 
 
@@ -79,7 +79,7 @@ def test_iter_ndjson():
         f.write('\n')  # empty line
         f.write('{"c": 3}\n')
         fname = f.name
-    
+
     try:
         rows = list(iter_ndjson(fname))
         assert len(rows) == 3
@@ -100,11 +100,11 @@ def test_eval_missing_tags():
                 "r_mult": 0.5,
             }) + "\n")
         fname = f.name
-    
+
     try:
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as out:
             outname = out.name
-        
+
         # Run evaluation via subprocess (simplified test)
         # In real test, we'd import main() and call it
         # For now, just verify the file structure
@@ -134,13 +134,13 @@ def test_eval_sufficient_data():
                 "meta_enforce_applied": 0,
             }) + "\n")
         fname = f.name
-    
+
     try:
         # Verify file structure
         rows = list(iter_ndjson(fname))
         assert len(rows) == 200
-        enforce = [r for r in rows if r.get("meta_enforce_applied") == 1]
-        control = [r for r in rows if r.get("meta_enforce_applied") == 0]
+        enforce = [r for r in rows if r.get(MetaKeys.ENFORCE_APPLIED) == 1]
+        control = [r for r in rows if r.get(MetaKeys.ENFORCE_APPLIED) == 0]
         assert len(enforce) == 100
         assert len(control) == 100
     finally:

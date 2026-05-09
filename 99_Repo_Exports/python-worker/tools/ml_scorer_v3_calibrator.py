@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from core.redis_keys import RedisStreams as RS
+
 """
 ML Scorer V3 Calibrator.
 
@@ -13,24 +15,24 @@ If all thresholds are met → proposes ML_SCORER_MODE=shadow→enforce
 via interactive Telegram (✅/❌).
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
-import hmac
 import hashlib
+import hmac
 import json
 import logging
 import os
 import secrets
 import sys
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import redis
 
 # Use scikit-learn for correct binary metrics
-from sklearn.metrics import roc_auc_score, brier_score_loss
+from sklearn.metrics import brier_score_loss, roc_auc_score
+
+from utils.time_utils import get_ny_time_millis
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,8 +71,8 @@ def _i(v, default: int = 0) -> int:
 
 # ────────────────────────────────────────── stream readers ────────────────── #
 
-def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, str]]:
-    results: List[Dict[str, str]] = []
+def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, str]]:
+    results: list[dict[str, str]] = []
     start_id = f"{since_ms}-0"
     page = 500
     last_id = start_id
@@ -89,8 +91,8 @@ def _read_stream_since(r: redis.Redis, stream: str, since_ms: int, max_scan: int
 
     return results
 
-def _read_stream_recent(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, str]]:
-    results: List[Dict[str, str]] = []
+def _read_stream_recent(r: redis.Redis, stream: str, since_ms: int, max_scan: int) -> list[dict[str, str]]:
+    results: list[dict[str, str]] = []
     last_id = "+"
     page = 500
 
@@ -113,7 +115,7 @@ def _read_stream_recent(r: redis.Redis, stream: str, since_ms: int, max_scan: in
 
 # ─────────────────────────────────────── metrics collection ───────────────── #
 
-def _extract_shadow_fields(ev: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _extract_shadow_fields(ev: dict[str, Any]) -> dict[str, Any] | None:
     # 1. Try to get indicators from payload (JSON) or directly from event
     payload_str = ev.get("payload", "")
     if payload_str:
@@ -137,8 +139,8 @@ def _extract_shadow_fields(ev: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         indicators = {}
 
     breakdown = indicators.get("confidence_breakdown") if isinstance(indicators.get("confidence_breakdown"), dict) else {}
-    ml_kind = str(indicators.get("ml_kind") or "").strip().lower()
-    
+    ml_kind = (indicators.get("ml_kind") or "").strip().lower()
+
     # 3. Extract shadow score
     ml_shadow_conf = _f(
         breakdown.get("ml_shadow_conf01")
@@ -160,8 +162,8 @@ def _extract_shadow_fields(ev: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def _compute_ece(
-    probs: List[float],
-    labels: List[int],
+    probs: list[float],
+    labels: list[int],
     n_bins: int = 10,
 ) -> float:
     """Expected Calibration Error (equal-width binning).
@@ -196,7 +198,7 @@ def _collect_analytics(
     hours: float,
     max_scan: int,
     min_r_target: float = 0.0,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     decisions_stream = os.getenv("DECISIONS_FINAL_STREAM", "decisions:final")
     trades_stream = os.getenv("ML_OUTCOME_STREAM", "trades:closed")
 
@@ -206,7 +208,7 @@ def _collect_analytics(
     decision_events = _read_stream_since(r, decisions_stream, since_ms, max_scan)
     trades_events = _read_stream_recent(r, trades_stream, since_ms, max_scan)
 
-    trades_by_sid: Dict[str, Dict[str, str]] = {}
+    trades_by_sid: dict[str, dict[str, str]] = {}
     for ev in trades_events:
         sid = str(ev.get("sid") or ev.get("signal_id") or "").strip()
         if sid and sid not in trades_by_sid:
@@ -216,8 +218,8 @@ def _collect_analytics(
     shadow_scored_count = 0
     scored_with_outcome = 0
 
-    ml_scores: List[float] = []
-    targets: List[int] = []
+    ml_scores: list[float] = []
+    targets: list[int] = []
 
     for ev in decision_events:
         shadow = _extract_shadow_fields(ev)
@@ -259,7 +261,7 @@ def _collect_analytics(
     }
 
 
-def _holddown_ok(r: redis.Redis, step_ts_key: str, holddown_h: float) -> Tuple[bool, float]:
+def _holddown_ok(r: redis.Redis, step_ts_key: str, holddown_h: float) -> tuple[bool, float]:
     raw = r.get(step_ts_key)
     if not raw:
         return True, 999.0
@@ -280,7 +282,7 @@ def _build_proposal_bundle(
     cfg_key: str,
     secret: str,
     ttl: int = 86400,
-) -> Tuple[str, str, Dict[str, Any]]:
+) -> tuple[str, str, dict[str, Any]]:
     bid = secrets.token_hex(6)
     sig = _sign(bid, secret)
     ts = _now_ms()
@@ -306,7 +308,7 @@ def _send_telegram_proposal(
     bundle_id: str,
     sig: str,
     hours: float,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     notify_stream: str,
     is_reminder: bool = False,
 ) -> None:
@@ -348,13 +350,13 @@ def _send_telegram_proposal(
 
 def _should_propose(
     *,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     holddown_ok: bool,
     min_scored_trades: int,
     min_auc: float,
     max_brier: float,
     max_ece: float,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     scored = int(stats["scored_with_outcome"])
     auc = stats["roc_auc"]
     brier = stats["brier_score"]
@@ -383,7 +385,7 @@ def _wait_for_decision(
     bundle_id: str,
     sig: str,
     hours: float,
-    stats: Dict[str, float],
+    stats: dict[str, float],
     notify_stream: str,
     reminder_sec: int,
     step_ts_key: str,
@@ -508,13 +510,13 @@ def main() -> None:
     pending_key = os.getenv("MLS_CAL_PENDING_KEY", "meta:ml_scorer_cal:pending")
     step_ts_key = os.getenv("MLS_CAL_STEP_TS_KEY", "meta:ml_scorer_cal:last_step_ms")
     holddown_h = float(os.getenv("MLS_CAL_ENFORCE_HOLDDOWN_H", "72"))
-    
+
     # New V3 thresholds
     min_auc = float(os.getenv("MLS_CAL_MIN_AUC", "0.52"))
     max_brier = float(os.getenv("MLS_CAL_MAX_BRIER", "0.25"))
     max_ece = float(os.getenv("MLS_CAL_MAX_ECE", "0.10"))
-    
-    notify_stream = os.getenv("NOTIFY_STREAM", "notify:telegram")
+
+    notify_stream = os.getenv("NOTIFY_STREAM", RS.NOTIFY_TELEGRAM)
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
     bundle_ttl = int(os.getenv("MLS_CAL_BUNDLE_TTL_SEC", "86400"))
     reminder_sec = int(os.getenv("MLS_CAL_REMINDER_SEC", "1800"))

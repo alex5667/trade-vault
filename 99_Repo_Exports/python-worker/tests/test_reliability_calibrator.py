@@ -1,21 +1,19 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from typing import Any, Dict, Optional
-
 import os
-import pytest
+from collections import defaultdict
+from typing import Any
 
 from services.reliability_calibrator import RelCalConfig, update_reliability_curves
 
 
 class FakeRedis:
     def __init__(self) -> None:
-        self.h: Dict[str, Dict[str, int]] = defaultdict(dict)
-        self.exp: Dict[str, int] = {}
+        self.h: dict[str, dict[str, int]] = defaultdict(dict)
+        self.exp: dict[str, int] = {}
 
     # pipeline emulation
-    def pipeline(self, transaction: bool = False) -> "FakeRedis":
+    def pipeline(self, transaction: bool = False) -> FakeRedis:
         return self
 
     def hincrby(self, key: str, field: str, amount: int) -> int:
@@ -37,7 +35,7 @@ class FakeRedis:
     def execute(self) -> None:
         return None
 
-    def hgetall(self, key: str) -> Dict[str, Any]:
+    def hgetall(self, key: str) -> dict[str, Any]:
         # edge_cost_gate uses hgetall; keep compatible
         return dict(self.h.get(key) or {})
 

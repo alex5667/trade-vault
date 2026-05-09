@@ -4,7 +4,8 @@ import dataclasses
 import hashlib
 import json
 import math
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 
 def stable_json_dumps(obj: Any) -> str:
@@ -23,7 +24,7 @@ def _is_number(x: Any) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
-def _as_float(x: Any) -> Optional[float]:
+def _as_float(x: Any) -> float | None:
     if x is None:
         return None
     if _is_number(x):
@@ -75,11 +76,11 @@ def diff_objects(
     *,
     abs_tol: float = 1e-6,
     rel_tol: float = 1e-6,
-    ignore_paths: Optional[Iterable[str]] = None,
+    ignore_paths: Iterable[str] | None = None,
     max_diffs: int = 200,
     _path: str = "",
-    _out: Optional[List[DiffItem]] = None,
-) -> List[DiffItem]:
+    _out: list[DiffItem] | None = None,
+) -> list[DiffItem]:
     """Recursive diff with float tolerance and path-based ignore."""
     if _out is None:
         _out = []
@@ -146,14 +147,14 @@ def diff_objects(
     return _out
 
 
-def extract_policy_keys(rec: Dict[str, Any]) -> Tuple[str, str]:
+def extract_policy_keys(rec: dict[str, Any]) -> tuple[str, str]:
     ind = rec.get("indicators") if isinstance(rec.get("indicators"), dict) else rec
-    ph = str(ind.get("dq_policy_hash") or "")
+    ph = (ind.get("dq_policy_hash") or "")
     mh = str(ind.get("dq_policy_feature_manifest_hash_v1") or ind.get("dq_policy_feature_manifest_hash") or "")
     return ph, mh
 
 
-def extract_expected_ofc(rec: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def extract_expected_ofc(rec: dict[str, Any]) -> dict[str, Any] | None:
     for k in ("of_confirm", "ofc", "confirm", "of_confirm_v3"):
         v = rec.get(k)
         if isinstance(v, dict):
@@ -167,8 +168,8 @@ def extract_expected_ofc(rec: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def summarize_diffs(diffs: List[DiffItem]) -> Dict[str, Any]:
-    by_kind: Dict[str, int] = {}
+def summarize_diffs(diffs: list[DiffItem]) -> dict[str, Any]:
+    by_kind: dict[str, int] = {}
     top = []
     for it in diffs[:50]:
         by_kind[it.kind] = by_kind.get(it.kind, 0) + 1

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict
+from typing import Any
 
 try:  # pragma: no cover
     from google import genai  # type: ignore
@@ -12,7 +12,7 @@ except Exception:  # pragma: no cover
     types = None
 
 
-def _schema() -> Dict[str, Any]:
+def _schema() -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {
@@ -69,7 +69,7 @@ class VertexRoutingIncidentRCAProviderV29:
     def is_available(self) -> bool:
         return bool(self._project and genai is not None and types is not None)
 
-    def analyze(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.is_available():  # pragma: no cover
             raise RuntimeError("vertex_genai_unavailable")
         client = genai.Client(vertexai=True, project=self._project, location=self._location)

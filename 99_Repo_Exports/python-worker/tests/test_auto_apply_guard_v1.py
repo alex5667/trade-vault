@@ -1,12 +1,11 @@
+import os
 import unittest
 from unittest.mock import MagicMock, patch
-import os
-import sys
 
 # Add python-worker to path to import tools
 # [AUTOGRAVITY CLEANUP] sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from tools import auto_apply_job_entrypoint_hardguard_v1 as guard
+
 
 class TestAutoApplyGuardV1(unittest.TestCase):
     def test_split_csv(self):
@@ -25,7 +24,7 @@ class TestAutoApplyGuardV1(unittest.TestCase):
 
     def test_read_block_state_hash(self):
         r = MagicMock()
-        
+
         # Case 1: Hash with explicit blocked=1
         r.type.return_value = b"hash"
         r.hgetall.return_value = {b"blocked": b"1", b"reason": b"manual"}
@@ -52,7 +51,7 @@ class TestAutoApplyGuardV1(unittest.TestCase):
     def test_read_block_state_string(self):
         r = MagicMock()
         r.type.return_value = b"string"
-        
+
         # Blocked
         r.get.return_value = b"1"
         blocked, _, _ = guard._read_block_state(r, b"key", existence_blocks=True)
@@ -77,48 +76,48 @@ class TestAutoApplyGuardV1(unittest.TestCase):
     def test_main_guard_logic(self, mock_run, mock_redis_ctor):
         r = MagicMock()
         mock_redis_ctor.return_value = r
-        
+
         # Setup scenarios
         # 1. Ignored by suffix
         # 2. Ignored by regex
         # 3. Blocked by hash (explicit) <- should trigger block
         # 4. Ignored by existence-only check (implied by env var=0)
-        
+
         # We mock _scan_block_keys to return a list of keys
         # We'll mock _read_block_state calls or just rely on the implementation if simple enough
-        # Actually safer to mock the helper if we want to test main logic flow? 
+        # Actually safer to mock the helper if we want to test main logic flow?
         # But we want integration of components. Let's rely on r calls.
 
         # Key1: prefix:ignored -> Suffix match
         # Key2: prefix:ignore_me -> Regex match
         # Key3: prefix:valid -> Explicit block
-        
+
         mock_scan = [b"prefix:ignored", b"prefix:ignore_me", b"prefix:valid"]
         r.scan.side_effect = [(0, mock_scan)]
-        
+
         r.type.return_value = b"hash"
-        
+
         def hgetall_side_effect(key):
             if key == b"prefix:valid":
                 return {b"blocked": b"1", b"reason": b"real_block"}
             return {b"blocked": b"1"} # Others would block if not ignored
-            
+
         r.hgetall.side_effect = hgetall_side_effect
-        
+
         mock_run.return_value = (0, "out", "err", 100)
-        
+
         # Run main
         ret_code = guard.main()
-        
+
         # Should exit 0 because SKIPPED_FROZEN defaults to 0
-        self.assertEqual(ret_code, 0)        
+        self.assertEqual(ret_code, 0)
         # Should exit 0 because SKIPPED_FROZEN defaults to 0, but check decision logic
         # Wait, if blocked it exits 0 (default skip code) or custom.
         # Let's verify what happened via redis calls.
-        
+
         # Verify emit metrics
         # Expecting SKIPPED_FROZEN because Key3 is valid block
-        
+
         # Check if xadd called with decision=SKIPPED_FROZEN
         found_decision = False
         for call in r.xadd.call_args_list:
@@ -128,7 +127,7 @@ class TestAutoApplyGuardV1(unittest.TestCase):
                  self.assertEqual(args[1]['block_key'], "prefix:valid")
                  break
         self.assertTrue(found_decision, "Should have decided to SKIP based on prefix:valid")
-        
+
         # Now test ignore reason
         # Set config to ignore "real_block" reason
         with patch.dict(os.environ, {"AUTO_APPLY_BLOCK_IGNORE_REASONS_REGEX": "real_block"}):
@@ -137,10 +136,10 @@ class TestAutoApplyGuardV1(unittest.TestCase):
              r.scan.side_effect = [(0, [b"prefix:valid"])]
              r.type.return_value = b"hash"
              r.hgetall.return_value = {b"blocked": b"1", b"reason": b"real_block"}
-             
+
              # Run
              guard.main()
-             
+
              # Should RUN because reason matches ignore regex
              # Check for RUN/OK
              found_run = False

@@ -1,15 +1,15 @@
 from __future__ import annotations
+
 """
 Execution Planner: builds detailed execution plans for signals.
 Includes risk management, entry zones, stop levels, and TP targets.
 """
 
 
-from typing import Tuple, List, Optional
 
 from .models import (
-    ExtendedSignalContext,
     ExecutionPlan,
+    ExtendedSignalContext,
     Side,
     SwingPoint,
     SymbolSetupConfig,
@@ -47,7 +47,7 @@ class ExecutionPlanner:
 
     # ---------- Микроструктурные уровни для стопа ----------
 
-    def _select_support_level(self, ctx: ExtendedSignalContext) -> Optional[float]:
+    def _select_support_level(self, ctx: ExtendedSignalContext) -> float | None:
         """
         Для long: ищем наиболее "толковый" минимум ниже текущей цены.
         Критерии:
@@ -72,7 +72,7 @@ class ExecutionPlanner:
         best = max(lows, key=score)
         return best.price
 
-    def _select_resistance_level(self, ctx: ExtendedSignalContext) -> Optional[float]:
+    def _select_resistance_level(self, ctx: ExtendedSignalContext) -> float | None:
         """
         Для short: зеркально _select_support_level.
         """
@@ -111,7 +111,7 @@ class ExecutionPlanner:
 
         return stop
 
-    def _build_entry_zone(self, ctx: ExtendedSignalContext, cfg: SymbolSetupConfig, stop_price: float) -> Tuple[float, float]:
+    def _build_entry_zone(self, ctx: ExtendedSignalContext, cfg: SymbolSetupConfig, stop_price: float) -> tuple[float, float]:
         """
         Entry зона в R относительно стопа.
         Для long: SupportLevel мы уже использовали для стопа, но R посчитаем от price_at_signal.
@@ -135,7 +135,7 @@ class ExecutionPlanner:
 
         return zone_low, zone_high
 
-    def _select_htf_targets(self, ctx: ExtendedSignalContext, entry_ref_price: float) -> List[float]:
+    def _select_htf_targets(self, ctx: ExtendedSignalContext, entry_ref_price: float) -> list[float]:
         """
         Из списка HTFLevels выбираем несколько ближайших уровней по направлению сделки.
         """
@@ -159,7 +159,7 @@ class ExecutionPlanner:
         stop_price: float,
         entry_zone_low: float,
         entry_zone_high: float,
-    ) -> List[float]:
+    ) -> list[float]:
         """
         Построить уровни тейк-профита: HTF-уровни + дефолтные R-based цели.
         """
@@ -173,7 +173,7 @@ class ExecutionPlanner:
         htf_targets = self._select_htf_targets(ctx, entry_ref)
 
         # 2) R-бейсд цели
-        tp_from_R: List[float] = []
+        tp_from_R: list[float] = []
         for r_mult in cfg.default_tp_R:
             if ctx.side == Side.LONG:
                 tp_from_R.append(entry_ref + r_mult * R)
@@ -216,7 +216,7 @@ class ExecutionPlanner:
         ctx: ExtendedSignalContext,
         cfg: SymbolSetupConfig,
         stop_price: float,
-    ) -> Tuple[float, float, float]:
+    ) -> tuple[float, float, float]:
         """
         Рассчитать размер позиции на основе риска и состояния счета.
 
@@ -264,7 +264,7 @@ class ExecutionPlanner:
 
         return pos_risk_R, risk_usd, position_size
 
-    def build_plan(self, ctx: ExtendedSignalContext) -> Optional[ExecutionPlan]:
+    def build_plan(self, ctx: ExtendedSignalContext) -> ExecutionPlan | None:
         """
         Основной метод: из ExtendedSignalContext => ExecutionPlan.
         Если сетап не проходит проверки (слишком широкий стоп, нет риска и т.п.) — можно вернуть None.

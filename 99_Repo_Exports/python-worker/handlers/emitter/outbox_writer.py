@@ -1,15 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import hashlib
 import json
 import math
 import os
 import time
-from typing import Any, Optional
-
-
 import uuid
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 class OutboxWriter:
@@ -39,12 +39,12 @@ class OutboxWriter:
         retry_sleep_ms: int,
         dedup_ttl_ms: int,
         dedup_pending_ttl_ms: int,
-        stream_key: Optional[str] = None,
-        sem_enabled: Optional[bool] = None,
-        sem_ttl_ms: Optional[int] = None,
-        sem_pending_ttl_ms: Optional[int] = None,
-        sem_bucket_ms: Optional[int] = None,
-        sem_level_decimals: Optional[int] = None,
+        stream_key: str | None = None,
+        sem_enabled: bool | None = None,
+        sem_ttl_ms: int | None = None,
+        sem_pending_ttl_ms: int | None = None,
+        sem_bucket_ms: int | None = None,
+        sem_level_decimals: int | None = None,
     ) -> None:
         self._pub = publisher
         self._logger = logger
@@ -63,13 +63,13 @@ class OutboxWriter:
         self._payload_max_bytes = int(os.getenv("OUTBOX_PAYLOAD_MAX_BYTES", "65000"))  # защитный лимит
 
         # "0.5 гайки": semantic dedup конфиг
-        self._sem_enabled = sem_enabled if sem_enabled is not None else str(os.getenv("OUTBOX_SEM_DEDUP", "0")).strip().lower() in {"1", "true", "yes", "on"}
+        self._sem_enabled = sem_enabled if sem_enabled is not None else os.getenv("OUTBOX_SEM_DEDUP", "0").strip().lower() in {"1", "true", "yes", "on"}
         self._sem_ttl_ms = sem_ttl_ms if sem_ttl_ms is not None else int(os.getenv("OUTBOX_SEM_DEDUP_TTL_MS", "15000"))
         self._sem_pending_ttl_ms = sem_pending_ttl_ms if sem_pending_ttl_ms is not None else int(os.getenv("OUTBOX_SEM_DEDUP_PENDING_TTL_MS", "15000"))
         self._sem_bucket_ms = sem_bucket_ms if sem_bucket_ms is not None else int(os.getenv("OUTBOX_SEM_DEDUP_BUCKET_MS", "1000"))
         self._sem_level_decimals = sem_level_decimals if sem_level_decimals is not None else int(os.getenv("OUTBOX_SEM_DEDUP_LEVEL_DECIMALS", "2"))
 
-    def _normalize_sidecar_meta(self, meta: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    def _normalize_sidecar_meta(self, meta: dict[str, Any] | None) -> dict[str, Any] | None:
         """
         ЖЁСТКИЙ КОНТРАКТ:
           - payload_meta (parts_full и т.п.) ДОЛЖНО лежать в meta["payload_meta"]
@@ -100,7 +100,7 @@ class OutboxWriter:
     def _now_ms(self) -> int:
         return get_ny_time_millis()
 
-    def _redis(self) -> Optional[Any]:
+    def _redis(self) -> Any | None:
         # несколько "популярных" имён
         r = getattr(self._pub, "redis", None)
         if r is not None:
@@ -145,7 +145,7 @@ class OutboxWriter:
     def _dedup_key(self, signal_id: str) -> str:
         return f"{self._dedup_prefix}{signal_id}"
 
-    def _sem_key(self, payload: dict[str, Any]) -> Optional[str]:
+    def _sem_key(self, payload: dict[str, Any]) -> str | None:
         """
         Semantic key: hash(symbol|kind|bucket_ts|side|level_price_rounded)
 
@@ -156,25 +156,25 @@ class OutboxWriter:
         if not self._sem_enabled:
             return None
         try:
-            symbol = str(payload.get("symbol", "") or "")
-            kind = str(payload.get("kind", "") or "")
+            symbol = (payload.get("symbol", "") or "")
+            kind = (payload.get("kind", "") or "")
             if not symbol or not kind:
                 return None
 
-            ts = payload.get("ts", None)
+            ts = payload.get("ts")
             ts_i = int(ts) if ts is not None else None
             if ts_i is None or ts_i <= 0:
                 return None
             bucket_ms = max(1, int(self._sem_bucket_ms))
             bucket_ts = (ts_i // bucket_ms) * bucket_ms
 
-            side = payload.get("side", None)
-            direction = payload.get("direction", None)
+            side = payload.get("side")
+            direction = payload.get("direction")
             sd = str(side if side is not None else (direction if direction is not None else ""))
 
-            lvl = payload.get("level_price", None)
+            lvl = payload.get("level_price")
             if lvl is None:
-                lvl = payload.get("level", None)
+                lvl = payload.get("level")
             if lvl is None:
                 return None
             lvf = float(lvl)
@@ -331,7 +331,7 @@ class OutboxWriter:
         prefix = os.getenv("OUTBOX_META_PREFIX", "signal:meta:")
         return f"{prefix}{signal_id}"
 
-    def _serialize_meta(self, meta: Optional[dict[str, Any]]) -> str:
+    def _serialize_meta(self, meta: dict[str, Any] | None) -> str:
         """
         Сериализация meta.
         Требование: meta должна быть компактной и JSON-совместимой.
@@ -350,10 +350,8 @@ class OutboxWriter:
             if "schema" not in m:
                 m["schema"] = "outbox_sidecar:v2"
             if "updated_ms" not in m:
-                try:
+                with contextlib.suppress(Exception):
                     m["updated_ms"] = get_ny_time_millis()
-                except Exception:
-                    pass
 
             # используем тот же сериализатор, что и для payload (если есть)
             return self._serialize_payload(m)  # type: ignore[attr-defined]
@@ -381,7 +379,7 @@ class OutboxWriter:
                 pass
         return tid
 
-    def _atomic_xadd(self, redis: Any, *, stream_key: str, payload: dict[str, Any], signal_id: str, meta_json: str = "", meta_ttl_sec: int = 0) -> Optional[str]:
+    def _atomic_xadd(self, redis: Any, *, stream_key: str, payload: dict[str, Any], signal_id: str, meta_json: str = "", meta_ttl_sec: int = 0) -> str | None:
         """
         Возвращает entry_id если запись успешно сделана,
         None если дедуп сработал (уже видели signal_id).
@@ -400,6 +398,9 @@ class OutboxWriter:
         # ---------------------------------------------------------------------
         trace_id = str(payload.get("trace_id") or payload.get("correlation_id") or "") or uuid.uuid4().hex
         payload["trace_id"] = trace_id
+        # Ensure schema_version is present in the JSON blob — dispatcher validates it.
+        if "schema_version" not in payload:
+            payload["schema_version"] = 1
 
         # If caller didn't pass meta_json, try to source it from ctx-like payload.
         # Expected upstream pattern: payload is an envelope which may already contain trace dict.
@@ -414,9 +415,9 @@ class OutboxWriter:
             except Exception:
                 pass
 
-        kind = str(payload.get("kind", "") or "")
-        symbol = str(payload.get("symbol", "") or "")
-        ts = str(payload.get("ts", "") or "")
+        kind = (payload.get("kind", "") or "")
+        symbol = (payload.get("symbol", "") or "")
+        ts = (payload.get("ts", "") or "")
         payload_json = self._serialize_payload(payload)
 
         # sidecar key
@@ -471,10 +472,8 @@ class OutboxWriter:
         raise RuntimeError("atomic_xadd_bad_response")
 
     def _rollback(self, redis: Any, key: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             redis.delete(key)
-        except Exception:
-            pass
 
     def write(
         self,
@@ -482,7 +481,7 @@ class OutboxWriter:
         payload: dict[str, Any],
         signal_id: str,
         dedup: bool,
-        meta: Optional[dict[str, Any]] = None,
+        meta: dict[str, Any] | None = None,
     ) -> bool:
         """
         Запись в outbox.
@@ -509,7 +508,7 @@ class OutboxWriter:
             if meta_ttl_sec <= 0:
                 meta_ttl_sec = int(self._dedup_ttl_ms / 1000)
 
-            last_exc: Optional[Exception] = None
+            last_exc: Exception | None = None
             for i in range(max(1, self._retries + 1)):
                 try:
                     entry_id = self._atomic_xadd(
@@ -525,10 +524,8 @@ class OutboxWriter:
                     last_exc = e
                     if i >= self._retries:
                         break
-                    try:
+                    with contextlib.suppress(Exception):
                         time.sleep(self._retry_sleep_ms / 1000.0)
-                    except Exception:
-                        pass
             self._logger.exception(f"OutboxWriter.atomic write failed for signal_id={signal_id}: {last_exc}")
             # если atomic не работает, возвращаем False без fallback'а
             # (чтобы не плодить дубликаты через publisher.publish() без дедупа)
@@ -566,17 +563,17 @@ class OutboxWriter:
             except Exception:
                 pass
 
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         for i in range(max(1, self._retries + 1)):
             try:
                 # publish должен писать в outbox stream (XADD внутри publisher'а).
                 # Возврат entry_id желателен, но не обязателен.
                 entry_id = self._pub.publish(payload)
                 if dedup and redis is not None:
-                    self._commit(redis, dedup_key, str(entry_id or "1"))
+                    self._commit(redis, dedup_key, (entry_id or "1"))
                     if sem_key is not None:
                         try:
-                            redis.set(sem_key, str(entry_id or "1"), xx=True, ex=int(max(1000, self._sem_ttl_ms) / 1000))
+                            redis.set(sem_key, (entry_id or "1"), xx=True, ex=int(max(1000, self._sem_ttl_ms) / 1000))
                         except Exception:
                             pass  # fail-open
                 # Best-effort: если pre-write meta не успел/упал — пробуем ещё раз после успеха.
@@ -593,10 +590,8 @@ class OutboxWriter:
                 last_exc = e
                 if i >= self._retries:
                     break
-                try:
+                with contextlib.suppress(Exception):
                     time.sleep(self._retry_sleep_ms / 1000.0)
-                except Exception:
-                    pass
 
         # publish окончательно упал: если мы ставили PENDING, нужно откатить, иначе "заблокируем" сигнал.
         if dedup and redis is not None:

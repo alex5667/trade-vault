@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 AB Winner Eval Store (Redis)
 ============================
@@ -23,11 +23,10 @@ AB Winner Eval Store (Redis)
   => инкрементальный ingest + собственное окно.
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -111,7 +110,7 @@ class ABWinnerEvalStore:
     def get_cursor(self) -> str:
         try:
             v = self.r.get(self.cursor_key)
-            return str(v or "")
+            return (v or "")
         except Exception:
             return ""
 
@@ -122,14 +121,14 @@ class ABWinnerEvalStore:
         except Exception:
             pass
 
-    def _is_closed(self, f: Dict[str, str]) -> bool:
+    def _is_closed(self, f: dict[str, str]) -> bool:
         et = _s(f.get("event_type") or f.get("event") or "").upper()
         if et in ("POSITION_CLOSED", "CLOSE", "CLOSED"):
             return True
         t = _s(f.get("type") or "").upper()
         return t == "POSITION_CLOSED"
 
-    def _extract(self, f: Dict[str, str]) -> Optional[Tuple[str, str, str, str, str, float, int]]:
+    def _extract(self, f: dict[str, str]) -> tuple[str, str, str, str, str, float, int] | None:
         symbol = _norm_symbol(_s(f.get("symbol") or ""))
         if not symbol:
             return None
@@ -187,7 +186,7 @@ class ABWinnerEvalStore:
             if not msgs:
                 break
             pipe = self.r.pipeline()
-            touched_ctx: List[Tuple[str, int]] = []
+            touched_ctx: list[tuple[str, int]] = []
             for mid, f in msgs:
                 n_msgs += 1
                 last_id = mid
@@ -243,7 +242,7 @@ class ABWinnerEvalStore:
         self.set_cursor(last_id)
         return IngestResult(n_msgs=n_msgs, n_closed=n_closed, last_id=last_id)
 
-    def list_contexts(self) -> List[str]:
+    def list_contexts(self) -> list[str]:
         try:
             xs = list(self.r.smembers(self.ctx_set_key))
             out = []
@@ -265,13 +264,13 @@ class ABWinnerEvalStore:
         start_ms: int,
         end_ms: int,
         max_items: int = 5000,
-    ) -> List[float]:
+    ) -> list[float]:
         zkey = self._zkey(symbol, regime, group, scenario, arm)
         try:
             members = self.r.zrangebyscore(zkey, float(start_ms), float(end_ms), start=0, num=int(max_items))
         except Exception:
             members = []
-        out: List[float] = []
+        out: list[float] = []
         for m in members or []:
             try:
                 s = str(m)

@@ -1,8 +1,8 @@
 # services/l3_lite_tracker.py
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 from dataclasses import dataclass
+import contextlib
 
 
 def _ema(prev: float, x: float, a: float) -> float:
@@ -209,8 +209,6 @@ class L3LiteTracker:
             ("eta_fill_bid_sec", s.eta_fill_bid_sec),
             ("eta_fill_ask_sec", s.eta_fill_ask_sec),
         ):
-            try:
+            with contextlib.suppress(Exception):
                 setattr(ctx, k, float(v))
-            except Exception:
-                pass
 

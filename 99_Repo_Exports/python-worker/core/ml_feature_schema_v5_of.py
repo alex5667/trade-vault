@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ML feature schema v5 (OrderFlow).
 
 This schema is a strict superset of MLFeatureSchemaV4OF.
@@ -18,7 +19,6 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
-from typing import List, Set, Tuple
 
 from core.ml_feature_schema_v4_of import MLFeatureSchemaV4OF
 
@@ -38,7 +38,7 @@ class MLFeatureSchemaV5OF(MLFeatureSchemaV4OF):
     def __post_init__(self) -> None:  # noqa: D401
         super().__post_init__()
 
-        extra_num: List[str] = [
+        extra_num: list[str] = [
             # Vol regime (more informative than raw fast/slow)
             "vol_ratio",
             "vol_ratio_z",
@@ -106,7 +106,7 @@ class MLFeatureSchemaV5OF(MLFeatureSchemaV4OF):
             "max_signal_age_ratio",
         ]
 
-        extra_bool: List[str] = [
+        extra_bool: list[str] = [
             "res_recovered",
             "lob_dw_obi_stable",
         ]
@@ -125,7 +125,7 @@ def _default_denylist_path() -> str:
     return os.path.join(os.path.dirname(__file__), "feature_denylist_v1.json")
 
 
-def _normalize_deny_key(k: str) -> Tuple[str, str]:
+def _normalize_deny_key(k: str) -> tuple[str, str]:
     """Normalize denylist key.
 
     Accepts:
@@ -142,7 +142,7 @@ def _normalize_deny_key(k: str) -> Tuple[str, str]:
     return "?", s
 
 
-def _load_denylist(path: str) -> Tuple[Set[str], Set[str], str]:
+def _load_denylist(path: str) -> tuple[set[str], set[str], str]:
     """Load denylist json.
 
     Expected keys:
@@ -153,13 +153,13 @@ def _load_denylist(path: str) -> Tuple[Set[str], Set[str], str]:
     Returns (deny_num, deny_bool, denylist_hash16).
     """
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
     except Exception:
         return set(), set(), "na"
 
-    deny_num: Set[str] = set()
-    deny_bool: Set[str] = set()
+    deny_num: set[str] = set()
+    deny_bool: set[str] = set()
 
     if isinstance(obj, dict):
         dn = obj.get("deny_num")

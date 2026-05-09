@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 import hashlib
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from core.meta_features_v7 import (
     META_FEAT_V7_COLS,
@@ -30,7 +31,7 @@ from core.meta_features_v7 import (
 META_FEAT_V8_NAME = "meta_feat_v8"
 META_FEAT_V8_VERSION = 8
 
-META_FEAT_V8_NEW_COLS: List[str] = [
+META_FEAT_V8_NEW_COLS: list[str] = [
     "obi",
     "obi_z",
     "obi_stable_secs",
@@ -57,7 +58,7 @@ META_FEAT_V8_NEW_COLS: List[str] = [
     "book_missing_seq_ema",
 ]
 
-META_FEAT_V8_COLS: List[str] = list(META_FEAT_V7_COLS) + list(META_FEAT_V8_NEW_COLS)
+META_FEAT_V8_COLS: list[str] = list(META_FEAT_V7_COLS) + list(META_FEAT_V8_NEW_COLS)
 META_FEAT_V8_HASH: str = hashlib.sha1(",".join(META_FEAT_V8_COLS).encode("utf-8")).hexdigest()
 
 META_FEAT_V8_TRANSFORMS = dict(META_FEAT_V7_TRANSFORMS)
@@ -90,7 +91,7 @@ for k in (
 ):
     META_FEAT_V8_TRANSFORMS.setdefault(k, {"type": "clip", "lo": 0.0, "hi": 1.0})
 
-def _try_get_float(x: Any) -> Optional[float]:
+def _try_get_float(x: Any) -> float | None:
     try:
         if x is None:
             return None
@@ -99,10 +100,10 @@ def _try_get_float(x: Any) -> Optional[float]:
         return None
 
 def build_meta_features_v8(
-    evidence: Dict[str, Any],
-    indicators: Dict[str, Any],
+    evidence: dict[str, Any],
+    indicators: dict[str, Any],
     **kwargs,
-) -> Tuple[Dict[str, float], List[str]]:
+) -> tuple[dict[str, float], list[str]]:
     """Build meta_feat_v8 (v7 base + quality/absorption/iceberg + DQ hard features)."""
 
     feat, missing = build_meta_features_v7(evidence=evidence, indicators=indicators, **kwargs)

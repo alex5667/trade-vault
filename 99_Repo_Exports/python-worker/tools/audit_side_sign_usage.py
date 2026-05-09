@@ -19,9 +19,8 @@ import argparse
 import json
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
-
 
 SUSPICIOUS_PATTERNS = [
     # Unknown -> SELL bias
@@ -66,10 +65,10 @@ def iter_py_files(root: str, rel_dirs: Iterable[str]) -> Iterable[str]:
                     yield os.path.join(dirpath, fn)
 
 
-def scan_file(path: str) -> List[Finding]:
-    findings: List[Finding] = []
+def scan_file(path: str) -> list[Finding]:
+    findings: list[Finding] = []
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
         text = "".join(lines)
     except Exception:
@@ -85,7 +84,7 @@ def scan_file(path: str) -> List[Finding]:
     return findings
 
 
-def render_text(findings: List[Finding], root: str) -> str:
+def render_text(findings: list[Finding], root: str) -> str:
     if not findings:
         return "OK: no suspicious side->sign patterns found."
     out = []
@@ -100,7 +99,7 @@ def render_text(findings: List[Finding], root: str) -> str:
     return "\n".join(out)
 
 
-def render_json(findings: List[Finding], root: str) -> str:
+def render_json(findings: list[Finding], root: str) -> str:
     payload = []
     for f in sorted(findings, key=lambda x: (x.file, x.line, x.kind)):
         payload.append({
@@ -112,7 +111,7 @@ def render_json(findings: List[Finding], root: str) -> str:
     return json.dumps({"findings": payload}, ensure_ascii=False, indent=2)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=".", help="Repository root (default: current directory)")
     ap.add_argument("--dirs", nargs="*", default=None, help="Relative dirs to scan (default: common python-worker dirs)")
@@ -122,7 +121,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     root = os.path.abspath(args.root)
     rel_dirs = args.dirs or DEFAULT_SCAN_DIRS
 
-    all_findings: List[Finding] = []
+    all_findings: list[Finding] = []
     for fp in iter_py_files(root, rel_dirs):
         all_findings.extend(scan_file(fp))
 

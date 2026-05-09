@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
 import orderflow_services.exec_health_freeze_reconnect_chaos_harness_v1 as mod
-from orderflow_services.exec_health_freeze_reconnect_chaos_harness_v1 import ChaosHarness
 from orderflow_services.exec_health_freeze_client_name_audit_exporter_v1 import Exporter
+from orderflow_services.exec_health_freeze_reconnect_chaos_harness_v1 import ChaosHarness
 from services.orderflow.exec_health_freeze_reconnect_healing import get_heal_state_key
 
 

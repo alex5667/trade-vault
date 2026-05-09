@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 MT5 Bridge Main Worker
 
@@ -26,14 +27,13 @@ import os
 import signal
 import sys
 import time
-from datetime import datetime, timezone
 
-from .mt5_client import Mt5Client, Mt5Config
-from .executor import PlanExecutor
-from .redis_consumer import PlansStreamConsumer
-from .exec_events import ExecEventsPublisher
-from .deals_watcher import Mt5DealsWatcher
 from .commands_consumer import ExecCommandsConsumer
+from .deals_watcher import Mt5DealsWatcher
+from .exec_events import ExecEventsPublisher
+from .executor import PlanExecutor
+from .mt5_client import Mt5Client, Mt5Config
+from .redis_consumer import PlansStreamConsumer
 
 
 def load_symbol_map() -> dict[str, str]:
@@ -187,7 +187,7 @@ def main():
             if 'mt5_client' in locals():
                 mt5_client.shutdown()
                 print("[mt5_bridge] ✅ MT5 connection closed")
-        except:
+        except Exception:
             pass
 
 

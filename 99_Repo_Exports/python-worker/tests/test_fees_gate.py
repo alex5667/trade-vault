@@ -1,5 +1,7 @@
 import pytest
+
 from core.fees_aware_policy import fees_aware_min_atr_bps
+
 
 def test_fees_aware_min_atr_bps():
     th, meta = fees_aware_min_atr_bps(

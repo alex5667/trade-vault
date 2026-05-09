@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for tick_flow_full.core.feature_registry.
 
 Запуск:
@@ -264,7 +265,7 @@ def test_feature_registry_schema_versions_include_v7():
         )
         # must contain VPIN
         assert any("vpin" in x.lower() for x in info.feature_names), (
-            f"v7_of schema missing vpin keys"
+            "v7_of schema missing vpin keys"
         )
 
 

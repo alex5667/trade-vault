@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -58,15 +59,15 @@ DEFAULT_ALLOW_SEVERITIES = os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_AP
 ALLOWED_HANDLER_MODES = {"DETERMINISTIC", "DISABLED"}
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -109,8 +110,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -138,7 +139,7 @@ def default_allow_severities() -> set[str]:
     return {x.strip().lower() for x in DEFAULT_ALLOW_SEVERITIES.split(",") if x.strip()}
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     mode = str(raw.get("handler_mode") or DEFAULT_HANDLER_MODE).upper()
     if mode not in ALLOWED_HANDLER_MODES:
         mode = DEFAULT_HANDLER_MODE
@@ -154,8 +155,8 @@ def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def evaluate_request(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
-    severity = str(bundle.get("trigger_severity") or "").lower()
+def evaluate_request(bundle: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    severity = (bundle.get("trigger_severity") or "").lower()
     out = {"decision": "REJECT", "reason_code": "REJECTED", "severity": severity}
     if policy["kill_switch"] == 1:
         out["reason_code"] = "KILL_SWITCH"
@@ -177,7 +178,7 @@ def evaluate_request(bundle: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str
     return out
 
 
-def _reason_lists(bundle: Dict[str, Any]) -> Tuple[List[str], List[str], List[str], List[str]]:
+def _reason_lists(bundle: dict[str, Any]) -> tuple[list[str], list[str], list[str], list[str]]:
     summary = bundle.get("summary", {}) if isinstance(bundle.get("summary"), dict) else {}
     verification = summary.get("verification_reason_codes", [])
     retry = summary.get("retry_reason_codes", [])
@@ -194,10 +195,10 @@ def _reason_lists(bundle: Dict[str, Any]) -> Tuple[List[str], List[str], List[st
     return [str(x) for x in verification], [str(x) for x in retry], [str(x) for x in rollback], [str(x) for x in escalation_severities]
 
 
-def _slo_reason_codes(bundle: Dict[str, Any]) -> List[str]:
+def _slo_reason_codes(bundle: dict[str, Any]) -> list[str]:
     evidence = bundle.get("evidence", {}) if isinstance(bundle.get("evidence"), dict) else {}
     slo_recent = evidence.get("slo_recent", [])
-    out: List[str] = []
+    out: list[str] = []
     if isinstance(slo_recent, list):
         for row in slo_recent[:5]:
             if not isinstance(row, dict):
@@ -208,14 +209,14 @@ def _slo_reason_codes(bundle: Dict[str, Any]) -> List[str]:
     return sorted({x for x in out if x})
 
 
-def build_result_payload(bundle: Dict[str, Any]) -> Dict[str, Any]:
-    severity = str(bundle.get("trigger_severity") or "warning").lower()
+def build_result_payload(bundle: dict[str, Any]) -> dict[str, Any]:
+    severity = (bundle.get("trigger_severity") or "warning").lower()
     verification_reasons, retry_reasons, rollback_reasons, escalation_severities = _reason_lists(bundle)
     slo_reasons = _slo_reason_codes(bundle)
 
-    dominant: List[str] = []
-    hypotheses: List[str] = []
-    next_actions: List[str] = []
+    dominant: list[str] = []
+    hypotheses: list[str] = []
+    next_actions: list[str] = []
     confidence = 0.60
 
     if "POLICY_MISMATCH_AFTER_APPLY" in verification_reasons:
@@ -278,7 +279,7 @@ def build_result_payload(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "next_actions": next_actions[:5],
         "confidence": confidence,
         "quality_flags": {
-            "bundle_trigger_type": str(bundle.get("trigger_type") or ""),
+            "bundle_trigger_type": (bundle.get("trigger_type") or ""),
             "bundle_trigger_severity": severity,
             "verification_reason_codes_n": len(verification_reasons),
             "retry_reason_codes_n": len(retry_reasons),
@@ -289,13 +290,13 @@ def build_result_payload(bundle: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_result_row(request: Dict[str, Any], bundle: Dict[str, Any], result_payload: Dict[str, Any], provider_mode: str) -> Dict[str, Any]:
+def build_result_row(request: dict[str, Any], bundle: dict[str, Any], result_payload: dict[str, Any], provider_mode: str) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "request_id": str(request.get("request_id") or bundle.get("bundle_id") or ""),
-        "bundle_id": str(bundle.get("bundle_id") or ""),
+        "bundle_id": (bundle.get("bundle_id") or ""),
         "task_type": "route_incident_rca_mirror_rca_winner_apply_apply_governance_rca_result",
-        "severity": str(bundle.get("trigger_severity") or "warning"),
+        "severity": (bundle.get("trigger_severity") or "warning"),
         "provider_mode": provider_mode,
         "result_json": stable_json(result_payload),
         "ts_ms": str(now_ms()),
@@ -309,11 +310,11 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def read_hash(r: Any, key: str) -> Dict[str, Any]:
+async def read_hash(r: Any, key: str) -> dict[str, Any]:
     return as_dict(await r.hgetall(key))
 
 
-async def persist_if_configured(db_url: str, request: Dict[str, Any], bundle: Dict[str, Any], result_row: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, request: dict[str, Any], bundle: dict[str, Any], result_row: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -390,7 +391,7 @@ async def main() -> None:  # pragma: no cover
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     decision = evaluate_request(bundle, policy)
                     decision_label = decision["decision"]
 

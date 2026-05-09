@@ -1,8 +1,8 @@
 
 import json
-import time
-from dataclasses import dataclass, asdict, field
-from typing import Dict, Any, Optional, List, Union
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
 
 @dataclass
 class DecisionRecord:
@@ -13,41 +13,41 @@ class DecisionRecord:
     sid: str
     symbol: str
     ts: int  # Decision timestamp (ms)
-    
+
     # Input Snapshot
-    features: Dict[str, Any] = field(default_factory=dict)
-    
+    features: dict[str, Any] = field(default_factory=dict)
+
     # Rule Output
     rule_score: float = 0.0
     rule_ok: bool = False
     rule_soft: bool = False
-    rule_reasons: List[str] = field(default_factory=list)
-    
+    rule_reasons: list[str] = field(default_factory=list)
+
     # ML Output
     ml_allow: bool = False
     ml_abstain: bool = False
     ml_deny: bool = False
     ml_prob: float = 0.0
     ml_version: str = ""
-    ml_calibrated_prob: Optional[float] = None
-    
+    ml_calibrated_prob: float | None = None
+
     # Final Decision
     final_permit: bool = False
     final_reason: str = ""
-    
+
     # System States
-    dq_state: Dict[str, Any] = field(default_factory=dict)  # tick_age, book_stale
-    drift_state: Dict[str, Any] = field(default_factory=dict) # z-scores
-    
-    def to_dict(self) -> Dict[str, Any]:
+    dq_state: dict[str, Any] = field(default_factory=dict)  # tick_age, book_stale
+    drift_state: dict[str, Any] = field(default_factory=dict) # z-scores
+
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'DecisionRecord':
+    def from_dict(cls, data: dict[str, Any]) -> 'DecisionRecord':
         # Handle potential distinct types or sets from JSON/Redis
         return cls(**data)
-        
-    def serialize_for_redis(self) -> Dict[str, str]:
+
+    def serialize_for_redis(self) -> dict[str, str]:
         """Flattens and serializes for Redis Hash (HSET)."""
         d = self.to_dict()
         out = {}
@@ -59,7 +59,7 @@ class DecisionRecord:
         return out
 
     @classmethod
-    def parse_from_redis(cls, data: Dict[str, str]) -> 'DecisionRecord':
+    def parse_from_redis(cls, data: dict[str, str]) -> 'DecisionRecord':
         """Parses from Redis Hash (HGETALL)."""
         kwargs = {}
         # We need to know which fields are JSON/complex types
@@ -75,12 +75,12 @@ class DecisionRecord:
             'rule_score', 'ml_prob', 'ml_calibrated_prob'
         }
         int_fields = {'ts'}
-        
+
         for k, v in data.items():
             if k in complex_fields:
                 try:
                     kwargs[k] = json.loads(v)
-                except:
+                except Exception:
                     kwargs[k] = v # Fallback
             elif k in bool_fields:
                  # Check 'True'/'False' string or '1'/'0' or json 'true'/'false'
@@ -92,20 +92,20 @@ class DecisionRecord:
                      # try json
                      try:
                         kwargs[k] = json.loads(v)
-                     except:
+                     except Exception:
                         kwargs[k] = False
             elif k in float_fields:
                 try:
                     kwargs[k] = float(v) if v != 'None' else None
-                except:
+                except Exception:
                      kwargs[k] = 0.0
             elif k in int_fields:
                 try:
                     kwargs[k] = int(v)
-                except:
+                except Exception:
                     kwargs[k] = 0
             else:
                 kwargs[k] = v
-                
+
         return cls(**kwargs)
 

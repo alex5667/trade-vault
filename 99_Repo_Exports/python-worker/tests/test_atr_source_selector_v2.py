@@ -1,15 +1,17 @@
 from utils.time_utils import get_ny_time_millis
+
 # -*- coding: utf-8 -*-
 """
 Tests for ATR source selector v2 (periodic selector for best ATR source/TF).
 """
 import json
 import os
-import time
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 import redis
-from core.atr_source_selector_v2 import ATRSourceSelector, ATRCandidate
+
+from core.atr_source_selector_v2 import ATRCandidate, ATRSourceSelector
 
 
 @pytest.fixture
@@ -66,9 +68,9 @@ def test_selector_hash_candidate(selector, mock_redis):
     }
     # _read_sel_meta will call get() for cfg:atr_sel_meta:BTCUSDT
     mock_redis.get.return_value = None
-    
+
     result = selector._read_hash_candidate("BTCUSDT", "1m", 50000.0)
-    
+
     assert result is not None
     assert result.tf == "1m"
     assert result.src == "ATR_HASH"
@@ -85,9 +87,9 @@ def test_selector_json_candidate(selector, mock_redis):
         json.dumps(data).encode(),  # atr:json:BTCUSDT:5m
         None,  # cfg:atr_sel_meta:BTCUSDT
     ]
-    
+
     result = selector._read_json_candidate("BTCUSDT", "5m", 50000.0)
-    
+
     assert result is not None
     assert result.tf == "5m"
     assert result.src == "atr_json"
@@ -104,9 +106,9 @@ def test_selector_string_candidate(selector, mock_redis):
         str(now_ms - 3000).encode(),  # atr:BTCUSDT:15m:ts_ms
         None,  # cfg:atr_sel_meta:BTCUSDT (from _read_sel_meta in _score)
     ]
-    
+
     result = selector._read_string_candidate("BTCUSDT", "15m", 50000.0)
-    
+
     assert result is not None
     assert result.tf == "15m"
     assert result.src == "atr_string"
@@ -123,9 +125,9 @@ def test_selector_fallback_candidate(selector, mock_redis):
         str(now_ms - 2000).encode(),  # ta:last:atr_ts_ms:BTCUSDT
         None,  # cfg:atr_sel_meta:BTCUSDT (from _read_sel_meta in _score)
     ]
-    
+
     result = selector._read_fallback_candidate("BTCUSDT", 50000.0)
-    
+
     assert result is not None
     assert result.src == "ta_last"
     assert result.tf == "na"
@@ -136,38 +138,38 @@ def test_selector_fallback_candidate(selector, mock_redis):
 def test_selector_scoring_freshness(selector):
     """Test that freshness affects score."""
     now_ms = get_ny_time_millis()
-    
+
     # Fresh candidate (10 seconds old)
     fresh = selector._score(
-        "BTCUSDT", tf="1m", src="ATR_HASH", key="test", 
+        "BTCUSDT", tf="1m", src="ATR_HASH", key="test",
         atr=50.0, ts_ms=now_ms - 10000, age_ms=10000, atr_bps=10.0
     )
-    
+
     # Stale candidate (1 hour old)
     stale = selector._score(
         "BTCUSDT", tf="1m", src="ATR_HASH", key="test",
         atr=50.0, ts_ms=now_ms - 3600000, age_ms=3600000, atr_bps=10.0
     )
-    
+
     assert fresh.score > stale.score
 
 
 def test_selector_scoring_bps_sanity(selector):
     """Test that BPS sanity affects score."""
     now_ms = get_ny_time_millis()
-    
+
     # Good BPS (50 bps)
     good = selector._score(
         "BTCUSDT", tf="1m", src="ATR_HASH", key="test",
         atr=50.0, ts_ms=now_ms - 10000, age_ms=10000, atr_bps=50.0
     )
-    
+
     # Bad BPS (1000 bps, too high)
     bad = selector._score(
         "BTCUSDT", tf="1m", src="ATR_HASH", key="test",
         atr=500.0, ts_ms=now_ms - 10000, age_ms=10000, atr_bps=1000.0
     )
-    
+
     assert good.score > bad.score
     assert "bps_bad" in bad.reason
 
@@ -175,7 +177,7 @@ def test_selector_scoring_bps_sanity(selector):
 def test_selector_hysteresis_hold_down(selector, mock_redis):
     """Test that hysteresis keeps previous selection during hold-down."""
     now_ms = get_ny_time_millis()
-    
+
     # Set previous selection
     prev_meta = {
         "picked_tf": "1m",
@@ -187,15 +189,15 @@ def test_selector_hysteresis_hold_down(selector, mock_redis):
     mock_redis.get.side_effect = [
         json.dumps(prev_meta).encode(),  # cfg:atr_sel_meta:BTCUSDT
     ] + [None] * 30  # For other candidate reads
-    
+
     # Mock current candidates - hgetall for ATR hash
     mock_redis.hgetall.return_value = {
         b"atr": b"50.0",
         b"ts_ms": str(now_ms - 5000).encode(),
     }
-    
+
     result = selector.select("BTCUSDT", px=50000.0)
-    
+
     # Should prefer previous if it's still acceptable
     assert result is not None
 
@@ -208,13 +210,13 @@ def test_selector_persist_choice(selector, mock_redis):
         atr=50.0, ts_ms=now_ms - 10000, age_ms=10000,
         atr_bps=10.0, score=0.8, reason="test"
     )
-    
+
     mock_pipe = MagicMock()
     mock_redis.pipeline.return_value = mock_pipe
     mock_redis.get.return_value = None  # No previous meta
-    
+
     selector._persist_choice("BTCUSDT", candidate)
-    
+
     # Should have called pipeline methods
     assert mock_pipe.set.call_count == 3
     mock_pipe.execute.assert_called_once()
@@ -224,7 +226,7 @@ def test_selector_persist_choice_switch_tracking(selector, mock_redis):
     """Test that switch tracking is recorded when TF or source changes."""
     import json
     now_ms = get_ny_time_millis()
-    
+
     # Previous selection: 1m, ATR_HASH
     prev_meta = {
         "picked_tf": "1m",
@@ -232,23 +234,23 @@ def test_selector_persist_choice_switch_tracking(selector, mock_redis):
         "ts_ms": now_ms - 10000,
     }
     mock_redis.get.return_value = json.dumps(prev_meta).encode()
-    
+
     # New selection: 5m, atr_json (different TF and source)
     candidate = ATRCandidate(
         tf="5m", src="atr_json", key="test:key",
         atr=50.0, ts_ms=now_ms - 5000, age_ms=5000,
         atr_bps=10.0, score=0.9, reason="test"
     )
-    
+
     mock_pipe = MagicMock()
     mock_redis.pipeline.return_value = mock_pipe
-    
+
     with patch.dict(os.environ, {
         "ATR_SWITCH_WINDOW_SEC": "3600",
         "ATR_SWITCH_SYMBOLS_SET_TTL_SEC": "86400",
     }):
         selector._persist_choice("BTCUSDT", candidate)
-    
+
     # Should have called pipeline methods: 3 sets + 1 incr + 2 expires + 1 sadd
     assert mock_pipe.set.call_count == 3
     mock_pipe.incr.assert_called_once()
@@ -261,7 +263,7 @@ def test_selector_persist_choice_no_switch(selector, mock_redis):
     """Test that switch tracking is not recorded when TF and source don't change."""
     import json
     now_ms = get_ny_time_millis()
-    
+
     # Previous selection: 1m, ATR_HASH
     prev_meta = {
         "picked_tf": "1m",
@@ -269,19 +271,19 @@ def test_selector_persist_choice_no_switch(selector, mock_redis):
         "ts_ms": now_ms - 10000,
     }
     mock_redis.get.return_value = json.dumps(prev_meta).encode()
-    
+
     # Same selection: 1m, ATR_HASH (no switch)
     candidate = ATRCandidate(
         tf="1m", src="ATR_HASH", key="test:key",
         atr=50.0, ts_ms=now_ms - 5000, age_ms=5000,
         atr_bps=10.0, score=0.9, reason="test"
     )
-    
+
     mock_pipe = MagicMock()
     mock_redis.pipeline.return_value = mock_pipe
-    
+
     selector._persist_choice("BTCUSDT", candidate)
-    
+
     # Should have called pipeline methods: 3 sets only (no switch tracking)
     assert mock_pipe.set.call_count == 3
     mock_pipe.incr.assert_not_called()
@@ -293,8 +295,8 @@ def test_selector_no_candidates(selector, mock_redis):
     """Test that selector returns None when no candidates available."""
     mock_redis.hgetall.return_value = {}
     mock_redis.get.return_value = None
-    
+
     result = selector.select("BTCUSDT", px=50000.0)
-    
+
     assert result is None
 

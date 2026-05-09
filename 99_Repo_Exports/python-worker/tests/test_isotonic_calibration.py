@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from common.isotonic_calibration import fit_isotonic_pav, IsotonicCalibrator, sanitize_breakpoints
+from common.isotonic_calibration import IsotonicCalibrator, fit_isotonic_pav, sanitize_breakpoints
 
 
 def test_fit_isotonic_pav_enforces_monotonicity():

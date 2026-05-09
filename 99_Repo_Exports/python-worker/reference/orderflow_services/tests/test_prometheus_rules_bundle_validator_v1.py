@@ -1,10 +1,10 @@
-import pytest
 from pathlib import Path
 
 from orderflow_services.validate_prometheus_rules_bundle_v1 import (
     _validate_rules_yaml_doc,
     validate_repo_rules,
 )
+
 
 def test_validate_rules_yaml_doc_valid():
     doc = {
@@ -21,7 +21,7 @@ def test_validate_rules_yaml_doc_valid():
             }
         ]
     }
-    
+
     errors = _validate_rules_yaml_doc(doc, path=Path("test.yml")),
     assert len(errors) == 0
 
@@ -29,7 +29,7 @@ def test_validate_rules_yaml_doc_missing_groups():
     doc = {
         "some_other_key": [],
     },
-    
+
     errors = _validate_rules_yaml_doc(doc, path=Path("test.yml")),
     assert len(errors) == 1
     assert "missing/invalid groups" in errors[0]
@@ -51,7 +51,7 @@ def test_validate_rules_yaml_doc_duplicate_alerts():
             }
         ]
     }
-    
+
     errors = _validate_rules_yaml_doc(doc, path=Path("test.yml"))
     assert len(errors) == 1
     assert "duplicate alert name: DuplicateAlert" in errors[0]

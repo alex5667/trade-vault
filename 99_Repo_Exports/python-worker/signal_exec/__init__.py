@@ -30,30 +30,28 @@ Usage:
     repo.insert_signal_performance(performance)
 """
 
+from .context import SignalContext
 from .models import (
-    Side,
-    SwingPoint,
+    AccountState,
+    Bar1m,
+    ExecutionPlan,
     HTFLevel,
     OrderBookSnapshot,
-    AccountState,
-    ExecutionPlan,
-    Bar1m,
+    Side,
+    SwingPoint,
     SymbolSetupConfig,
 )
-
 from .performance_tracker import SignalPerformance
-
-from .context import SignalContext
 
 # Backward-compat alias: ExtendedSignalContext == SignalContext in signal_exec
 # (signal_execution used a different ExtendedSignalContext type which is not part
 # of this module; callers should migrate to SignalContext)
 ExtendedSignalContext = SignalContext
 
+from .bus import SignalBus
 from .execution_planner import ExecutionPlanner
 from .performance_tracker import SignalPerformanceTracker
 from .repository import SignalRepository
-from .bus import SignalBus
 from .service import SignalService
 
 __version__ = "1.0.0"

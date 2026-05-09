@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Any, Dict
+from typing import Any
 
 import joblib
 import numpy as np
@@ -11,7 +11,6 @@ import pandas as pd
 
 from core.bucket_utils_v2 import bucket_from_scenario
 from core.util_floor_opt_v1 import best_floor_by_sum_util
-from core.ml_model_types import UtilMHModelV1
 
 
 def main() -> None:
@@ -56,7 +55,7 @@ def main() -> None:
     else:
         buckets = np.array(["other"] * len(df))
 
-    out: Dict[str, Any] = {"global": {}, "by_bucket": {}, "horizons": horizons, "unc_k": k}
+    out: dict[str, Any] = {"global": {}, "by_bucket": {}, "horizons": horizons, "unc_k": k}
 
     # Global floor optimization
     g = best_floor_by_sum_util(

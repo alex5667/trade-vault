@@ -3,8 +3,9 @@ Weak progress scoring logic for signal confidence.
 """
 
 from signal_scoring.ctx import SignalContext
+
 from .config import WeakProgressConfig, get_weak_progress_config
-from .filters import fade_preconditions_passed, fade_confirmation_passed, continuation_preconditions_passed
+from .filters import continuation_preconditions_passed, fade_confirmation_passed, fade_preconditions_passed
 from .utils import classify_progress_strength
 
 

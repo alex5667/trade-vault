@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Автоматическая инициализация ML Confirm конфигурации при старте сервиса.
 
@@ -7,22 +8,23 @@ from __future__ import annotations
 Создает конфигурацию, если она отсутствует и модель найдена.
 """
 
-from utils.time_utils import get_ny_time_millis
-
+import glob
+import json
 import os
 import sys
-import json
 import time
-import glob
+
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import joblib  # type: ignore
 except Exception:
     joblib = None  # type: ignore
-from typing import Optional
 
-def find_latest_model() -> Optional[str]:
+
+def find_latest_model() -> str | None:
     """Находит последнюю модель в стандартных местах."""
     search_paths = [
         "/var/lib/trade/ml_models/tb_v10_4_*/model.joblib",
@@ -34,7 +36,7 @@ def find_latest_model() -> Optional[str]:
         "/var/lib/trade/ml_models/edge_stack_v1/champions/*.joblib",
         "/var/lib/trade/ml_models/edge_stack_v1/runs/*/*.joblib",
     ]
-    
+
     all_models = []
     for pattern in search_paths:
         try:
@@ -48,7 +50,7 @@ def find_latest_model() -> Optional[str]:
         except Exception as e:
             print(f"⚠️  ML Confirm init: Error searching pattern {pattern}: {e}", file=sys.stderr)
             continue
-    
+
     if not all_models:
         # Log diagnostic info about what directories exist
         checked_dirs = [
@@ -65,7 +67,7 @@ def find_latest_model() -> Optional[str]:
             else:
                 print(f"⚠️  ML Confirm init: Directory {dir_path} does not exist", file=sys.stderr)
         return None
-    
+
     all_models.sort(key=lambda x: x[1], reverse=True)
     selected = all_models[0][0]
     print(f"ℹ️  ML Confirm init: Found {len(all_models)} model(s), selected: {selected}", file=sys.stderr)
@@ -77,25 +79,25 @@ def ensure_ml_confirm_config() -> bool:
     # Проверяем режим ML gate
     mode = os.getenv("ML_CONFIRM_MODE", "SHADOW").upper()
     print(f"ℹ️  ML Confirm init: Mode={mode}", file=sys.stderr)
-    
+
     if mode == "OFF":
-        print(f"ℹ️  ML Confirm init: Mode is OFF, skipping config creation", file=sys.stderr)
+        print("ℹ️  ML Confirm init: Mode is OFF, skipping config creation", file=sys.stderr)
         return True  # Не нужна конфигурация
-    
+
     redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
     champion_key = os.getenv("ML_CFG_CHAMPION_KEY", "cfg:ml_confirm:champion")
-    
+
     print(f"ℹ️  ML Confirm init: Connecting to Redis at {redis_url}", file=sys.stderr)
     try:
         r = redis.Redis.from_url(redis_url, decode_responses=True, socket_connect_timeout=5, socket_timeout=5)
         r.ping()
-        print(f"✅ ML Confirm init: Redis connection successful", file=sys.stderr)
+        print("✅ ML Confirm init: Redis connection successful", file=sys.stderr)
     except Exception as e:
         print(f"❌ ML Confirm init: Redis connection failed: {e}", file=sys.stderr)
         import traceback
         print(f"   Traceback: {traceback.format_exc()}", file=sys.stderr)
         return False
-    
+
     # Проверяем существующую конфигурацию
     print(f"ℹ️  ML Confirm init: Checking existing config at {champion_key}", file=sys.stderr)
     existing = r.get(champion_key)
@@ -112,23 +114,23 @@ def ensure_ml_confirm_config() -> bool:
             print(f"⚠️  ML Confirm init: Existing config is invalid JSON: {e}, will recreate", file=sys.stderr)
         except Exception as e:
             print(f"⚠️  ML Confirm init: Error validating existing config: {e}, will recreate", file=sys.stderr)
-    
+
     # Ищем модель
-    print(f"ℹ️  ML Confirm init: Searching for model files...", file=sys.stderr)
+    print("ℹ️  ML Confirm init: Searching for model files...", file=sys.stderr)
     model_path = find_latest_model()
     if not model_path:
-        print(f"❌ ML Confirm init: No model found, cannot create config", file=sys.stderr)
+        print("❌ ML Confirm init: No model found, cannot create config", file=sys.stderr)
         return False
-    
+
     # Валидируем модель перед использованием
     if not os.path.exists(model_path):
         print(f"❌ ML Confirm init: Model file does not exist: {model_path}", file=sys.stderr)
         return False
-    
+
     if not os.path.isfile(model_path):
         print(f"❌ ML Confirm init: Model path is not a file: {model_path}", file=sys.stderr)
         return False
-    
+
     # Создаем конфигурацию
     print(f"ℹ️  ML Confirm init: Creating config with model: {model_path}", file=sys.stderr)
 
@@ -141,7 +143,7 @@ def ensure_ml_confirm_config() -> bool:
             # Inspect the joblib pack to detect kind directly from model artifact
             pack = joblib.load(model_path)
             if isinstance(pack, dict) and isinstance(pack.get('kind'), str) and pack.get('kind'):
-                kind = str(pack.get('kind'))
+                kind = (pack.get('kind'))
         except Exception:
             pass
 
@@ -203,7 +205,7 @@ def ensure_ml_confirm_config() -> bool:
                 "unc_k": 0.5
             }
         }
-    
+
     try:
         cfg_json = json.dumps(cfg, ensure_ascii=False, separators=(',', ':'))
         r.set(champion_key, cfg_json)
@@ -213,7 +215,7 @@ def ensure_ml_confirm_config() -> bool:
         if verify:
             print(f"✅ ML Confirm init: Config verified in Redis (length: {len(verify)} chars)", file=sys.stderr)
         else:
-            print(f"⚠️  ML Confirm init: Config saved but verification read returned None", file=sys.stderr)
+            print("⚠️  ML Confirm init: Config saved but verification read returned None", file=sys.stderr)
         return True
     except Exception as e:
         print(f"❌ ML Confirm init: Failed to create config: {e}", file=sys.stderr)

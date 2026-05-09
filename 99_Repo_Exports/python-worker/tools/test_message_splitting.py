@@ -4,7 +4,6 @@ Test script to verify message splitting logic works correctly.
 This simulates a long calibration report and tests the splitting function.
 """
 import sys
-import os
 
 # Add parent directory to path
 sys.path.insert(0, '/app')
@@ -131,8 +130,8 @@ WIFUSDT
 """
 
 print(f"Original message length: {len(mock_report)} characters")
-print(f"Telegram limit: 4096 characters")
-print(f"Safe limit (with buffer): 4000 characters")
+print("Telegram limit: 4096 characters")
+print("Safe limit (with buffer): 4000 characters")
 print()
 
 # Test splitting

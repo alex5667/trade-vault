@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Train confidence calibrator (temperature / Platt) on joined JSONL.
 
 Input JSONL: each line is a dict with at least:
@@ -19,7 +20,6 @@ Why logit-domain?
 import argparse
 import json
 import math
-from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -43,10 +43,10 @@ def _sigmoid(z: np.ndarray) -> np.ndarray:
     return out
 
 
-def load_y_p(path: str, key: str, eps: float) -> Tuple[np.ndarray, np.ndarray]:
-    y: List[int] = []
-    p: List[float] = []
-    with open(path, "r", encoding="utf-8") as f:
+def load_y_p(path: str, key: str, eps: float) -> tuple[np.ndarray, np.ndarray]:
+    y: list[int] = []
+    p: list[float] = []
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -104,7 +104,7 @@ def fit_temp_on_logit(y: np.ndarray, p: np.ndarray, eps: float) -> float:
     return float(np.exp(best))
 
 
-def fit_platt_on_logit(y: np.ndarray, p: np.ndarray, eps: float) -> Tuple[float, float]:
+def fit_platt_on_logit(y: np.ndarray, p: np.ndarray, eps: float) -> tuple[float, float]:
     """Fit Platt parameters a,b on logit(p) using Newton steps (2 params)."""
     z = _logit(p, eps)
     a = 1.0

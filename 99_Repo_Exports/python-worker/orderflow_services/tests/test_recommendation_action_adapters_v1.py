@@ -1,7 +1,6 @@
 from orderflow_services.recommendation_action_adapters_v1 import apply_recommendation_adapter
 
 
-
 def test_threshold_canary_within_bounds():
     res = apply_recommendation_adapter(
         action_type="propose_threshold_canary",

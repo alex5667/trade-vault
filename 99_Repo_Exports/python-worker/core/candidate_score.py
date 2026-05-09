@@ -1,22 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
-import math
+from typing import Any
 
 
 def _clip01(x: float) -> float:
     if x <= 0.0:
         return 0.0
     if x >= 1.0:
-        return float(1.0)
+        return 1.0
     return float(x)
 
 
 @dataclass
 class CandidateScore:
     score: float
-    comp: Dict[str, float]
+    comp: dict[str, float]
     veto: str = ""  # optional hard veto reason
 
 
@@ -24,12 +23,12 @@ def compute_candidate_score(
     *,
     of_confirm_score: float,
     delta_z: float,
-    confirmations: List[str],
+    confirmations: list[str],
     spread_z: float,
     spread_bps: float,
     book_stale_ms: int,
     book_rate_z: float,
-    cfg: Dict[str, Any],
+    cfg: dict[str, Any],
     pressure_hi: bool,
 ) -> CandidateScore:
     """
@@ -44,7 +43,7 @@ def compute_candidate_score(
       - book_stale_ms (freshness)
     Optional hard veto when pressure_hi.
     """
-    comp: Dict[str, float] = {}
+    comp: dict[str, float] = {}
     score = 0.0
 
     # Base

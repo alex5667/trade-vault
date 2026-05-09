@@ -1,10 +1,10 @@
-from utils.time_utils import get_ny_time_millis
-import time
-import pytest
 from unittest.mock import MagicMock, patch
+
 from services.crypto_orderflow_service import CryptoOrderflowService
-from services.orderflow.runtime import SymbolRuntime
 from services.orderflow.configuration import DEFAULT_CONFIG
+from services.orderflow.runtime import SymbolRuntime
+from utils.time_utils import get_ny_time_millis
+
 
 class MockDecision:
     def __init__(self, scenario="TEST", ok=True):
@@ -26,14 +26,14 @@ def test_strong_gate_determinism_no_confirmations():
     """Prove that obi_stable logic works even if confirmations list is empty before the gate."""
     service = CryptoOrderflowService(redis_dsn="redis://m", ticks_dsn="redis://t")
     service.logger = MagicMock()
-    
+
     runtime = SymbolRuntime(symbol="BTCUSDT", config=DEFAULT_CONFIG.copy())
     runtime.delta_detector = MockDeltaDetector()
     runtime.require_strong_confirmation = True
     runtime.config["require_strong_confirmation"] = True
     runtime.config["strong_gate_shadow"] = False
     runtime.config["obi_stable_min_secs"] = 1.0
-    
+
     # Pre-populate OBI event as stable
     now_ms = get_ny_time_millis()
     runtime.last_obi_event = {
@@ -42,7 +42,7 @@ def test_strong_gate_determinism_no_confirmations():
         "obi": 0.6,
         "stable_secs": 2.0
     }
-    
+
     # Needed for reversal branch
     class MockSweep:
         ts_ms = now_ms - 500
@@ -69,14 +69,14 @@ def test_strong_gate_determinism_no_confirmations():
     with patch.object(service.of_engine, 'build', return_value=(mock_ofc, MagicMock())) as mock_build:
         # We check that build was called
         service._handle_tick(runtime, tick)
-        
+
         assert mock_build.called
 
 def test_fail_closed_on_zero_ts():
     """Verify that tick_ts=0 results in returning None (fail-closed)."""
     service = CryptoOrderflowService(redis_dsn="redis://m", ticks_dsn="redis://t")
     runtime = SymbolRuntime(symbol="BTCUSDT", config=DEFAULT_CONFIG.copy())
-    
+
     tick = {"symbol": "BTCUSDT", "ts": 0, "price": 50000.0, "qty": 1.0, "side": "buy"}
     res = service._handle_tick(runtime, tick)
     assert res is None, "Should return None if ts is missing/zero"

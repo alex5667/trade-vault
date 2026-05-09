@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """conf_score_guardrails_apply_v1.py
 
 World practice: close-the-loop guardrails for confidence scoring.
@@ -31,8 +32,6 @@ Example:
     --drift-report /tmp/conf_parts_drift.json \
     --apply 1 --redis-url redis://localhost:6379/0,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import fcntl
 import glob
@@ -40,23 +39,21 @@ import hashlib
 import json
 import os
 import sys
-import time
 import zlib
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple, ContextManager
-from contextlib import contextmanager
-from orderflow_services.research_guard_blocker_v1 import assert_research_guard_open
+from contextlib import contextmanager, suppress
+from datetime import UTC, datetime
+from typing import Any, ContextManager
 
-from orderflow_services.research_guard_blocker_v1 import check_research_guard_blocker
-
+from orderflow_services.research_guard_blocker_v1 import assert_research_guard_open, check_research_guard_blocker
 from orderflow_services.strategy_research_stats_gate_v1 import evaluate_strategy_research_stats_gate, gate_check_message
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _safe_float(x: Any, default: Optional[float] = None) -> Optional[float]:
+def _safe_float(x: Any, default: float | None = None) -> float | None:
     if x is None:
         return default
     try:
@@ -67,13 +64,13 @@ def _safe_float(x: Any, default: Optional[float] = None) -> Optional[float]:
         return default
 
 
-def _load_json(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def _load_json(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         obj = json.load(f)
     return obj if isinstance(obj, dict) else {}
 
 
-def _load_state_if_exists(path: str) -> Dict[str, Any]:
+def _load_state_if_exists(path: str) -> dict[str, Any]:
     try:
         if path and os.path.exists(path):
             return _load_json(path)
@@ -108,7 +105,7 @@ def _acquire_lock(path: str) -> ContextManager[Any]:
                 pass
 
 
-def _extract_rows(report: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _extract_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
     rows = report.get("rows")
     if isinstance(rows, list):
         return [r for r in rows if isinstance(r, dict)]
@@ -140,7 +137,7 @@ def _extract_symbol(group: Any, default: str = "UNKNOWN") -> str:
     return default
 
 
-def _extract_row_n(row: Dict[str, Any]) -> int:
+def _extract_row_n(row: dict[str, Any]) -> int:
     """Extract a conservative n for decisioning.
 
     Newer drift report schema includes explicit 'n'. Older schema (groups with parts list)
@@ -168,7 +165,7 @@ def _extract_row_n(row: Dict[str, Any]) -> int:
     return 0
 
 
-def _row_part_dz(part_metrics: Any) -> Optional[float]:
+def _row_part_dz(part_metrics: Any) -> float | None:
     if not isinstance(part_metrics, dict):
         return None
     # preferred
@@ -181,9 +178,9 @@ def _row_part_dz(part_metrics: Any) -> Optional[float]:
 
 
 def _compute_row_max_abs_dz(
-    row: Dict[str, Any],
-    parts_allow: Optional[List[str]] = None,
-) -> Tuple[Optional[float], List[Tuple[str, float]]]:
+    row: dict[str, Any],
+    parts_allow: list[str] | None = None,
+) -> tuple[float | None, list[tuple[str, float]]]:
     """Return max abs drift score for a row.
 
     Supports two schemas:
@@ -192,8 +189,8 @@ def _compute_row_max_abs_dz(
     """,
     parts = row.get("parts")
 
-    top: List[Tuple[str, float]] = []
-    max_abs: Optional[float] = None
+    top: list[tuple[str, float]] = []
+    max_abs: float | None = None
 
     if isinstance(parts, dict):
         for k, v in parts.items():
@@ -243,20 +240,20 @@ def _compute_row_max_abs_dz(
 
 
 def decide_actions_thresholds(
-    report: Dict[str, Any],
+    report: dict[str, Any],
     *,
     warn_z: float,
     crit_z: float,
     min_n: int,
-    parts_allow: Optional[List[str]] = None,
+    parts_allow: list[str] | None = None,
     top_k: int = 4,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Return per-symbol checks based purely on thresholds (no hysteresis).
 
     Output per symbol:
       {freeze:int, desired_scale:float, max_abs_dz:float, n:int, top:[(k,dz)...], reason:str},
     """,
-    by_sym: Dict[str, Dict[str, Any]] = {}
+    by_sym: dict[str, dict[str, Any]] = {}
 
     for row in _extract_rows(report):
         group = row.get("group")
@@ -283,7 +280,7 @@ def decide_actions_thresholds(
                 cur["top"] = top[:top_k]
 
     # decide
-    out: Dict[str, Dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for sym, st in by_sym.items():
         n = int(st.get("n", 0))
         max_abs = float(st.get("max_abs_dz", 0.0))
@@ -309,7 +306,7 @@ def decide_actions_thresholds(
         out[sym] = {
             "freeze": int(freeze),
             "desired_scale": float(desired_scale),
-            "reason": str(reason),
+            "reason": reason,
             "max_abs_dz": float(max_abs),
             "n": int(n),
             "rows": int(st.get("rows", 1)),
@@ -320,14 +317,14 @@ def decide_actions_thresholds(
 
 
 def decide_actions(
-    report: Dict[str, Any],
+    report: dict[str, Any],
     *,
     warn_z: float,
     crit_z: float,
     min_n: int,
-    parts_allow: Optional[List[str]] = None,
+    parts_allow: list[str] | None = None,
     top_k: int = 4,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Backward-compatible wrapper (v1 API).
 
     Returns {freeze, scale, max_abs_dz, n, top...} without hysteresis.
@@ -340,7 +337,7 @@ def decide_actions(
         parts_allow=parts_allow,
         top_k=top_k,
     )
-    out: Dict[str, Dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for sym, d in raw.items():
         out[sym] = dict(d)
         out[sym]["scale"] = float(d.get("desired_scale", 1.0) or 1.0)
@@ -365,7 +362,7 @@ def _in_canary(symbol: str, share: float, salt: str) -> bool:
     return u < sh
 
 
-def _prev_symbol_state(prev: Dict[str, Any], sym: str) -> Dict[str, Any]:
+def _prev_symbol_state(prev: dict[str, Any], sym: str) -> dict[str, Any]:
     decs = prev.get("decisions")
     if isinstance(decs, dict):
         st = decs.get(sym)
@@ -375,9 +372,9 @@ def _prev_symbol_state(prev: Dict[str, Any], sym: str) -> Dict[str, Any]:
 
 
 def apply_hysteresis_and_recovery(
-    raw_decisions: Dict[str, Dict[str, Any]],
+    raw_decisions: dict[str, dict[str, Any]],
     *,
-    prev_state: Dict[str, Any],
+    prev_state: dict[str, Any],
     now_ms: int,
     recover_z: float,
     recover_runs: int,
@@ -387,7 +384,7 @@ def apply_hysteresis_and_recovery(
     scale_bump_min_sec: int,
     canary_share: float,
     canary_salt: str,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Apply stateful hysteresis (latch, recovery ramp) and canary gating.
 
     Returns final per-symbol decisions with added state fields:
@@ -396,7 +393,7 @@ def apply_hysteresis_and_recovery(
       - canary (0/1)
       - scale (ramped)
     """,
-    out: Dict[str, Dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {}
 
     for sym, raw in raw_decisions.items():
         cur = dict(raw)
@@ -502,13 +499,13 @@ def apply_hysteresis_and_recovery(
 
 
 def apply_overrides_redis(
-    decisions: Dict[str, Dict[str, Any]],
+    decisions: dict[str, dict[str, Any]],
     *,
     redis_url: str,
     key_prefix: str,
     now_ms: int,
     dry_run: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     try:
         import redis  # type: ignore
     except Exception as exc:
@@ -546,7 +543,7 @@ def apply_overrides_redis(
     return {"applied": applied, "dry_run": bool(dry_run)}
 
 
-def _write_state(path: str, state: Dict[str, Any]) -> None:
+def _write_state(path: str, state: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -555,8 +552,8 @@ def _write_state(path: str, state: Dict[str, Any]) -> None:
 
 
 def _compute_changed_symbols(
-    decisions: Dict[str, Dict[str, Any]], prev_decisions: Dict[str, Dict[str, Any]]
-) -> Tuple[int, List[str]]:
+    decisions: dict[str, dict[str, Any]], prev_decisions: dict[str, dict[str, Any]]
+) -> tuple[int, list[str]]:
     changed = []
     for sym, curr in decisions.items():
         prev = prev_decisions.get(sym)
@@ -577,57 +574,55 @@ def _compute_changed_symbols(
 def _write_bundle(
     bundle_dir: str,
     bundle_retain: int,
-    state: Dict[str, Any],
+    state: dict[str, Any],
     promote: bool,
     tag: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Writes immutable bundle and updates current pointer.""",
     os.makedirs(bundle_dir, exist_ok=True)
     ts = int(state.get("ts_ms") or _now_ms())
-    
+
     # 1. Create Bundle
     # We serialize the full state as the bundle content
     content = json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True)
     # sha for integrity
     sha = hashlib.sha256(content.encode("utf-8")).hexdigest()[:8]
-    
+
     filename = f"bundle_{ts}_{tag}_{sha}.json"
     bundle_path = os.path.join(bundle_dir, filename)
-    
+
     tmp_path = bundle_path + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
         f.write(content)
     os.replace(tmp_path, bundle_path)
-    
+
     # 2. Cleanup old bundles (if needed)
     # List all bundles by pattern, sort by time (filename)
     all_bundles = sorted(glob.glob(os.path.join(bundle_dir, "bundle_*.json")))
     if len(all_bundles) > bundle_retain:
         to_remove = all_bundles[:-bundle_retain]
         for f in to_remove:
-            try:
+            with suppress(OSError):
                 os.remove(f)
-            except OSError:
-                pass
-            
+
     # 3. Update Pointer (if promote)
     pointer_info = {}
     if promote:
         current_path = os.path.join(bundle_dir, "current.json")
         prev_info = {}
         if os.path.exists(current_path):
-            with open(current_path, "r") as f:
+            with open(current_path) as f:
                 prev_info = json.load(f)
-        
+
         new_pointer = {
             "current_file": filename,
             "current_ts": ts,
             "current_sha": sha,
-            "updated_at_iso": datetime.now(timezone.utc).isoformat(),
+            "updated_at_iso": datetime.now(UTC).isoformat(),
             "prev_file": prev_info.get("current_file"),
             "prev_ts": prev_info.get("current_ts"),
         }
-        
+
         tmp_ptr = current_path + ".tmp"
         with open(tmp_ptr, "w", encoding="utf-8") as f:
             json.dump(new_pointer, f, indent=2)
@@ -677,10 +672,10 @@ def main() -> int:
     # Bundle / Lock args
     ap.add_argument("--bundle-enable", type=int,
                     default=int(os.getenv("CONF_SCORE_GUARD_BUNDLE_ENABLE", "1")))
-    ap.add_argument("--bundle-dir", 
+    ap.add_argument("--bundle-dir",
                     default=os.getenv("CONF_SCORE_GUARD_BUNDLE_DIR", "/var/lib/trade/conf_score_guard_bundles"))
     ap.add_argument("--bundle-retain", type=int, default=60, help="Number of bundles to keep")
-    ap.add_argument("--bundle-promote", type=int, default=-1, 
+    ap.add_argument("--bundle-promote", type=int, default=-1,
                     help="Update current pointer? -1=auto(if apply=1), 0=no, 1=yes")
     ap.add_argument("--bundle-tag", default="v1")
     ap.add_argument("--lock-path",
@@ -697,8 +692,8 @@ def main() -> int:
     with _acquire_lock(args.lock_path):
         report = _load_json(args.drift_report)
         parts_allow = [p.strip() for p in (args.parts or "").split(",") if p.strip()] or None
-        
-        # Load state from state-path usually, but if bundles enabled, 
+
+        # Load state from state-path usually, but if bundles enabled,
         # normally we might want to load from 'current.json'?
         # For now, we stick to state-path for continuity of 'prev_state'.
         # FUTURE: load prev state from current bundle.
@@ -747,7 +742,7 @@ def main() -> int:
 
         # Calculate Changed Symbols
         n_changed, changed_list = _compute_changed_symbols(
-            decisions, 
+            decisions,
             prev_state.get("decisions", {}) if isinstance(prev_state.get("decisions"), dict) else {}
         )
 
@@ -770,10 +765,10 @@ def main() -> int:
                 "changed_symbols": changed_list,
             }
         }
-        
+
         is_stage_mode = (getattr(args, "stage", 0) == 1)
         target_prefix = args.staged_key_prefix if is_stage_mode else args.key_prefix
-        
+
         # 3.5 Research guard hard-gate (P5.2).
         # Defense-in-depth: host/container preflight should already block rollout-sensitive jobs,
         # but we still enforce here so that direct python invocation cannot bypass the blocker.
@@ -805,26 +800,26 @@ def main() -> int:
                 max_age_sec=float(os.getenv("STRATEGY_RESEARCH_STATS_MAX_AGE_SEC", "129600") or 129600),
                 fail_closed_missing=int(os.getenv("STRATEGY_RESEARCH_STATS_FAIL_CLOSED_MISSING", "0") or 0),
             )
-            if str(gate.get("status")) == "block":
+            if (gate.get("status")) == "block":
                 print(json.dumps({"blocked": True, "reason": gate.get("reason"), "source": "strategy_research_stats_gate"}, ensure_ascii=False))
                 return 0
-            if str(gate.get("status")) == "invalid" and os.getenv("STRATEGY_RESEARCH_STATS_INVALID_AS_BLOCK", "1") in ("1", "true", "True", "yes", "on"):
+            if (gate.get("status")) == "invalid" and os.getenv("STRATEGY_RESEARCH_STATS_INVALID_AS_BLOCK", "1") in ("1", "true", "True", "yes", "on"):
                 print(json.dumps({"blocked": True, "reason": gate.get("reason"), "source": "strategy_research_stats_gate", "status": "invalid"}, ensure_ascii=False))
                 return 0
-            if str(gate.get("status")) == "soft":
+            if (gate.get("status")) == "soft":
                 print(gate_check_message(gate, purpose="conf_score_guardrails_apply"))
 
         # 4. Redis Apply
         applied_info = None
-        
+
         if int(args.apply) == 1:
             if not args.redis_url:
                 raise SystemExit("--redis-url is required when --apply=1")
-            
+
             # Additional safety: if stage mode, ensure we don't accidentally write to live prefix
             if is_stage_mode and target_prefix == "cfg:crypto_of:overrides:":
                 target_prefix = "cfg:crypto_of:overrides_staged:"
-            
+
             applied_info = apply_overrides_redis(
                 decisions,
                 redis_url=args.redis_url,
@@ -844,13 +839,13 @@ def main() -> int:
             should_promote = False
             if is_stage_mode:
                 # Stage mode: never promote to current.json
-                should_promote = False 
+                should_promote = False
             else:
                 if args.bundle_promote == -1:
                     should_promote = (int(args.apply) == 1)
                 else:
                     should_promote = (int(args.bundle_promote) == 1)
-            
+
             bundle_info = _write_bundle(
                 bundle_dir=args.bundle_dir,
                 bundle_retain=args.bundle_retain,
@@ -858,19 +853,19 @@ def main() -> int:
                 promote=should_promote,
                 tag=args.bundle_tag,
             )
-            
+
             # If stage mode, we handle "staged.json" pointer manually
             if is_stage_mode:
                 staged_ptr_path = args.bundle_staged_pointer_path
                 if not staged_ptr_path and args.bundle_dir:
                     staged_ptr_path = os.path.join(args.bundle_dir, "staged.json")
-                
+
                 if staged_ptr_path:
                     ptr_data = {
                         "staged_file": bundle_info["file"],
                         "staged_ts": now_ms,
                         "staged_sha": bundle_info["sha"],
-                        "updated_at_iso": datetime.now(timezone.utc).isoformat()
+                        "updated_at_iso": datetime.now(UTC).isoformat()
                     }
                     tmp_ptr = staged_ptr_path + ".tmp"
                     with open(tmp_ptr, "w", encoding="utf-8") as f:
@@ -885,8 +880,8 @@ def main() -> int:
 
         # print a compact summary for logs
         print(json.dumps({
-            "summary": summary, 
-            "apply": applied_info, 
+            "summary": summary,
+            "apply": applied_info,
             "bundle": state.get("bundle")
         }, ensure_ascii=False))
 

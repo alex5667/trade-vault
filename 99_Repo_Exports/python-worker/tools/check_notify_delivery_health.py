@@ -1,10 +1,11 @@
-from utils.time_utils import get_ny_time_millis
-
+import json
 import os
 import sys
-import json
 import time
+
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
@@ -23,7 +24,7 @@ def check_health():
     r = get_redis_client()
     now_ms = get_ny_time_millis()
     current_bucket = int(time.time() / 60)
-    
+
     health_data = {
         "status": "ok",
         "issues": [],
@@ -34,15 +35,15 @@ def check_health():
     last_ok_str = r.get("notify:last_ok_ts_ms")
     last_ok_ms = int(last_ok_str) if last_ok_str else 0
     time_since_ok = now_ms - last_ok_ms
-    
+
     health_data["metrics"]["time_since_last_ok_ms"] = time_since_ok
     # We delay staleness check logic to combine with lag/pending
-    
+
     # 2. Check Queue Lag
     last_lag_str = r.get("notify:last_queue_lag_ms")
     last_lag_ms = int(last_lag_str) if last_lag_str else 0
     health_data["metrics"]["queue_lag_ms"] = last_lag_ms
-    
+
     if last_lag_ms > MAX_QUEUE_LAG_MS:
         health_data["status"] = "crit"
         health_data["issues"].append(f"Queue lag {last_lag_ms}ms > {MAX_QUEUE_LAG_MS}ms")
@@ -58,7 +59,7 @@ def check_health():
     pending_str = r.get("notify:last_pending_n")
     pending_n = int(pending_str) if pending_str else 0
     health_data["metrics"]["pending_n"] = pending_n
-    
+
     if pending_n > MAX_PENDING:
         health_data["status"] = "crit"
         health_data["issues"].append(f"Pending messages {pending_n} > {MAX_PENDING}")
@@ -66,7 +67,7 @@ def check_health():
     # 4. Check Error Rate (Window 5m)
     total_ok = 0
     total_err = 0
-    
+
     # Check last 5 minutes (buckets)
     for i in range(5):
         b = current_bucket - i
@@ -81,10 +82,10 @@ def check_health():
     error_rate = 0.0
     if total > 0:
         error_rate = total_err / total
-    
+
     health_data["metrics"]["error_rate_5m"] = round(error_rate, 4)
     health_data["metrics"]["samples_5m"] = total
-    
+
     if total >= MIN_SAMPLES and error_rate > MAX_ERR_RATE:
         health_data["status"] = "crit"
         health_data["issues"].append(f"High error rate {error_rate:.2%} (threshold {MAX_ERR_RATE:.0%})")

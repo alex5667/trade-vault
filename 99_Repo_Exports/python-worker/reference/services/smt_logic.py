@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from collections import deque
-from typing import Any, Deque, Dict, List, Optional, Tuple
 import math
+from collections import deque
+from dataclasses import dataclass
+from typing import Any
 
-from core.smt_symbol_snapshot import SymbolSnapshot, detect_smt_divergence, SMTDiv
+from core.smt_symbol_snapshot import SMTDiv, SymbolSnapshot, detect_smt_divergence
 
 
 def _clip01(x: float) -> float:
@@ -39,7 +39,7 @@ class LeaderStatus:
     trend_dir: str   # "UP"|"DOWN"|"NONE"
 
 
-def leader_confirm_reject(leader: SymbolSnapshot, cfg: Dict) -> Tuple[bool, bool, float, float, str, str]:
+def leader_confirm_reject(leader: SymbolSnapshot, cfg: dict) -> tuple[bool, bool, float, float, str, str]:
     """
     LeaderConfirm = closeCross ∧ of_strong ∧ ¬reclaimOpp
     LeaderReject  = sweep ∧ reclaim ∧ (weak_progress OR div_regular_against_sweep)
@@ -107,7 +107,7 @@ class SMTDiv:
     ts_ms: int
 
 
-def detect_smt_divergence(leader: SymbolSnapshot, sat: SymbolSnapshot) -> Optional[SMTDiv]:
+def detect_smt_divergence(leader: SymbolSnapshot, sat: SymbolSnapshot) -> SMTDiv | None:
     """
     SMT based on swing lows/highs (last two swings):
       bullish SMT: leader makes LL (low0 < low1), satellite makes HL (low0 > low1)
@@ -138,7 +138,7 @@ class Ranked:
     pb: float
 
 
-def _zscore(vals: List[float], x: float) -> float:
+def _zscore(vals: list[float], x: float) -> float:
     if not vals:
         return 0.0
     mu = sum(vals) / len(vals)
@@ -149,11 +149,11 @@ def _zscore(vals: List[float], x: float) -> float:
     return (x - mu) / sd
 
 
-_rsi_hist: Dict[str, Deque[float]] = {}
-_cvd_hist: Dict[str, Deque[float]] = {}
+_rsi_hist: dict[str, deque[float]] = {}
+_cvd_hist: dict[str, deque[float]] = {}
 
 
-def _z_ts(hist: Deque[float], x: float) -> float:
+def _z_ts(hist: deque[float], x: float) -> float:
     xs = list(hist)
     if len(xs) < 30:
         return 0.0
@@ -165,7 +165,7 @@ def _z_ts(hist: Deque[float], x: float) -> float:
     return float((x - mu) / sd)
 
 
-def rank_satellites(snaps: List[SymbolSnapshot], leader_symbol: str, trend_dir: str, cfg: Dict) -> List[Ranked]:
+def rank_satellites(snaps: list[SymbolSnapshot], leader_symbol: str, trend_dir: str, cfg: dict) -> list[Ranked]:
     """
     rank = 0.4*RS_z + 0.4*CVD_z + 0.2*(-PullbackDepth)
     PullbackDepth: retrace_atr (smaller is better for continuation).
@@ -175,9 +175,9 @@ def rank_satellites(snaps: List[SymbolSnapshot], leader_symbol: str, trend_dir: 
       - time-series: zscore per symbol vs its own rolling window
     """
     sats = [s for s in snaps if s.symbol != leader_symbol]
-    mode = str(cfg.get("smt_rank_mode", "ts") or "ts").lower()
+    mode = (cfg.get("smt_rank_mode", "ts") or "ts").lower()
     win = int(cfg.get("smt_rank_ts_window", 240))
-    
+
     for s in sats:
         sym = str(s.symbol)
         _rsi_hist.setdefault(sym, deque(maxlen=max(60, win))).append(float(getattr(s, "rsi14", 0.0) or 0.0))
@@ -185,20 +185,20 @@ def rank_satellites(snaps: List[SymbolSnapshot], leader_symbol: str, trend_dir: 
 
     rsi_all = [float(getattr(s, "rsi14", 0.0) or 0.0) for s in sats]
     cvd_all = [float(getattr(s, "cvd_slope", 0.0) or 0.0) for s in sats]
-    
-    out: List[Ranked] = []
+
+    out: list[Ranked] = []
     for s in sats:
         sym = str(s.symbol)
         rsi_v = float(getattr(s, "rsi14", 0.0) or 0.0)
         cvd_v = float(getattr(s, "cvd_slope", 0.0) or 0.0)
-        
+
         if mode == "cross":
             rs_z = _zscore(rsi_all, rsi_v)
             cvd_z = _zscore(cvd_all, cvd_v)
         else:
             rs_z = _z_ts(_rsi_hist.get(sym) or deque(), rsi_v)
             cvd_z = _z_ts(_cvd_hist.get(sym) or deque(), cvd_v)
-            
+
         pb = float(s.retrace_atr)
         rank = 0.4 * rs_z + 0.4 * cvd_z + 0.2 * (-pb)
         out.append(Ranked(symbol=s.symbol, rank=rank, rs_z=rs_z, cvd_z=cvd_z, pb=pb))
@@ -212,8 +212,8 @@ class SMTDecision:
     leader: str
     coh: float
     trend_dir: str
-    pick: Optional[str]
-    div: Optional[str]
+    pick: str | None
+    div: str | None
     reason: str
     conf_score: float = 0.0
     reject_score: float = 0.0
@@ -224,9 +224,9 @@ class SMTDecision:
 
 def decide_smt(
     leader: SymbolSnapshot,
-    snaps: List[SymbolSnapshot],
+    snaps: list[SymbolSnapshot],
     coh: float,
-    cfg: Dict,
+    cfg: dict,
 ) -> SMTDecision:
     """
     If leader confirmed and coh >= thr => continuation:
@@ -250,7 +250,7 @@ def decide_smt(
             trend_dir=trend_dir,
             pick=None,
             div=None,
-            reason=str(cfg.get("news_reason", "news_gate")),
+            reason=(cfg.get("news_reason", "news_gate")),
             conf_score=float(conf_score),
             reject_score=float(rej_score),
             news_blocked=1,
@@ -292,7 +292,7 @@ def decide_smt(
         k = int(cfg.get("smt_basket_k", 2))
         if k < 1:
             k = 1
-        divs: List[SMTDiv] = []
+        divs: list[SMTDiv] = []
         for s in snaps:
             if s.symbol == leader.symbol:
                 continue
@@ -301,7 +301,7 @@ def decide_smt(
                 divs.append(dv)
         bull_n = sum(1 for d in divs if d.kind == "bullish_smt")
         bear_n = sum(1 for d in divs if d.kind == "bearish_smt")
-        best_kind: Optional[str] = None
+        best_kind: str | None = None
         if bull_n >= k:
             best_kind = "bullish_smt"
         if bear_n >= k and (best_kind is None):

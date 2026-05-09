@@ -1,8 +1,8 @@
 """
 Integration test for deterministic gate decisions in replay scenarios
 """
-import pytest
 from unittest.mock import Mock, patch
+
 from common.news_gate import NewsGate
 from news_pipeline.enricher_sync import NewsEnricherSync
 

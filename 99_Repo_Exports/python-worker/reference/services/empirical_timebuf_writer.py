@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Optional
+from typing import Any
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -13,11 +13,11 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(float(os.getenv(name, str(default)) or default))
     except Exception:
-        return int(default)
+        return default
 
 
 def _canon(x: Any) -> str:
-    return (str(x or "").strip().lower() or "na")
+    return ((x or "").strip().lower() or "na")
 
 
 def write_empirical_time_buffers(
@@ -28,8 +28,8 @@ def write_empirical_time_buffers(
     tf: str,
     regime: str,
     bucket_ms: int,
-    mfe_bps: Optional[float],
-    mae_bps: Optional[float],
+    mfe_bps: float | None,
+    mae_bps: float | None,
 ) -> None:
     """
     Pushes (MFE@bucket, MAE@bucket) into Redis lists:
@@ -48,7 +48,7 @@ def write_empirical_time_buffers(
     buf_ttl = max(0, _env_int("EMP_TIME_LEVELS_BUF_TTL_SEC", 7 * 24 * 3600))
 
     k = _canon(kind)
-    s = (str(symbol or "").strip().upper() or "NA")
+    s = ((symbol or "").strip().upper() or "NA")
     t = _canon(tf)
     r = _canon(regime)
     b = int(bucket_ms)
@@ -112,7 +112,7 @@ def write_empirical_trade_counter(
     buf_max = max(50, _env_int("EMP_TIME_LEVELS_BUF_MAX", 300))
     buf_ttl = max(0, _env_int("EMP_TIME_LEVELS_BUF_TTL_SEC", 7 * 24 * 3600))
     k = _canon(kind)
-    s = (str(symbol or "").strip().upper() or "NA")
+    s = ((symbol or "").strip().upper() or "NA")
     t = _canon(tf)
     r = _canon(regime)
     key_trades = f"statsbuf:{k}:{s}:{t}:{r}:trades"

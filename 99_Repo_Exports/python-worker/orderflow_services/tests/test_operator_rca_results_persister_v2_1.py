@@ -1,4 +1,5 @@
-from orderflow_services.operator_rca_results_persister_v2_1 import _json_hash, build_quality_event, RCAResult
+from orderflow_services.operator_rca_results_persister_v2_1 import RCAResult, _json_hash, build_quality_event
+
 
 def test_json_hash_stable():
     payload = {"b": 2, "a": 1}

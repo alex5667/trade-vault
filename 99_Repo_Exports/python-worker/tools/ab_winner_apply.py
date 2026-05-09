@@ -1,12 +1,14 @@
-from utils.time_utils import get_ny_time_millis
 import argparse
 import asyncio
 import json
 import os
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis.asyncio as aioredis
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
+
 
 def _now_ms() -> int:
     return get_ny_time_millis()
@@ -61,7 +63,7 @@ async def main() -> int:
             print("Need --sid OR (--symbol --regime --group)")
             return 2
         sid = await r.get(f"{latest_prefix}:{sym}:{rg}:{grp}") or ""
-        sid = str(sid or "").strip()
+        sid = (sid or "").strip()
         if not sid:
             print("NO_LATEST_SID")
             return 3
@@ -73,15 +75,15 @@ async def main() -> int:
         return 4
 
     try:
-        meta: Dict[str, Any] = json.loads(raw)
+        meta: dict[str, Any] = json.loads(raw)
     except Exception:
         print("BAD_META_JSON")
         return 5
 
-    sym = _norm_sym(str(meta.get("symbol") or ""))
-    rg = _norm_rg(str(meta.get("regime") or "na"))
-    grp = _norm_grp(str(meta.get("group") or "default"))
-    winner = _norm_arm(str(meta.get("winner_arm") or ""))
+    sym = _norm_sym((meta.get("symbol") or ""))
+    rg = _norm_rg((meta.get("regime") or "na"))
+    grp = _norm_grp((meta.get("group") or "default"))
+    winner = _norm_arm((meta.get("winner_arm") or ""))
     if not sym or not winner:
         print("META_MISSING_FIELDS")
         return 6
@@ -167,7 +169,5 @@ async def main() -> int:
     return 0
 
 if __name__ == "__main__":
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(main())
-    except KeyboardInterrupt:
-        pass

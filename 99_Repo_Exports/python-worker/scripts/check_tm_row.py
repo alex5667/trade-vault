@@ -7,20 +7,21 @@ sys.path.append("/app")
 
 from services.trade_monitor import TradeMonitorService
 
+
 def check():
     redis_url = os.getenv("REDIS_URL")
     monitor = TradeMonitorService(redis_url=redis_url)
-    
+
     print("Manual recovery check:")
     rows = monitor.repo.load_open_positions(limit=10)
     print(f"Loaded {len(rows)} rows from repo")
-    
+
     if not rows:
         return
 
     h = rows[0]
     print(f"Checking row 0: ID={h.get('id')}, status={h.get('status')}")
-    
+
     # Trace _position_from_hash
     print("Tracing _position_from_hash...")
     try:

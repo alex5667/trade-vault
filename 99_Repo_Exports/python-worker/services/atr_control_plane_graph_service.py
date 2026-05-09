@@ -1,11 +1,12 @@
 import json
 import logging
+import os
 import time
 import uuid
-import os
-import redis
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any
+
+import redis
 
 from services.analytics_db import get_conn
 from services.atr_effective_state_resolver import EffectiveStateResolver
@@ -34,7 +35,7 @@ class ControlPlaneGraphService:
         requested_transition: str,
         actor: str,
         reason_code: str,
-        attempt_json: Dict[str, Any]
+        attempt_json: dict[str, Any]
     ):
         attempt_id = _generate_id("ill_trans")
         with conn.cursor() as cur:
@@ -59,7 +60,7 @@ class ControlPlaneGraphService:
         scope_value: str,
         actor: str,
         reason_code: str,
-        event_json: Dict[str, Any]
+        event_json: dict[str, Any]
     ) -> str:
         event_id = _generate_id("ev")
         with conn.cursor() as cur:
@@ -80,10 +81,10 @@ class ControlPlaneGraphService:
         node_type: str,
         scope_kind: str,
         scope_value: str,
-        initial_state: Dict[str, Any],
+        initial_state: dict[str, Any],
         actor: str,
         reason_code: str,
-        evidence: Optional[Dict[str, Any]] = None,
+        evidence: dict[str, Any] | None = None,
     ) -> bool:
         """Create a new formal node in the unified graph."""
         try:
@@ -121,10 +122,10 @@ class ControlPlaneGraphService:
     @staticmethod
     def transition_node(
         node_id: str,
-        target_state: Dict[str, Any],
+        target_state: dict[str, Any],
         actor: str,
         reason_code: str,
-        evidence: Optional[Dict[str, Any]] = None,
+        evidence: dict[str, Any] | None = None,
         force_override: bool = False
     ) -> bool:
         """Transition a generic graph node's state."""
@@ -171,7 +172,7 @@ class ControlPlaneGraphService:
         target_node_id: str,
         status: str, # passed, failed, pending
         actor: str,
-        checks_json: Dict[str, Any]
+        checks_json: dict[str, Any]
     ) -> bool:
         """Attach a formal certification edge to a target node."""
         try:
@@ -184,7 +185,7 @@ class ControlPlaneGraphService:
                     """, (
                         cert_id, cert_kind, target_node_id, status, json.dumps(checks_json), json.dumps({})
                     ))
-                    
+
                     # Create an edge from node to cert if it passed
                     if status == "passed":
                         edge_id = _generate_id("edge_cert")
@@ -245,13 +246,13 @@ class ControlPlaneGraphService:
         return True
 
     @staticmethod
-    def get_node(node_id: str) -> Optional[Dict[str, Any]]:
+    def get_node(node_id: str) -> dict[str, Any] | None:
         with get_conn() as conn, conn.cursor(cursor_factory=__import__('psycopg2').extras.RealDictCursor) as cur:
             cur.execute("SELECT * FROM atr_control_plane_nodes WHERE node_id = %s", (node_id,))
             return cur.fetchone()
 
     @staticmethod
-    def emit_graph_event(scope_kind: str, scope_value: str, event_type: str, payload: Dict[str, Any]):
+    def emit_graph_event(scope_kind: str, scope_value: str, event_type: str, payload: dict[str, Any]):
         """
         Records the event in the journal, updates the node/edge tables, 
         and updates the Redis shadow projection (Phase 8.1).
@@ -295,7 +296,7 @@ class ControlPlaneGraphService:
                             cur.execute("""
                                 UPDATE atr_control_plane_edges SET status = 'inactive' WHERE edge_id = %s
                             """, (edge_id,))
-            
+
             # 4. Update memory projection to Shadow Redis Namespace
             if ControlPlaneGraphService.projection_enabled:
                 ControlPlaneGraphService._update_shadow_projection(scope_kind, scope_value)
@@ -304,13 +305,13 @@ class ControlPlaneGraphService:
             logger.error(f"Failed to process graph event {event_type} for {scope_value}: {e}", exc_info=True)
 
     @staticmethod
-    def _map_event_to_node(event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _map_event_to_node(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         """
         Returns a dictionary of node_type -> node_state_json based on the incoming event.
         """
         if event_type == "rollout_stage_changed":
             return {"RolloutState": {"rollout_stage": payload.get("new_stage", "none")}}
-        
+
         elif event_type in ("freeze_applied", "freeze_escalated", "freeze_recovering"):
             return {"FreezeState": {
                 "level": payload.get("level", "scope_frozen"),
@@ -318,14 +319,14 @@ class ControlPlaneGraphService:
                 "escalated": event_type == "freeze_escalated",
                 "reason_code": payload.get("reason_code")
             }}
-            
+
         elif event_type == "freeze_released":
             return {"FreezeState": {
                 "status": "inactive",
                 "level": "none",
                 "released_at_ms": int(time.time() * 1000)
             }}
-            
+
         elif event_type in ("override_requested", "override_approved", "override_activated"):
             return {"OverrideState": {
                 "status": event_type.replace("override_", ""),
@@ -334,7 +335,7 @@ class ControlPlaneGraphService:
                 "requester": payload.get("requester"),
                 "approver": payload.get("approver")
             }}
-            
+
         elif event_type in ("override_expired", "override_revoked"):
             return {"OverrideState": {
                 "status": event_type.replace("override_", ""),
@@ -347,7 +348,7 @@ class ControlPlaneGraphService:
                 "action": payload.get("action", "allow_release"),
                 "status": "active"
             }}
-            
+
         return {}
 
     @staticmethod
@@ -356,7 +357,7 @@ class ControlPlaneGraphService:
         Invokes EffectiveStateResolver in shadow_graph_mode and writes projection to Redis. 
         """
         state = EffectiveStateResolver.resolve_scope(scope_kind, scope_value, is_shadow_graph_mode=True)
-        
+
         pipe = ControlPlaneGraphService._get_redis().pipeline()
         pipe.set(f"shadow:cfg:atr_effective_state:{scope_value}", state.get("effective_runtime_state", "unknown"))
         pipe.set(f"shadow:cfg:atr_rollout_stage:{scope_value}", state.get("rollout_stage", "none"))

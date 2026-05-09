@@ -1,12 +1,9 @@
 # python-worker/tests/test_label_triple_barrier_from_redis_ticks_v10.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
-import sys
-import os
 # [AUTOGRAVITY CLEANUP] sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 from tools.label_triple_barrier_from_redis_ticks_v10 import (
     Barriers,
     infer_tp_sl_bps,
@@ -33,13 +30,13 @@ def test_infer_tp_sl_bps_atr_fallback() -> None:
 
 def test_label_tp_hit_long() -> None:
     # entry at 100.0; TP=+50bps => 100.50
-    inp: Dict[str, Any] = {
+    inp: dict[str, Any] = {
         "symbol": "BTCUSDT",
         "ts_ms": 1000,
         "direction": "LONG",
         "indicators": {"stop_bps": 50.0},
     }
-    series: List[Tuple[int, float]] = [
+    series: list[tuple[int, float]] = [
         (1000, 100.0),
         (1100, 100.2),
         (1200, 100.55),  # TP
@@ -55,13 +52,13 @@ def test_label_tp_hit_long() -> None:
 def test_label_sl_hit_short() -> None:
     # SHORT: profit when price goes down.
     # SL=+30bps adverse move => price up by 0.30%
-    inp: Dict[str, Any] = {
+    inp: dict[str, Any] = {
         "symbol": "ETHUSDT",
         "ts_ms": 2000,
         "direction": "SHORT",
         "indicators": {"atr_bps": 30.0},
     }
-    series: List[Tuple[int, float]] = [
+    series: list[tuple[int, float]] = [
         (2000, 100.0),
         (2100, 100.1),
         (2200, 100.35),  # adverse for SHORT, should hit SL
@@ -72,7 +69,7 @@ def test_label_sl_hit_short() -> None:
 
 
 def test_label_no_ticks() -> None:
-    inp: Dict[str, Any] = {"symbol": "BTCUSDT", "ts_ms": 1000, "direction": "LONG", "indicators": {"stop_bps": 20.0}}
+    inp: dict[str, Any] = {"symbol": "BTCUSDT", "ts_ms": 1000, "direction": "LONG", "indicators": {"stop_bps": 20.0}}
     out = label_one(inp, [], h_ms=1000, tp_k_atr=1.0, sl_k_atr=1.0, fallback_tp_bps=30.0, fallback_sl_bps=30.0)
     assert out["tb_label"] == "NO_TICKS"
     assert out["tb_y_edge"] == 0

@@ -3,6 +3,7 @@ Tests for LogSampler utility.
 """
 
 import pytest
+
 from handlers.crypto_orderflow.utils.log_sampler import LogSampler, LogSamplerFactory, sampled_info
 
 

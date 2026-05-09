@@ -1,7 +1,6 @@
 from tools.ml_drift_monitor_v1 import calibration_bins, ks_stat, psi
 
 
-
 def test_ks_stat_basic():
     a = [0.0, 0.1, 0.2, 0.3]
     b = [0.0, 0.1, 0.2, 0.3]

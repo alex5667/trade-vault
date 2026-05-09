@@ -1,13 +1,13 @@
-from utils.time_utils import get_ny_time_millis
 #!/usr/bin/env python3
 # Prometheus exporter for P55 close_backfill_replay_v1 metrics stored in Redis hash.
-
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 import redis
 from prometheus_client import Gauge, start_http_server
+
+from utils.time_utils import get_ny_time_millis
 
 
 def env_str(name: str, default: str) -> str:
@@ -54,7 +54,7 @@ def main() -> None:
     start_http_server(PORT)
     while True:
         try:
-            raw: Dict[bytes, bytes] = r.hgetall(METRICS_HASH) or {}
+            raw: dict[bytes, bytes] = r.hgetall(METRICS_HASH) or {}
             data = {k.decode("utf-8", "replace"): v for k, v in raw.items()}
             processed = _to_int(data.get("processed"))
             direct = _to_int(data.get("direct_joined_total"))

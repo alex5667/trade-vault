@@ -7,16 +7,16 @@ Replay report builder:
   - optional sanity checks (NaN/Inf)
 """
 
-from dataclasses import dataclass
-from typing import Any, Dict, List
 import math
+from dataclasses import dataclass
+from typing import Any
 
 
 def _isfinite(x: float) -> bool:
     return not (math.isnan(x) or math.isinf(x))
 
 
-def _pct(xs: List[float], q: float) -> float:
+def _pct(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     ys = sorted(xs)
@@ -31,12 +31,12 @@ def _pct(xs: List[float], q: float) -> float:
 
 @dataclass
 class Report:
-    counts_by_kind: Dict[str, int]
-    score_p50_by_kind: Dict[str, float]
-    score_p95_by_kind: Dict[str, float]
+    counts_by_kind: dict[str, int]
+    score_p50_by_kind: dict[str, float]
+    score_p95_by_kind: dict[str, float]
 
 
-def normalize_signal_payload(p: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_signal_payload(p: dict[str, Any]) -> dict[str, Any]:
     """
     Нормализация для golden comparisons:
       - выкидываем поля, которые могут дрейфовать (uuid, ts fine-grain и т.п.)
@@ -56,7 +56,7 @@ def normalize_signal_payload(p: Dict[str, Any]) -> Dict[str, Any]:
         "qf",
         "qf16",
     )
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k in keep:
         if k in p:
             out[k] = p[k]
@@ -66,12 +66,12 @@ def normalize_signal_payload(p: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def build_report(signals: List[Dict[str, Any]]) -> Report:
-    counts: Dict[str, int] = {}
-    scores: Dict[str, List[float]] = {}
+def build_report(signals: list[dict[str, Any]]) -> Report:
+    counts: dict[str, int] = {}
+    scores: dict[str, list[float]] = {}
 
     for p in signals:
-        k = str(p.get("kind", "") or "")
+        k = (p.get("kind", "") or "")
         counts[k] = counts.get(k, 0) + 1
         s = p.get("final_score", None)
         try:
@@ -82,8 +82,8 @@ def build_report(signals: List[Dict[str, Any]]) -> Report:
             sf = 0.0
         scores.setdefault(k, []).append(sf)
 
-    p50: Dict[str, float] = {}
-    p95: Dict[str, float] = {}
+    p50: dict[str, float] = {}
+    p95: dict[str, float] = {}
     for k, xs in scores.items():
         p50[k] = _pct(xs, 0.50)
         p95[k] = _pct(xs, 0.95)

@@ -1,9 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional, List, Any, Dict
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 # ---------------------------------------------------------------------
 # Prometheus metrics for replay timestamp verification
@@ -63,10 +65,10 @@ class TickTimePolicy:
 @dataclass
 class SanitizeResult:
     ts_ms: int
-    drop_reason: Optional[str] = None   # future_hard / past_hard / reorder_hard / bad_ts
-    flags: Optional[List[str]] = None   # normalized_seconds / normalized_micros / clamped_soft_future / reorder_soft
+    drop_reason: str | None = None   # future_hard / past_hard / reorder_hard / bad_ts
+    flags: list[str] | None = None   # normalized_seconds / normalized_micros / clamped_soft_future / reorder_soft
 
-    def to_meta(self) -> Dict[str, Any]:
+    def to_meta(self) -> dict[str, Any]:
         return {
             "ts_ms": self.ts_ms,
             "drop_reason": self.drop_reason,
@@ -79,15 +81,15 @@ class TsVerifyResult:
     ok: bool
     severity: str  # "ok" | "warn" | "severe"
     reason: str
-    meta: Dict[str, Any]
+    meta: dict[str, Any]
 
 
 def verify_bucketed_ts(
     actual_ts_ms: int,
     expected_ts_ms: int,
     bucket_ms: int,
-    tol_ms: Optional[int] = None,
-    hard_ms: Optional[int] = None,
+    tol_ms: int | None = None,
+    hard_ms: int | None = None,
 ) -> TsVerifyResult:
     """
     Верификация меток времени с учетом квантования (бакетизации).
@@ -142,7 +144,7 @@ class TickTimeGuard:
       - watermark_ms не может быть > now (если soft-future clamp включён)
     """
 
-    def __init__(self, policy: Optional[TickTimePolicy] = None, now_provider: Optional[Callable[[], int]] = None) -> None:
+    def __init__(self, policy: TickTimePolicy | None = None, now_provider: Callable[[], int] | None = None) -> None:
         self.policy = policy or TickTimePolicy()
         self._now = now_provider
         self._watermark_ms: int = 0  # monotonic accepted time watermark (ms)
@@ -158,10 +160,9 @@ class TickTimeGuard:
             except Exception:
                 pass
         # fallback: time.time() is seconds
-        import time
         return int(get_ny_time_millis())
 
-    def _to_int(self, ts: Any) -> Optional[int]:
+    def _to_int(self, ts: Any) -> int | None:
         try:
             if ts is None:
                 return None
@@ -172,7 +173,7 @@ class TickTimeGuard:
         except Exception:
             return None
 
-    def sanitize_ts_ms(self, ts: Any, *, now_ms: Optional[int] = None) -> Optional[SanitizeResult]:
+    def sanitize_ts_ms(self, ts: Any, *, now_ms: int | None = None) -> SanitizeResult | None:
         """
         Возвращает SanitizeResult или None (если ts вообще не парсится).
         """
@@ -182,7 +183,7 @@ class TickTimeGuard:
         if t <= 0:
             return SanitizeResult(ts_ms=int(t), drop_reason="bad_ts", flags=None)
 
-        flags: List[str] = []
+        flags: list[str] = []
 
         # 1) normalize units
         if t > int(self.policy.micros_threshold):
@@ -243,8 +244,8 @@ def apply_tick_time_policy(
     tick_ts_ms: int,
     ingest_now_ms: int,
     prev_ts_ms: int,
-    policy: Optional[TickTimePolicy] = None,
-) -> "tuple[int, str, Dict[str, Any]]":
+    policy: TickTimePolicy | None = None,
+) -> tuple[int, str, dict[str, Any]]:
     """Apply time policy and return (normalized_ts_ms, decision, meta).
 
     decision values:
@@ -258,7 +259,7 @@ def apply_tick_time_policy(
     now = int(ingest_now_ms or 0)
     prev = int(prev_ts_ms or 0)
 
-    meta: Dict[str, Any] = {
+    meta: dict[str, Any] = {
         "orig_ts_ms": ts,
         "now_ms": now,
         "prev_ts_ms": prev,

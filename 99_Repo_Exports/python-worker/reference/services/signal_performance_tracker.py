@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 """
 Signal Performance Tracker - Главный оркестратор системы отслеживания сигналов.
 
@@ -26,44 +27,45 @@ Docker:
 Senior Developer + Trading Analyst (40 years exp)
 """
 
-import os
-import sys
-import time
 import json
+import os
 import signal as sig
+import sys
 import threading
-from typing import Dict, List, Optional, Any, Set
+import time
 from datetime import datetime, timedelta
+from typing import Any
 
 import redis
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from redis.exceptions import RedisError
-from pydantic import BaseModel, Field, field_validator, ValidationError, ConfigDict
 
 # Добавляем путь к корню проекта
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from services.sharded_serial_executor import ShardedSerialExecutor
-from services.trade_monitor_actor_runtime import TradeMonitorActorRuntime
-from services.trade_monitor import TradeMonitorService
-from domain.models import PositionState
-from services.reporting_service import ReportingService
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
 from common.log import setup_logger
-from services.tp1_trailing_orchestrator import TP1TrailingOrchestrator
-from services.embedded_periodic_reporter import EmbeddedPeriodicReporter
-from services.tp_config import parse_tp_ratio as _parse_tp_ratio  # Для обратной совместимости
-from services.stream_worker import StreamWorker, WorkerPolicy
-from services.deduper import RedisDeduper, env_int
-from services.entry_tag_analytics import analyze_by_entry_tag, load_trades
+from domain.models import PositionState
 from domain.normalizers import canon_source, canon_symbol
 from regime.guard import RegimeGuardService
-from regime.signal_monitor import SignalQualityMonitor
 from regime.signal_logger import SignalLogger
-from prometheus_client import Counter, Gauge, Histogram, start_http_server
+from regime.signal_monitor import SignalQualityMonitor
+from services.deduper import RedisDeduper, env_int
+from services.embedded_periodic_reporter import EmbeddedPeriodicReporter
+from services.entry_tag_analytics import analyze_by_entry_tag, load_trades
+from services.reporting_service import ReportingService
+from services.sharded_serial_executor import ShardedSerialExecutor
+from services.stream_worker import StreamWorker, WorkerPolicy
+from services.tp1_trailing_orchestrator import TP1TrailingOrchestrator
+from services.tp_config import parse_tp_ratio as _parse_tp_ratio  # Для обратной совместимости
+from services.trade_monitor import TradeMonitorService
+from services.trade_monitor_actor_runtime import TradeMonitorActorRuntime
 
 # ----------------- Prometheus Metrics (Module Level) -----------------
 # Define metrics globally to prevent "Duplicated timeseries" if instantiated multiple times.
 METRIC_SIGNAL_LATENCY = Histogram(
-    "signal_processing_time_ms", 
+    "signal_processing_time_ms",
     "End-to-end signal processing time (entry_ts to processing)",
     ["strategy", "symbol"],
     buckets=[100, 500, 1000, 3000, 5000, 10000]
@@ -95,7 +97,7 @@ METRIC_STREAM_LAG = Gauge(
 # --------------------------------------------------------------------
 
 
-def _parse_csv_env(name: str, default: Optional[List[str]] = None) -> List[str]:
+def _parse_csv_env(name: str, default: list[str] | None = None) -> list[str]:
     value = os.getenv(name)
     if value is None:
         return list(default) if default else []
@@ -105,7 +107,7 @@ def _parse_csv_env(name: str, default: Optional[List[str]] = None) -> List[str]:
     return items
 
 
-_SYMBOL_ALIAS_MAP: Dict[str, str] = {}
+_SYMBOL_ALIAS_MAP: dict[str, str] = {}
 
 
 # Recommendation D: Pydantic model for signal validation
@@ -118,7 +120,7 @@ class IncomingSignal(BaseModel):
     direction: str = Field(..., alias="side")
     price: float = Field(0.0)
     ts: int = Field(0, alias="entry_ts_ms")
-    payload: Dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator('symbol')
     @classmethod
@@ -155,8 +157,8 @@ class SignalPerformanceTracker:
     - Поток 2: Чтение тиков
     - Поток 3: Периодические задачи (отчеты)
     """
-    
-    def __init__(self, config: Optional[Dict] = None):
+
+    def __init__(self, config: dict | None = None):
         """
         Инициализация Signal Performance Tracker.
         
@@ -164,14 +166,14 @@ class SignalPerformanceTracker:
             config: Конфигурация трекера
         """
         self.logger = setup_logger("SignalPerformanceTracker")
-        
+
         # Конфигурация
         self.config = config or self._load_config_from_env()
-        
+
         # Redis URL
         self.redis_url = os.getenv("REDIS_URL", "redis://redis-worker-1-worker-1:6379/0")
         self.redis_ticks_url = os.getenv("REDIS_TICKS_URL")
-        
+
         # Создаем Redis клиент для сигналов/событий
         try:
             self.redis = redis.from_url(self.redis_url, decode_responses=True)
@@ -180,10 +182,10 @@ class SignalPerformanceTracker:
         except Exception as e:
             self.logger.error(f"❌ Не удалось подключиться к основному Redis: {e}")
             raise
-        
+
         # Оркестратор трейлинга TP1 (используем общий Redis клиент)
         self.trailing_orchestrator = TP1TrailingOrchestrator(redis_client=self.redis)
-        
+
         # Отдельный Redis клиент для тиков (если указан)
         self.redis_ticks = self.redis
         if self.redis_ticks_url:
@@ -197,7 +199,7 @@ class SignalPerformanceTracker:
                     f"используем основной Redis. Ошибка: {e}"
                 )
                 self.redis_ticks = self.redis
-        
+
         # Regime Guard Service для контроля качества сигналов (опционально)
         self.regime_guard = None
         try:
@@ -235,7 +237,7 @@ class SignalPerformanceTracker:
         self.crypto_raw_stream = os.getenv("CRYPTO_RAW_STREAM", "signals:crypto:raw")
 
         # --- Symbol executor (actor-like serialization) ---
-        self._exec: Optional[ShardedSerialExecutor] = None
+        self._exec: ShardedSerialExecutor | None = None
         self._use_symbol_exec = os.getenv("USE_SYMBOL_EXECUTOR", "1") == "1"
         self._exec_shards = int(os.getenv("SYMBOL_EXECUTOR_SHARDS", "8"))
         self._exec_queue_max = int(os.getenv("SYMBOL_EXECUTOR_QUEUE_MAX", "20000"))
@@ -243,7 +245,7 @@ class SignalPerformanceTracker:
         self._exec_task_timeout_s = float(os.getenv("SYMBOL_EXECUTOR_TASK_TIMEOUT_S", "30.0"))
 
         # --- Actor runtime (core-per-shard, no shared state) ---
-        self.tm_runtime: Optional[TradeMonitorActorRuntime] = None
+        self.tm_runtime: TradeMonitorActorRuntime | None = None
         self._use_actor_runtime = os.getenv("USE_TM_ACTOR_RUNTIME", "1") == "1"
 
 
@@ -258,20 +260,20 @@ class SignalPerformanceTracker:
             self.logger.info("✅ SignalLogger initialized")
         except Exception as e:
             self.logger.warning(f"⚠️ SignalLogger unavailable (PostgreSQL connection failed): {e}. Continuing without signal logging.")
-        
+
         # Streams для прослушивания
         streams_cfg = self.config.get("streams", {})
         symbols_cfg = streams_cfg.get("symbols", ["XAUUSD", "BTCUSDT", "ETHUSDT"])
         strategies_cfg = streams_cfg.get("strategies", ["orderflow", "ta", "aggregated"])
 
         raw_symbols = [sym.upper() for sym in symbols_cfg if sym]
-        canonical_symbols: List[str] = []
-        canonical_set: Set[str] = set()
-        signal_symbols: List[str] = []
-        signal_set: Set[str] = set()
+        canonical_symbols: list[str] = []
+        canonical_set: set[str] = set()
+        signal_symbols: list[str] = []
+        signal_set: set[str] = set()
 
-        self.symbol_alias_lookup: Dict[str, str] = {}
-        self.canonical_aliases: Dict[str, Set[str]] = {}
+        self.symbol_alias_lookup: dict[str, str] = {}
+        self.canonical_aliases: dict[str, set[str]] = {}
 
         for sym in raw_symbols:
             canonical = self._normalize_symbol(sym)
@@ -300,7 +302,7 @@ class SignalPerformanceTracker:
         self.symbols = list(self.base_symbols)
         self._symbol_set = set(self.symbols)
         self.signal_symbols = list(signal_symbols)
-        self._signal_symbol_set: Set[str] = set(self.signal_symbols)
+        self._signal_symbol_set: set[str] = set(self.signal_symbols)
         self._symbol_revision = 0
 
         if self.symbol_alias_lookup:
@@ -320,17 +322,17 @@ class SignalPerformanceTracker:
                 self.dynamic_symbols_key,
                 ", ".join(sorted(initial_dynamic_symbols)),
             )
-        
+
         # Consumer группы
         self.signal_group = self.config.get("consumer_group", "signal-tracker-group")
         self.tick_group = f"{self.signal_group}-ticks"
         self.events_group = f"{self.signal_group}-events"
         self.consumer_name = self.config.get("consumer_name", f"tracker-{int(time.time())}")
-        
+
         # Потоки
-        self.threads: List[threading.Thread] = []
+        self.threads: list[threading.Thread] = []
         self.running = False
-        
+
         # Статистика
         self.stats = {
             "signals_processed": 0,
@@ -356,11 +358,11 @@ class SignalPerformanceTracker:
         # Reference module-level globals
         self.metric_signal_latency = METRIC_SIGNAL_LATENCY
         self.metric_tick_latency = METRIC_TICK_LATENCY
-        
+
         # COUNTERS
         self.metric_signal_logging_failed = METRIC_SIGNAL_LOGGING_FAILED
         self.metric_dedup_hits = METRIC_DEDUP_HITS
-        
+
         # GAUGES
         self.metric_stream_lag = METRIC_STREAM_LAG
 
@@ -376,18 +378,18 @@ class SignalPerformanceTracker:
         self.entry_tag_analytics_enabled = os.getenv("ENTRY_TAG_ANALYTICS_ENABLED", "false").lower() == "true"
         self.entry_tag_analytics_limit = int(os.getenv("ENTRY_TAG_ANALYTICS_LIMIT", "1000"))
         self.entry_tag_min_trades = int(os.getenv("ENTRY_TAG_MIN_TRADES", "5"))
-        
+
         # Инициализация deduper
         self.deduper = RedisDeduper(self.redis, prefix=os.getenv("DEDUP_PREFIX", "dedup"))
         self.dedup_signals_ttl = env_int("DEDUP_SIGNALS_TTL_S", 2 * 24 * 3600)  # 2 дня
         self.dedup_events_ttl = env_int("DEDUP_EVENTS_TTL_S", 7 * 24 * 3600)  # 7 дней
         self.dedup_report_ttl = env_int("DEDUP_REPORT_TTL_S", 6 * 3600)  # 6 часов
-        
+
         self.logger.info("🎯 Signal Performance Tracker инициализирован")
         self.logger.info(f"   Символы: {self.symbols}")
         self.logger.info(f"   Стратегии: {self.strategies}")
         self.logger.info(f"   Dedup TTL: signals={self.dedup_signals_ttl}s, events={self.dedup_events_ttl}s, reports={self.dedup_report_ttl}s")
-    
+
 
 
     def _trade_monitor_core_factory(self, shard_id: int):
@@ -407,18 +409,18 @@ class SignalPerformanceTracker:
         core._shard_id = shard_id
         return core
 
-    def _load_config_from_env(self) -> Dict:
+    def _load_config_from_env(self) -> dict:
         """Загрузка конфигурации из переменных окружения."""
-        
+
         # Загружаем из файла если указан
         config_path = os.getenv("TRACKER_CONFIG_PATH"),
         if config_path and os.path.exists(config_path):
             try:
-                with open(config_path, 'r') as f:
+                with open(config_path) as f:
                     return json.load(f),
             except Exception as e:
                 self.logger.warning(f"⚠️ Не удалось загрузить конфиг из {config_path}: {e}"),
-        
+
         # Конфигурация по умолчанию из ENV
         symbols = _parse_csv_env("SYMBOLS", ["XAUUSD", "BTCUSDT", "ETHUSDT"]),
         strategies = _parse_csv_env("STRATEGIES", ["orderflow", "ta", "aggregated", "cryptoorderflow"]),
@@ -454,12 +456,12 @@ class SignalPerformanceTracker:
                 "daily_summary_hour": int(os.getenv("DAILY_SUMMARY_HOUR", "0"))
             }
         }
-    
-    def _normalize_symbol(self, symbol: Optional[str]) -> Optional[str]:
+
+    def _normalize_symbol(self, symbol: str | None) -> str | None:
         """Возвращает каноническое имя символа с учетом алиасов."""
         if symbol is None:
             return None
-        sym_upper = str(symbol).strip().upper()
+        sym_upper = symbol.strip().upper()
         if not sym_upper:
             return None
         if sym_upper in self.symbol_alias_lookup:
@@ -496,10 +498,10 @@ class SignalPerformanceTracker:
         if added and hasattr(self, "_symbol_revision"):
             self._symbol_revision += 1
 
-    def _get_signal_variants(self, symbol: Optional[str]) -> List[str]:
+    def _get_signal_variants(self, symbol: str | None) -> list[str]:
         """Возвращает список вариантов имен для подписки на сигнал (канонический + алиасы)."""
-        variants: List[str] = []
-        seen: Set[str] = set()
+        variants: list[str] = []
+        seen: set[str] = set()
 
         canonical = self._normalize_symbol(symbol)
         if canonical:
@@ -519,14 +521,14 @@ class SignalPerformanceTracker:
 
         return variants
 
-    def _normalize_signal_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_signal_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Применяет алиасы к символу внутри payload."""
         canonical = self._normalize_symbol(payload.get("symbol"))
         if canonical:
             payload["symbol"] = canonical
         return payload
 
-    def _extract_json_payload(self, data: Dict[str, Any], keys=("payload", "data")) -> Optional[Dict[str, Any]]:
+    def _extract_json_payload(self, data: dict[str, Any], keys=("payload", "data")) -> dict[str, Any] | None:
         """Извлекает JSON payload из сообщения."""
         raw = None
         for k in keys:
@@ -544,7 +546,7 @@ class SignalPerformanceTracker:
                 return None
         return None
 
-    def _merge_data_field(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _merge_data_field(self, data: dict[str, Any]) -> dict[str, Any]:
         """Мержит поле 'data' (JSON) с основными полями сообщения."""
         out = dict(data)
         if "data" in out and out["data"]:
@@ -562,7 +564,7 @@ class SignalPerformanceTracker:
                 out = {**parsed, **out}
         return out
 
-    def _prepare_signal_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    def _prepare_signal_message(self, message: dict[str, Any]) -> dict[str, Any]:
         """
         Подготавливает сообщение сигнала к обработке: нормализует символ и сериализует payload.
         """
@@ -589,7 +591,7 @@ class SignalPerformanceTracker:
 
         return prepared
 
-    def _signal_dedup_key(self, stream: str, msg_id: str, payload: Optional[Dict[str, Any]]) -> str:
+    def _signal_dedup_key(self, stream: str, msg_id: str, payload: dict[str, Any] | None) -> str:
         """
         Формирует ключ дедупликации для сигнала.
         Приоритет: sid > (stream, msg_id)
@@ -601,7 +603,7 @@ class SignalPerformanceTracker:
             return self.deduper.key("signals", str(sid))
         return self.deduper.key("signals", stream, msg_id)
 
-    def _process_signal_message(self, stream: str, msg_id: str, data: Dict[str, Any]) -> bool:
+    def _process_signal_message(self, stream: str, msg_id: str, data: dict[str, Any]) -> bool:
         """
         Processor для сигналов (lossless).
         return True => ACK, False/Exception => retry policy decides
@@ -621,11 +623,11 @@ class SignalPerformanceTracker:
                             pass
                     if isinstance(inner, dict):
                         payload = inner
-                
+
                 if not payload:
                     self.logger.warning("Empty/invalid crypto raw payload: %s", msg_id)
                     return True  # ACK (пустое сообщение не имеет смысла ретраить)
-                
+
                 # Recommendation 4: Track stream lag
                 try:
                     ts_part = str(msg_id).split("-")[0]
@@ -682,7 +684,7 @@ class SignalPerformanceTracker:
                 input_data = dict(payload) if payload else {}
                 if "data" in data and isinstance(data["data"], dict):
                     input_data.update(data["data"])
-                
+
                 # If sid/signal_id not in payload, look for it in top-level data
                 if "sid" not in input_data and "signal_id" not in input_data:
                     for k in ("sid", "signal_id"):
@@ -692,7 +694,7 @@ class SignalPerformanceTracker:
                 sig_obj = IncomingSignal(**input_data)
                 symbol = sig_obj.symbol
                 sid = sig_obj.sid
-                
+
                 # Update payload for downstream compatibility
                 payload = sig_obj.model_dump()
             except ValidationError as e:
@@ -746,7 +748,7 @@ class SignalPerformanceTracker:
                     self.stats["signals_processed"] += 1
                     self.stats["positions_opened"] += 1
                     self.stats["last_signal_time"] = time.time()
-                    
+
                     # Log signal to PostgreSQL
                     if self.signal_logger and signal_to_log:
                         try:
@@ -759,7 +761,7 @@ class SignalPerformanceTracker:
                             self.metric_signal_logging_failed.inc()
                             # Fail-open: don't block signal processing if logging fails
                             self.logger.warning(f"Failed to log signal to PostgreSQL: {log_err}")
-                
+
                 # Recommendation 4: End-to-end latency metric
                 try:
                     entry_ts = int(payload.get("entry_ts_ms") or payload.get("ts") or 0)
@@ -779,7 +781,7 @@ class SignalPerformanceTracker:
             self.logger.error("Signal processing failed (%s): %s", msg_id, e)
             raise
 
-    def _process_tick_message(self, stream: str, msg_id: str, data: Dict[str, Any]) -> bool:
+    def _process_tick_message(self, stream: str, msg_id: str, data: dict[str, Any]) -> bool:
         """
         Processor для тиков (realtime, best-effort, ACK всегда).
         """
@@ -825,7 +827,7 @@ class SignalPerformanceTracker:
                 fut.result(timeout=float(os.getenv("TM_ACTOR_TASK_TIMEOUT_S", "30.0")))
                 self.stats["ticks_processed"] += 1
                 self.stats["last_tick_time"] = time.time()
-                
+
                 # Recommendation 4: Prometheus tick latency
                 t_dur_us = (time.perf_counter() - t_start) * 1_000_000
                 self.metric_tick_latency.labels(symbol=symbol).observe(t_dur_us)
@@ -840,14 +842,14 @@ class SignalPerformanceTracker:
             self.trade_monitor.on_tick(tick_data)
             self.stats["ticks_processed"] += 1
             self.stats["last_tick_time"] = time.time()
-            
+
             # Recommendation 4: Prometheus tick latency
             t_dur_us = (time.perf_counter() - t_start) * 1_000_000
             self.metric_tick_latency.labels(symbol=symbol).observe(t_dur_us)
 
         return self._exec_call_lossless(key, _run, name=f"tick:{symbol}:{msg_id}")
 
-    def _event_dedup_key(self, msg_id: str, data: Dict[str, Any]) -> str:
+    def _event_dedup_key(self, msg_id: str, data: dict[str, Any]) -> str:
         """
         Формирует ключ дедупликации для события.
         Приоритет: (event_type, sid) > (msg_id)
@@ -858,7 +860,7 @@ class SignalPerformanceTracker:
             return self.deduper.key("events", et, str(sid))
         return self.deduper.key("events", "msg", msg_id)
 
-    def _process_event_message(self, stream: str, msg_id: str, data: Dict[str, Any]) -> bool:
+    def _process_event_message(self, stream: str, msg_id: str, data: dict[str, Any]) -> bool:
         """
         Processor для событий (lossless).
         """
@@ -895,7 +897,7 @@ class SignalPerformanceTracker:
         if event_type == "TRAILING_STARTED":
             # Recommendation A: Remove early return if source is orchestrator.
             # (dedup already protects against double processing)
-            
+
             sid = data.get("sid")
             new_sl_raw = data.get("new_sl")
             if not sid or new_sl_raw is None:
@@ -1007,7 +1009,7 @@ class SignalPerformanceTracker:
 
         return True
 
-    def _handle_tp_event(self, position: PositionState, tp_event: Dict[str, Any]) -> None:
+    def _handle_tp_event(self, position: PositionState, tp_event: dict[str, Any]) -> None:
         """Хендлер локального события TP для запуска трейлинга."""
         try:
             level = tp_event.get("level")
@@ -1040,7 +1042,7 @@ class SignalPerformanceTracker:
                 return
 
             from domain.time_utils import normalize_ts_ms
-            
+
             self.stats["tp1_internal_hits"] += 1
 
             trailing_result = self.trailing_orchestrator.start_trailing(
@@ -1108,14 +1110,14 @@ class SignalPerformanceTracker:
 
     def _create_consumer_groups(self) -> None:
         """Создание consumer groups для всех streams."""
-        
+
         # Signal streams
         signal_streams = []
         for strategy in self.strategies:
             for symbol in self.signal_symbols:
                 stream_name = f"signals:{strategy}:{symbol}"
                 signal_streams.append(stream_name)
-        
+
         for stream in signal_streams:
             max_retries = 10
             retry_count = 0
@@ -1137,18 +1139,18 @@ class SignalPerformanceTracker:
                     else:
                         self.logger.error(f"❌ Error creating group for {stream}: {e}")
                         break
-        
+
         # ✅ notify:telegram - читаем только НОВЫЕ сигналы (с $)
         max_retries = 10
         retry_count = 0
         while retry_count < max_retries:
             try:
                 self.redis.xgroup_create("notify:telegram", self.signal_group, id='$', mkstream=True)
-                self.logger.info(f"✅ Consumer group created for notify:telegram (NEW messages only)")
+                self.logger.info("✅ Consumer group created for notify:telegram (NEW messages only)")
                 break
             except RedisError as e:
                 if "BUSYGROUP" in str(e):
-                    self.logger.debug(f"   Group already exists: notify:telegram")
+                    self.logger.debug("   Group already exists: notify:telegram")
                     break
                 elif "Redis is loading the dataset in memory" in str(e):
                     retry_count += 1
@@ -1159,7 +1161,7 @@ class SignalPerformanceTracker:
                 else:
                     self.logger.error(f"❌ Error creating group for notify:telegram: {e}")
                     break
-        
+
         # Tick streams - используем '$' для чтения только новых сообщений (не с начала)
         for stream in self._build_tick_streams():
             try:
@@ -1173,7 +1175,7 @@ class SignalPerformanceTracker:
                 except Exception:
                     # Stream не существует или нет групп - создаем
                     pass
-                
+
                 # Создаем группу с '$' для чтения только новых сообщений
                 self.redis_ticks.xgroup_create(stream, self.tick_group, id='$', mkstream=True)
                 self.logger.info(f"✅ Consumer group created for {stream} (NEW messages only)")
@@ -1228,7 +1230,7 @@ class SignalPerformanceTracker:
                 else:
                     self.logger.error(f"❌ Error creating group for {self.crypto_raw_stream}: {e}")
                     break
-    
+
     def _signals_listener_thread(self) -> None:
         """
         Поток прослушивания сигналов из Redis Streams (signals:{strategy}:{symbol}).
@@ -1258,7 +1260,7 @@ class SignalPerformanceTracker:
         )
 
         worker.run_loop(lambda: self.running)
-    
+
     def _ticks_listener_thread(self) -> None:
         """
         Поток прослушивания тиков из Redis Streams.
@@ -1319,7 +1321,7 @@ class SignalPerformanceTracker:
         )
 
         worker.run_loop(lambda: self.running)
-    
+
     def _periodic_tasks_thread(self) -> None:
         """
         Поток периодических задач.
@@ -1330,26 +1332,26 @@ class SignalPerformanceTracker:
         - Мониторинг здоровья системы
         """
         self.logger.info("🔄 Periodic tasks thread started")
-        
+
         reporting_cfg = self.config.get("reporting", {})
         periodic_interval = reporting_cfg.get("periodic_interval_hours", 3)
         daily_enabled = reporting_cfg.get("daily_summary_enabled", True)
         daily_hour = reporting_cfg.get("daily_summary_hour", 17)
-        
+
         last_periodic_report = 0
         last_daily_report_date = None
-        
+
         while self.running:
             try:
                 current_time = time.time()
                 now = datetime.now()
-                
+
                 # Периодический отчет (каждые N часов)
                 if current_time - last_periodic_report >= periodic_interval * 3600:
                     self.logger.info("📊 Generating periodic report...")
                     self._send_periodic_report()
                     last_periodic_report = current_time
-                
+
                 # Ежедневная сводка (в заданный час UTC)
                 if daily_enabled and now.hour == daily_hour:
                     today = now.date()
@@ -1357,7 +1359,7 @@ class SignalPerformanceTracker:
                         self.logger.info("📅 Generating daily summary...")
                         self._send_daily_summary()
                         last_daily_report_date = today
-                
+
                 # Логирование статистики каждую минуту
                 if int(current_time) % 60 == 0:
                     self._log_stats()
@@ -1370,7 +1372,7 @@ class SignalPerformanceTracker:
                         ", ".join(sorted(new_symbols)),
                     )
                     self._ensure_signal_groups_for_symbols(new_symbols)
-                
+
                 self._update_health_status(
                     "periodic_tasks",
                     extra={
@@ -1378,18 +1380,18 @@ class SignalPerformanceTracker:
                         "last_daily_report_date": str(last_daily_report_date),
                     }
                 )
-                
+
                 # Спим минуту
                 time.sleep(60)
-                
+
             except Exception as e:
                 self.logger.error(f"❌ Error in periodic tasks: {e}")
                 self._update_health_status("periodic_tasks", status="error", extra={"reason": str(e)})
                 time.sleep(60)
-        
+
         self.logger.info("🛑 Periodic tasks thread stopped")
         self._update_health_status("periodic_tasks", status="stopped")
-    
+
     def _send_periodic_report(self) -> None:
         """Отправка периодического отчета в Telegram."""
         try:
@@ -1399,17 +1401,17 @@ class SignalPerformanceTracker:
                 reporting_cfg = self.config.get("reporting", {})
                 periodic_hours = reporting_cfg.get("periodic_interval_hours", 3)
                 window_seconds = int(periodic_hours * 3600)
-                
+
                 self.logger.info(f"📊 Generating periodic source report via PeriodicReporter (window={window_seconds}s)...")
                 self.periodic_reporter.send_periodic_report(window_seconds=window_seconds)
                 return
-            
+
             self.logger.info("📊 PeriodicReporter недоступен, fallback к daily summary.")
             self.reporting_service.send_daily_summary(include_sources=True)
-        
+
         except Exception as e:
             self.logger.error(f"❌ Error in periodic report: {e}")
-    
+
     def _send_daily_summary(self) -> None:
         """Отправка ежедневной сводки в Telegram."""
         try:
@@ -1420,9 +1422,9 @@ class SignalPerformanceTracker:
             else:
                 self.logger.info("📅 Generating daily summary via ReportingService (fallback)...")
                 self.reporting_service.send_daily_summary(include_sources=True)
-            
+
             # Также отправляем детальный отчет по XAUUSD
-            
+
             # Также отправляем детальный отчет по XAUUSD
             for symbol in self.symbols:
                 for strategy in self.strategies:
@@ -1434,13 +1436,13 @@ class SignalPerformanceTracker:
                             symbol=symbol,
                             tf="tick"
                         )
-            
+
             self.logger.info("📅 Daily summary sent successfully via ReportingService")
-        
+
         except Exception as e:
             self.logger.error(f"❌ Error in daily summary: {e}")
-    
-    def _refresh_symbols_from_redis(self, initial: bool = False) -> List[str]:
+
+    def _refresh_symbols_from_redis(self, initial: bool = False) -> list[str]:
         """
         Подтягивает символы из Redis множества и добавляет к текущему списку.
         Возвращает список новых символов.
@@ -1458,7 +1460,7 @@ class SignalPerformanceTracker:
             )
             return []
 
-        new_symbols: List[str] = []
+        new_symbols: list[str] = []
         revision_changed = False
 
         for sym in redis_symbols:
@@ -1507,9 +1509,9 @@ class SignalPerformanceTracker:
         """Логирование текущей статистики."""
         uptime = time.time() - self.stats["start_time"]
         uptime_str = str(timedelta(seconds=int(uptime)))
-        
+
         open_positions = self.trade_monitor.get_position_count()
-        
+
         self.logger.info(
             f"📊 Stats: "
             f"signals={self.stats['signals_processed']}, "
@@ -1577,7 +1579,7 @@ class SignalPerformanceTracker:
         self,
         component: str,
         status: str = "ok",
-        extra: Optional[Dict[str, Any]] = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         if not self.health_key:
             return
@@ -1596,7 +1598,7 @@ class SignalPerformanceTracker:
         except Exception as exc:
             self.logger.debug("⚠️ Не удалось обновить health статус (%s): %s", component, exc)
 
-    def _ensure_signal_groups_for_symbols(self, symbols: List[str]) -> None:
+    def _ensure_signal_groups_for_symbols(self, symbols: list[str]) -> None:
         """Гарантирует наличие consumer group'ов для новых символов."""
         if not symbols:
             return
@@ -1624,8 +1626,8 @@ class SignalPerformanceTracker:
             else:
                 self.logger.error(f"❌ Error creating group for {stream}: {e}")
 
-    def _build_signal_streams(self) -> List[str]:
-        streams: List[str] = []
+    def _build_signal_streams(self) -> list[str]:
+        streams: list[str] = []
         for strategy in self.strategies:
             for symbol in self.signal_symbols:
                 streams.append(f"signals:{strategy}:{symbol}")
@@ -1633,8 +1635,8 @@ class SignalPerformanceTracker:
             streams.append(self.crypto_raw_stream)
         return streams
 
-    def _build_tick_streams(self) -> List[str]:
-        streams: Set[str] = set()
+    def _build_tick_streams(self) -> list[str]:
+        streams: set[str] = set()
         for canonical in self.symbols:
             streams.add(f"stream:tick_{canonical}")
             for alias in self.canonical_aliases.get(canonical, set()):
@@ -1649,18 +1651,18 @@ class SignalPerformanceTracker:
             self._create_consumer_groups()
         except Exception as recreate_err:
             self.logger.error("❌ Failed to recreate consumer groups after %s: %s", context, recreate_err)
-    
+
     def start(self) -> None:
         """Запуск всех потоков."""
         if self.running:
             self.logger.warning("⚠️ Tracker already running")
             return
-        
+
         self.running = True
-        
+
         # Создаем consumer groups
         self._create_consumer_groups()
-        
+
         # Запускаем потоки
         self.logger.info("🚀 Starting threads...")
 
@@ -1691,7 +1693,7 @@ class SignalPerformanceTracker:
         )
         signals_thread.start()
         self.threads.append(signals_thread)
-        
+
         # Поток тиков
         ticks_thread = threading.Thread(
             target=self._ticks_listener_thread,
@@ -1700,7 +1702,7 @@ class SignalPerformanceTracker:
         )
         ticks_thread.start()
         self.threads.append(ticks_thread)
-        
+
         # Поток периодических задач
         periodic_thread = threading.Thread(
             target=self._periodic_tasks_thread,
@@ -1718,14 +1720,14 @@ class SignalPerformanceTracker:
         )
         events_thread.start()
         self.threads.append(events_thread)
-        
+
         self.logger.info(f"✅ All threads started ({len(self.threads)} threads)")
-    
+
     def stop(self) -> None:
         """Остановка всех потоков (graceful shutdown)."""
         if not self.running:
             return
-        
+
         self.logger.info("⚠️ Stopping Signal Performance Tracker...")
         self.running = False
 
@@ -1752,14 +1754,14 @@ class SignalPerformanceTracker:
 
         self.logger.info("✅ Signal Performance Tracker stopped")
 
-    def _route_key_for_symbol_or_sid(self, symbol: Optional[str], sid: Optional[str]) -> str:
+    def _route_key_for_symbol_or_sid(self, symbol: str | None, sid: str | None) -> str:
         """
         Routing key for executor:
           - prefer symbol (best locality + predictable ordering per symbol)
           - fallback to sid (preserve ordering for late/unknown symbol events)
         """
         if symbol:
-            return str(symbol).upper()
+            return symbol.upper()
         if sid:
             return f"sid:{sid}"
         return "unknown"
@@ -1799,12 +1801,12 @@ class SignalPerformanceTracker:
     def run_forever(self) -> None:
         """Запуск трекера и ожидание (блокирующий метод)."""
         self.start()
-        
+
         self.logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         self.logger.info("🚀 Signal Performance Tracker is running")
         self.logger.info("   Press Ctrl+C to stop")
         self.logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        
+
         try:
             while self.running:
                 time.sleep(1)
@@ -1819,20 +1821,20 @@ def main():
     print("🚀 Signal Performance Tracker v2.0")
     print("   Senior Developer + Trading Analyst")
     print("=" * 70 + "\n")
-    
+
     # Создаем трекер
     try:
         tracker = SignalPerformanceTracker()
     except Exception as e:
         print(f"\n❌ Ошибка инициализации: {e}")
         sys.exit(1)
-    
+
     # Методы для мониторинга качества сигналов
-    def get_quality_report(symbol: Optional[str] = None, family: Optional[str] = None) -> str:
+    def get_quality_report(symbol: str | None = None, family: str | None = None) -> str:
         """Получить отчет о качестве сигналов с L3-метриками."""
         return tracker.quality_monitor.get_quality_report(symbol, family)
 
-    def get_quality_alerts() -> List[str]:
+    def get_quality_alerts() -> list[str]:
         """Получить алерты о проблемах качества сигналов."""
         return tracker.quality_monitor.get_alerts()
 
@@ -1840,7 +1842,7 @@ def main():
         """Логировать snapshot сигнала с L3-метриками."""
         return tracker.signal_logger.log_signal(snapshot)
 
-    def get_recent_signals(symbol: Optional[str] = None, family: Optional[str] = None, limit: int = 100):
+    def get_recent_signals(symbol: str | None = None, family: str | None = None, limit: int = 100):
         """Получить недавние сигналы для анализа."""
         return tracker.signal_logger.get_recent_signals(symbol, family, limit)
 
@@ -1849,10 +1851,10 @@ def main():
         print(f"\n⚠️ Получен сигнал {signum}, завершение работы...")
         tracker.stop()
         sys.exit(0)
-    
+
     sig.signal(sig.SIGINT, signal_handler)
     sig.signal(sig.SIGTERM, signal_handler)
-    
+
     # Запуск
     try:
         tracker.run_forever()

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 XADD OOM / circuit-breaker scaffolding (shadow-mode skeleton).
 
@@ -59,7 +60,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 try:
     from prometheus_client import Counter, Gauge
@@ -137,10 +138,10 @@ class XaddOomBreaker:
     Keeps the hot path lock-light: a single mutex per breaker instance.
     """
 
-    def __init__(self, cfg: Optional[XaddOomBreakerConfig] = None) -> None:
+    def __init__(self, cfg: XaddOomBreakerConfig | None = None) -> None:
         self.cfg = cfg or XaddOomBreakerConfig()
         self._lock = threading.Lock()
-        self._by_scope: Dict[str, _ScopeState] = {}
+        self._by_scope: dict[str, _ScopeState] = {}
         if self.cfg.mode not in ("shadow", "enforce"):
             log.warning("Unknown XADD_BREAKER_MODE=%r, falling back to shadow", self.cfg.mode)
             self.cfg.mode = "shadow"
@@ -235,7 +236,7 @@ class XaddOomBreaker:
         except Exception:
             pass
 
-    def snapshot(self) -> Dict[str, Dict[str, Any]]:
+    def snapshot(self) -> dict[str, dict[str, Any]]:
         with self._lock:
             return {
                 scope: {
@@ -248,7 +249,7 @@ class XaddOomBreaker:
             }
 
 
-_singleton: Optional[XaddOomBreaker] = None
+_singleton: XaddOomBreaker | None = None
 _singleton_lock = threading.Lock()
 
 

@@ -1,12 +1,10 @@
 """Tests for DefiLlama context snapshot reader."""
 import json
-import pytest
+
 from services.orderflow.defillama_context import (
-    DefiLlamaContextSnapshot,
-    from_json,
-    from_dict,
     ctx_key,
-    SCHEMA_VERSION,
+    from_dict,
+    from_json,
 )
 
 

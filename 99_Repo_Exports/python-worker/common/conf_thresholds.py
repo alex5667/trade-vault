@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from typing import Mapping, Tuple
+from collections.abc import Mapping
 
 
 def _f(env: Mapping[str, str], k: str, d: float) -> float:
     try:
         v = env.get(k)
         if v is None or v == "":
-            return float(d)
+            return d
         return float(v)
     except Exception:
-        return float(d)
+        return d
 
 
-def compute_conf_thresholds(env: Mapping[str, str], sym_u: str) -> Tuple[float, float]:
+def compute_conf_thresholds(env: Mapping[str, str], sym_u: str) -> tuple[float, float]:
     """
     Чистая функция для hot-path порогов уверенности.
 
@@ -36,7 +36,7 @@ def compute_conf_thresholds(env: Mapping[str, str], sym_u: str) -> Tuple[float, 
 
 def should_log_edge_veto(env: Mapping[str, str]) -> bool:
     try:
-        v = str(env.get("LOG_EDGE_VETO", "0") or "0").strip().lower()
+        v = (env.get("LOG_EDGE_VETO", "0") or "0").strip().lower()
         return v in {"1", "true", "yes", "y", "on"}
     except Exception:
         return False

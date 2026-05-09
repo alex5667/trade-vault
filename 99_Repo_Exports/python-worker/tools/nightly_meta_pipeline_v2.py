@@ -1,5 +1,6 @@
 # python-worker/tools/nightly_meta_pipeline_v2.py
 from __future__ import annotations
+
 """
 Unified nightly pipeline (v2): train -> quality report (regime-aware) -> auto-ramp (regime-aware).
 
@@ -11,10 +12,9 @@ import argparse
 import os
 import subprocess
 import sys
-from typing import List
 
 
-def _run(cmd: List[str]) -> None:
+def _run(cmd: list[str]) -> None:
     print("[cmd]", " ".join(cmd))
     subprocess.check_call(cmd)
 

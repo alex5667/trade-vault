@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _safe_json(obj: Any) -> str:
@@ -30,7 +31,7 @@ def _stream_id_ms(msg_id: str) -> int:
         return 0
 
 
-def _get_payload(fields: Dict[str, Any], payload_field: str) -> Dict[str, Any]:
+def _get_payload(fields: dict[str, Any], payload_field: str) -> dict[str, Any]:
     """Extract and parse payload from stream fields."""
     raw = fields.get(payload_field)
     if raw is None:
@@ -55,7 +56,7 @@ def export_stream(
     out_path: str,
     max_scan: int,
     payload_field: str,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """
     Export stream messages to NDJSON file (reverse scan from latest).
     
@@ -63,7 +64,7 @@ def export_stream(
         (written_count, scanned_count)
     """
     scanned = 0
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
 
     while scanned < max_scan:
@@ -113,7 +114,6 @@ def main() -> None:
     ap.add_argument("--payload-field", default="payload", help="Field name containing JSON payload")
     args = ap.parse_args()
 
-    import time
     since_ms = get_ny_time_millis() - int(args.since_hours * 3600_000)
 
     r = redis.Redis.from_url(args.redis_url, decode_responses=True)

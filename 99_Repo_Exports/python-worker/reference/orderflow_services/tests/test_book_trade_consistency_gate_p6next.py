@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for BookTradeConsistencyGate P6next.
 
 Covers:
@@ -13,9 +14,8 @@ Covers:
 """
 
 import math
-import os
+
 import pytest
-from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -30,8 +30,8 @@ class _Ctx:
         trade_px: float = 0.0,
         best_bid: float = 0.0,
         best_ask: float = 0.0,
-        ts_event_ms: Optional[int] = None,
-        book_ts_ms: Optional[int] = None,
+        ts_event_ms: int | None = None,
+        book_ts_ms: int | None = None,
         stream_type: str = "tick",
     ) -> None:
         self.trade_px = trade_px
@@ -49,8 +49,8 @@ class _Ctx:
 # ---------------------------------------------------------------------------
 try:
     from services.orderflow.book_trade_consistency_gate import (
-        BookTradeConsistencyGate,
         BookTradeConsistencyDecision,
+        BookTradeConsistencyGate,
     )
     _IMPORT_OK = True
 except ImportError:
@@ -71,7 +71,7 @@ def _gate(
     adverse_cross_bps: float = 1.5,
     veto_on_stale_book: bool = True,
     veto_on_adverse_cross: bool = True,
-) -> "BookTradeConsistencyGate":
+) -> BookTradeConsistencyGate:
     return BookTradeConsistencyGate(
         enabled=enabled,
         mode=mode,

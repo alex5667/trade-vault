@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """State helpers for latency deploy-lint notifier.
@@ -9,9 +10,9 @@ separate notifier can emit Telegram/ops-event summaries without spamming on
 every timer tick.
 """
 
-from typing import Any
 import hashlib
-import time
+from typing import Any
+import contextlib
 
 
 def _i(v: Any, d: int = 0) -> int:
@@ -57,12 +58,10 @@ def update_notifier_state(r: Any, *, prefix: str, active_purposes: list[str], em
         'silenced_purposes_count': str(len([x for x in silenced_purposes if str(x).strip()])),
         'silenced_hash': purposes_hash(silenced_purposes),
         'last_status': status,
-        'last_event_kind': str(event_kind or 'noop'),
+        'last_event_kind': (event_kind or 'noop'),
         'last_emit_ts_ms': str(now_ms if emitted else _i(prev.get('last_emit_ts_ms'), 0)),
     }
     r.hset(skey, mapping=mapping)
-    try:
+    with contextlib.suppress(Exception):
         r.expire(skey, max(1, int(ttl_s)))
-    except Exception:
-        pass
     return mapping

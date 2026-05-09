@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 test_nightly_meta_stage2_optimize_share_bundle_v2.py
 
@@ -14,28 +14,24 @@ Unit tests for nightly_meta_stage2_optimize_share_bundle_v2.py:
 """
 
 
-import json
 import os
 import sys
-import time
-from unittest.mock import MagicMock, patch, Mock
 
 import pytest
 
 # Import the module functions
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from tools.nightly_meta_stage2_optimize_share_bundle_v2 import (
-    now_ms,
-    sign,
-    _f,
-    _i,
     _event_ts_ms,
-    regime_bucket,
+    _f,
     _hash01,
+    _i,
     pctl,
-    stats,
-    simulate_share,
     pick_best_share_multiobjective,
+    regime_bucket,
+    sign,
+    simulate_share,
+    stats,
 )
 
 
@@ -44,21 +40,21 @@ def test_regime_bucket():
     # News
     assert regime_bucket({"regime_group": "news_fomc"}) == "news"
     assert regime_bucket({"regime": "news_cpi_release"}) == "news"
-    
+
     # Trend
     assert regime_bucket({"regime_group": "trend_bull"}) == "trend"
     assert regime_bucket({"regime": "bear_market"}) == "trend"
     assert regime_bucket({"regime": "bull"}) == "trend"
-    
+
     # Range
     assert regime_bucket({"regime_group": "range_bound"}) == "range"
     assert regime_bucket({"regime": "chop"}) == "range"
     assert regime_bucket({"regime": "meanrev"}) == "range"
-    
+
     # Thin
     assert regime_bucket({"regime": "thin_liquidity"}) == "thin"
     assert regime_bucket({"regime": "illiquid"}) == "thin"
-    
+
     # Other (default)
     assert regime_bucket({"regime": "unknown"}) == "other"
     assert regime_bucket({}) == "other"
@@ -69,7 +65,7 @@ def test_stats():
     # Empty list
     s0 = stats([])
     assert s0["n"] == 0.0
-    
+
     # Normal case
     rs = [0.5, -0.3, -1.5, 0.2, -2.0, 0.1]
     s = stats(rs)
@@ -102,7 +98,7 @@ def test_hash01():
     assert abs(h1 - h2) < 1e-10  # Deterministic
     assert 0.0 <= h1 < 1.0
     assert 0.0 <= h2 < 1.0
-    
+
     h3 = _hash01("different_key")
     assert abs(h1 - h3) > 1e-6  # Different keys produce different hashes
 
@@ -116,9 +112,9 @@ def test_simulate_share():
         {"meta_enforce_key": "key3", "meta_veto": 1, "r_mult": -0.3},   # Would be blocked
         {"meta_enforce_key": "key4", "meta_veto": 0, "r_mult": 0.2},   # Would pass
     ]
-    
+
     salt = "test_salt"
-    
+
     # Test with share=0.0 (no blocking)
     rep0 = simulate_share(rows, share=0.0, salt=salt)
     assert rep0["share"] == 0.0
@@ -128,7 +124,7 @@ def test_simulate_share():
     assert "meanR" in rep0["opp"]
     assert "meanR" in rep0["exec"]
     assert isinstance(rep0["opp"]["meanR"], (int, float))
-    
+
     # Test with share=1.0 (all vetoed trades blocked)
     rep1 = simulate_share(rows, share=1.0, salt=salt)
     assert rep1["share"] == 1.0
@@ -145,10 +141,10 @@ def test_simulate_share_missing_key():
         {"meta_enforce_key": "", "meta_veto": 1, "r_mult": -0.5},  # Missing key
         {"meta_veto": 0, "r_mult": 0.3},  # Missing key
     ]
-    
+
     salt = "test_salt"
     rep = simulate_share(rows, share=1.0, salt=salt)
-    
+
     # Only first row should be processed
     assert rep["used"] == 1  # Only rows with keys are counted
 
@@ -168,7 +164,7 @@ def test_pick_best_share_multiobjective():
             "meta_veto": veto,
             "r_mult": r_mult,
         })
-    
+
     salt = "test_salt"
     grid = [0.10, 0.25, 0.35, 0.50, 0.75, 1.00]
     cur_share = 0.10
@@ -181,7 +177,7 @@ def test_pick_best_share_multiobjective():
     lam_p05 = 0.10
     lam_turn = 0.30
     lam_step = 0.05
-    
+
     best_s, rep = pick_best_share_multiobjective(
         rows,
         grid=grid,
@@ -197,7 +193,7 @@ def test_pick_best_share_multiobjective():
         lam_turn=lam_turn,
         lam_step=lam_step,
     )
-    
+
     # Should return a share within step limits
     assert best_s >= cur_share - max_down_step - 1e-9
     assert best_s <= cur_share + max_up_step + 1e-9
@@ -221,13 +217,13 @@ def test_pick_best_share_multiobjective_step_limit():
             "meta_veto": veto,
             "r_mult": r_mult,
         })
-    
+
     salt = "test_salt"
     grid = [0.10, 0.25, 0.50, 0.75, 1.00]  # Grid includes values beyond step limit
     cur_share = 0.10
     max_up_step = 0.25  # Should limit to 0.35 max
     max_down_step = 0.00
-    
+
     best_s, rep = pick_best_share_multiobjective(
         rows,
         grid=grid,
@@ -243,7 +239,7 @@ def test_pick_best_share_multiobjective_step_limit():
         lam_turn=0.30,
         lam_step=0.05,
     )
-    
+
     # Should not exceed step limit
     assert best_s <= cur_share + max_up_step + 1e-9
     assert best_s >= cur_share - max_down_step - 1e-9
@@ -261,12 +257,12 @@ def test_pick_best_share_multiobjective_turnover_constraint():
             "meta_veto": veto,
             "r_mult": r_mult,
         })
-    
+
     salt = "test_salt"
     grid = [0.10, 0.25, 0.50]
     cur_share = 0.10
     max_exec_rate_drop = 0.20  # Max 20% drop in exec_rate
-    
+
     best_s, rep = pick_best_share_multiobjective(
         rows,
         grid=grid,
@@ -282,7 +278,7 @@ def test_pick_best_share_multiobjective_turnover_constraint():
         lam_turn=0.30,
         lam_step=0.05,
     )
-    
+
     # If best found, check turnover drop
     if rep.get("best") is not None:
         drop = rep["best"].get("turnover_drop", 0.0)
@@ -299,12 +295,12 @@ def test_pick_best_share_multiobjective_no_change():
             "meta_veto": 0,
             "r_mult": 0.1,  # All good trades
         })
-    
+
     salt = "test_salt"
     # Grid that doesn't include current share and all values are out of step range
     grid = [0.50, 0.75, 1.00]
     cur_share = 0.10
-    
+
     # With max_up_step=0.05, all grid values (0.50, 0.75, 1.00) are out of range
     # This should force function to return current share with fallback
     best_s, rep = pick_best_share_multiobjective(
@@ -322,7 +318,7 @@ def test_pick_best_share_multiobjective_no_change():
         lam_turn=0.30,
         lam_step=0.05,
     )
-    
+
     # Should return current share if no feasible option found (all grid values out of step range)
     assert best_s == cur_share
     # Either fallback is set or best is None (both indicate no change)
@@ -333,13 +329,13 @@ def test_event_ts_ms():
     """Test event timestamp extraction."""
     # Test exit_ts_ms (milliseconds)
     assert _event_ts_ms({"exit_ts_ms": 1609459200000}) == 1609459200000
-    
+
     # Test ts_ms (milliseconds)
     assert _event_ts_ms({"ts_ms": 1609459200000}) == 1609459200000
-    
+
     # Test ts (seconds) - should be converted to milliseconds
     assert _event_ts_ms({"ts": 1609459200}) == 1609459200000
-    
+
     # Test missing timestamp
     assert _event_ts_ms({}) == 0
 
@@ -350,7 +346,7 @@ def test_safe_conversions():
     assert _f(1.5) == 1.5
     assert _f(None, 0.0) == 0.0
     assert _f("invalid", 0.0) == 0.0
-    
+
     assert _i("42") == 42
     assert _i(42) == 42
     assert _i(None, 0) == 0
@@ -361,10 +357,10 @@ def test_sign():
     """Test HMAC signature generation."""
     bid = "test_bundle_id"
     secret = "test_secret"
-    
+
     sig1 = sign(bid, secret)
     sig2 = sign(bid, secret)
-    
+
     assert sig1 == sig2  # Deterministic
     assert len(sig1) == 8  # 8 hex characters
     assert all(c in "0123456789abcdef" for c in sig1)
@@ -375,7 +371,7 @@ def test_pick_best_share_multiobjective_separate_grids():
     # This test verifies the concept - actual grid selection happens in main()
     rows_trend = []
     rows_range = []
-    
+
     for i in range(500):
         key = f"key{i}"
         veto = 1 if (i % 10) < 3 else 0
@@ -390,11 +386,11 @@ def test_pick_best_share_multiobjective_separate_grids():
             "meta_veto": veto,
             "r_mult": r_mult,
         })
-    
+
     salt = "test_salt"
     grid_trend = [0.10, 0.25, 0.35, 0.50, 0.75, 1.00]
     grid_range = [0.10, 0.15, 0.25, 0.35, 0.50]
-    
+
     # Both should work with their respective grids
     best_trend, _ = pick_best_share_multiobjective(
         rows_trend,
@@ -411,7 +407,7 @@ def test_pick_best_share_multiobjective_separate_grids():
         lam_turn=0.30,
         lam_step=0.05,
     )
-    
+
     best_range, _ = pick_best_share_multiobjective(
         rows_range,
         grid=grid_range,
@@ -427,7 +423,7 @@ def test_pick_best_share_multiobjective_separate_grids():
         lam_turn=0.30,
         lam_step=0.05,
     )
-    
+
     assert best_trend in grid_trend or best_trend == 0.10
     assert best_range in grid_range or best_range == 0.10
 

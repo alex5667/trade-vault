@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Live calibration health loop + safe rollback.
 
 Run periodically (hourly recommended) to validate that calibrated confidence
@@ -40,17 +41,16 @@ Env defaults (can be overridden by CLI):
   Y_MIN_R=0.10
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import hashlib
 import json
 import math
 import os
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 # Works when executed as either:
 #   python -m tools.confidence_cal_live_health_loop_v1
@@ -63,7 +63,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _as_float(x: Any) -> Optional[float]:
+def _as_float(x: Any) -> float | None:
     try:
         f = float(x)
         if math.isfinite(f):
@@ -102,7 +102,7 @@ def _atomic_replace(src: str, dst: str) -> None:
     os.replace(tmp, dst)
 
 
-def _ece(y: List[int], p: List[float], bins: int = 20) -> float:
+def _ece(y: list[int], p: list[float], bins: int = 20) -> float:
     # Deterministic, no numpy
     n = len(y)
     if n == 0:
@@ -127,7 +127,7 @@ def _ece(y: List[int], p: List[float], bins: int = 20) -> float:
     return float(e)
 
 
-def _brier(y: List[int], p: List[float]) -> float:
+def _brier(y: list[int], p: list[float]) -> float:
     n = len(y)
     if n == 0:
         return float("nan")
@@ -139,7 +139,7 @@ def _brier(y: List[int], p: List[float]) -> float:
     return float(s / n)
 
 
-def _precision_topk(y: List[int], p: List[float], frac: float = 0.05) -> float:
+def _precision_topk(y: list[int], p: list[float], frac: float = 0.05) -> float:
     n = len(y)
     if n == 0:
         return float("nan")
@@ -148,7 +148,7 @@ def _precision_topk(y: List[int], p: List[float], frac: float = 0.05) -> float:
     return float(sum(y[i] for i in idx) / k)
 
 
-def _expectancy_topk(r: List[float], p: List[float], frac: float = 0.05) -> float:
+def _expectancy_topk(r: list[float], p: list[float], frac: float = 0.05) -> float:
     n = len(p)
     if n == 0:
         return float("nan")
@@ -160,7 +160,7 @@ def _expectancy_topk(r: List[float], p: List[float], frac: float = 0.05) -> floa
     return float(sum(vals) / len(vals))
 
 
-def _report(y: List[int], r: List[float], p: List[float]) -> Dict[str, float]:
+def _report(y: list[int], r: list[float], p: list[float]) -> dict[str, float]:
     return {
         "rows": float(len(y)),
         "ece": _ece(y, p),
@@ -170,7 +170,7 @@ def _report(y: List[int], r: List[float], p: List[float]) -> Dict[str, float]:
     }
 
 
-def _get_indicator(ind: Dict[str, Any], keys: List[str]) -> Optional[float]:
+def _get_indicator(ind: dict[str, Any], keys: list[str]) -> float | None:
     for k in keys:
         if k not in ind:
             continue
@@ -186,14 +186,14 @@ def _get_indicator(ind: Dict[str, Any], keys: List[str]) -> Optional[float]:
 def _load_joined_jsonl(
     path: str,
     *,
-    raw_keys: List[str],
-    cal_keys: List[str],
-) -> Tuple[List[int], List[float], List[float], List[float]]:
-    y: List[int] = []
-    r: List[float] = []
-    p_raw: List[float] = []
-    p_cal: List[float] = []
-    with open(path, "r", encoding="utf-8") as f:
+    raw_keys: list[str],
+    cal_keys: list[str],
+) -> tuple[list[int], list[float], list[float], list[float]]:
+    y: list[int] = []
+    r: list[float] = []
+    p_raw: list[float] = []
+    p_cal: list[float] = []
+    with open(path, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s:
@@ -221,7 +221,7 @@ def _load_joined_jsonl(
     return y, r, p_raw, p_cal
 
 
-def _pick_rollback_version(out_dir: str, latest_path: str) -> Optional[str]:
+def _pick_rollback_version(out_dir: str, latest_path: str) -> str | None:
     versions_dir = os.path.join(out_dir, "versions")
     if not os.path.isdir(versions_dir):
         return None
@@ -262,16 +262,16 @@ def _pick_rollback_version(out_dir: str, latest_path: str) -> Optional[str]:
     return files[-2][1]
 
 
-def _read_json(path: str) -> Dict[str, Any]:
+def _read_json(path: str) -> dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             obj = json.load(f)
         return obj if isinstance(obj, dict) else {}
     except Exception:
         return {}
 
 
-def _write_json_atomic(path: str, obj: Dict[str, Any]) -> None:
+def _write_json_atomic(path: str, obj: dict[str, Any]) -> None:
     tmp = path + ".tmp"
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     with open(tmp, "w", encoding="utf-8") as f:
@@ -281,7 +281,7 @@ def _write_json_atomic(path: str, obj: Dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--redis_url", default=os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
     ap.add_argument("--out_dir", default=os.environ.get("CONF_CAL_OUT_DIR", "/var/lib/trade/of_calibrators"))
@@ -336,7 +336,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     prev_streak = int(prev.get("bad_streak", 0) or 0)
     prev_rb_ts = int(prev.get("last_rollback_ts_ms", 0) or 0)
 
-    status: Dict[str, Any] = {
+    status: dict[str, Any] = {
         "ts_ms": now,
         "since_ms": int(since_ms),
         "lookback_hours": int(args.lookback_hours),
@@ -397,9 +397,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     status["rows_raw"] = int(len(p_raw))
 
     # Filter calibrated finite
-    y_cal: List[int] = []
-    r_cal: List[float] = []
-    p_cal: List[float] = []
+    y_cal: list[int] = []
+    r_cal: list[float] = []
+    p_cal: list[float] = []
     for yy, rr, pc in zip(y, r, p_cal_all):
         if pc is None or (isinstance(pc, float) and not math.isfinite(pc)):
             continue
@@ -441,7 +441,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     cal_sharp = float(cal_rep.get("sharpness_mean", float("nan")))
 
     guard_fail = False
-    reasons: List[str] = []
+    reasons: list[str] = []
     if math.isfinite(raw_ece) and math.isfinite(cal_ece) and cal_ece > raw_ece + float(args.ece_worse_abs):
         guard_fail = True
         reasons.append("ece_worse")

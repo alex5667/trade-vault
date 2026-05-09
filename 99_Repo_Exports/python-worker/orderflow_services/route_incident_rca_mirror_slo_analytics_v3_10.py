@@ -1,10 +1,11 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -57,15 +58,15 @@ LOOKBACK_COUNT = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_SLO_LOOKBACK_COUNT"
 ROLLBACK_MTTR_SLO_SEC = float(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_ROLLBACK_MTTR_SLO_SEC", "120"))
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -89,8 +90,8 @@ def parse_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -107,12 +108,12 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
+async def xr_recent(client: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await client.xrevrange(stream_key, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -120,7 +121,7 @@ async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, 
     return out
 
 
-def percentile(values: List[float], q: float) -> float:
+def percentile(values: list[float], q: float) -> float:
     if not values:
         return 0.0
     values = sorted(values)
@@ -130,22 +131,22 @@ def percentile(values: List[float], q: float) -> float:
     return float(values[idx])
 
 
-def compute_rollup(decision_rows: List[Dict[str, Any]], journal_rows: List[Dict[str, Any]], verification_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def compute_rollup(decision_rows: list[dict[str, Any]], journal_rows: list[dict[str, Any]], verification_rows: list[dict[str, Any]]) -> dict[str, Any]:
     cutoff = now_ms() - WINDOW_MIN * 60 * 1000
     decisions = [r for r in decision_rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
     journal = [r for r in journal_rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
     verif = [r for r in verification_rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
 
-    requested_promotions = [r for r in decisions if str(r.get("controller_decision") or "") == "PROMOTE"]
-    requested_rollbacks = [r for r in decisions if str(r.get("controller_decision") or "") == "ROLLBACK"]
-    applied_promotions = [r for r in journal if str(r.get("transition_type") or "") == "AUDIT_TO_MIRROR"]
-    applied_rollbacks = [r for r in journal if str(r.get("transition_type") or "") == "MIRROR_TO_AUDIT"]
+    requested_promotions = [r for r in decisions if (r.get("controller_decision") or "") == "PROMOTE"]
+    requested_rollbacks = [r for r in decisions if (r.get("controller_decision") or "") == "ROLLBACK"]
+    applied_promotions = [r for r in journal if (r.get("transition_type") or "") == "AUDIT_TO_MIRROR"]
+    applied_rollbacks = [r for r in journal if (r.get("transition_type") or "") == "MIRROR_TO_AUDIT"]
 
     promotion_apply_rate = (len(applied_promotions) / len(requested_promotions)) if requested_promotions else 1.0
     rollback_apply_rate = (len(applied_rollbacks) / len(requested_rollbacks)) if requested_rollbacks else 1.0
 
-    rollback_decisions = [r for r in verif if str(r.get("decision") or "") == "ROLLBACK_TO_AUDIT"]
-    rollback_mtt_rs: List[float] = []
+    rollback_decisions = [r for r in verif if (r.get("decision") or "") == "ROLLBACK_TO_AUDIT"]
+    rollback_mtt_rs: list[float] = []
     rollback_decisions_sorted = sorted(rollback_decisions, key=lambda r: parse_int(r.get("ts_ms"), 0))
     applied_rollbacks_sorted = sorted(applied_rollbacks, key=lambda r: parse_int(r.get("ts_ms"), 0))
     j = 0
@@ -160,7 +161,7 @@ def compute_rollup(decision_rows: List[Dict[str, Any]], journal_rows: List[Dict[
 
     mttr_p50 = percentile(rollback_mtt_rs, 0.50)
     mttr_p95 = percentile(rollback_mtt_rs, 0.95)
-    reason_codes: List[str] = []
+    reason_codes: list[str] = []
     if promotion_apply_rate < 1.0:
         reason_codes.append("PROMOTION_APPLY_RATE_LOW")
     if rollback_apply_rate < 1.0:
@@ -184,7 +185,7 @@ def compute_rollup(decision_rows: List[Dict[str, Any]], journal_rows: List[Dict[
     }
 
 
-async def persist_if_configured(db_url: str, rollup: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, rollup: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover

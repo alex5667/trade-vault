@@ -5,8 +5,8 @@ Provides functions to sanitize data before sending to dead letter queues.
 """
 
 import json
-from typing import Any
 from datetime import datetime
+from typing import Any
 
 
 def sanitize_for_dlq(data: Any, max_depth: int = 3, max_length: int = 1000) -> Any:

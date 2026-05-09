@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Rollout/apply blocker for latency-contract coverage (P4.2).
@@ -31,7 +32,8 @@ ENV vars:
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
+import contextlib
 
 
 def _env(name: str, default: str = '') -> str:
@@ -78,7 +80,7 @@ def load_cfg() -> Cfg:
     )
 
 
-def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
+def evaluate_once(r: Any, cfg: Cfg) -> dict[str, str]:
     """Evaluate rollout gate state from the P4.1 SLO summary.
 
     Returns the complete state mapping to be written to Redis.
@@ -145,7 +147,7 @@ def evaluate_once(r: Any, cfg: Cfg) -> Dict[str, str]:
     return mapping
 
 
-def reconcile_gate_key(r: Any, cfg: Cfg, mapping: Dict[str, str]) -> None:
+def reconcile_gate_key(r: Any, cfg: Cfg, mapping: dict[str, str]) -> None:
     """Write or delete the active gate key based on gate state.
 
     When gate is active, write the gate key with TTL so that a crashed daemon
@@ -155,15 +157,11 @@ def reconcile_gate_key(r: Any, cfg: Cfg, mapping: Dict[str, str]) -> None:
     active = _i(mapping.get('gate_active'), 0)
     if active:
         r.hset(cfg.gate_key, mapping=mapping)
-        try:
+        with contextlib.suppress(Exception):
             r.expire(cfg.gate_key, max(1, int(cfg.gate_ttl_s)))
-        except Exception:
-            pass
     else:
-        try:
+        with contextlib.suppress(Exception):
             r.delete(cfg.gate_key)
-        except Exception:
-            pass
 
 
 def main() -> int:

@@ -1,8 +1,10 @@
 import os
+
 import pytest
-import redis
 
 from stream_consumer_impl import StreamConsumer
+import contextlib
+
 
 class DummyStats:
     def update_stats(self, *a, **k): pass
@@ -36,10 +38,8 @@ def consumer(r, monkeypatch):
     c.running = True
 
     # ensure group exists
-    try:
+    with contextlib.suppress(Exception):
         r.xgroup_create("stream:test", "g", id="0-0", mkstream=True)
-    except Exception:
-        pass
 
     return c
 

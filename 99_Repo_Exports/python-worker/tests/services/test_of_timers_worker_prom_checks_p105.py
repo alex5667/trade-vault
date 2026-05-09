@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for P105 prom smoke-check wiring in of_timers_worker.
 
 Covers:
@@ -17,17 +18,13 @@ Covers:
 Both functions live in services.of_timers_worker (canonical P105 runner location).
 """
 
-import subprocess
-from unittest.mock import MagicMock, patch, call
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 import services.of_timers_worker as worker_mod
 from services.of_timers_worker import (
     run_prom_rules_bundle_smoke_check,
     run_prom_rules_loaded_probe,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helper: fake run_tool_rc (used internally by both check functions)

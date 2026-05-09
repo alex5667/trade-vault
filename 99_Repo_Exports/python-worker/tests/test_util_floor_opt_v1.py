@@ -1,6 +1,7 @@
 """Tests for util_floor_opt_v1 module."""
 
 import numpy as np
+
 from core.util_floor_opt_v1 import best_floor_by_sum_util
 
 

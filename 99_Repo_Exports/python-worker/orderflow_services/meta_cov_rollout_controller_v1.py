@@ -1,5 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+
+#!/usr/bin/env python3
 """meta_cov_rollout_controller_v1.py
 
 P30: Canary rollout for meta ENFORCE by *feature coverage* buckets.
@@ -27,15 +30,13 @@ Usage
 python3 -m tools.meta_cov_rollout_controller_v1 --lookback-min 60 --apply 0  # default stream=metrics:of_gate
 python3 -m tools.meta_cov_rollout_controller_v1 --lookback-min 60 --apply 1,
 """,
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from orderflow_services.research_guard_blocker_v1 import assert_research_guard_open
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis  # type: ignore
@@ -68,9 +69,9 @@ def _loads_maybe_json(v: Any) -> Any:
     return v
 
 
-def _parse_entry(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
-    payload_obj: Optional[Dict[str, Any]] = None
+def _parse_entry(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    payload_obj: dict[str, Any] | None = None
     for k, v in fields.items():
         if isinstance(k, (bytes, bytearray)):
             ks = k.decode("utf-8", "replace")
@@ -102,7 +103,7 @@ def _i(x: Any, default: int = 0) -> int:
         return default
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     if q <= 0:
@@ -128,8 +129,8 @@ def cov_bucket(cov: float, a_ge: float, b_ge: float, c_ge: float) -> str:
     return "d"
 
 
-def read_metrics(r: Any, stream: str, since_ms: int, max_scan: int) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+def read_metrics(r: Any, stream: str, since_ms: int, max_scan: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -151,16 +152,16 @@ def read_metrics(r: Any, stream: str, since_ms: int, max_scan: int) -> List[Dict
     return rows
 
 
-def load_cfg2(r: Any, key: str) -> Dict[str, Any]:
+def load_cfg2(r: Any, key: str) -> dict[str, Any]:
     d = r.hgetall(key) or {}
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in d.items():
         out[str(k.decode() if isinstance(k, bytes) else k)] = _loads_maybe_json(v)
     return out
 
 
-def write_cfg2(r: Any, key: str, patch: Dict[str, Any]) -> None:
-    m: Dict[str, str] = {}
+def write_cfg2(r: Any, key: str, patch: dict[str, Any]) -> None:
+    m: dict[str, str] = {}
     for k, v in patch.items():
         if isinstance(v, (dict, list)):
             m[k] = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
@@ -208,15 +209,15 @@ def main() -> int:
     since_ms = now_ms() - int(args.lookback_min) * 60 * 1000
     rows = read_metrics(r, args.stream, since_ms=since_ms, max_scan=int(args.max_scan))
 
-    covs: List[float] = []
+    covs: list[float] = []
     bucket_counts = {"a": 0, "b": 0, "c": 0, "d": 0}
     for d in rows:
         cov = None
         if "meta_feature_coverage" in d:
-            cov = _f(d.get("meta_feature_coverage"), None)  # type: ignore[arg-type]
+            cov = _f(d.get(MetaKeys.FEATURE_COVERAGE), None)  # type: ignore[arg-type]
         if cov is None or cov != cov:  # NaN
-            tot = _i(d.get("meta_model_feature_total"), 0)
-            mis = _i(d.get("meta_model_feature_missing"), 0)
+            tot = _i(d.get(MetaKeys.MODEL_FEATURE_TOTAL), 0)
+            mis = _i(d.get(MetaKeys.MODEL_FEATURE_MISSING), 0)
             if tot > 0:
                 cov = max(0.0, min(1.0, 1.0 - (mis / float(tot))))
         if cov is None:
@@ -239,7 +240,7 @@ def main() -> int:
     if args.base_share >= 0:
         base_share = float(args.base_share)
     else:
-        base_share = _f(cfg2.get("meta_enforce_share"), 1.0)
+        base_share = _f(cfg2.get(MetaKeys.ENFORCE_SHARE), 1.0)
 
     base_share = max(0.0, min(1.0, float(base_share)))
 

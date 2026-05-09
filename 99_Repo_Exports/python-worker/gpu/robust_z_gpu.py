@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Robust Z-score GPU Calculator.
 
@@ -19,7 +20,6 @@ This version uses ``GPURingBuffer`` (pinned-memory ring buffer) when available:
 
 
 import logging
-from typing import Tuple, Optional
 
 import numpy as np
 
@@ -60,12 +60,12 @@ class RobustZscoreGPU:
         self.logger = logging.getLogger("RobustZscoreGPU")
 
         # Primary path — pinned-memory ring buffer (no per-tick H→D full copy)
-        self._ring: Optional["GPURingBuffer"] = None  # type: ignore[name-defined]
+        self._ring: GPURingBuffer | None = None  # type: ignore[name-defined]
         self._ring_ready = False
 
         # Secondary path — numpy CPU (always available)
         from collections import deque
-        self._values_cpu: "deque[float]" = deque(maxlen=window_size)
+        self._values_cpu: deque[float] = deque(maxlen=window_size)
 
     # ------------------------------------------------------------------
     # Ring buffer initialisation (lazy, first update call)
@@ -88,7 +88,7 @@ class RobustZscoreGPU:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def update(self, value: float) -> Tuple[float, bool]:
+    def update(self, value: float) -> tuple[float, bool]:
         """
         Update with new value and return (z_score, is_outlier).
 
@@ -123,7 +123,7 @@ class RobustZscoreGPU:
 
         return self._cpu_update(value)
 
-    def _cpu_update(self, value: float) -> Tuple[float, bool]:
+    def _cpu_update(self, value: float) -> tuple[float, bool]:
         """Numpy CPU fallback (no GPU required)."""
         if len(self._values_cpu) < 2:
             return 0.0, False

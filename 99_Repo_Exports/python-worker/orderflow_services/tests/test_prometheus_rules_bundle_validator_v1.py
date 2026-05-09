@@ -1,5 +1,7 @@
 import os
+
 import yaml
+
 
 def test_prometheus_rules_bundle_valid():
     """Validates the DQ gate policy prometheus rules bundle yaml."""
@@ -8,12 +10,12 @@ def test_prometheus_rules_bundle_valid():
         'prometheus_alerts_dq_gate_policy_v1.yml'
     )
     assert os.path.exists(rules_path), f"Rules file not found at {rules_path}"
-    
-    with open(rules_path, 'r') as f:
+
+    with open(rules_path) as f:
         data = yaml.safe_load(f)
-        
+
     assert 'groups' in data, "No groups found in yaml"
-    
+
     # Track the alerts defined in the file
     alerts_found = []
     for group in data['groups']:
@@ -24,7 +26,7 @@ def test_prometheus_rules_bundle_valid():
                 assert 'for' in rule, f"Rule {rule['alert']} missing for"
                 assert 'labels' in rule, f"Rule {rule['alert']} missing labels"
                 assert 'severity' in rule['labels'], f"Rule {rule['alert']} missing severity"
-                
+
     expected_alerts = [
         "OF_DQ_GateHardState_Crit",
         "OF_DQ_GateVetoRate_High_Warn",

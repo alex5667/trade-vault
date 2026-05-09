@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Универсальный сервис ордерфлоу для крипто‑фьючерсов Binance USDT-M.
 
@@ -12,68 +13,47 @@ from __future__ import annotations
 Сервис асинхронный, построен на redis.asyncio.
 """
 
-from utils.time_utils import get_ny_time_millis
-
-import json
-import os
-from services.orderflow.metric_labels import TickMetricLimiter, _parse_allowlist, should_emit
-
-import time
 import asyncio
-from utils.task_manager import safe_create_task
-
+import json
 import logging
-import traceback
+import os
 import random
-from typing import Any, Dict, List, Optional, Tuple, Set
+import time
+import time as _time
+import traceback
 from collections import deque
+from typing import Any
 
-from services.orderflow.configuration import (
-    OrderFlowConfigLoader, _safe_int, DEFAULT_SYMBOLS
-)
 from prometheus_client import start_http_server
-from services.observability import metrics_registry
-from handlers.crypto_orderflow.core.crypto_orderflow_calibration import (
-    RollingPercentileCalibrator,
-    ConfidenceCalibratorCfg
-)
 
-from services.orderflow.metrics import (
-    log_silent_error, burst_active_gauge, burst_flush_total, signals_emitted_total,
-    ticks_read_total, ticks_processed_total, signals_published_total,
-    drain_forced_cancel_total,
-    worker_lag_ms_gauge, worker_lag_ms_p50_gauge, worker_lag_ms_p95_gauge, worker_lag_ms_p99_gauge,
-    processing_time_us, redis_errors_total,
-    ticks_dropped_total, pel_autoclaim_total, tick_dedup_drop_total,
-    ticks_unknown_side_policy_total, ticks_unknown_side_quarantine_published_total,
-    ticks_ts_source_total,
-    tick_unknown_side_ema_gauge, tick_ts_source_now_ema_gauge, tick_ts_source_stream_id_ema_gauge,
-    tick_event_stream_skew_abs_ema_ms_gauge, tick_event_age_abs_ema_ms_gauge,
-    tick_ingest_process_ms, tick_ingest_e2e_delay_ms,
-    crypto_of_service_startup_duration_ms, crypto_of_ml_gate_bootstrap_status,
-    crypto_of_shutdown_duration_ms, crypto_of_symbol_tasks_active,
-    crypto_of_symbol_task_restarts_total, crypto_of_pel_cleanup_duration_ms,
-    crypto_of_time_source_mismatch_total
+from common.metrics2 import LagTracker
+from handlers.crypto_orderflow.core.crypto_orderflow_calibration import (
+    ConfidenceCalibratorCfg,
+    RollingPercentileCalibrator,
 )
-from services.orderflow.tick_quality_ema import TickQualityEMA
-from services.orderflow.utils import (
-    _fields_to_dict, _parse_tick_payload, _compute_tick_uid
-)
-from services.orderflow.side_policy import (
-    normalize_unknown_side_policy, is_unknown_side_tick, deterministic_sample
-)
-from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning, sampled_error, LogSamplerFactory
-from services.orderflow.runtime import SymbolRuntime
-from services.orderflow.strategy import OrderFlowStrategy
-from services.signal_preprocess import preprocess_signal_for_publish
-from services.observability.latency_contract import stamp_feature_ready, observe_feature_ready_async
-from services.persistence_manager import get_persistence_manager
+from handlers.crypto_orderflow.utils.log_sampler import sampled_info, sampled_warning
+from health_metrics import HealthMetrics
 from services.orderflow.calibration_repo import CalibrationRepository
 from services.orderflow.calibration_service import CalibrationService
-from common.metrics2 import LagTracker
+from services.orderflow.configuration import DEFAULT_SYMBOLS, OrderFlowConfigLoader, _safe_int
+from services.orderflow.metrics import (
+    crypto_of_ml_gate_bootstrap_status,
+    crypto_of_pel_cleanup_duration_ms,
+    crypto_of_service_startup_duration_ms,
+    crypto_of_shutdown_duration_ms,
+    drain_forced_cancel_total,
+    log_silent_error,
+    pel_autoclaim_total,
+    redis_errors_total,
+    ticks_dropped_total,
+)
 from services.orderflow.pel_bootstrap_cleanup import cleanup_zombie_consumers, periodic_pel_cleanup_loop
-from health_metrics import HealthMetrics
-import time as _time
+from services.orderflow.runtime import SymbolRuntime
+from services.orderflow.side_policy import deterministic_sample, normalize_unknown_side_policy
+from services.orderflow.strategy import OrderFlowStrategy
+from services.persistence_manager import get_persistence_manager
+from utils.task_manager import safe_create_task
+from utils.time_utils import get_ny_time_millis
 
 try:
     # Step 16 (optional): collapse label cardinality
@@ -82,21 +62,23 @@ except Exception:
     _symbol_label = None
 
 
-from core.of_confirm_engine import OFConfirmEngine
+import redis.asyncio as aioredis
+from redis.exceptions import ConnectionError, RedisError, ResponseError
 
-from services.async_signal_publisher import AsyncSignalPublisher
 from common.backoff import Backoff
 from common.redis_errors import is_transient_error as is_transient_redis_error
-from core.redis_stream_consumer import AsyncRedisStreamHelper
-from redis.exceptions import ResponseError, RedisError, ConnectionError
-import redis.asyncio as aioredis
-from core.redis_keys import RedisStreams as RS, STREAM_RETENTION
 from core.dq_policy import TickDQPolicy
-from services.orderflow.service_config import ServiceConfig
-from services.orderflow.redis_pools import RedisPoolSet
-from services.orderflow.signal_gate import SignalGate
+from core.of_confirm_engine import OFConfirmEngine
+from core.redis_keys import STREAM_RETENTION
+from core.redis_keys import RedisStreams as RS
+from core.redis_stream_consumer import AsyncRedisStreamHelper
+from services.async_signal_publisher import AsyncSignalPublisher
 from services.orderflow.burst_flusher import BurstFlusher
+from services.orderflow.redis_pools import RedisPoolSet
+from services.orderflow.service_config import ServiceConfig
+from services.orderflow.signal_gate import SignalGate
 from services.orderflow.tick_processor import TickProcessor
+import contextlib
 
 try:
     from core.redis_client import get_async_redis_client
@@ -115,28 +97,50 @@ except Exception:
 try:
     # P4: unified risk policy engine — per-trade sizing + tier policy + exposure caps
     from services.risk.risk_policy_engine import (
-        PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-        infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+        RISK_DENY_HARD,
+        RISK_DENY_SOFT,
+        RISK_FORCE_FLATTEN,
+        PortfolioPosition,
+        PortfolioRiskInput,
+        PortfolioRiskLimits,
+        evaluate_portfolio_risk,
+        infer_symbol_tier,
     )
 except Exception:
     try:
         from risk.risk_policy_engine import (
-            PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-            infer_symbol_tier, RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+            RISK_DENY_HARD,
+            RISK_DENY_SOFT,
+            RISK_FORCE_FLATTEN,
+            PortfolioPosition,
+            PortfolioRiskInput,
+            PortfolioRiskLimits,
+            evaluate_portfolio_risk,
+            infer_symbol_tier,
         )
     except Exception:
         # Fall back to legacy portfolio_risk_engine (old API, no infer_symbol_tier)
         try:
             from services.risk.portfolio_risk_engine import (
-                PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-                RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+                RISK_DENY_HARD,
+                RISK_DENY_SOFT,
+                RISK_FORCE_FLATTEN,
+                PortfolioPosition,
+                PortfolioRiskInput,
+                PortfolioRiskLimits,
+                evaluate_portfolio_risk,
             )
             infer_symbol_tier = None  # type: ignore
         except Exception:
             try:
                 from risk.portfolio_risk_engine import (
-                    PortfolioPosition, PortfolioRiskInput, PortfolioRiskLimits, evaluate_portfolio_risk,
-                    RISK_DENY_HARD, RISK_DENY_SOFT, RISK_FORCE_FLATTEN,
+                    RISK_DENY_HARD,
+                    RISK_DENY_SOFT,
+                    RISK_FORCE_FLATTEN,
+                    PortfolioPosition,
+                    PortfolioRiskInput,
+                    PortfolioRiskLimits,
+                    evaluate_portfolio_risk,
                 )
                 infer_symbol_tier = None  # type: ignore
             except Exception:  # pragma: no cover
@@ -172,7 +176,7 @@ except Exception:
 logger = logging.getLogger("crypto_orderflow_service")
 
 
-def ensure_audit_chain_fields(signal: Dict[str, Any]) -> Dict[str, Any]:
+def ensure_audit_chain_fields(signal: dict[str, Any]) -> dict[str, Any]:
     """Ensure a stable signal/execution chain contract before publish (P5).
 
     The execution journal needs explicit IDs to join signal production with the
@@ -241,7 +245,7 @@ def _safe_latency_delta_ms(start_mono_ms: int, end_mono_ms: int) -> int:
 
 
 class CryptoOrderflowService:
-    def __init__(self, redis_dsn: str, ticks_dsn: Optional[str] = None) -> None:
+    def __init__(self, redis_dsn: str, ticks_dsn: str | None = None) -> None:
         self.redis_dsn = redis_dsn
         self.logger = logger
         self.ticks_dsn = ticks_dsn or redis_dsn
@@ -261,12 +265,12 @@ class CryptoOrderflowService:
         self.ticks_max: int = self._svc_cfg.pools.ticks_max
 
         # Lifecycle
-        self._stop_event: Optional[asyncio.Event] = None
-        self.tasks: List[asyncio.Task] = []
-        self.active_symbols: Set[str] = set()
-        self.symbol_contexts: Dict[str, SymbolRuntime] = {}
+        self._stop_event: asyncio.Event | None = None
+        self.tasks: list[asyncio.Task] = []
+        self.active_symbols: set[str] = set()
+        self.symbol_contexts: dict[str, SymbolRuntime] = {}
         self.consumer_id = f"worker-{os.getpid()}-{int(time.time())}"
-        
+
         # Async publisher
         self.publisher = AsyncSignalPublisher(
             redis_client=None, # set in run_forever
@@ -275,7 +279,7 @@ class CryptoOrderflowService:
 
         # Engines (of_engine rebuilt later with ML gate)
         self.of_engine = OFConfirmEngine()
-        self.strategy: Optional[OrderFlowStrategy] = None
+        self.strategy: OrderFlowStrategy | None = None
         self.tick_dq_policy = TickDQPolicy(latency_lenient_mode=False)
 
         self.config_loader = OrderFlowConfigLoader(self._config_redis_client)
@@ -320,30 +324,30 @@ class CryptoOrderflowService:
         self.exec_quarantine_denylist_enable = _r.quarantine_enable
         self.orders_quarantine_sids_key = _r.quarantine_sids_key
         self.quarantine_denylist_cache_ms = _r.quarantine_cache_ms
-        self._quarantine_sid_cache: Set[str] = set()
+        self._quarantine_sid_cache: set[str] = set()
         self._quarantine_sid_cache_ts_ms: int = 0
 
         # Signal gate (DQ + risk + quarantine) — replaces _pre_publish_allows_signal
         self._gate = SignalGate.from_service(self)
 
         # Local caches for snapshot publisher
-        self._rq_cache: Dict[str, Tuple[int, Dict[str, Any]]] = {}
-        self._adx_cache: Dict[str, Tuple[int, float]] = {}
+        self._rq_cache: dict[str, tuple[int, dict[str, Any]]] = {}
+        self._adx_cache: dict[str, tuple[int, float]] = {}
 
-        self.symbol_contexts: Dict[str, SymbolRuntime] = {}
-        self.symbol_tasks: Dict[str, Tuple[asyncio.Task, asyncio.Task]] = {}
+        self.symbol_contexts: dict[str, SymbolRuntime] = {}
+        self.symbol_tasks: dict[str, tuple[asyncio.Task, asyncio.Task]] = {}
         self.refresh_interval = self._svc_cfg.refresh_interval_sec
 
-        self._lag_trackers: Dict[str, LagTracker] = {}
-        self._lag_export_counters: Dict[str, int] = {}
+        self._lag_trackers: dict[str, LagTracker] = {}
+        self._lag_export_counters: dict[str, int] = {}
 
         rnd = random.randint(1000, 9999)
         self.consumer_id_ticks = f"crypto-of-ticks-{os.getpid()}-{rnd}"
         self.consumer_id_books = f"crypto-of-books-{os.getpid()}-{rnd}"
 
-        self.tick_helpers: Dict[str, Any] = {}
-        self.book_helpers: Dict[str, Any] = {}
-        self.poison_pill_counts: Dict[str, int] = {}
+        self.tick_helpers: dict[str, Any] = {}
+        self.book_helpers: dict[str, Any] = {}
+        self.poison_pill_counts: dict[str, int] = {}
 
         # Streams (resolved lazily from RedisStreams)
         _s = self._svc_cfg.resolved_streams()
@@ -390,13 +394,13 @@ class CryptoOrderflowService:
             ml_gate=_ml_gate,
         )
 
-        self._refresh_task: Optional[asyncio.Task] = None
-        self._ml_gate_bg_task: Optional[asyncio.Task] = None
-        self._burst_task: Optional[asyncio.Task] = None
-        self._supervisor_task: Optional[asyncio.Task] = None
-        self._health_contract_task: Optional[asyncio.Task] = None
-        self._score_calib_persist_task: Optional[asyncio.Task] = None
-        self._task_restart_hist: Dict[Tuple[str, str], deque] = {}
+        self._refresh_task: asyncio.Task | None = None
+        self._ml_gate_bg_task: asyncio.Task | None = None
+        self._burst_task: asyncio.Task | None = None
+        self._supervisor_task: asyncio.Task | None = None
+        self._health_contract_task: asyncio.Task | None = None
+        self._score_calib_persist_task: asyncio.Task | None = None
+        self._task_restart_hist: dict[tuple[str, str], deque] = {}
         self._shutdown = False
 
         # Rolling calibrator persistence settings
@@ -413,11 +417,11 @@ class CryptoOrderflowService:
         self._drop_on_lag = _t.drop_on_lag
         self._max_ts_skew_ms = _t.max_ts_skew_ms
 
-        self._pel_cursor: Dict[Tuple[str, str], str] = {}
-        self._pel_sweeper_task: Optional[asyncio.Task] = None
-        self._pel_cleanup_task: Optional[asyncio.Task] = None
+        self._pel_cursor: dict[tuple[str, str], str] = {}
+        self._pel_sweeper_task: asyncio.Task | None = None
+        self._pel_cleanup_task: asyncio.Task | None = None
 
-        self.force_trail_after_tp1: Optional[bool] = self._svc_cfg.engine.force_trail_after_tp1
+        self.force_trail_after_tp1: bool | None = self._svc_cfg.engine.force_trail_after_tp1
 
         # Burst flusher (replaces _burst_flush_loop + _process_burst_flush)
         self._flusher = BurstFlusher(
@@ -436,7 +440,7 @@ class CryptoOrderflowService:
         logger.info("   Telegram stream: %s", self.notify_stream)
         logger.info("   Signal min confidence: %s%%", os.getenv("CRYPTO_SIGNAL_MIN_CONF", "70"))
 
-    def _env_bool(self, name: str, default: Optional[str] = None) -> bool:
+    def _env_bool(self, name: str, default: str | None = None) -> bool:
         val = os.getenv(name, default)
         if not val:
             return False
@@ -498,7 +502,7 @@ class CryptoOrderflowService:
                 await loop.run_in_executor(None, run_atr_policy_drift_check_once)
         except Exception as exc:
             logger.warning("ATR policy drift check on start failed: %s", exc)
-        
+
         # Init Strategy
         self.strategy = OrderFlowStrategy(
             redis=self.main,
@@ -580,7 +584,7 @@ class CryptoOrderflowService:
                         result.get("pending_acked", 0),
                         dt_cleanup,
                     )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("⚠️ PEL startup cleanup timed out (30s)")
             except Exception as exc:
                 logger.warning("⚠️ PEL startup cleanup failed (non-fatal): %s", exc)
@@ -699,7 +703,7 @@ class CryptoOrderflowService:
         if task_to_meta:
             all_tasks = list(task_to_meta.keys())
             done, pending = await asyncio.wait(all_tasks, timeout=drain_timeout)
-            
+
             if pending:
                 logger.warning("⚠️ Drain timeout: forcing cancel of %d task(s)", len(pending))
                 for t in pending:
@@ -707,7 +711,7 @@ class CryptoOrderflowService:
                     sym, kind = task_to_meta[t]
                     if drain_forced_cancel_total:
                         drain_forced_cancel_total.labels(symbol=sym, kind=kind).inc()
-                
+
                 await asyncio.gather(*pending, return_exceptions=True)
 
         self.symbol_tasks.clear()
@@ -728,14 +732,14 @@ class CryptoOrderflowService:
         """
         if self._shutdown:
             return
-            
+
         symbols_override_env = os.getenv("CRYPTO_SYMBOLS_OVERRIDE", "")
         if symbols_override_env:
             symbols = set(sym.strip().upper() for sym in symbols_override_env.split(",") if sym.strip())
         else:
             use_default_symbols = self._env_bool("CRYPTO_DEFAULT_SYMBOLS_ENABLED", "true")
             symbols = set(sym.upper() for sym in DEFAULT_SYMBOLS) if use_default_symbols else set()
-            
+
             symbols_key = os.getenv("CRYPTO_SYMBOLS_SET_KEY", "crypto:symbols")
             try:
                 redis_symbols = await self.main.smembers(symbols_key)
@@ -745,7 +749,7 @@ class CryptoOrderflowService:
 
         # Обновляем/создаём контексты
         current_symbols = set(self.symbol_contexts.keys())
-        
+
         # Log connection pool usage estimate
         symbols_count = len(symbols)
         estimated_connections = symbols_count * 2  # ticks + books per symbol
@@ -763,14 +767,14 @@ class CryptoOrderflowService:
 
         # Группируем обработку символов для параллельного выполнения (Expert P5)
         t0_load = time.time()
-        
+
         # Preload configs in a pipeline to avoid connection pool exhaustion and timeouts
         if hasattr(self.config_loader, "preload_configs"):
             try:
                 await self.config_loader.preload_configs(list(symbols))
             except Exception as e:
                 logger.error("Failed to preload configs: %s", e)
-        
+
         async def _init_symbol(symbol: str):
             async with self._bootstrap_sem:
                 try:
@@ -784,18 +788,18 @@ class CryptoOrderflowService:
         # Limit concurrency to REDIS_CONFIG_MAX_CONNECTIONS (default 10) to avoid connection pool exhaustion
         max_concurrency = int(os.getenv("REDIS_CONFIG_MAX_CONNECTIONS", "10"))
         sem = asyncio.Semaphore(max(1, max_concurrency - 2)) # Leave 2 conns for other tasks
-        
+
         async def bounded_init(sym: str):
             async with sem:
                 return await _init_symbol(sym)
-                    
+
         load_tasks = [bounded_init(s) for s in sorted(symbols)]
         results = await asyncio.gather(*load_tasks)
 
         for symbol, cfg, tick_stream, book_stream in results:
             if cfg is None:
                 continue
-            
+
             runtime = self.symbol_contexts.get(symbol)
             if runtime is None:
                 runtime = SymbolRuntime(symbol=symbol, config=cfg)
@@ -813,7 +817,7 @@ class CryptoOrderflowService:
                     tags={"symbol": symbol}
                 )
                 self._lag_export_counters[symbol] = 0
-                
+
                 # ✅ P1: EAGER BOOTSTRAP: Load calibrations BEFORE starting tasks
                 try:
                     async def bootstrap_task():
@@ -830,7 +834,7 @@ class CryptoOrderflowService:
                 tick_task = safe_create_task(self.consume_ticks(symbol), name=f"crypto-of-ticks-{symbol}")
                 book_task = safe_create_task(self.consume_books(symbol), name=f"crypto-of-book-{symbol}")
                 self.symbol_tasks[symbol] = (tick_task, book_task)
-            
+
             # Конфиг должен применяться всегда, а не только при создании
             runtime.apply_config(cfg)
             runtime.tick_stream = tick_stream
@@ -850,7 +854,7 @@ class CryptoOrderflowService:
                 t_tick, t_book = tasks
                 if (t_tick and t_tick.done()) or (t_book and t_book.done()):
                     logger.error("❌ (%s) Detected dead tasks in load_dynamic_symbols; will restart via supervisor", symbol)
-                
+
                 sampled_info(
                     logger,
                     "WORKER_INIT",
@@ -946,22 +950,22 @@ class CryptoOrderflowService:
         # Default TTL is 60s, so refresh every 30s to constitute a cache hit
         interval = 30.0
         logger.info("Starting ML Gate background refresh loop (interval=%.1fs)", interval)
-        
+
         # Stagger by 15s to avoid resource contention with load_dynamic_symbols which also runs every 30s
         await asyncio.sleep(15.0)
-        
+
         while not self._shutdown:
             try:
                 gate = getattr(self.of_engine, "ml_gate", None)
                 # Fast retry interval if config has not been successfully loaded
                 cur_interval = 5.0 if gate and not getattr(gate, "_cfg", None) else interval
-                
+
                 # Wait first (gate is lazy-loaded, so might be None initially)
                 await asyncio.sleep(cur_interval)
-                
+
                 if self._shutdown:
                      break
-                
+
                 # Access exposed property from OFConfirmEngine
                 # Note: of_engine might not have ml_gate initialized if no build() calls happened yet,
                 # or if ML_GATE is disabled.
@@ -976,7 +980,7 @@ class CryptoOrderflowService:
                         cfg_key = getattr(gate, "_cfg_key_used", "N/A")
                         cfg_src = getattr(gate, "_cfg_source", "N/A")
                         logger.warning(
-                            "⚠️ ML gate async refresh took %.1fms (cfg: %s, src: %s)", 
+                            "⚠️ ML gate async refresh took %.1fms (cfg: %s, src: %s)",
                             dt * 1000, cfg_key, cfg_src
                         )
             except asyncio.CancelledError:
@@ -993,7 +997,7 @@ class CryptoOrderflowService:
         """
         interval = float(os.getenv("EXEC_HEALTH_BG_FLUSH_INTERVAL_SEC", "60.0"))
         logger.info("🚀 Starting health contract flush loop (interval=%.1fs)", interval)
-        
+
         try:
             from services.orderflow.exec_health_slo_contract import flush_exec_health_contract_state_async
         except ImportError:
@@ -1002,7 +1006,7 @@ class CryptoOrderflowService:
 
         while not self._shutdown:
             try:
-                # Use force=True to ensure updated_ts_ms is pushed to Redis 
+                # Use force=True to ensure updated_ts_ms is pushed to Redis
                 # even if no new signals were recorded in this interval.
                 # Use dedicated isolated client to avoid pool contention.
                 await asyncio.wait_for(
@@ -1015,17 +1019,17 @@ class CryptoOrderflowService:
                 )
             except asyncio.CancelledError:
                 break
-            except (asyncio.TimeoutError, ConnectionError, RedisError) as e:
+            except (TimeoutError, ConnectionError, RedisError) as e:
                 # Handle connection/timeout errors gracefully to avoid spamming (P4.1)
                 # These are usually transient pool acquisition delays or network blips.
                 sampled_warning(
-                    logger, "HEALTH_FLUSH_TIMEOUT", 
-                    "⚠️ Health contract flush loop timeout/connection error: %s (using isolated pool)", 
+                    logger, "HEALTH_FLUSH_TIMEOUT",
+                    "⚠️ Health contract flush loop timeout/connection error: %s (using isolated pool)",
                     e, sample_rate=5
                 )
             except Exception as e:
                 log_silent_error(e, 'health_contract_flush_failure', 'pipeline', '_health_contract_flush_loop')
-            
+
             await asyncio.sleep(interval)
 
     async def _supervisor_loop(self) -> None:
@@ -1116,7 +1120,7 @@ class CryptoOrderflowService:
             await self._stop_symbol(symbol)
             return task
 
-        exc: Optional[BaseException] = None
+        exc: BaseException | None = None
         try:
             if task is not None and task.cancelled():
                 exc = asyncio.CancelledError()
@@ -1128,10 +1132,8 @@ class CryptoOrderflowService:
             exc = e
 
         if exc and not isinstance(exc, asyncio.CancelledError):
-            try:
+            with contextlib.suppress(Exception):
                 log_silent_error(exc, 'task_crash', symbol, f'supervisor:{kind}', sample_rate=1)
-            except Exception:
-                pass
             tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             logger.error("❌ (%s) %s task died. Restarting. err=%r\n%s", symbol, kind, exc, tb)
         else:
@@ -1149,7 +1151,7 @@ class CryptoOrderflowService:
         self.symbol_contexts.pop(symbol, None)
 
         # Cleanup caches to prevent leaks for unloaded symbols
-        sym = str(symbol or "").upper()
+        sym = (symbol or "").upper()
         self.tick_helpers.pop(sym, None)
         self.book_helpers.pop(sym, None)
         self.poison_pill_counts.pop(sym, None)
@@ -1180,11 +1182,11 @@ class CryptoOrderflowService:
         trigger_source: str,
         ts_ms: int,
         do_publish: bool = True,
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         """Delegates to BurstFlusher.process()."""
         return await self._flusher.process(runtime, trigger_source, ts_ms, do_publish)
 
-    def _build_redis_dq_snapshot(self, runtime: Any, *, now_ms: int) -> Optional["RedisDQSnapshot"]:
+    def _build_redis_dq_snapshot(self, runtime: Any, *, now_ms: int) -> RedisDQSnapshot | None:
         """Build a RedisDQSnapshot from the runtime's current health counters.
 
         All attributes are read via getattr with safe defaults — this method
@@ -1231,7 +1233,7 @@ class CryptoOrderflowService:
         Cache in-memory for adx_cache_ms (default 300ms).
         Fail-open: returns 0.0.
         """
-        sym = str(symbol or "").upper()
+        sym = (symbol or "").upper()
         if not sym:
             return 0.0
         cache_ms = int(os.getenv("ADX_CACHE_MS", "300"))
@@ -1263,29 +1265,29 @@ class CryptoOrderflowService:
         backoff = Backoff(base_delay=_tc.backoff_base, multiplier=2.0, max_delay=_tc.backoff_cap, jitter=_tc.backoff_jitter)
         idle_sleep = _tc.idle_sleep_sec
         msg_counter = 0
-        
+
         # P0 FIX: Cache loop-level ENV variables ONCE before loop.
         # Eliminates ~3 os.getenv syscalls per iteration (thousands/sec).
         _cached_tick_sample_rate = _tc.sample_rate
         _cached_block_ms_env = str(_tc.read_block_ms)
         _cached_lag_tracker_max_ms = _tc.lag_tracker_max_ms
-        
+
         # Initialize stream, group, and helper once before the loop
         stream = None
         group = None
         helper = None
         nogroup_retries = 0
-        
+
         while not self._shutdown:
             runtime = self.symbol_contexts.get(symbol)
             if runtime is None:
                 logger.warning("⚠️ (%s) Runtime не найден, ожидание...", symbol)
                 await asyncio.sleep(1)
                 continue
-            
+
             if runtime.loop_log_sampler.should_log("loop_start"):
                 logger.debug("🔄 (%s) Loop iteration start", symbol)
-            
+
             # Initialize helper on first iteration or if runtime changed (Expert P4/P5)
             stream = runtime.tick_stream
             group = runtime.tick_group
@@ -1304,7 +1306,7 @@ class CryptoOrderflowService:
 
             # 1. Calibration loading (SRP Phase A - Service-based)
             await self.calib_svc.ensure_loaded(runtime)
-            
+
             # 2. Daily candle warmup (TODO: move to service later)
 
             # NEW: Periodically refresh specs (calibrated SL, etc) from MAIN redis
@@ -1338,7 +1340,7 @@ class CryptoOrderflowService:
                 error_str = str(exc)
                 is_pool_exhausted = "Too many connections" in error_str or "Name or service not known" in error_str
                 is_timeout = isinstance(exc, TimeoutError) or "Timeout" in error_str
-                
+
                 if is_pool_exhausted:
                     if redis_errors_total:
                         redis_errors_total.labels(op="read_ticks_pool_exhausted", symbol=symbol).inc()
@@ -1434,7 +1436,7 @@ class CryptoOrderflowService:
 
             # Reset NOGROUP retry count on successful read
             nogroup_retries = 0
-            
+
             # --- Обработка батча тиков ---
             if messages:
                 sampled_info(logger, "LOOP_DIAGNOSTIC", "📥 (%s) Read %d messages from stream", symbol, sum(len(entries) for _, entries in messages))
@@ -1443,7 +1445,7 @@ class CryptoOrderflowService:
 
             sampled_ticks_dropped = 0
             for stream_name, entries in messages:
-                ack_ids: List[str] = []
+                ack_ids: list[str] = []
                 entry_idx = 0
                 for msg_id, fields in entries:
                     # Yield every 5 ticks — не блокируем event loop
@@ -1456,12 +1458,10 @@ class CryptoOrderflowService:
                     if tick_sample_rate < 1.0 and not deterministic_sample(entry_idx, tick_sample_rate):
                         ack_ids.append(msg_id)
                         sampled_ticks_dropped += 1
-                        try:
+                        with contextlib.suppress(Exception):
                             ticks_dropped_total.labels(symbol=symbol, reason="sampled").inc()
-                        except Exception:
-                            pass
                         continue
-                    
+
                     # Делегируем полную обработку тика в TickProcessor
                     if await self._tick_proc.process_tick(
                         runtime, msg_id, fields, symbol,
@@ -1523,7 +1523,7 @@ class CryptoOrderflowService:
                 error_str = str(exc)
                 is_pool_exhausted = "Too many connections" in error_str or "Name or service not known" in error_str
                 is_timeout = isinstance(exc, TimeoutError) or "Timeout" in error_str
-                
+
                 if is_pool_exhausted:
                     if redis_errors_total:
                         redis_errors_total.labels(op="read_books_pool_exhausted", symbol=symbol).inc()
@@ -1572,7 +1572,7 @@ class CryptoOrderflowService:
                         await helper.ensure_group(stream, recreate=True)
                     except RedisError as err:
                         logger.error("❌ (%s) Ошибка повторного создания book-группы: %s", symbol, err)
-                    
+
                     delay = min(1.0 * nogroup_retries, 10.0)
                     await asyncio.sleep(delay)
                     continue
@@ -1622,7 +1622,7 @@ class CryptoOrderflowService:
                 continue
 
             for stream_name, entries in messages:
-                ack_ids: List[str] = []
+                ack_ids: list[str] = []
                 for msg_id, payload in entries:
                     try:
                         # Extract timestamp from msg_id for ingest_ts_ms
@@ -1645,12 +1645,12 @@ class CryptoOrderflowService:
                         logger.error("❌ (%s) Unexpected error in XACK books pipeline: %s", symbol, xack_exc)
             nogroup_retries = 0
             backoff.reset()
-        
+
     # ── Обработка тиков и генерация сигналов ──────────────────────────────────
 
 
 
-    async def _resolve_streams(self, symbol: str) -> Tuple[str, str]:
+    async def _resolve_streams(self, symbol: str) -> tuple[str, str]:
         """
         Определяет реальные имена стримов (поддерживает и ':' и '_').
         """
@@ -1661,7 +1661,7 @@ class CryptoOrderflowService:
         env_tick = os.getenv(f"{symbol}_TICK_STREAM")
         if env_tick:
              candidates_tick.insert(0, env_tick)
-        
+
         env_book = os.getenv(f"{symbol}_BOOK_STREAM")
         if env_book:
              candidates_book.insert(0, env_book)
@@ -1676,7 +1676,7 @@ class CryptoOrderflowService:
 
         return tick_stream, book_stream
 
-    async def _first_existing_stream(self, candidates: List[str]) -> Optional[str]:
+    async def _first_existing_stream(self, candidates: list[str]) -> str | None:
         for name in candidates:
             try:
                 exists = await self.ticks.exists(name)
@@ -1695,7 +1695,7 @@ class CryptoOrderflowService:
         except Exception:
             return 0
 
-    def _coerce_event_ts_ms(self, *, msg_id: str, payload_ts_ms: int, now_ms: int) -> Tuple[int, str]:
+    def _coerce_event_ts_ms(self, *, msg_id: str, payload_ts_ms: int, now_ms: int) -> tuple[int, str]:
         """Choose deterministic event time:
         1) tick.ts_ms (if sane)
         2) Redis msg_id ms
@@ -1709,7 +1709,7 @@ class CryptoOrderflowService:
             return mid, "stream_id"
         return int(now_ms), "now"
 
-    async def _xack_pipeline(self, *, stream: str, group: str, ids: List[str], symbol: str, op: str) -> None:
+    async def _xack_pipeline(self, *, stream: str, group: str, ids: list[str], symbol: str, op: str) -> None:
         """Ack many ids using pipeline, chunked.
 
         P1-4: This method routes failed batches to `stream:signals:ack-dlq`.
@@ -1740,7 +1740,7 @@ class CryptoOrderflowService:
                 continue
 
             success = False
-            last_exc: Optional[BaseException] = None
+            last_exc: BaseException | None = None
             attempts_made = 0
 
             for attempt in range(max_retries + 1):
@@ -1762,10 +1762,8 @@ class CryptoOrderflowService:
                     jitter = delay_ms * 0.25
                     delay_s = max(0.0, (delay_ms + random.uniform(-jitter, jitter)) / 1000.0)
                     if redis_errors_total:
-                        try:
+                        with contextlib.suppress(Exception):
                             redis_errors_total.labels(op=f"{op}_retry", symbol=symbol).inc()
-                        except Exception:
-                            pass
                     await asyncio.sleep(delay_s)
 
             if not success and last_exc is not None:
@@ -1790,10 +1788,10 @@ class CryptoOrderflowService:
                     "❌ (%s) XACK FAILURE (stream=%s group=%s n=%d pool=%s attempts=%d): %s | %s",
                     symbol, stream, group, len(chunk), pool_info, attempts_made, type(exc).__name__, repr(exc),
                 )
-                
+
                 # DLQ routing (fail-safe and completely non-blocking)
                 error_str = repr(exc)
-                
+
                 async def _write_xack_dlq(failed_chunk=chunk, fail_err=error_str):
                     try:
                         dlq_payload = {
@@ -1812,9 +1810,9 @@ class CryptoOrderflowService:
                         pass
                     except Exception as dlq_exc:
                         logger.warning("⚠️ (%s) Failed to write XACK failure to DLQ: %s", symbol, dlq_exc)
-                        
+
                 safe_create_task(_write_xack_dlq(), name=f"crypto-of-xack-dlq-{symbol}")
-                
+
                 # DO NOT raise RuntimeError here!
                 # Messages that failed to ACK are left in PEL and will be recovered by the background PEL sweeper.
 
@@ -1876,11 +1874,11 @@ class CryptoOrderflowService:
                                 if pel_autoclaim_total:
                                     pel_autoclaim_total.labels(symbol=sym, kind=kind).inc(len(msgs))
 
-                                ack_ids: List[str] = []
+                                ack_ids: list[str] = []
                                 for msg_id, fields in msgs:
                                     ack_ids.append(str(msg_id))
                                     if quarantine:
-                                        try:
+                                        with contextlib.suppress(Exception):
                                             await self.ticks.xadd(self.quarantine_stream, {
                                                 "symbol": sym,
                                                 "msg_id": str(msg_id),
@@ -1888,8 +1886,6 @@ class CryptoOrderflowService:
                                                 "payload": json.dumps(fields, default=str)[:1000],
                                                 "ts_ms": str(self._msgid_ms(msg_id) or get_ny_time_millis()),
                                             }, maxlen=50000)
-                                        except Exception:
-                                            pass
 
                                 await self._xack_pipeline(stream=stream, group=group, ids=ack_ids, symbol=sym, op=f"ack_pel_{kind}")
                             except Exception as exc:
@@ -1937,7 +1933,7 @@ async def _async_main() -> None:
             logger.warning("⚠️ ML Confirm config initialization failed or skipped (check logs for details)")
     except Exception as e:
         logger.warning(f"⚠️ ML Confirm auto-init error: {e}", exc_info=True)
-    
+
     # NOTE: Prometheus metrics server is started inside run_forever() using PROMETHEUS_PORT env var.
     # Do NOT start it here — double start causes [Errno 98] Address already in use.
 

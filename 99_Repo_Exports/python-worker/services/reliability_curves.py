@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
-import re
 import math
 import os
-import time
-from typing import Any, Dict, Optional, Tuple, List
+import re
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 # =============================================================================
 # Reliability curves (post-calibration) for confidence.
@@ -44,14 +45,14 @@ def _env_int(k: str, default: int) -> int:
     try:
         return int(float(os.getenv(k, str(default))))
     except Exception:
-        return int(default)
+        return default
 
 
 def _env_float(k: str, default: float) -> float:
     try:
         return float(os.getenv(k, str(default)))
     except Exception:
-        return float(default)
+        return default
 
 
 def _b2s(x: Any) -> str:
@@ -89,33 +90,33 @@ def _safe_int(x: Any, default: int = 0) -> int:
 
 
 def _canon_symbol(s: Any) -> str:
-    return str(s or "").strip().upper() or "NA"
+    return (s or "").strip().upper() or "NA"
 
 
 def _canon_tf(s: Any) -> str:
-    return str(s or "").strip().lower() or "na"
+    return (s or "").strip().lower() or "na"
 
 
 def _canon_strategy(s: Any) -> str:
-    return str(s or "").strip() or "unknown"
+    return (s or "").strip() or "unknown"
 
 
 def _canon_venue(s: Any) -> str:
     # venue can be "binance_futures", "mt5", etc.
-    v = str(s or "").strip().lower()
+    v = (s or "").strip().lower()
     v = re.sub(r"[^a-z0-9_\-]+", "_", v)
     return v or "na"
 
 
 def _canon_kind(s: Any) -> str:
     # kind in envelope is pattern-specific, keep it stable and compact.
-    v = str(s or "").strip().lower()
+    v = (s or "").strip().lower()
     v = re.sub(r"[^a-z0-9_\-]+", "_", v)
     return v or "na"
 
 
 def _canon_regime(s: Any) -> str:
-    v = str(s or "").strip().lower()
+    v = (s or "").strip().lower()
     v = re.sub(r"[^a-z0-9_\-]+", "_", v)
     return v or "na"
 
@@ -133,7 +134,7 @@ def _canon_target(s: str) -> str:
     return s or "tp1"
 
 
-def _parse_targets() -> List[str]:
+def _parse_targets() -> list[str]:
     # NOTE:
     #   - historically we used "tp1" as default
     #   - for most systems we recommend "tp2" as default (better quality proxy)
@@ -164,7 +165,7 @@ def _bucket_confidence(conf: float, *, step: int) -> int:
     return b
 
 
-def _extract_ctx(pos: Optional[Dict[str, Any]], closed: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_ctx(pos: dict[str, Any] | None, closed: dict[str, Any]) -> dict[str, Any]:
     """
     SMT fields live in payload.ctx (producer writes ctx.__dict__ into envelope).
     In runtime update_stats() receives:
@@ -183,7 +184,7 @@ def _extract_ctx(pos: Optional[Dict[str, Any]], closed: Dict[str, Any]) -> Dict[
     return {}
 
 
-def _extract_base_confidence(pos: Optional[Dict[str, Any]], closed: Dict[str, Any]) -> Optional[float]:
+def _extract_base_confidence(pos: dict[str, Any] | None, closed: dict[str, Any]) -> float | None:
     """
     Best-effort extraction of "base confidence" from common field names.
     We deliberately support multiple synonyms to avoid protocol break.
@@ -202,7 +203,7 @@ def _extract_base_confidence(pos: Optional[Dict[str, Any]], closed: Dict[str, An
     return None
 
 
-def _extract_envelope(pos: Optional[Dict[str, Any]], closed: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_envelope(pos: dict[str, Any] | None, closed: dict[str, Any]) -> dict[str, Any]:
     """
     PositionState.signal_payload is the original envelope from outbox.
     We use it for kind and entry-time ctx snapshot.
@@ -214,12 +215,12 @@ def _extract_envelope(pos: Optional[Dict[str, Any]], closed: Dict[str, Any]) -> 
     return {}
 
 
-def _extract_ctx_from_envelope(env: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_ctx_from_envelope(env: dict[str, Any]) -> dict[str, Any]:
     ctx = env.get("ctx")
     return ctx if isinstance(ctx, dict) else {}
 
 
-def _extract_venue(pos: Optional[Dict[str, Any]], closed: Dict[str, Any]) -> str:
+def _extract_venue(pos: dict[str, Any] | None, closed: dict[str, Any]) -> str:
     """
     venue is present in:
       - envelope top-level: payload["venue"] = ctx.venue
@@ -239,14 +240,14 @@ def _extract_venue(pos: Optional[Dict[str, Any]], closed: Dict[str, Any]) -> str
     return _canon_venue(v)
 
 
-def _extract_kind(pos: Optional[Dict[str, Any]], closed: Dict[str, Any]) -> str:
+def _extract_kind(pos: dict[str, Any] | None, closed: dict[str, Any]) -> str:
     env = _extract_envelope(pos, closed)
     # kind is guaranteed at top-level envelope in producer
     k = env.get("kind") or closed.get("kind")  # closed usually doesn't have it; safe fallback
     return _canon_kind(k)
 
 
-def _extract_entry_regime(pos: Optional[Dict[str, Any]], closed: Dict[str, Any]) -> str:
+def _extract_entry_regime(pos: dict[str, Any] | None, closed: dict[str, Any]) -> str:
     # Source of truth after close: TradeClosed.entry_regime (you already set it in finalize_trade)
     r = closed.get("entry_regime")
     if r:
@@ -266,7 +267,7 @@ def make_reliability_key(
     ctx_key: str,
 ) -> str:
     target = _canon_target(target)
-    return f"rel:v2:{target}:{_canon_strategy(strategy)}:{_canon_symbol(symbol)}:{_canon_tf(tf)}:{str(ctx_key or 'na')}"
+    return f"rel:v2:{target}:{_canon_strategy(strategy)}:{_canon_symbol(symbol)}:{_canon_tf(tf)}:{(ctx_key or 'na')}"
 
 
 def make_reliability_key_v3(
@@ -285,7 +286,7 @@ def make_reliability_key_v3(
     target = _canon_target(target)
     return (
         f"rel:v3:{target}:{_canon_strategy(strategy)}:{_canon_symbol(symbol)}:{_canon_tf(tf)}:"
-        f"{_canon_kind(kind)}:{_canon_regime(regime)}:{str(ctx_key or 'na')}"
+        f"{_canon_kind(kind)}:{_canon_regime(regime)}:{(ctx_key or 'na')}"
     )
 
 
@@ -306,7 +307,7 @@ def make_reliability_key_v4(
     target = _canon_target(target)
     return (
         f"rel:v4:{target}:{_canon_strategy(strategy)}:{_canon_symbol(symbol)}:{_canon_tf(tf)}:"
-        f"{_canon_venue(venue)}:{_canon_kind(kind)}:{_canon_regime(regime)}:{str(ctx_key or 'na')}"
+        f"{_canon_venue(venue)}:{_canon_kind(kind)}:{_canon_regime(regime)}:{(ctx_key or 'na')}"
     )
 
 
@@ -321,10 +322,10 @@ def _dir_to_ud(direction: str) -> str:
 
 def _smt_context_key(
     *,
-    pos: Optional[Dict[str, Any]],
-    closed: Dict[str, Any],
+    pos: dict[str, Any] | None,
+    closed: dict[str, Any],
     coh_thr: float,
-) -> Optional[str]:
+) -> str | None:
     """
     Build compact SMT context key:
       smtc{0/1}_coh{0/1}_al{0/1}
@@ -340,14 +341,14 @@ def _smt_context_key(
     coh = _safe_float(ctx.get("smt_coh"), float("nan"))
     coh_hi = 1 if (math.isfinite(coh) and float(coh) >= float(coh_thr)) else 0
 
-    leader_dir = str(ctx.get("smt_leader_dir") or "NA").strip().upper()
-    sig_dir_ud = _dir_to_ud(str(closed.get("direction") or ""))
+    leader_dir = (ctx.get("smt_leader_dir") or "NA").strip().upper()
+    sig_dir_ud = _dir_to_ud((closed.get("direction") or ""))
     align = 1 if (leader_dir in {"UP", "DOWN"} and sig_dir_ud in {"UP", "DOWN"} and leader_dir == sig_dir_ud) else 0
 
     return f"smtc{leader_confirm}_coh{coh_hi}_al{align}"
 
 
-def _target_y(target: str, *, closed: Dict[str, Any]) -> Optional[int]:
+def _target_y(target: str, *, closed: dict[str, Any]) -> int | None:
     """
     Convert trade outcome to binary label for target.
     """
@@ -373,12 +374,12 @@ def _target_y(target: str, *, closed: Dict[str, Any]) -> Optional[int]:
     return None
 
 
-def _hgetall(redis_client: Any, key: str) -> Dict[str, str]:
+def _hgetall(redis_client: Any, key: str) -> dict[str, str]:
     try:
         raw = redis_client.hgetall(key) or {}
     except Exception:
         return {}
-    d: Dict[str, str] = {}
+    d: dict[str, str] = {}
     try:
         for k, v in dict(raw).items():
             d[_b2s(k)] = _b2s(v)
@@ -387,7 +388,7 @@ def _hgetall(redis_client: Any, key: str) -> Dict[str, str]:
     return d
 
 
-def _hset(redis_client: Any, key: str, mapping: Dict[str, Any]) -> None:
+def _hset(redis_client: Any, key: str, mapping: dict[str, Any]) -> None:
     """
     FakeRedis supports hset(key, mapping=...).
     Real redis-py supports hset(name, mapping=...).
@@ -436,12 +437,12 @@ def load_bucket_rate(
     strategy: str,
     symbol: str,
     tf: str,
-    venue: Optional[str] = None,
-    kind: Optional[str] = None,
-    regime: Optional[str] = None,
+    venue: str | None = None,
+    kind: str | None = None,
+    regime: str | None = None,
     ctx_key: str,
     bucket: int,
-) -> Tuple[Optional[float], int]:
+) -> tuple[float | None, int]:
     """
     Return (rate, n) for a given bucket in the curve.
     Fail-open: (None, 0) on missing.
@@ -449,7 +450,7 @@ def load_bucket_rate(
     if redis_client is None or bucket < 0:
         return (None, 0)
     # Prefer v4 (venue×kind×regime). If missing, fallback to v3 then v2.
-    d: Dict[str, Any] = {}
+    d: dict[str, Any] = {}
 
     if venue is not None and kind is not None and regime is not None:
         k4 = make_reliability_key_v4(
@@ -492,7 +493,7 @@ def load_bucket_rate(
     return (float(h) / float(n), int(n))
 
 
-def update_reliability_curve(redis_client: Any, *, closed: Dict[str, Any], pos: Optional[Dict[str, Any]] = None) -> None:
+def update_reliability_curve(redis_client: Any, *, closed: dict[str, Any], pos: dict[str, Any] | None = None) -> None:
     """
     Writer called from StatsAggregator.finally (must be fail-open).
     Writes:
@@ -554,10 +555,8 @@ def update_reliability_curve(redis_client: Any, *, closed: Dict[str, Any], pos: 
             target=tgt, strategy=strategy, symbol=symbol, tf=tf,
             venue=venue, kind=kind, regime=regime, ctx_key="na",
         )
-        try:
+        with contextlib.suppress(Exception):
             _update_curve_one(redis_client, key=k4_global, bucket=bucket, y=int(y), ts_ms=ts_ms)
-        except Exception:
-            pass
 
         if write_legacy:
             k3_global = make_reliability_key_v3(
@@ -566,14 +565,10 @@ def update_reliability_curve(redis_client: Any, *, closed: Dict[str, Any], pos: 
             k2_global = make_reliability_key(
                 target=tgt, strategy=strategy, symbol=symbol, tf=tf, ctx_key="na"
             )
-            try:
+            with contextlib.suppress(Exception):
                 _update_curve_one(redis_client, key=k3_global, bucket=bucket, y=int(y), ts_ms=ts_ms)
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 _update_curve_one(redis_client, key=k2_global, bucket=bucket, y=int(y), ts_ms=ts_ms)
-            except Exception:
-                pass
 
         # 2) SMT context curve (only if SMT fields exist)
         if smt_ctx:
@@ -581,10 +576,8 @@ def update_reliability_curve(redis_client: Any, *, closed: Dict[str, Any], pos: 
                 target=tgt, strategy=strategy, symbol=symbol, tf=tf,
                 venue=venue, kind=kind, regime=regime, ctx_key=smt_ctx,
             )
-            try:
+            with contextlib.suppress(Exception):
                 _update_curve_one(redis_client, key=k4_ctx, bucket=bucket, y=int(y), ts_ms=ts_ms)
-            except Exception:
-                pass
 
             if write_legacy:
                 k3_ctx = make_reliability_key_v3(
@@ -593,11 +586,7 @@ def update_reliability_curve(redis_client: Any, *, closed: Dict[str, Any], pos: 
                 k2_ctx = make_reliability_key(
                     target=tgt, strategy=strategy, symbol=symbol, tf=tf, ctx_key=smt_ctx
                 )
-                try:
+                with contextlib.suppress(Exception):
                     _update_curve_one(redis_client, key=k3_ctx, bucket=bucket, y=int(y), ts_ms=ts_ms)
-                except Exception:
-                    pass
-                try:
+                with contextlib.suppress(Exception):
                     _update_curve_one(redis_client, key=k2_ctx, bucket=bucket, y=int(y), ts_ms=ts_ms)
-                except Exception:
-                    pass

@@ -1,7 +1,8 @@
 
-import redis
 import json
-import os
+
+import redis
+
 
 def check():
     url = "redis://redis-worker-1:6379/0"
@@ -34,7 +35,7 @@ def check():
                     print(f"  Payload keys: {list(js.keys())}")
                     if 'indicators' in js:
                          print(f"  Indicators: {list(js['indicators'].keys())}")
-                except:
+                except Exception:
                     print("  Invalid JSON payload")
     except Exception as e:
         print(f"Stream error: {e}")
@@ -49,7 +50,7 @@ def check():
                  try:
                      js = json.loads(payload)
                      print(f"  Val: {js.get('validation_status')} OF_OK: {js.get('indicators',{}).get('of_confirm_ok')}")
-                 except:
+                 except Exception:
                      pass
     except Exception as e:
         print(f"Signal stream error: {e}")

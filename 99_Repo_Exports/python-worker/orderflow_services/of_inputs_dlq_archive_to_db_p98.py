@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """OFInputs DLQ + quarantine streams -> Postgres/Timescale archiver (P98).
 
 Goal
@@ -37,18 +38,19 @@ Rollback
   - stop the job; no runtime impact.
   - table is append-only.
 """,
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import datetime as dt
 import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import psycopg2
 from psycopg2.extras import execute_values
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 
 def env(name: str, default: str) -> str:
@@ -106,7 +108,7 @@ def ts_ms_from_stream_id(stream_id: str) -> int:
     return int(str(stream_id).split("-", 1)[0])
 
 
-def coalesce_ts_ms(payload: Dict[str, Any], stream_id: str) -> int:
+def coalesce_ts_ms(payload: dict[str, Any], stream_id: str) -> int:
     for k in ("ts_ms", "tick_ts", "ts_event_ms", "ts", "timestamp_ms"):
         v = payload.get(k)
         try:
@@ -167,7 +169,7 @@ class PgWriter:
                     conn.rollback()
             conn.commit()
 
-    def insert_rows(self, rows: List[Tuple[Any, ...]]) -> int:
+    def insert_rows(self, rows: list[tuple[Any, ...]]) -> int:
         if not rows:
             return 0
         sql = """
@@ -209,7 +211,7 @@ def _s(x: Any) -> str:
     return str(x)
 
 
-def _as_payload_guess(fields: Dict[str, Any]) -> Dict[str, Any]:
+def _as_payload_guess(fields: dict[str, Any]) -> dict[str, Any]:
     """If no explicit 'payload' field exists, treat the remaining fields as payload.""",
     drop = {
         "err",
@@ -221,7 +223,7 @@ def _as_payload_guess(fields: Dict[str, Any]) -> Dict[str, Any]:
         "data",
         "payload",
     }
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in (fields or {}).items():
         ks = _s(k)
         if ks in drop:
@@ -230,7 +232,7 @@ def _as_payload_guess(fields: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def parse_event(stream: str, dlq_id: str, fields: Dict[str, Any]) -> Tuple[Tuple[Any, ...], str]:
+def parse_event(stream: str, dlq_id: str, fields: dict[str, Any]) -> tuple[tuple[Any, ...], str]:
     """Parse a Redis stream entry into a DB row + last_stream_id for checkpoint.""",
     f = {str(_decode(k)): _decode(v) for k, v in (fields or {}).items()}
 
@@ -251,7 +253,7 @@ def parse_event(stream: str, dlq_id: str, fields: Dict[str, Any]) -> Tuple[Tuple
         payload = {"payload": payload_any}
 
     ts_ms = coalesce_ts_ms(payload, dlq_id)
-    ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.timezone.utc)
+    ts = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=dt.UTC)
 
     dq_code = payload.get("dq_code") or payload.get("why") or f.get("dq_code") or f.get("why")
     attempt_version = payload.get("attempt_version") or payload.get("attempt_v") or f.get("attempt_version")
@@ -316,9 +318,9 @@ def _write_metrics(r, key: str, last_stream_id: str, inserted_delta: int, error_
         pass
 
 
-def read_batch(r, stream: str, start_id: str, count: int) -> List[Tuple[str, Dict[str, Any]]]:
+def read_batch(r, stream: str, start_id: str, count: int) -> list[tuple[str, dict[str, Any]]]:
     items = r.xrange(stream, min=start_id, max="+", count=count)
-    out: List[Tuple[str, Dict[str, Any]]] = []
+    out: list[tuple[str, dict[str, Any]]] = []
     for mid, fields in items:
         out.append((str(_decode(mid)), fields))
     return out
@@ -374,7 +376,7 @@ def run_once(args: argparse.Namespace) -> int:
             if last_id != "-" and batch and batch[0][0] == last_id:
                 batch = batch[1:]
 
-            rows: List[Tuple[Any, ...]] = []
+            rows: list[tuple[Any, ...]] = []
             last_seen = last_id
             for mid, fields in batch:
                 last_seen = mid
@@ -403,17 +405,13 @@ def run_once(args: argparse.Namespace) -> int:
 
         # Update checkpoint and metrics
         if not args.no_checkpoint and last_id and last_id != start_id:
-            try:
+            with contextlib.suppress(Exception):
                 r.set(_checkpoint_key(stream), str(last_id))
-            except Exception:
-                pass
 
         # optional delete-after-insert (dangerous): trim everything <= last_id
         if delete_after and last_id and last_id != "-":
-            try:
+            with contextlib.suppress(Exception):
                 r.xtrim(stream, minid=last_id, approximate=False)
-            except Exception:
-                pass
 
         _write_metrics(r, _metrics_key(stream), last_id or "-", inserted_total_stream, errors_total_stream)
 

@@ -4,13 +4,13 @@ import argparse
 import inspect
 import json
 import os
-from typing import Any, Dict, Iterable, Optional
+from typing import Any
 
-from core.strong_of_gate import eval_reversal, eval_continuation
 from core.of_confirm_contract import OFConfirmV3
+from core.strong_of_gate import eval_continuation, eval_reversal
 
 
-def _filter_kwargs_for_callable(fn: Any, **kwargs: Any) -> Dict[str, Any]:
+def _filter_kwargs_for_callable(fn: Any, **kwargs: Any) -> dict[str, Any]:
     try:
         sig = inspect.signature(fn)
         allowed = set(sig.parameters.keys())
@@ -19,7 +19,7 @@ def _filter_kwargs_for_callable(fn: Any, **kwargs: Any) -> Dict[str, Any]:
         return dict(kwargs)
 
 
-def _safe_loads(line: str) -> Optional[Dict[str, Any]]:
+def _safe_loads(line: str) -> dict[str, Any] | None:
     try:
         d = json.loads(line)
         return d if isinstance(d, dict) else None
@@ -27,42 +27,42 @@ def _safe_loads(line: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _key(inp: Dict[str, Any]) -> str:
+def _key(inp: dict[str, Any]) -> str:
     # stable key for diff: symbol|ts_ms|direction|scenario
-    sym = str(inp.get("symbol", "") or "")
+    sym = (inp.get("symbol", "") or "")
     ts = str(int(float(inp.get("ts_ms", 0) or 0)))
-    direction = str(inp.get("direction", "") or "")
-    scenario = str(inp.get("scenario", "") or "")
+    direction = (inp.get("direction", "") or "")
+    scenario = (inp.get("scenario", "") or "")
     return f"{sym}|{ts}|{direction}|{scenario}"
 
 
-def _dec_to_dict(dec: Any) -> Dict[str, Any]:
+def _dec_to_dict(dec: Any) -> dict[str, Any]:
     if dec is None:
         return {"ok": 0, "scenario": "na", "need": 0, "have": 0, "reason": "none", "gate_bits": 0}
     if isinstance(dec, dict):
         return dec
     # dataclass-like / object-like
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k in ("ok", "scenario", "need", "have", "a", "b", "c", "reason", "gate_bits", "legs"):
         if hasattr(dec, k):
             out[k] = getattr(dec, k)
     return out
 
 
-def replay_one(inp: Dict[str, Any]) -> Dict[str, Any]:
+def replay_one(inp: dict[str, Any]) -> dict[str, Any]:
     """
     Deterministic replay based on OFInputsV1:
     - Uses core.strong_of_gate.eval_reversal / eval_continuation (production logic)
     - Drops unknown kwargs via signature filter (forward compatible)
     """
     try:
-        from core.strong_of_gate import eval_reversal, eval_continuation  # type: ignore
+        from core.strong_of_gate import eval_continuation, eval_reversal  # type: ignore
     except Exception as e:
         raise RuntimeError("core.strong_of_gate is required for replay (run inside python-worker repo)") from e
 
     cfg = inp.get("cfg", {}) if isinstance(inp.get("cfg", {}), dict) else {}
-    direction = str(inp.get("direction", "") or "")
-    scenario = str(inp.get("scenario", "") or "")
+    direction = (inp.get("direction", "") or "")
+    scenario = (inp.get("scenario", "") or "")
 
     # common evidence
     kw_common = dict(
@@ -85,7 +85,7 @@ def replay_one(inp: Dict[str, Any]) -> Dict[str, Any]:
     elif scenario.lower() == "continuation":
         kw = dict(
             **kw_common,
-            trend_dir=str(inp.get("trend_dir", "NONE") or "NONE"),
+            trend_dir=(inp.get("trend_dir", "NONE") or "NONE"),
             hidden_ctx_recent=int(inp.get("hidden_ctx_recent", 0) or 0),
             cont_ctx_recent=int(inp.get("cont_ctx_recent", 0) or 0),
         )
@@ -98,14 +98,14 @@ def replay_one(inp: Dict[str, Any]) -> Dict[str, Any]:
     ok = 1 if bool(d.get("ok", 0)) else 0
     return {
         "k": _key(inp),
-        "symbol": str(inp.get("symbol", "") or ""),
+        "symbol": (inp.get("symbol", "") or ""),
         "ts_ms": int(float(inp.get("ts_ms", 0) or 0)),
         "direction": direction,
         "scenario": scenario,
         "ok": int(ok),
         "need": int(d.get("need", 0) or 0),
         "have": int(d.get("have", 0) or 0),
-        "reason": str(d.get("reason", "") or "")[:160],
+        "reason": (d.get("reason", "") or "")[:160],
         "gate_bits": int(d.get("gate_bits", 0) or 0),
         "a": int(d.get("a", 0) or 0),
         "b": int(d.get("b", 0) or 0),
@@ -113,7 +113,7 @@ def replay_one(inp: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def load_payload_ndjson(path: str) -> List[Dict[str, Any]]:
+def load_payload_ndjson(path: str) -> List[dict[str, Any]]:
     """Load OFInputsV1 records from NDJSON file.
     
     Supports two formats:
@@ -121,7 +121,7 @@ def load_payload_ndjson(path: str) -> List[Dict[str, Any]]:
     2. Direct: {...OFInputsV1 object...} (from export_of_inputs_ndjson.py)
     """
     out = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -142,10 +142,10 @@ def load_payload_ndjson(path: str) -> List[Dict[str, Any]]:
     return out
 
 
-def build_of_confirm_from_inputs(inp: Dict[str, Any]) -> Dict[str, Any]:
+def build_of_confirm_from_inputs(inp: dict[str, Any]) -> dict[str, Any]:
     cfg = inp.get("cfg") or {}
-    scenario = str(inp.get("scenario", "none"))
-    direction = str(inp.get("direction", ""))
+    scenario = (inp.get("scenario", "none"))
+    direction = (inp.get("direction", ""))
     delta_z = float(inp.get("delta_z", 0.0))
     weak_progress = bool(int(inp.get("weak_progress", 0)))
     sweep_recent = bool(int(inp.get("sweep_recent", 0)))
@@ -183,7 +183,7 @@ def build_of_confirm_from_inputs(inp: Dict[str, Any]) -> Dict[str, Any]:
     score = float(dec.have / dec.need) if int(dec.need) > 0 else 0.0
     ofc = OFConfirmV3(
         v=3,
-        symbol=str(inp.get("symbol", "")),
+        symbol=(inp.get("symbol", "")),
         ts_ms=int(inp.get("ts_ms", 0)),
         direction=direction,
         scenario=str(dec.scenario),
@@ -207,7 +207,7 @@ def main() -> None:
     args = ap.parse_args()
 
     n = 0
-    with open(args.inputs, "r", encoding="utf-8") as f_in, open(args.out, "w", encoding="utf-8") as f_out:
+    with open(args.inputs, encoding="utf-8") as f_in, open(args.out, "w", encoding="utf-8") as f_out:
         for line in f_in:
             if n >= int(args.max_rows):
                 break

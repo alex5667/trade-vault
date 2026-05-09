@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+# -*- coding: utf-8 -*-
 """
 ATR TF Sanity Calibrator
 =======================
@@ -18,7 +19,7 @@ ATR TF Sanity Calibrator
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any
 
 from core.quantile_p2 import P2Quantile
 
@@ -34,7 +35,7 @@ class AtrTfChoice:
     src: str                 # "static" | "calib_p50"
     target_bps: float
     picked_p50_bps: float
-    tfs_p50: Dict[str, float]
+    tfs_p50: dict[str, float]
 
 
 class AtrTfSanityCalibrator:
@@ -64,15 +65,15 @@ class AtrTfSanityCalibrator:
         self.hold_ms = int(max(0, hold_ms))
 
         # regime -> tf -> P2Quantile(p=0.5)
-        self._p50: Dict[str, Dict[str, P2Quantile]] = {}
-        self._n: Dict[str, int] = {}
+        self._p50: dict[str, dict[str, P2Quantile]] = {}
+        self._n: dict[str, int] = {}
 
         # runtime-side bookkeeping (persist separately if нужно)
         self.last_switch_ts_ms: int = 0
         self.last_tf: str = ""
 
-    def update_many(self, *, regime: str, atr_bps_by_tf: Dict[str, float]) -> None:
-        r = str(regime or "na")
+    def update_many(self, *, regime: str, atr_bps_by_tf: dict[str, float]) -> None:
+        r = (regime or "na")
         if r not in self._p50:
             self._p50[r] = {}
 
@@ -94,14 +95,14 @@ class AtrTfSanityCalibrator:
         if any_upd:
             self._n[r] = int(self._n.get(r, 0) + 1)
 
-    def _p50_map(self, r: str) -> Dict[str, float]:
-        out: Dict[str, float] = {}
+    def _p50_map(self, r: str) -> dict[str, float]:
+        out: dict[str, float] = {}
         m = self._p50.get(r) or {}
         for tf, q in m.items():
             try:
                 v = q.value()
                 if v is not None and math.isfinite(float(v)) and float(v) > 0:
-                    out[str(tf)] = float(v)
+                    out[tf] = float(v)
             except Exception:
                 continue
         return out
@@ -113,17 +114,17 @@ class AtrTfSanityCalibrator:
         if s.endswith("m"):
             try:
                 return int(s[:-1])
-            except:
+            except Exception:
                 return 999999
         if s.endswith("h"):
             try:
                 return int(s[:-1]) * 60
-            except:
+            except Exception:
                 return 999999
         if s.endswith("d"):
             try:
                 return int(s[:-1]) * 1440
-            except:
+            except Exception:
                 return 999999
         # Fallback for unknown
         return 999999
@@ -142,7 +143,7 @@ class AtrTfSanityCalibrator:
         Возвращает рекомендуемый TF.
         Если недостаточно данных -> fallback_tf.
         """
-        r = str(regime or "na")
+        r = (regime or "na")
         n = int(self._n.get(r, 0))
         target = float(max(0.0, target_bps))
 
@@ -199,17 +200,17 @@ class AtrTfSanityCalibrator:
         )
 
     # ---------------- Persistence (per symbol/regime) ----------------
-    def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> Dict[str, Any]:
-        r = str(regime or "na")
-        tfs: Dict[str, Any] = {}
+    def dump_regime_state(self, *, symbol: str, regime: str, updated_ts_ms: int) -> dict[str, Any]:
+        r = (regime or "na")
+        tfs: dict[str, Any] = {}
         for tf, q in (self._p50.get(r) or {}).items():
             try:
-                tfs[str(tf)] = q.to_state()
+                tfs[tf] = q.to_state()
             except Exception:
                 continue
         return {
             "v": 1,
-            "symbol": str(symbol),
+            "symbol": symbol,
             "regime": r,
             "updated_ts_ms": int(updated_ts_ms),
             "n": int(self._n.get(r, 0)),
@@ -217,7 +218,7 @@ class AtrTfSanityCalibrator:
             # switching bookkeeping is runtime-local; можно тоже сохранять при желании
         }
 
-    def load_regime_state(self, state: Dict[str, Any]) -> None:
+    def load_regime_state(self, state: dict[str, Any]) -> None:
         try:
             r = str((state or {}).get("regime") or "na")
             n = int((state or {}).get("n", 0) or 0)
@@ -228,7 +229,7 @@ class AtrTfSanityCalibrator:
                 for tf, st in p50_by_tf.items():
                     if not isinstance(st, dict):
                         continue
-                    self._p50[r][str(tf)] = P2Quantile.from_state(st)
+                    self._p50[r][tf] = P2Quantile.from_state(st)
             self._n[r] = n
         except Exception:
             return

@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 """
 Regression: is_virtual flag propagation + periodic_reporter classification (merge-blocker).
 
@@ -15,14 +15,13 @@ Run:
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # is_virtual classification logic (mirrors periodic_reporter.py line 606)
 # ---------------------------------------------------------------------------
 
 def _classify_is_virtual(value) -> bool:
     """Exact replica of the classification logic in periodic_reporter.py."""
-    return str(value or "0") in ("1", "True", "true", "TRUE")
+    return (value or "0") in ("1", "True", "true", "TRUE")
 
 
 # ---------------------------------------------------------------------------

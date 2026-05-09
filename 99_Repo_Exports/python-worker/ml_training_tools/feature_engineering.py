@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any
 
 
 def _f(x: Any, d: float = 0.0) -> float:
@@ -18,7 +19,7 @@ def _f(x: Any, d: float = 0.0) -> float:
         return d
 
 
-def clip(x: float, lo: Optional[float] = None, hi: Optional[float] = None) -> float:
+def clip(x: float, lo: float | None = None, hi: float | None = None) -> float:
     if x != x:  # NaN
         return 0.0
     if lo is not None and x < lo:
@@ -50,13 +51,13 @@ def apply_transform(x: float, spec: Any) -> float:
         return x
     if isinstance(spec, str):
         t = spec
-        s: Dict[str, Any] = {"type": t}
+        s: dict[str, Any] = {"type": t}
     elif isinstance(spec, dict):
         s = spec
     else:
         return x
 
-    t = str(s.get("type", "identity") or "identity").lower()
+    t = (s.get("type", "identity") or "identity").lower()
 
     try:
         if t in ("identity", "none"):
@@ -98,7 +99,7 @@ def apply_robust_scale(x: float, *, center: float, scale: float, eps: float = 1e
 @dataclass
 class RobustScalerPack:
     # feature -> {"center": median, "scale": mad_scaled}
-    params: Dict[str, Dict[str, float]]
+    params: dict[str, dict[str, float]]
 
     def scale(self, name: str, x: float) -> float:
         p = self.params.get(name)
@@ -121,7 +122,7 @@ def bucketize(x: float, edges: Sequence[float]) -> int:
     return i
 
 
-def derive_session_label(ts_ms: int, *, tz: str = "UTC", cfg: Optional[Dict[str, Any]] = None) -> str:
+def derive_session_label(ts_ms: int, *, tz: str = "UTC", cfg: dict[str, Any] | None = None) -> str:
     """Deterministic session label derived ONLY from ts_ms.
 
     Default uses UTC hour buckets. You can override via cfg["session_hours"]:
@@ -157,7 +158,7 @@ def derive_session_label(ts_ms: int, *, tz: str = "UTC", cfg: Optional[Dict[str,
     return "other"
 
 
-def derive_regime_label(x: Any, *, fallback_score: Optional[float] = None, cfg: Optional[Dict[str, Any]] = None) -> str:
+def derive_regime_label(x: Any, *, fallback_score: float | None = None, cfg: dict[str, Any] | None = None) -> str:
     """Derive a regime label.
 
     Priority:
@@ -196,9 +197,9 @@ def derive_regime_label(x: Any, *, fallback_score: Optional[float] = None, cfg: 
 def get_numeric_feature(
     *,
     name: str,
-    indicators: Dict[str, Any],
-    transforms: Optional[Dict[str, Any]] = None,
-    scaler: Optional[RobustScalerPack] = None,
+    indicators: dict[str, Any],
+    transforms: dict[str, Any] | None = None,
+    scaler: RobustScalerPack | None = None,
 ) -> float:
     x = _f(indicators.get(name, 0.0), 0.0)
     if transforms and name in transforms:

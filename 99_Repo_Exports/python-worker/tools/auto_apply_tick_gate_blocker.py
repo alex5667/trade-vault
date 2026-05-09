@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Auto-apply blocker driven by tick-quality gate.
 
 Goal
@@ -38,15 +39,16 @@ AUTO_APPLY_BLOCK_REASON_LABEL_MODE=collapse  # collapse | allow
 AUTO_APPLY_BLOCK_REASON_ALLOWLIST=unknown_side,process_p99,e2e_p99,skew,age,ts_now,ts_stream
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import json
 import os
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:
     import redis  # type: ignore
@@ -84,8 +86,8 @@ def _getenv_str(name: str, default: str) -> str:
     return default if v is None else str(v)
 
 
-def _split_csv(v: str) -> List[str]:
-    out: List[str] = []
+def _split_csv(v: str) -> list[str]:
+    out: list[str] = []
     for part in (v or "").split(","):
         p = part.strip()
         if p:
@@ -97,8 +99,8 @@ def _split_csv(v: str) -> List[str]:
 class GateResult:
     rc: int  # 0 pass, 2 fail, 1 insufficient, other error
     status: str  # pass|fail|insufficient|error
-    reasons: List[str]
-    payload: Dict[str, Any]
+    reasons: list[str]
+    payload: dict[str, Any]
 
 
 def _normalize_fail_mode(v: str) -> str:
@@ -117,10 +119,10 @@ def _run_tick_gate(metrics_url: str, window_s: int, symbol="") -> GateResult:
     if symbol:
         cmd += ["--symbol", symbol]
     try:
-        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+        p = subprocess.run(cmd, capture_output=True, text=True, check=False)
         rc = int(p.returncode)
         out = (p.stdout or "").strip()
-        payload: Dict[str, Any] = {}
+        payload: dict[str, Any] = {}
         if out:
             try:
                 payload = json.loads(out)
@@ -152,7 +154,7 @@ def _run_tick_gate(metrics_url: str, window_s: int, symbol="") -> GateResult:
         return GateResult(rc=22, status="error", reasons=["exception"], payload={"exc": str(e)})
 
 
-def _label_limiter(reason: str, mode: str, allow: List[str]) -> str:
+def _label_limiter(reason: str, mode: str, allow: list[str]) -> str:
     r = (reason or "").strip()
     if not r:
         return "unknown"
@@ -189,7 +191,7 @@ class AutoApplyBlocker:
             "unknown_side,process_p99,e2e_p99,skew,age,ts_now,ts_stream",
         ))
 
-        self._last_fail_ms: Optional[int] = None
+        self._last_fail_ms: int | None = None
         self._last_status: str = "unknown"
         self._redis = None
         self._init_metrics()
@@ -219,7 +221,7 @@ class AutoApplyBlocker:
     def _key(self, suffix: str) -> str:
         return f"{self.prefix}:{suffix}"
 
-    def _set_block(self, gate: GateResult, decided_block: bool, meta: Dict[str, Any]) -> None:
+    def _set_block(self, gate: GateResult, decided_block: bool, meta: dict[str, Any]) -> None:
         r = self._redis_client()
         block_key = self._key("tick_gate")
         meta_key = self._key("tick_gate:meta")
@@ -236,7 +238,7 @@ class AutoApplyBlocker:
             pipe.delete(meta_key)
         pipe.execute()
 
-    def _publish_ops(self, gate: GateResult, decided_block: bool, meta: Dict[str, Any]) -> None:
+    def _publish_ops(self, gate: GateResult, decided_block: bool, meta: dict[str, Any]) -> None:
         try:
             r = self._redis_client()
             payload = {
@@ -248,19 +250,17 @@ class AutoApplyBlocker:
                 "reasons": ",".join(gate.reasons[:16]),
             }
             # compact meta to keep stream light
-            try:
+            with contextlib.suppress(Exception):
                 payload["meta"] = json.dumps(
                     {k: meta.get(k) for k in ("hold_active", "fail_mode", "ttl_s")},
                     ensure_ascii=False,
                     sort_keys=True,
                 )
-            except Exception:
-                pass
             r.xadd(self.ops_stream, payload, maxlen=20000, approximate=True)
         except Exception:
             return
 
-    def _decide_block(self, gate: GateResult) -> Tuple[bool, Dict[str, Any]]:
+    def _decide_block(self, gate: GateResult) -> tuple[bool, dict[str, Any]]:
         now = _now_ms()
         hold_active = False
 
@@ -298,43 +298,31 @@ class AutoApplyBlocker:
             "symbol": self.symbol or "",
         }
         # Attach small gate payload for diagnostics (bounded)
-        try:
+        with contextlib.suppress(Exception):
             meta["gate_payload"] = gate.payload if len(json.dumps(gate.payload)) < 4000 else {"truncated": True}
-        except Exception:
-            pass
 
         return block_final, meta
 
     def _update_prom(self, gate: GateResult, decided_block: bool) -> None:
         if self.m_events_total is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.m_events_total.labels(status=gate.status).inc()
-            except Exception:
-                pass
         if self.m_last_rc is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.m_last_rc.set(float(gate.rc))
-            except Exception:
-                pass
         if self.m_last_run_ts is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.m_last_run_ts.set(float(time.time()))
-            except Exception:
-                pass
         if self.m_blocked is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.m_blocked.set(1.0 if decided_block else 0.0)
-            except Exception:
-                pass
         if gate.status == "fail" and self.m_reason_total is not None:
             for rr in gate.reasons[:16]:
                 lab = _label_limiter(rr, self.reason_label_mode, self.reason_allow)
-                try:
+                with contextlib.suppress(Exception):
                     self.m_reason_total.labels(reason=lab).inc()
-                except Exception:
-                    pass
 
-    def run_once(self) -> Tuple[GateResult, bool]:
+    def run_once(self) -> tuple[GateResult, bool]:
         gate = _run_tick_gate(self.metrics_url, self.window_s, self.symbol)
         decided_block, meta = self._decide_block(gate)
         try:
@@ -368,7 +356,7 @@ class AutoApplyBlocker:
             time.sleep(sleep_s)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     argv = argv or sys.argv[1:]
     if "--once" in argv:
         b = AutoApplyBlocker()

@@ -1,11 +1,13 @@
 # bar_manager.py
 from __future__ import annotations
+
 """
 Bar range and pivot management functionality extracted from base_orderflow_handler.py
 """
 
 
 from typing import Any
+
 
 # from common.log import setup_logger
 def setup_logger(name):

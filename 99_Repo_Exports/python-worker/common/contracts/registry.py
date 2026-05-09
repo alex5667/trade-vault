@@ -1,7 +1,11 @@
 from __future__ import annotations
-from pydantic import BaseModel, Field, ConfigDict, model_validator
-from typing import List, Dict, Optional, Any, Union
+
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
 from common.enums.trading import Direction, Side
+
 
 class ContractBase(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -28,8 +32,8 @@ class SignalV1(ContractBase):
 
     entry_price: float
     sl_price: float
-    tp1_price: Optional[float] = None
-    tp_levels: List[float] = Field(default_factory=list)
+    tp1_price: float | None = None
+    tp_levels: list[float] = Field(default_factory=list)
 
     confidence: float = 0.0
     ts_event_ms: int
@@ -40,9 +44,9 @@ class SignalV1(ContractBase):
     reason: str = ""
     gate_bits: int = 0
 
-    meta: Dict[str, Any] = Field(default_factory=dict)
-    indicators: Dict[str, Any] = Field(default_factory=dict)
-    evidence: Dict[str, Any] = Field(default_factory=dict)
+    meta: dict[str, Any] = Field(default_factory=dict)
+    indicators: dict[str, Any] = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=dict)
 
 class OrderIntentV1(ExecutionContractBase):
     intent_id: str
@@ -55,14 +59,14 @@ class OrderIntentV1(ExecutionContractBase):
     qty: float
     leverage: int = 1
     reduce_only: bool = False
-    client_order_id: Optional[str] = None
+    client_order_id: str | None = None
     side_int: int = 0
-    meta: Dict[str, Any] = Field(default_factory=dict)
+    meta: dict[str, Any] = Field(default_factory=dict)
 
 class ExecutionEventV1(ExecutionContractBase):
     exec_id: str
     order_id: str
-    client_order_id: Optional[str] = None
+    client_order_id: str | None = None
     symbol: str
     ts_ms: int
     side: Side
@@ -73,7 +77,7 @@ class ExecutionEventV1(ExecutionContractBase):
     realized_pnl: float = 0.0
     status: str = "FILLED"
     side_int: int = 0
-    meta: Dict[str, Any] = Field(default_factory=dict)
+    meta: dict[str, Any] = Field(default_factory=dict)
 
 # ---------------------------------------------------------------------------
 # OF Input contracts (feature-map variant — generic ML/analytics use only).
@@ -84,14 +88,14 @@ class OFInputsFeatureMapV1(ContractBase):
     """Generic OF feature-map payload for ML/analytics consumers."""
     ts_ms: int
     symbol: str
-    features: Dict[str, float]
+    features: dict[str, float]
 
 class OFInputsFeatureMapV2(OFInputsFeatureMapV1):
     session_asia: int = 0
     session_eu: int = 0
     session_us: int = 0
     session_off: int = 0
-    regime: Optional[str] = None
+    regime: str | None = None
 
 # Backward-compat aliases (deprecated — use OFInputsFeatureMapV1/V2 in new code)
 OFInputsV1 = OFInputsFeatureMapV1
@@ -125,8 +129,8 @@ class TelegramNotificationV1(ContractBase):
     level: str = "INFO"
     topic: str = "general"
     text: str                           # canonical field (bot reads this)
-    message: Optional[str] = None      # legacy alias — mapped to text if text absent
-    meta: Dict[str, Any] = Field(default_factory=dict)
+    message: str | None = None      # legacy alias — mapped to text if text absent
+    meta: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod

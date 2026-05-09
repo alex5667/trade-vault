@@ -4,12 +4,11 @@ import hashlib
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
-import psycopg2
-import psycopg2.extras
 import redis
-from services.atr_policy_state_store import get_conn, upsert_proposal, insert_decision, update_proposal_status
+
+from services.atr_policy_state_store import get_conn, insert_decision, update_proposal_status, upsert_proposal
 
 
 def _redis():
@@ -24,15 +23,15 @@ def _dsn() -> str:
     )
 
 
-def _proposal_id(obj: Dict[str, Any]) -> str:
+def _proposal_id(obj: dict[str, Any]) -> str:
     base = "|".join([
-        str(obj.get("source") or ""),
-        str(obj.get("symbol") or ""),
-        str(obj.get("scenario") or ""),
-        str(obj.get("regime") or ""),
-        str(obj.get("risk_horizon_bucket") or ""),
-        str(obj.get("stop_ttl_mode") or ""),
-        str(obj.get("trailing_mode") or ""),
+        (obj.get("source") or ""),
+        (obj.get("symbol") or ""),
+        (obj.get("scenario") or ""),
+        (obj.get("regime") or ""),
+        (obj.get("risk_horizon_bucket") or ""),
+        (obj.get("stop_ttl_mode") or ""),
+        (obj.get("trailing_mode") or ""),
         str(obj.get("updated_at_ms") or 0),
     ])
     return hashlib.sha1(base.encode("utf-8")).hexdigest()
@@ -46,21 +45,21 @@ def decision_key(proposal_id: str) -> str:
     return f"cfg:decisions:atr_policy:{proposal_id}"
 
 
-def active_key(obj: Dict[str, Any]) -> str:
+def active_key(obj: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:active:{obj['source']}:{obj['symbol']}:"
         f"{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
     )
 
 
-def active_prev_key(obj: Dict[str, Any]) -> str:
+def active_prev_key(obj: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:active_prev:{obj['source']}:{obj['symbol']}:"
         f"{obj['scenario']}:{obj['regime']}:{obj['risk_horizon_bucket']}"
     )
 
 
-def submit_proposal(payload: Dict[str, Any]) -> str:
+def submit_proposal(payload: dict[str, Any]) -> str:
     r = _redis()
     now_ms = int(time.time() * 1000)
     obj = dict(payload)
@@ -94,7 +93,7 @@ def record_decision(proposal_id: str, *, action: str, actor: str, note: str = ""
     if not raw:
         return False
     obj = json.loads(raw)
-    action_u = str(action or "").upper()
+    action_u = (action or "").upper()
     if action_u not in {"APPROVE", "REJECT", "REVOKE"}:
         return False
 

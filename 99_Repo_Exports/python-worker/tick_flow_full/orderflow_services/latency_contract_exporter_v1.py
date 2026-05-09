@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Prometheus exporter for unified latency contract Redis state hashes.
@@ -25,11 +26,12 @@ import asyncio
 import logging
 import os
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
-from prometheus_client import Gauge, Counter, Histogram, start_http_server
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
-from services.observability.latency_semconv import required_stage_owners, default_symbol_allowlist
+from services.observability.latency_semconv import default_symbol_allowlist, required_stage_owners
+import contextlib
 
 logger = logging.getLogger("latency_contract_exporter")
 
@@ -91,10 +93,10 @@ latency_contract_event_lag_latest_ms = Gauge(
 
 # Dedupe repeated scrapes of the same Redis hash row.
 # Keyed by the exact Redis key so one unchanged row contributes to histograms only once.
-_HISTOGRAM_OBSERVED_TOKENS: Dict[str, Tuple[int, int, int]] = {}
+_HISTOGRAM_OBSERVED_TOKENS: dict[str, tuple[int, int, int]] = {}
 
 
-def _extract_event_lag_ms(row: Dict[str, Any]) -> int:
+def _extract_event_lag_ms(row: dict[str, Any]) -> int:
     ts_event_ms = _safe_int(row.get("ts_event_ms"), 0)
     last_ts_ms = _safe_int(row.get("last_ts_ms"), 0)
     if ts_event_ms <= 0 or last_ts_ms <= 0 or last_ts_ms < ts_event_ms:
@@ -102,7 +104,7 @@ def _extract_event_lag_ms(row: Dict[str, Any]) -> int:
     return max(0, int(last_ts_ms - ts_event_ms))
 
 
-def _observe_histograms_if_fresh(obs_key: str, service: str, stage: str, symbol: str, row: Dict[str, Any]) -> None:
+def _observe_histograms_if_fresh(obs_key: str, service: str, stage: str, symbol: str, row: dict[str, Any]) -> None:
     last_ts_ms = _safe_int(row.get("last_ts_ms"), 0)
     dur_ms = max(0, _safe_int(row.get("last_duration_ms"), 0))
     event_lag_ms = max(0, _extract_event_lag_ms(row))
@@ -154,7 +156,7 @@ latency_contract_slo_budget_breach_total = Gauge(
 # ------------------------------------------------------------------
 # Budget defaults
 # ------------------------------------------------------------------
-_DEFAULT_BUDGETS: Dict[str, int] = {
+_DEFAULT_BUDGETS: dict[str, int] = {
     "ingest_to_redis": 30,
     "redis_to_feature": 50,
     "feature_to_emit": 100,
@@ -163,7 +165,7 @@ _DEFAULT_BUDGETS: Dict[str, int] = {
 }
 
 
-def _budgets_from_env() -> Dict[str, int]:
+def _budgets_from_env() -> dict[str, int]:
     out = dict(_DEFAULT_BUDGETS)
     for stage, envvar in [
         ("ingest_to_redis", "LATENCY_BUDGET_INGEST_TO_REDIS_MS"),
@@ -174,14 +176,12 @@ def _budgets_from_env() -> Dict[str, int]:
     ]:
         raw = os.getenv(envvar, "")
         if raw.strip():
-            try:
+            with contextlib.suppress(Exception):
                 out[stage] = int(float(raw))
-            except Exception:
-                pass
     return out
 
 
-def _parse_key(key: str, prefix: str) -> Optional[Tuple[str, str, str]]:
+def _parse_key(key: str, prefix: str) -> tuple[str, str, str] | None:
     """Extract (service, stage, symbol) from a redis key.
 
     Key format: {prefix}:{service}:{stage}:{symbol}
@@ -208,7 +208,7 @@ def _safe_int(x: Any, default: int = 0) -> int:
         return default
 
 
-async def _scrape_once(redis_client: Any, prefix: str, stale_s: int, budgets: Dict[str, int]) -> None:
+async def _scrape_once(redis_client: Any, prefix: str, stale_s: int, budgets: dict[str, int]) -> None:
     now_ms = get_ny_time_millis()
     pattern = f"{prefix}:*"
     try:
@@ -298,7 +298,7 @@ async def run_exporter_loop(
     prefix: str,
     interval_s: float,
     stale_s: int,
-    budgets: Dict[str, int],
+    budgets: dict[str, int],
     slo_summary_key: str = 'metrics:latency_contract:slo:last',
 ) -> None:
     while True:

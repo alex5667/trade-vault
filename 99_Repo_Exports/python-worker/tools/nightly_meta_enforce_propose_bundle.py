@@ -1,4 +1,8 @@
 from __future__ import annotations
+
+from domain.evidence_keys import MetaKeys
+from core.redis_keys import RedisStreams as RS
+
 """Nightly meta ENFORCE proposal with safety gates.
 
 Offline pipeline:
@@ -16,26 +20,24 @@ Usage:
   (reads ENV vars for streams, paths, thresholds)
 """
 
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import glob
+import hashlib
+import hmac
 import json
 import os
 import secrets
 import subprocess
 import sys
 import time
-import hmac
-import hashlib
-from typing import Any, Dict, List
 
 import redis
 
 from common.log import setup_logger
-
 from core.ok_fields import get_ts_ms
 from tools.of_gate_metrics_contract import derive_ok_fields, is_gate_row, scenario_key
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 logger = setup_logger("NightlyMetaEnforcePropose")
 
@@ -126,16 +128,12 @@ def _metrics_health(rows: list[dict]) -> dict:
     soft = 0
     lat = []
     ex = []
-    
+
     for r in gate_rows:
-        try:
+        with contextlib.suppress(Exception):
             lat.append(float(r.get("latency_us", 0.0) or 0.0))
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             ex.append(float(r.get("exec_risk_norm", 0.0) or 0.0))
-        except Exception:
-            pass
 
     for r in valid_rows:
         ok_i, soft_i, _, _ = derive_ok_fields(r)
@@ -176,7 +174,7 @@ def main() -> None:
         streak = int(r.get(streak_key) or "0")
     except Exception:
         streak = 0
-    last_status = str(r.get(last_status_key) or "")
+    last_status = (r.get(last_status_key) or "")
     try:
         last_ts = int(r.get(last_ts_key) or "0")
     except Exception:
@@ -187,7 +185,7 @@ def main() -> None:
 
     if not (last_status == "PASS" and age_ok and streak >= args.min_streak):
         if args.notify_on_skip == 1:
-            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
                 "type": "report",
                 "text": f"<b>Meta ENFORCE skipped</b>\nreason=<code>streak_gate</code>\nstreak=<code>{streak}</code> need=<code>{args.min_streak}</code> last=<code>{last_status}</code> age_ok=<code>{int(age_ok)}</code>",
                 "ts": str(now_ms()),
@@ -222,7 +220,7 @@ def main() -> None:
 
     if health_reasons:
         if args.notify_on_skip == 1:
-            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+            r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
                 "type": "report",
                 "text": f"<b>Meta ENFORCE skipped</b>\nreason=<code>health_gate</code>\nreasons=<code>{','.join(health_reasons)}</code>\nmetrics=<code>{mh}</code>",
                 "ts": str(now_ms()),
@@ -255,9 +253,9 @@ def main() -> None:
     dataset_out = f"{run_dir}/dataset.ndjson"
     eval_out = f"{run_dir}/eval.json"
 
-    inputs_stream = os.getenv("OF_INPUTS_STREAM", "signals:of:inputs")
+    inputs_stream = os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS)
     inputs_field = os.getenv("OF_INPUTS_STREAM_FIELD", "payload")
-    trades_stream = os.getenv("TRADE_EVENTS_STREAM", "events:trades")
+    trades_stream = os.getenv("TRADE_EVENTS_STREAM", RS.EVENTS_TRADES)
 
     # export inputs
     logger.info("Exporting inputs from stream=%s", inputs_stream)
@@ -274,14 +272,14 @@ def main() -> None:
     # filter canary symbols
     allow = {s.strip().upper() for s in args.canary_symbols.split(",") if s.strip()}
     n = 0
-    with open(inputs_raw, "r", encoding="utf-8") as f, open(inputs_can, "w", encoding="utf-8") as g:
+    with open(inputs_raw, encoding="utf-8") as f, open(inputs_can, "w", encoding="utf-8") as g:
         for line in f:
             if not line.strip():
                 continue
             row = json.loads(line)
             p = row.get("payload")
             inp = json.loads(p) if isinstance(p, str) else (p if isinstance(p, dict) else row)
-            sym = str(inp.get("symbol", "")).upper()
+            sym = (inp.get("symbol", "")).upper()
             if sym in allow:
                 g.write(json.dumps(inp, ensure_ascii=False) + "\n")
                 n += 1
@@ -316,17 +314,17 @@ def main() -> None:
         "--out", eval_out,
     ])
 
-    ev = json.loads(open(eval_out, "r", encoding="utf-8").read()).get("best")
+    ev = json.loads(open(eval_out, encoding="utf-8").read()).get("best")
     if not ev:
         # no valid threshold -> no promotion
-        r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+        r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
             "type": "report",
             "text": f"<b>Meta ENFORCE proposal</b>\nstatus=<code>NO_OP</code>\nreason=<code>no_valid_threshold</code>\nmodel=<code>{model_path}</code>",
             "ts": str(now_ms()),
         }, maxlen=200000, approximate=True)
         return
 
-    meta_p_min = float(ev["meta_p_min"])
+    meta_p_min = float(ev[MetaKeys.P_MIN])
 
     # -------- create recs bundle (manual confirm) ----------
     secret = os.getenv("RECS_HMAC_SECRET", "CHANGE_ME")
@@ -344,8 +342,8 @@ def main() -> None:
             {"op": "HSET", "key": f"{prefix}{sym}", "field": "meta_model_path", "value": model_path},
             {"op": "HSET", "key": f"{prefix}{sym}", "field": "meta_p_min", "value": f"{meta_p_min:.3f}"},
             {"op": "HSET", "key": f"{prefix}{sym}", "field": "meta_model_reload_sec", "value": "60"},
-            {"op": "HSET", "key": f"{prefix}{sym}", "field": "meta_enforce_share", "value": str(os.getenv("META_ENFORCE_INITIAL_SHARE", "0.10"))},
-            {"op": "HSET", "key": f"{prefix}{sym}", "field": "meta_enforce_salt", "value": str(os.getenv("META_ENFORCE_SALT", "enf_v1"))},
+            {"op": "HSET", "key": f"{prefix}{sym}", "field": "meta_enforce_share", "value": os.getenv("META_ENFORCE_INITIAL_SHARE", "0.10")},
+            {"op": "HSET", "key": f"{prefix}{sym}", "field": "meta_enforce_salt", "value": os.getenv("META_ENFORCE_SALT", "enf_v1")},
         ]
 
     bundle = {
@@ -382,7 +380,7 @@ def main() -> None:
         f"health=<code>{mh}</code> streak=<code>{streak}</code>"
     )
 
-    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", "notify:telegram"), {
+    r.xadd(os.getenv("NOTIFY_TELEGRAM_STREAM", RS.NOTIFY_TELEGRAM), {
         "type": "report",
         "text": msg,
         "buttons": json.dumps(buttons, ensure_ascii=False, separators=(",", ":")),

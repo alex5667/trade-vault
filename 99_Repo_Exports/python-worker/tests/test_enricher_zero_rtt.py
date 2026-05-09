@@ -1,8 +1,8 @@
-from utils.time_utils import get_ny_time_millis
-import time
+
 import pytest
 
 from news_pipeline.enricher_zero_rtt import NewsAggCache, NewsEnricherZeroRTT
+from utils.time_utils import get_ny_time_millis
 
 
 class FakePipe:

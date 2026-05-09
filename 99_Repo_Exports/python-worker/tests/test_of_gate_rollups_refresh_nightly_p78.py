@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for P78 Nightly OF-Gate Rollups Refresh timer.
 
 Covers:
@@ -13,7 +14,6 @@ from datetime import datetime
 from unittest.mock import patch
 
 import pytest
-
 
 # We parametrize the same tests over both module paths so the canonical
 # and tick_flow_full copies are both exercised.

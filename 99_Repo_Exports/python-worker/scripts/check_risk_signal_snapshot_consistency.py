@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """P4.6/P4.7: Consistency check between signal payload and SQL risk_snapshot.
 
 P4.6: Joins risk_decisions (signal_jsonb) with risk_snapshot (snapshot_jsonb)
@@ -34,14 +35,14 @@ Usage
   python3 scripts/check_risk_signal_snapshot_consistency.py --dsn postgresql://... --limit 500
   python3 scripts/check_risk_signal_snapshot_consistency.py --quarantine-on-repeated
 """
-from utils.time_utils import get_ny_time_millis
-
 import argparse
 import json
 import os
 import sys
 import time
 from pathlib import Path
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import psycopg  # type: ignore
@@ -264,7 +265,7 @@ def main() -> int:
     repeated_by_sid: dict[str, int] = {}
     first_for_sid: dict[str, dict] = {}
     for item in mismatches:
-        sid = str(item.get('sid') or '')
+        sid = (item.get('sid') or '')
         if not sid:
             continue
         repeated_by_sid[sid] = repeated_by_sid.get(sid, 0) + 1

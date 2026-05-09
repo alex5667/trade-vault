@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 
 @dataclass
@@ -12,7 +12,7 @@ class IncidentRCAResponse:
     provider: str
     model_name: str
     latency_ms: int
-    output_json: Dict[str, Any]
+    output_json: dict[str, Any]
     estimated_cost_usd: float
 
 
@@ -24,7 +24,7 @@ class VertexIncidentRCAProviderV20:
         self.timeout_ms = int(os.getenv("VERTEX_RCA_TIMEOUT_MS", "45000"))
         self.dry_run = int(os.getenv("VERTEX_RCA_DRY_RUN", "0")) == 1
 
-    def _build_prompt(self, payload: Dict[str, Any]) -> str:
+    def _build_prompt(self, payload: dict[str, Any]) -> str:
         instruction = {
             "role": "system",
             "content": (
@@ -41,7 +41,7 @@ class VertexIncidentRCAProviderV20:
         }
         return json.dumps({"messages": [instruction, user]}, ensure_ascii=False, separators=(",", ":"))
 
-    def _dry_run_response(self, payload: Dict[str, Any]) -> IncidentRCAResponse:
+    def _dry_run_response(self, payload: dict[str, Any]) -> IncidentRCAResponse:
         rid = payload.get("recommendation_id", "unknown")
         model_id = payload.get("model_id", "unknown")
         reasons = payload.get("primary_reason_codes", []) or []
@@ -65,13 +65,14 @@ class VertexIncidentRCAProviderV20:
         }
         return IncidentRCAResponse(status="ok", provider="vertex", model_name=self.model_name, latency_ms=0, output_json=output, estimated_cost_usd=0.0)
 
-    def analyze(self, payload: Dict[str, Any]) -> IncidentRCAResponse:
+    def analyze(self, payload: dict[str, Any]) -> IncidentRCAResponse:
         if self.dry_run:
             return self._dry_run_response(payload)
 
+        import time
+
         from google import genai  # type: ignore
         from google.genai import types  # type: ignore
-        import time
 
         client = genai.Client(vertexai=True, project=self.project_id, location=self.location)
         prompt = self._build_prompt(payload)

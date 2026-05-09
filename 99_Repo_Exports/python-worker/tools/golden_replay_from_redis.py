@@ -11,10 +11,11 @@ from pathlib import Path
 from tools.ndjson_canary import (
     filter_inputs,
     iter_ndjson,
-    write_ndjson,
     list_symbols_in_inputs,
     pick_baseline_for_symbol,
+    write_ndjson,
 )
+from core.redis_keys import RedisStreams as RS
 
 
 def _run(cmd: list[str]) -> None:
@@ -33,7 +34,7 @@ def main() -> None:
     ap.add_argument("--batch", type=int, default=2000)
     ap.add_argument("--start-id", default="0-0")
     ap.add_argument("--end-id", default="+")
-    ap.add_argument("--stream", default=os.getenv("OF_INPUTS_STREAM", "signals:of:inputs"))
+    ap.add_argument("--stream", default=os.getenv("OF_INPUTS_STREAM", RS.OF_INPUTS))
     ap.add_argument("--field", default=os.getenv("OF_INPUTS_STREAM_FIELD", "payload"))
     ap.add_argument("--baseline", default="", help="baseline replay ndjson")
     ap.add_argument("--baseline-dir", default="", help="directory with baseline_<SYMBOL>.ndjson or baseline.ndjson")

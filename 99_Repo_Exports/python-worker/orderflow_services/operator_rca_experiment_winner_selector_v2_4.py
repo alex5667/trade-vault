@@ -1,14 +1,15 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import json
-import math
 import os
 import time
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from statistics import mean
-from typing import Any, DefaultDict, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis  # type: ignore
@@ -16,7 +17,6 @@ except Exception:  # pragma: no cover
     redis = None  # type: ignore
 
 from prometheus_client import Counter, Gauge, start_http_server
-
 
 EXPOSURES_STREAM = os.getenv("ML_OPERATOR_RCA_EXPOSURES_STREAM", "stream:ml:operator_rca_exposures")
 FEEDBACK_STREAM = os.getenv("ML_OPERATOR_RCA_FEEDBACK_STREAM", "stream:ml:operator_rca_feedback")
@@ -61,8 +61,8 @@ class ArmStats:
     model_name: str
     prompt_version: str
     exposures: int = 0
-    quality: List[float] = None  # type: ignore
-    usefulness: List[float] = None  # type: ignore
+    quality: list[float] = None  # type: ignore
+    usefulness: list[float] = None  # type: ignore
 
     def __post_init__(self) -> None:
         self.quality = self.quality or []
@@ -87,27 +87,27 @@ def _within_window(ts_ms: int, now_ms: int, window_min: int) -> bool:
 
 
 def aggregate_arm_stats(
-    exposures: Iterable[Dict[str, Any]],
-    quality_rows: Iterable[Dict[str, Any]],
-    feedback_rows: Iterable[Dict[str, Any]],
+    exposures: Iterable[dict[str, Any]],
+    quality_rows: Iterable[dict[str, Any]],
+    feedback_rows: Iterable[dict[str, Any]],
     now_ms: int,
     window_min: int,
-) -> Dict[Tuple[str, str], ArmStats]:
-    by_req: Dict[str, Tuple[str, str]] = {}
-    stats: Dict[Tuple[str, str], ArmStats] = {}
+) -> dict[tuple[str, str], ArmStats]:
+    by_req: dict[str, tuple[str, str]] = {}
+    stats: dict[tuple[str, str], ArmStats] = {}
     for row in exposures:
         ts_ms = int(row.get("ts_ms", 0) or 0)
         if not _within_window(ts_ms, now_ms, window_min):
             continue
-        exp = str(row.get("experiment_id", ""))
-        arm = str(row.get("arm", ""))
+        exp = (row.get("experiment_id", ""))
+        arm = (row.get("arm", ""))
         if not exp or not arm:
             continue
         key = (exp, arm)
         if key not in stats:
-            stats[key] = ArmStats(exp, arm, str(row.get("provider", "")), str(row.get("model_name", "")), str(row.get("prompt_version", "")))
+            stats[key] = ArmStats(exp, arm, (row.get("provider", "")), (row.get("model_name", "")), (row.get("prompt_version", "")))
         stats[key].exposures += 1
-        req_id = str(row.get("request_id", ""))
+        req_id = (row.get("request_id", ""))
         if req_id:
             by_req[req_id] = key
 
@@ -115,7 +115,7 @@ def aggregate_arm_stats(
         ts_ms = int(row.get("ts_ms", 0) or 0)
         if not _within_window(ts_ms, now_ms, window_min):
             continue
-        req_id = str(row.get("request_id", ""))
+        req_id = (row.get("request_id", ""))
         key = by_req.get(req_id)
         if not key or key not in stats:
             continue
@@ -128,20 +128,20 @@ def aggregate_arm_stats(
         ts_ms = int(row.get("ts_ms", 0) or 0)
         if not _within_window(ts_ms, now_ms, window_min):
             continue
-        req_id = str(row.get("request_id", "")) or str(row.get("recommendation_id", ""))
+        req_id = (row.get("request_id", "")) or (row.get("recommendation_id", ""))
         key = by_req.get(req_id)
         if not key or key not in stats:
             continue
-        stats[key].usefulness.append(usefulness_to_score(str(row.get("decision", "MIXED"))))
+        stats[key].usefulness.append(usefulness_to_score((row.get("decision", "MIXED"))))
     return stats
 
 
-def choose_winner(stats: Dict[Tuple[str, str], ArmStats], min_sample: int) -> List[Dict[str, Any]]:
-    grouped: DefaultDict[str, List[ArmStats]] = defaultdict(list)
+def choose_winner(stats: dict[tuple[str, str], ArmStats], min_sample: int) -> list[dict[str, Any]]:
+    grouped: defaultdict[str, list[ArmStats]] = defaultdict(list)
     for (exp, _arm), st in stats.items():
         grouped[exp].append(st)
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for experiment_id, arms in grouped.items():
         eligible = [a for a in arms if a.exposures >= min_sample]
         if len(eligible) < 2:
@@ -173,12 +173,12 @@ def choose_winner(stats: Dict[Tuple[str, str], ArmStats], min_sample: int) -> Li
     return out
 
 
-async def _xrevrange_all(r: Any, stream: str, count: int) -> List[Dict[str, Any]]:
+async def _xrevrange_all(r: Any, stream: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await r.xrevrange(stream, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for _msg_id, payload in rows:
         out.append(dict(payload))
     return out
@@ -202,9 +202,9 @@ async def run() -> None:
         stats = aggregate_arm_stats(exposures, quality_rows, feedback_rows, now_ms, window_min)
         decisions = choose_winner(stats, min_sample)
         for row in decisions:
-            exp = str(row.get("experiment_id", ""))
-            arm = str(row.get("winning_arm", ""))
-            decision = str(row.get("decision", "HOLD"))
+            exp = (row.get("experiment_id", ""))
+            arm = (row.get("winning_arm", ""))
+            decision = (row.get("decision", "HOLD"))
             await r.xadd(DECISIONS_STREAM, {"ts_ms": now_ms, **row}, maxlen=100000, approximate=True)
             await r.xadd(AUDIT_STREAM, {"ts_ms": now_ms, "event": "WINNER_DECISION", **row}, maxlen=50000, approximate=True)
             await r.hset(f"cfg:ml:operator_rca_experiment:winner:{exp}", mapping={k: json.dumps(v) if isinstance(v, (dict, list)) else v for k, v in row.items()})

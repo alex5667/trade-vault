@@ -1,13 +1,14 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, List
+from typing import Any
 
 import redis
+
+from domain.evidence_keys import MetaKeys
+from utils.time_utils import get_ny_time_millis
 
 
 def _now_ms() -> int:
@@ -32,7 +33,7 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def pctl(xs: List[float], q: float) -> float:
+def pctl(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     xs = sorted(xs)
@@ -41,9 +42,9 @@ def pctl(xs: List[float], q: float) -> float:
     return float(xs[i])
 
 
-def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 400000) -> List[Dict[str, Any]]:
+def _read_stream_window(r: redis.Redis, stream: str, start_ms: int, window_ms: int, *, max_scan: int = 400000) -> list[dict[str, Any]]:
     end_ms = start_ms + window_ms
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
     scanned = 0
     while scanned < max_scan:
@@ -86,9 +87,9 @@ def main() -> None:
     start_ms = _now_ms() - window_ms
     rows = _read_stream_window(r, args.stream, start_ms, window_ms)
 
-    lat_us: List[float] = []
-    ml_lat_us: List[float] = []
-    execn: List[float] = []
+    lat_us: list[float] = []
+    ml_lat_us: list[float] = []
+    execn: list[float] = []
     ok = 0
     soft = 0
     meta_veto = 0
@@ -111,7 +112,7 @@ def main() -> None:
 
         ok += 1 if _i(d.get("ok", 0), 0) == 1 else 0
         soft += 1 if _i(d.get("ok_soft", 0), 0) == 1 else 0
-        meta_veto += 1 if _i(d.get("meta_veto", 0), 0) == 1 else 0
+        meta_veto += 1 if _i(d.get(MetaKeys.VETO, 0), 0) == 1 else 0
         book_bad += 1 if _i(d.get("book_health_ok", 1), 1) == 0 else 0
         src_bad += 1 if _i(d.get("source_consistency_ok", 1), 1) == 0 else 0
         dh = _f(d.get("data_health", 1.0), 1.0)

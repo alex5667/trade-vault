@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-from typing import Dict
 
 
-def parse_map(raw: str) -> Dict[str, float]:
+def parse_map(raw: str) -> dict[str, float]:
     """Parse JSON map string to dict[str, float].
     
     Handles:
@@ -26,7 +25,7 @@ def parse_map(raw: str) -> Dict[str, float]:
         obj = json.loads(raw)
         if not isinstance(obj, dict):
             return {}
-        out: Dict[str, float] = {}
+        out: dict[str, float] = {}
         for k, v in obj.items():
             if not isinstance(k, str):
                 continue
@@ -40,7 +39,7 @@ def parse_map(raw: str) -> Dict[str, float]:
         return {}
 
 
-def dump_map(m: Dict[str, float]) -> str:
+def dump_map(m: dict[str, float]) -> str:
     """Serialize dict to JSON string with stable ordering.
     
     Keys are sorted alphabetically for diff-friendly output.
@@ -57,7 +56,7 @@ def dump_map(m: Dict[str, float]) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-def clamp_map(m: Dict[str, float], floor: float) -> Dict[str, float]:
+def clamp_map(m: dict[str, float], floor: float) -> dict[str, float]:
     """Clamp all values in map to maximum floor.
     
     Used for freeze operations: ensures no share exceeds floor.
@@ -69,7 +68,7 @@ def clamp_map(m: Dict[str, float], floor: float) -> Dict[str, float]:
     Returns:
         New dict with clamped values
     """
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
     for k, v in m.items():
         try:
             out[k] = min(float(v), float(floor))
@@ -78,7 +77,7 @@ def clamp_map(m: Dict[str, float], floor: float) -> Dict[str, float]:
     return out
 
 
-def merge_updates(base: Dict[str, float], updates: Dict[str, float]) -> Dict[str, float]:
+def merge_updates(base: dict[str, float], updates: dict[str, float]) -> dict[str, float]:
     """Merge updates into base map.
     
     Updates override base values. New keys are added.

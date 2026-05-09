@@ -1,11 +1,12 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
-import json
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
+import contextlib
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -48,13 +49,13 @@ MAX_BUNDLE_BYTES = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_
 MAX_PROMPT_CHARS = int(os.getenv("ML_ROUTE_INCIDENT_RCA_MIRROR_RCA_WINNER_APPLY_APPLY_RCA_BRIDGE_MAX_PROMPT_CHARS", "12000"))
 POLL_INTERVAL_SEC = 2.0
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 RUNS = _counter("ml_route_incident_rca_mirror_rca_winner_apply_apply_rca_bridge_runs_total", "Runs", ("status", "decision"))
@@ -67,7 +68,7 @@ ROUTED = _counter("ml_route_incident_rca_mirror_rca_winner_apply_apply_rca_bridg
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def decode_dict(d: Dict[Any, Any]) -> Dict[str, Any]:
+def decode_dict(d: dict[Any, Any]) -> dict[str, Any]:
     return {
         (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
         for k, v in d.items()
@@ -87,10 +88,10 @@ async def fetch_vertex_health(r: Any) -> bool:
     except Exception:
         return False
 
-def route_decision(mode: str, vertex_healthy: bool, req_degraded: bool, bundle_bytes: int, severity: str) -> Tuple[str, str]:
+def route_decision(mode: str, vertex_healthy: bool, req_degraded: bool, bundle_bytes: int, severity: str) -> tuple[str, str]:
     if mode == "DISABLED":
         return "REJECT", "disabled"
-        
+
     if bundle_bytes > MAX_BUNDLE_BYTES:
         return "REJECT", "bundle_too_large"
 
@@ -99,10 +100,10 @@ def route_decision(mode: str, vertex_healthy: bool, req_degraded: bool, bundle_b
 
     if mode == "VERTEX_ONLY":
         return "ROUTE_VERTEX", "vertex_only"
-        
+
     if mode == "LOCAL_ONLY":
         return "ROUTE_LOCAL", "local_only"
-        
+
     if mode == "AUTO":
         if vertex_healthy:
             return "ROUTE_VERTEX", "vertex_healthy"
@@ -110,10 +111,10 @@ def route_decision(mode: str, vertex_healthy: bool, req_degraded: bool, bundle_b
             return "ROUTE_LOCAL", "vertex_degraded"
         else:
             return "REJECT", "vertex_degraded_local_not_allowed"
-            
+
     return "REJECT", "unknown_mode"
 
-def prepare_vertex_payload(bundle_id: str, bundle_json: str) -> Dict[str, str]:
+def prepare_vertex_payload(bundle_id: str, bundle_json: str) -> dict[str, str]:
     return {
         "apply_id": bundle_id, # Reusing apply_id field for bundle_id for simplicity as primary key in RCA streams
         "task_family": "route_incident_rca_mirror_rca_winner_apply_apply_rca",
@@ -122,7 +123,7 @@ def prepare_vertex_payload(bundle_id: str, bundle_json: str) -> Dict[str, str]:
         "ts_ms": str(now_ms())
     }
 
-def prepare_local_payload(bundle_id: str, bundle_json: str) -> Dict[str, str]:
+def prepare_local_payload(bundle_id: str, bundle_json: str) -> dict[str, str]:
     return {
         "ticket_id": f"vw_app_rca_{bundle_id}_{now_ms()}",
         "task_family": "route_incident_rca_mirror_rca_winner_apply_apply_rca",
@@ -156,13 +157,13 @@ async def persist_decision(db_url: str, bundle_id: str, decision: str, reason: s
             )
             conn.commit()
 
-async def process_msg(r: Any, db_url: str, msg_id: str, fields: Dict[str, Any]) -> None:
+async def process_msg(r: Any, db_url: str, msg_id: str, fields: dict[str, Any]) -> None:
     started = time.perf_counter()
     status = "ok"
     decision = "REJECT"
     route_reason = "unknown"
     severity = fields.get("severity", "info")
-    
+
     try:
         bundle_id = fields.get("bundle_id", "")
         bundle_json = fields.get("payload_json", "")
@@ -170,19 +171,19 @@ async def process_msg(r: Any, db_url: str, msg_id: str, fields: Dict[str, Any]) 
             decision = "REJECT"
             route_reason = "missing_data"
             return
-            
+
         b_bytes = len(bundle_json.encode('utf-8'))
         v_ok = await fetch_vertex_health(r)
-        
+
         decision, route_reason = route_decision(MODE, v_ok, REQ_VERTEX_DEGRADED_LOCAL, b_bytes, severity)
-        
+
         if decision == "ROUTE_VERTEX":
             await r.xadd(OUT_VERTEX_STREAM, prepare_vertex_payload(bundle_id, bundle_json), maxlen=MAXLEN, approximate=True)
             if ROUTED: ROUTED.labels(route="vertex", severity=severity).inc()
         elif decision == "ROUTE_LOCAL":
             await r.xadd(OUT_LOCAL_STREAM, prepare_local_payload(bundle_id, bundle_json), maxlen=MAXLEN, approximate=True)
             if ROUTED: ROUTED.labels(route="local", severity=severity).inc()
-            
+
         await r.xadd(OUT_DECISIONS, {
             "bundle_id": bundle_id,
             "decision": decision,
@@ -190,21 +191,21 @@ async def process_msg(r: Any, db_url: str, msg_id: str, fields: Dict[str, Any]) 
             "severity": severity,
             "ts_ms": str(now_ms())
         }, maxlen=MAXLEN, approximate=True)
-        
+
         await r.xadd(OUT_AUDIT, {
             "bundle_id": bundle_id,
             "decision": decision,
             "ts_ms": str(now_ms())
         }, maxlen=MAXLEN, approximate=True)
-        
+
         await r.hset(LAST_METRIC, "bundle_id", bundle_id)
         await r.hset(LAST_METRIC, "decision", decision)
         await r.hset(LAST_METRIC, "reason", route_reason)
         await r.hset(LAST_METRIC, "ts_ms", str(now_ms()))
-        
+
         await persist_decision(db_url, bundle_id, decision, route_reason, severity)
-        
-    except Exception as exc:
+
+    except Exception:
         status = "error"
     finally:
         if RUNS:
@@ -222,20 +223,18 @@ async def main() -> None:  # pragma: no cover
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     db_url = os.getenv("ANALYTICS_DB_DSN") or os.getenv("DATABASE_URL", "")
 
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(IN_BUNDLES_STREAM, CG_NAME, id="0", mkstream=True)
-    except Exception:
-        pass
 
     while True:
         try:
             resp = await r.xreadgroup(CG_NAME, CONS_NAME, {IN_BUNDLES_STREAM: ">"}, count=10, block=2000)
             if LAST_RUN:
                 LAST_RUN.set(time.time())
-                
+
             if not resp:
                 continue
-                
+
             for stream_name, msgs in resp:
                 for msg_id, fields in msgs:
                     mid = msg_id.decode() if isinstance(msg_id, bytes) else msg_id

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """ATR Policy Active Mirror Service — Phase 3.8 (Disaster Layer).
 
 Maintains a last-good snapshot of cfg:atr_policy:active:* ONLY after verifier
@@ -23,11 +24,12 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
-from services.atr_policy_state_store import transition_snapshot, get_conn
+from typing import Any
 
 import redis
 from prometheus_client import Counter
+
+from services.atr_policy_state_store import get_conn, transition_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -65,28 +67,28 @@ def _advisory_only() -> bool:
     return os.getenv("ATR_POLICY_MIRROR_ADVISORY_ONLY", "0") == "1"
 
 
-def _last_good_key(p: Dict[str, Any]) -> str:
+def _last_good_key(p: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:last_good:"
         f"{p['source']}:{p['symbol']}:{p['scenario']}:{p['regime']}:{p['risk_horizon_bucket']}"
     )
 
 
-def _last_good_meta_key(p: Dict[str, Any]) -> str:
+def _last_good_meta_key(p: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:last_good_meta:"
         f"{p['source']}:{p['symbol']}:{p['scenario']}:{p['regime']}:{p['risk_horizon_bucket']}"
     )
 
 
-def _kill_switch_key(p: Dict[str, Any]) -> str:
+def _kill_switch_key(p: dict[str, Any]) -> str:
     return (
         f"cfg:atr_policy:kill_switch:"
         f"{p['source']}:{p['symbol']}:{p['scenario']}:{p['regime']}:{p['risk_horizon_bucket']}"
     )
 
 
-def _publish_stream(r: redis.Redis, stream: str, payload: Dict[str, Any]) -> None:
+def _publish_stream(r: redis.Redis, stream: str, payload: dict[str, Any]) -> None:
     try:
         r.xadd(stream, {k: str(v) for k, v in payload.items()}, maxlen=2000)
     except Exception as exc:
@@ -96,9 +98,9 @@ def _publish_stream(r: redis.Redis, stream: str, payload: Dict[str, Any]) -> Non
 # ── Core API ──────────────────────────────────────────────────────────────────
 
 def mirror_after_verified_apply(
-    policy: Dict[str, Any],
-    verify_result: Dict[str, Any],
-    r: Optional[redis.Redis] = None,
+    policy: dict[str, Any],
+    verify_result: dict[str, Any],
+    r: redis.Redis | None = None,
 ) -> bool:
     """
     Update last_good mirror ONLY after verifier confirms the active key is good.
@@ -109,7 +111,7 @@ def mirror_after_verified_apply(
         return False
 
     if not verify_result.get("verified_ok", False):
-        reason = str(verify_result.get("reason_code", "VERIFY_FAILED"))
+        reason = (verify_result.get("reason_code", "VERIFY_FAILED"))
         c_mirror_skip.labels(reason_code=reason).inc()
         logger.debug("mirror_service: skip — verify not ok: %s", reason)
         return False
@@ -146,9 +148,9 @@ def mirror_after_verified_apply(
         "mirrored_at_ms": now_ms,
         "reason_code": "LAST_GOOD_AFTER_VERIFIED_APPLY",
         "policy_ver": policy_ver,
-        "stop_ttl_mode": str(policy.get("stop_ttl_mode", "")),
-        "trailing_mode": str(policy.get("trailing_mode", "")),
-        "applied_from_proposal_id": str(policy.get("proposal_id") or ""),
+        "stop_ttl_mode": (policy.get("stop_ttl_mode", "")),
+        "trailing_mode": (policy.get("trailing_mode", "")),
+        "applied_from_proposal_id": (policy.get("proposal_id") or ""),
         "advisory_only": _advisory_only(),
     }
 
@@ -167,14 +169,14 @@ def mirror_after_verified_apply(
         meta_json = json.dumps(meta, ensure_ascii=False, sort_keys=True)
         r.set(lg_key, policy_json)
         r.set(meta_key, meta_json)
-        
+
         try:
             with get_conn() as conn:
                 transition_snapshot(
                     conn,
                     snapshot_kind="last_good",
                     policy=policy,
-                    applied_from_proposal_id=str(policy.get("proposal_id") or ""),
+                    applied_from_proposal_id=(policy.get("proposal_id") or ""),
                     effective_from_ms=now_ms,
                 )
                 conn.commit()
@@ -206,8 +208,8 @@ def read_last_good(
     scenario: str,
     regime: str,
     risk_horizon_bucket: str,
-    r: Optional[redis.Redis] = None,
-) -> Optional[Dict[str, Any]]:
+    r: redis.Redis | None = None,
+) -> dict[str, Any] | None:
     """Return last_good policy dict or None if not present / corrupted."""
     r = r or _redis()
     ref = {
@@ -231,8 +233,8 @@ def read_last_good_meta(
     scenario: str,
     regime: str,
     risk_horizon_bucket: str,
-    r: Optional[redis.Redis] = None,
-) -> Optional[Dict[str, Any]]:
+    r: redis.Redis | None = None,
+) -> dict[str, Any] | None:
     """Return last_good_meta dict or None."""
     r = r or _redis()
     ref = {

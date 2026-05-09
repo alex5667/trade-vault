@@ -1,25 +1,26 @@
-from utils.time_utils import get_ny_time_millis
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-import time
-from unittest.mock import MagicMock, AsyncMock, patch
-from services.orderflow.utils import _parse_tick_payload, _parse_book_payload
-from services.orderflow.signal_pipeline import SignalPipeline
+
 from services.orderflow.runtime import SymbolRuntime
+from services.orderflow.signal_pipeline import SignalPipeline
+from services.orderflow.utils import _parse_book_payload, _parse_tick_payload
+
 
 def test_robust_tick_timestamp_parsing():
     """Verify that multiple timestamp keys are supported in _parse_tick_payload."""
     # Test ts_ms
     tick = _parse_tick_payload({"ts_ms": 1700000000000, "price": 100, "qty": 1, "side": "BUY"})
     assert tick["ts_ms"] == 1700000000000
-    
+
     # Test E (Binance event time)
     tick = _parse_tick_payload({"E": 1700000000001, "price": 100, "qty": 1, "side": "BUY"})
     assert tick["ts_ms"] == 1700000000001
-    
+
     # Test T (Binance trade time)
     tick = _parse_tick_payload({"T": 1700000000002, "price": 100, "qty": 1, "side": "BUY"})
     assert tick["ts_ms"] == 1700000000002
-    
+
     # Test written_at
     tick = _parse_tick_payload({"written_at": 1700000000003, "price": 100, "qty": 1, "side": "BUY"})
     assert tick["ts_ms"] == 1700000000003
@@ -28,7 +29,7 @@ def test_robust_book_timestamp_parsing():
     """Verify that multiple timestamp keys are supported in _parse_book_payload."""
     book = _parse_book_payload({"ts_ms": 1700000000000, "bids": [], "asks": []}, "BTCUSDT")
     assert book["ts_ms"] == 1700000000000
-    
+
     book = _parse_book_payload({"E": 1700000000001, "bids": [], "asks": []}, "BTCUSDT")
     assert book["ts_ms"] == 1700000000001
 
@@ -39,17 +40,17 @@ async def test_publish_signal_bookkeeping_deferred():
     publisher = MagicMock()
     atr_cache = MagicMock()
     pipeline = SignalPipeline(publisher, atr_cache)
-    
+
     runtime = MagicMock(spec=SymbolRuntime)
     runtime.symbol = "BTCUSDT"
     runtime.last_signal_ts = 0
     runtime.pressure = MagicMock()
-    
+
     # Invalid direction should trigger early return before any bookkeeping
     signal = {"direction": "INVALID", "tick_ts": 1700000000000}
-    
+
     await pipeline.publish_signal(runtime, signal)
-    
+
     # Check that bookkeeping didn't happen
     assert runtime.last_signal_ts == 0
     runtime.pressure.record_emit.assert_not_called()
@@ -58,11 +59,11 @@ async def test_publish_signal_bookkeeping_deferred():
 async def test_publish_signal_bookkeeping_happens_at_end():
     """Verify that bookkeeping is updated after successful logic (mocking publishing)."""
     publisher = MagicMock()
-    publisher.r = AsyncMock() 
+    publisher.r = AsyncMock()
     publisher.xadd_json = AsyncMock() # Fix: must be AsyncMock
     atr_cache = MagicMock()
     pipeline = SignalPipeline(publisher, atr_cache)
-    
+
     runtime = MagicMock(spec=SymbolRuntime)
     runtime.symbol = "BTCUSDT"
     runtime.last_signal_ts = 0
@@ -70,7 +71,7 @@ async def test_publish_signal_bookkeeping_happens_at_end():
     runtime.dynamic_cfg = {}
     runtime.pressure = MagicMock()
     runtime.get_atr_tf_selected.return_value = "15m"
-    
+
     # Use real dict for indicators to avoid JSON serialization errors
     signal = {
         "direction": "LONG",
@@ -80,7 +81,7 @@ async def test_publish_signal_bookkeeping_happens_at_end():
         "confidence": 0.8,
         "indicators": {"of_confirm_ok": 1, "delta_z": 3.0} # Real dict
     },
-    
+
     # Mocking external calls in SignalPipeline
     with patch("services.orderflow.signal_pipeline.preprocess_signal_for_publish"), \
          patch("services.orderflow.signal_pipeline.calculate_position_size", return_value=(1.0, 100.0, 1000.0, 1.0)), \
@@ -89,9 +90,9 @@ async def test_publish_signal_bookkeeping_happens_at_end():
          patch("services.orderflow.signal_pipeline.build_outbox_envelope", return_value={"meta":{}, "targets":{}}), \
          patch("services.orderflow.signal_pipeline.atomic_xadd_async"), \
          patch.object(pipeline, "_calculate_levels", return_value=(90.0, [110, 120, 130], 1.0, 5.0)):
-             
+
         await pipeline.publish_signal(runtime, signal)
-        
+
         # Verify bookkeeping happened
         assert runtime.last_signal_ts == 1700000000000
         runtime.pressure.record_emit.assert_called_with(1700000000000)

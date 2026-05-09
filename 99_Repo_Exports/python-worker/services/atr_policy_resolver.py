@@ -4,8 +4,8 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any
 
 import redis
 
@@ -19,7 +19,7 @@ def _safe_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def _ensure_dict(v: Any) -> Dict[str, Any]:
+def _ensure_dict(v: Any) -> dict[str, Any]:
     return dict(v) if isinstance(v, dict) else {}
 
 
@@ -48,14 +48,14 @@ REQUIRED_FIELDS = ["source", "symbol", "scenario", "regime", "risk_horizon_bucke
 
 
 class ATRPolicyResolver:
-    def __init__(self, redis_url: Optional[str] = None):
+    def __init__(self, redis_url: str | None = None):
         self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://redis-worker-1:6379/0")
         self.cache_ttl_ms = _safe_int(os.getenv("ATR_POLICY_RESOLVER_CACHE_TTL_MS", "5000"), 5000)
         self.enable = os.getenv("ATR_POLICY_RESOLVER_ENABLE", "1") == "1"
-        self._r: Optional[redis.Redis] = None
-        self._cache: Dict[str, Tuple[int, Dict[str, Any]]] = {}
+        self._r: redis.Redis | None = None
+        self._cache: dict[str, tuple[int, dict[str, Any]]] = {}
 
-    def _redis(self) -> Optional[redis.Redis]:
+    def _redis(self) -> redis.Redis | None:
         if not self.enable:
             return None
         if self._r is None:
@@ -74,7 +74,7 @@ class ATRPolicyResolver:
     def _kill_switch_key(self, source: str, symbol: str, scenario: str, regime: str, bucket: str) -> str:
         return f"cfg:atr_policy:kill_switch:{source}:{symbol}:{scenario}:{regime}:{bucket}"
 
-    def _candidates(self, source: str, symbol: str, scenario: str, regime: str, bucket: str) -> List[Tuple[str, str, str]]:
+    def _candidates(self, source: str, symbol: str, scenario: str, regime: str, bucket: str) -> list[tuple[str, str, str]]:
         """Returns (level, active_key, last_good_key) tuples in resolve priority order."""
         return [
             ("exact",
@@ -99,7 +99,7 @@ class ATRPolicyResolver:
             pass
         return False
 
-    def _validate_policy_obj(self, obj: Any) -> Optional[str]:
+    def _validate_policy_obj(self, obj: Any) -> str | None:
         """
         Validate a deserialized policy dict.
         Returns None if valid, or a reason_code string if invalid.
@@ -121,7 +121,7 @@ class ATRPolicyResolver:
         source: str, symbol: str, scenario: str, regime: str, risk_horizon_bucket: str,
         stop_ttl_mode: str, trailing_mode: str, reason_code: str, policy_ver: int,
         updated_at_ms: int, kill_switch_active: bool = False, last_good_used: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return asdict(ATRPolicyResolution(
             hit=hit, level=level, active_key=active_key,
             source=source, symbol=symbol, scenario=scenario,
@@ -139,12 +139,12 @@ class ATRPolicyResolver:
         scenario: str,
         regime: str,
         risk_horizon_bucket: str,
-    ) -> Dict[str, Any]:
-        source = str(source or "CryptoOrderFlow")
-        symbol = str(symbol or "").upper()
-        scenario = str(scenario or "default").lower()
-        regime = str(regime or "na").lower()
-        risk_horizon_bucket = str(risk_horizon_bucket or "unknown").lower()
+    ) -> dict[str, Any]:
+        source = (source or "CryptoOrderFlow")
+        symbol = (symbol or "").upper()
+        scenario = (scenario or "default").lower()
+        regime = (regime or "na").lower()
+        risk_horizon_bucket = (risk_horizon_bucket or "unknown").lower()
 
         cache_key = f"{source}|{symbol}|{scenario}|{regime}|{risk_horizon_bucket}"
         now_ms = int(time.time() * 1000)
@@ -193,9 +193,9 @@ class ATRPolicyResolver:
                             hit=True, level=level, active_key=active_key,
                             source=source, symbol=symbol, scenario=scenario,
                             regime=regime, risk_horizon_bucket=risk_horizon_bucket,
-                            stop_ttl_mode=str(obj.get("stop_ttl_mode") or "canary"),
-                            trailing_mode=str(obj.get("trailing_mode") or "canary"),
-                            reason_code=str(obj.get("reason_code") or "ATR_POLICY_ACTIVE"),
+                            stop_ttl_mode=(obj.get("stop_ttl_mode") or "canary"),
+                            trailing_mode=(obj.get("trailing_mode") or "canary"),
+                            reason_code=(obj.get("reason_code") or "ATR_POLICY_ACTIVE"),
                             policy_ver=_safe_int(obj.get("policy_ver"), 0),
                             updated_at_ms=_safe_int(obj.get("updated_at_ms"), 0),
                             kill_switch_active=False, last_good_used=False,
@@ -218,8 +218,8 @@ class ATRPolicyResolver:
                                         hit=True, level=level + "_last_good", active_key=lg_key,
                                         source=source, symbol=symbol, scenario=scenario,
                                         regime=regime, risk_horizon_bucket=risk_horizon_bucket,
-                                        stop_ttl_mode=str(lg_obj.get("stop_ttl_mode") or "canary"),
-                                        trailing_mode=str(lg_obj.get("trailing_mode") or "canary"),
+                                        stop_ttl_mode=(lg_obj.get("stop_ttl_mode") or "canary"),
+                                        trailing_mode=(lg_obj.get("trailing_mode") or "canary"),
                                         reason_code="ACTIVE_CORRUPTED_FALLBACK_LAST_GOOD",
                                         policy_ver=_safe_int(lg_obj.get("policy_ver"), 0),
                                         updated_at_ms=_safe_int(lg_obj.get("updated_at_ms"), 0),
@@ -245,8 +245,8 @@ class ATRPolicyResolver:
                             hit=True, level=level + "_last_good", active_key=lg_key,
                             source=source, symbol=symbol, scenario=scenario,
                             regime=regime, risk_horizon_bucket=risk_horizon_bucket,
-                            stop_ttl_mode=str(lg_obj.get("stop_ttl_mode") or "canary"),
-                            trailing_mode=str(lg_obj.get("trailing_mode") or "canary"),
+                            stop_ttl_mode=(lg_obj.get("stop_ttl_mode") or "canary"),
+                            trailing_mode=(lg_obj.get("trailing_mode") or "canary"),
                             reason_code="ACTIVE_MISSING_FALLBACK_LAST_GOOD",
                             policy_ver=_safe_int(lg_obj.get("policy_ver"), 0),
                             updated_at_ms=_safe_int(lg_obj.get("updated_at_ms"), 0),
@@ -271,7 +271,7 @@ class ATRPolicyResolver:
         return out
 
 
-_RESOLVER: Optional[ATRPolicyResolver] = None
+_RESOLVER: ATRPolicyResolver | None = None
 
 
 def get_atr_policy_resolver() -> ATRPolicyResolver:

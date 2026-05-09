@@ -1,5 +1,6 @@
-# python-worker/core/meta_model_registry.py
 from __future__ import annotations
+
+# python-worker/core/meta_model_registry.py
 """
 Champion / Challenger model registry with shadow-first promotion guard.
 
@@ -36,7 +37,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("meta_model_registry")
 
@@ -44,7 +45,7 @@ logger = logging.getLogger("meta_model_registry")
 # Prometheus helpers — graceful degradation if not available
 # ---------------------------------------------------------------------------
 
-def _try_labeled_counter(name: str, doc: str, labelnames: List[str]):  # type: ignore[return]
+def _try_labeled_counter(name: str, doc: str, labelnames: list[str]):  # type: ignore[return]
     try:
         from prometheus_client import Counter
         return Counter(name, doc, labelnames)
@@ -91,13 +92,13 @@ class _BrierTracker:
             self._sum_sq_err += err * err
 
     @property
-    def brier(self) -> Optional[float]:
+    def brier(self) -> float | None:
         with self._lock:
             if self.n == 0:
                 return None
             return self._sum_sq_err / self.n
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {"n": self.n, "brier": self._sum_sq_err / self.n if self.n else None}
 
@@ -125,7 +126,7 @@ class PromotionPolicy:
     shadow_enforce_challenger: bool = True
 
     @staticmethod
-    def from_env() -> "PromotionPolicy":
+    def from_env() -> PromotionPolicy:
         def _int(k: str, d: int) -> int:
             try:
                 return int(os.getenv(k, str(d)))
@@ -169,7 +170,7 @@ class MetaModelRegistry:
         self,
         champion_path: str = "",
         challenger_path: str = "",
-        policy: Optional[PromotionPolicy] = None,
+        policy: PromotionPolicy | None = None,
     ) -> None:
         self.champion_path = champion_path
         self.challenger_path = challenger_path
@@ -180,10 +181,10 @@ class MetaModelRegistry:
 
         self._lock = threading.Lock()
         self._last_promotion_ms: int = 0
-        self._promotion_log: List[Dict[str, Any]] = []
+        self._promotion_log: list[dict[str, Any]] = []
 
     @staticmethod
-    def from_env() -> "MetaModelRegistry":
+    def from_env() -> MetaModelRegistry:
         return MetaModelRegistry(
             champion_path=os.getenv("META_MODEL_PATH", ""),
             challenger_path=os.getenv("META_MODEL_CHALLENGER_PATH", ""),
@@ -251,7 +252,7 @@ class MetaModelRegistry:
     # Promotion
     # ------------------------------------------------------------------
 
-    def promo_readiness(self) -> Tuple[bool, str, Dict[str, Any]]:
+    def promo_readiness(self) -> tuple[bool, str, dict[str, Any]]:
         """
         Check whether the challenger satisfies promotion criteria.
 
@@ -264,7 +265,7 @@ class MetaModelRegistry:
         ch_snap = self._challenger_brier.snapshot()
         champ_snap = self._champion_brier.snapshot()
 
-        stats: Dict[str, Any] = {
+        stats: dict[str, Any] = {
             "challenger_path": self.challenger_path,
             "champion_path": self.champion_path,
             "challenger_n": ch_snap["n"],
@@ -303,7 +304,7 @@ class MetaModelRegistry:
 
         return True, "criteria_passed", stats
 
-    def try_promote(self) -> Tuple[bool, str, Dict[str, Any]]:
+    def try_promote(self) -> tuple[bool, str, dict[str, Any]]:
         """
         Attempt to promote challenger → champion.
 
@@ -327,7 +328,7 @@ class MetaModelRegistry:
             # Reset champion Brier tracker to measure new champion from scratch
             self._champion_brier.reset()
             self._last_promotion_ms = int(time.time() * 1000)
-            event: Dict[str, Any] = {
+            event: dict[str, Any] = {
                 "event": "model_promoted",
                 "old_champion": old_champion,
                 "new_champion": new_champion,
@@ -343,7 +344,7 @@ class MetaModelRegistry:
         ),
         return True, "promoted", {**stats, "new_champion": new_champion, "old_champion": old_champion}
 
-    def maybe_auto_promote(self) -> Tuple[bool, str, Dict[str, Any]]:
+    def maybe_auto_promote(self) -> tuple[bool, str, dict[str, Any]]:
         """
         Call this periodically (e.g. from trail_post_analyzer_worker tick).
         Runs ``try_promote()`` only when ``policy.auto_promote`` is True.
@@ -356,7 +357,7 @@ class MetaModelRegistry:
     # Observability
     # ------------------------------------------------------------------
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         """Return a JSON-safe status dict suitable for health endpoints / logs."""
         ready, reason, stats = self.promo_readiness()
         return {
@@ -380,7 +381,7 @@ class MetaModelRegistry:
             },
         }
 
-    def promotion_log(self) -> List[Dict[str, Any]]:
+    def promotion_log(self) -> list[dict[str, Any]]:
         """Return full promotion audit log."""
         with self._lock:
             return list(self._promotion_log)

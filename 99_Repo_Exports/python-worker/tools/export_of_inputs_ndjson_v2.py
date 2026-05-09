@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 '''
@@ -23,10 +24,10 @@ import argparse
 import json
 import os
 import sys
-import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any
 
 
 def _b(x: Any) -> bytes:
@@ -52,7 +53,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
     tmp.replace(path)
 
 
-def _read_last_id(state_file: Path) -> Optional[str]:
+def _read_last_id(state_file: Path) -> str | None:
     try:
         if not state_file.exists():
             return None
@@ -88,7 +89,7 @@ def iter_stream_payloads(
     start_id: str,
     end_id: str,
     batch: int,
-) -> Iterable[Tuple[str, Optional[str]]]:
+) -> Iterable[tuple[str, str | None]]:
     '''
     Yield (stream_id, payload_str or None) from XRANGE in deterministic order.
     Uses exclusive start_id semantics by passing '(' prefix after the first page.
@@ -97,7 +98,7 @@ def iter_stream_payloads(
         import redis
     except ImportError:
         redis = None
-        
+
     cur = start_id
     first = True
     while True:
@@ -109,12 +110,12 @@ def iter_stream_payloads(
             if redis and isinstance(e, redis.exceptions.ConnectionError):
                 print(f"[ERROR] Redis connection failed during xrange: {e}", file=sys.stderr)
                 raise
-            # slightly inconsistent with original which didn't verify redis import here, 
+            # slightly inconsistent with original which didn't verify redis import here,
             # but we want to fail fast on connection errors.
-            # For other errors, we might want to retry or just raise. 
+            # For other errors, we might want to retry or just raise.
             # The original code didn't catch errors here, so raising is safer.
             raise
-            
+
         if not rows:
             return
         for sid, fields in rows:
@@ -147,7 +148,7 @@ def export_of_inputs(
     stream: str,
     field: str,
     out_path: Path,
-    state_file: Optional[Path],
+    state_file: Path | None,
     resume: bool,
     start_id: str,
     end_id: str,
@@ -173,7 +174,7 @@ def export_of_inputs(
     mode = "a" if (resume and last_id and out_path.exists()) else "w"
 
     st = ExportStats()
-    last_written_id: Optional[str] = None
+    last_written_id: str | None = None
 
     with out_path.open(mode, encoding="utf-8") as f:
         for sid, payload in iter_stream_payloads(
@@ -206,7 +207,7 @@ def export_of_inputs(
                     if not quiet and st.bad_json <= 5:
                         print(f"[WARN] payload not OFInputsV1-like at id={sid}", file=sys.stderr)
                 if "sid" not in obj:
-                    sym = str(obj.get("symbol") or "")
+                    sym = (obj.get("symbol") or "")
                     ts_val = obj.get("ts_ms") or obj.get("ts")
                     if sym and ts_val:
                         obj["sid"] = f"crypto-of:{sym}:{ts_val}"
@@ -219,7 +220,7 @@ def export_of_inputs(
                          # We need to parse to check/add sid
                          o = json.loads(payload)
                          if "sid" not in o:
-                             sym = str(o.get("symbol") or "")
+                             sym = (o.get("symbol") or "")
                              ts_val = o.get("ts_ms") or o.get("ts")
                              if sym and ts_val:
                                  o["sid"] = f"crypto-of:{sym}:{ts_val}"
@@ -263,7 +264,7 @@ def main() -> None:
 
     since_ms = int(args.since_ts_ms) if int(args.since_ts_ms) > 0 else (get_ny_time_millis() - int(args.since_hours * 3600_000))
     start_id = args.start_id
-    
+
     # If using time-based start and no explicit start-id, calculate it
     if args.start_id == "-" and since_ms > 0 and not (args.resume and args.state_file and Path(args.state_file).exists()):  # noqa: E501
          start_id = f"{since_ms}-0"

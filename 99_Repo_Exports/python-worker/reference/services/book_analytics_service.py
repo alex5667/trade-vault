@@ -26,23 +26,21 @@ Usage:
     uvicorn services.book_analytics_service:app --host 127.0.0.1 --port 8090
 """
 
-from collections import defaultdict, deque
-from dataclasses import dataclass, asdict
-from typing import List, Tuple, Dict, Deque
-import time
-import os
 import io
-
-from fastapi import FastAPI, HTTPException, Response
-from pydantic import BaseModel
-import numpy as np
-import requests
+import os
+import time
+from collections import defaultdict, deque
+from dataclasses import asdict, dataclass
 
 # Matplotlib для PNG рендеров
 import matplotlib
+import numpy as np
+import requests
+from fastapi import FastAPI, HTTPException, Response
+from pydantic import BaseModel
+
 matplotlib.use("Agg")  # Headless backend
 import matplotlib.pyplot as plt
-
 
 # ═══════════════════════════════════════════════════════════════
 # Configuration
@@ -78,8 +76,8 @@ class BookPayload(BaseModel):
     """Book snapshot from MT5 BookBridge."""
     ts: int  # milliseconds
     symbol: str
-    bids: List[Tuple[float, float]]  # [[price, vol], ...], best first
-    asks: List[Tuple[float, float]]  # [[price, vol], ...], best first
+    bids: list[tuple[float, float]]  # [[price, vol], ...], best first
+    asks: list[tuple[float, float]]  # [[price, vol], ...], best first
 
     class Config:
         extra = "allow"
@@ -112,17 +110,17 @@ class OBIEvent:
 # ═══════════════════════════════════════════════════════════════
 
 # Historical data per symbol
-books: Dict[str, Deque[BookPoint]] = defaultdict(
+books: dict[str, deque[BookPoint]] = defaultdict(
     lambda: deque(maxlen=5000)
 )
 
 # OBI events per symbol
-events: Dict[str, Deque[OBIEvent]] = defaultdict(
+events: dict[str, deque[OBIEvent]] = defaultdict(
     lambda: deque(maxlen=500)
 )
 
 # Sustain state tracking
-state_sustain: Dict[str, dict] = defaultdict(
+state_sustain: dict[str, dict] = defaultdict(
     lambda: {"dir": 0, "since": None, "last_value": 0.0}
 )
 
@@ -146,10 +144,10 @@ def _get_gpu_service():
     return _gpu_service_cache
 
 def calculate_obi_metrics(
-    bids: List[Tuple[float, float]],
-    asks: List[Tuple[float, float]],
+    bids: list[tuple[float, float]],
+    asks: list[tuple[float, float]],
     depth: int
-) -> Tuple[float, float, float, float, float, float]:
+) -> tuple[float, float, float, float, float, float]:
     """
     Calculate OBI metrics from order book with GPU acceleration.
     
@@ -164,11 +162,11 @@ def calculate_obi_metrics(
     # Convert to arrays
     b = np.array(bids[:depth], dtype=float) if bids else np.zeros((0, 2))
     a = np.array(asks[:depth], dtype=float) if asks else np.zeros((0, 2))
-    
+
     # Sum volumes
     bid_sum = float(b[:, 1].sum()) if b.size else 0.0
     ask_sum = float(a[:, 1].sum()) if a.size else 0.0
-    
+
     # ✅ GPU Support: используем GPU для вычисления OBI метрик
     gpu_service = _get_gpu_service()
     if gpu_service and gpu_service.is_gpu_available():
@@ -190,7 +188,7 @@ def calculate_obi_metrics(
         total = bid_sum + ask_sum
         obi_signed = (ask_sum - bid_sum) / total if total > 0 else 0.0
         obi_ratio = (ask_sum / bid_sum) - 1.0 if bid_sum > 0 else (float("inf") if ask_sum > 0 else 0.0)
-    
+
     # Spread and mid
     if bids and asks:
         best_bid = bids[0][0]
@@ -200,16 +198,16 @@ def calculate_obi_metrics(
     else:
         spread = 0.0
         mid = 0.0
-    
+
     return obi_signed, obi_ratio, bid_sum, ask_sum, spread, mid
 
 
-def _to_float_levels(levels: List, depth: int) -> List[Tuple[float, float]]:
+def _to_float_levels(levels: list, depth: int) -> list[tuple[float, float]]:
     """Приводит уровни книги к списку (price, volume) с ограничением по глубине."""
     if not isinstance(levels, list):
         return []
 
-    converted: List[Tuple[float, float]] = []
+    converted: list[tuple[float, float]] = []
     for raw in levels[:depth]:
         if not isinstance(raw, (list, tuple)) or len(raw) < 2:
             continue
@@ -226,7 +224,7 @@ def prune_old(symbol: str) -> None:
     """Remove old data points beyond RING_SECONDS."""
     now = time.time()
     dq = books[symbol]
-    
+
     while dq and (now - dq[0].ts) > RING_SECONDS:
         dq.popleft()
 
@@ -246,7 +244,7 @@ def notify_event(event: OBIEvent) -> None:
     """Send event notification to external service."""
     if not NOTIFY_URL:
         return
-    
+
     try:
         requests.post(
             NOTIFY_URL,
@@ -280,8 +278,8 @@ def receive_book(payload: BookPayload):
     payload_dict = payload.dict()
     raw_bids = payload_dict.get("bids", [])
     raw_asks = payload_dict.get("asks", [])
-    source = str(payload_dict.get("source", "")).lower()
-    market = str(payload_dict.get("market", "")).upper()
+    source = (payload_dict.get("source", "")).lower()
+    market = (payload_dict.get("market", "")).upper()
     is_crypto_payload = (
         CRYPTO_MODE_ENABLED
         or market in CRYPTO_MARKETS
@@ -299,7 +297,7 @@ def receive_book(payload: BookPayload):
         asks,
         depth_cfg
     )
-    
+
     point = BookPoint(
         ts=payload.ts / 1000.0,
         obi_signed=obi_s,
@@ -309,19 +307,19 @@ def receive_book(payload: BookPayload):
         spread=spread,
         mid=mid
     )
-    
+
     symbol = payload.symbol
     books[symbol].append(point)
     prune_old(symbol)
-    
+
     # === Sustain logic ===
     st = state_sustain[symbol]
     st["last_value"] = obi_s
-    
+
     # Direction: up if OBI >= threshold, down if OBI <= -threshold
     dir_now = 1 if obi_s >= OBI_THRESHOLD else (-1 if obi_s <= -OBI_THRESHOLD else 0)
     now_ms = payload.ts
-    
+
     if dir_now == 0:
         # Reset sustain state
         st["dir"] = 0
@@ -335,7 +333,7 @@ def receive_book(payload: BookPayload):
             # Same direction, check duration
             if st["since"] is not None and (now_ms - st["since"]) >= SUSTAIN_MS:
                 kind = "obi_sustain_up" if dir_now > 0 else "obi_sustain_down"
-                
+
                 event = OBIEvent(
                     ts=now_ms / 1000.0,
                     symbol=symbol,
@@ -343,13 +341,13 @@ def receive_book(payload: BookPayload):
                     duration_ms=int(now_ms - st["since"]),
                     value=obi_s
                 )
-                
+
                 events[symbol].append(event)
                 notify_event(event)
-                
+
                 # Reset to avoid spam
                 st["since"] = now_ms
-    
+
     return {
         "ok": True,
         "symbol": symbol,
@@ -372,9 +370,9 @@ def get_obi_features(symbol: str, last: int = 200):
     dq = books.get(symbol)
     if not dq:
         raise HTTPException(404, f"No data for {symbol}")
-    
+
     arr = list(dq)[-last:]
-    
+
     return {
         "symbol": symbol,
         "count": len(arr),
@@ -401,12 +399,12 @@ def get_latest_obi(symbol: str):
     dq = books.get(symbol)
     if not dq:
         raise HTTPException(404, f"No data for {symbol}")
-    
+
     latest = dq[-1]
-    
+
     # Calculate moving averages
     recent = list(dq)[-60:]  # Last 60 points
-    
+
     # ✅ GPU Support: используем GPU для вычисления mean и std
     gpu_service = _get_gpu_service()
     if gpu_service and gpu_service.is_gpu_available() and len(recent) > 0:
@@ -429,10 +427,10 @@ def get_latest_obi(symbol: str):
         # CPU fallback
         avg_obi = np.mean([p.obi_signed for p in recent])
         std_obi = np.std([p.obi_signed for p in recent])
-    
+
     # Check if sustained
     sustained = abs(avg_obi) >= OBI_THRESHOLD
-    
+
     return {
         "symbol": symbol,
         "latest": asdict(latest),
@@ -458,7 +456,7 @@ def pull_events(symbol: str, last: int = 50):
         List of events
     """
     arr = list(events.get(symbol, []))[-last:]
-    
+
     return {
         "symbol": symbol,
         "count": len(arr),
@@ -486,22 +484,22 @@ def render_obi_timeline(symbol: str, last: int = 300):
     dq = books.get(symbol)
     if not dq:
         raise HTTPException(404, f"No data for {symbol}")
-    
+
     arr = list(dq)[-last:]
     x = [p.ts for p in arr]
     y = [p.obi_signed for p in arr]
-    
+
     fig = plt.figure(figsize=(9, 3))
     ax = fig.add_subplot(111)
-    
+
     # Plot OBI
     ax.plot(x, y, linewidth=1.0, color='blue', alpha=0.7)
-    
+
     # Threshold lines
     ax.axhline(OBI_THRESHOLD, linestyle="--", color='green', alpha=0.5, label=f'+{OBI_THRESHOLD}')
     ax.axhline(-OBI_THRESHOLD, linestyle="--", color='red', alpha=0.5, label=f'-{OBI_THRESHOLD}')
     ax.axhline(0, linewidth=0.8, color='gray', alpha=0.3)
-    
+
     # Formatting
     ax.set_title(f"{symbol} OBI Timeline (±{OBI_THRESHOLD})")
     ax.set_ylim(-1, 1)
@@ -509,13 +507,13 @@ def render_obi_timeline(symbol: str, last: int = 300):
     ax.set_ylabel("OBI")
     ax.grid(alpha=0.3)
     ax.legend()
-    
+
     # Convert to PNG
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
     plt.close(fig)
     buf.seek(0)
-    
+
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
@@ -533,36 +531,36 @@ def render_depth_profile(symbol: str):
     dq = books.get(symbol)
     if not dq:
         raise HTTPException(404, f"No data for {symbol}")
-    
+
     last = dq[-1]
-    
+
     active_depth = OBI_DEPTH if CRYPTO_MODE_ENABLED else OBI_WINDOW_LEVELS
 
     fig = plt.figure(figsize=(6, 4))
     ax = fig.add_subplot(111)
-    
+
     # Bar chart: bids vs asks
     categories = ['Bids', 'Asks']
     values = [last.bid_sum, last.ask_sum]
     colors = ['green', 'red']
-    
+
     ax.bar(categories, values, color=colors, alpha=0.7)
-    
+
     # Formatting
     ax.set_title(f"{symbol} Depth Profile (top {active_depth} levels)")
     ax.set_ylabel("Volume")
     ax.grid(axis='y', alpha=0.3)
-    
+
     # Add values on bars
     for i, (cat, val) in enumerate(zip(categories, values)):
         ax.text(i, val, f'{val:.1f}', ha='center', va='bottom', fontsize=10)
-    
+
     # Convert to PNG
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
     plt.close(fig)
     buf.seek(0)
-    
+
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
@@ -590,14 +588,14 @@ if __name__ == "__main__":
     print(f"   Crypto mode: {'enabled' if CRYPTO_MODE_ENABLED else 'disabled'}")
     print()
     print("📊 Endpoints:")
-    print(f"   POST /book - Receive book snapshots")
-    print(f"   GET /features/obi - OBI history")
-    print(f"   GET /metrics/obi - Latest metrics")
-    print(f"   GET /events/pull - OBI events")
-    print(f"   GET /render/obi.png - OBI timeline PNG")
-    print(f"   GET /render/depth.png - Depth profile PNG")
+    print("   POST /book - Receive book snapshots")
+    print("   GET /features/obi - OBI history")
+    print("   GET /metrics/obi - Latest metrics")
+    print("   GET /events/pull - OBI events")
+    print("   GET /render/obi.png - OBI timeline PNG")
+    print("   GET /render/depth.png - Depth profile PNG")
     print()
-    
+
     uvicorn.run(
         "services.book_analytics_service:app",
         host="127.0.0.1",

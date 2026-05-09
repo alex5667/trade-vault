@@ -1,19 +1,19 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
-import json
 import os
 import time
-from dataclasses import dataclass, asdict
-from typing import Any, Dict
+from dataclasses import asdict, dataclass
+from typing import Any
+
+from utils.time_utils import get_ny_time_millis
 
 try:
     import redis.asyncio as redis
 except Exception:  # pragma: no cover
     redis = None  # type: ignore
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
-
+import contextlib
 
 STREAM = os.getenv("ML_RECOMMENDATION_FEEDBACK_STREAM", "stream:ml:recommendation_feedback")
 GROUP = os.getenv("ML_RECOMMENDATION_FEEDBACK_GROUP", "cg:ml_recommendation_feedback_v1")
@@ -40,11 +40,11 @@ class RecommendationFeedback:
     policy_version: str
     notes: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def normalize_feedback(fields: Dict[str, Any]) -> RecommendationFeedback:
+def normalize_feedback(fields: dict[str, Any]) -> RecommendationFeedback:
     def _s(v: Any) -> str:
         return "" if v is None else str(v)
     return RecommendationFeedback(
@@ -62,7 +62,7 @@ def normalize_feedback(fields: Dict[str, Any]) -> RecommendationFeedback:
     )
 
 
-def update_summary(summary: Dict[str, int], feedback: RecommendationFeedback) -> Dict[str, int]:
+def update_summary(summary: dict[str, int], feedback: RecommendationFeedback) -> dict[str, int]:
     verdict = feedback.verdict
     summary = dict(summary)
     summary[verdict] = int(summary.get(verdict, 0)) + 1
@@ -102,10 +102,8 @@ async def main() -> None:
         raise RuntimeError("redis package is required")
     start_http_server(int(os.getenv("ML_RECOMMENDATION_FEEDBACK_PORT", "9864")))
     r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
-    try:
+    with contextlib.suppress(Exception):
         await r.xgroup_create(STREAM, GROUP, id="0", mkstream=True)
-    except Exception:
-        pass
     UP.set(1.0)
     while True:
         t0 = time.perf_counter()

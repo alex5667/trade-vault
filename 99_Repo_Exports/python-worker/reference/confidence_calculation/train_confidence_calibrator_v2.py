@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -19,12 +20,13 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
 import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.isotonic import IsotonicRegression
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 
 # Check if we can import session_utc
 try:
@@ -44,7 +46,7 @@ logger = logging.getLogger("conf_calib_v2")
 def now_ms() -> int:
     return get_ny_time_millis()
 
-def _get(d: Dict[str, Any], *keys: str) -> Any:
+def _get(d: dict[str, Any], *keys: str) -> Any:
     for k in keys:
         if k in d: return d[k]
     # search indicators if dict
@@ -54,31 +56,31 @@ def _get(d: Dict[str, Any], *keys: str) -> Any:
             if k in ind: return ind[k]
     return None
 
-def _bucket_key(row: Dict[str, Any]) -> str:
+def _bucket_key(row: dict[str, Any]) -> str:
     sym = str(_get(row, "symbol", "sym") or "global").strip().upper()
     sess = str(_get(row, "session", "sess") or "any").strip().lower()
     reg = str(_get(row, "regime", "market_mode", "liq_regime") or "any").strip().lower()
     return f"{sym}|{sess}|{reg}"
 
 class Calibrator:
-    def fit(self, probs: np.ndarray, labels: np.ndarray) -> Dict[str, Any]:
+    def fit(self, probs: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
         raise NotImplementedError
 
 class IdentityCalibrator(Calibrator):
-    def fit(self, probs: np.ndarray, labels: np.ndarray) -> Dict[str, Any]:
+    def fit(self, probs: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
         return {"method": "identity"}
 
 class PlattCalibrator(Calibrator):
-    def fit(self, probs: np.ndarray, labels: np.ndarray) -> Dict[str, Any]:
+    def fit(self, probs: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
         # Platt/Sigmoid scaling: LogReg on log-odds
         # To avoid log(0), clip probs
         eps = 1e-6
         p_clipped = np.clip(probs, eps, 1 - eps)
         log_odds = np.log(p_clipped / (1 - p_clipped)).reshape(-1, 1)
-        
+
         lr = LogisticRegression(C=1e5, solver='lbfgs')
         lr.fit(log_odds, labels)
-        
+
         return {
             "method": "platt",
             "slope": float(lr.coef_[0][0]),
@@ -86,12 +88,12 @@ class PlattCalibrator(Calibrator):
         }
 
 class IsotonicCalibrator(Calibrator):
-    def fit(self, probs: np.ndarray, labels: np.ndarray) -> Dict[str, Any]:
+    def fit(self, probs: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
         iso = IsotonicRegression(out_of_bounds="clip", y_min=0, y_max=1)
-        # Isotonic expects sorted X usually, but fit handles it? 
+        # Isotonic expects sorted X usually, but fit handles it?
         # Actually sklearn handles it.
         iso.fit(probs, labels)
-        
+
         # Serialize boundaries and values
         return {
             "method": "isotonic",
@@ -102,7 +104,7 @@ class IsotonicCalibrator(Calibrator):
         }
 
 class BetaCalibratorResult(Calibrator):
-     def fit(self, probs: np.ndarray, labels: np.ndarray) -> Dict[str, Any]:
+     def fit(self, probs: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
         # Placeholder: Beta calibration often reduces to Platt-like on log-log scales.
         # We will use Platt as fallback for robustness in this draft.
         logger.warning("Beta calibration requested but simplified to Platt for stability.")
@@ -118,9 +120,9 @@ FACTORIES = {
     "beta": BetaCalibratorResult,
 }
 
-def load_data_jsonl(path: str) -> List[Dict[str, Any]]:
+def load_data_jsonl(path: str) -> list[dict[str, Any]]:
     data = []
-    with open(path, "r") as f:
+    with open(path) as f:
         for line in f:
             if not line.strip(): continue
             try:
@@ -129,7 +131,7 @@ def load_data_jsonl(path: str) -> List[Dict[str, Any]]:
                 pass
     return data
 
-def load_data_db(dsn: str, since_days: int) -> List[Dict[str, Any]]:
+def load_data_db(dsn: str, since_days: int) -> list[dict[str, Any]]:
     # Connect and fetch
     logger.info(f"Connecting to DB dsn=... len={len(dsn)}...")
     conn = psycopg2.connect(dsn)
@@ -153,22 +155,22 @@ def load_data_db(dsn: str, since_days: int) -> List[Dict[str, Any]]:
         cur.execute(sql, (since_days,))
         rows = cur.fetchall()
         logger.info(f"Fetched {len(rows)} rows from DB")
-        
+
         for r in rows:
             # Parse label
             label = None
             out = str(r["outcome"] or "")
             rr = float(r["realized_R"]) if r["realized_R"] is not None else None
-            
+
             if out == "target_hit": label = 1
             elif out == "stop_hit": label = 0
             elif out in ("manual_exit", "expired_no_target", "breakeven"):
                 if rr is not None: label = 1 if rr > 0 else 0
                 else: label = 0
-            
+
             if label is None:
                 continue
-                
+
             # Parse extra for regime
             regime = "any"
             extra = r.get("extra")
@@ -180,11 +182,11 @@ def load_data_db(dsn: str, since_days: int) -> List[Dict[str, Any]]:
                     regime = str(ind.get("market_mode") or ind.get("liq_regime") or "any")
                 elif "market_mode" in extra:
                     regime = str(extra["market_mode"])
-            
+
             # Session
             ts_ms = int(r["ts_ms"])
             sess = session_utc(ts_ms)
-            
+
             data.append({
                 "y": label,
                 "confidence": float(r["confidence"]),
@@ -192,16 +194,16 @@ def load_data_db(dsn: str, since_days: int) -> List[Dict[str, Any]]:
                 "session": sess,
                 "regime": regime
             })
-            
+
     finally:
         conn.close()
-    
+
     return data
 
 def run_once(args):
     start_ts = now_ms()
     logger.info(f"Starting run (method={args.method})...")
-    
+
     if args.dsn:
         rows = load_data_db(args.dsn, args.days)
     elif args.data_jsonl:
@@ -211,17 +213,17 @@ def run_once(args):
         return
 
     logger.info(f"Processing {len(rows)} labeled samples.")
-    
+
     # Group by bucket
-    buckets: Dict[str, List[Tuple[float, int]]] = {}
-    
+    buckets: dict[str, list[tuple[float, int]]] = {}
+
     for r in rows:
         y = _get(r, "y", "label", "success")
         p = _get(r, "confidence", "conf", "score")
-        
+
         if y is None or p is None:
             continue
-            
+
         try:
             val_y = int(y),
             val_p = float(p),
@@ -229,11 +231,11 @@ def run_once(args):
             if val_y not in (0, 1): continue
         except Exception:
             continue
-            
+
         bk = _bucket_key(r),
         if bk not in buckets: buckets[bk] = [],
         buckets[bk].append((val_p, val_y)),
-        
+
         # Global
         if "GLOBAL" not in buckets: buckets["GLOBAL"] = [],
         buckets["GLOBAL"].append((val_p, val_y)),
@@ -248,7 +250,7 @@ def run_once(args):
         },
         "calibrations": {}
     }
-    
+
     cal_cls = FACTORIES[args.method]
     cal_inst = cal_cls()
 
@@ -256,13 +258,13 @@ def run_once(args):
     for bk, items in buckets.items():
         if len(items) < args.min_bucket_n:
             continue
-            
+
         probs = np.array([x[0] for x in items])
         labels = np.array([x[1] for x in items])
-        
+
         if len(np.unique(labels)) < 2:
             continue
-            
+
         try:
             res = cal_inst.fit(probs, labels)
             res["n"] = len(items)
@@ -275,13 +277,13 @@ def run_once(args):
 
     # Write output
     os.makedirs(os.path.dirname(args.out_json) or ".", exist_ok=True)
-    
+
     # Atomic write
     tmp_path = args.out_json + ".tmp"
     with open(tmp_path, "w") as f:
         json.dump(out_map, f, indent=2)
     os.replace(tmp_path, args.out_json)
-        
+
     logger.info(f"Wrote {count_ok} calibrations to {args.out_json} (took {(now_ms() - start_ts)/1000.0:.3f}s)")
 
 def main():
@@ -294,13 +296,13 @@ def main():
     ap.add_argument("--days", type=int, default=30, help="Days of history to fetch from DB")
     ap.add_argument("--loop", action="store_true", help="Run in a loop")
     ap.add_argument("--interval", type=int, default=3600, help="Loop interval seconds")
-    
+
     args = ap.parse_args()
 
     # ENV fallback
     if not args.dsn and os.getenv("PERF_PG_DSN"):
         args.dsn = os.getenv("PERF_PG_DSN")
-        
+
     if args.loop:
         logger.info(f"Starting loop mode (interval={args.interval}s)...")
         while True:

@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """
 Пример использования L3-Lite метрик в CryptoOrderFlowHandler.
@@ -6,8 +7,7 @@ from utils.time_utils import get_ny_time_millis
 Показывает, как интегрировать L3-Lite агрегатор в обработчик сигналов.
 """
 
-import time
-from regime import L3LiteMetricsAggregator, L3LiteEvent, BookSnapshot, CryptoConfScorer, CryptoConfScorerConfig
+from regime import BookSnapshot, CryptoConfScorer, CryptoConfScorerConfig, L3LiteEvent, L3LiteMetricsAggregator
 
 
 def simulate_l3_events():

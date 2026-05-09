@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 Tests for unknown-side policy.
 
@@ -11,14 +12,12 @@ P1 contract under test:
 """
 
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from services.orderflow.side_policy import (
+    deterministic_sample,
     is_unknown_side_tick,
     normalize_unknown_side_policy,
-    deterministic_sample,
 )
-
 
 # ─── is_unknown_side_tick ────────────────────────────────────────────────────
 

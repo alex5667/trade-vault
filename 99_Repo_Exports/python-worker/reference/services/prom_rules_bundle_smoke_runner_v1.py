@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from utils.time_utils import get_ny_time_millis
 
 """Prometheus rules bundle smoke runner (standalone timer) — tick_flow_full mirror.
@@ -33,8 +34,7 @@ Block keys written
 
 import json
 import os
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 try:
     import redis  # type: ignore
@@ -48,7 +48,7 @@ def _now_ms() -> int:
     return get_ny_time_millis()
 
 
-def _connect_redis() -> Optional["redis.Redis"]:
+def _connect_redis() -> redis.Redis | None:
     if redis is None:
         return None
     url = (os.getenv("REDIS_URL") or os.getenv("CRYPTO_NOTIFY_REDIS_URL") or "redis://redis-worker-1:6379/0").strip()
@@ -63,7 +63,7 @@ def _block_keys(prefix: str, reason: str) -> tuple[str, str, str]:
     return k, f"{k}:ts_ms", f"{k}:meta"
 
 
-def _set_block(*, reason: str, meta: Dict[str, Any], hold_s: int) -> None:
+def _set_block(*, reason: str, meta: dict[str, Any], hold_s: int) -> None:
     r = _connect_redis()
     if r is None:
         return

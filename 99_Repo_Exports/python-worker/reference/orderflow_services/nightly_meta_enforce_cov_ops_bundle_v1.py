@@ -1,4 +1,5 @@
 from utils.time_utils import get_ny_time_millis
+
 #!/usr/bin/env python3
 """nightly_meta_enforce_cov_ops_bundle_v1.py
 
@@ -23,13 +24,11 @@ Env:
 """
 
 import argparse
-import json
 import logging
 import os
 import sys
 import time
 import uuid
-from typing import List
 
 # Configure logging
 logging.basicConfig(
@@ -71,19 +70,19 @@ def get_wrapper_script(name: str) -> str:
     return path
 
 
-def run_command(script_name: str, args: List[str], check: bool = True) -> int:
+def run_command(script_name: str, args: list[str], check: bool = True) -> int:
     """Run a python script in another process using the same interpreter."""
     import subprocess
-    
+
     script_path = get_wrapper_script(script_name)
     if not os.path.exists(script_path):
         logger.error(f"Script not found: {script_path}")
         return 127
-        
+
     full_cmd = [sys.executable, script_path] + args
     cmd_str = " ".join(full_cmd)
     logger.info(f"RUNNING: {cmd_str}")
-    
+
     try:
         # We want to stream output to stdout/stderr
         result = subprocess.run(full_cmd, check=check)
@@ -111,7 +110,7 @@ def main() -> None:
     parser.add_argument("--emit-metrics", action="store_true", help="Emit metrics to Redis")
     parser.add_argument("--notify", action="store_true", help="Send notifications (Telegram/Slack)")
     parser.add_argument("--print-json", action="store_true", help="Print result as JSON")
-    
+
     # Compatibility arguments (may be passed by caller but not used directly or passed through)
     parser.add_argument("--dry-run", action="store_true", help="Explicit dry-run mode")
 
@@ -172,15 +171,15 @@ def main() -> None:
 
     # 0. Preflight Validation
     logger.info("Step 0: Preflight Validation (meta_cov_ops_validate_v1)")
-    
+
     t0 = time.time()
     rc_validate = run_command("meta_cov_ops_validate_v1", [], check=False)
     dt_ms = int((time.time() - t0) * 1000)
-    
+
     metrics["meta_cov_ops_last_preflight_rc"] = rc_validate
     metrics["meta_cov_ops_last_step_rc_validate"] = rc_validate
     log_event("bundle_step", step="validate", rc=rc_validate, dur_ms=dt_ms)
-    
+
     effective_apply = should_apply
 
     if rc_validate == 0:
@@ -198,34 +197,34 @@ def main() -> None:
         if meta_cov_ops_eventlog_v1 and r:
              meta_cov_ops_eventlog_v1.write_cfg2_snapshot(r, dyn_cfg_key, metrics)
         sys.exit(1)
-        
+
     metrics["meta_cov_ops_last_apply_effective"] = 1 if effective_apply else 0
 
     # 1. Rollout Controller (supports --apply 0/1)
     logger.info("Step 1: Rollout Controller")
     val_apply = "1" if effective_apply else "0"
-    
+
     t0 = time.time()
     rc_rollout = run_command("meta_cov_rollout_controller_v1", ["--apply", val_apply], check=False)
     dt_ms = int((time.time() - t0) * 1000)
-    
+
     metrics["meta_cov_ops_last_step_rc_rollout"] = rc_rollout
     log_event("bundle_step", step="rollout", rc=rc_rollout, dur_ms=dt_ms)
 
     if rc_rollout != 0:
         logger.error("Rollout controller failed or reported issues. Proceeding with caution...")
-    
+
     # 2. Guard (P43) - Decide if we should block outcomes
     logger.info("Step 2: Meta Cov Outcome Guard")
-    
+
     t0 = time.time()
     # P43: Pass --apply same as effective apply
     rc_guard = run_command("meta_cov_outcome_guard_v1", ["--apply", val_apply], check=False)
     dt_ms = int((time.time() - t0) * 1000)
-    
+
     metrics["meta_cov_ops_last_step_rc_guard"] = rc_guard
     log_event("bundle_step", step="guard", rc=rc_guard, dur_ms=dt_ms)
-    
+
     if rc_guard == 2:
         logger.warning("Guard returned 2 (BLOCK). It may have set blocking keys if apply=1.")
         metrics["meta_cov_ops_last_decision_code"] = "guard_block"
@@ -234,19 +233,19 @@ def main() -> None:
         metrics["meta_cov_ops_last_decision_code"] = "guard_error"
     else:
         metrics["meta_cov_ops_last_decision_code"] = "ok"
-    
+
     metrics["meta_cov_ops_last_decision_ts_ms"] = get_ny_time_millis()
 
     # 3. Outcome Auto Apply (supports --apply 0/1)
     logger.info("Step 3: Outcome Auto Apply")
-    
+
     t0 = time.time()
     rc_outcome = run_command("meta_cov_outcome_auto_apply_v1", ["--apply", val_apply], check=False)
     dt_ms = int((time.time() - t0) * 1000)
-    
+
     metrics["meta_cov_ops_last_step_rc_outcome"] = rc_outcome
     log_event("bundle_step", step="outcome", rc=rc_outcome, dur_ms=dt_ms)
-        
+
     # 4. Quarantine Monitor (supports --emit-metrics, --notify)
     logger.info("Step 4: Quarantine Monitor")
     monitor_args = []
@@ -254,10 +253,10 @@ def main() -> None:
         monitor_args.append("--emit-metrics")
     if args.notify:
         monitor_args.append("--notify")
-    
+
     if not effective_apply:
         monitor_args.append("--dry-run")
-    
+
     t0 = time.time()
     rc_monitor = run_command("meta_cov_quarantine_monitor_v1", monitor_args, check=False)
     dt_ms = int((time.time() - t0) * 1000)
@@ -266,18 +265,18 @@ def main() -> None:
     log_event("bundle_step", step="monitor", rc=rc_monitor, dur_ms=dt_ms)
 
     # Determine overall OK status
-    
+
     final_ok = 1
     if rc_rollout != 0 or rc_outcome != 0 or rc_monitor != 0:
         final_ok = 0
     if rc_guard not in (0, 2): # 2 is valid "Decided to block", not an error per se for "ops success"
         final_ok = 0
-    
+
     metrics["meta_cov_ops_last_ok"] = final_ok
     metrics["meta_cov_ops_last_blocked_reasons"] = blocked_reasons
 
     logger.info(f"Bundle execution complete. OK={final_ok}")
-    
+
     log_event("bundle_end", ok=final_ok, exit_code=0 if final_ok else 1, blocked_reasons=blocked_reasons)
 
     if meta_cov_ops_eventlog_v1 and r:
@@ -290,7 +289,7 @@ def main() -> None:
         p73.run_once()
     except Exception as e:
         logger.warning(f"P73 policy effectiveness telegram report failed (non-critical): {e}")
-         
+
     if final_ok == 0:
         sys.exit(1)
 

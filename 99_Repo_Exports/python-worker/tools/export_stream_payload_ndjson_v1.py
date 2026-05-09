@@ -1,13 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import argparse
 import json
 import os
-import time
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any
 
 import redis
+
+from utils.time_utils import get_ny_time_millis
 
 
 def _safe_json(obj: Any) -> str:
@@ -23,7 +23,7 @@ def _i(x: Any, d: int = 0) -> int:
         return d
 
 
-def _get_payload(fields: Dict[str, Any], payload_field: str) -> Dict[str, Any]:
+def _get_payload(fields: dict[str, Any], payload_field: str) -> dict[str, Any]:
     """Extract and parse payload from stream fields."""
     raw = fields.get(payload_field)
     if raw is None:
@@ -49,7 +49,7 @@ def export_stream_since(
     out_path: str,
     max_scan: int = 800_000,
     ts_field_guess: str = "ts_ms",
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Reads stream backwards and writes NDJSON in chronological order.
 
     Filters by event timestamp:
@@ -57,7 +57,7 @@ def export_stream_since(
       - else fallback to stream id ms
     """
     scanned = 0
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     last_id = "+"
 
     while scanned < max_scan:

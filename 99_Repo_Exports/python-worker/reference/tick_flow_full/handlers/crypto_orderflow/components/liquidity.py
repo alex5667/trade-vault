@@ -1,21 +1,24 @@
 from __future__ import annotations
 
-import math
-import json
 import hashlib
-from typing import Any, Optional, Tuple, Dict
+import json
+import math
+from typing import Any
 
-from common.dq_flags import append_dq_flag
 from common.ctx_cache import cached_on_ctx
-from common.math_safe import finite_or
+from common.dq_flags import append_dq_flag
 from handlers.base_orderflow_handler import ensure_levels
-from signals.level_enricher import attach_trade_levels_to_ctx
 from handlers.crypto_orderflow.types.crypto_orderflow_handler_types import (
-    L2Level, SimpleL2Snapshot, LiquidityContext, ClusterVol
+    ClusterVol,
+    L2Level,
+    LiquidityContext,
+    SimpleL2Snapshot,
 )
+from signals.level_enricher import attach_trade_levels_to_ctx
+
 
 # Helper alias for compatibility if needed, or just use append_dq_flag directly
-def _mark_dq(ctx: Any, flag: str, logger: Any = None, key: str = "", exc: Optional[Exception] = None) -> None:
+def _mark_dq(ctx: Any, flag: str, logger: Any = None, key: str = "", exc: Exception | None = None) -> None:
     append_dq_flag(ctx, flag)
     if logger and exc:
         try:
@@ -27,7 +30,7 @@ class CryptoLiquidity:
     """
     Manages liquidity analysis (walls, depth) and trade level enrichment.
     """
-    
+
     @staticmethod
     def _cfg_hash(cfg: dict | None) -> str:
         """Stable cfg hash for cache keys."""
@@ -44,7 +47,7 @@ class CryptoLiquidity:
         max_levels: int = 10,
         max_dist_bps: float = 15.0,
         size_z_thr: float = 1.5,
-    ) -> Tuple[Optional[str], Optional[L2Level], Optional[float]]:
+    ) -> tuple[str | None, L2Level | None, float | None]:
         price = ctx.last_price
         if price is None:
             return None, None, None
@@ -104,7 +107,7 @@ class CryptoLiquidity:
     def calculate_book_metrics(
         self,
         l2: SimpleL2Snapshot,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Calculate common book metrics: spread, depth_5, best prices/qtys.
         """
@@ -134,10 +137,10 @@ class CryptoLiquidity:
         self,
         ctx: Any,
         l2: SimpleL2Snapshot,
-        cluster: Optional[ClusterVol] = None,
+        cluster: ClusterVol | None = None,
     ) -> LiquidityContext:
         lc = LiquidityContext()
-        
+
         # 1) Calculate basic metrics
         bm = self.calculate_book_metrics(l2)
         lc.depth_5_vol = bm["depth_5_bid_vol"] + bm["depth_5_ask_vol"] # Or side-specific? Handled below.
@@ -155,14 +158,14 @@ class CryptoLiquidity:
         # 3) Override depth_5 with side-specific if needed by existing logic
         # (Original code used: sum(x.size for x in (l2.bids[:5] if side == "bid" else l2.asks[:5])))
         lc.depth_5_vol = bm["depth_5_bid_vol"] if side == "bid" else bm["depth_5_ask_vol"]
-        
+
         return lc
 
     def ensure_levels_once(self, ctx: Any, *, side: Any, logger: Any = None) -> None:
         """
         ensure_levels(...) cheap, but called many times.
         """
-        key = (str(side),)
+        key = (side,)
         def _compute():
             try:
                 ensure_levels(ctx, side=side)
@@ -228,8 +231,8 @@ class CryptoLiquidity:
                 rg_key = str(regime)
         except Exception:
             rg_key = None
-        key = (str(symbol), str(side_s), str(kind), CryptoLiquidity._cfg_hash(cfgd), rg_key, bool(empirical is not None))
-        
+        key = (symbol, str(side_s), str(kind), CryptoLiquidity._cfg_hash(cfgd), rg_key, bool(empirical is not None))
+
         try:
             prev = getattr(ctx, "_trade_levels_key", None)
             if (not overwrite) and prev == key:
@@ -251,21 +254,21 @@ class CryptoLiquidity:
             res = attach_trade_levels_to_ctx(
                 ctx=ctx,
                 side=side_s,
-                symbol=str(symbol),
+                symbol=symbol,
                 cfg=cfgd,
                 empirical=empirical,
                 regime=regime,
                 overwrite=overwrite,
             )
-            
+
             # Sizing (RR-mode fixed risk)
             try:
                 from services.position_sizing import apply_position_sizing_to_ctx
-                apply_position_sizing_to_ctx(ctx, cfg=cfgd, symbol=str(symbol), logger=logger)
+                apply_position_sizing_to_ctx(ctx, cfg=cfgd, symbol=symbol, logger=logger)
             except Exception:
                 pass
 
             # Update cache key
-            setattr(ctx, "_trade_levels_key", key)
+            ctx._trade_levels_key = key
         except Exception as e:
             _mark_dq(ctx, "trade_levels_attach_error", logger=logger, key="trade_levels_attach_error", exc=e)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from news_pipeline.feature_store_worker import NewsFeatureStoreWorker
 from tests.fake_redis import FakeRedis
 
+
 def test_feature_store_writes_schema_v2():
     r = FakeRedis()
     # Create worker instance manually without calling __init__ to avoid Redis stream setup

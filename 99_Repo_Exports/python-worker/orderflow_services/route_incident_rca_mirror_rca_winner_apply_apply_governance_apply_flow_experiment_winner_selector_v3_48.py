@@ -1,12 +1,13 @@
 from __future__ import annotations
-from utils.time_utils import get_ny_time_millis
 
 import asyncio
 import json
 import os
-from core.redis_keys import RedisKeyPrefixes as RK
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
+from core.redis_keys import RedisKeyPrefixes as RK
+from utils.time_utils import get_ny_time_millis
 
 try:  # pragma: no cover
     import redis.asyncio as redis
@@ -108,15 +109,15 @@ DEFAULT_INCUMBENT_ARM = os.getenv(
 ARMS = ("vertex_primary", "vertex_compact_candidate", "local_candidate")
 
 
-def _counter(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _counter(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Counter(name, doc, labels) if Counter else None
 
 
-def _gauge(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _gauge(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Gauge(name, doc, labels) if Gauge else None
 
 
-def _hist(name: str, doc: str, labels: Tuple[str, ...] = ()) -> Any:
+def _hist(name: str, doc: str, labels: tuple[str, ...] = ()) -> Any:
     return Histogram(name, doc, labels) if Histogram else None
 
 
@@ -176,8 +177,8 @@ def stable_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def as_dict(fields: dict[Any, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in fields.items():
         kk = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
         if isinstance(v, (bytes, bytearray)):
@@ -190,7 +191,7 @@ def as_dict(fields: Dict[Any, Any]) -> Dict[str, Any]:
     return out
 
 
-def policy_from_hash(raw: Dict[str, Any]) -> Dict[str, Any]:
+def policy_from_hash(raw: dict[str, Any]) -> dict[str, Any]:
     incumbent = str(raw.get("incumbent_arm") or DEFAULT_INCUMBENT_ARM)
     if incumbent not in ARMS:
         incumbent = DEFAULT_INCUMBENT_ARM
@@ -214,12 +215,12 @@ async def ensure_group(client: Any, stream_key: str, group: str) -> None:
         return
 
 
-async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, Any]]:
+async def xr_recent(client: Any, stream_key: str, count: int) -> list[dict[str, Any]]:
     try:
         rows = await client.xrevrange(stream_key, count=count)
     except Exception:
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for entry_id, payload in rows:
         row = as_dict(payload)
         row["_stream_id"] = entry_id.decode() if isinstance(entry_id, (bytes, bytearray)) else str(entry_id)
@@ -227,32 +228,32 @@ async def xr_recent(client: Any, stream_key: str, count: int) -> List[Dict[str, 
     return out
 
 
-def _recent(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _recent(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     cutoff = now_ms() - WINDOW_MIN * 60 * 1000
     return [r for r in rows if parse_int(r.get("ts_ms"), 0) >= cutoff]
 
 
-def build_scorecards(exposures: List[Dict[str, Any]], results: List[Dict[str, Any]], feedback: List[Dict[str, Any]], policy: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+def build_scorecards(exposures: list[dict[str, Any]], results: list[dict[str, Any]], feedback: list[dict[str, Any]], policy: dict[str, Any]) -> dict[str, dict[str, Any]]:
     exp_recent = _recent(exposures)
     res_recent = _recent(results)
     fb_recent = _recent(feedback)
 
-    exp_map: Dict[str, str] = {}
+    exp_map: dict[str, str] = {}
     for row in exp_recent:
-        rid = str(row.get("request_id") or "")
-        arm = str(row.get("arm") or "")
+        rid = (row.get("request_id") or "")
+        arm = (row.get("arm") or "")
         if rid and arm in ARMS:
             exp_map[rid] = arm
 
-    res_map: Dict[str, Dict[str, Any]] = {}
+    res_map: dict[str, dict[str, Any]] = {}
     for row in res_recent:
-        rid = str(row.get("request_id") or "")
+        rid = (row.get("request_id") or "")
         if rid:
             res_map[rid] = row
 
-    arm_feedback: Dict[str, List[Dict[str, Any]]] = {arm: [] for arm in ARMS}
-    arm_exposures_n: Dict[str, int] = {arm: 0 for arm in ARMS}
-    arm_results_n: Dict[str, int] = {arm: 0 for arm in ARMS}
+    arm_feedback: dict[str, list[dict[str, Any]]] = {arm: [] for arm in ARMS}
+    arm_exposures_n: dict[str, int] = dict.fromkeys(ARMS, 0)
+    arm_results_n: dict[str, int] = dict.fromkeys(ARMS, 0)
 
     for rid, arm in exp_map.items():
         arm_exposures_n[arm] += 1
@@ -260,12 +261,12 @@ def build_scorecards(exposures: List[Dict[str, Any]], results: List[Dict[str, An
             arm_results_n[arm] += 1
 
     for row in fb_recent:
-        rid = str(row.get("request_id") or "")
+        rid = (row.get("request_id") or "")
         arm = exp_map.get(rid, "")
         if arm in ARMS:
             arm_feedback[arm].append(row)
 
-    scorecards: Dict[str, Dict[str, Any]] = {}
+    scorecards: dict[str, dict[str, Any]] = {}
     for arm in ARMS:
         frows = arm_feedback[arm]
         exposure_n = arm_exposures_n[arm]
@@ -306,7 +307,7 @@ def build_scorecards(exposures: List[Dict[str, Any]], results: List[Dict[str, An
     return scorecards
 
 
-def select_winner(scorecards: Dict[str, Dict[str, Any]], policy: Dict[str, Any]) -> Dict[str, Any]:
+def select_winner(scorecards: dict[str, dict[str, Any]], policy: dict[str, Any]) -> dict[str, Any]:
     incumbent_arm = policy["incumbent_arm"]
     incumbent = scorecards.get(incumbent_arm, {})
     best_arm = incumbent_arm
@@ -345,7 +346,7 @@ def select_winner(scorecards: Dict[str, Dict[str, Any]], policy: Dict[str, Any])
     return {"decision": "KEEP_VERTEX_PRIMARY", "winner_arm": incumbent_arm, "reason_code": "UNKNOWN_WINNER"}
 
 
-async def persist_if_configured(db_url: str, feedback_row: Dict[str, Any] | None, scorecards: Dict[str, Dict[str, Any]], decision: Dict[str, Any]) -> None:
+async def persist_if_configured(db_url: str, feedback_row: dict[str, Any] | None, scorecards: dict[str, dict[str, Any]], decision: dict[str, Any]) -> None:
     if not db_url or psycopg is None:
         return
     with psycopg.connect(db_url) as conn:  # pragma: no cover
@@ -444,7 +445,7 @@ async def main() -> None:  # pragma: no cover
                         exec_kill = await r.get(RK.EXEC_KILL_SWITCH)
                         if exec_kill and exec_kill.decode().strip() == '1':
                             policy['kill_switch'] = 1
-                    except: pass
+                    except Exception: pass
                     scorecards = build_scorecards(exposures, results, feedback + [feedback_row], policy)
                     decision = select_winner(scorecards, policy)
                     decision_label = decision["decision"]

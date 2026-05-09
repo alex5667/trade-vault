@@ -1,19 +1,15 @@
 from __future__ import annotations
+
 \
 """
 Tests for ML nightly pipeline components.
 """
 
 
-import json
-import tempfile
-from pathlib import Path
-from typing import Any, Dict, List
 
-import pytest
 
 from core.ml_feature_schema import build_features
-from core.ml_metrics_utils import brier_score, ece_score, quantiles, ks_statistic
+from core.ml_metrics_utils import brier_score, ece_score, ks_statistic, quantiles
 
 
 def test_build_features():
@@ -36,7 +32,7 @@ def test_build_features():
         "rule_need": 4,
         "cancel_spike_veto": 0,
     }
-    
+
     feat = build_features(payload)
     assert feat is not None
     assert hasattr(feat, "x")
